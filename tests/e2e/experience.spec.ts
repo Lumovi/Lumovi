@@ -532,9 +532,10 @@ test('the sidebar logo returns to all clusters', async ({ page }) => {
 })
 
 test('the window remembers its size and position', async ({ launch }) => {
-  // Keep the size the app chose, and pick one that fits small CI screens.
+  // Keep the size the app chose, and pick one that fits 1024x768 CI screens
+  // (Windows shrinks new windows to the screen).
   const env = { KUBESTACKS_E2E_WINDOW: undefined }
-  const size = { width: 1040, height: 660 }
+  const size = { width: 1024, height: 660 }
   const first = await launch({ env })
   await first.app.evaluate(({ BrowserWindow }, size) => {
     BrowserWindow.getAllWindows()[0]!.setBounds({ x: 0, y: 60, ...size })

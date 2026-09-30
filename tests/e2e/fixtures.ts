@@ -120,12 +120,19 @@ export async function launchApp(
   }
   if (options.fullLayout ?? true) {
     // Small screens (CI runners have 1024x768) would otherwise show fewer
-    // table columns than the tests expect.
+    // table columns than the tests expect. macOS shrinks the window to the
+    // screen only when it is shown, so fit again whenever the size changes.
     await app.evaluate(({ BrowserWindow }, reference) => {
       const win = BrowserWindow.getAllWindows()[0]!
-      const [width, height] = win.getContentSize()
-      const zoom = Math.min(1, width! / reference.width, height! / reference.height)
-      win.webContents.setZoomFactor(zoom)
+      const fit = () => {
+        const [width, height] = win.getContentSize()
+        win.webContents.setZoomFactor(
+          Math.min(1, width! / reference.width, height! / reference.height),
+        )
+      }
+      fit()
+      win.on('show', fit)
+      win.on('resize', fit)
     }, REFERENCE_SIZE)
   }
   let closed = false
