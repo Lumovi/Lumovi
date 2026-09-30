@@ -6,7 +6,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     ignore:
-      # Types track the Node.js line the app and tooling run on (24 LTS).
+      # Types track the Node.js line the tooling runs on (see .nvmrc).
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
       # electron-vite supports Vite 7; move these together when it supports the next major.

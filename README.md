@@ -94,7 +94,7 @@ cluster, and it keeps the interface focused.
 
 ## Development
 
-You need [Node.js](https://nodejs.org) 24 (see `.nvmrc`; 22.18+ works) and npm.
+You need [Node.js](https://nodejs.org) 26 (see `.nvmrc`; 24 also works) and npm.
 
 ```sh
 npm ci
