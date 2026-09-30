@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
-import { dialog, menuAction, open, toasts, writes } from './action-helpers.ts'
+import { dialog, menuAction, open, toasts, writes, focusDisabled } from './action-helpers.ts'
 import {
   CONTEXTS,
   DEMO,
@@ -147,7 +147,7 @@ test.describe('permissions', () => {
     await open(page, 'Pods', pod)
     const restart = panel(page, 'Pod', pod).getByRole('button', { name: 'Restart' })
     await expect(restart).toBeDisabled()
-    await restart.locator('..').focus()
+    await focusDisabled(restart)
     await expect(page.getByRole('tooltip')).toContainText('Your account can’t delete pods in shop.')
     await panel(page, 'Pod', pod).getByRole('button', { name: 'More actions' }).click()
     await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeDisabled()
@@ -159,10 +159,9 @@ test.describe('permissions', () => {
     await expect(dialog(page)).toHaveCount(0)
 
     await open(page, 'Nodes', DEMO.nodes.worker1)
-    await panel(page, 'Node', DEMO.nodes.worker1)
-      .getByRole('button', { name: 'Cordon' })
-      .locator('..')
-      .focus()
+    await focusDisabled(
+      panel(page, 'Node', DEMO.nodes.worker1).getByRole('button', { name: 'Cordon' }),
+    )
     await expect(page.getByRole('tooltip')).toContainText('Your account can’t change nodes.')
     // …and the API server has the last word on anything the checks allowed.
     await open(page, 'Pods', DEMO.pods.coredns[0]!)
@@ -194,16 +193,15 @@ test('each denied action says what the account can’t do', async ({ page, clust
   await open(page, 'Deployments', 'coredns')
   const coredns = panel(page, 'Deployment', 'coredns')
   await coredns.getByRole('tab', { name: 'YAML' }).click()
-  await coredns.getByRole('button', { name: 'Edit', exact: true }).locator('..').focus()
+  await focusDisabled(coredns.getByRole('button', { name: 'Edit', exact: true }))
   await expect(page.getByRole('tooltip')).toContainText(
     'Your account can’t edit deployments in kube-system.',
   )
 
   await open(page, 'CronJobs', DEMO.cronJobs.nightlyReport)
-  await panel(page, 'CronJob', DEMO.cronJobs.nightlyReport)
-    .getByRole('button', { name: 'Run now' })
-    .locator('..')
-    .focus()
+  await focusDisabled(
+    panel(page, 'CronJob', DEMO.cronJobs.nightlyReport).getByRole('button', { name: 'Run now' }),
+  )
   await expect(page.getByRole('tooltip')).toContainText('Your account can’t create jobs in batch.')
 
   await open(page, 'Pods', DEMO.pods.postgres[0]!)
@@ -239,7 +237,7 @@ test.describe('read-only clusters', () => {
     await expect(page.getByRole('menu')).toContainText('Changes are turned off for this cluster.')
     await page.keyboard.press('Escape')
     await detail.getByRole('tab', { name: 'YAML' }).click()
-    await detail.getByRole('button', { name: 'Edit', exact: true }).locator('..').focus()
+    await focusDisabled(detail.getByRole('button', { name: 'Edit', exact: true }))
     await expect(page.getByRole('tooltip')).toContainText(
       'Changes are turned off for this cluster.',
     )
@@ -392,6 +390,8 @@ test.describe('activity and feedback', () => {
 
     // Undo can fail too.
     await node.getByRole('button', { name: 'Uncordon' }).click()
+    // Only once the uncordon went through.
+    await expect(toasts(page).getByRole('button', { name: 'Undo' })).toBeVisible()
     const clear = clusters.demo.fail(`/api/v1/nodes/${DEMO.nodes.worker1}`, {
       status: 500,
       body: 'boom',
@@ -458,7 +458,7 @@ test.describe('activity and feedback', () => {
 test('contexts other than the demo aren’t affected by its read-only switch', async ({ page }) => {
   await openCluster(page, CONTEXTS.sandbox)
   await goTo(page, 'Namespaces')
-  await row(page, 'Namespaces', 'default').first().getByRole('gridcell').first().click()
+  await row(page, 'Namespaces', 'default').first().getByRole('gridcell').nth(1).click()
   await expect(
     panel(page, 'Namespace', 'default').getByRole('button', { name: 'Read-only' }),
   ).toHaveCount(0)

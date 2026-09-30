@@ -7,6 +7,7 @@ import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { ActionHost } from '../actions/ActionSurfaces'
+import { CreateDialog } from '../actions/CreateDialog'
 import { DetailPanel } from '../details/DetailPanel'
 import { CommandPalette } from './CommandPalette'
 import { Commands } from './Commands'
@@ -63,6 +64,7 @@ export function ClusterLayout() {
       <Commands />
       <ShortcutsDialog />
       <ActionHost />
+      <CreateDialog />
       <UsageSampler />
     </ClusterContext.Provider>
   )

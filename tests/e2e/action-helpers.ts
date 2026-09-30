@@ -1,13 +1,13 @@
 /** Helpers for tests of actions: opening objects, picking actions, reading writes. */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import type { MockCluster } from '../mock-cluster/server.ts'
-import { goTo, panel, row } from './fixtures.ts'
+import { expect, goTo, panel, row } from './fixtures.ts'
 
 /** Opens an object in the detail panel from its list. */
 export async function open(page: Page, label: string, name: string) {
   await goTo(page, label)
   await page.getByPlaceholder(`Filter ${label.toLowerCase()}`).fill(name)
-  await row(page, label, name).first().getByRole('gridcell').first().click()
+  await row(page, label, name).first().getByRole('gridcell').nth(1).click()
 }
 
 /** Picks an action from the open panel's "More actions" menu. */
@@ -27,4 +27,11 @@ export function writes(cluster: MockCluster, method: string, path: string | RegE
         r.method === method && (typeof path === 'string' ? r.path === path : path.test(r.path)),
     )
     .map((r) => ({ body: r.body, query: r.query, type: r.headers['content-type'] }))
+}
+
+/** Focuses a disabled button's wrapper, which carries the tooltip saying why. */
+export async function focusDisabled(button: Locator) {
+  // Actions stay enabled until the permission check answers; only then are they wrapped.
+  await expect(button).toBeDisabled()
+  await button.locator('..').focus()
 }

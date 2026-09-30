@@ -96,6 +96,13 @@ export async function launchApp(
     args: [
       ...(executablePath ? [] : ['.']),
       `--user-data-dir=${userDataDir}`,
+      // Parallel test windows cover each other. Like Playwright does for browsers,
+      // keep covered windows rendering at full speed: otherwise animation frames
+      // stop (dialogs never finish closing, clicks wait for stability) and timers slow.
+      '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-background-timer-throttling',
+      '--disable-features=CalculateNativeWinOcclusion',
       ...(options.args ?? []),
     ],
     env,
@@ -103,6 +110,9 @@ export async function launchApp(
     colorScheme: null,
   })
   const page = await app.firstWindow()
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]!.webContents.setBackgroundThrottling(false)
+  })
   // Transitions are shortened under reduced motion, which keeps the tests quick and stable.
   await page.emulateMedia({ reducedMotion: 'reduce' })
   // Reproduce a smaller screen (e.g. KUBESTACKS_E2E_WINDOW=1024x768, like CI runners).

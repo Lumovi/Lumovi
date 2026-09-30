@@ -116,7 +116,13 @@ export function CodeEditor({
       }),
     })
     view.current.focus()
-    return () => view.current!.destroy()
+    // Measured while a dialog was still animating in, line heights come out scaled.
+    const remeasure = () => view.current!.requestMeasure()
+    document.addEventListener('animationend', remeasure)
+    return () => {
+      document.removeEventListener('animationend', remeasure)
+      view.current!.destroy()
+    }
     // The document is only set when the editor is created; see the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

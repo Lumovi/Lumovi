@@ -10,7 +10,7 @@ async function findObject(page: Page, label: string, name: string) {
 
 async function openRow(page: Page, label: string, name: string) {
   // Click the first cell: the middle of an event row holds a link to the involved object.
-  await row(page, label, name).first().getByRole('gridcell').first().click()
+  await row(page, label, name).first().getByRole('gridcell').nth(1).click()
 }
 
 async function openObject(page: Page, label: string, name: string) {
