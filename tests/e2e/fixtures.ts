@@ -30,7 +30,15 @@ export interface LaunchOptions {
   /** Theme to seed into settings.json before launch. */
   theme?: 'system' | 'light' | 'dark'
   args?: string[]
+  /**
+   * Lay the app out at the default window size even on a smaller screen, by
+   * zooming out (true unless a test is about narrow windows).
+   */
+  fullLayout?: boolean
 }
+
+/** The app's default content size; tests are written against this layout. */
+const REFERENCE_SIZE = { width: 1440, height: 920 }
 
 export interface KubeStacks {
   app: ElectronApplication
@@ -97,14 +105,28 @@ export async function launchApp(
   const page = await app.firstWindow()
   // Transitions are shortened under reduced motion, which keeps the tests quick and stable.
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  // Reproduce a smaller screen (e.g. KUBESTACKS_E2E_WINDOW=1024x768, like Windows CI runners).
-  const size = (options.env?.KUBESTACKS_E2E_WINDOW ?? process.env.KUBESTACKS_E2E_WINDOW)
+  // Reproduce a smaller screen (e.g. KUBESTACKS_E2E_WINDOW=1024x768, like CI runners).
+  const size = (
+    'KUBESTACKS_E2E_WINDOW' in (options.env ?? {})
+      ? options.env!.KUBESTACKS_E2E_WINDOW
+      : process.env.KUBESTACKS_E2E_WINDOW
+  )
     ?.split('x')
     .map(Number)
   if (size) {
     await app.evaluate(({ BrowserWindow }, [width, height]) => {
       BrowserWindow.getAllWindows()[0]!.setSize(width!, height!)
     }, size)
+  }
+  if (options.fullLayout ?? true) {
+    // Small screens (CI runners have 1024x768) would otherwise show fewer
+    // table columns than the tests expect.
+    await app.evaluate(({ BrowserWindow }, reference) => {
+      const win = BrowserWindow.getAllWindows()[0]!
+      const [width, height] = win.getContentSize()
+      const zoom = Math.min(1, width! / reference.width, height! / reference.height)
+      win.webContents.setZoomFactor(zoom)
+    }, REFERENCE_SIZE)
   }
   let closed = false
   return {
