@@ -1,22 +1,44 @@
-import { app, ipcMain, nativeTheme, shell, type IpcMainInvokeEvent } from 'electron'
+import {
+  app,
+  ipcMain,
+  nativeTheme,
+  shell,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from 'electron'
 import { IPC, type AppInfo } from '@shared/api'
 import type { KubeService } from './kube/service'
+import type { Forwards, Terminals } from './kube/streams'
 import { isTheme, type SettingsStore } from './settings'
 
 interface Dependencies {
   kube: KubeService
   settings: SettingsStore
+  terminals: Terminals
+  forwards: Forwards
   /** Only frames showing this URL may call into the main process. */
   rendererUrl: string
 }
 
-export function registerIpc({ kube, settings, rendererUrl }: Dependencies): void {
+export function registerIpc({
+  kube,
+  settings,
+  terminals,
+  forwards,
+  rendererUrl,
+}: Dependencies): void {
+  const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
+    event.senderFrame?.url.startsWith(rendererUrl) === true
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) => {
     ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
-      if (!event.senderFrame?.url.startsWith(rendererUrl)) {
-        throw new Error(`Blocked ${channel} from an untrusted frame`)
-      }
+      if (!trusted(event)) throw new Error(`Blocked ${channel} from an untrusted frame`)
       return handler(...args)
+    })
+  }
+  /** One-way messages, for keystrokes that shouldn't wait for an answer; others are dropped. */
+  const on = (channel: string, handler: (...args: unknown[]) => void) => {
+    ipcMain.on(channel, (event: IpcMainEvent, ...args: unknown[]) => {
+      if (trusted(event)) handler(...args)
     })
   }
 
@@ -41,8 +63,11 @@ export function registerIpc({ kube, settings, rendererUrl }: Dependencies): void
     return settings.setReadOnly(context, readOnly)
   })
   handle(IPC.openExternal, async (url) => {
-    // Only hand web links to the OS; never file:// or custom protocol handlers.
-    const allowed = typeof url === 'string' && url.startsWith('https://')
+    // Only hand web links to the OS (plain HTTP only for forwarded ports on this machine);
+    // never file:// or custom protocol handlers.
+    const allowed =
+      typeof url === 'string' &&
+      (url.startsWith('https://') || /^http:\/\/localhost:\d+(\/|$)/.test(url))
     if (allowed) await shell.openExternal(url)
     return allowed
   })
@@ -56,4 +81,12 @@ export function registerIpc({ kube, settings, rendererUrl }: Dependencies): void
   handle(IPC.change, (request) => kube.change(request))
   handle(IPC.can, (context, checks) => kube.can(context, checks))
   handle(IPC.history, (query) => kube.history(query))
+
+  handle(IPC.terminalOpen, (id, request) => terminals.open(id, request))
+  on(IPC.terminalInput, (id, data) => terminals.write(id, data))
+  on(IPC.terminalResize, (id, columns, rows) => terminals.resize(id, columns, rows))
+  on(IPC.terminalClose, (id) => terminals.close(id))
+  handle(IPC.forwardStart, (request) => forwards.start(request))
+  handle(IPC.forwardList, () => forwards.list())
+  handle(IPC.forwardStop, (id) => forwards.stop(id))
 }

@@ -4,6 +4,40 @@ import { createGunzip } from 'node:zlib'
 import type { KubeConfig } from '@kubernetes/client-node'
 import { KubeRequestError, statusError } from './errors'
 
+/**
+ * The URL of `path` on the cluster behind `kc`'s current context, refusing
+ * plain HTTP the cluster didn't opt into.
+ */
+export function serverUrl(kc: KubeConfig, path: string): URL {
+  const cluster = kc.getCurrentCluster()!
+  // Keep any path prefix on the server URL (e.g. Rancher's /k8s/clusters/<id>).
+  const url = new URL(cluster.server.replace(/\/+$/, '') + path)
+  if (url.protocol === 'http:' && !cluster.skipTLSVerify) {
+    // Same policy as the official client: unencrypted connections must be opted into.
+    throw new KubeRequestError(
+      'insecure',
+      'This cluster uses plain HTTP. Set "insecure-skip-tls-verify: true" on it in your kubeconfig to allow unencrypted connections.',
+    )
+  }
+  return url
+}
+
+/** Adds credentials to a request, explaining credential plugin failures. */
+export async function authorize(kc: KubeConfig, request: https.RequestOptions): Promise<void> {
+  try {
+    await kc.applyToHTTPSOptions(request)
+  } catch (error) {
+    const { message } = error as Error
+    const plugin = /spawn (\S+) ENOENT/.exec(message)?.[1]
+    throw new KubeRequestError(
+      'auth',
+      plugin
+        ? `The credential plugin “${plugin}” was not found. Install it, or make sure it is on your PATH.`
+        : `Could not get credentials: ${message}`,
+    )
+  }
+}
+
 export interface RequestOptions {
   timeoutMs: number
   /** GET unless set. */
@@ -24,16 +58,7 @@ export async function kubeRequest(
   path: string,
   options: RequestOptions,
 ): Promise<string> {
-  const cluster = kc.getCurrentCluster()!
-  // Keep any path prefix on the server URL (e.g. Rancher's /k8s/clusters/<id>).
-  const url = new URL(cluster.server.replace(/\/+$/, '') + path)
-  if (url.protocol === 'http:' && !cluster.skipTLSVerify) {
-    // Same policy as the official client: unencrypted connections must be opted into.
-    throw new KubeRequestError(
-      'insecure',
-      'This cluster uses plain HTTP. Set "insecure-skip-tls-verify: true" on it in your kubeconfig to allow unencrypted connections.',
-    )
-  }
+  const url = serverUrl(kc, path)
   const payload =
     options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body), 'utf8')
   const request: https.RequestOptions = {
@@ -50,18 +75,7 @@ export async function kubeRequest(
         : {}),
     },
   }
-  try {
-    await kc.applyToHTTPSOptions(request)
-  } catch (error) {
-    const { message } = error as Error
-    const plugin = /spawn (\S+) ENOENT/.exec(message)?.[1]
-    throw new KubeRequestError(
-      'auth',
-      plugin
-        ? `The credential plugin “${plugin}” was not found. Install it, or make sure it is on your PATH.`
-        : `Could not get credentials: ${message}`,
-    )
-  }
+  await authorize(kc, request)
 
   // For plain HTTP endpoints (e.g. `kubectl proxy`) the client hands us an http.Agent.
   const transport = url.protocol === 'http:' ? http : https

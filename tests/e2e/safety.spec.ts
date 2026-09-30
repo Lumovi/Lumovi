@@ -147,7 +147,7 @@ test.describe('permissions', () => {
     await open(page, 'Pods', pod)
     const restart = panel(page, 'Pod', pod).getByRole('button', { name: 'Restart' })
     await expect(restart).toBeDisabled()
-    await restart.locator('..').hover()
+    await restart.locator('..').focus()
     await expect(page.getByRole('tooltip')).toContainText('Your account can’t delete pods in shop.')
     await panel(page, 'Pod', pod).getByRole('button', { name: 'More actions' }).click()
     await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeDisabled()
@@ -162,7 +162,7 @@ test.describe('permissions', () => {
     await panel(page, 'Node', DEMO.nodes.worker1)
       .getByRole('button', { name: 'Cordon' })
       .locator('..')
-      .hover()
+      .focus()
     await expect(page.getByRole('tooltip')).toContainText('Your account can’t change nodes.')
     // …and the API server has the last word on anything the checks allowed.
     await open(page, 'Pods', DEMO.pods.coredns[0]!)
@@ -172,6 +172,54 @@ test.describe('permissions', () => {
     await expect(page.getByRole('menuitem', { name: 'Evict…' })).toBeDisabled()
     await expect(page.getByRole('menu')).not.toContainText('Your account can’t delete')
   })
+})
+
+test('each denied action says what the account can’t do', async ({ page, clusters }) => {
+  clusters.demo.deny({ verb: 'update', resource: 'deployments', namespace: 'kube-system' })
+  clusters.demo.deny({ verb: 'create', resource: 'jobs', namespace: 'batch' })
+  clusters.demo.deny({
+    verb: 'create',
+    resource: 'pods',
+    subresource: 'portforward',
+    namespace: 'data',
+  })
+  clusters.demo.deny({
+    verb: 'patch',
+    resource: 'pods',
+    subresource: 'ephemeralcontainers',
+    namespace: 'monitoring',
+  })
+  await openCluster(page)
+
+  await open(page, 'Deployments', 'coredns')
+  const coredns = panel(page, 'Deployment', 'coredns')
+  await coredns.getByRole('tab', { name: 'YAML' }).click()
+  await coredns.getByRole('button', { name: 'Edit', exact: true }).locator('..').focus()
+  await expect(page.getByRole('tooltip')).toContainText(
+    'Your account can’t edit deployments in kube-system.',
+  )
+
+  await open(page, 'CronJobs', DEMO.cronJobs.nightlyReport)
+  await panel(page, 'CronJob', DEMO.cronJobs.nightlyReport)
+    .getByRole('button', { name: 'Run now' })
+    .locator('..')
+    .focus()
+  await expect(page.getByRole('tooltip')).toContainText('Your account can’t create jobs in batch.')
+
+  await open(page, 'Pods', DEMO.pods.postgres[0]!)
+  await panel(page, 'Pod', DEMO.pods.postgres[0]!)
+    .getByRole('button', { name: 'More actions' })
+    .click()
+  await expect(page.getByRole('menu')).toContainText(
+    'Your account can’t forward ports to pods in data.',
+  )
+  await page.keyboard.press('Escape')
+
+  await open(page, 'Pods', DEMO.pods.grafana[0]!)
+  await panel(page, 'Pod', DEMO.pods.grafana[0]!)
+    .getByRole('button', { name: 'More actions' })
+    .click()
+  await expect(page.getByRole('menu')).toContainText('Your account can’t debug pods in monitoring.')
 })
 
 test.describe('read-only clusters', () => {
@@ -191,7 +239,7 @@ test.describe('read-only clusters', () => {
     await expect(page.getByRole('menu')).toContainText('Changes are turned off for this cluster.')
     await page.keyboard.press('Escape')
     await detail.getByRole('tab', { name: 'YAML' }).click()
-    await detail.getByRole('button', { name: 'Edit', exact: true }).locator('..').hover()
+    await detail.getByRole('button', { name: 'Edit', exact: true }).locator('..').focus()
     await expect(page.getByRole('tooltip')).toContainText(
       'Changes are turned off for this cluster.',
     )

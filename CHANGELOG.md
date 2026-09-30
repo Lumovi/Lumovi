@@ -14,6 +14,8 @@ All notable changes to KubeStacks are documented here. The format follows
   uncordon and drain nodes, evict, restart and force-delete pods, change autoscaler ranges,
   expand volumes, edit labels, annotations and YAML (validated by a dry run and reviewed as
   a diff), and delete with a choice of what happens to dependents.
+- Shells in containers, debug containers (`kubectl debug`) for pods, including those
+  without a shell, and port forwards to pods and services, listed in the header.
 - Guard rails for changes: permission checks before acting, the equivalent `kubectl` command
   in every dialog, typed confirmation for risky deletes and production-looking clusters,
   undo from notifications, an activity log, and a read-only switch per cluster

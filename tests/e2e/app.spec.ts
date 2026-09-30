@@ -182,6 +182,8 @@ test('ignores calls from frames that are not the app', async ({ kubestacks }) =>
       webPreferences: { preload, sandbox: true, contextIsolation: true },
     })
     await win.loadURL('data:text/html,<p>untrusted</p>')
+    // One-way messages from it are dropped silently.
+    await win.webContents.executeJavaScript('window.kubestacks.terminal.close("anything")')
     const result: string = await win.webContents.executeJavaScript(
       'window.kubestacks.app.info().then(() => "allowed", (error) => error.message)',
     )
@@ -497,4 +499,143 @@ test('actions stay available when the cluster can’t answer access checks', asy
       .getByRole('complementary', { name: `Node ${DEMO.nodes.worker1}` })
       .getByRole('button', { name: 'Cordon' }),
   ).toBeEnabled()
+})
+
+test('rejects malformed shell and port-forward requests', async ({ page }) => {
+  const results = await page.evaluate(async () => {
+    const { terminal, forwards, kube } = window.kubestacks
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = async (promise: Promise<any>) => {
+      const result = await promise
+      return result.ok ? 'ok' : `${result.error.code}: ${result.error.message}`
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loose = (value: unknown) => value as any
+    // Messages for sessions that don't exist are ignored.
+    terminal.write('no-such-session', 'ls\r')
+    terminal.write('no-such-session', loose(5))
+    terminal.resize('no-such-session', 80, 24)
+    terminal.resize('no-such-session', loose('wide'), 24)
+    terminal.close('no-such-session')
+    await forwards.stop('no-such-forward')
+    const shell = { context: 'demo', namespace: 'shop', pod: 'x', container: 'app' }
+    const forward = {
+      context: 'demo',
+      namespace: 'shop',
+      kind: 'Pod' as const,
+      name: 'x',
+      port: 80,
+    }
+    return Promise.all([
+      call(terminal.open('not a valid id!', shell)),
+      call(terminal.open('session-1234', loose(null))),
+      call(terminal.open('session-1235', loose({ ...shell, container: undefined }))),
+      call(terminal.open('session-1236', { ...shell, context: 'no-such-context' })),
+      call(forwards.start(loose({ ...forward, kind: 'Deployment' }))),
+      call(forwards.start({ ...forward, port: 0 })),
+      call(forwards.start({ ...forward, localPort: 70_000 })),
+      call(forwards.start({ ...forward, name: 'no-such-pod' })),
+      call(forwards.start({ ...forward, kind: 'Service', name: 'storefront', port: 1234 })),
+      call(
+        forwards.start({
+          ...forward,
+          kind: 'Service',
+          namespace: 'default',
+          name: 'kubernetes',
+          port: 443,
+        }),
+      ),
+      call(
+        kube.change(
+          loose({
+            context: 'demo',
+            kind: 'Service',
+            namespace: 'shop',
+            name: 'storefront',
+            change: { action: 'debug', container: 'd', image: 'busybox' },
+          }),
+        ),
+      ),
+      call(
+        kube.change(
+          loose({
+            context: 'demo',
+            kind: 'Pod',
+            namespace: 'shop',
+            name: 'x',
+            change: { action: 'debug', image: 'busybox' },
+          }),
+        ),
+      ),
+      call(
+        kube.change(
+          loose({
+            context: 'demo',
+            kind: 'Pod',
+            namespace: 'shop',
+            name: 'x',
+            change: { action: 'debug', container: 'd' },
+          }),
+        ),
+      ),
+      call(
+        kube.change(
+          loose({
+            context: 'demo',
+            kind: 'Pod',
+            namespace: 'shop',
+            name: 'x',
+            change: { action: 'debug', container: 'd', image: 'busybox', target: 5 },
+          }),
+        ),
+      ),
+    ])
+  })
+  // Without a local port, a free one is picked.
+  const picked = await page.evaluate(async () => {
+    const result = await window.kubestacks.forwards.start({
+      context: 'demo',
+      namespace: 'shop',
+      kind: 'Service',
+      name: 'storefront',
+      port: 80,
+    })
+    if (result.ok) await window.kubestacks.forwards.stop(result.data.id)
+    return result.ok && result.data.localPort
+  })
+  expect(picked).toBeGreaterThan(1024)
+  expect(results).toEqual([
+    'invalid: A new session needs a new id',
+    'invalid: Expected a query object',
+    'invalid: container must be a non-empty string',
+    'invalid: Unknown context "no-such-context"',
+    'invalid: kind must be one of Pod, Service',
+    'invalid: port must be an integer between 1 and 65535',
+    'invalid: localPort must be an integer between 1 and 65535',
+    'not-found: pods "no-such-pod" not found',
+    'invalid: storefront has no port 1234',
+    'invalid: kubernetes has no selector, so no pods to forward to',
+    'invalid: Only pods can be debugged',
+    'invalid: container must be a non-empty string',
+    'invalid: image must be a non-empty string',
+    'invalid: target must be a non-empty string',
+  ])
+})
+
+test('opens local forwarded ports in the browser, but no other plain HTTP', async ({
+  kubestacks,
+}) => {
+  const opened = await mockOpenExternal(kubestacks.app)
+  const results = await kubestacks.page.evaluate(() =>
+    Promise.all(
+      [
+        'http://localhost:8080/app',
+        'http://localhost:3000',
+        'http://localhost.example.com:80',
+        'http://example.com',
+      ].map((url) => window.kubestacks.app.openExternal(url)),
+    ),
+  )
+  expect(results).toEqual([true, true, false, false])
+  expect(await opened()).toEqual(['http://localhost:8080/app', 'http://localhost:3000'])
 })

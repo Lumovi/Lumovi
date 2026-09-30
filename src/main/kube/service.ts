@@ -311,6 +311,31 @@ export class KubeService {
           })
           return null
         }
+        case 'debug': {
+          if (r.kind !== 'Pod') throw invalid('Only pods can be debugged')
+          assertString(change.container, 'container')
+          assertString(change.image, 'image')
+          optionalString(change.target, 'target')
+          return send(`${path}/ephemeralcontainers${dryRun}`, {
+            method: 'PATCH',
+            contentType: PATCH_TYPES.strategic,
+            body: {
+              spec: {
+                ephemeralContainers: [
+                  {
+                    name: change.container,
+                    image: change.image,
+                    targetContainerName: change.target,
+                    stdin: true,
+                    tty: true,
+                    terminationMessagePolicy: 'File',
+                    imagePullPolicy: 'IfNotPresent',
+                  },
+                ],
+              },
+            },
+          })
+        }
         default:
           throw invalid(`Unknown change "${String((change as { action: unknown }).action)}"`)
       }

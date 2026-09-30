@@ -19,6 +19,7 @@ import { RESOURCES, type ResourceDefinition } from '../../src/shared/resources.t
 import { suffix } from './builders.ts'
 import { Controllers, type Store } from './controllers.ts'
 import { jsonPatch, mergePatch, PatchError, strategicMergePatch } from './patch.ts'
+import { streamingEndpoints } from './streams.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
 export type Fault = { status: number; body?: string; contentType?: string } | { hang: true }
@@ -770,6 +771,33 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         body: { kind: 'Status', apiVersion: 'v1', metadata: {}, status: 'Success', code: 201 },
       }
     }
+    if (method === 'PATCH' && subresource === 'ephemeralcontainers' && def.kind === 'Pod') {
+      // Debug containers are added to a running pod, and start a moment later.
+      const patched = strategicMergePatch(existing, body) as KubeObject
+      if (!dryRun) {
+        store$.put({ ...existing!, spec: patched.spec })
+        controllers.schedule(() => {
+          const pod = store$.get('Pod', namespace, name!)
+          if (!pod) return
+          const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+          store$.put({
+            ...pod,
+            status: {
+              ...pod.status,
+              ephemeralContainerStatuses: pod.spec.ephemeralContainers.map((c: Json) => ({
+                name: c.name,
+                image: c.image,
+                imageID: `${c.image}@sha256:${crypto.randomUUID().replaceAll('-', '')}`,
+                ready: false,
+                restartCount: 0,
+                state: { running: { startedAt: now } },
+              })),
+            },
+          })
+        })
+      }
+      return { status: 200, body: patched }
+    }
     if (subresource !== undefined) throw notFoundPath()
 
     if (method === 'POST' && name === undefined) {
@@ -1055,6 +1083,63 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
   }
 
+  const streams = streamingEndpoints({
+    pod: (namespace, name) => store$.get('Pod', namespace, name),
+    admit(req, socket, subresource) {
+      const url = new URL(req.url ?? '/', 'http://mock')
+      requests.push({
+        method: 'GET',
+        path: url.pathname,
+        search: url.search.slice(1),
+        query: Object.fromEntries(url.searchParams),
+        headers: req.headers,
+      })
+      const refuse = (status: number, body: string) => {
+        socket.end(
+          `HTTP/1.1 ${status} ${REASONS[status] ?? 'Error'}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+        )
+        return false
+      }
+      if (options.token !== undefined && req.headers.authorization !== `Bearer ${options.token}`) {
+        return refuse(401, JSON.stringify(statusBody(401, 'Unauthorized', 'Unauthorized')))
+      }
+      const fault = faults.find(({ match }) =>
+        typeof match === 'string' ? match === url.pathname : match.test(url.pathname),
+      )?.fault
+      if (fault && 'status' in fault) {
+        return refuse(
+          fault.status,
+          fault.body ??
+            JSON.stringify(
+              statusBody(
+                fault.status,
+                REASONS[fault.status] ?? 'Unknown',
+                `injected fault (HTTP ${fault.status})`,
+              ),
+            ),
+        )
+      }
+      const [, namespace, , name] = url.pathname.split('/').slice(3)
+      if (
+        denied({ verb: 'create', resource: 'pods', namespace, name, subresource }) ||
+        denied({ verb: 'create', resource: 'pods', namespace, subresource }) ||
+        denied({ verb: 'create', resource: 'pods', subresource })
+      ) {
+        return refuse(
+          403,
+          JSON.stringify(
+            statusBody(
+              403,
+              'Forbidden',
+              `pods "${name}" is forbidden: User "kubestacks-demo" cannot create resource "pods/${subresource}" in API group "" in the namespace "${namespace}"`,
+            ),
+          ),
+        )
+      }
+      return true
+    },
+  })
+
   let caPem: string | undefined
   let server: http.Server
   if (options.tls) {
@@ -1064,6 +1149,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   } else {
     server = http.createServer(handle)
   }
+  server.on('upgrade', streams.upgrade)
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(0, '127.0.0.1', () => resolve())
@@ -1116,10 +1202,12 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     reset() {
       for (const res of pending) res.destroy()
       controllers.stop()
+      streams.closeAll()
       load()
     },
     close() {
       controllers.stop()
+      streams.closeAll()
       for (const res of pending) res.destroy()
       server.closeAllConnections()
       return new Promise<void>((resolve) => server.close(() => resolve()))

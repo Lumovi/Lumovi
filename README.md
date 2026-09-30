@@ -40,6 +40,8 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   cordon and drain nodes, evict and delete, edit labels or any object's YAML. Every change
   shows the equivalent `kubectl` command, checks your permissions first, and can be undone
   from its notification where that makes sense.
+- **Hands-on when you need it.** Open a shell in any container, add a debug container with
+  tools to a running pod (even distroless ones), and forward ports to pods and services.
 - **Built for big clusters.** Lists load in chunks and are paginated and virtualized, so tens
   of thousands of pods stay smooth. Busy lists refresh less often, and a label selector
   narrows a list on the server.
@@ -121,7 +123,8 @@ Open an object and its actions are right there: the common ones as buttons, the 
 | Kind                                  | Actions                                                                                    |
 | ------------------------------------- | ------------------------------------------------------------------------------------------ |
 | Deployments, StatefulSets, DaemonSets | Scale, restart, change images, roll back to an earlier revision, pause or resume a rollout |
-| Pods                                  | Restart (delete so the controller replaces it), evict, force-delete stuck pods             |
+| Pods                                  | Shell, debug container, port forward, restart, evict, force-delete stuck pods              |
+| Services                              | Port forward (to the service's first ready pod)                                            |
 | CronJobs and Jobs                     | Run now, suspend, resume                                                                   |
 | Nodes                                 | Cordon, uncordon, drain (with live progress per pod)                                       |
 | Autoscalers, volume claims            | Change the replica range, expand the volume                                                |
@@ -143,7 +146,11 @@ The guard rails:
   session with its command.
 - **Read-only when you want it.** Turn changes off for a cluster in the cluster switcher, or
   for all clusters with `KUBESTACKS_READ_ONLY=1` (useful for shared machines). The main
-  process enforces it, not just the interface.
+  process enforces it, not just the interface. Shells count as changes; port forwards don't.
+
+Shells run in a terminal in the pod's **Shell** tab (bash when the image has it, sh
+otherwise). Port forwards listen on `localhost` only, are listed under the plug icon in the
+header while they run, and stop when you stop them or quit.
 
 ## Development
 

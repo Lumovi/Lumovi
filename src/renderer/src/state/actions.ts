@@ -8,20 +8,30 @@ interface ActionsState {
   menu: boolean
   /** The object (by `Kind/namespace/name`) open in the YAML editor. */
   editing: string | null
+  /** A tab the detail panel should switch to, e.g. after choosing "Shell". */
+  tab: { ref: string; tab: string } | null
+  /** The container to open a shell in first, like a debug container just added. */
+  shell: string | null
   start(id: string, object: KubeObject): void
   close(): void
   setMenu(open: boolean): void
   edit(ref: string | null): void
+  showTab(ref: string, tab: string, shell?: string): void
+  tabShown(): void
 }
 
 export const useActionsUi = create<ActionsState>((set) => ({
   active: null,
   menu: false,
   editing: null,
+  tab: null,
+  shell: null,
   start: (id, object) => set({ active: { id, object }, menu: false }),
   close: () => set({ active: null }),
   setMenu: (menu) => set({ menu }),
   edit: (editing) => set({ editing }),
+  showTab: (ref, tab, shell) => set({ tab: { ref, tab }, shell: shell ?? null }),
+  tabShown: () => set({ tab: null }),
 }))
 
 /**

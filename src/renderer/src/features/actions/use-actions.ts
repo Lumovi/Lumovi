@@ -17,19 +17,23 @@ export interface AvailableAction {
   disabled?: string
 }
 
-const VERB_PHRASE: Record<string, string> = {
-  patch: 'change',
-  update: 'edit',
-  delete: 'delete',
-  create: 'create',
-  'create/eviction': 'evict',
+/** What a denied check was about, as in "Your account can’t … in shop." */
+const DENIED: Record<string, (resource: string) => string> = {
+  patch: (resource) => `change ${resource}`,
+  update: (resource) => `edit ${resource}`,
+  delete: (resource) => `delete ${resource}`,
+  create: (resource) => `create ${resource}`,
+  'create/eviction': (resource) => `evict ${resource}`,
+  'create/exec': () => 'open shells',
+  'create/portforward': (resource) => `forward ports to ${resource}`,
+  'patch/ephemeralcontainers': (resource) => `debug ${resource}`,
 }
 
 /** "Your account can’t delete pods in shop." */
 function forbidden(check: AccessCheck): string {
-  const verb = VERB_PHRASE[check.subresource ? `${check.verb}/${check.subresource}` : check.verb]
+  const phrase = DENIED[check.subresource ? `${check.verb}/${check.subresource}` : check.verb]!
   const resource = resourceByKind(check.kind).label.toLowerCase()
-  return `Your account can’t ${verb} ${resource}${check.namespace ? ` in ${check.namespace}` : ''}.`
+  return `Your account can’t ${phrase(resource)}${check.namespace ? ` in ${check.namespace}` : ''}.`
 }
 
 /**
@@ -43,11 +47,12 @@ export function useObjectActions(object: KubeObject): AvailableAction[] {
   const { readOnly } = useReadOnly()
   return actions.map((action, i) => ({
     action,
-    disabled: readOnly
-      ? 'Changes are turned off for this cluster.'
-      : access[i] === false
-        ? forbidden(checks[i]!)
-        : undefined,
+    disabled:
+      readOnly && !action.safe
+        ? 'Changes are turned off for this cluster.'
+        : access[i] === false
+          ? forbidden(checks[i]!)
+          : undefined,
   }))
 }
 
@@ -56,7 +61,7 @@ export function useRunAction() {
   const { context } = useCluster()
   const change = useChange()
   const openObject = useOpenObject()
-  const { start, edit } = useActionsUi()
+  const { start, edit, showTab } = useActionsUi()
   return (action: Action, object: KubeObject) => {
     if (action.dialog) {
       start(action.id, object)
@@ -72,9 +77,12 @@ export function useRunAction() {
         }
       })
     } else {
+      // Editors and shells live in the detail panel.
       const { name, namespace } = object.metadata
+      const ref = formatRef({ kind: kindOf(object), name, namespace })
       openObject(kindOf(object), name, namespace)
-      edit(formatRef({ kind: kindOf(object), name, namespace }))
+      if (action.tab) showTab(ref, action.tab)
+      else edit(ref)
     }
   }
 }
