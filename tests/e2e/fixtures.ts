@@ -186,14 +186,28 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     workerClusters.sandbox.reset()
     workerClusters.large.reset()
   },
-  launch: async ({ clusters }, use) => {
+  launch: async ({ clusters }, use, testInfo) => {
     const launched: KubeStacks[] = []
+    // On CI, failures keep a trace (DOM snapshots, actions, console) to see what happened.
+    const trace = Boolean(process.env.CI)
     await use(async (options) => {
       const instance = await launchApp(clusters, options)
+      if (trace) await instance.app.context().tracing.start({ screenshots: true, snapshots: true })
       launched.push(instance)
       return instance
     })
-    for (const instance of launched) await instance.close()
+    const failed = testInfo.status !== testInfo.expectedStatus
+    for (const [i, instance] of launched.entries()) {
+      if (trace) {
+        const path = failed ? testInfo.outputPath(`trace-${i}.zip`) : undefined
+        // The app may have quit already, taking its trace with it.
+        await instance.app
+          .context()
+          .tracing.stop({ path })
+          .catch(() => undefined)
+      }
+      await instance.close()
+    }
   },
   kubestacks: async ({ launch }, use) => {
     await use(await launch())
