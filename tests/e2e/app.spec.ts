@@ -239,13 +239,26 @@ test('recovers from unreadable settings', async ({ launch }) => {
   const first = await launch({ userDataDir: corrupt })
   expect(await first.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
     theme: 'system',
+    readOnly: [],
   })
 
   const unknown = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
-  writeFileSync(join(unknown, 'settings.json'), JSON.stringify({ theme: 'neon' }))
+  writeFileSync(
+    join(unknown, 'settings.json'),
+    JSON.stringify({ theme: 'neon', readOnly: ['prod', 5, null] }),
+  )
   const second = await launch({ userDataDir: unknown })
   expect(await second.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
     theme: 'system',
+    readOnly: ['prod'],
+  })
+
+  const odd = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
+  writeFileSync(join(odd, 'settings.json'), JSON.stringify({ theme: 'dark', readOnly: 'all' }))
+  const third = await launch({ userDataDir: odd })
+  expect(await third.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
+    theme: 'dark',
+    readOnly: [],
   })
 })
 
@@ -351,4 +364,137 @@ test('connects to plain HTTP clusters only when allowed', async ({ page }) => {
   await openCluster(page, CONTEXTS.plainHttp)
   await expect(page.getByRole('alert')).toContainText('Plain HTTP is not allowed')
   await expect(page.getByRole('alert')).toContainText('insecure-skip-tls-verify')
+})
+
+test('rejects malformed changes from the renderer', async ({ page, clusters }) => {
+  const errors = await page.evaluate(async () => {
+    const kube = window.kubestacks.kube
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = async (promise: Promise<any>) => {
+      const result = await promise
+      return result.ok ? 'ok' : `${result.error.code}: ${result.error.message}`
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loose = (value: unknown) => value as any
+    const pod = { context: 'demo', kind: 'Pod', namespace: 'default', name: 'debug-shell' }
+    const change = (c: unknown, extra: object = {}) =>
+      call(kube.change(loose({ ...pod, ...extra, change: c })))
+    return Promise.all([
+      call(
+        kube.change(
+          loose({ context: 'demo', kind: 'Pod', name: 'x', change: { action: 'delete' } }),
+        ),
+      ),
+      call(
+        kube.change(
+          loose({ context: 'demo', kind: 'Node', namespace: 'x', name: 'x', change: {} }),
+        ),
+      ),
+      change(null),
+      change({ action: 'delete' }, { name: undefined }),
+      change({ action: 'patch', patchType: 'xml', patch: {} }),
+      change({ action: 'patch', patchType: 'json', patch: {} }),
+      change({ action: 'patch', patchType: 'merge', patch: [] }),
+      change({ action: 'replace', object: { metadata: { name: 'other' } } }),
+      change({ action: 'replace', object: 'yaml' }),
+      change({ action: 'create', object: null }),
+      change({ action: 'delete', propagation: 'Sideways' }),
+      change({ action: 'delete', gracePeriodSeconds: -1 }),
+      call(
+        kube.change(
+          loose({
+            ...pod,
+            kind: 'Service',
+            name: 'grafana',
+            namespace: 'monitoring',
+            change: { action: 'evict' },
+          }),
+        ),
+      ),
+      change({ action: 'explode' }),
+      // Dry runs are checked by the cluster but change nothing.
+      change({ action: 'delete', gracePeriodSeconds: 0 }, { dryRun: true }),
+      change({ action: 'evict' }, { dryRun: true }),
+      change(
+        {
+          action: 'create',
+          object: {
+            metadata: { name: 'probe' },
+            spec: { containers: [{ name: 'c', image: 'busybox' }] },
+          },
+        },
+        { name: undefined, dryRun: true },
+      ),
+      call(kube.can('demo', loose('everything'))),
+      call(kube.can('demo', loose(Array.from({ length: 51 }, () => ({}))))),
+      call(kube.can('demo', loose([{ verb: 'impersonate', kind: 'Pod' }]))),
+      call(
+        kube.can('demo', [
+          { verb: 'delete', kind: 'Pod', namespace: 'default', name: 'debug-shell' },
+        ]),
+      ),
+      call(kube.history(loose({ context: 'demo', kind: 'Pod', namespace: 'default', name: 'x' }))),
+      call(kube.history(loose({ context: 'demo', kind: 'Deployment', name: 'x' }))),
+      call(kube.history(loose({ context: 'demo', kind: 'Deployment', namespace: 'shop' }))),
+      window.kubestacks.app.setReadOnly(loose(''), loose('yes')).then(
+        () => 'ok',
+        (error: Error) => error.message,
+      ),
+    ])
+  })
+  expect(errors).toEqual([
+    'invalid: namespace must be a non-empty string',
+    'invalid: Node objects have no namespace',
+    'invalid: Expected a query object',
+    'invalid: name must be a non-empty string',
+    'invalid: patchType must be one of merge, strategic, json',
+    'invalid: A JSON patch must be a list',
+    'invalid: patch must be an object',
+    'invalid: The object’s name does not match the one being replaced',
+    'invalid: object must be an object',
+    'invalid: object must be an object',
+    'invalid: propagation must be one of Background, Foreground, Orphan',
+    'invalid: gracePeriodSeconds must be an integer between 0 and 86400',
+    'invalid: Only pods can be evicted',
+    'invalid: Unknown change "explode"',
+    'ok',
+    'ok',
+    'ok',
+    'invalid: checks must be a list of at most 50 access checks',
+    'invalid: checks must be a list of at most 50 access checks',
+    'invalid: verb must be one of get, list, create, update, patch, delete',
+    'ok',
+    'invalid: kind must be one of Deployment, StatefulSet, DaemonSet',
+    'invalid: namespace must be a non-empty string',
+    'invalid: name must be a non-empty string',
+    expect.stringContaining('Expected a context name and whether it is read-only'),
+  ])
+  // Dry runs left everything in place.
+  expect(clusters.demo.object('Pod', 'default', 'debug-shell')).toBeDefined()
+  expect(clusters.demo.object('Pod', 'default', 'probe')).toBeUndefined()
+})
+
+test('actions stay available when the cluster can’t answer access checks', async ({
+  page,
+  clusters,
+}) => {
+  clusters.demo.fail('/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', { status: 404 })
+  await openCluster(page)
+  await page
+    .getByRole('navigation', { name: 'Resources' })
+    .getByRole('link', { name: 'Nodes', exact: true })
+    .click()
+  await page
+    .getByRole('grid', { name: 'Nodes' })
+    .getByRole('row')
+    .filter({ hasText: DEMO.nodes.worker1 })
+    .first()
+    .getByRole('gridcell')
+    .first()
+    .click()
+  await expect(
+    page
+      .getByRole('complementary', { name: `Node ${DEMO.nodes.worker1}` })
+      .getByRole('button', { name: 'Cordon' }),
+  ).toBeEnabled()
 })

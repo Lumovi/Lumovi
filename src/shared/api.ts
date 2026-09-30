@@ -31,6 +31,10 @@ export interface Settings {
   theme: ThemePreference
   /** Where the window was when it last closed. */
   window?: WindowState
+  /** Contexts the user has made read-only: KubeStacks refuses to change them. */
+  readOnly?: string[]
+  /** Every context is read-only (KUBESTACKS_READ_ONLY is set); not stored. */
+  readOnlyAll?: boolean
 }
 
 export interface KubeContext {
@@ -61,6 +65,8 @@ export type KubeErrorCode =
   | 'not-found'
   | 'server'
   | 'invalid'
+  | 'conflict'
+  | 'read-only'
 
 export interface KubeError {
   code: KubeErrorCode
@@ -78,7 +84,14 @@ export interface ObjectMeta {
   deletionTimestamp?: string
   labels?: Record<string, string>
   annotations?: Record<string, string>
-  ownerReferences?: { kind: string; name: string; uid: string; controller?: boolean }[]
+  ownerReferences?: {
+    apiVersion?: string
+    kind: string
+    name: string
+    uid: string
+    controller?: boolean
+    blockOwnerDeletion?: boolean
+  }[]
   resourceVersion?: string
   generation?: number
   managedFields?: unknown[]
@@ -162,6 +175,69 @@ export interface LogsQuery {
   previous: boolean
 }
 
+export type PatchType = 'merge' | 'strategic' | 'json'
+export type DeletePropagation = 'Background' | 'Foreground' | 'Orphan'
+
+/** What to do to an object (or, for `create`, to a collection). */
+export type Change =
+  | {
+      action: 'patch'
+      patchType: PatchType
+      /** A merge or strategic merge patch object, or a list of JSON patch operations. */
+      patch: Record<string, unknown> | Record<string, unknown>[]
+    }
+  | { action: 'replace'; object: KubeObject }
+  | { action: 'delete'; propagation?: DeletePropagation; gracePeriodSeconds?: number }
+  | { action: 'create'; object: KubeObject }
+  /** Evicts a pod through the Eviction API, which respects PodDisruptionBudgets. */
+  | { action: 'evict' }
+
+export interface ChangeRequest {
+  context: string
+  kind: ResourceKind
+  /** The object to change; omitted for `create`. */
+  name?: string
+  namespace?: string
+  change: Change
+  /** Validate the change on the server without saving it (`dryRun=All`). */
+  dryRun?: boolean
+}
+
+/** Workloads that keep a rollout history. */
+export type RolloutKind = 'Deployment' | 'StatefulSet' | 'DaemonSet'
+
+export interface HistoryQuery {
+  context: string
+  kind: RolloutKind
+  namespace: string
+  name: string
+}
+
+/** One rollout of a workload: a ReplicaSet, or a ControllerRevision. */
+export interface Revision {
+  revision: number
+  createdAt: string
+  /** The pod template it ran. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  template: { metadata?: any; spec: any }
+  /** Why it was made, from the kubernetes.io/change-cause annotation. */
+  changeCause?: string
+  /** Whether it is what the workload runs now. */
+  current: boolean
+}
+
+export type AccessVerb = 'get' | 'list' | 'create' | 'update' | 'patch' | 'delete'
+
+/** Whether the current user may do `verb` (a SelfSubjectAccessReview). */
+export interface AccessCheck {
+  verb: AccessVerb
+  kind: ResourceKind
+  namespace?: string
+  name?: string
+  /** e.g. `eviction` or `scale`. */
+  subresource?: string
+}
+
 export interface KubestacksApi {
   platform: string
   /** Subscribes to commands from the native menu; returns an unsubscribe function. */
@@ -170,6 +246,7 @@ export interface KubestacksApi {
     info(): Promise<AppInfo>
     settings(): Promise<Settings>
     setTheme(theme: ThemePreference): Promise<Settings>
+    setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     openExternal(url: string): Promise<boolean>
   }
   kube: {
@@ -179,6 +256,11 @@ export interface KubestacksApi {
     get(query: GetQuery): Promise<Result<KubeObject>>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
     logs(query: LogsQuery): Promise<Result<string>>
+    /** Resolves with the changed object, or null for deletions and evictions. */
+    change(request: ChangeRequest): Promise<Result<KubeObject | null>>
+    can(context: string, checks: AccessCheck[]): Promise<Result<boolean[]>>
+    /** A workload's rollout history, newest first. */
+    history(query: HistoryQuery): Promise<Result<Revision[]>>
   }
 }
 
@@ -188,6 +270,7 @@ export const IPC = {
   appInfo: 'app:info',
   settings: 'app:settings',
   setTheme: 'app:set-theme',
+  setReadOnly: 'app:set-read-only',
   openExternal: 'app:open-external',
   contexts: 'kube:contexts',
   version: 'kube:version',
@@ -195,4 +278,7 @@ export const IPC = {
   get: 'kube:get',
   metrics: 'kube:metrics',
   logs: 'kube:logs',
+  change: 'kube:change',
+  can: 'kube:can',
+  history: 'kube:history',
 } as const

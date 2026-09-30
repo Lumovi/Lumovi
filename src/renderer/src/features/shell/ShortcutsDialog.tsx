@@ -34,6 +34,14 @@ const SECTIONS: {
     ],
   },
   {
+    title: 'Open object',
+    shortcuts: [
+      { keys: ['.'], label: 'Actions: scale, restart, edit…' },
+      { keys: [MOD_KEY, '⌫'], label: 'Delete' },
+      { keys: [MOD_KEY, 'S'], label: 'Review a YAML edit' },
+    ],
+  },
+  {
     title: 'Go to',
     shortcuts: GO_KEYS.map(({ key, target }) => {
       const quick = QUICK_NAV.indexOf(target)

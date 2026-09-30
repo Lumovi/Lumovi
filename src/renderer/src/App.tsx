@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createHashRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
+import { Toaster } from './components/Toaster'
 import { TooltipProvider } from './components/Tooltip'
 import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
@@ -54,6 +55,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={500} skipDelayDuration={200}>
         <RouterProvider router={router} />
+        <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   )

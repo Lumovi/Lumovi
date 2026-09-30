@@ -1,15 +1,17 @@
 import { cn } from '@renderer/lib/cn'
 import { percent } from '@renderer/lib/format'
 
-type Severity = 'normal' | 'warn' | 'critical'
+type Severity = 'normal' | 'good' | 'warn' | 'critical'
 
 const FILL: Record<Severity, string> = {
   normal: 'bg-accent',
+  good: 'bg-good',
   warn: 'bg-warn',
   critical: 'bg-critical',
 }
 const TRACK: Record<Severity, string> = {
   normal: 'bg-accent-track',
+  good: 'bg-good/20',
   warn: 'bg-warn/20',
   critical: 'bg-critical/20',
 }
@@ -17,6 +19,12 @@ const TRACK: Record<Severity, string> = {
 export function severity(ratio: number): Severity {
   if (ratio >= 0.9) return 'critical'
   return ratio >= 0.75 ? 'warn' : 'normal'
+}
+
+/** For progress toward a goal, like ready replicas: full is good. */
+function readiness(ratio: number): Severity {
+  if (ratio >= 1) return 'good'
+  return ratio > 0 ? 'warn' : 'critical'
 }
 
 /**
@@ -29,13 +37,16 @@ export function Meter({
   label,
   marker,
   className,
+  variant = 'usage',
 }: {
   value: number
   label: string
   marker?: { value: number; label: string }
   className?: string
+  /** `usage` warns as it fills up; `readiness` is good when full. */
+  variant?: 'usage' | 'readiness'
 }) {
-  const level = severity(value)
+  const level = variant === 'usage' ? severity(value) : readiness(value)
   return (
     <div
       role="meter"

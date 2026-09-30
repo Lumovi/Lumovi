@@ -8,6 +8,8 @@ const VARIANTS = {
   secondary:
     'border border-line-strong bg-surface-2 text-ink-1 shadow-xs hover:bg-surface-3 active:translate-y-px',
   ghost: 'text-ink-2 hover:bg-surface-3 hover:text-ink-1',
+  danger:
+    'bg-critical text-white shadow-sm hover:bg-critical/90 active:translate-y-px disabled:opacity-50',
 }
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -23,7 +25,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       className={cn(
-        'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 no-drag [&_svg]:size-4 [&_svg]:shrink-0',
+        'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 no-drag disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
         VARIANTS[variant],
         className,
       )}

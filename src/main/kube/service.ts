@@ -1,6 +1,11 @@
 import type {
+  AccessCheck,
+  AccessVerb,
+  Change,
+  ChangeRequest,
   ClusterVersion,
   ContextsResult,
+  HistoryQuery,
   GetQuery,
   KubeList,
   KubeObject,
@@ -9,19 +14,24 @@ import type {
   MetricsQuery,
   MetricsSnapshot,
   Result,
+  Revision,
+  RolloutKind,
   UsageSample,
 } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
 import { resourceByKind, resourcePath } from '@shared/resources'
-import { kubeGet } from './client'
+import { kubeRequest, type RequestOptions } from './client'
 import { KubeRequestError, toKubeError } from './errors'
 import type { KubeConfigStore } from './kubeconfig'
 import { Limiter } from './limiter'
 import {
   assertIntegerInRange,
   assertKind,
+  assertObject,
+  assertOneOf,
   assertQuery,
   assertString,
+  invalid,
   optionalString,
 } from './validate'
 
@@ -36,6 +46,19 @@ const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
  * start a credential plugin, so only a few run at a time.
  */
 const CONCURRENT_CHECKS = 4
+const ACCESS_REVIEWS = '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews'
+const MAX_ACCESS_CHECKS = 50
+const VERBS: readonly AccessVerb[] = ['get', 'list', 'create', 'update', 'patch', 'delete']
+const PATCH_TYPES = {
+  merge: 'application/merge-patch+json',
+  strategic: 'application/strategic-merge-patch+json',
+  json: 'application/json-patch+json',
+}
+const PROPAGATION = ['Background', 'Foreground', 'Orphan'] as const
+const ROLLOUT_KINDS: readonly RolloutKind[] = ['Deployment', 'StatefulSet', 'DaemonSet']
+const REVISION = 'deployment.kubernetes.io/revision'
+const CHANGE_CAUSE = 'kubernetes.io/change-cause'
+const TEMPLATE_HASH = 'pod-template-hash'
 
 interface ListResponse {
   items: KubeObject[]
@@ -58,8 +81,8 @@ interface PodMetric {
 }
 
 /**
- * Read-only access to the clusters in the user's kubeconfig. Every public
- * method resolves to a `Result` and never rejects.
+ * Access to the clusters in the user's kubeconfig. Every public method
+ * resolves to a `Result` and never rejects.
  */
 export class KubeService {
   readonly #timeoutMs: number
@@ -70,6 +93,8 @@ export class KubeService {
     private readonly store: KubeConfigStore,
     /** Resolves once the environment (login shell PATH) is ready for credential plugins. */
     private readonly envReady: Promise<void>,
+    /** Whether the user made a context read-only; changes to it are refused. */
+    private readonly isReadOnly: (context: string) => boolean,
     env: NodeJS.ProcessEnv = process.env,
   ) {
     this.#timeoutMs = Number(env.KUBESTACKS_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
@@ -209,6 +234,196 @@ export class KubeService {
     })
   }
 
+  change(request: unknown): Promise<Result<KubeObject | null>> {
+    return this.#run(async () => {
+      const r = assertQuery<ChangeRequest>(request)
+      assertString(r.context, 'context')
+      assertKind(r.kind)
+      const resource = resourceByKind(r.kind)
+      if (resource.namespaced) assertString(r.namespace, 'namespace')
+      else if (r.namespace !== undefined) throw invalid(`${r.kind} objects have no namespace`)
+      const change = assertQuery<Change>(r.change)
+      if (change.action !== 'create') assertString(r.name, 'name')
+      if (this.isReadOnly(r.context)) {
+        throw new KubeRequestError(
+          'read-only',
+          `${r.context} is read-only in KubeStacks. Allow changes to it to continue.`,
+        )
+      }
+      const dryRun = r.dryRun === true ? '?dryRun=All' : ''
+      const path = resourcePath(resource, r.namespace, r.name)
+      const send = async (target: string, options: Omit<RequestOptions, 'timeoutMs'>) =>
+        slim(JSON.parse(await this.#request(r.context, target, options)) as KubeObject)
+
+      switch (change.action) {
+        case 'patch': {
+          assertOneOf(change.patchType, 'patchType', Object.keys(PATCH_TYPES))
+          if (change.patchType === 'json') {
+            if (!Array.isArray(change.patch)) throw invalid('A JSON patch must be a list')
+          } else {
+            assertObject(change.patch, 'patch')
+          }
+          return send(`${path}${dryRun}`, {
+            method: 'PATCH',
+            body: change.patch,
+            contentType: PATCH_TYPES[change.patchType],
+          })
+        }
+        case 'replace': {
+          assertObject(change.object, 'object')
+          if (change.object.metadata?.name !== r.name) {
+            throw invalid('The object’s name does not match the one being replaced')
+          }
+          return send(`${path}${dryRun}`, { method: 'PUT', body: change.object })
+        }
+        case 'create': {
+          assertObject(change.object, 'object')
+          const collection = resourcePath(resource, r.namespace)
+          return send(`${collection}${dryRun}`, { method: 'POST', body: change.object })
+        }
+        case 'delete': {
+          if (change.propagation !== undefined) {
+            assertOneOf(change.propagation, 'propagation', PROPAGATION)
+          }
+          if (change.gracePeriodSeconds !== undefined) {
+            assertIntegerInRange(change.gracePeriodSeconds, 'gracePeriodSeconds', 0, 86_400)
+          }
+          await this.#request(r.context, `${path}${dryRun}`, {
+            method: 'DELETE',
+            body: {
+              apiVersion: 'v1',
+              kind: 'DeleteOptions',
+              propagationPolicy: change.propagation,
+              gracePeriodSeconds: change.gracePeriodSeconds,
+            },
+          })
+          return null
+        }
+        case 'evict': {
+          if (r.kind !== 'Pod') throw invalid('Only pods can be evicted')
+          await this.#request(r.context, `${path}/eviction${dryRun}`, {
+            method: 'POST',
+            body: {
+              apiVersion: 'policy/v1',
+              kind: 'Eviction',
+              metadata: { name: r.name, namespace: r.namespace },
+            },
+          })
+          return null
+        }
+        default:
+          throw invalid(`Unknown change "${String((change as { action: unknown }).action)}"`)
+      }
+    })
+  }
+
+  history(query: unknown): Promise<Result<Revision[]>> {
+    return this.#run(async () => {
+      const q = assertQuery<HistoryQuery>(query)
+      assertOneOf(q.kind, 'kind', ROLLOUT_KINDS)
+      assertString(q.namespace, 'namespace')
+      assertString(q.name, 'name')
+      const owner = await this.#getJson<KubeObject>(
+        q.context,
+        resourcePath(resourceByKind(q.kind), q.namespace, q.name),
+      )
+      const ns = `/apis/apps/v1/namespaces/${encodeURIComponent(q.namespace)}`
+      const owned = (item: KubeObject) =>
+        (item.metadata.ownerReferences ?? []).some((ref) => ref.uid === owner.metadata.uid)
+      const changeCause = (item: KubeObject) => item.metadata.annotations?.[CHANGE_CAUSE]
+      let revisions: Revision[]
+      if (q.kind === 'Deployment') {
+        // Only ReplicaSets matching the Deployment's selector can be its own.
+        const selector = Object.entries(owner.spec.selector.matchLabels as Record<string, string>)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(',')
+        const { items } = await this.#listChunks(
+          q.context,
+          `${ns}/replicasets`,
+          new URLSearchParams({ labelSelector: selector }),
+        )
+        const current = owner.metadata.annotations?.[REVISION]
+        revisions = items.filter(owned).map((rs) => {
+          // ReplicaSets always label their pods, and Deployments number their rollouts.
+          const { [TEMPLATE_HASH]: _hash, ...labels } = rs.spec.template.metadata.labels
+          return {
+            revision: Number(rs.metadata.annotations![REVISION]),
+            createdAt: rs.metadata.creationTimestamp!,
+            template: { ...rs.spec.template, metadata: { ...rs.spec.template.metadata, labels } },
+            changeCause: changeCause(rs),
+            current: rs.metadata.annotations![REVISION] === current,
+          }
+        })
+      } else {
+        const { items } = await this.#listChunks(
+          q.context,
+          `${ns}/controllerrevisions`,
+          new URLSearchParams(),
+        )
+        const mine = items.filter(owned)
+        const newest = Math.max(...mine.map((item) => Number(item.revision)))
+        revisions = mine.map((item) => {
+          const { $patch: _patch, ...template } = (
+            item.data as { spec: { template: Revision['template'] & { $patch?: string } } }
+          ).spec.template
+          return {
+            revision: Number(item.revision),
+            createdAt: item.metadata.creationTimestamp!,
+            template,
+            changeCause: changeCause(item),
+            // StatefulSets name the revision they roll out to; DaemonSets roll out their newest.
+            current:
+              q.kind === 'StatefulSet'
+                ? item.metadata.name === owner.status?.updateRevision
+                : Number(item.revision) === newest,
+          }
+        })
+      }
+      return revisions.sort((a, b) => b.revision - a.revision)
+    })
+  }
+
+  /** Asks the API server what the current user may do, one SelfSubjectAccessReview per check. */
+  can(context: unknown, checks: unknown): Promise<Result<boolean[]>> {
+    return this.#run(async () => {
+      assertString(context, 'context')
+      if (!Array.isArray(checks) || checks.length > MAX_ACCESS_CHECKS) {
+        throw invalid(`checks must be a list of at most ${MAX_ACCESS_CHECKS} access checks`)
+      }
+      return Promise.all(
+        checks.map(async (check: unknown) => {
+          const c = assertQuery<AccessCheck>(check)
+          assertOneOf(c.verb, 'verb', VERBS)
+          assertKind(c.kind)
+          optionalString(c.namespace, 'namespace')
+          optionalString(c.name, 'name')
+          optionalString(c.subresource, 'subresource')
+          const resource = resourceByKind(c.kind)
+          const review = JSON.parse(
+            await this.#request(context, ACCESS_REVIEWS, {
+              method: 'POST',
+              body: {
+                apiVersion: 'authorization.k8s.io/v1',
+                kind: 'SelfSubjectAccessReview',
+                spec: {
+                  resourceAttributes: {
+                    verb: c.verb,
+                    group: resource.group,
+                    resource: resource.plural,
+                    subresource: c.subresource,
+                    namespace: c.namespace,
+                    name: c.name,
+                  },
+                },
+              },
+            }),
+          ) as { status?: { allowed?: boolean } }
+          return review.status?.allowed === true
+        }),
+      )
+    })
+  }
+
   async #run<T>(task: () => Promise<T>): Promise<Result<T>> {
     try {
       return { ok: true, data: await task() }
@@ -217,11 +432,19 @@ export class KubeService {
     }
   }
 
-  async #get(context: unknown, path: string): Promise<string> {
+  #get(context: unknown, path: string): Promise<string> {
+    return this.#request(context, path, {})
+  }
+
+  async #request(
+    context: unknown,
+    path: string,
+    options: Omit<RequestOptions, 'timeoutMs'>,
+  ): Promise<string> {
     assertString(context, 'context')
     const kc = this.store.forContext(context)
     await this.envReady
-    return kubeGet(kc, path, { timeoutMs: this.#timeoutMs })
+    return kubeRequest(kc, path, { ...options, timeoutMs: this.#timeoutMs })
   }
 
   async #getJson<T>(context: unknown, path: string): Promise<T> {

@@ -15,8 +15,11 @@ import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { hasHealth, statusOf } from '@renderer/lib/health'
-import { parseRef, type ObjectRef } from '@renderer/lib/routes'
+import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
+import { useActionsUi } from '@renderer/state/actions'
 import { usePrefs } from '@renderer/state/prefs'
+import { ActionBar } from '../actions/ActionSurfaces'
+import { actionsFor } from '../actions/catalog'
 import { CrashView } from '../errors/CrashView'
 import { ErrorBoundary } from '../errors/ErrorBoundary'
 import { EventsTab } from './EventsTab'
@@ -51,6 +54,12 @@ export function DetailPanel() {
 
   useEffect(() => {
     if (value) returnFocus.current ??= document.activeElement
+  }, [value])
+
+  // An edit in progress belongs to the object it was started on: opening another ends it.
+  useEffect(() => {
+    const { editing, edit } = useActionsUi.getState()
+    if (editing && editing !== value) edit(null)
   }, [value])
 
   if (!shown) return null
@@ -142,9 +151,10 @@ function Detail({
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      // Let open menus and dialogs handle Escape first.
+      // Let open menus and dialogs handle Escape first; closing one marks the event handled.
       if (
         event.key === 'Escape' &&
+        !event.defaultPrevented &&
         !document.querySelector(
           '[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]',
         )
@@ -177,6 +187,11 @@ function Detail({
             </h2>
             <CopyButton text={target.name} label="Copy name" />
           </div>
+          {object.data && !gone && actionsFor(object.data).length > 0 && (
+            <div className="mt-2.5">
+              <ActionBar object={object.data} />
+            </div>
+          )}
         </div>
         {object.data && hasHealth(target.kind) && (
           <StatusPill status={statusOf(target.kind, object.data)} className="mt-2.5 shrink-0" />
@@ -214,6 +229,11 @@ function Detail({
 function DetailTabs({ object }: { object: KubeObject }) {
   const kind = object.kind as ResourceKind
   const pods = podQuery(object)
+  const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
+  const editing = useActionsUi((state) => state.editing === ref)
+  const [tab, setTab] = useState('overview')
+  // Editing happens in the YAML tab, and stays there until it's saved or cancelled.
+  if (editing && tab !== 'yaml') setTab('yaml')
   const tabs = [
     { value: 'overview', label: 'Overview' },
     ...(pods ? [{ value: 'pods', label: 'Pods' }] : []),
@@ -223,7 +243,13 @@ function DetailTabs({ object }: { object: KubeObject }) {
   ]
   const content = 'min-h-0 flex-1 animate-fade-in outline-none'
   return (
-    <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
+    <Tabs
+      value={tab}
+      onValueChange={(value) => {
+        if (!editing) setTab(value)
+      }}
+      className="flex min-h-0 flex-1 flex-col"
+    >
       <TabList tabs={tabs} />
       <TabContent value="overview" className={cn(content, 'overflow-y-auto')}>
         <OverviewTab object={object} />

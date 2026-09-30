@@ -240,4 +240,6 @@ const ERROR_LABELS: Record<KubeApiError['code'], string> = {
   'not-found': 'Not found',
   server: 'Server error',
   invalid: 'Misconfigured',
+  conflict: 'Conflict',
+  'read-only': 'Read-only',
 }

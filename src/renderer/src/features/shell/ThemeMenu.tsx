@@ -1,9 +1,8 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Monitor, Moon, Sun } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import type { ThemePreference } from '@shared/api'
 import { IconButton } from '@renderer/components/Button'
-import { api } from '@renderer/lib/api'
+import { useSetTheme, useSettings } from '@renderer/hooks/settings'
 import { menuContent, menuItem } from './menu-styles'
 
 const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
@@ -11,21 +10,6 @@ const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
 ]
-
-export function useSettings() {
-  return useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.app.settings(),
-    staleTime: Infinity,
-  })
-}
-
-export function useSetTheme() {
-  const queryClient = useQueryClient()
-  return async (theme: ThemePreference) => {
-    queryClient.setQueryData(['settings'], await api.app.setTheme(theme))
-  }
-}
 
 export function ThemeMenu() {
   const current = useSettings().data?.theme ?? 'system'

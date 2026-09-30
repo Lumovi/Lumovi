@@ -70,6 +70,16 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
     hint: 'KubeStacks sent a request the cluster could not process.',
     icon: CircleAlert,
   },
+  conflict: {
+    title: 'It changed in the meantime',
+    hint: 'Someone else changed this object. Look at the latest version, then try again.',
+    icon: CircleAlert,
+  },
+  'read-only': {
+    title: 'Changes are turned off',
+    hint: 'This cluster is read-only in KubeStacks.',
+    icon: Lock,
+  },
 }
 
 export function ErrorState({

@@ -9,6 +9,7 @@ import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
+import { ActivityButton } from '../activity/ActivityButton'
 import { NamespacePicker } from './NamespacePicker'
 
 export function Header() {
@@ -57,6 +58,7 @@ export function Header() {
         <Kbd>{MOD_KEY}</Kbd>
         <Kbd>K</Kbd>
       </button>
+      <ActivityButton />
       <IconButton label={`Refresh (${MOD_KEY}R)`} onClick={() => void refresh()}>
         <RotateCw className={cn(refreshing && 'animate-spin [animation-duration:0.8s]')} />
       </IconButton>

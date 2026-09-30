@@ -5,6 +5,8 @@ import {
   Keyboard,
   LayoutDashboard,
   LayoutGrid,
+  Lock,
+  LockOpen,
   LogOut,
   Monitor,
   Moon,
@@ -13,19 +15,22 @@ import {
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router'
 import type { KubeList, KubeObject } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import { RESOURCES, type ResourceKind } from '@shared/resources'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { Kbd } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
-import { useContexts, useList } from '@renderer/hooks/queries'
+import { useContexts, useList, useObject } from '@renderer/hooks/queries'
+import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { matchWords } from '@renderer/lib/match'
-import { clusterPath, formatRef, kindPath } from '@renderer/lib/routes'
+import { clusterPath, formatRef, kindPath, parseRef } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
+import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { useUi } from '@renderer/state/ui'
+import { useObjectActions, useRunAction } from '../actions/use-actions'
 import { CATEGORY_LABELS } from './Sidebar'
-import { useSetTheme } from './ThemeMenu'
 
 const THEMES = [
   { value: 'system', label: 'Use system theme', icon: Monitor },
@@ -60,6 +65,7 @@ export function CommandPalette() {
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/25 backdrop-blur-[2px]" />
         <Dialog.Content
           aria-describedby={undefined}
+          onCloseAutoFocus={keepFocusInActionDialog}
           className="fixed top-[14vh] left-1/2 z-50 w-[640px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
@@ -78,6 +84,8 @@ function Palette({ onDone }: { onDone: () => void }) {
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const objects = useCachedObjects(context)
+  const open = useSearchParams()[0].get('open')
+  const readOnly = useReadOnly()
   const needle = search.trim().toLowerCase()
   const matches =
     needle.length < MIN_OBJECT_QUERY
@@ -101,6 +109,7 @@ function Palette({ onDone }: { onDone: () => void }) {
       />
       <Command.List className="max-h-[420px] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
         <Command.Empty className="py-10 text-center text-ink-3">No matches.</Command.Empty>
+        {open && <ObjectActions open={open} run={run} />}
         {matches.length > 0 && (
           <Command.Group heading="Objects">
             {matches.map((object) => {
@@ -208,6 +217,15 @@ function Palette({ onDone }: { onDone: () => void }) {
               {label}
             </Item>
           ))}
+          {!readOnly.locked && (
+            <Item
+              icon={readOnly.readOnly ? <LockOpen /> : <Lock />}
+              value={readOnly.readOnly ? 'Allow changes' : 'Make read-only'}
+              onSelect={run(() => readOnly.set(!readOnly.readOnly))}
+            >
+              {readOnly.readOnly ? `Allow changes to ${context}` : `Make ${context} read-only`}
+            </Item>
+          )}
         </Command.Group>
       </Command.List>
       <footer className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3">
@@ -229,6 +247,47 @@ function Palette({ onDone }: { onDone: () => void }) {
   )
 }
 
+/** Actions for the object in the detail panel, listed first. */
+function ObjectActions({
+  open,
+  run,
+}: {
+  open: string
+  run: (action: () => unknown) => () => void
+}) {
+  const target = parseRef(open)
+  const object = useObject(target.kind, target.name, target.namespace).data
+  return object ? <ObjectActionItems object={object} run={run} /> : null
+}
+
+function ObjectActionItems({
+  object,
+  run,
+}: {
+  object: KubeObject
+  run: (action: () => unknown) => () => void
+}) {
+  const available = useObjectActions(object)
+  const start = useRunAction()
+  if (available.length === 0) return null
+  return (
+    <Command.Group heading="Actions">
+      {available.map(({ action, disabled }) => (
+        <Item
+          key={action.id}
+          icon={<action.icon />}
+          value={`${action.label} ${object.metadata.name} action`}
+          disabled={disabled !== undefined}
+          hint={<span className="text-xs text-ink-3">{object.metadata.name}</span>}
+          onSelect={run(() => start(action, object))}
+        >
+          {action.label}
+        </Item>
+      ))}
+    </Command.Group>
+  )
+}
+
 function Keys({ keys }: { keys: string[] }) {
   return (
     <span className="flex gap-1">
@@ -244,19 +303,22 @@ function Item({
   hint,
   value,
   onSelect,
+  disabled,
   children,
 }: {
   icon: ReactNode
   hint?: ReactNode
   value: string
   onSelect: () => void
+  disabled?: boolean
   children: ReactNode
 }) {
   return (
     <Command.Item
       value={value}
       onSelect={onSelect}
-      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[selected=true]:bg-surface-3 [&_svg]:size-4 [&_svg]:text-ink-3"
+      disabled={disabled}
+      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[disabled=true]:opacity-45 data-[selected=true]:bg-surface-3 [&_svg]:size-4 [&_svg]:text-ink-3"
     >
       {icon}
       <span className="flex-1 truncate">{children}</span>

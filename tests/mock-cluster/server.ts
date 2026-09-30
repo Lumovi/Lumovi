@@ -1,18 +1,24 @@
 /**
  * A small in-memory Kubernetes API server for end-to-end tests and demos.
  *
- * It speaks enough of the real API for a read-only client: /version, list and
- * get for every kind in the app's resource registry, label and field
- * selectors, the metrics API, and pod logs. Responses mirror the real server's
- * shapes (list kinds, Status errors, gzip) so the app is tested against
- * realistic payloads.
+ * It speaks enough of the real API for the app: /version, list and get for
+ * every kind in the app's resource registry, label and field selectors, the
+ * metrics API and pod logs, and writes — create, replace, the three patch
+ * formats, delete with cascading, eviction, dry runs and access reviews —
+ * with a few controllers simulated so changes play out (see controllers.ts).
+ * Responses mirror the real server's shapes (list kinds, Status errors, gzip)
+ * so the app is tested against realistic payloads.
  */
 import http from 'node:http'
 import https from 'node:https'
 import type { AddressInfo } from 'node:net'
 import { gzipSync } from 'node:zlib'
 import { generate } from 'selfsigned'
+import { parseQuantity } from '../../src/shared/quantity.ts'
 import { RESOURCES, type ResourceDefinition } from '../../src/shared/resources.ts'
+import { suffix } from './builders.ts'
+import { Controllers, type Store } from './controllers.ts'
+import { jsonPatch, mergePatch, PatchError, strategicMergePatch } from './patch.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
 export type Fault = { status: number; body?: string; contentType?: string } | { hang: true }
@@ -24,6 +30,17 @@ export interface RecordedRequest {
   search: string
   query: Record<string, string>
   headers: http.IncomingHttpHeaders
+  /** The parsed JSON body of writes. */
+  body?: Json
+}
+
+/** Access a SelfSubjectAccessReview (and the matching write) is refused; unset fields match anything. */
+export interface AccessRule {
+  verb?: string
+  resource?: string
+  namespace?: string
+  name?: string
+  subresource?: string
 }
 
 export interface MockClusterOptions {
@@ -54,6 +71,10 @@ export interface MockCluster {
   setMetricsAvailable(available: boolean): void
   /** Makes the next `times` requests that carry a `continue` token fail with 410 Gone (expired). */
   expireContinueTokens(times?: number): void
+  /** Denies access, as RBAC would: reviews say no and matching writes fail with 403. */
+  deny(rule: AccessRule): void
+  /** The stored object, as the API server has it now. */
+  object(kind: string, namespace: string | undefined, name: string): KubeObject | undefined
   /** Restores the fixture, clears faults and the request log. */
   reset(): void
   close(): Promise<void>
@@ -108,6 +129,8 @@ const REASONS: Record<number, string> = {
   405: 'MethodNotAllowed',
   409: 'Conflict',
   410: 'Expired',
+  415: 'UnsupportedMediaType',
+  422: 'Invalid',
   429: 'TooManyRequests',
   500: 'InternalError',
   503: 'ServiceUnavailable',
@@ -134,7 +157,22 @@ function groupVersion(def: ResourceDefinition): string {
   return def.group ? `${def.group}/${def.version}` : def.version
 }
 
-const RESOURCE_BY_PATH = new Map(RESOURCES.map((r) => [`${r.group}/${r.version}/${r.plural}`, r]))
+/** Kinds the app reads through dedicated calls rather than browsing (rollout history). */
+const SUPPORT_RESOURCES = [
+  {
+    kind: 'ControllerRevision',
+    plural: 'controllerrevisions',
+    group: 'apps',
+    version: 'v1',
+    namespaced: true,
+    label: 'Controller Revisions',
+    category: 'workloads',
+  },
+] as unknown as ResourceDefinition[]
+
+const RESOURCE_BY_PATH = new Map(
+  [...RESOURCES, ...SUPPORT_RESOURCES].map((r) => [`${r.group}/${r.version}/${r.plural}`, r]),
+)
 
 /** Equality-based label selectors: `a=b`, `a==b`, `a!=b`, `a`, `!a`, comma separated. */
 export function matchesLabels(
@@ -308,6 +346,30 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   let metricsAvailable = true
   let resourceVersion = 0
   let expireContinue = 0
+  const denials: AccessRule[] = []
+
+  const store$: Store = {
+    get: (kind, namespace, name) => store.get(objectKey(kind, namespace, name)),
+    all: (kind, namespace) =>
+      [...store.values()].filter(
+        (o) => o.kind === kind && (namespace === undefined || o.metadata.namespace === namespace),
+      ),
+    put(object) {
+      resourceVersion += 1
+      store.set(objectKey(object.kind, object.metadata.namespace, object.metadata.name), {
+        ...object,
+        metadata: { ...object.metadata, resourceVersion: String(resourceVersion) },
+      })
+    },
+    remove(object) {
+      resourceVersion += 1
+      store.delete(objectKey(object.kind, object.metadata.namespace, object.metadata.name))
+    },
+    get podUsage() {
+      return fixture.metrics?.pods ?? []
+    },
+  }
+  const controllers = new Controllers(store$)
 
   function load(): void {
     fixture = options.fixture()
@@ -324,6 +386,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     expireContinue = 0
     faults.length = 0
     requests.length = 0
+    denials.length = 0
   }
   load()
 
@@ -513,6 +576,334 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       .join('')
   }
 
+  function denied(attributes: AccessRule): boolean {
+    return denials.some((rule) =>
+      Object.entries(rule).every(([key, value]) => attributes[key as keyof AccessRule] === value),
+    )
+  }
+
+  /** Checks a stored-to-be object like the API server's validation does. */
+  function validate(def: ResourceDefinition, object: KubeObject, existing?: KubeObject): void {
+    const name = object.metadata.name
+    const resource = def.group ? `${def.kind}.${def.group}` : def.kind
+    const fail = (field: string, message: string) => {
+      throw new HttpError(422, `${resource} "${name}" is invalid: ${field}: ${message}`)
+    }
+    if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || name.length > 253) {
+      fail(
+        'metadata.name',
+        `Invalid value: "${name}": a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character`,
+      )
+    }
+    const replicas = object.spec?.replicas
+    if (['Deployment', 'StatefulSet', 'ReplicaSet'].includes(def.kind) && replicas !== undefined) {
+      if (!Number.isInteger(replicas) || replicas < 0) {
+        fail('spec.replicas', `Invalid value: ${replicas}: must be greater than or equal to 0`)
+      }
+    }
+    const containers: Json[] | undefined =
+      object.spec?.template?.spec?.containers ??
+      object.spec?.jobTemplate?.spec?.template?.spec?.containers
+    containers?.forEach((container, i) => {
+      if (!container.image) fail(`spec.template.spec.containers[${i}].image`, 'Required value')
+    })
+    if (def.kind === 'HorizontalPodAutoscaler') {
+      const { minReplicas = 1, maxReplicas } = object.spec
+      if (minReplicas < 1) {
+        fail(
+          'spec.minReplicas',
+          `Invalid value: ${minReplicas}: must be greater than or equal to 1`,
+        )
+      }
+      if (maxReplicas < minReplicas) {
+        fail(
+          'spec.maxReplicas',
+          `Invalid value: ${maxReplicas}: must be greater than or equal to \`minReplicas\``,
+        )
+      }
+    }
+    if (def.kind === 'PersistentVolumeClaim' && existing) {
+      const before = parseQuantity(existing.spec.resources?.requests?.storage)
+      const after = parseQuantity(object.spec.resources?.requests?.storage)
+      if (after < before) {
+        fail(
+          'spec.resources.requests.storage',
+          'Forbidden: field can not be less than status.capacity',
+        )
+      }
+    }
+  }
+
+  const specOf = (object: KubeObject) => JSON.stringify({ spec: object.spec, data: object.data })
+
+  /** Finishes an object for storage: server-owned fields come from the stored version. */
+  function prepare(
+    def: ResourceDefinition,
+    object: KubeObject,
+    existing: KubeObject | undefined,
+    namespace: string | undefined,
+  ): KubeObject {
+    if (object.kind !== undefined && object.kind !== def.kind) {
+      throw new HttpError(
+        400,
+        `the kind of the object (${object.kind}) does not match the URL (${def.kind})`,
+      )
+    }
+    const generation = Number(existing?.metadata.generation ?? 1)
+    const owned = {
+      namespace: def.namespaced ? namespace : undefined,
+      uid: existing?.metadata.uid ?? crypto.randomUUID(),
+      generation: existing && specOf(existing) !== specOf(object) ? generation + 1 : generation,
+      creationTimestamp:
+        existing?.metadata.creationTimestamp ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    }
+    const prepared: KubeObject = {
+      ...object,
+      apiVersion: groupVersion(def),
+      kind: def.kind,
+      metadata: {
+        // Fields in the order the API server writes them; it owns their values.
+        ...{
+          name: '',
+          namespace: '',
+          uid: '',
+          resourceVersion: '',
+          generation: 0,
+          creationTimestamp: '',
+        },
+        ...object.metadata,
+        ...owned,
+      },
+      // Status belongs to controllers; writes to the main resource can't change it.
+      status: existing ? existing.status : (object.status ?? {}),
+    }
+    delete prepared.metadata.managedFields
+    validate(def, prepared, existing)
+    return prepared
+  }
+
+  function save(object: KubeObject, dryRun: boolean): KubeObject {
+    if (dryRun)
+      return {
+        ...object,
+        metadata: { ...object.metadata, resourceVersion: String(resourceVersion) },
+      }
+    store$.put(object)
+    controllers.changed(object)
+    return store$.get(object.kind, object.metadata.namespace, object.metadata.name)!
+  }
+
+  /** Deletes an object and, unless orphaned, everything it owns. */
+  function remove(object: KubeObject, propagation: string): void {
+    store$.remove(object)
+    for (const dependent of [...store.values()]) {
+      const owned = (dependent.metadata.ownerReferences ?? []).some(
+        (ref: Json) => ref.uid === object.metadata.uid,
+      )
+      if (!owned) continue
+      if (propagation === 'Orphan') {
+        store$.put({
+          ...dependent,
+          metadata: {
+            ...dependent.metadata,
+            ownerReferences: dependent.metadata.ownerReferences!.filter(
+              (ref: Json) => ref.uid !== object.metadata.uid,
+            ),
+          },
+        })
+      } else {
+        remove(dependent, propagation)
+      }
+    }
+    controllers.deleted(object)
+  }
+
+  const PATCHES: Record<string, (target: Json, patch: Json) => Json> = {
+    'application/merge-patch+json': mergePatch,
+    'application/strategic-merge-patch+json': strategicMergePatch,
+    'application/json-patch+json': jsonPatch,
+  }
+
+  function write(
+    method: string,
+    pathname: string,
+    query: URLSearchParams,
+    body: Json,
+    contentType: string,
+  ): { status: number; body: Json } {
+    if (
+      method === 'POST' &&
+      pathname === '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews'
+    ) {
+      const attributes = body?.spec?.resourceAttributes ?? {}
+      const allowed = !denied(attributes)
+      return {
+        status: 201,
+        body: {
+          ...body,
+          status: allowed
+            ? { allowed: true, reason: 'RBAC: allowed' }
+            : { allowed: false, reason: 'no RBAC policy matched' },
+        },
+      }
+    }
+    const { def, namespace, name, subresource } = resolve(pathname)
+    const dryRun = query.get('dryRun') === 'All'
+    const plural = def.group ? `${def.plural}.${def.group}` : def.plural
+    const verb = { POST: 'create', PUT: 'update', PATCH: 'patch', DELETE: 'delete' }[method]!
+    if (
+      denied({ verb, resource: def.plural, namespace, name, subresource }) ||
+      denied({ verb, resource: def.plural, namespace, subresource })
+    ) {
+      const target = name ? `${plural} "${name}"` : plural
+      throw new HttpError(
+        403,
+        `${target} is forbidden: User "kubestacks-demo" cannot ${verb} resource "${def.plural}${subresource ? `/${subresource}` : ''}" in API group "${def.group}"${namespace ? ` in the namespace "${namespace}"` : ''}`,
+      )
+    }
+    const existing = name ? get(def, namespace, name) : undefined
+
+    if (method === 'POST' && subresource === 'eviction' && def.kind === 'Pod') {
+      if (!dryRun) remove(existing!, 'Background')
+      return {
+        status: 201,
+        body: { kind: 'Status', apiVersion: 'v1', metadata: {}, status: 'Success', code: 201 },
+      }
+    }
+    if (subresource !== undefined) throw notFoundPath()
+
+    if (method === 'POST' && name === undefined) {
+      const generated = body?.metadata?.generateName
+        ? `${body.metadata.generateName}${suffix(crypto.randomUUID())}`
+        : undefined
+      const objectName: string | undefined = body?.metadata?.name ?? generated
+      if (!objectName) {
+        throw new HttpError(
+          422,
+          `${def.kind} "" is invalid: metadata.name: Required value: name or generateName is required`,
+        )
+      }
+      if (store$.get(def.kind, namespace, objectName)) {
+        throw new HttpError(409, `${plural} "${objectName}" already exists`)
+      }
+      const object = prepare(
+        def,
+        { ...body, metadata: { ...body.metadata, name: objectName } },
+        undefined,
+        namespace,
+      )
+      if (def.kind === 'Job' && !object.spec?.selector) {
+        // Like the API server: a Job selects its pods by its own uid.
+        const uid = object.metadata.uid!
+        const labels = {
+          'batch.kubernetes.io/controller-uid': uid,
+          'batch.kubernetes.io/job-name': objectName,
+          'controller-uid': uid,
+          'job-name': objectName,
+        }
+        object.spec.selector = { matchLabels: { 'batch.kubernetes.io/controller-uid': uid } }
+        object.spec.template.metadata = {
+          ...object.spec.template.metadata,
+          labels: { ...object.spec.template.metadata?.labels, ...labels },
+        }
+      }
+      return { status: 201, body: save(object, dryRun) }
+    }
+    if (method === 'PUT' && existing) {
+      if (body?.metadata?.name !== name) {
+        throw new HttpError(
+          400,
+          `the name of the object (${body?.metadata?.name}) does not match the name on the URL (${name})`,
+        )
+      }
+      const version = body.metadata.resourceVersion
+      if (version && version !== existing.metadata.resourceVersion) {
+        throw new HttpError(
+          409,
+          `Operation cannot be fulfilled on ${plural} "${name}": the object has been modified; please apply your changes to the latest version and try again`,
+        )
+      }
+      return { status: 200, body: save(prepare(def, body, existing, namespace), dryRun) }
+    }
+    if (method === 'PATCH' && existing) {
+      const apply = PATCHES[contentType]
+      if (!apply) {
+        throw new HttpError(
+          415,
+          `the body of the request was in an unknown format - accepted media types include: ${Object.keys(PATCHES).join(', ')}`,
+        )
+      }
+      let patched: Json
+      try {
+        patched = apply(existing, body)
+      } catch (error) {
+        if (error instanceof PatchError) throw new HttpError(422, error.message)
+        throw error
+      }
+      return { status: 200, body: save(prepare(def, patched, existing, namespace), dryRun) }
+    }
+    if (method === 'DELETE' && existing) {
+      const propagation: string = body?.propagationPolicy ?? 'Background'
+      if (!dryRun) {
+        if (def.kind === 'Namespace') {
+          // Namespaces terminate: everything in them goes first.
+          store$.put({
+            ...existing,
+            metadata: {
+              ...existing.metadata,
+              deletionTimestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+            },
+            status: { ...existing.status, phase: 'Terminating' },
+          })
+          controllers.schedule(() => {
+            for (const object of [...store.values()]) {
+              if (object.metadata.namespace === name) store$.remove(object)
+            }
+            const terminating = store$.get('Namespace', undefined, name!)
+            if (terminating) store$.remove(terminating)
+          })
+        } else {
+          remove(existing, propagation)
+        }
+      }
+      return {
+        status: 200,
+        body: {
+          kind: 'Status',
+          apiVersion: 'v1',
+          metadata: {},
+          status: 'Success',
+          details: { name, kind: def.plural, uid: existing.metadata.uid },
+        },
+      }
+    }
+    throw new HttpError(405, 'the server does not allow this method on the requested resource')
+  }
+
+  /** The resource, namespace, name and subresource a path names; 404 if it names none. */
+  function resolve(pathname: string): {
+    def: ResourceDefinition
+    namespace?: string
+    name?: string
+    subresource?: string
+  } {
+    const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const [group, version, rest] =
+      parts[0] === 'api'
+        ? ['', parts[1], parts.slice(2)]
+        : parts[0] === 'apis'
+          ? [parts[1] ?? '', parts[2], parts.slice(3)]
+          : ['', undefined, []]
+    const namespaced = rest[0] === 'namespaces' && rest.length >= 3
+    const namespace = namespaced ? rest[1] : undefined
+    const [plural, name, subresource, ...extra] = namespaced ? rest.slice(2) : rest
+    const def = RESOURCE_BY_PATH.get(`${group}/${version}/${plural}`)
+    if (!def || extra.length > 0) throw notFoundPath()
+    if (namespaced && !def.namespaced) throw notFoundPath()
+    if (name !== undefined && def.namespaced && !namespaced) throw notFoundPath()
+    return { def, namespace, name, subresource }
+  }
+
   function route(pathname: string, query: URLSearchParams): { body: Json; contentType?: string } {
     if (pathname === '/version' || pathname === '/version/') {
       const [, major = '1', minor = '34'] = gitVersion.match(/^v(\d+)\.(\d+)/) ?? []
@@ -534,31 +925,14 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
     const discovery = discoveryDocument(pathname, Boolean(fixture.metrics && metricsAvailable))
     if (discovery) return { body: discovery }
-    const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    let group: string
-    let version: string | undefined
-    let rest: string[]
-    if (parts[0] === 'api') {
-      group = ''
-      version = parts[1]
-      rest = parts.slice(2)
-    } else if (parts[0] === 'apis') {
-      group = parts[1] ?? ''
-      version = parts[2]
-      rest = parts.slice(3)
-    } else {
-      throw notFoundPath()
+    const metricsPrefix = `/apis/${METRICS_GROUP}/v1beta1/`
+    if (pathname.startsWith(metricsPrefix)) {
+      return {
+        body: metrics(pathname.slice(metricsPrefix.length).split('/').filter(Boolean)),
+      }
     }
-    if (group === METRICS_GROUP && version === 'v1beta1') return { body: metrics(rest) }
-
-    const namespaced = rest[0] === 'namespaces' && rest.length >= 3
-    const namespace = namespaced ? rest[1] : undefined
-    const [plural, name, subresource, ...extra] = namespaced ? rest.slice(2) : rest
-    const def = RESOURCE_BY_PATH.get(`${group}/${version}/${plural}`)
-    if (!def || extra.length > 0) throw notFoundPath()
-    if (namespaced && !def.namespaced) throw notFoundPath()
+    const { def, namespace, name, subresource } = resolve(pathname)
     if (name === undefined) return { body: list(def, namespace, query) }
-    if (def.namespaced && !namespaced) throw notFoundPath()
     if (subresource === undefined) {
       const object = get(def, namespace, name)
       return {
@@ -597,13 +971,26 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   }
 
   function handle(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => respond(req, res, Buffer.concat(chunks).toString('utf8')))
+  }
+
+  function respond(req: http.IncomingMessage, res: http.ServerResponse, raw: string): void {
     const url = new URL(req.url ?? '/', 'http://mock')
+    let body: Json
+    try {
+      body = raw ? JSON.parse(raw) : undefined
+    } catch {
+      body = raw
+    }
     requests.push({
       method: req.method ?? 'GET',
       path: url.pathname,
       search: url.search.slice(1),
       query: Object.fromEntries(url.searchParams),
       headers: req.headers,
+      ...(raw ? { body } : {}),
     })
     const json = (status: number, body: Json) =>
       send(req, res, status, JSON.stringify(body), 'application/json')
@@ -650,21 +1037,18 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       send(req, res, fault.status, body, fault.contentType ?? 'application/json')
       return
     }
-    if (req.method !== 'GET') {
-      json(
-        405,
-        statusBody(
-          405,
-          'MethodNotAllowed',
-          'the server does not allow this method on the requested resource',
-        ),
-      )
-      return
-    }
     try {
-      const { body, contentType } = route(url.pathname, url.searchParams)
-      if (typeof body === 'string') send(req, res, 200, body, contentType ?? 'text/plain')
-      else json(200, body)
+      if (req.method !== 'GET') {
+        const contentType = String(req.headers['content-type'] ?? '')
+          .split(';')[0]!
+          .trim()
+        const result = write(req.method!, url.pathname, url.searchParams, body, contentType)
+        json(result.status, result.body)
+        return
+      }
+      const { body: response, contentType } = route(url.pathname, url.searchParams)
+      if (typeof response === 'string') send(req, res, 200, response, contentType ?? 'text/plain')
+      else json(200, response)
     } catch (error) {
       if (error instanceof HttpError) json(error.status, error.body)
       else json(500, statusBody(500, 'InternalError', (error as Error).message))
@@ -725,11 +1109,17 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     expireContinueTokens(times = 1) {
       expireContinue = times
     },
+    deny(rule) {
+      denials.push(rule)
+    },
+    object: (kind, namespace, name) => store$.get(kind, namespace, name),
     reset() {
       for (const res of pending) res.destroy()
+      controllers.stop()
       load()
     },
     close() {
+      controllers.stop()
       for (const res of pending) res.destroy()
       server.closeAllConnections()
       return new Promise<void>((resolve) => server.close(() => resolve()))

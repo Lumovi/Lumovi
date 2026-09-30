@@ -6,14 +6,20 @@ import { KubeRequestError, statusError } from './errors'
 
 export interface RequestOptions {
   timeoutMs: number
+  /** GET unless set. */
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  /** Sent as JSON. */
+  body?: unknown
+  /** The body's media type; JSON unless set (patches have their own). */
+  contentType?: string
 }
 
 /**
- * Performs a GET against the cluster behind `kc`'s current context and
- * resolves with the response body. Non-2xx responses reject with a
+ * Sends a request to the cluster behind `kc`'s current context and resolves
+ * with the response body. Non-2xx responses reject with a
  * `KubeRequestError`; transport failures reject with the underlying error.
  */
-export async function kubeGet(
+export async function kubeRequest(
   kc: KubeConfig,
   path: string,
   options: RequestOptions,
@@ -28,10 +34,21 @@ export async function kubeGet(
       'This cluster uses plain HTTP. Set "insecure-skip-tls-verify: true" on it in your kubeconfig to allow unencrypted connections.',
     )
   }
+  const payload =
+    options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body), 'utf8')
   const request: https.RequestOptions = {
-    method: 'GET',
+    method: options.method ?? 'GET',
     // Like kubectl: JSON for API objects, anything for subresources such as pod logs.
-    headers: { Accept: 'application/json, */*', 'Accept-Encoding': 'gzip' },
+    headers: {
+      Accept: 'application/json, */*',
+      'Accept-Encoding': 'gzip',
+      ...(payload
+        ? {
+            'Content-Type': options.contentType ?? 'application/json',
+            'Content-Length': payload.length,
+          }
+        : {}),
+    },
   }
   try {
     await kc.applyToHTTPSOptions(request)
@@ -71,6 +88,6 @@ export async function kubeGet(
       )
     })
     req.on('error', reject)
-    req.end()
+    req.end(payload)
   })
 }

@@ -15,6 +15,7 @@ const api: KubestacksApi = {
     info: () => invoke(IPC.appInfo),
     settings: () => invoke(IPC.settings),
     setTheme: (theme) => invoke(IPC.setTheme, theme),
+    setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
     openExternal: (url) => invoke(IPC.openExternal, url),
   },
   kube: {
@@ -24,6 +25,9 @@ const api: KubestacksApi = {
     get: (query) => invoke(IPC.get, query),
     metrics: (query) => invoke(IPC.metrics, query),
     logs: (query) => invoke(IPC.logs, query),
+    change: (request) => invoke(IPC.change, request),
+    can: (context, checks) => invoke(IPC.can, context, checks),
+    history: (query) => invoke(IPC.history, query),
   },
 }
 
