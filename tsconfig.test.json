@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
+  "include": [
+    "tests/**/*",
+    "scripts/**/*",
+    "playwright.config.ts",
+    "src/shared/**/*",
+    "src/preload/api.d.ts"
+  ]
+}

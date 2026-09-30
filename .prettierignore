@@ -1,0 +1,10 @@
+node_modules
+out
+dist
+release
+coverage
+.nyc_output
+test-results
+playwright-report
+blob-report
+package-lock.json
