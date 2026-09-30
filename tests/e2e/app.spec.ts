@@ -74,6 +74,11 @@ test('a second launch focuses the running window instead', async ({ kubestacks, 
       app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isMinimized()),
     )
     .toBe(false)
+  // A window that is already open just gets focused.
+  await app.evaluate(({ app }) => app.emit('second-instance'))
+  expect(
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isMinimized()),
+  ).toBe(false)
 })
 
 test('closing the window quits the app', async ({ kubestacks }) => {
