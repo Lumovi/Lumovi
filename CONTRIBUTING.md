@@ -13,7 +13,7 @@ Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 ## Setting up
 
 ```sh
-nvm use          # Node.js 24 (22.18+ also works)
+nvm use          # Node.js 26 (24 also works)
 npm ci
 npm run dev:mock # runs the app against the built-in demo clusters
 ```
