@@ -5,6 +5,18 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      # Types track the Node.js line the app and tooling run on (24 LTS).
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # electron-vite supports Vite 7; move these together when it supports the next major.
+      - dependency-name: 'vite'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@vitejs/plugin-react'
+        update-types: ['version-update:semver-major']
+      # typescript-eslint supports TypeScript up to 6.0.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
     groups:
       react:
         patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
