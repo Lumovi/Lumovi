@@ -1,0 +1,39 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+      build-tooling:
+        patterns:
+          ['vite', 'electron-vite', '@vitejs/*', 'tailwindcss', '@tailwindcss/*', 'typescript']
+      lint:
+        patterns:
+          [
+            'eslint',
+            '@eslint/*',
+            'typescript-eslint',
+            'eslint-plugin-*',
+            'prettier',
+            'prettier-plugin-*',
+            'globals',
+          ]
+      ui:
+        patterns:
+          [
+            'radix-ui',
+            'cmdk',
+            'lucide-react',
+            '@tanstack/*',
+            'zustand',
+            'react-router',
+            '@fontsource-variable/*',
+          ]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
