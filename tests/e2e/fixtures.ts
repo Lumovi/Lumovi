@@ -14,6 +14,7 @@ import {
   test as base,
   type ElectronApplication,
   type Page,
+  type TestInfo,
 } from '@playwright/test'
 import { CONTEXTS, startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
 
@@ -168,6 +169,38 @@ interface Fixtures {
 }
 
 /**
+ * Starts CPU profiles of the app's main process and page; the returned
+ * function saves them next to the test's other output.
+ */
+async function profile({ app, page }: KubeStacks, testInfo: TestInfo, i: number) {
+  await app.evaluate(() => {
+    const { Session } = process.getBuiltinModule('node:inspector')
+    const session = new Session()
+    session.connect()
+    session.post('Profiler.enable')
+    session.post('Profiler.start')
+    Object.assign(globalThis, { __kubestacksProfiler__: session })
+  })
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Profiler.enable')
+  await cdp.send('Profiler.start')
+  return async () => {
+    const main = await app.evaluate(
+      () =>
+        new Promise<string>((resolve) => {
+          const { __kubestacksProfiler__: session } = globalThis as unknown as {
+            __kubestacksProfiler__: import('node:inspector').Session
+          }
+          session.post('Profiler.stop', (_error, result) => resolve(JSON.stringify(result.profile)))
+        }),
+    )
+    writeFileSync(testInfo.outputPath(`main-${i}.cpuprofile`), main)
+    const { profile } = await cdp.send('Profiler.stop')
+    writeFileSync(testInfo.outputPath(`page-${i}.cpuprofile`), JSON.stringify(profile))
+  }
+}
+
+/**
  * Writes what a failed CI test left behind: the windows' state and the mock
  * clusters' last requests with their timing, to tell a slow cluster from a stuck app.
  */
@@ -238,14 +271,21 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     const launched: KubeStacks[] = []
     // On CI, failures keep a trace (DOM snapshots, actions, console) to see what happened.
     const trace = Boolean(process.env.CI)
+    const profiles: (() => Promise<void>)[] = []
     await use(async (options) => {
       const instance = await launchApp(clusters, options)
-      if (trace) await instance.app.context().tracing.start({ screenshots: true, snapshots: true })
+      if (trace) {
+        await instance.app.context().tracing.start({ screenshots: true, snapshots: true })
+        profiles.push(await profile(instance, testInfo, launched.length))
+      }
       launched.push(instance)
       return instance
     })
     const failed = testInfo.status !== testInfo.expectedStatus
-    if (trace && failed) await diagnose(testInfo.outputPath('diagnostics.txt'), clusters, launched)
+    if (trace && failed) {
+      await diagnose(testInfo.outputPath('diagnostics.txt'), clusters, launched)
+      for (const save of profiles) await save().catch(() => undefined)
+    }
     for (const [i, instance] of launched.entries()) {
       if (trace) {
         const path = failed ? testInfo.outputPath(`trace-${i}.zip`) : undefined
