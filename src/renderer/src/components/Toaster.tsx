@@ -23,7 +23,10 @@ export function Toaster() {
 
 function ToastCard({ toast }: { toast: Toast }) {
   const dismiss = useToasts((state) => state.dismiss)
-  const [paused, setPaused] = useState(false)
+  // A toast stays while it's pointed at or has focus (say, on its Undo button).
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const paused = hovered || focused
   const [leaving, setLeaving] = useState(false)
 
   useEffect(() => {
@@ -36,8 +39,13 @@ function ToastCard({ toast }: { toast: Toast }) {
   return (
     <div
       role={toast.tone === 'error' ? 'alert' : 'status'}
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      data-paused={paused || undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
+      }}
       onAnimationEnd={() => {
         if (leaving) dismiss(toast.id)
       }}

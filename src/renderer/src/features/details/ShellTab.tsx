@@ -121,6 +121,18 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   )
 }
 
+/**
+ * Ready to type once connected: focus the terminal unless focus has moved out of
+ * the panel, or the tabs are being browsed with the keyboard (arrows would get
+ * stuck). Focus is on the body when what had it went away, like Reconnect.
+ */
+function takeFocus(host: HTMLElement, term: Terminal) {
+  const active = document.activeElement!
+  const browsing = active.getAttribute('role') === 'tab' && active.matches(':focus-visible')
+  const here = active === document.body || host.closest('aside')!.contains(active)
+  if (here && !browsing) term.focus()
+}
+
 function Session({
   request,
   pod,
@@ -148,7 +160,6 @@ function Session({
     term.loadAddon(fit)
     term.open(host.current!)
     fit.fit()
-    term.focus()
     let open = false
     const offData = api.terminal.onData((session, data) => {
       if (session === id) term.write(data)
@@ -175,6 +186,7 @@ function Session({
       open = true
       setPhase({ state: 'open' })
       api.terminal.resize(id, term.cols, term.rows)
+      takeFocus(host.current!, term)
     })
     return () => {
       observer.disconnect()
