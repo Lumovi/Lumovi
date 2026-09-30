@@ -104,6 +104,25 @@ test('a shell in a container', async ({ page, clusters }) => {
   await expect(detail.getByRole('status')).toContainText('The connection to the container closed.')
 })
 
+test('an opened shell is ready to type, unless tabs are browsed by keyboard', async ({ page }) => {
+  await open(page, 'Pods', POD)
+  const detail = panel(page, 'Pod', POD)
+  // Arrowing through the tabs passes over the shell instead of getting stuck in it.
+  await detail.getByRole('tab', { name: 'Logs' }).click()
+  await page.keyboard.press('ArrowRight')
+  await expect(screen(page)).toContainText(`root@${POD}:/#`)
+  await expect(detail.getByRole('tab', { name: 'Shell' })).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(detail.getByRole('tab', { name: 'Events' })).toBeFocused()
+
+  // Clicking the tab goes straight to the prompt.
+  await detail.getByRole('tab', { name: 'Shell' }).click()
+  await expect(screen(page)).toContainText(`root@${POD}:/#`)
+  await page.keyboard.type('whoami')
+  await page.keyboard.press('Enter')
+  await expect(screen(page)).toContainText(/whoami\s*root/)
+})
+
 test('when a shell can’t run', async ({ page, clusters }) => {
   // No shell in the image: a debug container can help.
   const metrics = DEMO.pods.metricsServer[0]!

@@ -59,10 +59,12 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
 - **Light and dark.** Follows your system, or pick one. Native window controls match.
 
-|                                         |                                                                |
-| --------------------------------------- | -------------------------------------------------------------- |
-| ![Pods](docs/screenshots/pods-dark.png) | ![Pod details](docs/screenshots/pod-light.png)                 |
-| ![Logs](docs/screenshots/logs-dark.png) | ![Overview in light mode](docs/screenshots/overview-light.png) |
+|                                                          |                                                                |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| ![Pods](docs/screenshots/pods-dark.png)                  | ![Pod details](docs/screenshots/pod-light.png)                 |
+| ![A shell in a pod](docs/screenshots/shell-dark.png)     | ![Scaling a deployment](docs/screenshots/scale-light.png)      |
+| ![Several pods selected](docs/screenshots/bulk-dark.png) | ![Create from YAML](docs/screenshots/create-light.png)         |
+| ![Logs](docs/screenshots/logs-dark.png)                  | ![Overview in light mode](docs/screenshots/overview-light.png) |
 
 ## Install
 

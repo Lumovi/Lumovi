@@ -43,13 +43,13 @@ async function openDemo(page: Page) {
   await page.getByRole('heading', { level: 1, name: 'Overview' }).waitFor()
 }
 
-/** Opens a row by clicking its first cell (other cells may hold links). */
+const row = (page: Page, text: string) => page.getByRole('row').filter({ hasText: text }).first()
+
+/** Opens a row by clicking its name (other cells may hold links or its checkbox). */
 async function openRow(page: Page, text: string) {
-  await page
-    .getByRole('row')
-    .filter({ hasText: text })
-    .first()
+  await row(page, text)
     .getByRole('gridcell')
+    .filter({ hasNot: page.getByRole('checkbox') })
     .first()
     .click()
 }
@@ -91,6 +91,46 @@ for (const theme of ['dark', 'light'] as const) {
     await page.getByRole('tab', { name: 'YAML' }).click()
     await page.waitForTimeout(500)
     await page.screenshot({ path: file('yaml') })
+
+    // A shell in a running container.
+    await page.getByPlaceholder('Filter pods').fill(DEMO.pods.storefront[0]!)
+    await openRow(page, DEMO.pods.storefront[0]!)
+    await page.getByRole('tab', { name: 'Shell' }).click()
+    await page.waitForTimeout(800)
+    for (const command of ['hostname', 'whoami', 'pwd', 'ls']) {
+      await page.keyboard.type(command)
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(250)
+    }
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: file('shell') })
+    // Escape belongs to the shell, so close the panel with its button.
+    await page.getByRole('button', { name: 'Close (Esc)' }).click()
+    await page.getByPlaceholder('Filter pods').fill('')
+
+    // Several pods picked at once.
+    await page.waitForTimeout(400)
+    for (const pod of DEMO.pods.checkout) {
+      await row(page, pod).getByRole('checkbox').click()
+    }
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: file('bulk') })
+    await page.getByRole('button', { name: 'Clear selection' }).click()
+
+    await nav(page, 'Deployments')
+    await openRow(page, DEMO.deployments.storefront)
+    await page.waitForTimeout(600)
+    await page.getByRole('button', { name: 'Scale', exact: true }).click()
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('ArrowUp')
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: file('scale') })
+    await page.keyboard.press('Escape')
+
+    await page.keyboard.press('ControlOrMeta+n')
+    await page.waitForTimeout(600)
+    await page.screenshot({ path: file('create') })
+    await page.keyboard.press('Escape')
 
     await nav(page, 'Nodes')
     await page.keyboard.press('ControlOrMeta+k')
