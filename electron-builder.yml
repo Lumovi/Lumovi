@@ -1,0 +1,59 @@
+# Packaging for macOS, Windows and Linux. See https://www.electron.build/configuration
+appId: io.github.kotapeter.kubestacks
+productName: KubeStacks
+copyright: Copyright © 2026 KubeStacks contributors
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+directories:
+  buildResources: build
+  output: release
+
+files:
+  - out/**/*
+  - '!out/**/*.map'
+  - package.json
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  entitlementsInherit: build/entitlements.mac.plist
+  # Signing and notarization are enabled when CSC_LINK / APPLE_* secrets are configured.
+  notarize: false
+
+dmg:
+  writeUpdateInfo: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+linux:
+  executableName: kubestacks
+  category: Development
+  synopsis: A beautiful, read-only Kubernetes cluster viewer
+  maintainer: KubeStacks contributors
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+    - target: rpm
+      arch: [x64]
+
+publish:
+  provider: github
+  owner: kotapeter
+  repo: kubestacks
+  releaseType: draft

@@ -1,0 +1,96 @@
+{
+  "name": "kubestacks",
+  "productName": "KubeStacks",
+  "version": "0.1.0",
+  "description": "A beautiful, fast, read-only Kubernetes cluster viewer for the desktop.",
+  "keywords": [
+    "kubernetes",
+    "k8s",
+    "desktop",
+    "electron",
+    "dashboard",
+    "cluster"
+  ],
+  "homepage": "https://github.com/kotapeter/kubestacks#readme",
+  "bugs": {
+    "url": "https://github.com/kotapeter/kubestacks/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kotapeter/kubestacks.git"
+  },
+  "license": "Apache-2.0",
+  "author": "KubeStacks contributors",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:mock": "node scripts/dev-mock.ts",
+    "mock-cluster": "node tests/mock-cluster/cli.ts",
+    "build": "electron-vite build",
+    "build:coverage": "cross-env KUBESTACKS_COVERAGE=true electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:e2e": "npm run build:coverage && playwright test",
+    "coverage": "npm run test:e2e && nyc report",
+    "coverage:report": "nyc report",
+    "coverage:check": "node scripts/check-coverage.ts",
+    "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run coverage"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^2.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.104.0",
+    "@tanstack/react-virtual": "^3.14.13",
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/istanbul-lib-instrument": "^1.7.8",
+    "@types/node": "^24.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "cross-env": "^10.1.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "istanbul-lib-instrument": "^6.0.3",
+    "lucide-react": "^1.49.0",
+    "nyc": "^18.0.0",
+    "prettier": "^3.9.9",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "radix-ui": "^1.6.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0",
+    "selfsigned": "^5.5.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0",
+    "typescript-eslint": "^8.71.0",
+    "vite": "^7.3.6",
+    "yaml": "^2.9.1",
+    "zustand": "^5.0.15"
+  },
+  "allowScripts": {
+    "electron-winstaller": true,
+    "esbuild": true
+  }
+}
