@@ -78,6 +78,8 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: KubeError }
 
 export interface ObjectMeta {
   name: string
+  /** For objects being created: the API server appends a random suffix. */
+  generateName?: string
   namespace?: string
   uid?: string
   creationTimestamp?: string

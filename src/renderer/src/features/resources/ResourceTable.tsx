@@ -21,6 +21,8 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 import type { CellContext, Column } from './columns'
 
 const ROW_HEIGHT = 46
+/** The checkbox column of tables that can pick rows. */
+const PICK_WIDTH = 40
 /** Rows skipped by PageUp/PageDown. */
 const PAGE_JUMP = 10
 
@@ -68,6 +70,8 @@ export function ResourceTable({
   onPage,
   followSelection = false,
   resetKey,
+  picked,
+  onPick,
 }: {
   ref?: Ref<HTMLDivElement>
   label: string
@@ -84,6 +88,9 @@ export function ResourceTable({
   followSelection?: boolean
   /** Changes when a different page is shown: selection and scroll start over. */
   resetKey?: string | number
+  /** Rows picked for bulk actions, by object key; the table shows checkboxes when set. */
+  picked?: ReadonlySet<string>
+  onPick?: (keys: Set<string>) => void
 }) {
   const id = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -96,6 +103,8 @@ export function ResourceTable({
   }
   const [width, setWidth] = useState(Infinity)
   const [menuRow, setMenuRow] = useState<KubeObject | null>(null)
+  // Shift-click picks everything from the row picked last.
+  const [anchor, setAnchor] = useState(-1)
 
   useEffect(() => {
     scrollRef.current!.scrollTo({ top: 0 })
@@ -106,7 +115,8 @@ export function ResourceTable({
     observer.observe(scrollRef.current!)
     return () => observer.disconnect()
   }, [])
-  const visible = fitColumns(columns, width)
+  const selectable = onPick !== undefined
+  const visible = fitColumns(columns, width - (selectable ? PICK_WIDTH : 0))
   // The React Compiler is not used, so the virtualizer's unmemoizable API is fine here.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -116,8 +126,34 @@ export function ResourceTable({
     overscan: 12,
   })
   const grid = {
-    gridTemplateColumns: visible.map((c) => c.width).join(' '),
-    minWidth: minWidth(visible),
+    gridTemplateColumns: [
+      ...(selectable ? [`${PICK_WIDTH}px`] : []),
+      ...visible.map((c) => c.width),
+    ].join(' '),
+    minWidth: minWidth(visible) + (selectable ? PICK_WIDTH : 0),
+  }
+  const keyOf = (index: number) => objectKey(rows[index]!)
+  const pickedOnPage = rows.filter((object) => picked?.has(objectKey(object))).length
+  const pick = (index: number, range: boolean) => {
+    const next = new Set(picked)
+    const on = !next.has(keyOf(index))
+    const [from, to] =
+      range && anchor >= 0 ? [Math.min(anchor, index), Math.max(anchor, index)] : [index, index]
+    for (let i = from; i <= to; i++) {
+      if (on) next.add(keyOf(i))
+      else next.delete(keyOf(i))
+    }
+    setAnchor(index)
+    onPick!(next)
+  }
+  // Picks every row on the page, or lets go of them all.
+  const pickPage = (on: boolean) => {
+    const next = new Set(picked)
+    for (const object of rows) {
+      if (on) next.add(objectKey(object))
+      else next.delete(objectKey(object))
+    }
+    onPick!(next)
   }
 
   const move = (index: number) => {
@@ -144,6 +180,26 @@ export function ResourceTable({
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (selectable) {
+      // x picks the active row, ⌘A the whole page, Escape lets go of everything.
+      // The grid only shows with rows, and focusing it makes one active.
+      if (event.key.toLowerCase() === 'x' && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault()
+        pick(active, event.shiftKey)
+        return
+      }
+      if (event.key === 'a' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        pickPage(true)
+        return
+      }
+      if (event.key === 'Escape' && picked!.size > 0) {
+        // Only the selection goes; an open detail panel stays.
+        event.preventDefault()
+        onPick!(new Set())
+        return
+      }
+    }
     const action = keys[event.key]
     if (!action || event.metaKey || event.ctrlKey || event.altKey) return
     event.preventDefault()
@@ -162,7 +218,11 @@ export function ResourceTable({
       onFocus={() => {
         if (active < 0) setActive(0)
       }}
-      className="group/grid min-h-0 flex-1 overflow-auto outline-none"
+      className={cn(
+        'group/grid min-h-0 flex-1 overflow-auto outline-none',
+        // Room to scroll the last rows out from under the selection bar.
+        picked?.size && 'pb-16',
+      )}
     >
       <div
         role="rowgroup"
@@ -170,6 +230,19 @@ export function ResourceTable({
         style={{ minWidth: grid.minWidth }}
       >
         <div role="row" className="grid h-9 items-center px-3" style={grid}>
+          {selectable && (
+            <div
+              role="columnheader"
+              className="flex h-full items-center justify-center"
+              onClick={() => pickPage(pickedOnPage < rows.length)}
+            >
+              <Checkbox
+                label="Select all rows on this page"
+                checked={pickedOnPage === rows.length}
+                indeterminate={pickedOnPage > 0 && pickedOnPage < rows.length}
+              />
+            </div>
+          )}
           {visible.map((column) => {
             const isSorted = sort.id === column.id
             return (
@@ -230,13 +303,30 @@ export function ResourceTable({
                   aria-rowindex={item.index + 2}
                   aria-selected={key === selected}
                   data-active={item.index === active}
+                  data-picked={picked?.has(key)}
                   onClick={() => {
                     setActive(item.index)
                     onOpen(object)
                   }}
-                  className="absolute inset-x-0 top-0 grid cursor-default items-center border-b border-line px-3 transition-colors duration-75 hover:bg-surface-3/50 aria-selected:bg-accent-soft group-focus/grid:data-[active=true]:bg-surface-3/70 group-focus/grid:data-[active=true]:shadow-[inset_2px_0_0_var(--accent)]"
+                  className="absolute inset-x-0 top-0 grid cursor-default items-center border-b border-line px-3 transition-colors duration-75 hover:bg-surface-3/50 aria-selected:bg-accent-soft group-focus/grid:data-[active=true]:bg-surface-3/70 group-focus/grid:data-[active=true]:shadow-[inset_2px_0_0_var(--accent)] data-[picked=true]:bg-accent-soft/60"
                   style={{ ...grid, height: ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
                 >
+                  {selectable && (
+                    <div
+                      role="gridcell"
+                      // The whole cell picks the row (with Shift, a range), without opening it.
+                      className="flex h-full items-center justify-center"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        pick(item.index, event.shiftKey)
+                      }}
+                    >
+                      <Checkbox
+                        label={`Select ${object.metadata.name}`}
+                        checked={picked!.has(key)}
+                      />
+                    </div>
+                  )}
                   {visible.map((column) => (
                     <div
                       key={column.id}
@@ -297,5 +387,30 @@ function RowMenu({ object, onOpen }: { object: KubeObject; onOpen: (object: Kube
       )}
       {actionsFor(object).length > 0 && <RowActions object={object} />}
     </>
+  )
+}
+
+/** A checkbox for picking rows; its cell handles clicks, the keyboard goes through the grid. */
+function Checkbox({
+  label,
+  checked,
+  indeterminate = false,
+}: {
+  label: string
+  checked: boolean
+  indeterminate?: boolean
+}) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      tabIndex={-1}
+      checked={checked}
+      ref={(input) => {
+        if (input) input.indeterminate = indeterminate
+      }}
+      onChange={() => undefined}
+      className="size-3.5 accent-[var(--accent)]"
+    />
   )
 }

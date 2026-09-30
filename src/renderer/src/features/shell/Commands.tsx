@@ -13,6 +13,7 @@ const SEQUENCE_TIMEOUT = 1200
 const MOD_KEYS: Record<string, AppCommand> = {
   k: 'palette',
   r: 'refresh',
+  n: 'create',
   '[': 'back',
   ']': 'forward',
   ...Object.fromEntries(QUICK_NAV.map((target, i) => [String(i + 1), `go:${target}`])),
@@ -50,7 +51,7 @@ export function Commands() {
   const goTo = useGo()
   const queryClient = useQueryClient()
   const context = useMatch('/cluster/:context/*')?.params.context
-  const { setPalette, setShortcuts } = useUi()
+  const { setPalette, setShortcuts, setCreate } = useUi()
   const pendingGo = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const run = (command: AppCommand) => {
@@ -66,6 +67,8 @@ export function Commands() {
       back: () => navigate(-1),
       forward: () => navigate(1),
       clusters: () => goTo('/'),
+      // Objects are created in a cluster, so not from the start screen.
+      create: () => setCreate(Boolean(context)),
     }
     actions[command]!()
   }

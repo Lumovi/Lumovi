@@ -223,7 +223,7 @@ test.describe('when things go wrong', () => {
     clusters.demo.upsert({ ...hpa, spec: { ...hpa.spec, metrics: undefined } })
     await openCluster(page)
     await goTo(page, 'Autoscalers')
-    await row(page, 'Autoscalers', hpa.metadata.name).first().getByRole('gridcell').first().click()
+    await row(page, 'Autoscalers', hpa.metadata.name).first().getByRole('gridcell').nth(1).click()
     await expect(page.getByRole('alert')).toContainText('This object couldn’t be displayed')
     await expect(page.getByRole('grid', { name: 'Autoscalers' })).toBeVisible()
   })

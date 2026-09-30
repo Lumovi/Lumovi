@@ -187,7 +187,8 @@ test('narrow tables drop the least important columns', async ({ launch }) => {
   const headers = page.getByRole('grid', { name: 'Pods' }).getByRole('columnheader')
   await expect(headers).not.toContainText(['Node'])
   await row(page, 'Pods', DEMO.pods.debugShell).click()
-  await expect(headers).toHaveText(['Name', 'Status'])
+  // The first column holds the row checkboxes.
+  await expect(headers).toHaveText(['', 'Name', 'Status'])
 })
 
 test('a failed refresh keeps the list and says so', async ({ page, clusters }) => {

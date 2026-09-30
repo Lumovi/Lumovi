@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   CornerDownLeft,
+  FilePlus2,
   Keyboard,
   LayoutDashboard,
   LayoutGrid,
@@ -20,7 +21,7 @@ import type { KubeList, KubeObject } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import { RESOURCES, type ResourceKind } from '@shared/resources'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
-import { Kbd } from '@renderer/components/Kbd'
+import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
 import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
@@ -83,6 +84,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
+  const setCreate = useUi((ui) => ui.setCreate)
   const objects = useCachedObjects(context)
   const open = useSearchParams()[0].get('open')
   const readOnly = useReadOnly()
@@ -204,6 +206,14 @@ function Palette({ onDone }: { onDone: () => void }) {
           </Item>
         </Command.Group>
         <Command.Group heading="Help & appearance">
+          <Item
+            icon={<FilePlus2 />}
+            value="Create from YAML new object"
+            hint={<Keys keys={[MOD_KEY, 'N']} />}
+            onSelect={run(() => setCreate(true))}
+          >
+            Create from YAML
+          </Item>
           <Item
             icon={<Keyboard />}
             value="Keyboard shortcuts"

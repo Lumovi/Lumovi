@@ -8,11 +8,12 @@ import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
 import { HEALTH_STYLE } from '@renderer/components/Status'
 import { useOpenObject } from '@renderer/hooks/open-object'
-import { useList, useListTotals, useMetrics } from '@renderer/hooks/queries'
+import { objectKey, useList, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { HEALTH_RANK, hasHealth, healthName, statusOf, type Health } from '@renderer/lib/health'
 import { useCluster } from '@renderer/state/cluster'
+import { SelectionBar } from '../actions/BulkActions'
 import { columnsFor, metricsKey, sortRows, type CellContext } from './columns'
 import { useListState } from './list-state'
 import { Pagination } from './Pagination'
@@ -52,6 +53,13 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
   const { columns, defaultSort } = columnsFor(kind, { showNamespace, hasHealth: withHealth })
   const [state, update] = useListState(defaultSort)
   const gridRef = useRef<HTMLDivElement>(null)
+  // Rows picked for bulk actions, for this list only.
+  const scopeKey = `${kind}/${namespace}`
+  const [picked, setPicked] = useState<{ scope: string; keys: ReadonlySet<string> }>({
+    scope: scopeKey,
+    keys: new Set(),
+  })
+  if (picked.scope !== scopeKey) setPicked({ scope: scopeKey, keys: new Set() })
   const labelsRef = useRef<HTMLInputElement>(null)
   const [labelDraft, setLabelDraft] = useState(state.labels)
 
@@ -149,6 +157,14 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
           onOpen={(o) => open(kind, o.metadata.name, o.metadata.namespace)}
           onPage={(delta) => goToPage(page + delta)}
           followSelection={params.has('open')}
+          picked={kind === 'Event' ? undefined : picked.keys}
+          onPick={kind === 'Event' ? undefined : (keys) => setPicked({ scope: scopeKey, keys })}
+        />
+        <SelectionBar
+          kind={kind}
+          // Only what's on screen: rows hidden by a filter since stay out of it.
+          objects={rows.filter((o) => picked.keys.has(objectKey(o)))}
+          onClear={() => setPicked({ scope: scopeKey, keys: new Set() })}
         />
         <Pagination
           page={page}
@@ -162,7 +178,7 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
         <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
           {number.format(items.length)} {items.length === 1 ? 'item' : 'items'}

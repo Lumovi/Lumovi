@@ -36,4 +36,5 @@ export type AppCommand =
   | 'back'
   | 'forward'
   | 'clusters'
+  | 'create'
   | `go:${NavTarget}`

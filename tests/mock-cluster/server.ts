@@ -679,6 +679,19 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       status: existing ? existing.status : (object.status ?? {}),
     }
     delete prepared.metadata.managedFields
+    if (def.kind === 'Secret' && prepared.stringData) {
+      // stringData is write-only: the API server folds it into data.
+      prepared.data = {
+        ...(prepared.data as Record<string, string> | undefined),
+        ...Object.fromEntries(
+          Object.entries(prepared.stringData as Record<string, string>).map(([key, value]) => [
+            key,
+            Buffer.from(value).toString('base64'),
+          ]),
+        ),
+      }
+      delete prepared.stringData
+    }
     validate(def, prepared, existing)
     return prepared
   }
@@ -811,6 +824,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
           `${def.kind} "" is invalid: metadata.name: Required value: name or generateName is required`,
         )
       }
+      if (namespace !== undefined && !store$.get('Namespace', undefined, namespace)) {
+        throw new HttpError(404, `namespaces "${namespace}" not found`)
+      }
       if (store$.get(def.kind, namespace, objectName)) {
         throw new HttpError(409, `${plural} "${objectName}" already exists`)
       }
@@ -835,6 +851,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
           labels: { ...object.spec.template.metadata?.labels, ...labels },
         }
       }
+      if (def.kind === 'Namespace') object.status = { phase: 'Active' }
       return { status: 201, body: save(object, dryRun) }
     }
     if (method === 'PUT' && existing) {

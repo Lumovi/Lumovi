@@ -492,7 +492,7 @@ test('actions stay available when the cluster can’t answer access checks', asy
     .filter({ hasText: DEMO.nodes.worker1 })
     .first()
     .getByRole('gridcell')
-    .first()
+    .nth(1)
     .click()
   await expect(
     page

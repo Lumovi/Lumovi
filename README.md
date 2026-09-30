@@ -42,6 +42,9 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   from its notification where that makes sense.
 - **Hands-on when you need it.** Open a shell in any container, add a debug container with
   tools to a running pod (even distroless ones), and forward ports to pods and services.
+- **Many at once.** Pick rows (Shift-click for a range) to restart, cordon, suspend or
+  delete them together, with progress per object and a retry for any that fail. Create
+  objects from YAML, from a template or pasted, several at a time.
 - **Built for big clusters.** Lists load in chunks and are paginated and virtualized, so tens
   of thousands of pods stay smooth. Busy lists refresh less often, and a label selector
   narrows a list on the server.
@@ -89,10 +92,12 @@ problems, missing credential plugin…).
 | `G`, then a letter                 | Go to a view (`G P` pods, `G D` deployments…)         |
 | `⌘[` / `⌘]`, `Alt+←` / `Alt+→`     | Back / forward                                        |
 | `⌘R`                               | Refresh now                                           |
+| `⌘N`                               | Create from YAML                                      |
 | `/`                                | Filter the list                                       |
 | `↑` `↓` (or `J` `K`), `Home` `End` | Move through the list; `PgUp` `PgDn` jump ten rows    |
 | `←` `→`                            | Previous / next page                                  |
 | `Enter` / `Esc`                    | Open the focused row / close the detail panel         |
+| `X` (`⇧X` for a range), `⌘A`       | Select the focused row / every row on the page        |
 | `.`                                | Actions for the open object                           |
 | `⌘⌫`                               | Delete the open object                                |
 | `⌘S`                               | Review a YAML edit                                    |
@@ -129,6 +134,7 @@ Open an object and its actions are right there: the common ones as buttons, the 
 | Nodes                                 | Cordon, uncordon, drain (with live progress per pod)                                       |
 | Autoscalers, volume claims            | Change the replica range, expand the volume                                                |
 | Everything                            | Edit labels and annotations, edit YAML, delete                                             |
+| Selected rows                         | Restart, cordon or uncordon, suspend or resume, delete                                     |
 
 The guard rails:
 
@@ -140,7 +146,8 @@ The guard rails:
   Secret values are edited as text and saved encoded.
 - **Hard to do by accident.** Destructive dialogs start on **Cancel**. Deleting namespaces,
   nodes and volumes — and anything in a cluster whose name looks like production (`prod`,
-  `live`…) — asks you to type the name first.
+  `live`…) — asks you to type the name first (for several at once, what's being done).
+  New objects are checked by the cluster before any of them is created.
 - **Easy to take back.** Scaling, cordoning, suspending, pausing, image and label changes
   can be undone from their notification. The **Activity** log lists every change of the
   session with its command.

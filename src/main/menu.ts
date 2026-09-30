@@ -28,7 +28,14 @@ export function buildMenu(win: BrowserWindow): Menu {
   const template: MenuItemConstructorOptions[] = [
     // macOS puts About, Hide and Quit under the app's own menu.
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
-    { role: 'fileMenu' },
+    {
+      label: 'File',
+      submenu: [
+        command('create', 'New from YAML…', 'CmdOrCtrl+N'),
+        { type: 'separator' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
     { role: 'editMenu' },
     {
       label: 'View',

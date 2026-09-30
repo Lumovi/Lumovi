@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, LayoutDashboard, RotateCw, Search } from 'lucide-react'
+import { ArrowLeft, ArrowRight, LayoutDashboard, Plus, RotateCw, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { resourceByPlural } from '@shared/resources'
@@ -18,6 +18,7 @@ export function Header() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const setPalette = useUi((ui) => ui.setPalette)
+  const setCreate = useUi((ui) => ui.setCreate)
   const [refreshing, setRefreshing] = useState(false)
   const resource = resourceByPlural(useLocation().pathname.split('/')[3] ?? '')
   const Icon = resource ? KIND_ICONS[resource.kind] : LayoutDashboard
@@ -59,6 +60,9 @@ export function Header() {
         <Kbd>{MOD_KEY}</Kbd>
         <Kbd>K</Kbd>
       </button>
+      <IconButton label={`Create from YAML (${MOD_KEY}N)`} onClick={() => setCreate(true)}>
+        <Plus />
+      </IconButton>
       <ForwardsButton />
       <ActivityButton />
       <IconButton label={`Refresh (${MOD_KEY}R)`} onClick={() => void refresh()}>

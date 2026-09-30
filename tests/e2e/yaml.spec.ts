@@ -233,7 +233,7 @@ test('an edit belongs to its object', async ({ page }) => {
   await expect(editorText(page, 'ConfigMap', 'storefront-config')).toBeVisible()
   // Opening another object ends it; coming back shows the YAML, not the editor.
   await page.getByPlaceholder('Filter configmaps').fill('')
-  await row(page, 'ConfigMaps', 'coredns').first().getByRole('gridcell').first().click()
+  await row(page, 'ConfigMaps', 'coredns').first().getByRole('gridcell').nth(1).click()
   await expect(panel(page, 'ConfigMap', 'coredns')).toBeVisible()
   await page.keyboard.press('Meta+[')
   await expect(panel(page, 'ConfigMap', 'storefront-config')).toBeVisible()

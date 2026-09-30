@@ -169,7 +169,11 @@ for (const kindCase of KINDS) {
     for (const text of kindCase.cells) await expect(target).toContainText(text)
 
     // Click the first cell: the middle of an event row holds a link to the involved object.
-    await target.getByRole('gridcell').first().click()
+    await target
+      .getByRole('gridcell')
+      .filter({ hasNot: page.getByRole('checkbox') })
+      .first()
+      .click()
     const detail =
       kindCase.kind === 'Event'
         ? page.getByRole('complementary', { name: /^Event / })
@@ -189,7 +193,7 @@ for (const kindCase of KINDS) {
 test('sorts by any sortable column', async ({ page }) => {
   await openCluster(page)
   await goTo(page, 'Pods')
-  const header = (name: string) => page.getByRole('columnheader', { name })
+  const header = (name: string) => page.getByRole('columnheader', { name, exact: true })
   await expect(header('Status')).toHaveAttribute('aria-sort', 'ascending')
   // Problems first by default.
   await expect(rows(page, 'Pods').first()).toContainText('CrashLoopBackOff')
