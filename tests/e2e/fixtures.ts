@@ -167,6 +167,54 @@ interface Fixtures {
   page: Page
 }
 
+/**
+ * Writes what a failed CI test left behind: the windows' state and the mock
+ * clusters' last requests with their timing, to tell a slow cluster from a stuck app.
+ */
+async function diagnose(path: string, clusters: TestClusters, launched: KubeStacks[]) {
+  const within = <T>(promise: Promise<T>) =>
+    Promise.race([
+      promise,
+      new Promise<string>((r) => setTimeout(() => r('(no answer in 3s)'), 3_000)),
+    ])
+  const lines: string[] = [`at ${new Date().toISOString()}`]
+  for (const [i, { app, page }] of launched.entries()) {
+    const started = Date.now()
+    const window = await within(
+      app.evaluate(({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        return win
+          ? JSON.stringify({
+              visible: win.isVisible(),
+              minimized: win.isMinimized(),
+              focused: win.isFocused(),
+              bounds: win.getBounds(),
+              throttling: win.webContents.getBackgroundThrottling(),
+            })
+          : 'no window'
+      }),
+    ).catch((error: Error) => error.message)
+    const mainMs = Date.now() - started
+    const state = await within(
+      page.evaluate(() =>
+        JSON.stringify({ visibility: document.visibilityState, focus: document.hasFocus() }),
+      ),
+    ).catch((error: Error) => error.message)
+    lines.push(`app ${i}: main answered in ${mainMs}ms ${window}; page ${state}`)
+  }
+  for (const name of ['demo', 'sandbox', 'large'] as const) {
+    const { requests } = clusters[name]
+    lines.push(`${name}: ${requests.length} requests`)
+    for (const r of requests.slice(-80)) {
+      const at = r.at ? new Date(r.at).toISOString().slice(11, 23) : '?'
+      lines.push(
+        `  ${at} ${r.status ?? '…'} ${r.ms ?? '…'}ms ${r.method} ${r.path}${r.search ? '?' + r.search : ''}`,
+      )
+    }
+  }
+  writeFileSync(path, lines.join('\n'))
+}
+
 export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
   workerClusters: [
     // eslint-disable-next-line no-empty-pattern
@@ -197,6 +245,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       return instance
     })
     const failed = testInfo.status !== testInfo.expectedStatus
+    if (trace && failed) await diagnose(testInfo.outputPath('diagnostics.txt'), clusters, launched)
     for (const [i, instance] of launched.entries()) {
       if (trace) {
         const path = failed ? testInfo.outputPath(`trace-${i}.zip`) : undefined

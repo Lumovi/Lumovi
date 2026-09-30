@@ -33,6 +33,10 @@ export interface RecordedRequest {
   headers: http.IncomingHttpHeaders
   /** The parsed JSON body of writes. */
   body?: Json
+  /** When the request arrived (ms since the epoch), how long answering took, and the status. */
+  at?: number
+  ms?: number
+  status?: number
 }
 
 /** Access a SelfSubjectAccessReview (and the matching write) is refused; unset fields match anything. */
@@ -1016,12 +1020,18 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   }
 
   function handle(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const at = Date.now()
     const chunks: Buffer[] = []
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
-    req.on('end', () => respond(req, res, Buffer.concat(chunks).toString('utf8')))
+    req.on('end', () => respond(req, res, Buffer.concat(chunks).toString('utf8'), at))
   }
 
-  function respond(req: http.IncomingMessage, res: http.ServerResponse, raw: string): void {
+  function respond(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    raw: string,
+    at: number,
+  ): void {
     const url = new URL(req.url ?? '/', 'http://mock')
     let body: Json
     try {
@@ -1029,13 +1039,19 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     } catch {
       body = raw
     }
-    requests.push({
+    const recorded: RecordedRequest = {
       method: req.method ?? 'GET',
       path: url.pathname,
       search: url.search.slice(1),
       query: Object.fromEntries(url.searchParams),
       headers: req.headers,
       ...(raw ? { body } : {}),
+      at,
+    }
+    requests.push(recorded)
+    res.on('finish', () => {
+      recorded.ms = Date.now() - at
+      recorded.status = res.statusCode
     })
     const json = (status: number, body: Json) =>
       send(req, res, status, JSON.stringify(body), 'application/json')
