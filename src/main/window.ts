@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, nativeTheme } from 'electron'
+import { BrowserWindow, nativeTheme, screen, type Rectangle } from 'electron'
+import type { WindowState } from '@shared/api'
 
 /** Keep in sync with the `--app-bg`/`--text-2` tokens in the renderer's theme. */
 const CHROME = {
@@ -27,10 +28,25 @@ function applyTitleBarColors(win: BrowserWindow): void {
   win.setTitleBarOverlay({ ...chrome(), height: TITLE_BAR_HEIGHT })
 }
 
-export function createMainWindow(url: string): BrowserWindow {
+const DEFAULT_SIZE = { width: 1440, height: 920 }
+
+function overlaps(a: Rectangle, b: Rectangle): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+/** Saved bounds, if they are still on a connected display (monitors come and go). */
+function restorableBounds(saved: WindowState | undefined): Partial<Rectangle> {
+  const visible = saved && screen.getAllDisplays().some((d) => overlaps(d.workArea, saved))
+  return visible ? saved : DEFAULT_SIZE
+}
+
+export function createMainWindow(
+  url: string,
+  saved: WindowState | undefined,
+  onSaveState: (state: WindowState) => void,
+): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
+    ...restorableBounds(saved),
     minWidth: 1024,
     minHeight: 640,
     show: false,
@@ -51,11 +67,21 @@ export function createMainWindow(url: string): BrowserWindow {
   const onThemeUpdated = () => applyTitleBarColors(win)
   nativeTheme.on('updated', onThemeUpdated)
   win.on('closed', () => nativeTheme.off('updated', onThemeUpdated))
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (saved?.maximized) win.maximize()
+    win.show()
+  })
+  win.on('close', () => onSaveState({ ...win.getNormalBounds(), maximized: win.isMaximized() }))
+  // Recover from a crashed or killed renderer instead of leaving a blank window.
+  win.webContents.on('render-process-gone', () => win.webContents.reload())
 
-  // Only the app's own page is ever shown: block navigation and pop-ups.
+  // Only the app's own page is ever shown: block pop-ups and navigation
+  // elsewhere, but let the page reload itself (e.g. from the error page).
+  const page = (href: string) => href.split('#')[0]
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  win.webContents.on('will-navigate', (event) => event.preventDefault())
+  win.webContents.on('will-navigate', (event) => {
+    if (page(event.url) !== page(url)) event.preventDefault()
+  })
 
   void win.loadURL(url)
   return win

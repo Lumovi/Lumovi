@@ -1,7 +1,8 @@
-import { app, nativeTheme } from 'electron'
+import { app, Menu, nativeTheme } from 'electron'
 import { registerIpc } from './ipc'
 import { KubeConfigStore } from './kube/kubeconfig'
 import { KubeService } from './kube/service'
+import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
 import { loadLoginShellPath } from './shell-env'
 import { createMainWindow, rendererUrl } from './window'
@@ -22,7 +23,10 @@ if (!app.requestSingleInstanceLock()) {
     const kube = new KubeService(new KubeConfigStore(), envReady)
     registerIpc({ kube, settings, rendererUrl: url })
 
-    const win = createMainWindow(url)
+    const win = createMainWindow(url, settings.get().window, (window) =>
+      settings.update({ window }),
+    )
+    Menu.setApplicationMenu(buildMenu(win))
     app.on('second-instance', () => {
       if (win.isMinimized()) win.restore()
       win.focus()

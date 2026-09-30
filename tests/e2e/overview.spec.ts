@@ -6,7 +6,8 @@ test.describe('demo cluster', () => {
   })
 
   test('summarises cluster health', async ({ page }) => {
-    await expect(page.getByText(`${CONTEXTS.demo} · Kubernetes ${DEMO.gitVersion}`)).toBeVisible()
+    await expect(page.getByText(`· Kubernetes ${DEMO.gitVersion}`)).toContainText('127.0.0.1:')
+    await expect(page).toHaveTitle(`Overview · ${CONTEXTS.demo} — KubeStacks`)
     const nodes = page.getByRole('region', { name: 'Nodes ready' })
     await expect(nodes).toContainText('3/4')
     await expect(nodes).toContainText('1 not ready')
@@ -106,10 +107,10 @@ test.describe('demo cluster', () => {
 test('explains missing metrics and a calm cluster', async ({ page }) => {
   await openCluster(page, CONTEXTS.sandbox)
   await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('All ready')
-  await expect(page.getByRole('region', { name: 'Pods running' })).toContainText(
-    '0 total, all fine',
+  await expect(page.getByRole('region', { name: 'Pods running' })).toContainText('No pods yet')
+  await expect(page.getByRole('region', { name: 'Workloads healthy' })).toContainText(
+    'No workloads yet',
   )
-  await expect(page.getByRole('region', { name: 'Workloads healthy' })).toContainText('All healthy')
   await expect(page.getByRole('region', { name: 'Warnings', exact: true })).toContainText('0')
   const cpu = page.getByRole('region', { name: 'CPU', exact: true })
   await expect(cpu).toContainText('Live usage needs metrics-server')

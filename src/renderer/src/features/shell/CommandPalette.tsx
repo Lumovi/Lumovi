@@ -1,23 +1,29 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   CornerDownLeft,
+  Keyboard,
   LayoutDashboard,
   LayoutGrid,
+  LogOut,
   Monitor,
   Moon,
   Server,
   Sun,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import type { ReactNode } from 'react'
-import { useNavigate } from 'react-router'
-import { RESOURCES } from '@shared/resources'
+import { useState, type ReactNode } from 'react'
+import type { KubeList, KubeObject } from '@shared/api'
+import { GO_KEYS } from '@shared/navigation'
+import { RESOURCES, type ResourceKind } from '@shared/resources'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { Kbd } from '@renderer/components/Kbd'
+import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList } from '@renderer/hooks/queries'
 import { matchWords } from '@renderer/lib/match'
-import { clusterPath, kindPath } from '@renderer/lib/routes'
+import { clusterPath, formatRef, kindPath } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
+import { useUi } from '@renderer/state/ui'
 import { CATEGORY_LABELS } from './Sidebar'
 import { useSetTheme } from './ThemeMenu'
 
@@ -27,26 +33,29 @@ const THEMES = [
   { value: 'dark', label: 'Use dark theme', icon: Moon },
 ] as const
 
-export function CommandPalette({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const { context, setNamespace } = useCluster()
-  const navigate = useNavigate()
-  const contexts = useContexts().data?.contexts ?? []
-  const namespaces = useList('Namespace', { namespace: null }).data ?? []
-  const setTheme = useSetTheme()
+/** Objects are searched once the query is this long. */
+const MIN_OBJECT_QUERY = 2
+const MAX_OBJECTS = 20
 
-  const run = (action: () => unknown) => () => {
-    void action()
-    onOpenChange(false)
+const goKey = (target: string) => GO_KEYS.find((entry) => entry.target === target)!.key
+
+/** Every object in the lists already loaded for this cluster, without duplicates. */
+function useCachedObjects(context: string): KubeObject[] {
+  const queryClient = useQueryClient()
+  const seen = new Map<string, KubeObject>()
+  for (const [, list] of queryClient.getQueriesData<KubeList>({ queryKey: ['list', context] })) {
+    for (const object of list?.items ?? []) {
+      seen.set(`${object.kind}/${object.metadata.namespace}/${object.metadata.name}`, object)
+    }
   }
+  return [...seen.values()]
+}
 
+export function CommandPalette() {
+  const open = useUi((ui) => ui.palette)
+  const setOpen = useUi((ui) => ui.setPalette)
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/25 backdrop-blur-[2px]" />
         <Dialog.Content
@@ -54,94 +63,179 @@ export function CommandPalette({
           className="fixed top-[14vh] left-1/2 z-50 w-[640px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
-          <Command loop filter={matchWords}>
-            <Command.Input
-              autoFocus
-              placeholder="Jump to a resource, namespace, or cluster…"
-              className="h-12 w-full border-b border-line bg-transparent px-4 text-[15px] text-ink-1 outline-none placeholder:text-ink-3"
-            />
-            <Command.List className="max-h-[420px] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
-              <Command.Empty className="py-10 text-center text-ink-3">No matches.</Command.Empty>
-              <Command.Group heading="Go to">
-                <Item
-                  icon={<LayoutDashboard />}
-                  onSelect={run(() => navigate(clusterPath(context)))}
-                >
-                  Overview
-                </Item>
-                {RESOURCES.map((resource) => {
-                  const Icon = KIND_ICONS[resource.kind]
-                  return (
-                    <Item
-                      key={resource.kind}
-                      icon={<Icon />}
-                      value={`${resource.label} ${CATEGORY_LABELS[resource.category]}`}
-                      hint={CATEGORY_LABELS[resource.category]}
-                      onSelect={run(() => navigate(kindPath(context, resource.kind)))}
-                    >
-                      {resource.label}
-                    </Item>
-                  )
-                })}
-              </Command.Group>
-              <Command.Group heading="Namespace">
-                <Item
-                  icon={<LayoutGrid />}
-                  value="All namespaces"
-                  onSelect={run(() => setNamespace(null))}
-                >
-                  All namespaces
-                </Item>
-                {namespaces.map(({ metadata: { name } }) => (
-                  <Item
-                    key={name}
-                    icon={<LayoutGrid />}
-                    value={`${name} namespace`}
-                    onSelect={run(() => setNamespace(name))}
-                  >
-                    {name}
-                  </Item>
-                ))}
-              </Command.Group>
-              <Command.Group heading="Clusters">
-                {contexts.map(({ name }) => (
-                  <Item
-                    key={name}
-                    icon={<Server />}
-                    value={`${name} cluster`}
-                    onSelect={run(() => navigate(clusterPath(name)))}
-                  >
-                    {name}
-                  </Item>
-                ))}
-              </Command.Group>
-              <Command.Group heading="Appearance">
-                {THEMES.map(({ value, label, icon: Icon }) => (
-                  <Item key={value} icon={<Icon />} onSelect={run(() => setTheme(value))}>
-                    {label}
-                  </Item>
-                ))}
-              </Command.Group>
-            </Command.List>
-          </Command>
-          <footer className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3">
-            <span className="flex items-center gap-1.5">
-              <Kbd>↑</Kbd>
-              <Kbd>↓</Kbd> to navigate
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Kbd>
-                <CornerDownLeft className="size-3" />
-              </Kbd>{' '}
-              to select
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Kbd>esc</Kbd> to close
-            </span>
-          </footer>
+          <Palette onDone={() => setOpen(false)} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  )
+}
+
+function Palette({ onDone }: { onDone: () => void }) {
+  const { context, setNamespace } = useCluster()
+  const [search, setSearch] = useState('')
+  const contexts = useContexts().data?.contexts ?? []
+  const namespaces = useList('Namespace', { namespace: null }).data ?? []
+  const setTheme = useSetTheme()
+  const setShortcuts = useUi((ui) => ui.setShortcuts)
+  const objects = useCachedObjects(context)
+  const needle = search.trim().toLowerCase()
+  const matches =
+    needle.length < MIN_OBJECT_QUERY
+      ? []
+      : objects.filter((o) => o.metadata.name.includes(needle)).slice(0, MAX_OBJECTS)
+
+  const run = (action: () => unknown) => () => {
+    void action()
+    onDone()
+  }
+  const go = useGo()
+
+  return (
+    <Command loop filter={matchWords}>
+      <Command.Input
+        autoFocus
+        value={search}
+        onValueChange={setSearch}
+        placeholder="Jump to a view, object, namespace or cluster…"
+        className="h-12 w-full border-b border-line bg-transparent px-4 text-[15px] text-ink-1 outline-none placeholder:text-ink-3"
+      />
+      <Command.List className="max-h-[420px] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
+        <Command.Empty className="py-10 text-center text-ink-3">No matches.</Command.Empty>
+        {matches.length > 0 && (
+          <Command.Group heading="Objects">
+            {matches.map((object) => {
+              const kind = object.kind as ResourceKind
+              const Icon = KIND_ICONS[kind]
+              const ref = formatRef({
+                kind,
+                name: object.metadata.name,
+                namespace: object.metadata.namespace,
+              })
+              return (
+                <Item
+                  key={ref}
+                  icon={<Icon />}
+                  value={`${object.metadata.name} ${kind} ${object.metadata.namespace ?? ''} object`}
+                  hint={
+                    <span className="text-xs text-ink-3">{object.metadata.namespace ?? kind}</span>
+                  }
+                  onSelect={run(() =>
+                    go(`${kindPath(context, kind)}?open=${encodeURIComponent(ref)}`),
+                  )}
+                >
+                  {object.metadata.name}
+                </Item>
+              )
+            })}
+          </Command.Group>
+        )}
+        <Command.Group heading="Go to">
+          <Item
+            icon={<LayoutDashboard />}
+            value="Overview"
+            hint={<Keys keys={['G', 'O']} />}
+            onSelect={run(() => go(clusterPath(context)))}
+          >
+            Overview
+          </Item>
+          {RESOURCES.map((resource) => {
+            const Icon = KIND_ICONS[resource.kind]
+            const key = GO_KEYS.some((entry) => entry.target === resource.kind)
+            return (
+              <Item
+                key={resource.kind}
+                icon={<Icon />}
+                value={`${resource.label} ${CATEGORY_LABELS[resource.category]}`}
+                hint={
+                  key ? (
+                    <Keys keys={['G', goKey(resource.kind).toUpperCase()]} />
+                  ) : (
+                    <span className="text-xs text-ink-3">{CATEGORY_LABELS[resource.category]}</span>
+                  )
+                }
+                onSelect={run(() => go(kindPath(context, resource.kind)))}
+              >
+                {resource.label}
+              </Item>
+            )
+          })}
+        </Command.Group>
+        <Command.Group heading="Namespace">
+          <Item
+            icon={<LayoutGrid />}
+            value="All namespaces"
+            onSelect={run(() => setNamespace(null))}
+          >
+            All namespaces
+          </Item>
+          {namespaces.map(({ metadata: { name } }) => (
+            <Item
+              key={name}
+              icon={<LayoutGrid />}
+              value={`${name} namespace`}
+              onSelect={run(() => setNamespace(name))}
+            >
+              {name}
+            </Item>
+          ))}
+        </Command.Group>
+        <Command.Group heading="Clusters">
+          {contexts.map(({ name }) => (
+            <Item
+              key={name}
+              icon={<Server />}
+              value={`${name} cluster`}
+              onSelect={run(() => go(clusterPath(name)))}
+            >
+              {name}
+            </Item>
+          ))}
+          <Item icon={<LogOut />} value="All clusters" onSelect={run(() => go('/'))}>
+            All clusters
+          </Item>
+        </Command.Group>
+        <Command.Group heading="Help & appearance">
+          <Item
+            icon={<Keyboard />}
+            value="Keyboard shortcuts"
+            hint={<Keys keys={['?']} />}
+            onSelect={run(() => setShortcuts(true))}
+          >
+            Keyboard shortcuts
+          </Item>
+          {THEMES.map(({ value, label, icon: Icon }) => (
+            <Item key={value} icon={<Icon />} value={label} onSelect={run(() => setTheme(value))}>
+              {label}
+            </Item>
+          ))}
+        </Command.Group>
+      </Command.List>
+      <footer className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3">
+        <span className="flex items-center gap-1.5">
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd> to move
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Kbd>
+            <CornerDownLeft className="size-3" />
+          </Kbd>{' '}
+          to select
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Kbd>esc</Kbd> to close
+        </span>
+      </footer>
+    </Command>
+  )
+}
+
+function Keys({ keys }: { keys: string[] }) {
+  return (
+    <span className="flex gap-1">
+      {keys.map((key) => (
+        <Kbd key={key}>{key}</Kbd>
+      ))}
+    </span>
   )
 }
 
@@ -153,8 +247,8 @@ function Item({
   children,
 }: {
   icon: ReactNode
-  hint?: string
-  value?: string
+  hint?: ReactNode
+  value: string
   onSelect: () => void
   children: ReactNode
 }) {
@@ -166,7 +260,7 @@ function Item({
     >
       {icon}
       <span className="flex-1 truncate">{children}</span>
-      <span className="text-xs text-ink-3">{hint}</span>
+      {hint}
     </Command.Item>
   )
 }

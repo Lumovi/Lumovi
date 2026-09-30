@@ -11,42 +11,37 @@ import { cn } from '@renderer/lib/cn'
 
 export const HEALTH_STYLE: Record<
   Health,
-  { dot: string; text: string; soft: string; icon: LucideIcon; name: string }
+  { dot: string; text: string; soft: string; icon: LucideIcon }
 > = {
   healthy: {
     dot: 'bg-good',
     text: 'text-good-text',
     soft: 'bg-good/10',
     icon: CircleCheck,
-    name: 'Healthy',
   },
   progressing: {
     dot: 'bg-accent',
     text: 'text-accent-strong',
     soft: 'bg-accent-soft',
     icon: CircleDashed,
-    name: 'In progress',
   },
   warning: {
     dot: 'bg-warn',
     text: 'text-warn-text',
     soft: 'bg-warn/12',
     icon: TriangleAlert,
-    name: 'Warning',
   },
   critical: {
     dot: 'bg-critical',
     text: 'text-critical-text',
     soft: 'bg-critical/10',
     icon: CircleX,
-    name: 'Failing',
   },
   neutral: {
     dot: 'bg-neutral',
     text: 'text-ink-2',
     soft: 'bg-surface-3',
     icon: CircleMinus,
-    name: 'Inactive',
   },
 }
 

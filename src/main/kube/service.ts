@@ -16,6 +16,7 @@ import { resourceByKind, resourcePath } from '@shared/resources'
 import { kubeGet } from './client'
 import { KubeRequestError, toKubeError } from './errors'
 import type { KubeConfigStore } from './kubeconfig'
+import { Limiter } from './limiter'
 import {
   assertIntegerInRange,
   assertKind,
@@ -25,7 +26,21 @@ import {
 } from './validate'
 
 const DEFAULT_TIMEOUT_MS = 20_000
+const DEFAULT_MAX_LIST_ITEMS = 5_000
+/** Lists are fetched in chunks of this size, like kubectl does. */
+const LIST_CHUNK = 500
 const METRICS_API = '/apis/metrics.k8s.io/v1beta1'
+const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
+/**
+ * Connection checks run for every context at once on the start screen; each can
+ * start a credential plugin, so only a few run at a time.
+ */
+const CONCURRENT_CHECKS = 4
+
+interface ListResponse {
+  items: KubeObject[]
+  metadata: { continue?: string; remainingItemCount?: number }
+}
 
 interface Usage {
   cpu: string
@@ -48,6 +63,8 @@ interface PodMetric {
  */
 export class KubeService {
   readonly #timeoutMs: number
+  readonly #maxListItems: number
+  readonly #checks = new Limiter(CONCURRENT_CHECKS)
 
   constructor(
     private readonly store: KubeConfigStore,
@@ -56,6 +73,7 @@ export class KubeService {
     env: NodeJS.ProcessEnv = process.env,
   ) {
     this.#timeoutMs = Number(env.KUBESTACKS_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
+    this.#maxListItems = Number(env.KUBESTACKS_MAX_LIST_ITEMS) || DEFAULT_MAX_LIST_ITEMS
   }
 
   contexts(): ContextsResult {
@@ -63,10 +81,13 @@ export class KubeService {
   }
 
   version(context: unknown): Promise<Result<ClusterVersion>> {
-    return this.#run(async () => {
-      const { gitVersion, platform } = await this.#getJson<ClusterVersion>(context, '/version')
-      return { gitVersion, platform }
-    })
+    return this.#run(() =>
+      this.#checks.run(async () => {
+        const started = performance.now()
+        const { gitVersion, platform } = await this.#getJson<ClusterVersion>(context, '/version')
+        return { gitVersion, platform, latencyMs: Math.round(performance.now() - started) }
+      }),
+    )
   }
 
   list(query: unknown): Promise<Result<KubeList>> {
@@ -81,18 +102,51 @@ export class KubeService {
       for (const key of ['labelSelector', 'fieldSelector'] as const) {
         if (q[key]) params.set(key, q[key])
       }
-      const search = params.size > 0 ? `?${params}` : ''
-      const list = await this.#getJson<{
-        items: KubeObject[]
-        metadata: { resourceVersion?: string }
-      }>(q.context, resourcePath(resource, q.namespace) + search)
+      const list = await this.#listChunks(q.context, resourcePath(resource, q.namespace), params)
       const apiVersion = resource.group ? `${resource.group}/${resource.version}` : resource.version
       return {
-        resourceVersion: list.metadata.resourceVersion,
+        ...list,
         // List items omit apiVersion/kind; add them back so detail views and YAML are complete.
-        items: list.items.map((item) => slim({ apiVersion, kind: resource.kind, ...item })),
+        items: list.items.map((item) => slimListItem({ apiVersion, kind: resource.kind, ...item })),
       }
     })
+  }
+
+  /**
+   * Lists in chunks so a huge collection never arrives as one giant response,
+   * and stops at the item cap to keep memory bounded.
+   */
+  async #listChunks(
+    context: string,
+    path: string,
+    params: URLSearchParams,
+    restarted = false,
+  ): Promise<KubeList> {
+    const items: KubeObject[] = []
+    let token: string | undefined
+    let remaining: number
+    do {
+      const chunk = new URLSearchParams(params)
+      chunk.set('limit', String(Math.min(LIST_CHUNK, this.#maxListItems - items.length)))
+      if (token) chunk.set('continue', token)
+      let list: ListResponse
+      try {
+        list = await this.#getJson<ListResponse>(context, `${path}?${chunk}`)
+      } catch (error) {
+        // The continue token expired (the collection changed a lot between chunks): start over once.
+        if (!restarted && error instanceof KubeRequestError && error.status === 410) {
+          return this.#listChunks(context, path, params, true)
+        }
+        throw error
+      }
+      items.push(...list.items)
+      token = list.metadata.continue
+      remaining = list.metadata.remainingItemCount ?? 0
+    } while (token && items.length < this.#maxListItems)
+    const truncated = Boolean(token)
+    // The API only reports how many objects are left for unfiltered lists.
+    const total = truncated && remaining === 0 ? undefined : items.length + remaining
+    return { items, truncated, total }
   }
 
   get(query: unknown): Promise<Result<KubeObject>> {
@@ -178,6 +232,21 @@ export class KubeService {
 /** Drops server-side bookkeeping that is large and never shown. */
 function slim<T extends KubeObject>(object: T): T {
   delete object.metadata.managedFields
+  return object
+}
+
+/**
+ * List views only need what tables show: drop the (often huge) last-applied
+ * annotation, and keep only the keys of Secrets and ConfigMaps so their values
+ * reach the page only when an object is opened.
+ */
+function slimListItem(object: KubeObject): KubeObject {
+  slim(object)
+  delete object.metadata.annotations?.[LAST_APPLIED]
+  for (const field of ['data', 'binaryData'] as const) {
+    const values = object[field] as Record<string, string> | undefined
+    if (values) object[field] = Object.fromEntries(Object.keys(values).map((key) => [key, '']))
+  }
   return object
 }
 

@@ -2,44 +2,61 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
-import { CONTEXTS, DEMO, DEMO_TOKEN, expect, mockOpenExternal, test } from './fixtures.ts'
+import {
+  clusterOption,
+  CONTEXTS,
+  DEMO,
+  DEMO_TOKEN,
+  expect,
+  mockOpenExternal,
+  openCluster,
+  test,
+} from './fixtures.ts'
 
-function clusterRow(page: import('@playwright/test').Page, name: string) {
-  return page
-    .getByRole('list', { name: 'Clusters' })
-    .getByRole('listitem')
-    .filter({ hasText: new RegExp(`^${name}`) })
-}
+const clusterRow = clusterOption
 
 test('lists every context with its connection status', async ({ page, clusters }) => {
   await expect(clusterRow(page, CONTEXTS.demo)).toContainText(DEMO.gitVersion)
+  await expect(clusterRow(page, CONTEXTS.demo)).toContainText(/\d+ ms/)
   await expect(clusterRow(page, CONTEXTS.demo)).toContainText('current')
   await expect(clusterRow(page, CONTEXTS.sandbox)).toContainText('v1.33.4')
   await expect(clusterRow(page, CONTEXTS.offline)).toContainText('Unreachable')
   await expect(clusterRow(page, CONTEXTS.expired)).toContainText('Unauthorized')
   await expect(clusterRow(page, CONTEXTS.untrusted)).toContainText('Certificate error')
   await expect(clusterRow(page, CONTEXTS.execMissing)).toContainText('Credentials failed')
+  await expect(clusterRow(page, CONTEXTS.execMissing).getByTitle(/was not found/)).toBeAttached()
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('No cluster defined')
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('Misconfigured')
   await expect(clusterRow(page, CONTEXTS.plainHttp)).toContainText('Plain HTTP blocked')
-  await expect(page.getByText(`Loaded from ${clusters.kubeconfigPath}`)).toBeVisible()
+  await expect(page.getByTitle(clusters.kubeconfigPath)).toContainText(clusters.kubeconfigPath)
+  await expect(page).toHaveTitle('KubeStacks')
 })
 
-test('filters the cluster list', async ({ page }) => {
-  const filter = page.getByPlaceholder('Filter clusters')
-  await filter.fill('EXPIRED')
-  await expect(page.getByRole('list', { name: 'Clusters' }).getByRole('listitem')).toHaveCount(1)
+test('the cluster search is focused and driven by the keyboard', async ({ page }) => {
+  const search = page.getByPlaceholder('Search clusters…')
+  await expect(search).toBeFocused()
+  await page.keyboard.type('EXPIRED')
+  await expect(page.getByRole('option')).toHaveCount(1)
   await expect(page.getByText('1 of 9')).toBeVisible()
 
-  await filter.fill('no-such-cluster')
-  await expect(page.getByText('No clusters match “no-such-cluster”.')).toBeVisible()
+  await search.fill('no-such-cluster')
+  await expect(page.getByText('No clusters match.')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Clear filter' }).click()
+  await search.fill('')
   await expect(page.getByText('9 of 9')).toBeVisible()
-  // Escape leaves the field.
-  await filter.focus()
-  await filter.press('Escape')
-  await expect(filter).not.toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(clusterRow(page, CONTEXTS.sandbox)).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText(CONTEXTS.sandbox)
+})
+
+test('recently opened clusters come first', async ({ page }) => {
+  await openCluster(page, CONTEXTS.sandbox)
+  await page.getByRole('button', { name: 'All clusters' }).click()
+  const recent = page.getByRole('group', { name: 'Recent' })
+  await expect(recent.getByRole('option')).toHaveCount(1)
+  await expect(recent).toContainText(CONTEXTS.sandbox)
+  await expect(page.getByRole('group', { name: 'All clusters' })).toBeVisible()
 })
 
 test('reload picks up kubeconfig changes', async ({ launch, clusters }) => {
@@ -81,6 +98,7 @@ test('reports a kubeconfig that cannot be parsed', async ({ launch }) => {
     page.getByRole('heading', { name: 'Your kubeconfig could not be read' }),
   ).toBeVisible()
   await expect(page.getByText(`Could not read ${path}`)).toBeVisible()
+  await expect(page.getByText('Fix the file, then choose Reload.')).toBeVisible()
 })
 
 test('falls back to ~/.kube/config when KUBECONFIG is not set', async ({ launch, clusters }) => {
@@ -89,7 +107,7 @@ test('falls back to ~/.kube/config when KUBECONFIG is not set', async ({ launch,
   writeFileSync(join(home, '.kube', 'config'), readFileSync(clusters.kubeconfigPath))
   const { page } = await launch({ env: { KUBECONFIG: undefined, HOME: home, USERPROFILE: home } })
   await expect(clusterRow(page, CONTEXTS.demo)).toContainText(DEMO.gitVersion)
-  await expect(page.getByText(join(home, '.kube', 'config'))).toBeVisible()
+  await expect(page.getByTitle(join(home, '.kube', 'config'))).toBeVisible()
 })
 
 test('merges several kubeconfig files the way kubectl does', async ({ launch, clusters }) => {
@@ -137,8 +155,7 @@ test('merges several kubeconfig files the way kubectl does', async ({ launch, cl
     env: { KUBECONFIG: [first, missing, second, third].join(delimiter) },
   })
 
-  const list = page.getByRole('list', { name: 'Clusters' })
-  await expect(list.getByRole('listitem')).toHaveCount(4)
+  await expect(page.getByRole('option')).toHaveCount(4)
   // The first definition of a name wins: "shared" and "third" use the first file's demo cluster.
   await expect(clusterRow(page, 'shared')).toContainText(DEMO.gitVersion)
   await expect(clusterRow(page, 'third')).toContainText(DEMO.gitVersion)
@@ -151,4 +168,16 @@ test('links to the project on GitHub', async ({ kubestacks }) => {
   const opened = await mockOpenExternal(kubestacks.app)
   await kubestacks.page.getByRole('button', { name: 'KubeStacks on GitHub' }).click()
   await expect.poll(opened).toEqual(['https://github.com/kotapeter/kubestacks'])
+})
+
+test('shows server addresses that are not URLs as they are', async ({ launch, clusters }) => {
+  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-kc-'))
+  const path = writeKubeconfig(dir, {
+    clusters: [{ name: 'odd', server: 'not a url' }],
+    users: [{ name: 'u', token: DEMO_TOKEN }],
+    contexts: [{ name: 'odd-server', cluster: 'odd', user: 'u' }],
+  })
+  void clusters
+  const { page } = await launch({ env: { KUBECONFIG: path } })
+  await expect(clusterRow(page, 'odd-server')).toContainText('not a url')
 })

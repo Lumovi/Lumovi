@@ -95,8 +95,12 @@ export async function launchApp(
     colorScheme: null,
   })
   const page = await app.firstWindow()
+  // Transitions are shortened under reduced motion, which keeps the tests quick and stable.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   // Reproduce a smaller screen (e.g. KUBESTACKS_E2E_WINDOW=1024x768, like Windows CI runners).
-  const size = process.env.KUBESTACKS_E2E_WINDOW?.split('x').map(Number)
+  const size = (options.env?.KUBESTACKS_E2E_WINDOW ?? process.env.KUBESTACKS_E2E_WINDOW)
+    ?.split('x')
+    .map(Number)
   if (size) {
     await app.evaluate(({ BrowserWindow }, [width, height]) => {
       BrowserWindow.getAllWindows()[0]!.setSize(width!, height!)
@@ -162,11 +166,13 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
 
 /** Opens a cluster from the welcome screen and waits for the overview. */
 export async function openCluster(page: Page, context: string = CONTEXTS.demo): Promise<void> {
-  await page
-    .getByRole('list', { name: 'Clusters' })
-    .getByRole('button', { name: new RegExp(`^${context}\\b`) })
-    .click()
+  await clusterOption(page, context).click()
   await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText(context)
+}
+
+/** A cluster on the start screen. */
+export function clusterOption(page: Page, context: string) {
+  return page.getByRole('option', { name: new RegExp(`^${context}\\b`) })
 }
 
 /** Navigates with the sidebar. */
@@ -198,16 +204,16 @@ export async function mockOpenExternal(app: ElectronApplication): Promise<() => 
 /** A data row of the resource table labelled `label`, found by its text. */
 export function row(page: Page, label: string, text: string | RegExp) {
   return page
-    .getByRole('table', { name: label })
+    .getByRole('grid', { name: label })
     .getByRole('row')
-    .filter({ has: page.getByRole('cell') })
+    .filter({ has: page.getByRole('gridcell') })
     .filter({ hasText: text })
 }
 
 /** All data rows of the resource table labelled `label`. */
 export function rows(page: Page, label: string) {
   return page
-    .getByRole('table', { name: label })
+    .getByRole('grid', { name: label })
     .getByRole('row')
-    .filter({ has: page.getByRole('cell') })
+    .filter({ has: page.getByRole('gridcell') })
 }

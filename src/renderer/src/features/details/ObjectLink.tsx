@@ -1,6 +1,5 @@
-import { useSearchParams } from 'react-router'
 import { isResourceKind } from '@shared/resources'
-import { formatRef } from '@renderer/lib/routes'
+import { useOpenObject } from '@renderer/hooks/open-object'
 
 /** A reference to another object; opens it in the detail panel when KubeStacks knows the kind. */
 export function ObjectLink({
@@ -12,13 +11,13 @@ export function ObjectLink({
   name: string
   namespace?: string
 }) {
-  const [, setParams] = useSearchParams()
+  const open = useOpenObject()
   const label = `${kind}/${name}`
   if (!isResourceKind(kind)) return <span className="font-mono text-xs text-ink-2">{label}</span>
   return (
     <button
       type="button"
-      onClick={() => setParams({ open: formatRef({ kind, name, namespace }) })}
+      onClick={() => open(kind, name, namespace)}
       className="font-mono text-xs text-accent-strong hover:underline"
     >
       {label}

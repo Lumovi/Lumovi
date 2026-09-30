@@ -151,10 +151,22 @@ const STATUS_BY_KIND: Partial<Record<ResourceKind, (object: KubeObject) => Statu
     ['Bound', 'Available'].includes(o.status?.phase)
       ? { health: 'healthy', label: o.status.phase }
       : { health: 'warning', label: o.status?.phase },
+  HorizontalPodAutoscaler: autoscalerStatus,
   Event: (o) =>
     o.type === 'Warning'
       ? { health: 'warning', label: 'Warning' }
       : { health: 'neutral', label: 'Normal' },
+}
+
+function autoscalerStatus(hpa: KubeObject): Status {
+  const active = condition(hpa, 'ScalingActive')
+  if (active?.status === 'False') {
+    return { health: 'warning', label: 'Not scaling', detail: active.message }
+  }
+  const limited = condition(hpa, 'ScalingLimited')
+  return limited?.status === 'True'
+    ? { health: 'warning', label: 'At limit', detail: limited.message }
+    : { health: 'healthy', label: 'Scaling' }
 }
 
 function replicaStatusOf(object: KubeObject): Status {
@@ -169,4 +181,31 @@ export function hasHealth(kind: ResourceKind): boolean {
 
 export function statusOf(kind: ResourceKind, object: KubeObject): Status {
   return STATUS_BY_KIND[kind]!(object)
+}
+
+const DEFAULT_NAMES: Record<Health, string> = {
+  healthy: 'Healthy',
+  progressing: 'In progress',
+  warning: 'Warning',
+  critical: 'Failing',
+  neutral: 'Inactive',
+}
+
+/** What each health level is called for a kind, in filter chips ("Running", "Normal"…). */
+const NAMES: Partial<Record<ResourceKind, Partial<Record<Health, string>>>> = {
+  Pod: { healthy: 'Running', progressing: 'Starting', neutral: 'Completed' },
+  Event: { neutral: 'Normal' },
+  Job: { healthy: 'Complete', progressing: 'Running' },
+  CronJob: { healthy: 'Scheduled', neutral: 'Suspended' },
+  ReplicaSet: {
+    healthy: 'Ready',
+    warning: 'Degraded',
+    critical: 'Unavailable',
+    neutral: 'Scaled to zero',
+  },
+  Namespace: { healthy: 'Active', warning: 'Terminating' },
+}
+
+export function healthName(kind: ResourceKind, health: Health): string {
+  return NAMES[kind]?.[health] ?? DEFAULT_NAMES[health]
 }

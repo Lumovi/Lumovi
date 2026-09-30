@@ -7,7 +7,7 @@ async function openObject(page: Page, label: string, name: string) {
   // Narrow the (virtualized) list so the row is rendered.
   await page.getByPlaceholder(`Filter ${label.toLowerCase()}`).fill(name)
   // Click the first cell: the middle of an event row holds a link to the involved object.
-  await row(page, label, name).first().getByRole('cell').first().click()
+  await row(page, label, name).first().getByRole('gridcell').first().click()
 }
 
 const readClipboard = (kubestacks: { app: import('@playwright/test').ElectronApplication }) =>
@@ -97,16 +97,22 @@ test('logs: container, lines, previous, follow, wrap and copy', async ({
     'starting checkout service',
   )
 
-  await detail.getByText('Previous container', { exact: true }).click()
-  await expect(detail.getByRole('switch', { name: 'Previous container' })).toBeChecked()
+  await detail.getByRole('button', { name: 'Previous container' }).click()
+  await expect(detail.getByRole('button', { name: 'Previous container' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
   await expect.poll(logRequest((q) => q.previous === 'true')).toBe(true)
   await expect(log).toContainText('panic:')
 
   await detail.getByRole('combobox', { name: 'Lines' }).selectOption('100')
   await expect.poll(logRequest((q) => q.tailLines === '100')).toBe(true)
-  await detail.getByText('Follow', { exact: true }).click()
-  await expect(detail.getByRole('switch', { name: 'Follow' })).not.toBeChecked()
-  await detail.getByText('Wrap lines', { exact: true }).click()
+  await detail.getByRole('button', { name: 'Follow' }).click()
+  await expect(detail.getByRole('button', { name: 'Follow' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await detail.getByRole('button', { name: 'Wrap lines' }).click()
   await expect(log.locator('.whitespace-pre-wrap').first()).toBeVisible()
 
   await detail.getByRole('button', { name: 'Copy logs' }).click()
@@ -125,7 +131,7 @@ test('logs: init containers, empty output and errors', async ({ page }) => {
     'schema is up to date',
   )
 
-  await detail.getByText('Previous container', { exact: true }).click()
+  await detail.getByRole('button', { name: 'Previous container' }).click()
   await expect(detail.getByRole('alert')).toContainText('previous terminated container')
 
   await openObject(page, 'Pods', DEMO.pods.debugShell)
@@ -208,7 +214,7 @@ test('workloads list their pods', async ({ page }) => {
   const service = panel(page, 'Service', DEMO.services.storefront)
   await expect(service.getByRole('table')).toContainText('TCP')
   await service.getByRole('tab', { name: 'Pods' }).click()
-  await expect(service.getByRole('table', { name: 'Pods' })).toContainText('storefront-')
+  await expect(service.getByRole('grid', { name: 'Pods' })).toContainText('storefront-')
 
   // The default kubernetes Service has no selector, so it has no Pods tab.
   await page.getByRole('button', { name: 'Namespace' }).click()
@@ -238,9 +244,9 @@ test('nodes show capacity, taints and their pods', async ({ page }) => {
   await expect(detail).toContainText('Taints')
   await expect(detail).toContainText('MemoryPressure')
   await detail.getByRole('tab', { name: 'Pods' }).click()
-  await expect(detail.getByRole('table', { name: 'Pods' })).toContainText(DEMO.pods.checkout[0]!)
+  await expect(detail.getByRole('grid', { name: 'Pods' })).toContainText(DEMO.pods.checkout[0]!)
   // Pods on a node come from every namespace.
-  await expect(detail.getByRole('table', { name: 'Pods' })).toContainText('shop')
+  await expect(detail.getByRole('grid', { name: 'Pods' })).toContainText('shop')
 
   await openObject(page, 'Nodes', DEMO.nodes.controlPlane)
   await expect(panel(page, 'Node', DEMO.nodes.controlPlane)).toContainText(
@@ -264,7 +270,7 @@ test('the panel closes with Escape or the close button', async ({ page }) => {
   await expect(detail).toHaveCount(0)
 
   await row(page, 'Pods', DEMO.pods.debugShell).click()
-  await detail.getByRole('button', { name: 'Close' }).click()
+  await detail.getByRole('button', { name: /^Close/ }).click()
   await expect(detail).toHaveCount(0)
 })
 
@@ -273,7 +279,7 @@ test('shows when an open object is deleted', async ({ page, clusters }) => {
   const detail = panel(page, 'Pod', DEMO.pods.oldTask)
   await expect(detail.getByRole('tab', { name: 'Overview' })).toBeVisible()
   clusters.demo.remove('Pod', 'default', DEMO.pods.oldTask)
-  await page.getByRole('button', { name: 'Refresh' }).click()
+  await page.getByRole('button', { name: /^Refresh/ }).click()
   await expect(detail.getByRole('alert')).toContainText('Not found')
 })
 
@@ -303,17 +309,20 @@ test('tabs show errors and recover on retry', async ({ page, clusters }) => {
   await expect(detail.getByRole('alert')).toContainText('pods unavailable')
   clearPods()
   await detail.getByRole('button', { name: 'Try again' }).click()
-  await expect(detail.getByRole('table', { name: 'Pods' })).toBeVisible()
+  await expect(detail.getByRole('grid', { name: 'Pods' })).toBeVisible()
 
   const clearObject = clusters.demo.fail(
     `/apis/apps/v1/namespaces/shop/deployments/${name}`,
     status('etcd timeout'),
   )
-  await page.getByRole('button', { name: 'Refresh' }).click()
-  await expect(detail.getByRole('alert')).toContainText('etcd timeout')
-  clearObject()
-  await detail.getByRole('button', { name: 'Try again' }).click()
+  // A failed refresh keeps what was loaded and says so.
+  await page.getByRole('button', { name: /^Refresh/ }).click()
+  const stale = detail.getByRole('status').filter({ hasText: 'Couldn’t refresh' })
+  await expect(stale).toContainText('etcd timeout')
   await expect(detail.getByRole('tab', { name: 'Overview' })).toBeVisible()
+  clearObject()
+  await stale.getByRole('button', { name: 'Retry' }).click()
+  await expect(stale).toHaveCount(0)
 
   const pod = DEMO.pods.storefront[0]!
   await openObject(page, 'Pods', pod)
@@ -330,28 +339,34 @@ test('tabs show errors and recover on retry', async ({ page, clusters }) => {
 })
 
 test('less common shapes of common objects', async ({ page }) => {
+  await goTo(page, 'Services')
+  await expect(row(page, 'Services', 'edge')).toContainText('443→8443:31443/TCP')
   await openObject(page, 'Services', 'edge')
   const edge = panel(page, 'Service', 'edge')
   await expect(edge).toContainText('k8s-shop-edge-4f1c2a.elb.eu-west-1.amazonaws.com')
   await expect(edge.getByRole('table')).toContainText('8443')
-  await expect(row(page, 'Services', 'edge')).toContainText('443→8443:31443/TCP')
 
   await openObject(page, 'Services', 'payments-gateway')
   await expect(panel(page, 'Service', 'payments-gateway')).toContainText('ExternalName')
   await expect(row(page, 'Services', 'payments-gateway')).toContainText('ExternalName')
 
+  // Check columns before opening the panel, which leaves room for fewer of them.
+  await goTo(page, 'Ingresses')
+  await expect(row(page, 'Ingresses', 'status-page')).toContainText('—')
   await openObject(page, 'Ingresses', 'status-page')
   const ingress = panel(page, 'Ingress', 'status-page')
   await expect(ingress.getByRole('table')).toContainText('grafana:http')
   await expect(ingress.getByRole('table')).toContainText('*')
-  await expect(row(page, 'Ingresses', 'status-page')).toContainText('—')
 
   await openObject(page, 'Autoscalers', 'checkout')
   await expect(panel(page, 'HorizontalPodAutoscaler', 'checkout')).toContainText('cpu ?% / 80%')
 
+  await goTo(page, 'CronJobs')
+  await expect(row(page, 'CronJobs', 'nightly-report')).toContainText('At 02:00 AM')
+  await expect(row(page, 'CronJobs', 'nightly-report')).toContainText(/in \d+h/)
+  await expect(row(page, 'CronJobs', 'quarterly-audit')).toContainText('—')
   await openObject(page, 'CronJobs', 'nightly-report')
   await expect(panel(page, 'CronJob', 'nightly-report')).toContainText('No')
-  await expect(row(page, 'CronJobs', 'quarterly-audit')).toContainText('—')
 
   await openObject(page, 'Volume Claims', 'data-postgres-0')
   await panel(page, 'PersistentVolumeClaim', 'data-postgres-0')
@@ -374,11 +389,13 @@ test('less common shapes of common objects', async ({ page }) => {
   await flags.getByRole('tab', { name: 'YAML' }).click()
   await expect(flags.getByRole('tabpanel', { name: 'YAML' })).toContainText('data: {}')
 
+  await goTo(page, 'Nodes')
+  // Ages past two years read like kubectl: "2y69d".
+  await expect(row(page, 'Nodes', DEMO.nodes.worker1)).toContainText(/2y\d+d/)
   await openObject(page, 'Nodes', DEMO.nodes.worker1)
   await expect(panel(page, 'Node', DEMO.nodes.worker1)).toContainText(
     'dedicated=shop:PreferNoSchedule',
   )
-  await expect(row(page, 'Nodes', DEMO.nodes.worker1)).toContainText('1y')
 
   await openObject(page, 'Pods', DEMO.pods.nodeExporter[3]!)
   await expect(

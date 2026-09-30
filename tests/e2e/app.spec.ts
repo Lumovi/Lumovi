@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import electronPath from 'electron'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import {
+  clusterOption,
   COVERAGE_DIR,
   CONTEXTS,
   DEMO,
@@ -251,10 +252,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
 test('gives up on API servers that stop answering', async ({ launch, clusters }) => {
   clusters.demo.fail('/version', { hang: true })
   const { page } = await launch({ env: { KUBESTACKS_REQUEST_TIMEOUT_MS: '500' } })
-  const demo = page
-    .getByRole('list', { name: 'Clusters' })
-    .getByRole('listitem')
-    .filter({ hasText: /^demo/ })
+  const demo = clusterOption(page, CONTEXTS.demo)
   await expect(demo).toContainText('Timed out')
 })
 
@@ -297,7 +295,7 @@ test('treats an unavailable metrics API as "no metrics"', async ({ page, cluster
   await row(page, 'Deployments', DEMO.deployments.cart).click()
   await panel(page, 'Deployment', DEMO.deployments.cart).getByRole('tab', { name: 'Pods' }).click()
   await expect(
-    panel(page, 'Deployment', DEMO.deployments.cart).getByRole('table', { name: 'Pods' }),
+    panel(page, 'Deployment', DEMO.deployments.cart).getByRole('grid', { name: 'Pods' }),
   ).toContainText('Running')
 })
 
@@ -333,15 +331,16 @@ test.describe('login shell PATH', () => {
     })
     const shell = fakeShell(dir, `printf '__KUBESTACKS_PATH__%s__KUBESTACKS_PATH__' "${bin}:$PATH"`)
     const { page, app } = await launch({ env: { SHELL: shell, KUBECONFIG: kubeconfig } })
-    await expect(page.getByRole('list', { name: 'Clusters' })).toContainText(DEMO.gitVersion)
+    await expect(clusterOption(page, 'via-plugin')).toContainText(DEMO.gitVersion)
     expect(await app.evaluate(() => process.env.PATH)).toContain(bin)
   })
 
   test('keeps the inherited PATH when the shell prints nothing or fails', async ({ launch }) => {
     const dir = mkdtempSync(join(tmpdir(), 'kubestacks-shell-'))
     for (const body of ['exit 0', 'exit 3']) {
-      const { app, close } = await launch({ env: { SHELL: fakeShell(dir, body) } })
-      await app.evaluate(() => new Promise((done) => setTimeout(done, 200)))
+      const { app, page, close } = await launch({ env: { SHELL: fakeShell(dir, body) } })
+      // Cluster requests wait for the shell, so a connected cluster means it has answered.
+      await expect(clusterOption(page, CONTEXTS.demo)).toContainText(DEMO.gitVersion)
       expect(await app.evaluate(() => process.env.PATH)).toBe(process.env.PATH)
       await close()
     }

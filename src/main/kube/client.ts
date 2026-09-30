@@ -36,7 +36,14 @@ export async function kubeGet(
   try {
     await kc.applyToHTTPSOptions(request)
   } catch (error) {
-    throw new KubeRequestError('auth', `Could not get credentials: ${(error as Error).message}`)
+    const { message } = error as Error
+    const plugin = /spawn (\S+) ENOENT/.exec(message)?.[1]
+    throw new KubeRequestError(
+      'auth',
+      plugin
+        ? `The credential plugin “${plugin}” was not found. Install it, or make sure it is on your PATH.`
+        : `Could not get credentials: ${message}`,
+    )
   }
 
   // For plain HTTP endpoints (e.g. `kubectl proxy`) the client hands us an http.Agent.

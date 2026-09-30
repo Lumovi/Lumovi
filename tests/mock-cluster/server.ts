@@ -52,6 +52,8 @@ export interface MockCluster {
   upsert(object: KubeObject): void
   remove(kind: string, namespace: string | undefined, name: string): boolean
   setMetricsAvailable(available: boolean): void
+  /** Makes the next `times` requests that carry a `continue` token fail with 410 Gone (expired). */
+  expireContinueTokens(times?: number): void
   /** Restores the fixture, clears faults and the request log. */
   reset(): void
   close(): Promise<void>
@@ -105,6 +107,7 @@ const REASONS: Record<number, string> = {
   404: 'NotFound',
   405: 'MethodNotAllowed',
   409: 'Conflict',
+  410: 'Expired',
   429: 'TooManyRequests',
   500: 'InternalError',
   503: 'ServiceUnavailable',
@@ -304,6 +307,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   let store = new Map<string, KubeObject>()
   let metricsAvailable = true
   let resourceVersion = 0
+  let expireContinue = 0
 
   function load(): void {
     fixture = options.fixture()
@@ -317,6 +321,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       resourceVersion = Math.max(resourceVersion, Number(object.metadata.resourceVersion ?? 0))
     }
     metricsAvailable = true
+    expireContinue = 0
     faults.length = 0
     requests.length = 0
   }
@@ -337,7 +342,13 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const labelSelector = query.get('labelSelector')
     const fieldSelector = query.get('fieldSelector')
     const items: Json[] = []
-    for (const object of store.values()) {
+    // etcd returns objects ordered by key (namespace/name); pagination relies on that.
+    const ordered = [...store.values()].sort((a, b) =>
+      `${a.metadata.namespace ?? ''}/${a.metadata.name}`.localeCompare(
+        `${b.metadata.namespace ?? ''}/${b.metadata.name}`,
+      ),
+    )
+    for (const object of ordered) {
       if (object.kind !== def.kind) continue
       if (namespace !== undefined && object.metadata.namespace !== namespace) continue
       if (labelSelector && !matchesLabels(object.metadata.labels, labelSelector)) continue
@@ -346,11 +357,38 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       const { apiVersion: _apiVersion, kind: _kind, ...rest } = object
       items.push({ ...rest, metadata: { ...rest.metadata, managedFields: managedFields(object) } })
     }
+    // Chunked lists: ?limit=N&continue=<token>, like the real API server.
+    const limit = Number(query.get('limit') ?? 0)
+    const token = query.get('continue')
+    let offset = 0
+    if (token) {
+      if (expireContinue > 0) {
+        expireContinue--
+        throw new HttpError(
+          410,
+          'The provided continue parameter is too old to display a consistent list result. You can start a new list without the continue parameter.',
+        )
+      }
+      offset = (JSON.parse(Buffer.from(token, 'base64url').toString()) as { offset: number }).offset
+    }
+    const page = limit > 0 ? items.slice(offset, offset + limit) : items.slice(offset)
+    const next = offset + page.length
+    const more = limit > 0 && next < items.length
+    const filtered = Boolean(labelSelector || fieldSelector)
     return {
       kind: `${def.kind}List`,
       apiVersion: groupVersion(def),
-      metadata: { resourceVersion: String(resourceVersion) },
-      items,
+      metadata: {
+        resourceVersion: String(resourceVersion),
+        ...(more
+          ? {
+              continue: Buffer.from(JSON.stringify({ offset: next })).toString('base64url'),
+              // The real API server only knows the remaining count for unfiltered lists.
+              ...(filtered ? {} : { remainingItemCount: items.length - next }),
+            }
+          : {}),
+      },
+      items: page,
     }
   }
 
@@ -683,6 +721,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
     setMetricsAvailable(available) {
       metricsAvailable = available
+    },
+    expireContinueTokens(times = 1) {
+      expireContinue = times
     },
     reset() {
       for (const res of pending) res.destroy()

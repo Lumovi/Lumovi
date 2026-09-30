@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import type { KubeObject } from '@shared/api'
+import type { KubeList, KubeObject } from '@shared/api'
 import type { ResourceKind } from '@shared/resources'
 import { api, unwrap } from '@renderer/lib/api'
 import { useCluster } from '@renderer/state/cluster'
@@ -11,11 +11,13 @@ export function useContexts() {
   return useQuery({ queryKey: ['contexts'], queryFn: () => api.kube.contexts() })
 }
 
-export function useVersion(context: string) {
+/** The cluster's version; also the connection check. `refetchInterval` keeps checking. */
+export function useVersion(context: string, refetchInterval: number | false = false) {
   return useQuery({
     queryKey: ['version', context],
     queryFn: () => unwrap(api.kube.version(context)),
     staleTime: 60_000,
+    refetchInterval,
   })
 }
 
@@ -27,7 +29,13 @@ interface ListOptions {
   enabled?: boolean
 }
 
-export function useList(kind: ResourceKind, options: ListOptions = {}) {
+/** Big lists are heavier to fetch, so they refresh less often. */
+export function listPollInterval(items: number): number {
+  if (items > 2_000) return 30_000
+  return items > 500 ? 10_000 : POLL_INTERVAL
+}
+
+function useListQuery<T>(kind: ResourceKind, options: ListOptions, select: (list: KubeList) => T) {
   const { context, namespace: selected } = useCluster()
   const namespace = (options.namespace === undefined ? selected : options.namespace) ?? undefined
   const { labelSelector, fieldSelector, enabled = true } = options
@@ -35,11 +43,27 @@ export function useList(kind: ResourceKind, options: ListOptions = {}) {
     queryKey: ['list', context, kind, namespace, labelSelector, fieldSelector],
     queryFn: () =>
       unwrap(api.kube.list({ context, kind, namespace, labelSelector, fieldSelector })),
-    select: (list) => list.items,
-    refetchInterval: POLL_INTERVAL,
+    select,
+    refetchInterval: (query) => listPollInterval(query.state.data?.items.length ?? 0),
     placeholderData: keepPreviousData,
     enabled,
   })
+}
+
+const selectItems = (list: KubeList) => list.items
+const selectTotals = ({ items, truncated, total }: KubeList) => ({
+  loaded: items.length,
+  truncated,
+  total,
+})
+
+export function useList(kind: ResourceKind, options: ListOptions = {}) {
+  return useListQuery(kind, options, selectItems)
+}
+
+/** How complete a list is: loaded items, whether it was capped, and the server-side total. */
+export function useListTotals(kind: ResourceKind, options: ListOptions) {
+  return useListQuery(kind, options, selectTotals).data
 }
 
 export function useObject(kind: ResourceKind, name: string, namespace?: string) {

@@ -31,8 +31,18 @@ test('the command palette jumps anywhere', async ({ page }) => {
 
   await page.getByRole('button', { name: /^Search/ }).click()
   await input.fill('monitoring')
-  await page.keyboard.press('Enter')
+  await palette
+    .getByRole('group', { name: 'Namespace' })
+    .getByRole('option', { name: 'monitoring' })
+    .click()
   await expect(page.getByRole('button', { name: 'Namespace' })).toHaveText('monitoring')
+
+  // Objects already loaded can be opened straight from the palette.
+  await page.keyboard.press('Meta+k')
+  await input.fill('checkout-')
+  await palette.getByRole('group', { name: 'Objects' }).getByRole('option').first().click()
+  await expect(page.getByRole('complementary', { name: /^Pod checkout-/ })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
 
   await page.keyboard.press('Meta+k')
   await input.fill('all namespaces')
@@ -103,12 +113,12 @@ test('a namespace can be typed when namespaces cannot be listed', async ({ page,
 test('switches clusters from the sidebar', async ({ page }) => {
   await openCluster(page)
   await page.getByRole('button', { name: 'Switch cluster' }).click()
-  await page.getByRole('menuitem', { name: CONTEXTS.sandbox }).click()
+  await page.getByRole('option', { name: new RegExp(`^${CONTEXTS.sandbox}`) }).click()
   await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText(CONTEXTS.sandbox)
   await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('1/1')
 
   await page.getByRole('button', { name: 'Switch cluster' }).click()
-  await page.getByRole('menuitem', { name: 'All clusters' }).click()
+  await page.getByRole('option', { name: 'All clusters' }).click()
   await expect(page.getByRole('heading', { name: 'KubeStacks' })).toBeVisible()
 })
 
@@ -126,7 +136,7 @@ test('refresh reloads everything on screen', async ({ page, clusters }) => {
   await openCluster(page)
   await goTo(page, 'Services')
   const before = clusters.demo.requests.filter((r) => r.path === '/api/v1/services').length
-  await page.getByRole('button', { name: 'Refresh' }).click()
+  await page.getByRole('button', { name: /^Refresh/ }).click()
   await expect
     .poll(() => clusters.demo.requests.filter((r) => r.path === '/api/v1/services').length)
     .toBeGreaterThan(before)

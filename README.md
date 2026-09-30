@@ -36,8 +36,15 @@ anything in your cluster.
 - **Detail without digging.** A side panel with the facts that matter per kind, container
   state and restarts, conditions, labels, related pods, events, logs and syntax-highlighted
   YAML. Secret values stay hidden until you reveal them.
-- **Fast everywhere.** Virtualized tables handle thousands of objects; lists refresh every
-  few seconds without flicker; `⌘K` / `Ctrl+K` jumps to any view, namespace or cluster.
+- **Built for big clusters.** Lists load in chunks and are paginated and virtualized, so tens
+  of thousands of pods stay smooth. Busy lists refresh less often, and a label selector
+  narrows a list on the server.
+- **Keyboard first.** Every view is a shortcut away, lists work with the arrow keys, and
+  `⌘K` / `Ctrl+K` jumps to any view, object, namespace or cluster. Navigation animates
+  smoothly (and doesn't, if you've turned motion off).
+- **Calm when things go wrong.** A lost connection shows a banner and keeps the last data on
+  screen; an unexpected error shows what happened, with details to copy or report, instead
+  of a blank window.
 - **Works with your kubeconfig.** Multiple files via `KUBECONFIG`, kubectl's merge rules,
   client certificates, tokens and exec credential plugins (`gke-gcloud-auth-plugin`,
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
@@ -69,11 +76,21 @@ KubeStacks reads clusters from the same place `kubectl` does: the files listed i
 each one tells you whether it is reachable and why not (expired credentials, certificate
 problems, missing credential plugin…).
 
-| Shortcut        |                                                     |
-| --------------- | --------------------------------------------------- |
-| `⌘K` / `Ctrl+K` | Command palette: views, namespaces, clusters, theme |
-| `Esc`           | Close the detail panel                              |
-| `Enter`         | Open the focused row                                |
+| Shortcut (macOS; `Ctrl` elsewhere) |                                                       |
+| ---------------------------------- | ----------------------------------------------------- |
+| `⌘K`                               | Command palette: views, objects, namespaces, clusters |
+| `⌘1` … `⌘6`                        | Overview, Pods, Deployments, Services, Nodes, Events  |
+| `G`, then a letter                 | Go to a view (`G P` pods, `G D` deployments…)         |
+| `⌘[` / `⌘]`, `Alt+←` / `Alt+→`     | Back / forward                                        |
+| `⌘R`                               | Refresh now                                           |
+| `/`                                | Filter the list                                       |
+| `↑` `↓` (or `J` `K`), `Home` `End` | Move through the list; `PgUp` `PgDn` jump ten rows    |
+| `←` `→`                            | Previous / next page                                  |
+| `Enter` / `Esc`                    | Open the focused row / close the detail panel         |
+| `⌘⇧C`                              | All clusters                                          |
+| `?`                                | All shortcuts, also in the **Help** menu              |
+
+The sidebar shows each view's `G` shortcut when you hover it.
 
 - **Namespaces.** The namespace menu scopes every list. It starts in the namespace set on
   your kubeconfig context, and remembers your choice per cluster. If your account can't
@@ -83,6 +100,9 @@ problems, missing credential plugin…).
 - **Plain HTTP.** Clusters served over `http://` (for example through `kubectl proxy`) must
   set `insecure-skip-tls-verify: true` in the kubeconfig, the same rule as the official
   JavaScript client.
+- **Huge clusters.** Lists are fetched in chunks of 500 and stop at 5,000 objects per list,
+  with a note saying so; filter by label to see the rest. Set `KUBESTACKS_MAX_LIST_ITEMS`
+  to change the limit.
 - **Slow API servers.** Requests time out after 20 seconds. Set
   `KUBESTACKS_REQUEST_TIMEOUT_MS` to change that.
 

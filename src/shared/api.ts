@@ -5,6 +5,7 @@
  * throwing, because Electron flattens errors that cross IPC into plain
  * strings and we want the renderer to know *why* a request failed.
  */
+import type { AppCommand } from './navigation'
 import type { ResourceKind } from './resources'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
@@ -18,8 +19,18 @@ export interface AppInfo {
   node: string
 }
 
+export interface WindowState {
+  x: number
+  y: number
+  width: number
+  height: number
+  maximized: boolean
+}
+
 export interface Settings {
   theme: ThemePreference
+  /** Where the window was when it last closed. */
+  window?: WindowState
 }
 
 export interface KubeContext {
@@ -87,12 +98,17 @@ export interface KubeObject {
 
 export interface KubeList {
   items: KubeObject[]
-  resourceVersion?: string
+  /** True when the collection has more objects than were loaded (see KUBESTACKS_MAX_LIST_ITEMS). */
+  truncated: boolean
+  /** How many objects match on the server, when the API reports it. */
+  total?: number
 }
 
 export interface ClusterVersion {
   gitVersion: string
   platform: string
+  /** Round-trip time of the check. */
+  latencyMs: number
 }
 
 export interface ListQuery {
@@ -148,6 +164,8 @@ export interface LogsQuery {
 
 export interface KubestacksApi {
   platform: string
+  /** Subscribes to commands from the native menu; returns an unsubscribe function. */
+  onCommand(listener: (command: AppCommand) => void): () => void
   app: {
     info(): Promise<AppInfo>
     settings(): Promise<Settings>
@@ -166,6 +184,7 @@ export interface KubestacksApi {
 
 /** IPC channel names, shared so the preload and main process cannot drift apart. */
 export const IPC = {
+  command: 'app:command',
   appInfo: 'app:info',
   settings: 'app:settings',
   setTheme: 'app:set-theme',

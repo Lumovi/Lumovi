@@ -110,16 +110,17 @@ export function OverviewTab({ object }: { object: KubeObject }) {
       {Extra && <Extra object={object} />}
       {conditions.length > 0 && (
         <Section title="Conditions">
-          <Conditions conditions={conditions} />
+          <Conditions
+            conditions={conditions}
+            settled={['Succeeded', 'Failed'].includes(object.status?.phase)}
+          />
         </Section>
       )}
-      <Section title="Labels">
-        {Object.keys(labels).length > 0 ? (
+      {Object.keys(labels).length > 0 && (
+        <Section title="Labels">
           <Labels labels={labels} />
-        ) : (
-          <p className="text-ink-3">No labels.</p>
-        )}
-      </Section>
+        </Section>
+      )}
       {annotations.length > 0 && (
         <Section title="Annotations">
           <KeyValueGrid

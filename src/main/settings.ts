@@ -33,7 +33,11 @@ export class SettingsStore {
   #read(): Settings {
     try {
       const stored = JSON.parse(readFileSync(this.#file, 'utf8')) as Partial<Settings>
-      return { theme: isTheme(stored.theme) ? stored.theme : DEFAULTS.theme }
+      return {
+        theme: isTheme(stored.theme) ? stored.theme : DEFAULTS.theme,
+        // Validated against the connected displays when the window opens.
+        window: stored.window,
+      }
     } catch {
       // First run, or the file is unreadable: start from defaults.
       return { ...DEFAULTS }
