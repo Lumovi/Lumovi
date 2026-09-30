@@ -95,6 +95,13 @@ export async function launchApp(
     colorScheme: null,
   })
   const page = await app.firstWindow()
+  // Reproduce a smaller screen (e.g. KUBESTACKS_E2E_WINDOW=1024x768, like Windows CI runners).
+  const size = process.env.KUBESTACKS_E2E_WINDOW?.split('x').map(Number)
+  if (size) {
+    await app.evaluate(({ BrowserWindow }, [width, height]) => {
+      BrowserWindow.getAllWindows()[0]!.setSize(width!, height!)
+    }, size)
+  }
   let closed = false
   return {
     app,

@@ -6,7 +6,8 @@ async function openObject(page: Page, label: string, name: string) {
   await goTo(page, label)
   // Narrow the (virtualized) list so the row is rendered.
   await page.getByPlaceholder(`Filter ${label.toLowerCase()}`).fill(name)
-  await row(page, label, name).first().click()
+  // Click the first cell: the middle of an event row holds a link to the involved object.
+  await row(page, label, name).first().getByRole('cell').first().click()
 }
 
 const readClipboard = (kubestacks: { app: import('@playwright/test').ElectronApplication }) =>

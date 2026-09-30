@@ -173,7 +173,8 @@ for (const kindCase of KINDS) {
     const target = row(page, kindCase.label, kindCase.open).first()
     for (const text of kindCase.cells) await expect(target).toContainText(text)
 
-    await target.click()
+    // Click the first cell: the middle of an event row holds a link to the involved object.
+    await target.getByRole('cell').first().click()
     const detail =
       kindCase.kind === 'Event'
         ? page.getByRole('complementary', { name: /^Event / })
