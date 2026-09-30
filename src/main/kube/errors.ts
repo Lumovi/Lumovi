@@ -18,6 +18,8 @@ const STATUS_CODES: Record<number, KubeErrorCode> = {
   401: 'unauthorized',
   403: 'forbidden',
   404: 'not-found',
+  409: 'conflict',
+  422: 'invalid',
 }
 
 /** Maps a non-2xx API response onto a `KubeRequestError`. */

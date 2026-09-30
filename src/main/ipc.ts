@@ -34,6 +34,12 @@ export function registerIpc({ kube, settings, rendererUrl }: Dependencies): void
     nativeTheme.themeSource = theme
     return settings.update({ theme })
   })
+  handle(IPC.setReadOnly, (context, readOnly) => {
+    if (typeof context !== 'string' || context === '' || typeof readOnly !== 'boolean') {
+      throw new Error('Expected a context name and whether it is read-only')
+    }
+    return settings.setReadOnly(context, readOnly)
+  })
   handle(IPC.openExternal, async (url) => {
     // Only hand web links to the OS; never file:// or custom protocol handlers.
     const allowed = typeof url === 'string' && url.startsWith('https://')
@@ -47,4 +53,7 @@ export function registerIpc({ kube, settings, rendererUrl }: Dependencies): void
   handle(IPC.get, (query) => kube.get(query))
   handle(IPC.metrics, (query) => kube.metrics(query))
   handle(IPC.logs, (query) => kube.logs(query))
+  handle(IPC.change, (request) => kube.change(request))
+  handle(IPC.can, (context, checks) => kube.can(context, checks))
+  handle(IPC.history, (query) => kube.history(query))
 }

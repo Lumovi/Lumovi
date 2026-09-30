@@ -6,8 +6,8 @@ Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 
 - **Bugs and ideas:** open an [issue](https://github.com/kotapeter/kubestacks/issues) first
   for anything bigger than a small fix, so we can agree on the approach.
-- **Scope:** KubeStacks is a read-only viewer. Features that change cluster state (edit,
-  delete, scale, exec, port-forward, installing apps) are out of scope.
+- **Scope:** KubeStacks is for looking after workloads and clusters. Installing apps (Helm
+  charts, operators) and managing kubeconfig files are out of scope.
 - **Security issues:** please don't open a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Setting up
@@ -18,9 +18,9 @@ npm ci
 npm run dev:mock # runs the app against the built-in demo clusters
 ```
 
-`npm run dev` uses your own kubeconfig instead. The app is strictly read-only, but it's a
-good habit to try changes against the demo clusters or a local
-[kind](https://kind.sigs.k8s.io) cluster rather than production.
+`npm run dev` uses your own kubeconfig instead. The app can change clusters, so try your
+work against the demo clusters or a local [kind](https://kind.sigs.k8s.io) cluster, not
+production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 
 ## Making a change
 

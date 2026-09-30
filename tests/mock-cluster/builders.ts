@@ -707,6 +707,8 @@ export function clusterBuilder(now: number) {
     revision?: number
     /** Age of the previous rollout; creates an old ReplicaSet scaled to zero. */
     previousRevisionAge?: number
+    /** Container images of the previous rollout, by container name, where they differed. */
+    previousImages?: Record<string, string>
     progressDeadlineExceeded?: boolean
     labels?: Record<string, string>
   }
@@ -789,9 +791,10 @@ export function clusterBuilder(now: number) {
       replicas: number,
       ready: number,
       age: number,
+      template: PodTemplate = d.template,
     ) => {
       const rsHash = name.slice(d.name.length + 1)
-      const labels = { ...d.template.labels, 'pod-template-hash': rsHash }
+      const labels = { ...template.labels, 'pod-template-hash': rsHash }
       return add({
         apiVersion: 'apps/v1',
         kind: 'ReplicaSet',
@@ -808,7 +811,7 @@ export function clusterBuilder(now: number) {
         spec: {
           replicas,
           selector: { matchLabels: labels },
-          template: podTemplateSpec({ ...d.template, labels }),
+          template: podTemplateSpec({ ...template, labels }),
         },
         status: {
           replicas,
@@ -827,6 +830,13 @@ export function clusterBuilder(now: number) {
         0,
         0,
         d.previousRevisionAge,
+        {
+          ...d.template,
+          containers: d.template.containers.map((c) => ({
+            ...c,
+            image: d.previousImages?.[c.name] ?? c.image,
+          })),
+        },
       )
     }
     const rs = replicaSet(
@@ -846,6 +856,48 @@ export function clusterBuilder(now: number) {
     }
   }
 
+  /**
+   * The ControllerRevisions a StatefulSet or DaemonSet keeps of its pod
+   * templates: the current one, and an older one when `previousImages` says
+   * how it differed. Returns the current revision's name.
+   */
+  function controllerRevisions(
+    owner: KubeObject,
+    template: PodTemplate,
+    age: number,
+    previousImages?: Record<string, string>,
+  ): string {
+    const { name, namespace } = owner.metadata
+    const revision = (id: string, number: number, t: PodTemplate, revisionAge: number) => {
+      const revisionName = `${name}-${suffix(`${namespace}/${name}/${id}`, 10)}`
+      add({
+        apiVersion: 'apps/v1',
+        kind: 'ControllerRevision',
+        metadata: meta('ControllerRevision', revisionName, namespace, revisionAge, {
+          labels: { ...t.labels, 'controller-revision-hash': revisionName.slice(name.length + 1) },
+          ownerReferences: [ownerRef(owner)],
+        }),
+        data: { spec: { template: { ...podTemplateSpec(t), $patch: 'replace' } } },
+        revision: number,
+      })
+      return revisionName
+    }
+    if (!previousImages) return revision('rev', 1, template, age)
+    revision(
+      'rev-previous',
+      1,
+      {
+        ...template,
+        containers: template.containers.map((c) => ({
+          ...c,
+          image: previousImages[c.name] ?? c.image,
+        })),
+      },
+      age,
+    )
+    return revision('rev', 2, template, Math.min(age, 9 * DAY))
+  }
+
   interface StatefulSetInput {
     namespace: string
     name: string
@@ -855,11 +907,13 @@ export function clusterBuilder(now: number) {
     serviceName: string
     template: PodTemplate
     storage?: { size: string; storageClass: string }
+    /** Images of an earlier rollout, by container name, where they differed. */
+    previousImages?: Record<string, string>
   }
 
   function statefulSet(s: StatefulSetInput) {
     const revision = `${s.name}-${suffix(`${s.namespace}/${s.name}/rev`, 10)}`
-    const obj = add({
+    const obj: KubeObject = add({
       apiVersion: 'apps/v1',
       kind: 'StatefulSet',
       metadata: meta('StatefulSet', s.name, s.namespace, s.age, {
@@ -905,6 +959,7 @@ export function clusterBuilder(now: number) {
         collisionCount: 0,
       },
     })
+    controllerRevisions(obj, s.template, s.age, s.previousImages)
     return {
       statefulSet: obj,
       template: s.template,
@@ -925,11 +980,13 @@ export function clusterBuilder(now: number) {
     desired: number
     ready: number
     template: PodTemplate
+    /** Images of an earlier rollout, by container name, where they differed. */
+    previousImages?: Record<string, string>
   }
 
   function daemonSet(d: DaemonSetInput) {
     const revision = suffix(`${d.namespace}/${d.name}/rev`, 10)
-    const obj = add({
+    const obj: KubeObject = add({
       apiVersion: 'apps/v1',
       kind: 'DaemonSet',
       metadata: meta('DaemonSet', d.name, d.namespace, d.age, {
@@ -957,6 +1014,7 @@ export function clusterBuilder(now: number) {
         updatedNumberScheduled: d.desired,
       },
     })
+    controllerRevisions(obj, d.template, d.age, d.previousImages)
     return {
       daemonSet: obj,
       template: d.template,

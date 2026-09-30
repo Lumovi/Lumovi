@@ -20,7 +20,9 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = settings.get().theme
 
     const url = rendererUrl()
-    const kube = new KubeService(new KubeConfigStore(), envReady)
+    const kube = new KubeService(new KubeConfigStore(), envReady, (context) =>
+      settings.isReadOnly(context),
+    )
     registerIpc({ kube, settings, rendererUrl: url })
 
     const win = createMainWindow(url, settings.get().window, (window) =>

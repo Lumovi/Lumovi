@@ -14,6 +14,9 @@ import {
 import type { KubeObject } from '@shared/api'
 import { objectKey } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
+import { keepFocusInActionDialog } from '@renderer/state/actions'
+import { RowActions } from '../actions/ActionSurfaces'
+import { actionsFor } from '../actions/catalog'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import type { CellContext, Column } from './columns'
 
@@ -252,7 +255,7 @@ export function ResourceTable({
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={menuContent}>
+          <ContextMenu.Content className={menuContent} onCloseAutoFocus={keepFocusInActionDialog}>
             <RowMenu object={menuRow!} onOpen={onOpen} />
           </ContextMenu.Content>
         </ContextMenu.Portal>
@@ -292,6 +295,7 @@ function RowMenu({ object, onOpen }: { object: KubeObject; onOpen: (object: Kube
           <Terminal className="size-4 text-ink-3" /> Copy kubectl logs
         </ContextMenu.Item>
       )}
+      {actionsFor(object).length > 0 && <RowActions object={object} />}
     </>
   )
 }

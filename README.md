@@ -4,9 +4,9 @@
 
 # KubeStacks
 
-**A beautiful, fast, read-only Kubernetes cluster viewer for the desktop.**
+**A beautiful, fast Kubernetes app for the desktop.**
 
-See what's healthy, what's struggling and where your capacity goes, across every cluster in your kubeconfig.
+See what's healthy, what's struggling and where your capacity goes across every cluster in your kubeconfig, and fix things safely when they need it.
 
 [![CI](https://github.com/kotapeter/kubestacks/actions/workflows/ci.yml/badge.svg)](https://github.com/kotapeter/kubestacks/actions/workflows/ci.yml)
 [![E2E coverage](https://img.shields.io/badge/e2e%20coverage-100%25-3fb950)](#testing)
@@ -21,9 +21,9 @@ macOS · Windows · Linux
 ## Why KubeStacks
 
 Most Kubernetes dashboards are either a terminal or a wall of tables. KubeStacks is a calm,
-focused desktop app for _looking_ at clusters: it surfaces problems first, shows live
-resource usage next to what's allocatable, and gets out of your way. It never changes
-anything in your cluster.
+focused desktop app for clusters: it surfaces problems first, shows live resource usage next
+to what's allocatable, and gets out of your way. When something needs a hand — a scale, a
+restart, a rollback, a drain — it's a click or a keystroke away, with guard rails.
 
 - **Health at a glance.** Every object gets a clear status (Running, CrashLoopBackOff,
   Degraded, NotReady, Pending…), and problems sort to the top. The overview lists what
@@ -36,6 +36,10 @@ anything in your cluster.
 - **Detail without digging.** A side panel with the facts that matter per kind, container
   state and restarts, conditions, labels, related pods, events, logs and syntax-highlighted
   YAML. Secret values stay hidden until you reveal them.
+- **Safe changes.** Scale, restart, roll back, change images, pause rollouts, run CronJobs,
+  cordon and drain nodes, evict and delete, edit labels or any object's YAML. Every change
+  shows the equivalent `kubectl` command, checks your permissions first, and can be undone
+  from its notification where that makes sense.
 - **Built for big clusters.** Lists load in chunks and are paginated and virtualized, so tens
   of thousands of pods stay smooth. Busy lists refresh less often, and a label selector
   narrows a list on the server.
@@ -87,6 +91,9 @@ problems, missing credential plugin…).
 | `↑` `↓` (or `J` `K`), `Home` `End` | Move through the list; `PgUp` `PgDn` jump ten rows    |
 | `←` `→`                            | Previous / next page                                  |
 | `Enter` / `Esc`                    | Open the focused row / close the detail panel         |
+| `.`                                | Actions for the open object                           |
+| `⌘⌫`                               | Delete the open object                                |
+| `⌘S`                               | Review a YAML edit                                    |
 | `⌘⇧C`                              | All clusters                                          |
 | `?`                                | All shortcuts, also in the **Help** menu              |
 
@@ -106,11 +113,37 @@ The sidebar shows each view's `G` shortcut when you hover it.
 - **Slow API servers.** Requests time out after 20 seconds. Set
   `KUBESTACKS_REQUEST_TIMEOUT_MS` to change that.
 
-### Read-only by design
+### Changing things, safely
 
-KubeStacks only ever issues `GET` requests. There is no create, edit, delete, exec,
-port-forward or app install. That makes it safe to hand to anyone who needs to _see_ a
-cluster, and it keeps the interface focused.
+Open an object and its actions are right there: the common ones as buttons, the rest under
+**⋯** (or `.`), in the row's right-click menu and in the command palette.
+
+| Kind                                  | Actions                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Deployments, StatefulSets, DaemonSets | Scale, restart, change images, roll back to an earlier revision, pause or resume a rollout |
+| Pods                                  | Restart (delete so the controller replaces it), evict, force-delete stuck pods             |
+| CronJobs and Jobs                     | Run now, suspend, resume                                                                   |
+| Nodes                                 | Cordon, uncordon, drain (with live progress per pod)                                       |
+| Autoscalers, volume claims            | Change the replica range, expand the volume                                                |
+| Everything                            | Edit labels and annotations, edit YAML, delete                                             |
+
+The guard rails:
+
+- **Your permissions, up front.** KubeStacks asks the cluster what you may do
+  (SelfSubjectAccessReviews) and disables what you can't, saying why.
+- **Nothing surprising.** Every dialog names the cluster and shows the equivalent `kubectl`
+  command. YAML edits are validated by the cluster (a dry run) and shown as a diff before
+  they are saved, and a change someone made meanwhile is caught instead of overwritten.
+  Secret values are edited as text and saved encoded.
+- **Hard to do by accident.** Destructive dialogs start on **Cancel**. Deleting namespaces,
+  nodes and volumes — and anything in a cluster whose name looks like production (`prod`,
+  `live`…) — asks you to type the name first.
+- **Easy to take back.** Scaling, cordoning, suspending, pausing, image and label changes
+  can be undone from their notification. The **Activity** log lists every change of the
+  session with its command.
+- **Read-only when you want it.** Turn changes off for a cluster in the cluster switcher, or
+  for all clusters with `KUBESTACKS_READ_ONLY=1` (useful for shared machines). The main
+  process enforces it, not just the interface.
 
 ## Development
 
@@ -152,8 +185,8 @@ tests/
   talks to clusters. Credentials never reach the page.
 - **Talking to clusters.** Authentication comes from
   [`@kubernetes/client-node`](https://github.com/kubernetes-client/javascript); requests
-  are plain `GET`s with gzip, so any API path, including metrics and logs, works the same
-  way.
+  are plain REST calls with gzip, so any API path, including metrics and logs, works the
+  same way.
 - **Design.** Status colors are reserved for health and always come with an icon and a
   label; charts use a colorblind-validated palette in both themes.
 

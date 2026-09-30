@@ -8,7 +8,16 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ### Added
 
-- First version: a read-only Kubernetes cluster viewer for macOS, Windows and Linux.
+- First version: a Kubernetes app for macOS, Windows and Linux.
+- Actions: scale, restart, change images, roll back (Deployments, StatefulSets and
+  DaemonSets), pause and resume rollouts, run CronJobs now, suspend and resume, cordon,
+  uncordon and drain nodes, evict, restart and force-delete pods, change autoscaler ranges,
+  expand volumes, edit labels, annotations and YAML (validated by a dry run and reviewed as
+  a diff), and delete with a choice of what happens to dependents.
+- Guard rails for changes: permission checks before acting, the equivalent `kubectl` command
+  in every dialog, typed confirmation for risky deletes and production-looking clusters,
+  undo from notifications, an activity log, and a read-only switch per cluster
+  (`KUBESTACKS_READ_ONLY` for all of them).
 - Cluster picker with the connection status of every kubeconfig context.
 - Overview with node, pod, workload and warning health, CPU and memory usage against
   capacity (with requests, limits and live trends), per-node usage, and lists of the objects

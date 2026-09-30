@@ -313,12 +313,15 @@ const EXTRA_COLUMNS: Partial<Record<ResourceKind, Column[]>> = {
       header: 'Duration',
       width: '88px',
       cell: (o, ctx) =>
-        muted(
-          age(
-            o.status.startTime,
-            o.status.completionTime ? Date.parse(o.status.completionTime) : ctx.now,
-          ),
-        ),
+        // Suspended or just created jobs haven't started.
+        o.status.startTime
+          ? muted(
+              age(
+                o.status.startTime,
+                o.status.completionTime ? Date.parse(o.status.completionTime) : ctx.now,
+              ),
+            )
+          : muted('—'),
     },
   ],
   CronJob: [

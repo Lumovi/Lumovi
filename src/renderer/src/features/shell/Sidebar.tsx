@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Command } from 'cmdk'
-import { Check, ChevronsUpDown, LayoutDashboard, List } from 'lucide-react'
+import { Check, ChevronsUpDown, LayoutDashboard, List, Lock } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router'
@@ -11,8 +11,10 @@ import { IconButton } from '@renderer/components/Button'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { GithubMark, Logo } from '@renderer/components/Logo'
 import { StatusDot } from '@renderer/components/Status'
+import { Switch } from '@renderer/components/Switch'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
+import { useReadOnly } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
@@ -132,6 +134,7 @@ function ClusterSwitcher() {
   const version = useVersion(context)
   const server = contexts.find((c) => c.name === context)?.server
   const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
+  const readOnly = useReadOnly()
   const go = (path: string) => {
     setOpen(false)
     navigateTo(path)
@@ -144,7 +147,12 @@ function ClusterSwitcher() {
       >
         <StatusDot health={health} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink-1">{context}</span>
+          <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink-1">
+            <span className="truncate">{context}</span>
+            {readOnly.readOnly && (
+              <Lock aria-label="Read-only" className="size-3 shrink-0 text-ink-3" />
+            )}
+          </span>
           <span className="block truncate text-xs text-ink-3">
             {version.isSuccess
               ? `Kubernetes ${version.data.gitVersion}`
@@ -175,6 +183,23 @@ function ClusterSwitcher() {
               </Command.Item>
             </Command.List>
           </Command>
+          <div className="flex items-center gap-3 border-t border-line px-3 py-2.5">
+            <Lock className="size-4 shrink-0 text-ink-3" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] text-ink-1">Read-only</span>
+              <span className="block text-xs leading-snug text-ink-3">
+                {readOnly.locked
+                  ? 'Set by KUBESTACKS_READ_ONLY'
+                  : `KubeStacks won’t change ${context}`}
+              </span>
+            </span>
+            <Switch
+              label="Read-only"
+              checked={readOnly.readOnly}
+              disabled={readOnly.locked}
+              onCheckedChange={(checked) => void readOnly.set(checked)}
+            />
+          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

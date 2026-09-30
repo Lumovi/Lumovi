@@ -23,5 +23,6 @@ KubeStacks handles cluster credentials, so it's built to keep them contained:
   Security Policy. It can't navigate away or open new windows.
 - The main process only answers IPC calls from the app's own page, and validates every
   argument.
-- Only `GET` requests are ever sent to clusters.
+- Changes to clusters go through a small set of validated operations, refused for contexts
+  the user made read-only (or all of them, with `KUBESTACKS_READ_ONLY`).
 - Only `https://` links are handed to the operating system.

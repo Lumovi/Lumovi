@@ -245,6 +245,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
       annotations: {
         'kubernetes.io/config.source': 'file',
         'kubernetes.io/config.hash': `${component}-${name.length}a7f3`,
+        'kubernetes.io/config.mirror': `${component}-${name.length}a7f3`,
       },
       priorityClassName: 'system-node-critical',
       hostNetwork: true,
@@ -473,7 +474,10 @@ export function demoCluster(now = Date.now()): ClusterFixture {
         memory: ['64Mi'],
       },
     ],
-    volumes: [{ name: 'config', configMap: { name: 'storefront-config', defaultMode: 420 } }],
+    volumes: [
+      { name: 'config', configMap: { name: 'storefront-config', defaultMode: 420 } },
+      { name: 'cache', emptyDir: { sizeLimit: '256Mi' } },
+    ],
   }
   const storefront = b.deployment({
     namespace: 'shop',
@@ -484,6 +488,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     template: storefrontTemplate,
     revision: REVISION.storefront,
     previousRevisionAge: 12 * DAY,
+    previousImages: { app: 'ghcr.io/acme/storefront:v3.7.4' },
   })
   const storefrontNodes = ['worker-1', 'worker-2', 'worker-1']
   const storefrontPods = storefrontNodes.map((node, i) =>
@@ -885,6 +890,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     serviceName: 'postgres',
     template: postgresTemplate,
     storage: { size: '20Gi', storageClass: 'standard' },
+    previousImages: { postgres: 'postgres:17.5-alpine' },
   })
   const postgresNodes = ['worker-1', 'worker-1', 'worker-2']
   postgresNodes.forEach((node, i) =>
@@ -1007,6 +1013,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     desired: 4,
     ready: 3,
     template: exporterTemplate,
+    previousImages: { 'node-exporter': 'quay.io/prometheus/node-exporter:v1.8.2' },
   })
   const exporterPods = NODE_NAMES.map((node, i) =>
     b.pod({
@@ -1826,6 +1833,75 @@ export function demoCluster(now = Date.now()): ClusterFixture {
       firstAgo: 2 * HOUR,
     },
   )
+
+  // Rollout history: why the current storefront rollout happened, and a revision
+  // left behind by a StatefulSet that no longer exists.
+  const storefrontRs = b.objects.find(
+    (o) => o.kind === 'ReplicaSet' && o.metadata.name === DEMO.replicaSets.storefront,
+  )!
+  storefrontRs.metadata.annotations!['kubernetes.io/change-cause'] =
+    'Release v3.8.2: faster product search'
+  b.objects.find(
+    (o) => o.kind === 'ReplicaSet' && o.metadata.name === DEMO.replicaSets.storefrontPrevious,
+  )!.metadata.annotations!['kubernetes.io/change-cause'] = 'Release v3.7.4'
+  b.simple(
+    'apps/v1',
+    'ControllerRevision',
+    'old-cache-7d9f8c6b5c',
+    'data',
+    300 * DAY,
+    {
+      data: { spec: { template: { $patch: 'replace', spec: { containers: [] } } } },
+      revision: 3,
+    },
+    { labels: { app: 'old-cache' } },
+  )
+
+  // Binary data (a PKCS #12 keystore) next to text: the YAML editor keeps it encoded.
+  b.simple('v1', 'Secret', 'java-keystore', 'shop', 30 * DAY, {
+    type: 'Opaque',
+    data: {
+      'keystore.p12': Buffer.from([
+        0x30, 0x82, 0x0a, 0x4b, 0x02, 0x01, 0x03, 0xff, 0xfe, 0x80,
+      ]).toString('base64'),
+      password: Buffer.from('changeit').toString('base64'),
+    },
+  })
+
+  // Created suspended: it waits to be resumed and has never started.
+  b.simple('batch/v1', 'Job', 'backfill', 'batch', 2 * HOUR, {
+    spec: {
+      suspend: true,
+      completions: 1,
+      parallelism: 1,
+      backoffLimit: 6,
+      selector: { matchLabels: { 'batch.kubernetes.io/job-name': 'backfill' } },
+      template: {
+        metadata: { labels: { 'batch.kubernetes.io/job-name': 'backfill' } },
+        spec: {
+          restartPolicy: 'Never',
+          containers: [
+            {
+              name: 'backfill',
+              image: 'ghcr.io/acme/tools:2.4.0',
+              args: ['backfill', '--since=2026-01-01'],
+            },
+          ],
+        },
+      },
+    },
+    status: {
+      conditions: [
+        {
+          type: 'Suspended',
+          status: 'True',
+          reason: 'JobSuspended',
+          message: 'Job suspended',
+          lastTransitionTime: b.time(2 * HOUR),
+        },
+      ],
+    },
+  })
 
   // ── Less common shapes, so every view has something realistic to show ───
   // Dedicated nodes carry taints with values.
