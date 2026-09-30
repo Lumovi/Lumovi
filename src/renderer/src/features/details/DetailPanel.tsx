@@ -62,7 +62,7 @@ export function DetailPanel() {
   }
 
   const resizeTo = (next: number) => {
-    const clamped = Math.max(MIN_WIDTH, next)
+    const clamped = Math.round(Math.max(MIN_WIDTH, next))
     setWidth(clamped)
     setStoredWidth(clamped)
   }

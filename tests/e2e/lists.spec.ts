@@ -181,7 +181,7 @@ test('rows have a context menu', async ({ kubestacks }) => {
 })
 
 test('narrow tables drop the least important columns', async ({ launch }) => {
-  const { page } = await launch({ env: { KUBESTACKS_E2E_WINDOW: '1024x700' } })
+  const { page } = await launch({ env: { KUBESTACKS_E2E_WINDOW: '1024x700' }, fullLayout: false })
   await openCluster(page)
   await goTo(page, 'Pods')
   const headers = page.getByRole('grid', { name: 'Pods' }).getByRole('columnheader')

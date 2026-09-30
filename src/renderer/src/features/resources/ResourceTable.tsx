@@ -31,12 +31,18 @@ function minWidth(columns: Column[]): number {
   return columns.reduce((sum, column) => sum + Number(/(\d+)px/.exec(column.width)![1]), 0)
 }
 
-/** Drops lower-priority columns until the rest fit the available width. */
+/**
+ * Drops columns one at a time, least important and rightmost first, until the
+ * rest fit the available width. Essential columns always stay.
+ */
 export function fitColumns(columns: Column[], width: number): Column[] {
-  let visible = columns
-  for (const level of [3, 2]) {
-    if (minWidth(visible) <= width) return visible
-    visible = visible.filter((column) => column.priority! < level)
+  const visible = [...columns]
+  while (minWidth(visible) > width && visible.some((column) => column.priority! > 1)) {
+    const lowest = Math.max(...visible.map((column) => column.priority!))
+    visible.splice(
+      visible.findLastIndex((column) => column.priority === lowest),
+      1,
+    )
   }
   return visible
 }

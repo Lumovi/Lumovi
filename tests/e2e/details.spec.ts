@@ -2,12 +2,20 @@ import type { Page } from '@playwright/test'
 import { demoCluster } from '../mock-cluster/fixtures/demo.ts'
 import { DEMO, expect, goTo, openCluster, panel, row, rows, test } from './fixtures.ts'
 
-async function openObject(page: Page, label: string, name: string) {
+/** Narrows the (virtualized) list so the row is rendered. */
+async function findObject(page: Page, label: string, name: string) {
   await goTo(page, label)
-  // Narrow the (virtualized) list so the row is rendered.
   await page.getByPlaceholder(`Filter ${label.toLowerCase()}`).fill(name)
+}
+
+async function openRow(page: Page, label: string, name: string) {
   // Click the first cell: the middle of an event row holds a link to the involved object.
   await row(page, label, name).first().getByRole('gridcell').first().click()
+}
+
+async function openObject(page: Page, label: string, name: string) {
+  await findObject(page, label, name)
+  await openRow(page, label, name)
 }
 
 const readClipboard = (kubestacks: { app: import('@playwright/test').ElectronApplication }) =>
@@ -346,14 +354,15 @@ test('less common shapes of common objects', async ({ page }) => {
   await expect(edge).toContainText('k8s-shop-edge-4f1c2a.elb.eu-west-1.amazonaws.com')
   await expect(edge.getByRole('table')).toContainText('8443')
 
-  await openObject(page, 'Services', 'payments-gateway')
-  await expect(panel(page, 'Service', 'payments-gateway')).toContainText('ExternalName')
-  await expect(row(page, 'Services', 'payments-gateway')).toContainText('ExternalName')
-
   // Check columns before opening the panel, which leaves room for fewer of them.
-  await goTo(page, 'Ingresses')
+  await findObject(page, 'Services', 'payments-gateway')
+  await expect(row(page, 'Services', 'payments-gateway')).toContainText('ExternalName')
+  await openRow(page, 'Services', 'payments-gateway')
+  await expect(panel(page, 'Service', 'payments-gateway')).toContainText('ExternalName')
+
+  await findObject(page, 'Ingresses', 'status-page')
   await expect(row(page, 'Ingresses', 'status-page')).toContainText('—')
-  await openObject(page, 'Ingresses', 'status-page')
+  await openRow(page, 'Ingresses', 'status-page')
   const ingress = panel(page, 'Ingress', 'status-page')
   await expect(ingress.getByRole('table')).toContainText('grafana:http')
   await expect(ingress.getByRole('table')).toContainText('*')
@@ -374,9 +383,10 @@ test('less common shapes of common objects', async ({ page }) => {
     .click()
   await expect(page.getByRole('complementary', { name: /^PersistentVolume / })).toBeVisible()
   await expect(row(page, 'Volumes', 'pv-spare')).toBeHidden()
-  await openObject(page, 'Volumes', 'pv-spare')
+  await findObject(page, 'Volumes', 'pv-spare')
   await expect(row(page, 'Volumes', 'pv-spare')).toContainText('Available')
   await expect(row(page, 'Volumes', 'pv-spare')).toContainText('—')
+  await openRow(page, 'Volumes', 'pv-spare')
 
   await openObject(page, 'Storage Classes', 'fast-ssd')
   const ssd = panel(page, 'StorageClass', 'fast-ssd')
@@ -402,8 +412,9 @@ test('less common shapes of common objects', async ({ page }) => {
     panel(page, 'Pod', DEMO.pods.nodeExporter[3]!).getByRole('article').first(),
   ).toContainText('not ready')
 
-  await openObject(page, 'Events', 'from 2 to 3')
+  await findObject(page, 'Events', 'from 2 to 3')
   await expect(row(page, 'Events', 'from 2 to 3')).toContainText('1')
+  await openRow(page, 'Events', 'from 2 to 3')
   await openObject(page, 'Events', 'NamespaceFinalizersRemaining')
   await expect(page.getByRole('complementary', { name: /^Event / })).toContainText(
     'Namespace/legacy',

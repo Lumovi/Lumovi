@@ -321,7 +321,7 @@ test('the detail panel resizes, expands and remembers its width', async ({ page 
   await page.mouse.up()
   await expect(handle).toHaveAttribute('aria-valuenow', '668')
 
-  const width = async () => (await detail.boundingBox())!.width
+  const width = async () => Math.round((await detail.boundingBox())!.width)
   await detail.getByRole('button', { name: 'Expand panel' }).click()
   await expect.poll(width).toBeGreaterThan(900)
   await detail.getByRole('button', { name: 'Restore panel' }).click()
@@ -532,20 +532,23 @@ test('the sidebar logo returns to all clusters', async ({ page }) => {
 })
 
 test('the window remembers its size and position', async ({ launch }) => {
-  const first = await launch()
-  await first.app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]!.setBounds({ x: 40, y: 60, width: 1200, height: 760 })
-  })
+  // Keep the size the app chose, and pick one that fits small CI screens.
+  const env = { KUBESTACKS_E2E_WINDOW: undefined }
+  const size = { width: 1040, height: 660 }
+  const first = await launch({ env })
+  await first.app.evaluate(({ BrowserWindow }, size) => {
+    BrowserWindow.getAllWindows()[0]!.setBounds({ x: 0, y: 60, ...size })
+  }, size)
   const userDataDir = first.userDataDir
   await first.close()
   const settings = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8'))
-  expect(settings.window).toMatchObject({ width: 1200, height: 760, maximized: false })
+  expect(settings.window).toMatchObject({ ...size, maximized: false })
 
-  const second = await launch({ userDataDir })
+  const second = await launch({ env, userDataDir })
   const bounds = await second.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0]!.getBounds(),
   )
-  expect(bounds).toMatchObject({ width: 1200, height: 760 })
+  expect(bounds).toMatchObject(size)
   await second.close()
 
   // A window saved maximized opens maximized; bounds on a missing monitor are ignored.
@@ -556,7 +559,7 @@ test('the window remembers its size and position', async ({ launch }) => {
       window: { x: 50, y: 50, width: 1100, height: 700, maximized: true },
     }),
   )
-  const third = await launch({ userDataDir })
+  const third = await launch({ env, userDataDir })
   await expect
     .poll(() =>
       third.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isVisible()),
@@ -571,7 +574,7 @@ test('the window remembers its size and position', async ({ launch }) => {
       window: { x: 90000, y: 90000, width: 900, height: 700, maximized: false },
     }),
   )
-  const fourth = await launch({ userDataDir })
+  const fourth = await launch({ env, userDataDir })
   const restored = await fourth.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0]!.getBounds(),
   )
