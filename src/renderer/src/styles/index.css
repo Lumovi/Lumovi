@@ -47,7 +47,7 @@
     --line-strong: rgb(255 255 255 / 0.12);
     --text-1: #f2f2f4;
     --text-2: #a1a1aa;
-    --text-3: #75757e;
+    --text-3: #8b8b94;
     --accent: #3987e5;
     --accent-strong: #5ea2f0;
     --accent-soft: rgb(57 135 229 / 0.16);
@@ -96,15 +96,30 @@
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
 
-  --animate-slide-in: slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-in: slide-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-out: slide-out 160ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-rise: rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-fade-in: fade-in 160ms ease-out;
   --animate-pop-in: pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
 }
 
 @keyframes slide-in {
   from {
     transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes slide-out {
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    transform: translateY(6px);
     opacity: 0;
   }
 }
@@ -117,6 +132,11 @@
   from {
     transform: scale(0.97) translateY(-4px);
     opacity: 0;
+  }
+}
+@keyframes shimmer {
+  50% {
+    opacity: 0.4;
   }
 }
 @keyframes pulse-dot {
@@ -182,11 +202,46 @@
   padding-right: 148px;
 }
 
+/*
+ * Page transitions (View Transitions API): only the page content and its title
+ * animate; the sidebar and window chrome stay still.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+::view-transition-old(page),
+::view-transition-old(page-title) {
+  animation: 120ms ease-out both vt-out;
+}
+::view-transition-new(page),
+::view-transition-new(page-title) {
+  animation: 260ms cubic-bezier(0.16, 1, 0.3, 1) both vt-in;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.vt-page {
+  view-transition-name: page;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
-  *::after {
+  *::after,
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
     animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
     transition-duration: 1ms !important;
   }
 }

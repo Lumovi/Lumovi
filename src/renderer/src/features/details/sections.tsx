@@ -1,8 +1,8 @@
-import { Check, Eye, EyeOff, X } from 'lucide-react'
+import { Check, CircleHelp, Eye, EyeOff, TriangleAlert } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { ContainerUsage, KubeObject } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
-import { IconButton } from '@renderer/components/Button'
+import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { Meter } from '@renderer/components/Meter'
 import { StatusDot } from '@renderer/components/Status'
@@ -286,9 +286,40 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][]
 
 // ——— Status ———
 
+// Conditions where True means trouble (for most, True is the healthy state).
+const TRUE_IS_BAD = new Set([
+  'MemoryPressure',
+  'DiskPressure',
+  'PIDPressure',
+  'NetworkUnavailable',
+  'ReplicaFailure',
+  'Failed',
+  'ScalingLimited',
+])
+
+type ConditionState = 'good' | 'bad' | 'unknown'
+
+const CONDITION_ICONS: Record<ConditionState, ReactNode> = {
+  good: <Check className="mt-0.5 size-4 shrink-0 text-good" aria-label="OK" />,
+  bad: <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-label="Problem" />,
+  unknown: <CircleHelp className="mt-0.5 size-4 shrink-0 text-ink-3" aria-label="Unknown" />,
+}
+
+/**
+ * `settled`: the object finished (a completed or failed pod), so conditions that
+ * are no longer true are expected rather than a problem.
+ */
+export function conditionState(type: string, status: string, settled: boolean): ConditionState {
+  if (status === 'Unknown') return 'unknown'
+  if ((status === 'True') !== TRUE_IS_BAD.has(type)) return 'good'
+  return settled ? 'unknown' : 'bad'
+}
+
 export function Conditions({
   conditions,
+  settled,
 }: {
+  settled: boolean
   conditions: {
     type: string
     status: string
@@ -300,14 +331,14 @@ export function Conditions({
   return (
     <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
       {conditions.map((c) => {
-        const ok = c.status === 'True'
+        const state = conditionState(c.type, c.status, settled)
         return (
-          <li key={c.type} className="flex gap-3 px-3.5 py-2.5">
-            {ok ? (
-              <Check className="mt-0.5 size-4 shrink-0 text-good" />
-            ) : (
-              <X className="mt-0.5 size-4 shrink-0 text-ink-3" />
-            )}
+          <li
+            key={c.type}
+            data-state={state}
+            className="flex gap-3 px-3.5 py-2.5 data-[state=bad]:bg-warn/5"
+          >
+            {CONDITION_ICONS[state]}
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <span className="font-medium text-ink-1">{c.type}</span>
@@ -352,27 +383,69 @@ function decode(base64: string): string {
 }
 
 /** ConfigMap and Secret data. Secret values are decoded but hidden until revealed. */
+/** ConfigMap and Secret data. Secret values are decoded but hidden until revealed. */
 export function DataEntries({ data, secret }: { data: Record<string, string>; secret: boolean }) {
+  const [revealed, setRevealed] = useState<Set<string>>(new Set())
+  const keys = Object.keys(data)
+  const allRevealed = revealed.size === keys.length
+  const toggle = (key: string) =>
+    setRevealed((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   return (
     <div className="space-y-2">
-      {Object.entries(data).map(([key, value]) => (
-        <DataEntry key={key} name={key} value={secret ? decode(value) : value} secret={secret} />
+      {secret && (
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            onClick={() => setRevealed(allRevealed ? new Set() : new Set(keys))}
+          >
+            {allRevealed ? <EyeOff /> : <Eye />}
+            {allRevealed ? 'Hide all' : 'Reveal all'}
+          </Button>
+        </div>
+      )}
+      {keys.map((key) => (
+        <DataEntry
+          key={key}
+          name={key}
+          value={secret ? decode(data[key]!) : data[key]!}
+          secret={secret}
+          revealed={!secret || revealed.has(key)}
+          onToggle={() => toggle(key)}
+        />
       ))}
     </div>
   )
 }
 
-function DataEntry({ name, value, secret }: { name: string; value: string; secret: boolean }) {
-  const [revealed, setRevealed] = useState(!secret)
+const bytes = (value: string) => formatBytes(new TextEncoder().encode(value).length)
+
+function DataEntry({
+  name,
+  value,
+  secret,
+  revealed,
+  onToggle,
+}: {
+  name: string
+  value: string
+  secret: boolean
+  revealed: boolean
+  onToggle: () => void
+}) {
   return (
     <div className="overflow-hidden rounded-xl border border-line">
       <div className="flex items-center gap-2 bg-surface-2 py-1 pr-1 pl-3">
-        <span className="flex-1 truncate font-mono text-xs font-medium text-ink-1">{name}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-ink-1">
+          {name}
+        </span>
+        <span className="shrink-0 text-2xs text-ink-3 tabular-nums">{bytes(value)}</span>
         {secret && (
-          <IconButton
-            label={revealed ? `Hide ${name}` : `Reveal ${name}`}
-            onClick={() => setRevealed(!revealed)}
-          >
+          <IconButton label={revealed ? `Hide ${name}` : `Reveal ${name}`} onClick={onToggle}>
             {revealed ? <EyeOff /> : <Eye />}
           </IconButton>
         )}

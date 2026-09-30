@@ -1,20 +1,27 @@
 const BYTE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
 
-/** Compact, kubectl-style age: 42s, 5m, 3h, 12d, 2y. */
+/** Durations the way kubectl prints them: 42s, 5m3s, 47m, 3h12m, 20h, 2d4h, 88d, 2y70d. */
 export function age(timestamp: string, now = Date.now()): string {
   const seconds = Math.max(0, Math.floor((now - Date.parse(timestamp)) / 1000))
-  if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
   const days = Math.floor(hours / 24)
-  return days < 365 ? `${days}d` : `${Math.floor(days / 365)}y`
+  if (seconds < 120) return `${seconds}s`
+  if (minutes < 10) return `${minutes}m${seconds % 60}s`
+  if (minutes < 180) return `${minutes}m`
+  if (hours < 8) return `${hours}h${minutes % 60}m`
+  if (hours < 48) return `${hours}h`
+  if (days < 8) return `${days}d${hours % 24}h`
+  if (days < 730) return `${days}d`
+  return `${Math.floor(days / 365)}y${days % 365}d`
 }
 
-/** Cores as millicores below one core ("250m"), otherwise as cores ("2.4"). */
+/** CPU in cores: "0", "<1m", "250m", "2.4". */
 export function formatCpu(cores: number): string {
-  return cores < 1 ? `${Math.round(cores * 1000)}m` : `${Number(cores.toFixed(2))}`
+  if (cores === 0) return '0'
+  if (cores >= 1) return `${Number(cores.toFixed(1))}`
+  const millicores = Math.round(cores * 1000)
+  return millicores === 0 ? '<1m' : `${millicores}m`
 }
 
 export function formatBytes(bytes: number): string {
@@ -41,4 +48,14 @@ export function formatDateTime(timestamp: string): string {
 
 export function pluralize(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/** The host of an API server URL, for display; the raw value if it isn't a URL. */
+export function hostOf(server: string | undefined): string | undefined {
+  if (!server) return undefined
+  try {
+    return new URL(server).host
+  } catch {
+    return server
+  }
 }

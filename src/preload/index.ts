@@ -6,6 +6,11 @@ const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(chann
 // The renderer gets this narrow, typed API and nothing else from Electron or Node.
 const api: KubestacksApi = {
   platform: process.platform,
+  onCommand: (listener) => {
+    const handler = (_event: unknown, command: Parameters<typeof listener>[0]) => listener(command)
+    ipcRenderer.on(IPC.command, handler)
+    return () => ipcRenderer.removeListener(IPC.command, handler)
+  },
   app: {
     info: () => invoke(IPC.appInfo),
     settings: () => invoke(IPC.settings),

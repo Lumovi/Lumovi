@@ -39,8 +39,19 @@ async function session(
 }
 
 async function openDemo(page: Page) {
-  await page.getByRole('list', { name: 'Clusters' }).getByRole('button', { name: /^demo/ }).click()
+  await page.getByRole('option', { name: /^demo\b/ }).click()
   await page.getByRole('heading', { level: 1, name: 'Overview' }).waitFor()
+}
+
+/** Opens a row by clicking its first cell (other cells may hold links). */
+async function openRow(page: Page, text: string) {
+  await page
+    .getByRole('row')
+    .filter({ hasText: text })
+    .first()
+    .getByRole('gridcell')
+    .first()
+    .click()
 }
 
 async function nav(page: Page, label: string) {
@@ -63,7 +74,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.screenshot({ path: file('pods') })
 
     await nav(page, 'Deployments')
-    await page.getByRole('row').filter({ hasText: DEMO.deployments.checkout }).click()
+    await openRow(page, DEMO.deployments.checkout)
     await page.waitForTimeout(600)
     await page.getByRole('tab', { name: 'Pods' }).click()
     await page.waitForTimeout(600)
@@ -71,7 +82,7 @@ for (const theme of ['dark', 'light'] as const) {
 
     await nav(page, 'Pods')
     await page.getByPlaceholder('Filter pods').fill(DEMO.pods.checkout[0]!)
-    await page.getByRole('row').filter({ hasText: DEMO.pods.checkout[0]! }).click()
+    await openRow(page, DEMO.pods.checkout[0]!)
     await page.waitForTimeout(600)
     await page.screenshot({ path: file('pod') })
     await page.getByRole('tab', { name: 'Logs' }).click()
@@ -82,7 +93,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.screenshot({ path: file('yaml') })
 
     await nav(page, 'Nodes')
-    await page.keyboard.press('Meta+k')
+    await page.keyboard.press('ControlOrMeta+k')
     await page.keyboard.type('dep')
     await page.waitForTimeout(400)
     await page.screenshot({ path: file('palette') })

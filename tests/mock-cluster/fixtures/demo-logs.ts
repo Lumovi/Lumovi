@@ -28,6 +28,10 @@ function storefront(rng: Rng, count: number): string[] {
     json({ level: 'info', msg: 'loaded configuration', source: '/etc/storefront/config.yaml' }),
     json({ level: 'info', msg: 'connected to cache', addr: 'cart.shop.svc.cluster.local:6379' }),
     json({ level: 'info', msg: 'http server listening', addr: ':8080' }),
+    // Lines some libraries write: no level, no message, and one cut off mid-object.
+    json({ msg: 'cache warmed', entries: 1200 }),
+    json({ level: 'debug', event: 'heartbeat' }),
+    '{"level":"info","msg":"request completed","path":"/api/cart"',
   ]
   for (let i = 0; i < count; i++) {
     const roll = rng()

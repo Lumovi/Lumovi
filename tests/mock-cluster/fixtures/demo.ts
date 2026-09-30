@@ -149,7 +149,7 @@ function kubeRootCa(
 
 export function demoCluster(now = Date.now()): ClusterFixture {
   const b = clusterBuilder(now)
-  const clusterAge = 412 * DAY
+  const clusterAge = 800 * DAY
 
   // ── Nodes ────────────────────────────────────────────────────────────────
   const nodes = {

@@ -42,7 +42,7 @@ test('browses a real cluster', async ({ launch }) => {
   await expect(pod.getByRole('log')).toContainText('CoreDNS')
 
   await goTo(page, 'Nodes')
-  await page.getByRole('table', { name: 'Nodes' }).getByRole('row').nth(1).click()
+  await page.getByRole('grid', { name: 'Nodes' }).getByRole('row').nth(1).click()
   await expect(page.getByRole('complementary', { name: /^Node / })).toContainText('Capacity')
 
   await goTo(page, 'Deployments')

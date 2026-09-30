@@ -1,21 +1,24 @@
-import type { UseQueryResult } from '@tanstack/react-query'
-import { CircleCheck, Gauge, type LucideIcon } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { ChevronRight, CircleCheck, Gauge, type LucideIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import type { KubeObject, UsageSample } from '@shared/api'
 import type { ResourceKind } from '@shared/resources'
+import { Button } from '@renderer/components/Button'
 import { Card } from '@renderer/components/Card'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { Meter } from '@renderer/components/Meter'
 import { Sparkline } from '@renderer/components/Sparkline'
 import { StackedBar } from '@renderer/components/StackedBar'
-import { ErrorState, Loading } from '@renderer/components/States'
+import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { HEALTH_STYLE, StatusDot, StatusPill } from '@renderer/components/Status'
-import { useList, useMetrics, useVersion } from '@renderer/hooks/queries'
+import { useGo } from '@renderer/hooks/go'
+import { useOpenObject } from '@renderer/hooks/open-object'
+import { useContexts, useList, useMetrics, useVersion } from '@renderer/hooks/queries'
 import { useNodeUsage } from '@renderer/hooks/usage'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { age, formatBytes, formatCpu, percent, pluralize } from '@renderer/lib/format'
+import { age, formatBytes, formatCpu, hostOf, percent, pluralize } from '@renderer/lib/format'
+import { clusterPath } from '@renderer/lib/routes'
 import {
   HEALTH_RANK,
   nodeStatus,
@@ -24,7 +27,6 @@ import {
   type Health,
   type Status,
 } from '@renderer/lib/health'
-import { formatRef } from '@renderer/lib/routes'
 import {
   allocatable,
   podReservations,
@@ -36,13 +38,11 @@ import { useUsageHistory } from '@renderer/state/usage-history'
 import { lastSeen, nodeRoles } from '../resources/columns'
 
 const WORKLOAD_KINDS: ResourceKind[] = ['Deployment', 'StatefulSet', 'DaemonSet']
+/** Rows in "Needs attention" before "Show all". */
+const ATTENTION_ROWS = 6
 const HOUR = 3_600_000
 
-function useOpen() {
-  const [, setParams] = useSearchParams()
-  return (kind: ResourceKind, name: string, namespace?: string) =>
-    setParams({ open: formatRef({ kind, name, namespace }) })
-}
+const useOpen = useOpenObject
 
 export function OverviewPage() {
   const { context, namespace } = useCluster()
@@ -56,25 +56,43 @@ export function OverviewPage() {
   const podMetrics = useMetrics('pods', namespace)
   const usage = useNodeUsage()
   const version = useVersion(context)
+  const server = useContexts().data?.contexts.find((c) => c.name === context)?.server
+  const go = useGo()
+  const queryClient = useQueryClient()
 
-  if (nodes.isError) {
+  if (!nodes.data && nodes.isError) {
     return (
       <ErrorState
         error={nodes.error as KubeApiError}
         onRetry={() => void nodes.refetch()}
         className="py-24"
-      />
+      >
+        <Button onClick={() => go('/')}>Choose another cluster</Button>
+      </ErrorState>
     )
   }
+
+  // Keep showing what loaded before, but say when part of it could not be refreshed.
+  const stale = [nodes, allPods, pods, deployments, statefulSets, daemonSets, events].find(
+    (query) => query.isError && query.data,
+  )
 
   const workloads = [deployments, statefulSets, daemonSets].flatMap((q, i) =>
     (q.data ?? []).map((object) => ({ kind: WORKLOAD_KINDS[i]!, object })),
   )
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 px-6 py-5">
+    <div className="@container space-y-4 px-6 py-5">
+      {stale && (
+        <div className="overflow-hidden rounded-xl border border-warn/25">
+          <StaleNotice
+            error={stale.error as KubeApiError}
+            onRetry={() => void queryClient.invalidateQueries()}
+          />
+        </div>
+      )}
       <p className="text-[13px] text-ink-3">
-        <span className="font-medium text-ink-2">{context}</span>
+        <span className="font-mono text-ink-2 selectable">{hostOf(server)}</span>
         {version.data && <> · Kubernetes {version.data.gitVersion}</>}
         {namespace && (
           <>
@@ -85,7 +103,7 @@ export function OverviewPage() {
         )}
       </p>
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 @4xl:grid-cols-4">
         <NodesTile nodes={nodes.data} />
         <PodsTile pods={pods.data} />
         <WorkloadsTile
@@ -95,7 +113,7 @@ export function OverviewPage() {
         <WarningsTile events={events.data} asOf={events.dataUpdatedAt} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid animate-rise gap-4 [animation-delay:60ms] @3xl:grid-cols-2">
         <CapacityCard
           resource="cpu"
           usage={usage}
@@ -108,26 +126,26 @@ export function OverviewPage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-12">
-        <Card title="Pod health" className="lg:col-span-7">
+      <div className="grid animate-rise gap-4 [animation-delay:120ms] @4xl:grid-cols-12">
+        <Card title="Pod health" className="@4xl:col-span-7">
           <Body query={pods}>{(data) => <PodHealth pods={data} />}</Body>
         </Card>
-        <Card title="Nodes" className="lg:col-span-5">
+        <Card title="Nodes" className="@4xl:col-span-5">
           <Body query={nodes}>{(data) => <NodeList nodes={data} usage={usage} />}</Body>
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-12">
-        <Card title="Needs attention" className="lg:col-span-7">
+      <div className="grid animate-rise gap-4 [animation-delay:180ms] @4xl:grid-cols-12">
+        <Card title="Needs attention" className="@4xl:col-span-7">
           <Body query={pods}>{(data) => <Attention pods={data} workloads={workloads} />}</Body>
         </Card>
-        <Card title="Recent warnings" className="lg:col-span-5">
+        <Card title="Recent warnings" className="@4xl:col-span-5">
           <Body query={events}>{(data) => <Warnings events={data} />}</Body>
         </Card>
       </div>
 
       {podMetrics.data?.available && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid animate-rise gap-4 [animation-delay:240ms] @3xl:grid-cols-2">
           <TopPods
             title="Top CPU"
             samples={podMetrics.data.items}
@@ -155,7 +173,7 @@ function Body<T>({
   children: (data: T) => ReactNode
 }) {
   if (query.isPending) return <Loading label="Loading…" className="py-8" />
-  if (query.isError) {
+  if (query.data === undefined) {
     return (
       <ErrorState
         error={query.error as KubeApiError}
@@ -169,41 +187,53 @@ function Body<T>({
 
 // ——— Stat tiles ———
 
+/** A headline number; clicking it opens the list behind it, filtered to what matters. */
 function Tile({
   icon: Icon,
   label,
   value,
   detail,
   status,
+  to,
 }: {
   icon: LucideIcon
   label: string
   value?: ReactNode
   detail?: ReactNode
   status?: Health
+  /** Path within the cluster, e.g. `pods?health=critical`. */
+  to: string
 }) {
+  const { context } = useCluster()
+  const go = useGo()
   return (
-    <section
-      aria-label={label}
-      className="rounded-xl border border-line bg-surface-2 p-4 shadow-panel"
-    >
-      <div className="flex items-center gap-2 text-[13px] text-ink-2">
-        <Icon className="size-4 text-ink-3" />
-        {label}
-      </div>
-      <div className="mt-2.5 text-[28px] leading-none font-semibold tracking-[-0.02em] text-ink-1">
-        {value ?? '—'}
-      </div>
-      <div className="mt-2 flex h-5 items-center gap-1.5 text-xs text-ink-3">
-        {status && <StatusDot health={status} />}
-        {detail}
-      </div>
+    <section aria-label={label} className="animate-rise">
+      <button
+        type="button"
+        onClick={() => go(`${clusterPath(context)}/${to}`)}
+        className="group block w-full rounded-xl border border-line bg-surface-2 p-4 text-left shadow-panel transition-colors hover:border-line-strong hover:bg-surface-3/40"
+      >
+        <div className="flex items-center gap-2 text-[13px] text-ink-2">
+          <Icon className="size-4 text-ink-3" />
+          {label}
+          <ChevronRight className="ml-auto size-4 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
+        </div>
+        <div className="mt-2.5 text-[28px] leading-none font-semibold tracking-[-0.02em] text-ink-1">
+          {value ?? '—'}
+        </div>
+        <div className="mt-2 flex h-5 items-center gap-1.5 text-xs text-ink-3">
+          {status && <StatusDot health={status} />}
+          {detail}
+        </div>
+      </button>
     </section>
   )
 }
 
+const UNHEALTHY = 'health=critical,warning'
+
 function NodesTile({ nodes }: { nodes?: KubeObject[] }) {
-  if (!nodes) return <Tile icon={KIND_ICONS.Node} label="Nodes ready" />
+  if (!nodes) return <Tile icon={KIND_ICONS.Node} label="Nodes ready" to="nodes" />
   const notReady = nodes.filter((n) => nodeStatus(n).health === 'critical').length
   return (
     <Tile
@@ -212,28 +242,37 @@ function NodesTile({ nodes }: { nodes?: KubeObject[] }) {
       value={`${nodes.length - notReady}/${nodes.length}`}
       status={notReady ? 'critical' : 'healthy'}
       detail={notReady ? `${notReady} not ready` : 'All ready'}
+      to={notReady ? `nodes?${UNHEALTHY}` : 'nodes'}
     />
   )
 }
 
 function PodsTile({ pods }: { pods?: KubeObject[] }) {
-  if (!pods) return <Tile icon={KIND_ICONS.Pod} label="Pods running" />
+  if (!pods) return <Tile icon={KIND_ICONS.Pod} label="Pods running" to="pods" />
   const statuses = pods.map(podStatus)
   const running = statuses.filter((s) => s.label === 'Running').length
   const issues = statuses.filter((s) => s.health === 'critical' || s.health === 'warning').length
+  const detail =
+    pods.length === 0
+      ? 'No pods yet'
+      : issues
+        ? `${issues} unhealthy`
+        : `${pods.length} total, all fine`
   return (
     <Tile
       icon={KIND_ICONS.Pod}
       label="Pods running"
       value={running}
       status={issues ? 'warning' : 'healthy'}
-      detail={issues ? `${issues} unhealthy` : `${pods.length} total, all fine`}
+      detail={detail}
+      to={issues ? `pods?${UNHEALTHY}` : 'pods'}
     />
   )
 }
 
 function WorkloadsTile({ workloads, loaded }: { workloads: Status[]; loaded: boolean }) {
-  if (!loaded) return <Tile icon={KIND_ICONS.Deployment} label="Workloads healthy" />
+  if (!loaded)
+    return <Tile icon={KIND_ICONS.Deployment} label="Workloads healthy" to="deployments" />
   const healthy = workloads.filter((s) => s.health === 'healthy' || s.health === 'neutral').length
   const degraded = workloads.length - healthy
   return (
@@ -242,13 +281,20 @@ function WorkloadsTile({ workloads, loaded }: { workloads: Status[]; loaded: boo
       label="Workloads healthy"
       value={`${healthy}/${workloads.length}`}
       status={degraded ? 'warning' : 'healthy'}
-      detail={degraded ? `${degraded} degraded` : 'All healthy'}
+      detail={
+        workloads.length === 0
+          ? 'No workloads yet'
+          : degraded
+            ? `${degraded} degraded`
+            : 'All healthy'
+      }
+      to={degraded ? `deployments?${UNHEALTHY}` : 'deployments'}
     />
   )
 }
 
 function WarningsTile({ events, asOf }: { events?: KubeObject[]; asOf: number }) {
-  if (!events) return <Tile icon={KIND_ICONS.Event} label="Warnings" />
+  if (!events) return <Tile icon={KIND_ICONS.Event} label="Warnings" to="events?health=warning" />
   const since = asOf - HOUR
   const recent = events.filter(
     (e) => e.type === 'Warning' && Date.parse(lastSeen(e)) > since,
@@ -260,6 +306,7 @@ function WarningsTile({ events, asOf }: { events?: KubeObject[]; asOf: number })
       value={recent}
       status={recent ? 'warning' : 'healthy'}
       detail="In the last hour"
+      to="events?health=warning"
     />
   )
 }
@@ -326,7 +373,12 @@ function CapacityCard({
               times={points.map((p) => p.at)}
             />
           ) : (
-            <p className="pb-3 text-right text-xs text-ink-3">{live ? 'Collecting usage…' : ''}</p>
+            <div className="flex h-12 flex-col justify-end gap-1.5 pb-1">
+              <span className="block h-0.5 animate-shimmer rounded-full bg-accent-track" />
+              <span className="text-right text-2xs text-ink-3">
+                {live ? 'Collecting usage…' : 'No live usage'}
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -390,6 +442,13 @@ function PodHealth({ pods }: { pods: KubeObject[] }) {
     .sort((a, b) => b[1].length - a[1].length)
     .slice(0, 6)
   const counts = countByHealth(pods)
+  if (pods.length === 0) {
+    return (
+      <EmptyState icon={KIND_ICONS.Pod} title="No pods yet" className="py-6">
+        Pods will show up here as soon as something is scheduled.
+      </EmptyState>
+    )
+  }
   return (
     <div className="flex flex-1 flex-col">
       <StackedBar
@@ -457,7 +516,7 @@ function NodeList({ nodes, usage }: { nodes: KubeObject[]; usage?: NodeUsage }) 
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{node.metadata.name}</span>
                   <span className="block truncate text-xs text-ink-3">
-                    {status.label} · {nodeRoles(node).join(', ') || 'worker'}
+                    {[status.label, ...nodeRoles(node)].join(' · ')}
                   </span>
                 </span>
               </span>
@@ -507,6 +566,7 @@ function Attention({
     .filter((item) => item.status.health === 'critical' || item.status.health === 'warning')
     .sort((a, b) => HEALTH_RANK[a.status.health] - HEALTH_RANK[b.status.health])
 
+  const [expanded, setExpanded] = useState(false)
   if (items.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-ink-3">
@@ -515,27 +575,41 @@ function Attention({
       </div>
     )
   }
+  const shown = expanded ? items : items.slice(0, ATTENTION_ROWS)
   return (
-    <ul aria-label="Needs attention" className="-mx-2 max-h-[340px] space-y-0.5 overflow-y-auto">
-      {items.map(({ kind, object, status }) => (
-        <li key={`${kind}/${object.metadata.namespace}/${object.metadata.name}`}>
-          <button
-            type="button"
-            onClick={() => open(kind, object.metadata.name, object.metadata.namespace)}
-            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-3/60"
-          >
-            <StatusPill status={status} className="w-40 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{object.metadata.name}</span>
-              <span className="block truncate text-xs text-ink-3">
-                {kind} · {object.metadata.namespace}
-                {status.detail && ` · ${status.detail}`}
+    <>
+      <ul aria-label="Needs attention" className="-mx-2 space-y-0.5">
+        {shown.map(({ kind, object, status }) => (
+          <li key={`${kind}/${object.metadata.namespace}/${object.metadata.name}`}>
+            <button
+              type="button"
+              onClick={() => open(kind, object.metadata.name, object.metadata.namespace)}
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-3/60"
+            >
+              <span className="w-40 shrink-0">
+                <StatusPill status={status} />
               </span>
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{object.metadata.name}</span>
+                <span className="block truncate text-xs text-ink-3">
+                  {kind} · {object.metadata.namespace}
+                  {status.detail && ` · ${status.detail}`}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {items.length > ATTENTION_ROWS && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-2 self-start rounded-md px-2 py-1 text-xs font-medium text-accent-strong hover:bg-accent-soft"
+        >
+          {expanded ? 'Show fewer' : `Show all ${items.length}`}
+        </button>
+      )}
+    </>
   )
 }
 

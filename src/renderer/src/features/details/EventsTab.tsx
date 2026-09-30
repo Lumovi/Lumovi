@@ -1,4 +1,4 @@
-import { Activity, CircleMinus, TriangleAlert } from 'lucide-react'
+import { Activity, Info, TriangleAlert } from 'lucide-react'
 import type { KubeObject } from '@shared/api'
 import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
 import { useList } from '@renderer/hooks/queries'
@@ -14,7 +14,7 @@ export function EventsTab({ object }: { object: KubeObject }) {
   })
 
   if (events.isPending) return <Loading label="Loading events…" />
-  if (events.isError)
+  if (events.data === undefined)
     return <ErrorState error={events.error as KubeApiError} onRetry={() => void events.refetch()} />
   if (events.data.length === 0) {
     return (
@@ -29,7 +29,7 @@ export function EventsTab({ object }: { object: KubeObject }) {
     <ol aria-label="Events" className="relative space-y-1 px-5 py-4">
       {sorted.map((event) => {
         const warning = event.type === 'Warning'
-        const Icon = warning ? TriangleAlert : CircleMinus
+        const Icon = warning ? TriangleAlert : Info
         return (
           <li
             key={event.metadata.name}

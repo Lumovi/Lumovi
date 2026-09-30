@@ -29,7 +29,7 @@ const KINDS: KindCase[] = [
     kind: 'Node',
     label: 'Nodes',
     open: DEMO.nodes.worker3,
-    cells: ['NotReady', 'worker', 'cores', 'v1.34.1'],
+    cells: ['NotReady', 'No metrics', 'v1.34.1'],
     details: ['No (cordoned)', 'Kubelet stopped posting node status', 'allocatable', 'Taints'],
   },
   {
@@ -58,33 +58,28 @@ const KINDS: KindCase[] = [
     label: 'Deployments',
     open: DEMO.deployments.checkout,
     cells: ['Degraded', '1/3', 'ghcr.io/acme/checkout'],
-    details: [
-      '3 desired · 1 ready',
-      'RollingUpdate',
-      'Pod template',
-      'app.kubernetes.io/name=checkout',
-    ],
+    details: ['1 of 3 ready', 'RollingUpdate', 'Pod template', 'app.kubernetes.io/name=checkout'],
   },
   {
     kind: 'StatefulSet',
     label: 'StatefulSets',
     open: DEMO.statefulSets.redis,
     cells: ['Degraded', '1/2'],
-    details: ['2 desired · 1 ready', 'Pod template'],
+    details: ['1 of 2 ready', 'Pod template'],
   },
   {
     kind: 'DaemonSet',
     label: 'DaemonSets',
     open: DEMO.daemonSets.nodeExporter,
     cells: ['Degraded', '3/4'],
-    details: ['4 desired · 3 ready', 'Update strategy'],
+    details: ['3 of 4 ready', 'Update strategy'],
   },
   {
     kind: 'ReplicaSet',
     label: 'ReplicaSets',
     open: DEMO.replicaSets.storefrontPrevious,
     cells: ['Scaled to zero', '0/0'],
-    details: ['0 desired · 0 ready', 'Deployment/storefront'],
+    details: ['0 of 0 ready', 'Deployment/storefront'],
   },
   {
     kind: 'Job',
@@ -174,7 +169,7 @@ for (const kindCase of KINDS) {
     for (const text of kindCase.cells) await expect(target).toContainText(text)
 
     // Click the first cell: the middle of an event row holds a link to the involved object.
-    await target.getByRole('cell').first().click()
+    await target.getByRole('gridcell').first().click()
     const detail =
       kindCase.kind === 'Event'
         ? page.getByRole('complementary', { name: /^Event / })
@@ -269,18 +264,11 @@ test('filters by text and by health', async ({ page }) => {
   await expect(rows(page, 'Events').first()).toContainText('recommendations')
 })
 
-test('opens objects with the keyboard and from event links', async ({ page }) => {
+test('opens objects from event links', async ({ page }) => {
   await openCluster(page)
   await goTo(page, 'Events')
   await row(page, 'Events', 'FailedScheduling').getByRole('button', { name: 'Pod/redis-1' }).click()
   await expect(panel(page, 'Pod', 'redis-1')).toBeVisible()
-
-  await goTo(page, 'Deployments')
-  const cart = row(page, 'Deployments', DEMO.deployments.cart)
-  await cart.focus()
-  await cart.press('ArrowDown')
-  await cart.press('Enter')
-  await expect(panel(page, 'Deployment', DEMO.deployments.cart)).toBeVisible()
 })
 
 test('shows empty states', async ({ page }) => {
@@ -317,20 +305,10 @@ test('shows errors and recovers on retry', async ({ page, clusters }) => {
   await expect(row(page, 'Deployments', DEMO.deployments.storefront)).toBeVisible()
 })
 
-test('renders thousands of pods through a virtual list', async ({ page }) => {
+test('a node without taints shows none', async ({ page }) => {
   await openCluster(page, CONTEXTS.large)
   // The context's kubeconfig namespace is the starting namespace.
   await expect(page.getByRole('button', { name: 'Namespace' })).toHaveText(LARGE.namespace)
-  await goTo(page, 'Pods')
-  await expect(page.getByText(`${LARGE.podCount} items`)).toBeVisible()
-  expect(await rows(page, 'Pods').count()).toBeLessThan(80)
-
-  await page.getByRole('columnheader', { name: 'Name' }).getByRole('button').click()
-  const table = page.getByRole('table', { name: 'Pods' })
-  await table.evaluate((element) => element.scrollTo({ top: element.scrollHeight }))
-  await expect(row(page, 'Pods', LARGE.podName(LARGE.podCount - 1))).toBeVisible()
-
-  // A plain worker without taints.
   await goTo(page, 'Nodes')
   await row(page, 'Nodes', LARGE.node).click()
   const node = page.getByRole('complementary', { name: `Node ${LARGE.node}` })

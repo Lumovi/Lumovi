@@ -5,6 +5,7 @@ import { Meter } from '@renderer/components/Meter'
 import { StatusPill } from '@renderer/components/Status'
 import { age, formatBytes, formatCpu, percent } from '@renderer/lib/format'
 import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@renderer/lib/health'
+import { describeSchedule, nextRun } from '@renderer/lib/cron'
 import { allocatable } from '@renderer/lib/usage'
 
 export interface CellContext {
@@ -21,6 +22,8 @@ export interface Column {
   /** CSS grid track size. */
   width: string
   align?: 'right'
+  /** 1 is always shown; 2 and then 3 are dropped first when the table is narrow. */
+  priority?: 1 | 2 | 3
   cell: (object: KubeObject, ctx: CellContext) => ReactNode
   sort?: (object: KubeObject, ctx: CellContext) => string | number
 }
@@ -48,7 +51,7 @@ export function lastSeen(object: KubeObject): string {
 export const nameColumn = (showNamespace: boolean): Column => ({
   id: 'name',
   header: 'Name',
-  width: 'minmax(220px, 2.2fr)',
+  width: 'minmax(220px, 1.8fr)',
   cell: (o) => (
     <span className="flex min-w-0 flex-col">
       <span className="truncate font-medium text-ink-1">{o.metadata.name}</span>
@@ -60,7 +63,7 @@ export const nameColumn = (showNamespace: boolean): Column => ({
 
 export const statusColumn = (kind: ResourceKind): Column => ({
   id: 'status',
-  header: 'Status',
+  header: kind === 'Event' ? 'Type' : 'Status',
   width: 'minmax(168px, 1fr)',
   cell: (o) => {
     const status = statusOf(kind, o)
@@ -202,7 +205,7 @@ const nodeColumns: Column[] = [
     width: 'minmax(150px, 1.2fr)',
     cell: (o, ctx) => {
       const usage = usageOf(o, ctx)
-      if (!usage) return muted(`${formatCpu(allocatable(o).cpu)} cores`)
+      if (!usage) return noUsage(ctx, `${formatCpu(allocatable(o).cpu)} cores`)
       const ratio = usage.cpu / allocatable(o).cpu
       return usageMeter(usage.cpu, allocatable(o).cpu, `${o.metadata.name} CPU`, percent(ratio))
     },
@@ -214,7 +217,7 @@ const nodeColumns: Column[] = [
     width: 'minmax(150px, 1.2fr)',
     cell: (o, ctx) => {
       const usage = usageOf(o, ctx)
-      if (!usage) return muted(formatBytes(allocatable(o).memory))
+      if (!usage) return noUsage(ctx, formatBytes(allocatable(o).memory))
       const ratio = usage.memory / allocatable(o).memory
       return usageMeter(
         usage.memory,
@@ -232,6 +235,16 @@ const nodeColumns: Column[] = [
     cell: (o) => mono(o.status.nodeInfo.kubeletVersion),
   },
 ]
+
+/**
+ * Without the metrics API, show what can be allocated; with it, a node that
+ * reports nothing (e.g. NotReady) has no usage to show.
+ */
+function noUsage(ctx: CellContext, allocatableText: string) {
+  return ctx.metrics
+    ? muted('No metrics')
+    : muted(<span title="Allocatable">{allocatableText}</span>)
+}
 
 export function nodeRoles(node: KubeObject): string[] {
   const prefix = 'node-role.kubernetes.io/'
@@ -261,7 +274,9 @@ export function loadBalancerAddress(object: KubeObject): string | undefined {
 
 export function externalAddress(service: KubeObject): string | undefined {
   return (
-    loadBalancerAddress(service) ?? (service.spec.type === 'LoadBalancer' ? 'Pending' : undefined)
+    loadBalancerAddress(service) ??
+    service.spec.externalName ??
+    (service.spec.type === 'LoadBalancer' ? 'Pending' : undefined)
   )
 }
 
@@ -307,7 +322,27 @@ const EXTRA_COLUMNS: Partial<Record<ResourceKind, Column[]>> = {
     },
   ],
   CronJob: [
-    { id: 'schedule', header: 'Schedule', width: '120px', cell: (o) => mono(o.spec.schedule) },
+    {
+      id: 'schedule',
+      header: 'Schedule',
+      width: 'minmax(170px, 1.2fr)',
+      cell: (o) => (
+        <span className="truncate text-ink-2" title={o.spec.schedule}>
+          {describeSchedule(o.spec.schedule)}
+        </span>
+      ),
+    },
+    {
+      id: 'next',
+      header: 'Next run',
+      width: '96px',
+      cell: (o, ctx) => {
+        const next = nextRun(o.spec.schedule, o.spec.timeZone)
+        return o.spec.suspend || !next
+          ? none
+          : muted(`in ${age(new Date(ctx.now).toISOString(), next.getTime())}`)
+      },
+    },
     {
       id: 'last',
       header: 'Last run',
@@ -348,7 +383,12 @@ const EXTRA_COLUMNS: Partial<Record<ResourceKind, Column[]>> = {
       width: '112px',
       cell: (o) => <span className="text-ink-2">{o.spec.type}</span>,
     },
-    { id: 'clusterIP', header: 'Cluster IP', width: '120px', cell: (o) => mono(o.spec.clusterIP) },
+    {
+      id: 'clusterIP',
+      header: 'Cluster IP',
+      width: '120px',
+      cell: (o) => (o.spec.clusterIP ? mono(o.spec.clusterIP) : none),
+    },
     {
       id: 'external',
       header: 'External',
@@ -362,7 +402,10 @@ const EXTRA_COLUMNS: Partial<Record<ResourceKind, Column[]>> = {
       id: 'ports',
       header: 'Ports',
       width: 'minmax(140px, 1.2fr)',
-      cell: (o) => mono(servicePorts(o)),
+      cell: (o) => {
+        const ports = servicePorts(o)
+        return ports ? mono(ports) : none
+      },
     },
   ],
   Ingress: [
@@ -565,13 +608,54 @@ const eventColumns: Column[] = [
   },
 ]
 
+/** Which columns give way first when the table is narrow (by column id). */
+const PRIORITY: Record<string, 2 | 3> = {
+  age: 3,
+  node: 3,
+  version: 3,
+  roles: 3,
+  images: 3,
+  clusterIP: 3,
+  class: 3,
+  reclaim: 3,
+  binding: 3,
+  types: 3,
+  count: 3,
+  volume: 3,
+  active: 3,
+  duration: 3,
+  target: 3,
+  next: 3,
+  restarts: 2,
+  cpu: 2,
+  memory: 2,
+  ready: 2,
+  lastSeen: 2,
+  ports: 2,
+  external: 2,
+  address: 2,
+  hosts: 2,
+  object: 2,
+  claim: 2,
+  capacity: 2,
+  keys: 2,
+  last: 2,
+}
+
+export function withPriorities(columns: Column[]): Column[] {
+  return columns.map((column) => ({ ...column, priority: PRIORITY[column.id] ?? 1 }))
+}
+
 /** The columns for a kind, and the column it sorts by until the user picks one. */
 export function columnsFor(
   kind: ResourceKind,
   options: { showNamespace: boolean; hasHealth: boolean },
 ): { columns: Column[]; defaultSort: string } {
   if (kind === 'Event') {
-    return { columns: [statusColumn(kind), ...eventColumns], defaultSort: 'lastSeen' }
+    return {
+      columns: withPriorities([statusColumn(kind), ...eventColumns]),
+      defaultSort: 'lastSeen',
+    }
   }
   const columns = [
     nameColumn(options.showNamespace),
@@ -579,7 +663,7 @@ export function columnsFor(
     ...(EXTRA_COLUMNS[kind] ?? []),
     ageColumn,
   ]
-  return { columns, defaultSort: options.hasHealth ? 'status' : 'name' }
+  return { columns: withPriorities(columns), defaultSort: options.hasHealth ? 'status' : 'name' }
 }
 
 /** Sorts by `column`, falling back to the name so equal rows keep a stable order. */

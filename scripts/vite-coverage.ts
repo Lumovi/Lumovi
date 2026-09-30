@@ -7,7 +7,8 @@
  *
  * - main:     flushed to `$KUBESTACKS_COVERAGE_DIR` when the process exits
  * - preload:  exposed to the page as `window.__kubestacksCoverage__()`
- * - renderer: read straight from `window.__coverage__`
+ * - renderer: read straight from `window.__coverage__`, and sent to the main
+ *             process to be written before the page reloads
  *
  * The collection hooks are appended after instrumentation, so they are never
  * counted as application code. Files are keyed by repo-relative POSIX paths so
@@ -21,29 +22,45 @@ import type { Plugin } from 'vite'
 type Target = 'main' | 'preload' | 'renderer'
 
 const MAIN_FLUSH = `
-import { app as __kubestacksApp } from 'electron';
+import { app as __kubestacksApp, ipcMain as __kubestacksIpc } from 'electron';
 ;(() => {
   const dir = process.env.KUBESTACKS_COVERAGE_DIR
-  if (!dir) return
-  let flushed = false
-  const flush = () => {
-    if (flushed || !globalThis.__coverage__) return
-    flushed = true
+  const write = (prefix, data) => {
+    if (!dir || !data) return
     const fs = process.getBuiltinModule('node:fs')
     const path = process.getBuiltinModule('node:path')
     fs.mkdirSync(dir, { recursive: true })
-    const file = path.join(dir, 'main-' + process.pid + '-' + Date.now() + '.json')
-    fs.writeFileSync(file, JSON.stringify(globalThis.__coverage__))
+    const id = process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+    fs.writeFileSync(path.join(dir, prefix + '-' + id + '.json'), JSON.stringify(data))
+  }
+  let flushed = false
+  const flush = () => {
+    if (flushed) return
+    flushed = true
+    write('main', globalThis.__coverage__)
   }
   process.once('exit', flush)
   __kubestacksApp.once('will-quit', flush)
   // A second instance quits before it is ready, without emitting will-quit.
   if (!__kubestacksApp.hasSingleInstanceLock()) flush()
+  // Renderer counters would otherwise be lost when the page reloads.
+  __kubestacksIpc.on('kubestacks:coverage', (event, data) => {
+    write('renderer', data)
+    event.returnValue = null
+  })
 })();
 `
 
 const PRELOAD_EXPOSE = `
-;require('electron').contextBridge.exposeInMainWorld('__kubestacksCoverage__', () => globalThis.__coverage__);
+;(() => {
+  const { contextBridge, ipcRenderer } = require('electron');
+  contextBridge.exposeInMainWorld('__kubestacksCoverage__', () => globalThis.__coverage__);
+  contextBridge.exposeInMainWorld('__kubestacksSaveCoverage__', (data) => ipcRenderer.sendSync('kubestacks:coverage', data));
+})();
+`
+
+const RENDERER_SAVE = `
+;addEventListener('pagehide', () => globalThis.__kubestacksSaveCoverage__?.(globalThis.__coverage__));
 `
 
 const toPosix = (path: string) => path.split(sep).join('/')
@@ -81,7 +98,7 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
         if (!chunk.isEntry) return null
         if (target === 'main') return code + MAIN_FLUSH
         if (target === 'preload') return code + PRELOAD_EXPOSE
-        return null
+        return code + RENDERER_SAVE
       },
     },
   ]

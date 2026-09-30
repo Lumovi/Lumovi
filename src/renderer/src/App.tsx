@@ -3,6 +3,8 @@ import { createHashRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { TooltipProvider } from './components/Tooltip'
+import { NotFound } from './features/errors/NotFound'
+import { RouteError } from './features/errors/RouteError'
 import { OverviewPage } from './features/overview/OverviewPage'
 import { ResourcePage } from './features/resources/ResourcePage'
 import { ClusterLayout } from './features/shell/ClusterLayout'
@@ -20,16 +22,29 @@ const queryClient = new QueryClient({
 })
 
 const router = createHashRouter([
-  { path: '/', element: <WelcomePage /> },
   {
-    path: '/cluster/:context',
-    element: <ClusterLayout />,
+    errorElement: <RouteError />,
     children: [
-      { index: true, element: <OverviewPage /> },
-      ...RESOURCES.map((resource) => ({
-        path: resource.plural,
-        element: <ResourcePage key={resource.kind} kind={resource.kind} />,
-      })),
+      { path: '/', element: <WelcomePage /> },
+      {
+        path: '/cluster/:context',
+        element: <ClusterLayout />,
+        children: [
+          {
+            // Page errors render inside the layout, so the sidebar stays usable.
+            errorElement: <RouteError />,
+            children: [
+              { index: true, element: <OverviewPage /> },
+              ...RESOURCES.map((resource) => ({
+                path: resource.plural,
+                element: <ResourcePage key={resource.kind} kind={resource.kind} />,
+              })),
+              { path: '*', element: <NotFound /> },
+            ],
+          },
+        ],
+      },
+      { path: '*', element: <NotFound /> },
     ],
   },
 ])

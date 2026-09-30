@@ -9,7 +9,9 @@ import {
   lastSeen,
   loadBalancerAddress,
 } from '../resources/columns'
+import { Meter } from '@renderer/components/Meter'
 import { ObjectLink } from './ObjectLink'
+import { Labels } from './sections'
 
 export interface Fact {
   label: string
@@ -26,14 +28,26 @@ const labels = (selector?: Record<string, string>) =>
     .map(([k, v]) => `${k}=${v}`)
     .join(', ')
 
+/** A label selector as chips, like the Labels section. */
+const selector = (matchLabels?: Record<string, string>) =>
+  matchLabels && Object.keys(matchLabels).length > 0 ? <Labels labels={matchLabels} /> : undefined
+
 const when = (timestamp?: string) =>
   timestamp && `${formatDateTime(timestamp)} (${age(timestamp)} ago)`
 
 const join = (values?: string[]) => values?.join(', ')
 
-function replicas(o: KubeObject): string {
+/** Ready vs desired replicas as a small bar, e.g. "1 of 3 ready". */
+function replicas(o: KubeObject): ReactNode {
   const { ready, desired } = replicaCounts(o)
-  return `${desired} desired · ${ready} ready`
+  return (
+    <span className="flex items-center gap-3">
+      <Meter value={desired ? ready / desired : 1} label="Ready replicas" className="w-24" />
+      <span className="tabular-nums">
+        {ready} of {desired} ready
+      </span>
+    </span>
+  )
 }
 
 function hpaMetrics(hpa: KubeObject): string {
@@ -97,22 +111,22 @@ const FACTS: Record<ResourceKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Updated', o.status.updatedReplicas),
     fact('Available', o.status.availableReplicas),
     fact('Strategy', o.spec.strategy?.type),
-    fact('Selector', labels(o.spec.selector.matchLabels)),
+    fact('Selector', selector(o.spec.selector.matchLabels)),
   ],
   StatefulSet: (o) => [
     fact('Replicas', replicas(o)),
     fact('Service', o.spec.serviceName),
     fact('Update strategy', o.spec.updateStrategy?.type),
-    fact('Selector', labels(o.spec.selector.matchLabels)),
+    fact('Selector', selector(o.spec.selector.matchLabels)),
   ],
   DaemonSet: (o) => [
     fact('Scheduled', replicas(o)),
     fact('Update strategy', o.spec.updateStrategy?.type),
-    fact('Selector', labels(o.spec.selector.matchLabels)),
+    fact('Selector', selector(o.spec.selector.matchLabels)),
   ],
   ReplicaSet: (o) => [
     fact('Replicas', replicas(o)),
-    fact('Selector', labels(o.spec.selector.matchLabels)),
+    fact('Selector', selector(o.spec.selector.matchLabels)),
   ],
   Job: (o) => [
     fact('Completions', `${o.status.succeeded ?? 0} / ${o.spec.completions}`),
@@ -146,7 +160,7 @@ const FACTS: Record<ResourceKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Cluster IP', o.spec.clusterIP),
     fact('External', externalAddress(o)),
     fact('Session affinity', o.spec.sessionAffinity),
-    fact('Selector', labels(o.spec.selector)),
+    fact('Selector', selector(o.spec.selector)),
   ],
   Ingress: (o) => [
     fact('Class', o.spec.ingressClassName),
