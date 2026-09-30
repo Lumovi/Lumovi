@@ -1,6 +1,8 @@
 import {
   ArrowUpDown,
   Ban,
+  Bug,
+  Cable,
   Box,
   CirclePause,
   CirclePlay,
@@ -12,6 +14,7 @@ import {
   Play,
   RotateCw,
   SlidersHorizontal,
+  SquareTerminal,
   Tags,
   Trash2,
   type LucideIcon,
@@ -30,6 +33,7 @@ import { AutoscalerDialog, ExpandVolumeDialog } from './LimitDialogs'
 import { RollbackDialog } from './RollbackDialog'
 import { ScaleDialog } from './ScaleDialog'
 import { SetImageDialog } from './SetImageDialog'
+import { DebugDialog, PortForwardDialog } from './StreamDialogs'
 
 /** A change that runs at once, with its undo, instead of opening a dialog. */
 export interface InstantChange {
@@ -53,6 +57,10 @@ export interface Action {
   instant?: (object: KubeObject, context: string) => InstantChange
   /** Opens the object in the detail panel's YAML editor instead of a dialog. */
   editor?: boolean
+  /** Opens this tab of the detail panel instead of a dialog. */
+  tab?: string
+  /** Doesn't change the cluster (port forwarding), so it works on read-only clusters too. */
+  safe?: boolean
 }
 
 const WORKLOADS = ['Deployment', 'StatefulSet', 'DaemonSet'] as const
@@ -86,6 +94,9 @@ const can =
     name: kind ? undefined : object.metadata.name,
     subresource,
   })
+
+const running = (pod: KubeObject) =>
+  pod.status?.phase === 'Running' && !pod.metadata.deletionTimestamp
 
 const controlled = (object: KubeObject) =>
   (object.metadata.ownerReferences ?? []).some((ref) => ref.controller)
@@ -141,6 +152,16 @@ export const ACTIONS: readonly Action[] = [
     access: can('patch'),
     primary: true,
     dialog: RestartDialog,
+  },
+  {
+    id: 'shell',
+    label: 'Shell',
+    icon: SquareTerminal,
+    kinds: ['Pod'],
+    when: running,
+    access: can('create', 'exec'),
+    primary: true,
+    tab: 'shell',
   },
   {
     id: 'restart-pod',
@@ -313,6 +334,25 @@ export const ACTIONS: readonly Action[] = [
         { done: `Resumed ${o.metadata.name}`, undone: `Suspended ${o.metadata.name}` },
         patchArgs(o),
       ),
+  },
+  {
+    id: 'debug',
+    label: 'Debug…',
+    icon: Bug,
+    kinds: ['Pod'],
+    when: running,
+    access: can('patch', 'ephemeralcontainers'),
+    dialog: DebugDialog,
+  },
+  {
+    id: 'forward',
+    label: 'Forward a port…',
+    icon: Cable,
+    kinds: ['Pod', 'Service'],
+    when: (o) => (o.kind === 'Pod' ? running(o) : Boolean(o.spec.selector)),
+    access: can('create', 'portforward', 'Pod'),
+    safe: true,
+    dialog: PortForwardDialog,
   },
   {
     id: 'evict',

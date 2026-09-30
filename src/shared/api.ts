@@ -191,6 +191,8 @@ export type Change =
   | { action: 'create'; object: KubeObject }
   /** Evicts a pod through the Eviction API, which respects PodDisruptionBudgets. */
   | { action: 'evict' }
+  /** Adds an ephemeral debug container to a pod, like `kubectl debug`. */
+  | { action: 'debug'; container: string; image: string; target?: string }
 
 export interface ChangeRequest {
   context: string
@@ -224,6 +226,49 @@ export interface Revision {
   changeCause?: string
   /** Whether it is what the workload runs now. */
   current: boolean
+}
+
+export interface ShellRequest {
+  context: string
+  namespace: string
+  pod: string
+  container: string
+}
+
+/** How a shell session ended: the exit code, or why it couldn't run. */
+export interface ShellExit {
+  code?: number
+  message?: string
+}
+
+export type ForwardKind = 'Pod' | 'Service'
+
+export interface PortForwardRequest {
+  context: string
+  namespace: string
+  kind: ForwardKind
+  name: string
+  /** The port on the pod, or on the service. */
+  port: number
+  /** Where to listen on this machine; a free port is picked when omitted. */
+  localPort?: number
+}
+
+export interface PortForward {
+  id: string
+  context: string
+  namespace: string
+  kind: ForwardKind
+  name: string
+  port: number
+  /** Where the traffic goes: the pod itself, or the service's first ready pod. */
+  pod: string
+  podPort: number
+  localPort: number
+  /** Connections open right now. */
+  connections: number
+  /** The last connection's failure, if it failed. */
+  error?: string
 }
 
 export type AccessVerb = 'get' | 'list' | 'create' | 'update' | 'patch' | 'delete'
@@ -262,6 +307,26 @@ export interface KubestacksApi {
     /** A workload's rollout history, newest first. */
     history(query: HistoryQuery): Promise<Result<Revision[]>>
   }
+  /** Interactive shells in containers (`kubectl exec -it`). */
+  terminal: {
+    /**
+     * Starts a shell. The page picks the session's id, so it can listen for
+     * output before the shell's first prompt arrives.
+     */
+    open(id: string, request: ShellRequest): Promise<Result<null>>
+    write(id: string, data: string): void
+    resize(id: string, columns: number, rows: number): void
+    close(id: string): void
+    onData(listener: (id: string, data: string) => void): () => void
+    onExit(listener: (id: string, exit: ShellExit) => void): () => void
+  }
+  /** Local ports forwarded to pods and services (`kubectl port-forward`). */
+  forwards: {
+    start(request: PortForwardRequest): Promise<Result<PortForward>>
+    list(): Promise<PortForward[]>
+    stop(id: string): Promise<void>
+    onChange(listener: (forwards: PortForward[]) => void): () => void
+  }
 }
 
 /** IPC channel names, shared so the preload and main process cannot drift apart. */
@@ -281,4 +346,14 @@ export const IPC = {
   change: 'kube:change',
   can: 'kube:can',
   history: 'kube:history',
+  terminalOpen: 'terminal:open',
+  terminalInput: 'terminal:input',
+  terminalResize: 'terminal:resize',
+  terminalClose: 'terminal:close',
+  terminalData: 'terminal:data',
+  terminalExit: 'terminal:exit',
+  forwardStart: 'forward:start',
+  forwardList: 'forward:list',
+  forwardStop: 'forward:stop',
+  forwardsChanged: 'forward:changed',
 } as const

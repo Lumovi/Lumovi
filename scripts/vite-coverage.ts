@@ -25,27 +25,25 @@ const MAIN_FLUSH = `
 import { app as __kubestacksApp, ipcMain as __kubestacksIpc } from 'electron';
 ;(() => {
   const dir = process.env.KUBESTACKS_COVERAGE_DIR
-  const write = (prefix, data) => {
+  const write = (name, data) => {
     if (!dir || !data) return
     const fs = process.getBuiltinModule('node:fs')
     const path = process.getBuiltinModule('node:path')
     fs.mkdirSync(dir, { recursive: true })
-    const id = process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2)
-    fs.writeFileSync(path.join(dir, prefix + '-' + id + '.json'), JSON.stringify(data))
+    fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data))
   }
-  let flushed = false
-  const flush = () => {
-    if (flushed) return
-    flushed = true
-    write('main', globalThis.__coverage__)
-  }
+  const unique = () => process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+  // Written when quitting starts and again at exit (same file), so code that runs
+  // while the app shuts down (closing streams…) is counted too.
+  const file = 'main-' + unique()
+  const flush = () => write(file, globalThis.__coverage__)
   process.once('exit', flush)
   __kubestacksApp.once('will-quit', flush)
   // A second instance quits before it is ready, without emitting will-quit.
   if (!__kubestacksApp.hasSingleInstanceLock()) flush()
   // Renderer counters would otherwise be lost when the page reloads.
   __kubestacksIpc.on('kubestacks:coverage', (event, data) => {
-    write('renderer', data)
+    write('renderer-' + unique(), data)
     event.returnValue = null
   })
 })();

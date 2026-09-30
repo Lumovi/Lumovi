@@ -1,7 +1,9 @@
 import { app, Menu, nativeTheme } from 'electron'
+import { IPC } from '@shared/api'
 import { registerIpc } from './ipc'
 import { KubeConfigStore } from './kube/kubeconfig'
 import { KubeService } from './kube/service'
+import { Forwards, Terminals } from './kube/streams'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
 import { loadLoginShellPath } from './shell-env'
@@ -20,14 +22,33 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = settings.get().theme
 
     const url = rendererUrl()
-    const kube = new KubeService(new KubeConfigStore(), envReady, (context) =>
-      settings.isReadOnly(context),
-    )
-    registerIpc({ kube, settings, rendererUrl: url })
-
+    const store = new KubeConfigStore()
+    const isReadOnly = (context: string) => settings.isReadOnly(context)
+    const kube = new KubeService(store, envReady, isReadOnly)
+    // The page loads asynchronously, so the handlers below are in place before it can call them.
     const win = createMainWindow(url, settings.get().window, (window) =>
       settings.update({ window }),
     )
+    // Streams can end after the window is gone, as the app quits.
+    const send = (channel: string, ...args: unknown[]) => {
+      if (!win.isDestroyed()) win.webContents.send(channel, ...args)
+    }
+    const deps = { store, envReady, isReadOnly }
+    const terminals = new Terminals(deps, {
+      data: (id, data) => send(IPC.terminalData, id, data),
+      exit: (id, exit) => send(IPC.terminalExit, id, exit),
+    })
+    const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
+    registerIpc({ kube, settings, terminals, forwards, rendererUrl: url })
+    // Shells and forwards belong to the page that started them.
+    const closeStreams = () => {
+      terminals.closeAll()
+      forwards.stopAll()
+    }
+    win.webContents.on('did-start-navigation', (details) => {
+      if (!details.isSameDocument) closeStreams()
+    })
+    app.on('will-quit', closeStreams)
     Menu.setApplicationMenu(buildMenu(win))
     app.on('second-instance', () => {
       if (win.isMinimized()) win.restore()

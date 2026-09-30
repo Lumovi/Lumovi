@@ -26,6 +26,7 @@ import { EventsTab } from './EventsTab'
 import { LogsTab } from './LogsTab'
 import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
+import { ShellTab } from './ShellTab'
 import { YamlTab } from './YamlTab'
 
 const DEFAULT_WIDTH = 600
@@ -102,8 +103,11 @@ export function DetailPanel() {
       }}
       style={{ width: expanded ? undefined : width }}
       className={cn(
-        'relative flex max-w-[calc(100%-280px)] min-w-0 shrink-0 flex-col border-l border-line bg-surface',
-        expanded && 'absolute inset-0 z-20 max-w-none border-l-0',
+        'flex min-w-0 shrink-0 flex-col bg-surface',
+        // Expanded, it covers the list; otherwise it sits beside it.
+        expanded
+          ? 'absolute inset-0 z-20'
+          : 'relative max-w-[calc(100%-280px)] border-l border-line',
         closing ? 'animate-slide-out' : 'animate-slide-in',
       )}
     >
@@ -231,13 +235,25 @@ function DetailTabs({ object }: { object: KubeObject }) {
   const pods = podQuery(object)
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
   const editing = useActionsUi((state) => state.editing === ref)
-  const [tab, setTab] = useState('overview')
+  const requested = useActionsUi((state) => (state.tab?.ref === ref ? state.tab.tab : null))
+  const tabShown = useActionsUi((state) => state.tabShown)
+  const [tab, setTab] = useState(requested ?? 'overview')
   // Editing happens in the YAML tab, and stays there until it's saved or cancelled.
   if (editing && tab !== 'yaml') setTab('yaml')
+  // Actions like "Shell" ask for a tab; the request is done once it shows.
+  if (requested && !editing && tab !== requested) setTab(requested)
+  useEffect(() => {
+    if (requested) tabShown()
+  }, [requested, tabShown])
   const tabs = [
     { value: 'overview', label: 'Overview' },
     ...(pods ? [{ value: 'pods', label: 'Pods' }] : []),
-    ...(kind === 'Pod' ? [{ value: 'logs', label: 'Logs' }] : []),
+    ...(kind === 'Pod'
+      ? [
+          { value: 'logs', label: 'Logs' },
+          { value: 'shell', label: 'Shell' },
+        ]
+      : []),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'yaml', label: 'YAML' },
   ]
@@ -262,6 +278,11 @@ function DetailTabs({ object }: { object: KubeObject }) {
       {kind === 'Pod' && (
         <TabContent value="logs" className={cn(content, 'flex flex-col')}>
           <LogsTab pod={object} />
+        </TabContent>
+      )}
+      {kind === 'Pod' && (
+        <TabContent value="shell" className={cn(content, 'flex flex-col')}>
+          <ShellTab pod={object} />
         </TabContent>
       )}
       {kind !== 'Event' && (
