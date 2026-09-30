@@ -237,10 +237,12 @@ test('debug a pod with a temporary container', async ({ page, clusters }) => {
   await expect(debug.getByRole('button', { name: 'Start debugging' })).toBeDisabled()
   await debug.getByLabel('Other image').fill('ubuntu:24.04')
   await debug.getByRole('button', { name: 'Start debugging' }).click()
-  expect(
-    writes(clusters.demo, 'PATCH', `/api/v1/namespaces/shop/pods/${POD}/ephemeralcontainers`)[1]!
-      .body.spec.ephemeralContainers[0],
-  ).toEqual(expect.not.objectContaining({ targetContainerName: expect.anything() }))
+  const patches = () =>
+    writes(clusters.demo, 'PATCH', `/api/v1/namespaces/shop/pods/${POD}/ephemeralcontainers`)
+  await expect.poll(() => patches().length).toBe(2)
+  expect(patches()[1]!.body.spec.ephemeralContainers[0]).toEqual(
+    expect.not.objectContaining({ targetContainerName: expect.anything() }),
+  )
 })
 
 test('forward a port to a pod', async ({ page, kubestacks }) => {

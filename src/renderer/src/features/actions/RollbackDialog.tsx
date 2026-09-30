@@ -33,6 +33,8 @@ export function RollbackDialog({ object, onClose }: ActionProps) {
   const history = useQuery({
     queryKey: ['history', context, kind, namespace, name],
     queryFn: () => unwrap(api.kube.history({ context, kind, namespace: namespace!, name })),
+    // What's rolled back to must be current: load it again whenever the dialog opens.
+    staleTime: 0,
   })
   const revisions = history.data ?? []
   const current = revisions.find((r) => r.current)
