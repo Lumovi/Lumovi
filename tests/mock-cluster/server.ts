@@ -74,8 +74,11 @@ export interface MockCluster {
   upsert(object: KubeObject): void
   remove(kind: string, namespace: string | undefined, name: string): boolean
   setMetricsAvailable(available: boolean): void
-  /** Makes the next `times` requests that carry a `continue` token fail with 410 Gone (expired). */
-  expireContinueTokens(times?: number): void
+  /**
+   * Makes the next `times` requests that carry a `continue` token fail with 410 Gone
+   * (expired); with `list`, only those continuing that list (`namespace` unset: all namespaces).
+   */
+  expireContinueTokens(times?: number, list?: { kind: string; namespace?: string }): void
   /** Denies access, as RBAC would: reviews say no and matching writes fail with 403. */
   deny(rule: AccessRule): void
   /** The stored object, as the API server has it now. */
@@ -351,6 +354,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   let metricsAvailable = true
   let resourceVersion = 0
   let expireContinue = 0
+  let expireList: { kind: string; namespace?: string } | undefined
   const denials: AccessRule[] = []
 
   const store$: Store = {
@@ -389,6 +393,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
     metricsAvailable = true
     expireContinue = 0
+    expireList = undefined
     faults.length = 0
     requests.length = 0
     denials.length = 0
@@ -430,7 +435,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const token = query.get('continue')
     let offset = 0
     if (token) {
-      if (expireContinue > 0) {
+      const matches =
+        !expireList || (expireList.kind === def.kind && expireList.namespace === namespace)
+      if (expireContinue > 0 && matches) {
         expireContinue--
         throw new HttpError(
           410,
@@ -1225,8 +1232,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     setMetricsAvailable(available) {
       metricsAvailable = available
     },
-    expireContinueTokens(times = 1) {
+    expireContinueTokens(times = 1, list) {
       expireContinue = times
+      expireList = list
     },
     deny(rule) {
       denials.push(rule)
