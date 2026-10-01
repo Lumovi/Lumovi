@@ -2,10 +2,9 @@
 // A stand-in for helm in the e2e tests: it records how it was run (in
 // $FAKE_HELM_DIR/calls.jsonl) and answers like helm does, or as
 // $FAKE_HELM_DIR/responses.json says ({ "<subcommand>": { code, stdout, stderr, signal } }).
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { parse } from 'yaml'
 
 const args = process.argv.slice(2)
@@ -54,7 +53,7 @@ switch (command) {
     )
     break
   case 'show chart':
-    process.stdout.write(fs.readFileSync(chartYaml(args[2]), 'utf8'))
+    process.stdout.write(chartYaml(args[2]))
     break
   case 'lint': {
     // What a chart's .lint file says (as helm lint would), and an error if the values ask for one.
@@ -131,11 +130,23 @@ switch (command) {
     process.exit(1)
 }
 
-/** A chart's Chart.yaml: in its folder, or inside its package. */
+/** A chart's Chart.yaml: from its folder, or from inside its package. */
 function chartYaml(chart) {
-  if (fs.statSync(chart).isDirectory()) return path.join(chart, 'Chart.yaml')
-  const unpacked = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-helm-'))
-  // Extracted from where it is: Git for Windows' tar reads `C:` in an archive's path as a host.
-  execFileSync('tar', ['-xzf', path.basename(chart), '-C', unpacked], { cwd: path.dirname(chart) })
-  return path.join(unpacked, fs.readdirSync(unpacked)[0], 'Chart.yaml')
+  if (fs.statSync(chart).isDirectory())
+    return fs.readFileSync(path.join(chart, 'Chart.yaml'), 'utf8')
+  // A package is a gzipped tar, read here rather than by a tar program (Git for Windows'
+  // tar takes `C:` in a path for a host): 512-byte headers, each followed by its file.
+  const archive = zlib.gunzipSync(fs.readFileSync(chart))
+  for (let offset = 0; offset + 512 <= archive.length;) {
+    const field = (start, length) =>
+      archive.toString('utf8', offset + start, offset + start + length).replace(/\0.*$/s, '')
+    const name = [field(345, 155), field(0, 100)].filter(Boolean).join('/')
+    if (!name) break
+    const size = parseInt(field(124, 12).trim() || '0', 8)
+    if (/^[^/]+\/Chart\.yaml$/.test(name)) {
+      return archive.toString('utf8', offset + 512, offset + 512 + size)
+    }
+    offset += 512 + Math.ceil(size / 512) * 512
+  }
+  throw new Error(`${chart} has no Chart.yaml`)
 }

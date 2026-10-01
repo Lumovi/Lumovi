@@ -19,6 +19,11 @@ export interface LogOptions {
   follow: boolean
   /** Changes to start over ("Try again"). */
   attempt: number
+  /**
+   * The container picked, or all of them. Picking another starts over, so the last one's
+   * lines go; a pod that leaves keeps its lines.
+   */
+  container: string
 }
 
 /** Where a container's stream is at. */
@@ -173,10 +178,6 @@ class LogSession {
     clearTimeout(stream.retry)
     if (this.#handlers.delete(stream.id)) api.logs.stop(stream.id)
     this.#streams.delete(stream.source.key)
-    // Its lines go too: a container switched away from, a pod that's gone.
-    const kept = (line: LogLine) => line.source !== stream.source.key
-    this.#lines = this.#lines.filter(kept)
-    this.#pending = this.#pending.filter(kept)
   }
 
   #schedule() {
