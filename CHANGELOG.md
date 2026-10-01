@@ -17,10 +17,11 @@ All notable changes to KubeStacks are documented here. The format follows
 - Shells in containers, debug containers (`kubectl debug`) for pods, including those
   without a shell, and port forwards to pods and services, listed in the header.
 - Custom resources, and every other kind the cluster serves, found through API discovery:
-  grouped by API group in the sidebar (and pinnable), all of them in **API resources**,
-  with the API server's columns, a status read from the usual conventions, fields
-  explained by the kind's OpenAPI schema, scaling through the scale subresource, and
-  creating, editing and deleting like any other kind.
+  all of them in **API resources** grouped by API group, the ones opened last and pinned
+  ones in the sidebar (which stays short with hundreds of CRDs), with the API server's
+  columns, a status read from the usual conventions, fields explained by the kind's
+  OpenAPI schema, scaling through the scale subresource, and creating, editing and
+  deleting like any other kind.
 - Views: a kind's columns, status, details, links and actions described as data. Views
   for cert-manager, Argo CD and Rollouts, Flux, Gateway API, Karpenter, KEDA, External
   Secrets, the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane are

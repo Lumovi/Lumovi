@@ -34,7 +34,7 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   daemon sets, replica sets, jobs, cron jobs, autoscalers, services, ingresses, network
   policies, config maps, secrets, volume claims, volumes and storage classes.
 - **And every other kind.** Custom resources and the rest of the API, found through
-  discovery: grouped by API group in the sidebar, with the columns `kubectl get` shows, a
+  discovery: browsed by API group, with the columns `kubectl get` shows, a
   status read from their conditions, and fields explained by their schema. Views for
   cert-manager, Argo CD and Rollouts, Flux, Gateway API, Karpenter, KEDA, External Secrets,
   the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane add the columns,
@@ -195,8 +195,10 @@ service proxy with your own credentials, so nothing needs to be port-forwarded o
 ### Custom resources
 
 Every kind the cluster serves is in **API resources** (in the sidebar and the command
-palette), like `kubectl api-resources`; custom resources are also grouped by API group in
-the sidebar, and any kind can be pinned to the top of it.
+palette), like `kubectl api-resources`, with custom resources grouped by API group. The
+sidebar stays short however many CRDs a cluster has: it keeps the custom resources you
+opened last in that cluster, and the kinds you pin. ⌘K finds any kind by name, short name
+or group.
 
 - **What the cluster says.** Lists have the columns the API server prints for the kind (a
   CRD's printer columns), and objects a status read from the conventions most controllers

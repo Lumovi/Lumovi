@@ -51,7 +51,7 @@ export function ApiResourcesPage() {
   } else {
     body = (
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
-        {custom.length > 0 && <KindTable title="Custom resources" resources={custom} />}
+        {custom.length > 0 && <KindTable title="Custom resources" resources={custom} grouped />}
         {kubernetes.length > 0 && <KindTable title="Kubernetes" resources={kubernetes} />}
       </div>
     )
@@ -71,6 +71,7 @@ export function ApiResourcesPage() {
           onArrowDown={() => document.querySelector<HTMLElement>('[data-kind-link]')?.focus()}
           placeholder="Filter kinds"
           className="w-60"
+          autoFocus
         />
       </div>
       {views && views.problems.length > 0 && (
@@ -112,14 +113,36 @@ export function ApiResourcesPage() {
   )
 }
 
-function KindTable({ title, resources }: { title: string; resources: ResourceDefinition[] }) {
+/** Kinds in a table; custom ones by API group, since a cluster can have hundreds. */
+function KindTable({
+  title,
+  resources,
+  grouped = false,
+}: {
+  title: string
+  resources: ResourceDefinition[]
+  grouped?: boolean
+}) {
   const { context } = useCluster()
   const go = useGo()
   const pinned = usePrefs((prefs) => prefs.pinned)
   const setPinned = usePrefs((prefs) => prefs.setPinned)
+  const groups = new Map<string, ResourceDefinition[]>()
+  for (const resource of resources) {
+    const group = grouped ? resource.group : ''
+    groups.set(group, [...(groups.get(group) ?? []), resource])
+  }
   return (
     <section aria-label={title} className="mt-5">
-      <h2 className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">{title}</h2>
+      <h2 className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+        {title}
+        {grouped && (
+          <span className="ml-2 font-normal tracking-normal normal-case">
+            {resources.length} {resources.length === 1 ? 'kind' : 'kinds'} in {groups.size}{' '}
+            {groups.size === 1 ? 'group' : 'groups'}
+          </span>
+        )}
+      </h2>
       <table className="w-full table-fixed border-separate border-spacing-0 text-[13px]">
         <thead className="text-left text-2xs font-medium tracking-wider text-ink-3 uppercase">
           <tr>
@@ -132,52 +155,68 @@ function KindTable({ title, resources }: { title: string; resources: ResourceDef
             </th>
           </tr>
         </thead>
-        <tbody>
-          {resources.map((resource) => {
-            const Icon = kindIcon(resource.kind)
-            const view = viewFor(resource.kind)
-            const isPinned = pinned.includes(resource.kind)
-            return (
-              <tr key={resource.kind} className="group hover:bg-surface-2">
-                <td className="border-b border-line py-1.5 pl-3">
-                  <button
-                    type="button"
-                    data-kind-link
-                    onClick={() => go(kindPath(context, resource.kind))}
-                    className="flex min-w-0 items-center gap-2.5 text-left font-medium text-ink-1 hover:text-accent-strong"
+        {[...groups]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([group, kinds]) => (
+            <tbody key={group} aria-label={grouped ? group : undefined}>
+              {grouped && (
+                <tr>
+                  <th
+                    colSpan={5}
+                    scope="rowgroup"
+                    className="border-b border-line pt-4 pb-1.5 pl-3 text-left font-mono text-xs font-medium text-ink-2"
                   >
-                    <Icon className="size-4 shrink-0 text-ink-3" />
-                    <span className="truncate">{resource.label}</span>
-                    {resource.shortNames && (
-                      <span className="truncate font-mono text-xs font-normal text-ink-3">
-                        {resource.shortNames.join(', ')}
-                      </span>
-                    )}
-                  </button>
-                </td>
-                <td className="truncate border-b border-line py-1.5 font-mono text-xs text-ink-2">
-                  {resource.group ? `${resource.group}/${resource.version}` : resource.version}
-                </td>
-                <td className="border-b border-line py-1.5 text-ink-2">
-                  {resource.namespaced ? 'Namespaced' : 'Cluster'}
-                </td>
-                <td className="truncate border-b border-line py-1.5 text-xs text-ink-2">
-                  {view?.source ?? '—'}
-                </td>
-                <td className="border-b border-line py-1 pr-2 text-right">
-                  <IconButton
-                    label={isPinned ? `Unpin ${resource.label}` : `Pin ${resource.label}`}
-                    aria-pressed={isPinned}
-                    onClick={() => setPinned(resource.kind, !isPinned)}
-                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100"
-                  >
-                    {isPinned ? <PinOff /> : <Pin />}
-                  </IconButton>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
+                    {group}
+                    <span className="ml-2 font-sans font-normal text-ink-3">{kinds.length}</span>
+                  </th>
+                </tr>
+              )}
+              {kinds.map((resource) => {
+                const Icon = kindIcon(resource.kind)
+                const view = viewFor(resource.kind)
+                const isPinned = pinned.includes(resource.kind)
+                return (
+                  <tr key={resource.kind} className="group hover:bg-surface-2">
+                    <td className="border-b border-line py-1.5 pl-3">
+                      <button
+                        type="button"
+                        data-kind-link
+                        onClick={() => go(kindPath(context, resource.kind))}
+                        className="flex min-w-0 items-center gap-2.5 text-left font-medium text-ink-1 hover:text-accent-strong"
+                      >
+                        <Icon className="size-4 shrink-0 text-ink-3" />
+                        <span className="truncate">{resource.label}</span>
+                        {resource.shortNames && (
+                          <span className="truncate font-mono text-xs font-normal text-ink-3">
+                            {resource.shortNames.join(', ')}
+                          </span>
+                        )}
+                      </button>
+                    </td>
+                    <td className="truncate border-b border-line py-1.5 font-mono text-xs text-ink-2">
+                      {resource.group ? `${resource.group}/${resource.version}` : resource.version}
+                    </td>
+                    <td className="border-b border-line py-1.5 text-ink-2">
+                      {resource.namespaced ? 'Namespaced' : 'Cluster'}
+                    </td>
+                    <td className="truncate border-b border-line py-1.5 text-xs text-ink-2">
+                      {view?.source ?? '—'}
+                    </td>
+                    <td className="border-b border-line py-1 pr-2 text-right">
+                      <IconButton
+                        label={isPinned ? `Unpin ${resource.label}` : `Pin ${resource.label}`}
+                        aria-pressed={isPinned}
+                        onClick={() => setPinned(resource.kind, !isPinned)}
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100"
+                      >
+                        {isPinned ? <PinOff /> : <Pin />}
+                      </IconButton>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          ))}
       </table>
     </section>
   )
