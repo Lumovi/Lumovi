@@ -2,12 +2,16 @@
 // A stand-in for helm in the e2e tests: it records how it was run (in
 // $FAKE_HELM_DIR/calls.jsonl) and answers like helm does, or as
 // $FAKE_HELM_DIR/responses.json says ({ "<subcommand>": { code, stdout, stderr } }).
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { parse } from 'yaml'
 
 const args = process.argv.slice(2)
 const dir = process.env.FAKE_HELM_DIR
-const command = args[0] === 'show' ? 'show values' : args[0]
+// `show values`, `dependency list`…: subcommands go by both words.
+const command = ['show', 'dependency'].includes(args[0]) ? `${args[0]} ${args[1]}` : args[0]
 if (dir) fs.appendFileSync(path.join(dir, 'calls.jsonl'), `${JSON.stringify(args)}\n`)
 
 const responses = (() => {
@@ -40,10 +44,55 @@ switch (command) {
     console.log(`release "${args[1]}" uninstalled`)
     break
   case 'show values':
+    // A chart folder's own values; anything else, some made up.
     process.stdout.write(
-      'replicaCount: 1\nimage:\n  repository: ghcr.io/example/app\n  tag: "1.0"\n',
+      fs.existsSync(path.join(args[2], 'values.yaml'))
+        ? fs.readFileSync(path.join(args[2], 'values.yaml'), 'utf8')
+        : 'replicaCount: 1\nimage:\n  repository: ghcr.io/example/app\n  tag: "1.0"\n',
     )
     break
+  case 'show chart':
+    process.stdout.write(fs.readFileSync(chartYaml(args[2]), 'utf8'))
+    break
+  case 'lint': {
+    // What a chart's .lint file says (as helm lint would), and an error if the values ask for one.
+    const chart = args[1]
+    const found = fs.existsSync(path.join(chart, '.lint'))
+      ? fs.readFileSync(path.join(chart, '.lint'), 'utf8')
+      : '[INFO] Chart.yaml: icon is recommended\n'
+    const asked = fs.readFileSync(option('--values'), 'utf8').includes('lint-error')
+      ? '[ERROR] templates/: the values ask for an error\n  on a second line\n'
+      : ''
+    const failed = /\[ERROR\]/.test(found + asked)
+    process.stdout.write(
+      `==> Linting ${chart}\n${found}${asked}\n1 chart(s) linted, ${failed ? 1 : 0} chart(s) failed\n`,
+    )
+    if (failed) {
+      process.stderr.write('Error: 1 chart(s) linted, 1 chart(s) failed\n')
+      process.exit(1)
+    }
+    break
+  }
+  case 'dependency list': {
+    const chart = args[2]
+    const { dependencies = [] } = parse(fs.readFileSync(path.join(chart, 'Chart.yaml'), 'utf8'))
+    const rows = dependencies.map((d) => {
+      const there = fs.existsSync(path.join(chart, 'charts', `${d.name}-${d.version}.tgz`))
+      return [d.name, d.version, d.repository, there ? 'ok' : 'missing'].join('\t')
+    })
+    console.log(['NAME\tVERSION\tREPOSITORY\tSTATUS', ...rows].join('\n'))
+    break
+  }
+  case 'dependency update': {
+    const chart = args[2]
+    const { dependencies = [] } = parse(fs.readFileSync(path.join(chart, 'Chart.yaml'), 'utf8'))
+    fs.mkdirSync(path.join(chart, 'charts'), { recursive: true })
+    for (const d of dependencies) {
+      fs.writeFileSync(path.join(chart, 'charts', `${d.name}-${d.version}.tgz`), '')
+    }
+    console.log(`Saving ${dependencies.length} charts\nDeleting outdated charts`)
+    break
+  }
   case 'install':
   case 'upgrade': {
     // What it would make: the values it was given, and what's in the chart folder if it's one.
@@ -78,4 +127,12 @@ switch (command) {
   default:
     console.error(`Error: unknown command "${command}" for "helm"`)
     process.exit(1)
+}
+
+/** A chart's Chart.yaml: in its folder, or inside its package. */
+function chartYaml(chart) {
+  if (fs.statSync(chart).isDirectory()) return path.join(chart, 'Chart.yaml')
+  const unpacked = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-helm-'))
+  execFileSync('tar', ['-xzf', chart, '-C', unpacked])
+  return path.join(unpacked, fs.readdirSync(unpacked)[0], 'Chart.yaml')
 }

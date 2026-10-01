@@ -42,7 +42,9 @@ All notable changes to KubeStacks are documented here. The format follows
   repository, an OCI registry or a folder, at a version the repository lists), installs of
   charts found on Artifact Hub, rollbacks and uninstalls run with your own helm, after a
   server-side dry run shows what would change. Releases Flux manages link to their
-  HelmRelease and warn before changing.
+  HelmRelease and warn before changing. Charts on this computer (a folder or a .tgz, chosen
+  or typed) are checked with helm lint, can have their subcharts downloaded, and offer the
+  values files beside them; each release remembers the one it was deployed from.
 - Usage history from Prometheus or VictoriaMetrics, found among the cluster's services and
   reached through the API server: a Metrics page that ranks namespaces, workloads, pods or
   nodes by CPU, memory, network or restarts over 15 minutes to 7 days, with stacked or line

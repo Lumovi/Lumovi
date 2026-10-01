@@ -4,7 +4,9 @@
  * rolling back, uninstalling, and installing a chart from a folder.
  */
 import { execFileSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import type { Page } from '@playwright/test'
 import { dialog, toasts } from '../e2e/action-helpers.ts'
 import { row, rows } from '../e2e/fixtures.ts'
@@ -138,19 +140,49 @@ test('upgrade with new values, roll back and uninstall, with helm', async ({ pag
   await expect(rows(page, 'Helm releases')).toHaveCount(1)
 })
 
-test('install a chart from a folder, starting from its defaults', async ({ page }) => {
+test('install a chart from this computer: checked, with its subcharts and values files', async ({
+  page,
+}) => {
+  // A copy, so its subcharts download there: it depends on a library chart beside it.
+  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-chart-'))
+  const chart = join(dir, 'hello')
+  cpSync(CHART, chart, { recursive: true })
+  mkdirSync(join(dir, 'greeter'))
+  writeFileSync(
+    join(dir, 'greeter', 'Chart.yaml'),
+    'apiVersion: v2\nname: greeter\nversion: 0.1.0\ntype: library\n',
+  )
+  appendFileSync(
+    join(chart, 'Chart.yaml'),
+    'dependencies:\n  - name: greeter\n    version: 0.1.0\n    repository: file://../greeter\n',
+  )
+  writeFileSync(join(chart, 'values-prod.yaml'), 'message: hello from prod\n')
+
   await page.getByRole('button', { name: 'Install chart' }).click()
   const install = dialog(page)
+  await install.getByRole('radio', { name: /A chart on this computer/ }).check()
+  await install.getByLabel('Chart path').fill(chart)
+  await install.getByLabel('Chart path').press('Enter')
+  await expect(install).toContainText('hello 0.1.0 · app 1.27')
+  await expect(install).toContainText('Its charts/ folder is missing greeter 0.1.0.')
+  await expect(install).toContainText('helm lint: 1 warning')
+  await install.getByRole('button', { name: 'Download dependencies' }).click()
+  await expect(install).toContainText('helm lint found no problems')
+  await expect(install).not.toContainText('Its charts/ folder is missing')
+  expect(existsSync(join(chart, 'charts', 'greeter-0.1.0.tgz'))).toBe(true)
+  await expect(install.getByRole('list', { name: 'helm lint' })).toContainText(
+    'Chart.yaml: icon is recommended',
+  )
+
   await install.getByLabel('Release name').fill('hello-b')
   await expect(install.getByLabel('Namespace', { exact: true })).toHaveValue(NS)
-  await install.getByLabel('Chart name or reference').fill(CHART)
-  await install.getByRole('button', { name: 'Start from the chart’s defaults' }).click()
-  await expect(install.getByRole('textbox', { name: 'Values' })).toContainText('message: hello')
+  await install.getByRole('combobox', { name: 'Load values from' }).selectOption('values-prod.yaml')
+  await expect(install.getByRole('textbox', { name: 'Values' })).toContainText('hello from prod')
   await install.getByRole('button', { name: 'Review' }).click()
   await expect(install.getByLabel('Manifest changes')).toContainText('hello-b-greeting')
-  await expect(install).toContainText('hello-b says "hello".')
+  await expect(install).toContainText('hello-b says "hello from prod".')
   await install.getByRole('button', { name: 'Install', exact: true }).click()
   await expect(toasts(page)).toContainText('Installed hello-b')
-  expect(greeting('hello-b')).toBe('hello')
+  expect(greeting('hello-b')).toBe('hello from prod')
   await expect(row(page, 'Helm releases', 'hello-b')).toContainText('Deployed')
 })

@@ -1,5 +1,5 @@
 import { ArrowUpCircle, ArrowLeft, PackagePlus, Search } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { parse } from 'yaml'
 import type { ChartSearchResult, ChartSource, HelmDeployed, HelmReleaseDetail } from '@shared/api'
 import { Button } from '@renderer/components/Button'
@@ -11,8 +11,13 @@ import { cn } from '@renderer/lib/cn'
 import { helm } from '@renderer/lib/kubectl'
 import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
+import { usePrefs } from '@renderer/state/prefs'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
+import { LintFindings, LocalChartPanel, useLocalChart } from './LocalChart'
 import { FluxWarning } from './ReleaseDialogs'
+
+/** Where the chart comes from: stored with the release, a repository or registry, or this computer. */
+type ChartMode = 'stored' | 'repository' | 'local'
 
 const field =
   'h-8 w-full rounded-lg border border-line-strong bg-surface px-2.5 font-mono text-xs text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft'
@@ -34,28 +39,45 @@ export function DeployDialog({
   const install = !release
   // A chart without subcharts is stored whole with its release: it can upgrade as it is.
   const canReuse = release !== undefined && release.chartInfo.dependencies.length === 0
-  const [reuse, setReuse] = useState(canReuse)
   const [source, setSource] = useState<ChartSource>({ chart: release?.chart ?? '' })
   const [name, setName] = useState(release?.name ?? '')
   const [namespace, setNamespace] = useState(release?.namespace ?? picked ?? 'default')
+  // A release deployed from a chart on this computer is likely to be again, from there.
+  const releaseKey = `${context}/${namespace}/${name}`
+  const remembered = usePrefs((prefs) => prefs.localCharts[releaseKey])
+  const setLocalChart = usePrefs((prefs) => prefs.setLocalChart)
+  const [mode, setMode] = useState<ChartMode>(
+    remembered ? 'local' : canReuse ? 'stored' : 'repository',
+  )
+  const [localPath, setLocalPath] = useState(remembered ?? '')
   const [createNamespace, setCreateNamespace] = useState(false)
   const current = release?.revisions[0]
   const initial = current && Object.keys(current.values).length ? toYaml(current.values) : ''
   const [values, setValues] = useState(initial)
+  const checked = useLocalChart(localPath, values, mode === 'local')
   // The editor starts over when values are loaded into it.
   const [loads, setLoads] = useState(0)
   const [reviewed, setReviewed] = useState<HelmDeployed>()
   const [problem, setProblem] = useState<string>()
   const [checking, setChecking] = useState(false)
-  const { pending, error, submit } = useSubmit(onClose)
+  const { pending, error, submit } = useSubmit(() => {
+    if (mode === 'local') setLocalChart(releaseKey, localPath)
+    onClose()
+  })
+  const load = (text: string) => {
+    setValues(text)
+    setLoads(loads + 1)
+  }
 
-  const chartArgs = reuse
-    ? [`./${release!.chart}-${release!.chartVersion}`]
-    : [
-        source.chart || '<chart>',
-        ...(source.repository ? ['--repo', source.repository] : []),
-        ...(source.version ? ['--version', source.version] : []),
-      ]
+  const chartSource: ChartSource = mode === 'local' ? { chart: localPath } : source
+  const chartArgs =
+    mode === 'stored'
+      ? [`./${release!.chart}-${release!.chartVersion}`]
+      : [
+          chartSource.chart || '<chart>',
+          ...(chartSource.repository ? ['--repo', chartSource.repository] : []),
+          ...(chartSource.version ? ['--version', chartSource.version] : []),
+        ]
   const command = helm(
     context,
     namespace,
@@ -70,13 +92,19 @@ export function DeployDialog({
     context,
     namespace,
     name,
-    source: reuse ? ('stored' as const) : source,
+    source: mode === 'stored' ? ('stored' as const) : chartSource,
     values,
     install,
     createNamespace,
     dryRun,
   })
-  const ready = (install ? name !== '' && namespace !== '' : true) && (reuse || source.chart !== '')
+  const chartReady = {
+    stored: true,
+    repository: source.chart !== '',
+    // Read and checked as it is now (a failed read keeps the last one's data).
+    local: checked.isSuccess,
+  }[mode]
+  const ready = (install ? name !== '' && namespace !== '' : true) && chartReady
 
   const review = async () => {
     try {
@@ -87,6 +115,11 @@ export function DeployDialog({
     }
     setChecking(true)
     setProblem(undefined)
+    // A chart being worked on is checked again first, with these values.
+    if (mode === 'local' && (await checked.refetch()).isError) {
+      setChecking(false)
+      return
+    }
     const result = await api.helm.deploy(request(true))
     setChecking(false)
     if (result.ok) setReviewed(result.data)
@@ -133,6 +166,7 @@ export function DeployDialog({
               lines of manifest
             </span>
           </div>
+          {mode === 'local' && <LintFindings lint={checked.data!.lint} />}
           {diff!.added + diff!.removed === 0 ? (
             <p className="text-[13px] text-ink-2">Nothing it makes changes.</p>
           ) : (
@@ -184,39 +218,59 @@ export function DeployDialog({
           <ChartPicker
             release={release}
             canReuse={canReuse}
-            reuse={reuse}
-            onReuse={setReuse}
+            mode={mode}
+            onMode={setMode}
             source={source}
             onSource={setSource}
+            local={
+              <LocalChartPanel
+                path={localPath}
+                onPath={setLocalPath}
+                checked={checked}
+                release={release}
+              />
+            }
           />
           <div>
             <div className="mb-1 flex items-center gap-2">
-              <span className="text-xs font-medium text-ink-2">
-                Values{' '}
-                <span className="font-normal text-ink-3">
-                  (everything set here; the chart’s defaults fill in the rest)
-                </span>
-              </span>
-              <span className="flex-1" />
-              {!reuse && (
+              <span className="flex-1 text-xs font-medium text-ink-2">Values</span>
+              {mode === 'local' && Boolean(checked.data?.chart.valuesFiles.length) && (
+                <select
+                  aria-label="Load values from"
+                  value=""
+                  onChange={async (event) => {
+                    const file = await api.helm.valuesFile(localPath, event.target.value)
+                    if (file.ok) load(file.data)
+                    else setProblem(file.error.message)
+                  }}
+                  className="h-7 max-w-44 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
+                >
+                  <option value="">Load values from…</option>
+                  {checked.data!.chart.valuesFiles.map((file) => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {mode !== 'stored' && (
                 <Button
                   variant="ghost"
                   className="h-7 px-2 text-xs"
-                  disabled={!source.chart}
+                  disabled={!chartSource.chart}
                   onClick={async () => {
-                    const defaults = await api.helm.defaults(source)
-                    if (defaults.ok) {
-                      setValues(defaults.data)
-                      setLoads(loads + 1)
-                    } else {
-                      setProblem(defaults.error.message)
-                    }
+                    const defaults = await api.helm.defaults(chartSource)
+                    if (defaults.ok) load(defaults.data)
+                    else setProblem(defaults.error.message)
                   }}
                 >
                   Start from the chart’s defaults
                 </Button>
               )}
             </div>
+            <p className="mb-1.5 text-xs text-ink-3">
+              Everything set here; the chart’s defaults fill in the rest.
+            </p>
             <div className="h-56 overflow-hidden rounded-lg border border-line bg-surface-2/60">
               <CodeEditor
                 key={loads}
@@ -233,21 +287,27 @@ export function DeployDialog({
   )
 }
 
-/** Where the chart comes from: as the release stores it, typed, or found on Artifact Hub. */
+/**
+ * Where the chart comes from: as the release stores it, a repository or
+ * registry (typed, or found on Artifact Hub), or this computer.
+ */
 function ChartPicker({
   release,
   canReuse,
-  reuse,
-  onReuse,
+  mode,
+  onMode,
   source,
   onSource,
+  local,
 }: {
   release?: HelmReleaseDetail
   canReuse: boolean
-  reuse: boolean
-  onReuse: (reuse: boolean) => void
+  mode: ChartMode
+  onMode: (mode: ChartMode) => void
   source: ChartSource
   onSource: (source: ChartSource) => void
+  /** The panel for a chart on this computer. */
+  local: ReactNode
 }) {
   const [query, setQuery] = useState(release?.chart ?? '')
   const [results, setResults] = useState<ChartSearchResult[]>()
@@ -257,45 +317,56 @@ function ChartPicker({
     onSource({ ...source, ...patch })
     setVersions(undefined)
   }
+  const options: { mode: ChartMode; label: string; hint: string; disabled?: boolean }[] = [
+    ...(release
+      ? [
+          {
+            mode: 'stored' as const,
+            label: `The chart it runs: ${release.chart} ${release.chartVersion}`,
+            hint: canReuse
+              ? 'As the cluster stores it with the release: to change values.'
+              : `It has subcharts (${release.chartInfo.dependencies.join(', ')}), which Helm doesn’t store with releases.`,
+            disabled: !canReuse,
+          },
+        ]
+      : []),
+    {
+      mode: 'repository',
+      label: 'A chart from a repository or a registry',
+      hint: 'To change its version, or its chart.',
+    },
+    {
+      mode: 'local',
+      label: 'A chart on this computer',
+      hint: 'A chart folder or a packaged chart: one you’re working on, say.',
+    },
+  ]
   return (
     <fieldset className="space-y-2">
       <legend className="mb-1 text-xs font-medium text-ink-2">Chart</legend>
-      {release && (
-        <div role="radiogroup" aria-label="Chart" className="space-y-1.5">
-          <label className={cn('flex gap-2.5 text-[13px]', !canReuse && 'text-ink-3')}>
+      <div role="radiogroup" aria-label="Chart" className="space-y-1.5">
+        {options.map((option) => (
+          <label
+            key={option.mode}
+            className={cn('flex gap-2.5 text-[13px]', option.disabled && 'text-ink-3')}
+          >
             <input
               type="radio"
               name="chart"
-              checked={reuse}
-              disabled={!canReuse}
-              onChange={() => onReuse(true)}
+              checked={mode === option.mode}
+              disabled={option.disabled}
+              onChange={() => onMode(option.mode)}
               className="mt-0.5 accent-[var(--accent)]"
             />
             <span>
-              The chart it runs: {release.chart} {release.chartVersion}
-              <span className="block text-xs text-ink-3">
-                {canReuse
-                  ? 'As the cluster stores it with the release: to change values.'
-                  : `It has subcharts (${release.chartInfo.dependencies.join(', ')}), which Helm doesn’t store with releases.`}
-              </span>
+              {option.label}
+              <span className="block text-xs text-ink-3">{option.hint}</span>
             </span>
           </label>
-          <label className="flex gap-2.5 text-[13px]">
-            <input
-              type="radio"
-              name="chart"
-              checked={!reuse}
-              onChange={() => onReuse(false)}
-              className="mt-0.5 accent-[var(--accent)]"
-            />
-            <span>
-              A chart from a repository, a registry or a folder
-              <span className="block text-xs text-ink-3">To change its version, or its chart.</span>
-            </span>
-          </label>
-        </div>
-      )}
-      {!reuse && (
+        ))}
+      </div>
+      {mode === 'local' && local}
+      {mode === 'repository' && (
         <div className="space-y-2 rounded-lg border border-line p-3">
           <div className="grid grid-cols-[1fr_1fr_8rem] gap-2">
             <input

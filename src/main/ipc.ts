@@ -133,6 +133,19 @@ export function registerIpc({
   handle(IPC.helmDefaults, (source) => helm.defaults(source))
   handle(IPC.helmVersions, (repository, chart) => helm.versions(repository, chart))
   handle(IPC.helmSearch, (query) => helm.search(query))
+  handle(IPC.helmChoose, async (kind) => {
+    const archive = kind === 'archive'
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: archive ? 'Choose a packaged chart' : 'Choose a chart folder',
+      properties: [archive ? 'openFile' : 'openDirectory'],
+      filters: archive ? [{ name: 'Helm charts', extensions: ['tgz'] }] : [],
+    })
+    return canceled ? null : filePaths[0]
+  })
+  handle(IPC.helmLocal, (path) => helm.local(path))
+  handle(IPC.helmLint, (path, values) => helm.lint(path, values))
+  handle(IPC.helmValuesFile, (path, file) => helm.valuesFile(path, file))
+  handle(IPC.helmDependencies, (path) => helm.updateDependencies(path))
   handle(IPC.usageSource, (context, refresh) => usage.source(context, refresh))
   handle(IPC.usageTest, (context, service) => usage.test(context, service))
   handle(IPC.usageRange, (query) => usage.range(query))

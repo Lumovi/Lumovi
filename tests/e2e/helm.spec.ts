@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { encodeRelease, HELM, releaseRecord } from '../mock-cluster/fixtures/helm.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
@@ -726,4 +728,223 @@ test('a cluster without Helm releases', async ({ page }) => {
   await openCluster(page, CONTEXTS.sandbox)
   await openHelm(page)
   await expect(page.getByText('No Helm releases in this cluster')).toBeVisible()
+})
+
+/** Writes a chart's files into `root/name`, and gives its path. */
+function writeChart(root: string, name: string, files: Record<string, string>): string {
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, name, file)), { recursive: true })
+    writeFileSync(join(root, name, file), text)
+  }
+  return join(root, name)
+}
+
+test('upgrade and install from a chart on this computer', async ({ launch }) => {
+  // A home of its own, where ~ leads.
+  const home = mkdtempSync(join(tmpdir(), 'kubestacks-home-'))
+  const web = writeChart(home, 'web', {
+    'Chart.yaml':
+      'apiVersion: v2\nname: storefront\nversion: 2.5.0\nappVersion: 3.10.0\ndescription: The storefront, being worked on.\n',
+    'values.yaml': 'replicaCount: 2\n',
+    'values-prod.yaml': 'replicaCount: 5\n',
+    'ci/test-values.yaml': 'replicaCount: 1\n',
+    'templates/deployment.yaml': 'kind: Deployment\n',
+  })
+  writeChart(home, 'older', {
+    'Chart.yaml': 'apiVersion: v2\nname: shop-frontend\nversion: 2.0.0\n',
+    '.lint': '[WARNING] templates/: nothing in this folder\n',
+  })
+  writeChart(home, 'deps', {
+    'Chart.yaml':
+      'apiVersion: v2\nname: storefront\nversion: 2.5.0\ndependencies:\n  - name: common\n    version: 2.0.0\n    repository: oci://registry-1.docker.io/bitnamicharts\n',
+  })
+  writeChart(home, 'broken', {
+    // The version it runs: neither newer nor older.
+    'Chart.yaml': 'apiVersion: v2\nname: storefront\nversion: 2.4.1\n',
+    '.lint':
+      '[WARNING] templates/: something to look at\n[ERROR] templates/deployment.yaml: unable to parse YAML\n  error converting YAML to JSON\n',
+  })
+  writeChart(home, 'not-a-chart', { 'README.md': 'Nothing to see.\n' })
+  writeFileSync(join(home, 'notes.txt'), 'Nothing to see.\n')
+  const packaged = join(home, 'storefront-2.5.0.tgz')
+  execFileSync('tar', ['-czf', packaged, '-C', home, 'web'])
+
+  const kubestacks = await launch({ env: { HOME: home, USERPROFILE: home } })
+  const { page, app } = kubestacks
+  const answer = (chosen: { canceled: boolean; filePaths: string[] }) =>
+    app.evaluate(({ dialog }, chosen) => {
+      dialog.showOpenDialog = (async () => chosen) as unknown as typeof dialog.showOpenDialog
+    }, chosen)
+  const choose = async (kind: 'Chart folder…' | 'Packaged chart (.tgz)…') => {
+    await upgrade.getByRole('button', { name: 'Choose…' }).click()
+    await page.getByRole('menuitem', { name: kind }).click()
+  }
+  await openCluster(page)
+  await openHelm(page)
+  const storefront = await openRelease(page, HELM.storefront)
+  await storefront.getByRole('button', { name: 'Upgrade…' }).click()
+  const upgrade = dialog(page)
+  await upgrade.getByRole('radio', { name: /A chart on this computer/ }).check()
+  await expect(upgrade.getByRole('button', { name: 'Review' })).toBeDisabled()
+  const path = upgrade.getByLabel('Chart path')
+
+  // Chosen: a folder (unless the choice is cancelled).
+  await answer({ canceled: true, filePaths: [] })
+  await choose('Chart folder…')
+  await expect(path).toHaveValue('')
+  await answer({ canceled: false, filePaths: [web] })
+  await choose('Chart folder…')
+  await expect(path).toHaveValue(web)
+  await expect(upgrade).toContainText('storefront 2.5.0 · app 3.10.0')
+  await expect(upgrade).toContainText('The storefront, being worked on.')
+  await expect(upgrade).toContainText('helm lint found no problems')
+  await expect(upgrade.getByRole('list', { name: 'helm lint' })).toContainText(
+    'Chart.yaml: icon is recommended',
+  )
+  await expect(upgrade).toContainText(`helm upgrade storefront ${web} --values values.yaml`)
+
+  // Values from the chart's own files.
+  const loadFrom = upgrade.getByRole('combobox', { name: 'Load values from' })
+  await expect(loadFrom.getByRole('option')).toHaveText([
+    'Load values from…',
+    'ci/test-values.yaml',
+    'values-prod.yaml',
+  ])
+  const editor = upgrade.getByRole('textbox', { name: 'Values' })
+  await upgrade.getByRole('button', { name: 'Start from the chart’s defaults' }).click()
+  await expect(editor).toContainText('replicaCount: 2')
+  await loadFrom.selectOption('values-prod.yaml')
+  await expect(editor).toContainText('replicaCount: 5')
+  // A file that went since the chart was read.
+  rmSync(join(web, 'ci', 'test-values.yaml'))
+  await loadFrom.selectOption('ci/test-values.yaml')
+  await expect(upgrade.getByRole('alert')).toContainText(
+    'ci/test-values.yaml isn’t one of web’s values files',
+  )
+
+  // Checked again before the dry run, which runs the folder's chart.
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await expect(upgrade.getByLabel('Manifest changes')).toContainText(
+    'Chart folder: 2.5.0, templates deployment.yaml',
+  )
+  await expect(upgrade).toContainText('helm lint found no problems')
+  await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
+  await expect(toasts(page)).toContainText('Upgraded storefront')
+  expect(helmCalls(kubestacks).at(-1)!.slice(0, 3)).toEqual(['upgrade', 'storefront', web])
+
+  // Next time, it's where this release came from.
+  await storefront.getByRole('button', { name: 'Upgrade…' }).click()
+  await expect(upgrade.getByRole('radio', { name: /A chart on this computer/ })).toBeChecked()
+  await expect(path).toHaveValue(web)
+  await expect(upgrade).toContainText('storefront 2.5.0')
+  // Checked again as it is now.
+  await path.press('Enter')
+  await expect(upgrade).toContainText('storefront 2.5.0')
+
+  // Typed, from home: an older one, of another chart.
+  await path.fill('~/older')
+  await path.press('Tab')
+  await expect(upgrade).toContainText(
+    'storefront runs the storefront chart; this one is shop-frontend.',
+  )
+  await expect(upgrade).toContainText('It’s older than the 2.4.1 storefront runs.')
+  await expect(upgrade).toContainText('helm lint: 1 warning')
+
+  // One that needs its subcharts.
+  await path.fill('~/deps')
+  await path.press('Enter')
+  await expect(upgrade).toContainText('Its charts/ folder is missing common 2.0.0.')
+  scriptHelm(kubestacks, { 'dependency update': { code: 1, stderr: 'Error: no network\n' } })
+  await upgrade.getByRole('button', { name: 'Download dependencies' }).click()
+  await expect(upgrade.getByRole('alert')).toHaveText('no network')
+  scriptHelm(kubestacks, {})
+  await upgrade.getByRole('button', { name: 'Download dependencies' }).click()
+  await expect(upgrade).not.toContainText('Its charts/ folder is missing')
+  expect(existsSync(join(home, 'deps', 'charts', 'common-2.0.0.tgz'))).toBe(true)
+
+  // One helm lint finds problems in: listed, errors first, and in the review.
+  await path.fill('~/broken')
+  await path.press('Enter')
+  await expect(upgrade).toContainText('helm lint: 1 error, 1 warning')
+  const findings = upgrade.getByRole('list', { name: 'helm lint' }).getByRole('listitem')
+  await expect(findings.first()).toContainText('unable to parse YAML')
+  await expect(findings.first()).toContainText('error converting YAML to JSON')
+  await editor.click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.insertText('lint-error: true\n')
+  await upgrade.getByRole('button', { name: 'Check again' }).click()
+  await expect(upgrade).toContainText('helm lint: 2 errors, 1 warning')
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await expect(upgrade.getByLabel('Manifest changes')).toBeVisible()
+  await expect(upgrade).toContainText('helm lint: 2 errors, 1 warning')
+  await upgrade.getByRole('button', { name: 'Back to editing' }).click()
+
+  // A chart that breaks after it was read is read again before the review.
+  await path.fill('~/deps')
+  await path.press('Enter')
+  await expect(upgrade).toContainText('storefront 2.5.0')
+  rmSync(join(home, 'deps', 'Chart.yaml'))
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await expect(upgrade.getByRole('alert')).toContainText('has no Chart.yaml')
+  await expect(upgrade.getByLabel('Manifest changes')).toHaveCount(0)
+
+  // Packaged.
+  await answer({ canceled: false, filePaths: [packaged] })
+  await choose('Packaged chart (.tgz)…')
+  await expect(upgrade).toContainText('storefront 2.5.0 · app 3.10.0 · packaged')
+  await expect(loadFrom).toHaveCount(0)
+
+  // Not charts.
+  for (const [typed, message] of [
+    ['relative/chart', 'Give the chart’s full path, or choose it'],
+    ['~/nowhere', `Nothing is at ${join(home, 'nowhere')}.`],
+    ['~/not-a-chart', 'has no Chart.yaml, so it isn’t a chart.'],
+    ['~/notes.txt', 'notes.txt isn’t a packaged chart (.tgz).'],
+  ]) {
+    await path.fill(typed!)
+    await path.press('Enter')
+    await expect(upgrade.getByRole('alert')).toContainText(message!)
+    await expect(upgrade.getByRole('button', { name: 'Review' })).toBeDisabled()
+  }
+  await page.keyboard.press('Escape')
+
+  // Installed from one, typed from home.
+  await page.getByRole('button', { name: 'Install chart' }).click()
+  await upgrade.getByRole('radio', { name: /A chart on this computer/ }).check()
+  await path.fill('~/web')
+  await path.press('Enter')
+  await upgrade.getByLabel('Release name').fill('storefront-next')
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await upgrade.getByRole('button', { name: 'Install', exact: true }).click()
+  await expect(toasts(page)).toContainText('Installed storefront-next')
+  expect(helmCalls(kubestacks).at(-1)!.slice(0, 3)).toEqual(['install', 'storefront-next', web])
+
+  // What the main process won't do.
+  const refused = await page.evaluate(
+    async ({ web, packaged }) => {
+      const helm = window.kubestacks.helm
+      const loose = <T>(value: unknown) => value as T
+      const outcome = (result: { ok: boolean; error?: { code: string; message: string } }) =>
+        result.ok ? 'ok' : `${result.error!.code}: ${result.error!.message}`
+      return Promise.all([
+        helm.local(loose(5)).then(outcome),
+        helm.lint(web, loose(5)).then(outcome),
+        helm.valuesFile(web, '../../secrets.yaml').then(outcome),
+        helm.updateDependencies(packaged).then(outcome),
+      ])
+    },
+    { web, packaged },
+  )
+  expect(refused).toEqual([
+    'invalid: path must be a non-empty string',
+    'invalid: values must be a string',
+    'invalid: ../../secrets.yaml isn’t one of web’s values files',
+    'invalid: A packaged chart has its dependencies already; this updates chart folders',
+  ])
+  // helm failing to lint at all.
+  scriptHelm(kubestacks, { lint: { code: 1, stderr: 'Error: helm broke\n' } })
+  expect(await page.evaluate((web) => window.kubestacks.helm.lint(web, ''), web)).toMatchObject({
+    ok: false,
+    error: { message: 'helm broke' },
+  })
 })

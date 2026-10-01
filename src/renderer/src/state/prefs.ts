@@ -25,6 +25,9 @@ interface Prefs {
   /** Custom kinds opened most recently, per context, newest first. */
   recentKinds: Record<string, string[]>
   touchKind: (context: string, kind: string) => void
+  /** The chart on this computer each Helm release was last deployed from, by `context/namespace/name`. */
+  localCharts: Record<string, string>
+  setLocalChart: (release: string, path: string) => void
 }
 
 const toggled = (list: string[], item: string, on: boolean) =>
@@ -58,6 +61,9 @@ export const usePrefs = create<Prefs>()(
             ].slice(0, MAX_RECENT_KINDS),
           },
         })),
+      localCharts: {},
+      setLocalChart: (release, path) =>
+        set((prefs) => ({ localCharts: { ...prefs.localCharts, [release]: path } })),
     }),
     { name: 'kubestacks:prefs' },
   ),
