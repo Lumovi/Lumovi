@@ -21,9 +21,11 @@ import {
 } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { AccessCheck, KubeObject } from '@shared/api'
-import type { ResourceKind } from '@shared/resources'
+import { isBuiltinKind, type ResourceKind } from '@shared/resources'
 import type { ChangeMeta, ClusterChange } from '@renderer/hooks/change'
+import { resourceFor } from '@renderer/hooks/resources'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
+import { holds, viewFor } from '@renderer/lib/views'
 import { kindOf, target, type ActionProps } from './common'
 import { EvictDialog, RestartDialog, RestartPodDialog, RunNowDialog } from './ConfirmDialogs'
 import { DeleteDialog } from './DeleteDialog'
@@ -34,6 +36,7 @@ import { RollbackDialog } from './RollbackDialog'
 import { ScaleDialog } from './ScaleDialog'
 import { SetImageDialog } from './SetImageDialog'
 import { DebugDialog, PortForwardDialog } from './StreamDialogs'
+import { viewActionIcon, ViewActionDialog, viewChange } from './view-actions'
 
 /** A change that runs at once, with its undo, instead of opening a dialog. */
 export interface InstantChange {
@@ -45,7 +48,8 @@ export interface Action {
   id: string
   label: string
   icon: LucideIcon
-  kinds: readonly ResourceKind[]
+  /** The kinds it's for, or a test for kinds that aren't built in. */
+  kinds: readonly ResourceKind[] | ((kind: ResourceKind) => boolean)
   /** Hidden when false, e.g. "Uncordon" on a node that isn't cordoned. */
   when?: (object: KubeObject) => boolean
   /** What the user must be allowed to do, checked with a SelfSubjectAccessReview. */
@@ -64,26 +68,8 @@ export interface Action {
 }
 
 const WORKLOADS = ['Deployment', 'StatefulSet', 'DaemonSet'] as const
-const EVERYTHING: readonly ResourceKind[] = [
-  'Node',
-  'Namespace',
-  'Pod',
-  'Deployment',
-  'StatefulSet',
-  'DaemonSet',
-  'ReplicaSet',
-  'Job',
-  'CronJob',
-  'HorizontalPodAutoscaler',
-  'Service',
-  'Ingress',
-  'NetworkPolicy',
-  'ConfigMap',
-  'Secret',
-  'PersistentVolumeClaim',
-  'PersistentVolume',
-  'StorageClass',
-]
+/** Every kind but events, which aren't edited or deleted by hand. */
+const EVERYTHING = (kind: ResourceKind) => kind !== 'Event'
 
 const can =
   (verb: AccessCheck['verb'], subresource?: string, kind?: ResourceKind) =>
@@ -141,6 +127,17 @@ export const ACTIONS: readonly Action[] = [
     icon: ArrowUpDown,
     kinds: ['Deployment', 'StatefulSet', 'ReplicaSet'],
     access: can('patch'),
+    primary: true,
+    dialog: ScaleDialog,
+  },
+  {
+    // Custom workloads (Argo Rollouts, say) that serve the scale subresource, like kubectl scale.
+    id: 'scale-custom',
+    label: 'Scale',
+    icon: ArrowUpDown,
+    kinds: (kind) =>
+      !isBuiltinKind(kind) && Boolean(resourceFor(kind)?.subresources?.includes('scale')),
+    access: can('patch', 'scale'),
     primary: true,
     dialog: ScaleDialog,
   },
@@ -399,8 +396,35 @@ export const ACTIONS: readonly Action[] = [
   },
 ]
 
-/** The actions that apply to `object`, in menu order. */
+/** A view's actions, as actions: they patch what the view says, after asking if it says to. */
+function viewActions(kind: ResourceKind): Action[] {
+  return (viewFor(kind)?.actions ?? []).map((action, i) => ({
+    id: `view:${i}`,
+    label: action.confirm ? `${action.name}…` : action.name,
+    icon: viewActionIcon(action),
+    kinds: [kind],
+    when: action.when && ((object: KubeObject) => holds(action.when!, object)),
+    access: can('patch', action.subresource),
+    primary: action.primary,
+    danger: action.danger,
+    ...(action.confirm
+      ? { dialog: ViewActionDialog }
+      : { instant: (object: KubeObject, context: string) => viewChange(action, object, context) }),
+  }))
+}
+
+const appliesTo = (action: Action, kind: ResourceKind) =>
+  typeof action.kinds === 'function' ? action.kinds(kind) : action.kinds.includes(kind)
+
+/** The actions that apply to `object`, in menu order: its view's first. */
 export function actionsFor(object: KubeObject): Action[] {
   const kind = kindOf(object)
-  return ACTIONS.filter((action) => action.kinds.includes(kind) && (action.when?.(object) ?? true))
+  return [...viewActions(kind), ...ACTIONS].filter(
+    (action) => appliesTo(action, kind) && (action.when?.(object) ?? true),
+  )
+}
+
+/** The action with `id` for `object`, whose dialog is open. */
+export function actionById(id: string, object: KubeObject): Action {
+  return [...viewActions(kindOf(object)), ...ACTIONS].find((action) => action.id === id)!
 }

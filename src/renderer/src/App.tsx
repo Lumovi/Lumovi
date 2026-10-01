@@ -4,11 +4,12 @@ import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
 import { TooltipProvider } from './components/Tooltip'
+import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
 import { OverviewPage } from './features/overview/OverviewPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
-import { ResourcePage } from './features/resources/ResourcePage'
+import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
 import { ClusterLayout } from './features/shell/ClusterLayout'
 import { WelcomePage } from './features/welcome/WelcomePage'
 
@@ -40,8 +41,10 @@ const router = createHashRouter([
               { path: 'metrics', element: <MetricsPage /> },
               ...RESOURCES.map((resource) => ({
                 path: resource.plural,
-                element: <ResourcePage key={resource.kind} kind={resource.kind} />,
+                element: <ResourcePage key={resource.kind} resource={resource} />,
               })),
+              { path: 'r/:kind', element: <CustomResourcePage /> },
+              { path: 'api-resources', element: <ApiResourcesPage /> },
               { path: '*', element: <NotFound /> },
             ],
           },

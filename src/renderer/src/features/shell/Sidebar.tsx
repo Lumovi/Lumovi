@@ -1,25 +1,43 @@
 import { useQuery } from '@tanstack/react-query'
 import { Command } from 'cmdk'
-import { ChartSpline, Check, ChevronsUpDown, LayoutDashboard, List, Lock } from 'lucide-react'
+import {
+  Blocks,
+  ChartSpline,
+  Check,
+  ChevronRight,
+  ChevronsUpDown,
+  LayoutDashboard,
+  List,
+  Lock,
+} from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
-import { NavLink } from 'react-router'
+import { NavLink, useLocation } from 'react-router'
 import type { KubeContext } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
-import { RESOURCES, type ResourceCategory } from '@shared/resources'
+import {
+  isBuiltinKind,
+  isCustomGroup,
+  RESOURCES,
+  type ResourceCategory,
+  type ResourceDefinition,
+} from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
-import { KIND_ICONS } from '@renderer/components/KindIcon'
+import { KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { GithubMark, Logo } from '@renderer/components/Logo'
 import { StatusDot } from '@renderer/components/Status'
 import { Switch } from '@renderer/components/Switch'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
+import { useResources } from '@renderer/hooks/resources'
+import { useViews } from '@renderer/hooks/views'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
-import { clusterPath, kindPath, metricsPath } from '@renderer/lib/routes'
+import { apiResourcesPath, clusterPath, kindPath, metricsPath } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
+import { usePrefs } from '@renderer/state/prefs'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
 import { ThemeMenu } from './ThemeMenu'
@@ -116,6 +134,7 @@ export function Sidebar() {
             })}
           </div>
         ))}
+        <CustomResources />
       </nav>
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
         <ThemeMenu />
@@ -233,5 +252,87 @@ function SwitcherItem({
       </span>
       {active && <Check className="size-4 text-accent" aria-label="Current cluster" />}
     </Command.Item>
+  )
+}
+
+/**
+ * Pinned kinds, then the cluster's custom resources by API group, folded
+ * until opened (a cluster can have hundreds), and the way to every other kind.
+ */
+function CustomResources() {
+  const { context } = useCluster()
+  const resources = useResources().data
+  // Views pick the kinds' icons.
+  useViews()
+  const pinnedKinds = usePrefs((prefs) => prefs.pinned)
+  const openGroups = usePrefs((prefs) => prefs.openGroups)
+  const setGroupOpen = usePrefs((prefs) => prefs.setGroupOpen)
+  const path = useLocation().pathname
+  const pinned = (resources ?? []).filter((r) => pinnedKinds.includes(r.kind))
+  const groups = new Map<string, ResourceDefinition[]>()
+  for (const resource of resources ?? []) {
+    if (isBuiltinKind(resource.kind) || !isCustomGroup(resource.group)) continue
+    groups.set(resource.group, [...(groups.get(resource.group) ?? []), resource])
+  }
+  const item = (resource: ResourceDefinition) => {
+    const Icon = kindIcon(resource.kind)
+    return (
+      <NavItem key={resource.kind} to={kindPath(context, resource.kind)}>
+        <Icon className="size-4 shrink-0 text-ink-3" />
+        <span className="truncate">{resource.label}</span>
+      </NavItem>
+    )
+  }
+  return (
+    <>
+      {pinned.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+            Pinned
+          </h3>
+          {pinned.map(item)}
+        </div>
+      )}
+      <div className="mt-4">
+        <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+          Custom resources
+        </h3>
+        {[...groups]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([group, kinds]) => {
+            // The group of the page that's open stays open.
+            const current = kinds.some((r) => path === kindPath(context, r.kind))
+            const open = current || openGroups.includes(group)
+            return (
+              <div key={group}>
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => setGroupOpen(group, !open)}
+                  className="flex h-8 w-full items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-surface-3/60 hover:text-ink-1"
+                >
+                  <ChevronRight
+                    className={cn(
+                      'size-3.5 shrink-0 text-ink-3 transition-transform',
+                      open && 'rotate-90',
+                    )}
+                  />
+                  <span title={group} className="min-w-0 flex-1 truncate text-left">
+                    {group}
+                  </span>
+                  <span className="text-2xs text-ink-3 tabular-nums">{kinds.length}</span>
+                </button>
+                {open && <div className="ml-3 border-l border-line pl-1">{kinds.map(item)}</div>}
+              </div>
+            )
+          })}
+        {resources && groups.size === 0 && (
+          <p className="px-2.5 py-1 text-xs text-ink-3">None in this cluster</p>
+        )}
+        <NavItem to={apiResourcesPath(context)}>
+          <Blocks className="size-4 text-ink-3" /> API resources
+        </NavItem>
+      </div>
+    </>
   )
 }

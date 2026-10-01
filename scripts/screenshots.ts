@@ -23,10 +23,15 @@ async function session(
   writeFileSync(join(userData, 'settings.json'), JSON.stringify({ theme }))
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${userData}`],
-    env: { ...process.env, KUBECONFIG: clusters.kubeconfigPath, SHELL: '' } as Record<
-      string,
-      string
-    >,
+    env: {
+      ...process.env,
+      KUBECONFIG: clusters.kubeconfigPath,
+      SHELL: '',
+      // Only KubeStacks' own views, from a home of its own.
+      KUBESTACKS_VIEWS_DIR: '',
+      HOME: userData,
+      USERPROFILE: userData,
+    } as Record<string, string>,
     colorScheme: null,
   })
   const page = await app.firstWindow()
@@ -152,6 +157,18 @@ for (const theme of ['dark', 'light'] as const) {
       .click()
     await page.getByRole('button', { name: 'Close (Esc)' }).click()
     await page.getByPlaceholder('Filter pods').fill('')
+
+    // Custom resources, with KubeStacks' view of them; every kind the cluster serves.
+    const sidebar = page.getByRole('navigation', { name: 'Resources' })
+    await sidebar.getByRole('button', { name: /^cert-manager\.io/ }).click()
+    await nav(page, 'Certificates')
+    await openRow(page, 'api-tls')
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: file('custom') })
+    await page.getByRole('button', { name: 'Close (Esc)' }).click()
+    await sidebar.getByRole('button', { name: /^cert-manager\.io/ }).click()
+    await nav(page, 'API resources')
+    await page.screenshot({ path: file('api-resources') })
 
     await nav(page, 'Nodes')
     await page.keyboard.press('ControlOrMeta+k')

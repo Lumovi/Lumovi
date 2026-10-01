@@ -16,6 +16,15 @@ All notable changes to KubeStacks are documented here. The format follows
   a diff), and delete with a choice of what happens to dependents.
 - Shells in containers, debug containers (`kubectl debug`) for pods, including those
   without a shell, and port forwards to pods and services, listed in the header.
+- Custom resources, and every other kind the cluster serves, found through API discovery:
+  grouped by API group in the sidebar (and pinnable), all of them in **API resources**,
+  with the API server's columns, a status read from the usual conventions, fields
+  explained by the kind's OpenAPI schema, scaling through the scale subresource, and
+  creating, editing and deleting like any other kind.
+- Views: a kind's columns, status, details, links and actions described as data. Views
+  for cert-manager, Argo CD and Rollouts, Flux, Gateway API, Karpenter, KEDA, External
+  Secrets, the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane are
+  included, and your own in `~/.kubestacks/views` replace them (see docs/views.md).
 - Usage history from Prometheus or VictoriaMetrics, found among the cluster's services and
   reached through the API server: a Metrics page that ranks namespaces, workloads, pods or
   nodes by CPU, memory, network or restarts over 15 minutes to 7 days, with stacked or line

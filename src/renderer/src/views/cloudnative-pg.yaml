@@ -1,0 +1,98 @@
+# CloudNativePG (https://cloudnative-pg.io): PostgreSQL clusters and their backups.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cloudnative-pg-clusters
+spec:
+  kinds:
+    - { group: postgresql.cnpg.io, kind: Cluster }
+  icon: database
+  columns:
+    - { name: Instances, path: .spec.instances, type: number }
+    - { name: Ready, path: .status.readyInstances, type: number, default: '0' }
+    - { name: Primary, path: .status.currentPrimary }
+  status:
+    - when: { path: .status.phase, equals: Cluster in healthy state }
+      health: healthy
+      label: Healthy
+    - when: { path: .status.phase, matches: fail|error|unrecoverable }
+      health: critical
+      label: '{{ .status.phase }}'
+      detail: '{{ .status.phaseReason }}'
+    - when: { path: .status.phase, exists: true }
+      health: progressing
+      label: '{{ .status.phase }}'
+      detail: '{{ .status.phaseReason }}'
+  details:
+    - { name: Image, path: .status.image }
+    - { name: Primary, path: .status.currentPrimary }
+    - { name: Storage, path: .spec.storage.size }
+    - { name: Last backup, path: .status.lastSuccessfulBackup, type: date }
+  links:
+    - name: Primary
+      kind: Pod
+      objectName: '{{ .status.currentPrimary }}'
+  actions:
+    - name: Restart
+      icon: refresh-cw
+      confirm: The instances restart one at a time, replicas first and the primary last, with a switchover.
+      patch:
+        metadata:
+          annotations: { kubectl.kubernetes.io/restartedAt: '{{ now }}' }
+      done: Restarted {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cloudnative-pg-backups
+spec:
+  kinds:
+    - { group: postgresql.cnpg.io, kind: Backup }
+  icon: archive
+  columns:
+    - { name: Cluster, path: .spec.cluster.name }
+    - { name: Method, path: .spec.method, default: barmanObjectStore }
+    - { name: Started, path: .status.startedAt, type: date }
+  status:
+    - when: { path: .status.phase, equals: completed }
+      health: healthy
+      label: Completed
+    - when: { path: .status.phase, equals: failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.error }}'
+    - health: progressing
+      label: '{{ .status.phase ?? "Pending" }}'
+  links:
+    - name: Cluster
+      kind: Cluster.postgresql.cnpg.io
+      objectName: '{{ .spec.cluster.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cloudnative-pg-scheduled-backups
+spec:
+  kinds:
+    - { group: postgresql.cnpg.io, kind: ScheduledBackup }
+  icon: timer
+  columns:
+    - { name: Schedule, path: .spec.schedule }
+    - { name: Last, path: .status.lastScheduleTime, type: date }
+    - { name: Next, path: .status.nextScheduleTime, type: date }
+  links:
+    - name: Cluster
+      kind: Cluster.postgresql.cnpg.io
+      objectName: '{{ .spec.cluster.name }}'
+  actions:
+    - name: Suspend
+      when: { path: .spec.suspend, notEquals: true }
+      patch: { spec: { suspend: true } }
+      undo: { spec: { suspend: false } }
+      done: Suspended {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.suspend, equals: true }
+      patch: { spec: { suspend: false } }
+      undo: { spec: { suspend: true } }
+      done: Resumed {{ .metadata.name }}

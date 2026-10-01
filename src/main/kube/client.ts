@@ -46,6 +46,8 @@ export interface RequestOptions {
   body?: unknown
   /** The body's media type; JSON unless set (patches have their own). */
   contentType?: string
+  /** What to ask for instead of JSON, e.g. discovery documents or tables. */
+  accept?: string
 }
 
 /**
@@ -65,7 +67,7 @@ export async function kubeRequest(
     method: options.method ?? 'GET',
     // Like kubectl: JSON for API objects, anything for subresources such as pod logs.
     headers: {
-      Accept: 'application/json, */*',
+      Accept: options.accept ?? 'application/json, */*',
       'Accept-Encoding': 'gzip',
       ...(payload
         ? {

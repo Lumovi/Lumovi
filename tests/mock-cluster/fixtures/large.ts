@@ -4,6 +4,7 @@
  */
 import { clusterBuilder, DAY, Mi, SECOND } from '../builders.ts'
 import type { ClusterFixture, KubeObject } from '../types.ts'
+import { manyCustomResources } from './custom.ts'
 
 export const LARGE = {
   gitVersion: 'v1.32.9',
@@ -47,6 +48,7 @@ export function largeCluster(now = Date.now()): ClusterFixture {
     // A port by an unusual name and number: the first one is used.
     ports: [{ name: 'query', port: 8080 }],
   })
+  manyCustomResources(b)
   const fixture = {
     ...b.build(),
     prometheus: [

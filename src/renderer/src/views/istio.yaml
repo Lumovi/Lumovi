@@ -1,0 +1,65 @@
+# Istio (https://istio.io): traffic routing and security.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: istio-routing
+spec:
+  kinds:
+    - { group: networking.istio.io, kind: VirtualService }
+  icon: network
+  columns:
+    - { name: Hosts, path: '.spec.hosts[*]' }
+    - { name: Gateways, path: '.spec.gateways[*]', default: mesh }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: istio-destination-rules
+spec:
+  kinds:
+    - { group: networking.istio.io, kind: DestinationRule }
+  icon: network
+  columns:
+    - { name: Host, path: .spec.host }
+    - { name: Subsets, path: '.spec.subsets[*].name' }
+    - { name: TLS, path: .spec.trafficPolicy.tls.mode }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: istio-gateways
+spec:
+  kinds:
+    - { group: networking.istio.io, kind: Gateway }
+  icon: globe
+  columns:
+    - { name: Hosts, path: '.spec.servers[*].hosts[*]' }
+    - { name: Ports, path: '.spec.servers[*].port.number' }
+  details:
+    - { name: Selector, path: .spec.selector }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: istio-service-entries
+spec:
+  kinds:
+    - { group: networking.istio.io, kind: ServiceEntry }
+  icon: cloud
+  columns:
+    - { name: Hosts, path: '.spec.hosts[*]' }
+    - { name: Location, path: .spec.location }
+    - { name: Resolution, path: .spec.resolution }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: istio-security
+spec:
+  kinds:
+    - { group: security.istio.io, kind: PeerAuthentication }
+    - { group: security.istio.io, kind: AuthorizationPolicy }
+  icon: shield-check
+  columns:
+    - { name: mTLS, path: .spec.mtls.mode }
+    - { name: Action, path: .spec.action }

@@ -6,7 +6,7 @@
  * strings and we want the renderer to know *why* a request failed.
  */
 import type { AppCommand } from './navigation'
-import type { ResourceKind } from './resources'
+import type { ResourceDefinition, ResourceKind } from './resources'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 
@@ -185,6 +185,40 @@ export interface KubeList {
   truncated: boolean
   /** How many objects match on the server, when the API reports it. */
   total?: number
+  /**
+   * For kinds without columns of their own (custom resources and the like): the
+   * columns the API server prints for them, like `kubectl get`, and each item's cells.
+   */
+  table?: { columns: TableColumn[]; cells: unknown[][] }
+}
+
+/** A column the API server computes for a list (its Table output). */
+export interface TableColumn {
+  name: string
+  /** `string`, `integer`, `number`, `boolean` or `date`; dates arrive as relative times like "5d". */
+  type: string
+  format?: string
+  description?: string
+  /** 0 is shown by default; higher only in kubectl's wide output. */
+  priority: number
+}
+
+/** The part of a kind's OpenAPI schema KubeStacks uses to explain its fields. */
+export interface FieldSchema {
+  type?: string
+  description?: string
+  format?: string
+  enum?: unknown[]
+  properties?: Record<string, FieldSchema>
+  items?: FieldSchema
+  additionalProperties?: FieldSchema
+}
+
+/** View files the user keeps next to KubeStacks' own (see docs/views.md). */
+export interface LocalViews {
+  directory: string
+  /** Each file's text, or why it wasn't read. */
+  files: { name: string; text: string; error?: string }[]
 }
 
 export interface ClusterVersion {
@@ -207,6 +241,8 @@ export interface GetQuery {
   kind: ResourceKind
   name: string
   namespace?: string
+  /** The object's Scale (from the scale subresource) instead of the object. */
+  subresource?: 'scale'
 }
 
 export interface MetricsQuery {
@@ -255,6 +291,8 @@ export type Change =
       patchType: PatchType
       /** A merge or strategic merge patch object, or a list of JSON patch operations. */
       patch: Record<string, unknown> | Record<string, unknown>[]
+      /** Patches the object's status or scale instead of the object itself. */
+      subresource?: 'status' | 'scale'
     }
   | { action: 'replace'; object: KubeObject }
   | { action: 'delete'; propagation?: DeletePropagation; gracePeriodSeconds?: number }
@@ -364,6 +402,8 @@ export interface KubestacksApi {
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
     openExternal(url: string): Promise<boolean>
+    /** The user's own view files, read when asked. */
+    views(): Promise<LocalViews>
   }
   /** Usage history from the cluster's Prometheus or VictoriaMetrics. */
   usage: {
@@ -377,6 +417,10 @@ export interface KubestacksApi {
   kube: {
     contexts(): Promise<ContextsResult>
     version(context: string): Promise<Result<ClusterVersion>>
+    /** Every kind the cluster serves that can be listed, built-in kinds included, looked up afresh. */
+    resources(context: string): Promise<Result<ResourceDefinition[]>>
+    /** A kind's schema, from the cluster's OpenAPI documents; null when it publishes none. */
+    schema(context: string, kind: ResourceKind): Promise<Result<FieldSchema | null>>
     list(query: ListQuery): Promise<Result<KubeList>>
     get(query: GetQuery): Promise<Result<KubeObject>>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
@@ -418,8 +462,11 @@ export const IPC = {
   setReadOnly: 'app:set-read-only',
   setMetricsSource: 'app:set-metrics-source',
   openExternal: 'app:open-external',
+  views: 'app:views',
   contexts: 'kube:contexts',
   version: 'kube:version',
+  resources: 'kube:resources',
+  schema: 'kube:schema',
   list: 'kube:list',
   get: 'kube:get',
   metrics: 'kube:metrics',

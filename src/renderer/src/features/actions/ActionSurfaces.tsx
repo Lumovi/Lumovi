@@ -10,7 +10,7 @@ import { cn } from '@renderer/lib/cn'
 import { keepFocusInActionDialog, useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 import { menuContent, menuItem } from '../shell/menu-styles'
-import { ACTIONS } from './catalog'
+import { actionById } from './catalog'
 import { useObjectActions, useRunAction, type AvailableAction } from './use-actions'
 
 /** Renders the dialog of the action in progress, wherever it was started from. */
@@ -18,7 +18,7 @@ export function ActionHost() {
   const active = useActionsUi((state) => state.active)
   const close = useActionsUi((state) => state.close)
   if (!active) return null
-  const Dialog = ACTIONS.find((action) => action.id === active.id)!.dialog!
+  const Dialog = actionById(active.id, active.object).dialog!
   return <Dialog key={active.object.metadata.uid} object={active.object} onClose={close} />
 }
 

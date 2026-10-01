@@ -17,7 +17,16 @@ interface Prefs {
   /** The time range metrics charts open with. */
   metricsRange: RangeId
   setMetricsRange: (range: RangeId) => void
+  /** Kinds pinned to the sidebar, shown in every cluster that has them. */
+  pinned: string[]
+  setPinned: (kind: string, pinned: boolean) => void
+  /** API groups unfolded in the sidebar's custom resources. */
+  openGroups: string[]
+  setGroupOpen: (group: string, open: boolean) => void
 }
+
+const toggled = (list: string[], item: string, on: boolean) =>
+  on ? [...list.filter((i) => i !== item), item] : list.filter((i) => i !== item)
 
 export const usePrefs = create<Prefs>()(
   persist(
@@ -33,6 +42,12 @@ export const usePrefs = create<Prefs>()(
       setPanelWidth: (panelWidth) => set({ panelWidth }),
       metricsRange: '1h',
       setMetricsRange: (metricsRange) => set({ metricsRange }),
+      pinned: [],
+      setPinned: (kind, pinned) =>
+        set((prefs) => ({ pinned: toggled(prefs.pinned, kind, pinned) })),
+      openGroups: [],
+      setGroupOpen: (group, open) =>
+        set((prefs) => ({ openGroups: toggled(prefs.openGroups, group, open) })),
     }),
     { name: 'kubestacks:prefs' },
   ),

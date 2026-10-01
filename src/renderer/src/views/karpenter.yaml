@@ -1,0 +1,46 @@
+# Karpenter (https://karpenter.sh): node pools, and the nodes it launched for them.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: karpenter-node-pools
+spec:
+  kinds:
+    - { group: karpenter.sh, kind: NodePool }
+  icon: boxes
+  columns:
+    - { name: Nodes, path: .status.resources.nodes, type: number, default: '0' }
+    - { name: CPU, path: .status.resources.cpu }
+    - { name: Memory, path: .status.resources.memory }
+    - { name: Weight, path: .spec.weight, type: number }
+  details:
+    - { name: Node class, path: .spec.template.spec.nodeClassRef.name }
+    - { name: CPU limit, path: .spec.limits.cpu }
+    - { name: Memory limit, path: .spec.limits.memory }
+    - { name: Consolidation, path: .spec.disruption.consolidationPolicy }
+    - { name: Consolidate after, path: .spec.disruption.consolidateAfter }
+    - { name: Expire after, path: .spec.template.spec.expireAfter }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: karpenter-node-claims
+spec:
+  kinds:
+    - { group: karpenter.sh, kind: NodeClaim }
+  icon: server
+  columns:
+    - { name: Type, path: ".metadata.labels['node.kubernetes.io/instance-type']" }
+    - { name: Capacity, path: ".metadata.labels['karpenter.sh/capacity-type']" }
+    - { name: Zone, path: ".metadata.labels['topology.kubernetes.io/zone']" }
+    - { name: Node, path: .status.nodeName }
+  details:
+    - { name: Node pool, path: ".metadata.labels['karpenter.sh/nodepool']" }
+    - { name: Instance type, path: ".metadata.labels['node.kubernetes.io/instance-type']" }
+    - { name: Provider ID, path: .status.providerID }
+  links:
+    - name: Node
+      kind: Node
+      objectName: '{{ .status.nodeName }}'
+    - name: Node pool
+      kind: NodePool.karpenter.sh
+      objectName: "{{ .metadata.labels['karpenter.sh/nodepool'] }}"

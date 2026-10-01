@@ -1,5 +1,5 @@
 import { ArrowRight, Box } from 'lucide-react'
-import { useCallback, useId, useState } from 'react'
+import { useId, useRef, useState, type FocusEvent } from 'react'
 import type { KubeObject } from '@shared/api'
 import { useChange } from '@renderer/hooks/change'
 import { useList } from '@renderer/hooks/queries'
@@ -56,16 +56,18 @@ export function SetImageDialog({ object, onClose }: ActionProps) {
     ...spec.containers.map((c: Container) => ({ ...c, init: false })),
     ...(spec.initContainers ?? []).map((c: Container) => ({ ...c, init: true })),
   ]
-  // Once the dialog has focused the first image, select its tag, ready to be replaced.
-  const selectTag = useCallback((input: HTMLInputElement | null) => {
-    if (!input) return
-    requestAnimationFrame(() => {
-      const colon = input.value.lastIndexOf(':')
-      if (colon > input.value.lastIndexOf('/')) {
-        input.setSelectionRange(colon + 1, input.value.length)
-      }
-    })
-  }, [])
+  // When the dialog first focuses the first image, its tag is selected, ready to be
+  // replaced. (Done as it gets focus, so nothing typed can come before it.)
+  const tagSelected = useRef(false)
+  const selectTag = (event: FocusEvent<HTMLInputElement>) => {
+    if (tagSelected.current) return
+    tagSelected.current = true
+    const input = event.currentTarget
+    const colon = input.value.lastIndexOf(':')
+    if (colon > input.value.lastIndexOf('/')) {
+      input.setSelectionRange(colon + 1, input.value.length)
+    }
+  }
   const [images, setImages] = useState<Record<string, string>>(() =>
     Object.fromEntries(containers.map((c) => [c.name, c.image])),
   )
@@ -156,7 +158,7 @@ export function SetImageDialog({ object, onClose }: ActionProps) {
                 )}
               </span>
               <input
-                ref={index === 0 ? selectTag : undefined}
+                onFocus={index === 0 ? selectTag : undefined}
                 aria-label={`Image for ${c.name}`}
                 value={images[c.name]}
                 list={listId}

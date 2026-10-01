@@ -2,19 +2,20 @@ import { Maximize2, Minimize2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
-import { resourceByKind, type ResourceKind } from '@shared/resources'
+import { apiKindOf, kindOf } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
-import { KIND_ICONS } from '@renderer/components/KindIcon'
+import { KindIcon } from '@renderer/components/KindIcon'
 import { ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useObject } from '@renderer/hooks/queries'
+import { useViews } from '@renderer/hooks/views'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
-import { hasHealth, statusOf } from '@renderer/lib/health'
+import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
 import { usePrefs } from '@renderer/state/prefs'
@@ -98,7 +99,7 @@ export function DetailPanel() {
   const target = parseRef(shown)
   return (
     <aside
-      aria-label={`${target.kind} ${target.name}`}
+      aria-label={`${apiKindOf(target.kind)} ${target.name}`}
       onAnimationEnd={() => {
         if (closing) setShown(null)
       }}
@@ -149,8 +150,9 @@ function Detail({
   onClose: () => void
 }) {
   const object = useObject(target.kind, target.name, target.namespace)
-  const resource = resourceByKind(target.kind)
-  const Icon = KIND_ICONS[target.kind]
+  // Views decide the icon, status and actions of the kinds they cover.
+  useViews()
+  const status = object.data && statusFor(target.kind, object.data)
   const involved = object.data?.involvedObject as { kind: string; name: string } | undefined
   const gone = (object.error as KubeApiError | null)?.code === 'not-found'
 
@@ -175,11 +177,11 @@ function Detail({
     <>
       <header className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
         <div className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-line bg-surface-2 text-ink-2">
-          <Icon className="size-[18px]" />
+          <KindIcon kind={target.kind} className="size-[18px]" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-ink-3">
-            {resource.kind}
+            {apiKindOf(target.kind)}
             {target.namespace && <span> · {target.namespace}</span>}
             {object.data && <span> · {age(object.data.metadata.creationTimestamp!)} old</span>}
           </p>
@@ -198,9 +200,7 @@ function Detail({
             </div>
           )}
         </div>
-        {object.data && hasHealth(target.kind) && (
-          <StatusPill status={statusOf(target.kind, object.data)} className="mt-2.5 shrink-0" />
-        )}
+        {status && <StatusPill status={status} className="mt-2.5 shrink-0" />}
         <IconButton
           label={expanded ? 'Restore panel' : 'Expand panel'}
           onClick={onExpand}
@@ -232,7 +232,7 @@ function Detail({
 }
 
 function DetailTabs({ object }: { object: KubeObject }) {
-  const kind = object.kind as ResourceKind
+  const kind = kindOf(object)
   const pods = podQuery(object)
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
   const editing = useActionsUi((state) => state.editing === ref)

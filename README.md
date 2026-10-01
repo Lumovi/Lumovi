@@ -33,6 +33,13 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
 - **Every common kind.** Nodes, namespaces, events, pods, deployments, stateful sets,
   daemon sets, replica sets, jobs, cron jobs, autoscalers, services, ingresses, network
   policies, config maps, secrets, volume claims, volumes and storage classes.
+- **And every other kind.** Custom resources and the rest of the API, found through
+  discovery: grouped by API group in the sidebar, with the columns `kubectl get` shows, a
+  status read from their conditions, and fields explained by their schema. Views for
+  cert-manager, Argo CD and Rollouts, Flux, Gateway API, Karpenter, KEDA, External Secrets,
+  the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane add the columns,
+  links and actions (sync, reconcile, suspend, promote…) that matter for each, and you can
+  write your own.
 - **Detail without digging.** A side panel with the facts that matter per kind, container
   state and restarts, conditions, labels, related pods, events, logs and syntax-highlighted
   YAML. Secret values stay hidden until you reveal them.
@@ -64,13 +71,14 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
 - **Light and dark.** Follows your system, or pick one. Native window controls match.
 
-|                                                          |                                                                  |
-| -------------------------------------------------------- | ---------------------------------------------------------------- |
-| ![Pods](docs/screenshots/pods-dark.png)                  | ![Pod details](docs/screenshots/pod-light.png)                   |
-| ![A shell in a pod](docs/screenshots/shell-dark.png)     | ![Scaling a deployment](docs/screenshots/scale-light.png)        |
-| ![Several pods selected](docs/screenshots/bulk-dark.png) | ![Create from YAML](docs/screenshots/create-light.png)           |
-| ![The Metrics page](docs/screenshots/metrics-dark.png)   | ![A pod's usage history](docs/screenshots/pod-metrics-light.png) |
-| ![Logs](docs/screenshots/logs-dark.png)                  | ![Overview in light mode](docs/screenshots/overview-light.png)   |
+|                                                          |                                                                            |
+| -------------------------------------------------------- | -------------------------------------------------------------------------- |
+| ![Pods](docs/screenshots/pods-dark.png)                  | ![Pod details](docs/screenshots/pod-light.png)                             |
+| ![A shell in a pod](docs/screenshots/shell-dark.png)     | ![Scaling a deployment](docs/screenshots/scale-light.png)                  |
+| ![Several pods selected](docs/screenshots/bulk-dark.png) | ![Create from YAML](docs/screenshots/create-light.png)                     |
+| ![The Metrics page](docs/screenshots/metrics-dark.png)   | ![A pod's usage history](docs/screenshots/pod-metrics-light.png)           |
+| ![Logs](docs/screenshots/logs-dark.png)                  | ![Overview in light mode](docs/screenshots/overview-light.png)             |
+| ![A custom resource](docs/screenshots/custom-dark.png)   | ![Every kind the cluster serves](docs/screenshots/api-resources-light.png) |
 
 ## Install
 
@@ -184,6 +192,28 @@ service proxy with your own credentials, so nothing needs to be port-forwarded o
   Charts use cAdvisor's `container_*` metrics; restarts come from kube-state-metrics, which
   also places pods on nodes when cAdvisor's series don't carry a `node` label.
 
+### Custom resources
+
+Every kind the cluster serves is in **API resources** (in the sidebar and the command
+palette), like `kubectl api-resources`; custom resources are also grouped by API group in
+the sidebar, and any kind can be pinned to the top of it.
+
+- **What the cluster says.** Lists have the columns the API server prints for the kind (a
+  CRD's printer columns), and objects a status read from the conventions most controllers
+  follow: `Ready`-like conditions, kstatus' `Stalled` and `Reconciling`, a spec the
+  controller hasn't caught up with, suspension, or a phase. Fields are explained by the
+  kind's OpenAPI schema (Kubernetes 1.27 and later), and YAML edits are validated by it.
+- **What a view adds.** A view gives a kind better columns and status, the facts that
+  matter, links to related objects, and actions that patch it, all written as data.
+  KubeStacks ships views for popular projects (see the list above); yours go in
+  `~/.kubestacks/views` (or the folder in `KUBESTACKS_VIEWS_DIR`) and replace KubeStacks'
+  for the same kind. [docs/views.md](docs/views.md) describes the format. Views can't run
+  code: they only read fields and change objects with the patches they spell out, and
+  every change shows its `kubectl` command and asks the cluster what you may do, like any
+  other.
+- **Scaling.** Kinds with the scale subresource (Argo Rollouts, say) can be scaled like
+  Deployments.
+
 ## Development
 
 You need [Node.js](https://nodejs.org) 26 (see `.nvmrc`; 24 also works) and npm.
@@ -254,7 +284,9 @@ The integration tests check the same app against a real cluster: a three-node
 They change things for real and check the result with kubectl: scaling, rollouts and
 rollbacks, YAML edits and conflicts, creating from YAML, cordoning and draining against a
 PodDisruptionBudget, shells, port forwards, debug containers, every usage-history query
-against Prometheus, and what a view-only account is offered.
+against Prometheus, custom resources (a CRD of their own, with validation, status and
+scaling, and the Prometheus operator's through KubeStacks' views), and what a view-only
+account is offered.
 
 You need Docker, [kind](https://kind.sigs.k8s.io), kubectl and Helm.
 

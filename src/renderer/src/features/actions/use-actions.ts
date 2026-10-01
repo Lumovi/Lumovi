@@ -1,8 +1,8 @@
 import type { AccessCheck, KubeObject } from '@shared/api'
-import { resourceByKind } from '@shared/resources'
 import { useAccess } from '@renderer/hooks/access'
 import { useChange } from '@renderer/hooks/change'
 import { useOpenObject } from '@renderer/hooks/open-object'
+import { labelFor } from '@renderer/hooks/resources'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { formatRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
@@ -27,12 +27,14 @@ const DENIED: Record<string, (resource: string) => string> = {
   'create/exec': () => 'open shells',
   'create/portforward': (resource) => `forward ports to ${resource}`,
   'patch/ephemeralcontainers': (resource) => `debug ${resource}`,
+  'patch/status': (resource) => `change ${resource}`,
+  'patch/scale': (resource) => `scale ${resource}`,
 }
 
 /** "Your account can’t delete pods in shop." */
 function forbidden(check: AccessCheck): string {
   const phrase = DENIED[check.subresource ? `${check.verb}/${check.subresource}` : check.verb]!
-  const resource = resourceByKind(check.kind).label.toLowerCase()
+  const resource = labelFor(check.kind).toLowerCase()
   return `Your account can’t ${phrase(resource)}${check.namespace ? ` in ${check.namespace}` : ''}.`
 }
 

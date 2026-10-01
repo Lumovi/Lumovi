@@ -1,8 +1,12 @@
 import type { ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
-import type { ResourceKind } from '@shared/resources'
+import { isBuiltinKind, kindOf, type BuiltinKind } from '@shared/resources'
 import { useMetrics } from '@renderer/hooks/queries'
+import { resourceFor, useSchema } from '@renderer/hooks/resources'
+import { viewFor, viewLinks } from '@renderer/lib/views'
 import { factsFor } from './facts'
+import { FieldTree } from './FieldTree'
+import { ObjectLink } from './ObjectLink'
 import {
   Conditions,
   Containers,
@@ -73,32 +77,83 @@ function DataSection({ object }: { object: KubeObject }) {
   )
 }
 
-const EXTRA_SECTIONS: Partial<Record<ResourceKind, (props: { object: KubeObject }) => ReactNode>> =
-  {
-    Pod: PodSections,
-    Node: NodeSections,
-    Deployment: TemplateSection,
-    StatefulSet: TemplateSection,
-    DaemonSet: TemplateSection,
-    ReplicaSet: TemplateSection,
-    Job: TemplateSection,
-    CronJob: TemplateSection,
-    Service: ({ object }) => (
-      <Section title="Ports">
-        <ServicePorts service={object} />
-      </Section>
-    ),
-    Ingress: ({ object }) => (
-      <Section title="Rules">
-        <IngressRules ingress={object} />
-      </Section>
-    ),
-    ConfigMap: DataSection,
-    Secret: DataSection,
-  }
+/** What a custom resource relates to (from its view), and its spec and status as trees. */
+function CustomSections({ object }: { object: KubeObject }) {
+  const kind = kindOf(object)
+  const schema = useSchema(kind).data ?? undefined
+  const view = viewFor(kind)
+  const links = view ? viewLinks(view, object, (target) => resourceFor(target)?.namespaced) : []
+  // Conditions have a section of their own.
+  const { conditions: _conditions, ...status } = (object.status ?? {}) as Record<string, unknown>
+  const spec = (object.spec ?? {}) as Record<string, unknown>
+  // Some kinds keep their fields at the top (a ServiceAccount's, a Role's rules…).
+  const {
+    apiVersion: _apiVersion,
+    kind: _kind,
+    metadata: _metadata,
+    spec: _spec,
+    status: _status,
+    ...fields
+  } = object
+  return (
+    <>
+      {links.length > 0 && (
+        <Section title="Related">
+          <KeyValueGrid
+            entries={links.map((link) => ({
+              label: link.name,
+              value: (
+                <ObjectLink kind={link.kind} name={link.objectName} namespace={link.namespace} />
+              ),
+            }))}
+          />
+        </Section>
+      )}
+      {Object.keys(spec).length > 0 && (
+        <Section title="Spec">
+          <FieldTree label="Spec" value={spec} schema={schema?.properties?.spec} />
+        </Section>
+      )}
+      {Object.keys(fields).length > 0 && (
+        <Section title="Fields">
+          <FieldTree label="Fields" value={fields} schema={schema} />
+        </Section>
+      )}
+      {Object.keys(status).length > 0 && (
+        <Section title="Status">
+          <FieldTree label="Status" value={status} schema={schema?.properties?.status} />
+        </Section>
+      )}
+    </>
+  )
+}
+
+const EXTRA_SECTIONS: Partial<Record<BuiltinKind, (props: { object: KubeObject }) => ReactNode>> = {
+  Pod: PodSections,
+  Node: NodeSections,
+  Deployment: TemplateSection,
+  StatefulSet: TemplateSection,
+  DaemonSet: TemplateSection,
+  ReplicaSet: TemplateSection,
+  Job: TemplateSection,
+  CronJob: TemplateSection,
+  Service: ({ object }) => (
+    <Section title="Ports">
+      <ServicePorts service={object} />
+    </Section>
+  ),
+  Ingress: ({ object }) => (
+    <Section title="Rules">
+      <IngressRules ingress={object} />
+    </Section>
+  ),
+  ConfigMap: DataSection,
+  Secret: DataSection,
+}
 
 export function OverviewTab({ object }: { object: KubeObject }) {
-  const Extra = EXTRA_SECTIONS[object.kind as ResourceKind]
+  const kind = kindOf(object)
+  const Extra = isBuiltinKind(kind) ? EXTRA_SECTIONS[kind] : CustomSections
   const conditions = object.status?.conditions ?? []
   const labels = object.metadata.labels ?? {}
   const annotations = Object.entries(object.metadata.annotations ?? {})

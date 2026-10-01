@@ -238,7 +238,7 @@ export class Controllers {
    */
   #revision(set: KubeObject): string {
     const revisions = this.store
-      .all('ControllerRevision', set.metadata.namespace)
+      .all('ControllerRevision.apps', set.metadata.namespace)
       .filter((revision) => ownedBy(revision, set))
     const newest = Math.max(0, ...revisions.map((revision) => Number(revision.revision)))
     const key = templateKey(set.spec.template)

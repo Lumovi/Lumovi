@@ -84,6 +84,8 @@ export async function launchApp(
     ...process.env,
     KUBECONFIG: kubeconfig,
     KUBESTACKS_COVERAGE_DIR: COVERAGE_DIR,
+    // Never the developer's own views.
+    KUBESTACKS_VIEWS_DIR: join(userDataDir, 'views'),
     // Keep tests independent of the developer's login shell.
     SHELL: undefined,
     ELECTRON_RENDERER_URL: undefined,

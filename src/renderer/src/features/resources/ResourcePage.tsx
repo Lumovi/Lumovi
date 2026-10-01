@@ -1,20 +1,37 @@
-import { Gauge, Info, SearchX, Tag } from 'lucide-react'
+import { Gauge, Info, Pin, PinOff, SearchX, Tag } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
-import { resourceByKind, type ResourceKind } from '@shared/resources'
-import { KIND_ICONS } from '@renderer/components/KindIcon'
+import {
+  apiKindOf,
+  isBuiltinKind,
+  type ResourceDefinition,
+  type ResourceKind,
+} from '@shared/resources'
+import { IconButton } from '@renderer/components/Button'
+import { kindIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
-import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
+import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { HEALTH_STYLE } from '@renderer/components/Status'
 import { useOpenObject } from '@renderer/hooks/open-object'
-import { objectKey, useList, useListTotals, useMetrics } from '@renderer/hooks/queries'
+import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
+import { useResource } from '@renderer/hooks/resources'
+import { useViews } from '@renderer/hooks/views'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { HEALTH_RANK, hasHealth, healthName, statusOf, type Health } from '@renderer/lib/health'
+import {
+  HEALTH_RANK,
+  hasHealth,
+  healthName,
+  statusFor,
+  statusOf,
+  type Health,
+} from '@renderer/lib/health'
+import { fieldValue, viewFor } from '@renderer/lib/views'
 import { useCluster } from '@renderer/state/cluster'
+import { usePrefs } from '@renderer/state/prefs'
 import { SelectionBar } from '../actions/BulkActions'
-import { columnsFor, metricsKey, sortRows, type CellContext } from './columns'
+import { columnsFor, customColumnsFor, metricsKey, sortRows, type CellContext } from './columns'
 import { useListState } from './list-state'
 import { Pagination } from './Pagination'
 import { ResourceTable } from './ResourceTable'
@@ -31,27 +48,47 @@ const HEALTH_ORDER = (Object.keys(HEALTH_RANK) as Health[]).sort(
 
 const number = new Intl.NumberFormat()
 
-/** The text the filter box matches against. */
-function searchText(object: KubeObject): string {
+/** The text the filter box matches against, with what the server's columns show. */
+function searchText(object: KubeObject, cells: unknown[] = []): string {
   const labels = Object.entries(object.metadata.labels ?? {}).map(([k, v]) => `${k}=${v}`)
   const event =
     object.kind === 'Event'
       ? [object.reason, object.message, (object.involvedObject as { name: string }).name]
       : []
-  return [object.metadata.name, object.metadata.namespace, ...labels, ...event]
+  return [object.metadata.name, object.metadata.namespace, ...labels, ...event, ...cells]
     .join(' ')
     .toLowerCase()
 }
 
-export function ResourcePage({ kind }: { kind: ResourceKind }) {
-  const resource = resourceByKind(kind)
-  const noun = resource.label.toLowerCase()
+/** The list of a kind the cluster serves beyond the built-in ones (`r/:kind`). */
+export function CustomResourcePage() {
+  const kind = useParams().kind!
+  const { context } = useCluster()
+  const { resource, pending, error, retry } = useResource(kind)
+  if (resource) return <ResourcePage key={kind} resource={resource} />
+  if (pending) return <Loading label={`Loading ${apiKindOf(kind)}…`} />
+  if (error) return <ErrorState error={error as KubeApiError} onRetry={retry} />
+  return (
+    <EmptyState icon={kindIcon(kind)} title={`${context} doesn’t serve ${kind}`}>
+      Its CustomResourceDefinition may have been removed, or never installed in this cluster.
+    </EmptyState>
+  )
+}
+
+export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
+  const kind = resource.kind
+  const builtin = isBuiltinKind(kind)
+  const noun = builtin ? resource.label.toLowerCase() : resource.label
   const { namespace } = useCluster()
   const [params] = useSearchParams()
-  const withHealth = hasHealth(kind)
+  // Views decide the columns, status and icon of the kinds they cover.
+  useViews()
   const showNamespace = resource.namespaced && namespace === null
-  const { columns, defaultSort } = columnsFor(kind, { showNamespace, hasHealth: withHealth })
-  const [state, update] = useListState(defaultSort)
+  // Built-in kinds know their columns; others learn them, and whether they have a status, from the list.
+  const builtinColumns = builtin
+    ? columnsFor(kind, { showNamespace, hasHealth: hasHealth(kind) })
+    : undefined
+  const [state, update] = useListState(builtinColumns?.defaultSort ?? 'status')
   const gridRef = useRef<HTMLDivElement>(null)
   // Rows picked for bulk actions, for this list only.
   const scopeKey = `${kind}/${namespace}`
@@ -67,8 +104,25 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
     namespace: resource.namespaced ? undefined : null,
     labelSelector: state.labels || undefined,
   }
-  const list = useList(kind, query)
+  const response = useListResponse(kind, query)
+  const list = { ...response, data: response.data?.items }
   const totals = useListTotals(kind, query)
+  const table = response.data?.table
+  const items = list.data ?? []
+  const view = builtin ? undefined : viewFor(kind)
+  const withHealth = builtin
+    ? hasHealth(kind)
+    : items.some((object) => statusFor(kind, object) !== null)
+  const { columns } =
+    builtinColumns ?? customColumnsFor({ kind, showNamespace, hasHealth: withHealth, view, table })
+  const cells = table
+    ? new Map(items.map((item, i) => [item, table.cells[i]!] as const))
+    : undefined
+  // The filter also matches what the view's or the server's columns show.
+  const shownValues = (object: KubeObject): unknown[] | undefined =>
+    view?.columns
+      ? view.columns.map((column) => fieldValue(column, object).text)
+      : cells?.get(object)
   const metricsTarget = METRICS_TARGET[kind]
   const metrics = useMetrics(
     metricsTarget ?? 'pods',
@@ -81,6 +135,7 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
     // Ages are relative to the last refresh, which keeps rendering pure.
     now: list.dataUpdatedAt,
     open,
+    cells,
     metrics: metrics.data?.available
       ? new Map(
           metrics.data.items.map((sample) => [metricsKey(sample.namespace, sample.name), sample]),
@@ -88,7 +143,6 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
       : undefined,
   }
 
-  const items = list.data ?? []
   const counts = new Map<Health, number>()
   if (withHealth) {
     for (const object of items) {
@@ -101,7 +155,7 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
   const column = columns.find((c) => c.id === state.sort) ?? columns[0]!
   const matching = items
     .filter((o) => state.health.length === 0 || state.health.includes(statusOf(kind, o).health))
-    .filter((o) => !needle || searchText(o).includes(needle))
+    .filter((o) => !needle || searchText(o, shownValues(o)).includes(needle))
   const rows = sortRows(matching, column, state.desc, ctx)
   const pages = Math.max(1, Math.ceil(rows.length / state.size))
   const page = Math.min(state.page, pages)
@@ -124,7 +178,7 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
     body = <ErrorState error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
   } else if (items.length === 0) {
     body = (
-      <EmptyState icon={KIND_ICONS[kind]} title={`No ${noun} ${scope}`}>
+      <EmptyState icon={kindIcon(kind)} title={`No ${noun} ${scope}`}>
         {state.labels
           ? `Nothing matches the label selector “${state.labels}”.`
           : resource.namespaced && namespace
@@ -206,6 +260,7 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
           )
         })}
         <div className="flex-1" />
+        {!builtin && <PinButton kind={kind} label={resource.label} />}
         {metrics.data?.available === false && (
           <span className="flex items-center gap-1.5 text-xs text-ink-3">
             <Gauge className="size-3.5" /> Live usage needs metrics-server
@@ -264,5 +319,20 @@ export function ResourcePage({ kind }: { kind: ResourceKind }) {
 
       {body}
     </div>
+  )
+}
+
+/** Pins a kind to the sidebar, above the custom resources, in every cluster that has it. */
+function PinButton({ kind, label }: { kind: ResourceKind; label: string }) {
+  const pinned = usePrefs((prefs) => prefs.pinned.includes(kind))
+  const setPinned = usePrefs((prefs) => prefs.setPinned)
+  return (
+    <IconButton
+      label={pinned ? `Unpin ${label} from the sidebar` : `Pin ${label} to the sidebar`}
+      onClick={() => setPinned(kind, !pinned)}
+      aria-pressed={pinned}
+    >
+      {pinned ? <PinOff /> : <Pin />}
+    </IconButton>
   )
 }

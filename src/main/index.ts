@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { app, Menu, nativeTheme } from 'electron'
 import { IPC } from '@shared/api'
 import { registerIpc } from './ipc'
@@ -8,6 +9,7 @@ import { Forwards, Terminals } from './kube/streams'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
 import { loadLoginShellPath } from './shell-env'
+import { viewsDirectory } from './views'
 import { createMainWindow, rendererUrl } from './window'
 
 if (!app.requestSingleInstanceLock()) {
@@ -41,7 +43,15 @@ if (!app.requestSingleInstanceLock()) {
       exit: (id, exit) => send(IPC.terminalExit, id, exit),
     })
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
-    registerIpc({ kube, usage, settings, terminals, forwards, rendererUrl: url })
+    registerIpc({
+      kube,
+      usage,
+      settings,
+      terminals,
+      forwards,
+      viewsDirectory: viewsDirectory(homedir()),
+      rendererUrl: url,
+    })
     // Shells and forwards belong to the page that started them.
     const closeStreams = () => {
       terminals.closeAll()

@@ -61,6 +61,13 @@ export function useList(kind: ResourceKind, options: ListOptions = {}) {
   return useListQuery(kind, options, selectItems)
 }
 
+const selectAll = (list: KubeList) => list
+
+/** The whole list, with the API server's columns for kinds that get them. */
+export function useListResponse(kind: ResourceKind, options: ListOptions) {
+  return useListQuery(kind, options, selectAll)
+}
+
 /** How complete a list is: loaded items, whether it was capped, and the server-side total. */
 export function useListTotals(kind: ResourceKind, options: ListOptions) {
   return useListQuery(kind, options, selectTotals).data

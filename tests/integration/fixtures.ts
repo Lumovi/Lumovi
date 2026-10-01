@@ -31,10 +31,12 @@ export const get = (...args: string[]): any => JSON.parse(kubectl(['get', ...arg
 export function freshNamespace(namespace: string, objects: object[], skip: string[] = []) {
   kubectl(['delete', 'namespace', namespace, '--ignore-not-found', '--wait', '--timeout=180s'])
   kubectl(['create', 'namespace', namespace])
-  kubectl(
-    ['apply', '--namespace', namespace, '-f', '-'],
-    JSON.stringify({ apiVersion: 'v1', kind: 'List', items: objects }),
-  )
+  if (objects.length) {
+    kubectl(
+      ['apply', '--namespace', namespace, '-f', '-'],
+      JSON.stringify({ apiVersion: 'v1', kind: 'List', items: objects }),
+    )
+  }
   for (const kind of ['deployment', 'statefulset', 'daemonset']) {
     const names = kubectl(['get', kind, '-n', namespace, '-o', 'name']).split('\n')
     for (const name of names.filter((n) => n && !skip.includes(n))) {

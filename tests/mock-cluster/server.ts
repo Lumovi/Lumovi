@@ -1,9 +1,10 @@
 /**
  * A small in-memory Kubernetes API server for end-to-end tests and demos.
  *
- * It speaks enough of the real API for the app: /version, list and get for
- * every kind in the app's resource registry, label and field selectors, the
- * metrics API and pod logs, and writes — create, replace, the three patch
+ * It speaks enough of the real API for the app: /version, discovery, list
+ * and get for every kind in the app's resource registry and every CRD in the
+ * store (see crds.ts), Table output, OpenAPI v3, label and field selectors,
+ * the metrics API and pod logs, and writes — create, replace, the three patch
  * formats, delete with cascading, eviction, dry runs and access reviews —
  * with a few controllers simulated so changes play out (see controllers.ts).
  * Responses mirror the real server's shapes (list kinds, Status errors, gzip)
@@ -15,9 +16,20 @@ import type { AddressInfo } from 'node:net'
 import { gzipSync } from 'node:zlib'
 import { generate } from 'selfsigned'
 import { parseQuantity } from '../../src/shared/quantity.ts'
-import { RESOURCES, type ResourceDefinition } from '../../src/shared/resources.ts'
+import { kindOf } from '../../src/shared/resources.ts'
 import { suffix } from './builders.ts'
 import { Controllers, type Store } from './controllers.ts'
+import {
+  aggregatedDiscovery,
+  asTable,
+  legacyDiscovery,
+  openApi,
+  scaleOf,
+  schemaProblem,
+  servedKinds,
+  setPath,
+  type Served,
+} from './crds.ts'
 import { jsonPatch, mergePatch, PatchError, strategicMergePatch } from './patch.ts'
 import { prometheusApi } from './prometheus.ts'
 import { streamingEndpoints } from './streams.ts'
@@ -57,6 +69,10 @@ export interface MockClusterOptions {
   gitVersion?: string
   /** Let metrics drift slowly over time, for lively demos. */
   jitter?: boolean
+  /** Like Kubernetes 1.26+: discovery in two documents. Off: one document per API group. */
+  aggregatedDiscovery?: boolean
+  /** Like Kubernetes 1.27+: OpenAPI v3 documents. Off: /openapi/v3 is missing. */
+  openApi?: boolean
 }
 
 export interface MockCluster {
@@ -71,8 +87,9 @@ export interface MockCluster {
    * fail with `fault`. Returns a function that removes the fault.
    */
   fail(match: string | RegExp, fault: Fault): () => void
-  /** Adds or replaces an object (keyed by kind, namespace and name). */
+  /** Adds or replaces an object (keyed by its kind and group, namespace and name). */
   upsert(object: KubeObject): void
+  /** Removes an object; `kind` as the app names it ("Pod", "Certificate.cert-manager.io"). */
   remove(kind: string, namespace: string | undefined, name: string): boolean
   setMetricsAvailable(available: boolean): void
   /**
@@ -89,7 +106,6 @@ export interface MockCluster {
   close(): Promise<void>
 }
 
-const METRICS_GROUP = 'metrics.k8s.io'
 const GZIP_THRESHOLD = 1024
 
 let certificate: Promise<{ key: string; cert: string }> | undefined
@@ -158,30 +174,17 @@ class HttpError extends Error {
 
 const notFoundPath = () => new HttpError(404, 'the server could not find the requested resource')
 
+/** Objects are keyed by kind as the app names it: "Pod", or "Certificate.cert-manager.io". */
 function objectKey(kind: string, namespace: string | undefined, name: string): string {
   return `${kind}/${namespace ?? ''}/${name}`
 }
 
-function groupVersion(def: ResourceDefinition): string {
+const keyOf = (object: KubeObject) =>
+  objectKey(kindOf(object), object.metadata.namespace, object.metadata.name)
+
+function groupVersion(def: Served): string {
   return def.group ? `${def.group}/${def.version}` : def.version
 }
-
-/** Kinds the app reads through dedicated calls rather than browsing (rollout history). */
-const SUPPORT_RESOURCES = [
-  {
-    kind: 'ControllerRevision',
-    plural: 'controllerrevisions',
-    group: 'apps',
-    version: 'v1',
-    namespaced: true,
-    label: 'Controller Revisions',
-    category: 'workloads',
-  },
-] as unknown as ResourceDefinition[]
-
-const RESOURCE_BY_PATH = new Map(
-  [...RESOURCES, ...SUPPORT_RESOURCES].map((r) => [`${r.group}/${r.version}/${r.plural}`, r]),
-)
 
 /** Equality-based label selectors: `a=b`, `a==b`, `a!=b`, `a`, `!a`, comma separated. */
 export function matchesLabels(
@@ -271,76 +274,6 @@ function containerStatus(pod: KubeObject, container: string): Json | undefined {
   return all.find((s: Json) => s.name === container)
 }
 
-const METRICS_RESOURCES = [
-  {
-    name: 'nodes',
-    singularName: '',
-    namespaced: false,
-    kind: 'NodeMetrics',
-    verbs: ['get', 'list'],
-  },
-  { name: 'pods', singularName: '', namespaced: true, kind: 'PodMetrics', verbs: ['get', 'list'] },
-]
-
-/** Legacy discovery documents, so tools like kubectl work against the mock too. */
-function discoveryDocument(pathname: string, metricsEnabled: boolean): Json | undefined {
-  const path = pathname.replace(/\/+$/, '')
-  if (path === '/api') {
-    return {
-      kind: 'APIVersions',
-      versions: ['v1'],
-      serverAddressByClientCIDRs: [{ clientCIDR: '0.0.0.0/0', serverAddress: '127.0.0.1:6443' }],
-    }
-  }
-  const groups = new Map<string, string>()
-  for (const r of RESOURCES) if (r.group) groups.set(r.group, r.version)
-  if (metricsEnabled) groups.set(METRICS_GROUP, 'v1beta1')
-  if (path === '/apis') {
-    return {
-      kind: 'APIGroupList',
-      apiVersion: 'v1',
-      groups: [...groups].map(([name, version]) => {
-        const groupVersion = { groupVersion: `${name}/${version}`, version }
-        return { name, versions: [groupVersion], preferredVersion: groupVersion }
-      }),
-    }
-  }
-  const match = path.match(/^\/api\/(v1)$|^\/apis\/([^/]+)\/([^/]+)$/)
-  if (!match) return undefined
-  const group = match[2] ?? ''
-  const version = match[1] ?? match[3]!
-  if (group && groups.get(group) !== version) return undefined
-  const resources =
-    group === METRICS_GROUP
-      ? METRICS_RESOURCES
-      : RESOURCES.filter((r) => r.group === group && r.version === version).flatMap((r) => [
-          {
-            name: r.plural,
-            singularName: r.kind.toLowerCase(),
-            namespaced: r.namespaced,
-            kind: r.kind,
-            verbs: ['get', 'list'],
-          },
-          ...(r.kind === 'Pod'
-            ? [
-                {
-                  name: 'pods/log',
-                  singularName: '',
-                  namespaced: true,
-                  kind: 'Pod',
-                  verbs: ['get'],
-                },
-              ]
-            : []),
-        ])
-  return {
-    kind: 'APIResourceList',
-    apiVersion: 'v1',
-    groupVersion: group ? `${group}/${version}` : version,
-    resources,
-  }
-}
-
 function rfc3339Nano(ms: number): string {
   return new Date(ms).toISOString().replace(/\.(\d{3})Z$/, '.$1000000Z')
 }
@@ -362,18 +295,19 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     get: (kind, namespace, name) => store.get(objectKey(kind, namespace, name)),
     all: (kind, namespace) =>
       [...store.values()].filter(
-        (o) => o.kind === kind && (namespace === undefined || o.metadata.namespace === namespace),
+        (o) =>
+          kindOf(o) === kind && (namespace === undefined || o.metadata.namespace === namespace),
       ),
     put(object) {
       resourceVersion += 1
-      store.set(objectKey(object.kind, object.metadata.namespace, object.metadata.name), {
+      store.set(keyOf(object), {
         ...object,
         metadata: { ...object.metadata, resourceVersion: String(resourceVersion) },
       })
     },
     remove(object) {
       resourceVersion += 1
-      store.delete(objectKey(object.kind, object.metadata.namespace, object.metadata.name))
+      store.delete(keyOf(object))
     },
     get podUsage() {
       return fixture.metrics?.pods ?? []
@@ -386,10 +320,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     store = new Map()
     resourceVersion = 0
     for (const object of fixture.objects) {
-      store.set(
-        objectKey(object.kind, object.metadata.namespace, object.metadata.name),
-        structuredClone(object),
-      )
+      store.set(keyOf(object), structuredClone(object))
       resourceVersion = Math.max(resourceVersion, Number(object.metadata.resourceVersion ?? 0))
     }
     metricsAvailable = true
@@ -408,11 +339,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     return 1 + 0.08 * Math.sin(Date.now() / 9000 + (h % 360))
   }
 
-  function list(
-    def: ResourceDefinition,
-    namespace: string | undefined,
-    query: URLSearchParams,
-  ): Json {
+  function list(def: Served, namespace: string | undefined, query: URLSearchParams): Json {
     const labelSelector = query.get('labelSelector')
     const fieldSelector = query.get('fieldSelector')
     const items: Json[] = []
@@ -423,7 +350,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       ),
     )
     for (const object of ordered) {
-      if (object.kind !== def.kind) continue
+      if (kindOf(object) !== def.kind) continue
       if (namespace !== undefined && object.metadata.namespace !== namespace) continue
       if (labelSelector && !matchesLabels(object.metadata.labels, labelSelector)) continue
       if (fieldSelector && !matchesFields(object, fieldSelector)) continue
@@ -468,7 +395,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
   }
 
-  function get(def: ResourceDefinition, namespace: string | undefined, name: string): KubeObject {
+  function get(def: Served, namespace: string | undefined, name: string): KubeObject {
     const object = store.get(objectKey(def.kind, namespace, name))
     if (!object) {
       const resource = def.group ? `${def.plural}.${def.group}` : def.plural
@@ -537,7 +464,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
 
   function logs(namespace: string, name: string, query: URLSearchParams): string {
     const pod = get(
-      RESOURCES.find((r) => r.kind === 'Pod')!,
+      served().find((r) => r.kind === 'Pod')!,
       namespace,
       name,
     )
@@ -596,9 +523,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   }
 
   /** Checks a stored-to-be object like the API server's validation does. */
-  function validate(def: ResourceDefinition, object: KubeObject, existing?: KubeObject): void {
+  function validate(def: Served, object: KubeObject, existing?: KubeObject): void {
     const name = object.metadata.name
-    const resource = def.group ? `${def.kind}.${def.group}` : def.kind
+    const resource = def.group ? `${def.apiKind}.${def.group}` : def.apiKind
     const fail = (field: string, message: string) => {
       throw new HttpError(422, `${resource} "${name}" is invalid: ${field}: ${message}`)
     }
@@ -635,6 +562,10 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         )
       }
     }
+    if (def.custom && def.schema?.properties?.spec) {
+      const problem = schemaProblem(def.schema.properties.spec, object.spec, 'spec')
+      if (problem) throw new HttpError(422, `${resource} "${name}" is invalid: ${problem}`)
+    }
     if (def.kind === 'PersistentVolumeClaim' && existing) {
       const before = parseQuantity(existing.spec.resources?.requests?.storage)
       const after = parseQuantity(object.spec.resources?.requests?.storage)
@@ -651,15 +582,21 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
 
   /** Finishes an object for storage: server-owned fields come from the stored version. */
   function prepare(
-    def: ResourceDefinition,
+    def: Served,
     object: KubeObject,
     existing: KubeObject | undefined,
     namespace: string | undefined,
   ): KubeObject {
-    if (object.kind !== undefined && object.kind !== def.kind) {
+    if (object.kind !== undefined && object.kind !== def.apiKind) {
       throw new HttpError(
         400,
-        `the kind of the object (${object.kind}) does not match the URL (${def.kind})`,
+        `the kind of the object (${object.kind}) does not match the URL (${def.apiKind})`,
+      )
+    }
+    if (object.apiVersion !== undefined && object.apiVersion !== groupVersion(def)) {
+      throw new HttpError(
+        400,
+        `the API version in the data (${object.apiVersion}) does not match the expected API version (${groupVersion(def)})`,
       )
     }
     const generation = Number(existing?.metadata.generation ?? 1)
@@ -673,7 +610,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const prepared: KubeObject = {
       ...object,
       apiVersion: groupVersion(def),
-      kind: def.kind,
+      kind: def.apiKind,
       metadata: {
         // Fields in the order the API server writes them; it owns their values.
         ...{
@@ -716,12 +653,20 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       }
     store$.put(object)
     controllers.changed(object)
-    return store$.get(object.kind, object.metadata.namespace, object.metadata.name)!
+    return store.get(keyOf(object))!
   }
 
-  /** Deletes an object and, unless orphaned, everything it owns. */
+  /** Deletes an object and, unless orphaned, everything it owns (a CRD: all its objects). */
   function remove(object: KubeObject, propagation: string): void {
     store$.remove(object)
+    if (object.kind === 'CustomResourceDefinition') {
+      for (const custom of [...store.values()]) {
+        const [group] = custom.apiVersion.split('/')
+        if (group === object.spec.group && custom.kind === object.spec.names.kind) {
+          store$.remove(custom)
+        }
+      }
+    }
     for (const dependent of [...store.values()]) {
       const owned = (dependent.metadata.ownerReferences ?? []).some(
         (ref: Json) => ref.uid === object.metadata.uid,
@@ -789,6 +734,35 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
     const existing = name ? get(def, namespace, name) : undefined
 
+    if (def.custom && subresource === 'status' && (method === 'PATCH' || method === 'PUT')) {
+      // The status subresource changes the status, and nothing else.
+      const changed = method === 'PUT' ? body : (PATCHES[contentType] ?? mergePatch)(existing, body)
+      return {
+        status: 200,
+        body: save({ ...existing!, status: changed.status }, dryRun),
+      }
+    }
+    if (def.custom && subresource === 'scale' && def.scale && method === 'PATCH') {
+      const scale = (PATCHES[contentType] ?? mergePatch)(scaleOf(def, existing!), body)
+      const replicas = scale.spec?.replicas
+      if (!Number.isInteger(replicas) || replicas < 0) {
+        throw new HttpError(
+          422,
+          `Scale.autoscaling "${name}" is invalid: spec.replicas: Invalid value: ${replicas}: must be greater than or equal to 0`,
+        )
+      }
+      const scaled = setPath(existing, def.scale.specReplicasPath, replicas)
+      if (!dryRun) {
+        save(prepare(def, scaled, existing, namespace), false)
+        // The custom controller catches up a moment later.
+        controllers.schedule(() => {
+          const current = store$.get(def.kind, namespace, name!)
+          if (current) store$.put(setPath(current, def.scale!.statusReplicasPath, replicas))
+        })
+      }
+      return { status: 200, body: scaleOf(def, scaled) }
+    }
+
     if (method === 'POST' && subresource === 'eviction' && def.kind === 'Pod') {
       if (!dryRun) remove(existing!, 'Background')
       return {
@@ -842,6 +816,15 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       if (store$.get(def.kind, namespace, objectName)) {
         throw new HttpError(409, `${plural} "${objectName}" already exists`)
       }
+      if (def.kind === 'CustomResourceDefinition.apiextensions.k8s.io') {
+        const { names, group } = body?.spec ?? {}
+        if (!names?.plural || !names?.kind || !group || objectName !== `${names.plural}.${group}`) {
+          throw new HttpError(
+            422,
+            `CustomResourceDefinition.apiextensions.k8s.io "${objectName}" is invalid: metadata.name: Invalid value: "${objectName}": must be spec.names.plural+"."+spec.group`,
+          )
+        }
+      }
       const object = prepare(
         def,
         { ...body, metadata: { ...body.metadata, name: objectName } },
@@ -864,6 +847,23 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         }
       }
       if (def.kind === 'Namespace') object.status = { phase: 'Active' }
+      if (def.kind === 'CustomResourceDefinition.apiextensions.k8s.io') {
+        // The API server accepts the names and starts serving the kind at once.
+        object.status = {
+          acceptedNames: object.spec.names,
+          conditions: ['NamesAccepted', 'Established'].map((type) => ({
+            type,
+            status: 'True',
+            lastTransitionTime: object.metadata.creationTimestamp,
+            reason: type === 'Established' ? 'InitialNamesAccepted' : 'NoConflicts',
+            message:
+              type === 'Established'
+                ? 'the initial names have been accepted'
+                : 'no conflicts found',
+          })),
+          storedVersions: [object.spec.versions.find((v: Json) => v.storage).name],
+        }
+      }
       return { status: 201, body: save(object, dryRun) }
     }
     if (method === 'PUT' && existing) {
@@ -937,9 +937,14 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     throw new HttpError(405, 'the server does not allow this method on the requested resource')
   }
 
+  /** The kinds served right now: they change as CRDs come and go. */
+  function served(): Served[] {
+    return servedKinds(store.values())
+  }
+
   /** The resource, namespace, name and subresource a path names; 404 if it names none. */
   function resolve(pathname: string): {
-    def: ResourceDefinition
+    def: Served
     namespace?: string
     name?: string
     subresource?: string
@@ -954,7 +959,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const namespaced = rest[0] === 'namespaces' && rest.length >= 3
     const namespace = namespaced ? rest[1] : undefined
     const [plural, name, subresource, ...extra] = namespaced ? rest.slice(2) : rest
-    const def = RESOURCE_BY_PATH.get(`${group}/${version}/${plural}`)
+    const def = served().find(
+      (s) => s.group === group && s.version === version && s.plural === plural,
+    )
     if (!def || extra.length > 0) throw notFoundPath()
     if (namespaced && !def.namespaced) throw notFoundPath()
     if (name !== undefined && def.namespaced && !namespaced) throw notFoundPath()
@@ -1005,7 +1012,11 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     throw new HttpError(503, `no endpoints available for service "${name}"`)
   }
 
-  function route(pathname: string, query: URLSearchParams): { body: Json; contentType?: string } {
+  function route(
+    pathname: string,
+    query: URLSearchParams,
+    accept: string,
+  ): { body: Json; contentType?: string } {
     if (pathname === '/version' || pathname === '/version/') {
       const [, major = '1', minor = '34'] = gitVersion.match(/^v(\d+)\.(\d+)/) ?? []
       return {
@@ -1024,16 +1035,46 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         },
       }
     }
-    const discovery = discoveryDocument(pathname, Boolean(fixture.metrics && metricsAvailable))
+    const path = pathname.replace(/\/+$/, '')
+    if (
+      (path === '/api' || path === '/apis') &&
+      options.aggregatedDiscovery !== false &&
+      accept.includes('as=APIGroupDiscoveryList')
+    ) {
+      return {
+        body: aggregatedDiscovery(
+          path,
+          served(),
+          !fixture.metrics ? 'none' : metricsAvailable ? 'up' : 'down',
+        ),
+        contentType: 'application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList',
+      }
+    }
+    const discovery = legacyDiscovery(path, served(), Boolean(fixture.metrics && metricsAvailable))
     if (discovery) return { body: discovery }
-    const metricsPrefix = `/apis/${METRICS_GROUP}/v1beta1/`
+    if (path.startsWith('/openapi/v3')) {
+      const document = options.openApi === false ? undefined : openApi(path, served())
+      if (!document) throw notFoundPath()
+      return { body: document }
+    }
+    const metricsPrefix = `/apis/metrics.k8s.io/v1beta1/`
     if (pathname.startsWith(metricsPrefix)) {
       return {
         body: metrics(pathname.slice(metricsPrefix.length).split('/').filter(Boolean)),
       }
     }
     const { def, namespace, name, subresource } = resolve(pathname)
-    if (name === undefined) return { body: list(def, namespace, query) }
+    if (name === undefined) {
+      const items = list(def, namespace, query)
+      return {
+        body: accept.includes('as=Table')
+          ? asTable(def, items, query.get('includeObject'), Date.now())
+          : items,
+      }
+    }
+    if (def.scale && subresource === 'scale') {
+      return { body: scaleOf(def, get(def, namespace, name)) }
+    }
     if (subresource === undefined) {
       const object = get(def, namespace, name)
       return {
@@ -1165,9 +1206,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         json(result.status, result.body)
         return
       }
-      const { body: response, contentType } = route(url.pathname, url.searchParams)
+      const { body: response, contentType } = route(url.pathname, url.searchParams, accept)
       if (typeof response === 'string') send(req, res, 200, response, contentType ?? 'text/plain')
-      else json(200, response)
+      else send(req, res, 200, JSON.stringify(response), contentType ?? 'application/json')
     } catch (error) {
       if (error instanceof HttpError) json(error.status, error.body)
       else json(500, statusBody(500, 'InternalError', (error as Error).message))
@@ -1262,7 +1303,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
     upsert(object) {
       resourceVersion += 1
-      const key = objectKey(object.kind, object.metadata.namespace, object.metadata.name)
+      const key = keyOf(object)
       const existing = store.get(key)
       store.set(key, {
         ...structuredClone(object),

@@ -1,16 +1,20 @@
 import type { ReactNode } from 'react'
-import type { KubeObject, UsageSample } from '@shared/api'
-import type { ResourceKind } from '@shared/resources'
+import type { KubeObject, TableColumn, UsageSample } from '@shared/api'
+import type { BuiltinKind, ResourceKind } from '@shared/resources'
 import { Meter } from '@renderer/components/Meter'
 import { StatusPill } from '@renderer/components/Status'
-import { age, formatBytes, formatCpu, percent } from '@renderer/lib/format'
+import { cn } from '@renderer/lib/cn'
+import { age, formatBytes, formatCpu, formatDateTime, percent } from '@renderer/lib/format'
 import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@renderer/lib/health'
 import { describeSchedule, nextRun } from '@renderer/lib/cron'
 import { allocatable } from '@renderer/lib/usage'
+import { fieldValue, type View, type ViewField } from '@renderer/lib/views'
 
 export interface CellContext {
   /** Live usage keyed by `metricsKey`, when the metrics API is available. */
   metrics?: Map<string, UsageSample>
+  /** Each object's cells in the API server's columns, for kinds that use them. */
+  cells?: Map<KubeObject, unknown[]>
   /** Opens another object in the detail panel. */
   open: (kind: ResourceKind, name: string, namespace?: string) => void
   now: number
@@ -292,7 +296,7 @@ function dataKeys(object: KubeObject): number {
   )
 }
 
-const EXTRA_COLUMNS: Partial<Record<ResourceKind, Column[]>> = {
+const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
   Pod: podColumns,
   Node: nodeColumns,
   Deployment: [readyColumn, imagesColumn],
@@ -663,10 +667,129 @@ export function columnsFor(
   const columns = [
     nameColumn(options.showNamespace),
     ...(options.hasHealth ? [statusColumn(kind)] : []),
-    ...(EXTRA_COLUMNS[kind] ?? []),
+    ...(EXTRA_COLUMNS[kind as BuiltinKind] ?? []),
     ageColumn,
   ]
   return { columns: withPriorities(columns), defaultSort: options.hasHealth ? 'status' : 'name' }
+}
+
+// ——— Kinds without columns of their own ———
+
+const number = new Intl.NumberFormat()
+const UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86_400, y: 31_536_000 }
+/** Server columns we show our own way: the name, and the age (kept live). */
+const OWN_COLUMNS = new Set(['Name', 'Age', 'Created At'])
+const CONDITION_VALUES = new Set(['True', 'False', 'Unknown'])
+
+/** Seconds in a duration the API server printed, like "3d4h" ("<invalid>" is a future time). */
+function durationSeconds(text: string): number {
+  let seconds = 0
+  for (const [, amount, unit] of text.matchAll(/(\d+)([smhdy])/g)) {
+    seconds += Number(amount) * UNITS[unit!]!
+  }
+  return text.startsWith('<') ? -1 : seconds
+}
+
+const isBlank = (value: unknown) => value === null || value === undefined || value === ''
+
+/** One of the API server's columns, filled from the list's cells. */
+function serverColumn(column: TableColumn, index: number): Column {
+  const numeric = column.type === 'integer' || column.type === 'number'
+  const value = (o: KubeObject, ctx: CellContext) => ctx.cells?.get(o)?.[index]
+  return {
+    id: `server:${column.name}`,
+    header: column.name,
+    width: numeric ? 'minmax(88px, 0.5fr)' : 'minmax(120px, 1fr)',
+    align: numeric ? 'right' : undefined,
+    priority: 2,
+    cell: (o, ctx) => {
+      const cell = value(o, ctx)
+      if (isBlank(cell)) return none
+      return numeric ? (
+        <span className="tabular-nums">{number.format(cell as number)}</span>
+      ) : (
+        <span className="truncate" title={String(cell)}>
+          {String(cell)}
+        </span>
+      )
+    },
+    sort: (o, ctx) => {
+      const cell = value(o, ctx)
+      if (numeric) return isBlank(cell) ? -Infinity : (cell as number)
+      if (column.type === 'date') return isBlank(cell) ? -1 : durationSeconds(String(cell))
+      return isBlank(cell) ? '' : String(cell)
+    },
+  }
+}
+
+/** "in 80d", "12d ago": a time from now, either way. */
+function fromNow(time: string, now: number): string {
+  const then = Date.parse(time)
+  return then > now ? `in ${age(new Date(now).toISOString(), then)}` : `${age(time, now)} ago`
+}
+
+/** A view's column: a value it reads from each object. */
+function viewColumn(field: ViewField): Column {
+  const numeric = field.type === 'number' || field.type === 'count'
+  return {
+    id: `view:${field.name}`,
+    header: field.name,
+    width: numeric ? 'minmax(88px, 0.5fr)' : 'minmax(120px, 1fr)',
+    align: numeric ? 'right' : undefined,
+    priority: 2,
+    cell: (o, ctx) => {
+      const { text, time } = fieldValue(field, o)
+      if (text === undefined) return none
+      if (time) {
+        return (
+          <span className="truncate tabular-nums" title={formatDateTime(time)}>
+            {fromNow(time, ctx.now)}
+          </span>
+        )
+      }
+      return (
+        <span className={cn('truncate', numeric && 'tabular-nums')} title={text}>
+          {text}
+        </span>
+      )
+    },
+    sort: (o) => fieldValue(field, o).sort,
+  }
+}
+
+/**
+ * Columns for kinds without their own: the name, the status when objects
+ * have one, then the view's columns or else the API server's (`kubectl get`'s),
+ * and the age.
+ */
+export function customColumnsFor(options: {
+  kind: ResourceKind
+  showNamespace: boolean
+  hasHealth: boolean
+  view?: View
+  table?: { columns: TableColumn[]; cells: unknown[][] }
+}): { columns: Column[]; defaultSort: string } {
+  const { kind, showNamespace, hasHealth, view, table } = options
+  const own =
+    view?.columns?.map(viewColumn) ??
+    (table?.columns ?? []).flatMap((column, index) => {
+      if (column.priority > 0 || OWN_COLUMNS.has(column.name)) return []
+      // A True/False Ready column says what the status already does.
+      const conditionOnly =
+        column.name === 'Ready' &&
+        table!.cells.every(
+          (cells) => isBlank(cells[index]) || CONDITION_VALUES.has(String(cells[index])),
+        )
+      return hasHealth && conditionOnly ? [] : [serverColumn(column, index)]
+    })
+  const columns = [
+    { ...nameColumn(showNamespace), priority: 1 as const },
+    ...(hasHealth ? [{ ...statusColumn(kind), priority: 1 as const }] : []),
+    // The first few stay as the window narrows.
+    ...own.map((column, i) => ({ ...column, priority: i < 2 ? (2 as const) : (3 as const) })),
+    { ...ageColumn, priority: 1 as const },
+  ]
+  return { columns, defaultSort: hasHealth ? 'status' : 'name' }
 }
 
 /** Sorts by `column`, falling back to the name so equal rows keep a stable order. */

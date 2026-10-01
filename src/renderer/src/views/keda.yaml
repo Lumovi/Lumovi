@@ -1,0 +1,72 @@
+# KEDA (https://keda.sh): event-driven autoscaling of workloads and jobs.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: keda-scaled-objects
+spec:
+  kinds:
+    - { group: keda.sh, kind: ScaledObject }
+  icon: gauge
+  columns:
+    - { name: Target, path: .spec.scaleTargetRef.name }
+    - { name: Min, path: .spec.minReplicaCount, type: number, default: '0' }
+    - { name: Max, path: .spec.maxReplicaCount, type: number, default: '100' }
+    - { name: Triggers, path: '.spec.triggers[*].type' }
+  status:
+    - when: { path: ".metadata.annotations['autoscaling.keda.sh/paused']", equals: 'true' }
+      health: neutral
+      label: Paused
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Active")].status', equals: 'True' }
+      health: healthy
+      label: Scaling
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Idle
+  details:
+    - { name: Polling interval, path: .spec.pollingInterval, default: 30s }
+    - { name: Cooldown, path: .spec.cooldownPeriod, default: 300s }
+    - { name: Triggers, path: '.spec.triggers[*].type' }
+    - { name: Autoscaler, path: .status.hpaName }
+  links:
+    - name: Target
+      kind: '{{ .spec.scaleTargetRef.kind ?? "Deployment" }}'
+      objectName: '{{ .spec.scaleTargetRef.name }}'
+    - name: Autoscaler
+      kind: HorizontalPodAutoscaler
+      objectName: '{{ .status.hpaName }}'
+  actions:
+    - name: Pause
+      when: { path: ".metadata.annotations['autoscaling.keda.sh/paused']", notEquals: 'true' }
+      patch:
+        metadata:
+          annotations: { autoscaling.keda.sh/paused: 'true' }
+      undo:
+        metadata:
+          annotations: { autoscaling.keda.sh/paused: null }
+      done: Paused autoscaling of {{ .spec.scaleTargetRef.name }}
+    - name: Resume
+      primary: true
+      when: { path: ".metadata.annotations['autoscaling.keda.sh/paused']", equals: 'true' }
+      patch:
+        metadata:
+          annotations: { autoscaling.keda.sh/paused: null }
+      undo:
+        metadata:
+          annotations: { autoscaling.keda.sh/paused: 'true' }
+      done: Resumed autoscaling of {{ .spec.scaleTargetRef.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: keda-scaled-jobs
+spec:
+  kinds:
+    - { group: keda.sh, kind: ScaledJob }
+  icon: gauge
+  columns:
+    - { name: Max, path: .spec.maxReplicaCount, type: number, default: '100' }
+    - { name: Triggers, path: '.spec.triggers[*].type' }

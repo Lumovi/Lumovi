@@ -1,0 +1,73 @@
+# Velero (https://velero.io): backups of cluster resources and volumes.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: velero-backups
+spec:
+  kinds:
+    - { group: velero.io, kind: Backup }
+    - { group: velero.io, kind: Restore }
+  icon: archive
+  columns:
+    - { name: Started, path: .status.startTimestamp, type: date }
+    - { name: Expires, path: .status.expiration, type: date }
+    - { name: Errors, path: .status.errors, type: number, default: '0' }
+    - { name: Warnings, path: .status.warnings, type: number, default: '0' }
+  status:
+    - when: { path: .status.phase, equals: Completed }
+      health: healthy
+      label: Completed
+    - when: { path: .status.phase, equals: PartiallyFailed }
+      health: warning
+      label: Partially failed
+      detail: '{{ .status.failureReason }}'
+    - when: { path: .status.phase, in: [Failed, FailedValidation] }
+      health: critical
+      label: '{{ .status.phase }}'
+      detail: '{{ .status.failureReason ?? .status.validationErrors }}'
+    - when: { path: .status.phase, equals: Deleting }
+      health: warning
+      label: Deleting
+    - health: progressing
+      label: '{{ .status.phase ?? "New" }}'
+  details:
+    - { name: Storage location, path: .spec.storageLocation }
+    - { name: Namespaces, path: '.spec.includedNamespaces[*]', default: all }
+    - { name: Backup, path: .spec.backupName }
+    - { name: Items, path: .status.progress.itemsBackedUp, type: number }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: velero-schedules
+spec:
+  kinds:
+    - { group: velero.io, kind: Schedule }
+  icon: timer
+  columns:
+    - { name: Schedule, path: .spec.schedule }
+    - { name: Last backup, path: .status.lastBackup, type: date }
+    - { name: Keep for, path: .spec.template.ttl, default: 720h }
+  status:
+    - when: { path: .spec.paused, equals: true }
+      health: neutral
+      label: Paused
+    - when: { path: .status.phase, equals: Enabled }
+      health: healthy
+      label: Enabled
+    - when: { path: .status.phase, equals: FailedValidation }
+      health: critical
+      label: Failed validation
+      detail: '{{ .status.validationErrors }}'
+  actions:
+    - name: Pause
+      when: { path: .spec.paused, notEquals: true }
+      patch: { spec: { paused: true } }
+      undo: { spec: { paused: false } }
+      done: Paused {{ .metadata.name }}
+    - name: Unpause
+      primary: true
+      when: { path: .spec.paused, equals: true }
+      patch: { spec: { paused: false } }
+      undo: { spec: { paused: true } }
+      done: Unpaused {{ .metadata.name }}

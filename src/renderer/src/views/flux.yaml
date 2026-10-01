@@ -1,0 +1,202 @@
+# Flux (https://fluxcd.io): what it applies, and where it fetches it from.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: flux-kustomizations
+spec:
+  kinds:
+    - { group: kustomize.toolkit.fluxcd.io, kind: Kustomization }
+  icon: workflow
+  columns:
+    - { name: Revision, path: .status.lastAppliedRevision }
+    - { name: Path, path: .spec.path }
+    - { name: Source, path: .spec.sourceRef.name }
+  status:
+    - when: { path: .spec.suspend, equals: true }
+      health: neutral
+      label: Suspended
+    - when: { path: '.status.conditions[?(@.type=="Stalled")].status', equals: 'True' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Stalled")].reason ?? "Stalled" }}'
+      detail: '{{ .status.conditions[?(@.type=="Stalled")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Reconciling")].status', equals: 'True' }
+      health: progressing
+      label: Reconciling
+      detail: '{{ .status.conditions[?(@.type=="Reconciling")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: Path, path: .spec.path }
+    - { name: Interval, path: .spec.interval }
+    - { name: Applied revision, path: .status.lastAppliedRevision }
+    - { name: Prune, path: .spec.prune, type: boolean }
+    - { name: Suspended, path: .spec.suspend, type: boolean, default: 'No' }
+  links:
+    - name: Source
+      kind: '{{ .spec.sourceRef.kind }}.source.toolkit.fluxcd.io'
+      objectName: '{{ .spec.sourceRef.name }}'
+      namespace: '{{ .spec.sourceRef.namespace }}'
+  actions:
+    - name: Reconcile
+      icon: refresh-cw
+      primary: true
+      when: { path: .spec.suspend, notEquals: true }
+      patch:
+        metadata:
+          annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
+      done: Asked Flux to reconcile {{ .metadata.name }}
+    - name: Suspend
+      when: { path: .spec.suspend, notEquals: true }
+      patch: { spec: { suspend: true } }
+      undo: { spec: { suspend: null } }
+      done: Suspended {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.suspend, equals: true }
+      patch:
+        spec: { suspend: null }
+        metadata:
+          annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
+      undo: { spec: { suspend: true } }
+      done: Resumed {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: flux-helm-releases
+spec:
+  kinds:
+    - { group: helm.toolkit.fluxcd.io, kind: HelmRelease }
+  icon: package
+  columns:
+    - { name: Chart, path: .spec.chart.spec.chart }
+    - { name: Version, path: '.status.history[0].chartVersion' }
+    - { name: Release, path: .spec.releaseName, default: same as its name }
+  status:
+    - when: { path: .spec.suspend, equals: true }
+      health: neutral
+      label: Suspended
+    - when: { path: '.status.conditions[?(@.type=="Stalled")].status', equals: 'True' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Stalled")].reason ?? "Stalled" }}'
+      detail: '{{ .status.conditions[?(@.type=="Stalled")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Reconciling")].status', equals: 'True' }
+      health: progressing
+      label: Reconciling
+      detail: '{{ .status.conditions[?(@.type=="Reconciling")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: Chart, path: .spec.chart.spec.chart }
+    - { name: Wanted version, path: .spec.chart.spec.version, default: the latest }
+    - { name: Installed version, path: '.status.history[0].chartVersion' }
+    - { name: Interval, path: .spec.interval }
+    - { name: Target namespace, path: .spec.targetNamespace }
+    - { name: Suspended, path: .spec.suspend, type: boolean, default: 'No' }
+  links:
+    - name: Chart source
+      kind: '{{ .spec.chart.spec.sourceRef.kind }}.source.toolkit.fluxcd.io'
+      objectName: '{{ .spec.chart.spec.sourceRef.name }}'
+      namespace: '{{ .spec.chart.spec.sourceRef.namespace }}'
+  actions:
+    - name: Reconcile
+      icon: refresh-cw
+      primary: true
+      when: { path: .spec.suspend, notEquals: true }
+      patch:
+        metadata:
+          annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
+      done: Asked Flux to reconcile {{ .metadata.name }}
+    - name: Suspend
+      when: { path: .spec.suspend, notEquals: true }
+      patch: { spec: { suspend: true } }
+      undo: { spec: { suspend: null } }
+      done: Suspended {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.suspend, equals: true }
+      patch:
+        spec: { suspend: null }
+        metadata:
+          annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
+      undo: { spec: { suspend: true } }
+      done: Resumed {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: flux-sources
+spec:
+  kinds:
+    - { group: source.toolkit.fluxcd.io, kind: GitRepository }
+    - { group: source.toolkit.fluxcd.io, kind: OCIRepository }
+    - { group: source.toolkit.fluxcd.io, kind: HelmRepository }
+    - { group: source.toolkit.fluxcd.io, kind: HelmChart }
+    - { group: source.toolkit.fluxcd.io, kind: Bucket }
+  icon: archive
+  columns:
+    - { name: URL, path: .spec.url }
+    - { name: Revision, path: .status.artifact.revision }
+    - { name: Fetched, path: .status.artifact.lastUpdateTime, type: date }
+  status:
+    - when: { path: .spec.suspend, equals: true }
+      health: neutral
+      label: Suspended
+    - when: { path: '.status.conditions[?(@.type=="Stalled")].status', equals: 'True' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Stalled")].reason ?? "Stalled" }}'
+      detail: '{{ .status.conditions[?(@.type=="Stalled")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Reconciling")].status', equals: 'True' }
+      health: progressing
+      label: Reconciling
+      detail: '{{ .status.conditions[?(@.type=="Reconciling")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: URL, path: .spec.url }
+    - { name: Branch, path: .spec.ref.branch }
+    - { name: Tag, path: .spec.ref.tag }
+    - { name: Interval, path: .spec.interval }
+    - { name: Revision, path: .status.artifact.revision }
+    - { name: Fetched, path: .status.artifact.lastUpdateTime, type: date }
+  actions:
+    - name: Reconcile
+      icon: refresh-cw
+      primary: true
+      when: { path: .spec.suspend, notEquals: true }
+      patch:
+        metadata:
+          annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
+      done: Asked Flux to fetch {{ .metadata.name }}
+    - name: Suspend
+      when: { path: .spec.suspend, notEquals: true }
+      patch: { spec: { suspend: true } }
+      undo: { spec: { suspend: null } }
+      done: Suspended {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.suspend, equals: true }
+      patch:
+        spec: { suspend: null }
+        metadata:
+          annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
+      undo: { spec: { suspend: true } }
+      done: Resumed {{ .metadata.name }}

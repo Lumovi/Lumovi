@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
+  Blocks,
   ChartSpline,
   CornerDownLeft,
   FilePlus2,
@@ -21,14 +22,22 @@ import { useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeList, KubeObject } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
-import { RESOURCES, type ResourceKind } from '@shared/resources'
-import { KIND_ICONS } from '@renderer/components/KindIcon'
+import { isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
+import { KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
+import { useResources } from '@renderer/hooks/resources'
 import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { matchWords } from '@renderer/lib/match'
-import { clusterPath, formatRef, kindPath, metricsPath, parseRef } from '@renderer/lib/routes'
+import {
+  apiResourcesPath,
+  clusterPath,
+  formatRef,
+  kindPath,
+  metricsPath,
+  parseRef,
+} from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { useUi } from '@renderer/state/ui'
@@ -53,7 +62,7 @@ function useCachedObjects(context: string): KubeObject[] {
   const seen = new Map<string, KubeObject>()
   for (const [, list] of queryClient.getQueriesData<KubeList>({ queryKey: ['list', context] })) {
     for (const object of list?.items ?? []) {
-      seen.set(`${object.kind}/${object.metadata.namespace}/${object.metadata.name}`, object)
+      seen.set(`${kindOf(object)}/${object.metadata.namespace}/${object.metadata.name}`, object)
     }
   }
   return [...seen.values()]
@@ -84,6 +93,8 @@ function Palette({ onDone }: { onDone: () => void }) {
   const [search, setSearch] = useState('')
   const contexts = useContexts().data?.contexts ?? []
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
+  // The cluster's other kinds, custom resources included.
+  const others = (useResources().data ?? []).filter((r) => !isBuiltinKind(r.kind))
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
@@ -118,8 +129,8 @@ function Palette({ onDone }: { onDone: () => void }) {
         {matches.length > 0 && (
           <Command.Group heading="Objects">
             {matches.map((object) => {
-              const kind = object.kind as ResourceKind
-              const Icon = KIND_ICONS[kind]
+              const kind = kindOf(object)
+              const Icon = kindIcon(kind)
               const ref = formatRef({
                 kind,
                 name: object.metadata.name,
@@ -129,9 +140,11 @@ function Palette({ onDone }: { onDone: () => void }) {
                 <Item
                   key={ref}
                   icon={<Icon />}
-                  value={`${object.metadata.name} ${kind} ${object.metadata.namespace ?? ''} object`}
+                  value={`${object.metadata.name} ${object.kind} ${object.metadata.namespace ?? ''} object`}
                   hint={
-                    <span className="text-xs text-ink-3">{object.metadata.namespace ?? kind}</span>
+                    <span className="text-xs text-ink-3">
+                      {object.metadata.namespace ?? object.kind}
+                    </span>
                   }
                   onSelect={run(() =>
                     go(`${kindPath(context, kind)}?open=${encodeURIComponent(ref)}`),
@@ -181,6 +194,27 @@ function Palette({ onDone }: { onDone: () => void }) {
               </Item>
             )
           })}
+          {others.map((resource) => {
+            const Icon = kindIcon(resource.kind)
+            return (
+              <Item
+                key={resource.kind}
+                icon={<Icon />}
+                value={`${resource.label} ${resource.apiKind} ${resource.group} ${(resource.shortNames ?? []).join(' ')}`}
+                hint={<span className="text-xs text-ink-3">{resource.group || 'core'}</span>}
+                onSelect={run(() => go(kindPath(context, resource.kind)))}
+              >
+                {resource.label}
+              </Item>
+            )
+          })}
+          <Item
+            icon={<Blocks />}
+            value="API resources kinds custom resources CRDs views"
+            onSelect={run(() => go(apiResourcesPath(context)))}
+          >
+            API resources
+          </Item>
         </Command.Group>
         <Command.Group heading="Namespace">
           <Item

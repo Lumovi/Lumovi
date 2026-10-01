@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
-import type { ResourceKind } from '@shared/resources'
+import { isBuiltinKind, kindOf, type BuiltinKind } from '@shared/resources'
 import { age, formatDateTime } from '@renderer/lib/format'
 import { replicaCounts } from '@renderer/lib/health'
+import { fieldValue, viewFor } from '@renderer/lib/views'
 import {
   externalAddress,
   isDefaultStorageClass,
@@ -72,7 +73,7 @@ function hpaMetrics(hpa: KubeObject): string {
     .join(', ')
 }
 
-const FACTS: Record<ResourceKind, (o: KubeObject) => (Fact | null)[]> = {
+const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
   Pod: (o) => [
     fact('Node', o.spec.nodeName && <ObjectLink kind="Node" name={o.spec.nodeName} />),
     fact('Pod IP', o.status.podIP),
@@ -101,9 +102,12 @@ const FACTS: Record<ResourceKind, (o: KubeObject) => (Fact | null)[]> = {
     fact(
       'Object',
       <ObjectLink
-        kind={(o.involvedObject as { kind: ResourceKind }).kind}
-        name={(o.involvedObject as { name: string }).name}
-        namespace={(o.involvedObject as { namespace?: string }).namespace}
+        {...(o.involvedObject as {
+          apiVersion?: string
+          kind: string
+          name: string
+          namespace?: string
+        })}
       />,
     ),
     fact('Message', o.message as string),
@@ -151,6 +155,7 @@ const FACTS: Record<ResourceKind, (o: KubeObject) => (Fact | null)[]> = {
     fact(
       'Target',
       <ObjectLink
+        apiVersion={o.spec.scaleTargetRef.apiVersion}
         kind={o.spec.scaleTargetRef.kind}
         name={o.spec.scaleTargetRef.name}
         namespace={o.metadata.namespace}
@@ -223,23 +228,34 @@ const FACTS: Record<ResourceKind, (o: KubeObject) => (Fact | null)[]> = {
   ],
 }
 
+/** A view's details: what it reads from the object, like its list columns. */
+function viewFacts(object: KubeObject): (Fact | null)[] {
+  return (viewFor(kindOf(object))?.details ?? []).map((field) => {
+    const { text, time } = fieldValue(field, object)
+    return fact(field.name, time ? when(time) : text)
+  })
+}
+
 /** Namespace, age and owner, then the facts specific to the object's kind. */
 export function factsFor(object: KubeObject): Fact[] {
   const owner = object.metadata.ownerReferences?.find((ref) => ref.controller)
+  const kind = kindOf(object)
   const common = [
     fact('Created', when(object.metadata.creationTimestamp)),
     fact(
       'Controlled by',
       owner && (
         <ObjectLink
-          kind={owner.kind as ResourceKind}
+          apiVersion={owner.apiVersion}
+          kind={owner.kind}
           name={owner.name}
           namespace={object.metadata.namespace}
         />
       ),
     ),
   ]
-  return [...common, ...FACTS[object.kind as ResourceKind](object)].filter(
-    (f): f is Fact => f !== null,
-  )
+  const specific = isBuiltinKind(kind)
+    ? FACTS[kind](object)
+    : [fact('API version', object.apiVersion), ...viewFacts(object)]
+  return [...common, ...specific].filter((f): f is Fact => f !== null)
 }

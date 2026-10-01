@@ -2,9 +2,9 @@
  * Navigation shortcuts shared by the renderer's hotkeys and the native menu,
  * so the two always agree.
  */
-import { resourceByKind, type ResourceKind } from './resources'
+import { resourceByKind, type BuiltinKind } from './resources'
 
-export type NavTarget = 'overview' | 'metrics' | ResourceKind
+export type NavTarget = 'overview' | 'metrics' | BuiltinKind
 
 /** What a view is called in menus and the shortcut sheet. */
 export function navLabel(target: NavTarget): string {

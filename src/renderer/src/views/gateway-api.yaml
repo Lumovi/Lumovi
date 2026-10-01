@@ -1,0 +1,95 @@
+# Gateway API (https://gateway-api.sigs.k8s.io): gateways and the routes attached to them.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: gateway-api-gateways
+spec:
+  kinds:
+    - { group: gateway.networking.k8s.io, kind: Gateway }
+  icon: globe
+  columns:
+    - { name: Class, path: .spec.gatewayClassName }
+    - { name: Address, path: '.status.addresses[*].value' }
+    - { name: Listeners, path: .spec.listeners, type: count }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Programmed")].status', equals: 'True' }
+      health: healthy
+      label: Programmed
+    - when: { path: '.status.conditions[?(@.type=="Accepted")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Accepted")].reason ?? "Not accepted" }}'
+      detail: '{{ .status.conditions[?(@.type=="Accepted")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Programmed")].status', equals: 'False' }
+      health: warning
+      label: '{{ .status.conditions[?(@.type=="Programmed")].reason ?? "Not programmed" }}'
+      detail: '{{ .status.conditions[?(@.type=="Programmed")].message }}'
+    - health: progressing
+      label: Pending
+  details:
+    - { name: Class, path: .spec.gatewayClassName }
+    - { name: Addresses, path: '.status.addresses[*].value' }
+    - { name: Hostnames, path: '.spec.listeners[*].hostname' }
+    - { name: Ports, path: '.spec.listeners[*].port' }
+  links:
+    - name: Class
+      kind: GatewayClass.gateway.networking.k8s.io
+      objectName: '{{ .spec.gatewayClassName }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: gateway-api-routes
+spec:
+  kinds:
+    - { group: gateway.networking.k8s.io, kind: HTTPRoute }
+    - { group: gateway.networking.k8s.io, kind: GRPCRoute }
+    - { group: gateway.networking.k8s.io, kind: TLSRoute }
+    - { group: gateway.networking.k8s.io, kind: TCPRoute }
+    - { group: gateway.networking.k8s.io, kind: UDPRoute }
+  icon: route
+  columns:
+    - { name: Hostnames, path: '.spec.hostnames[*]' }
+    - { name: Gateways, path: '.spec.parentRefs[*].name' }
+    - { name: Backends, path: '.spec.rules[*].backendRefs[*].name' }
+  status:
+    - when: { path: '.status.parents[0].conditions[?(@.type=="Accepted")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.parents[0].conditions[?(@.type=="Accepted")].reason ?? "Not accepted" }}'
+      detail: '{{ .status.parents[0].conditions[?(@.type=="Accepted")].message }}'
+    - when:
+        { path: '.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status', equals: 'False' }
+      health: warning
+      label: '{{ .status.parents[0].conditions[?(@.type=="ResolvedRefs")].reason ?? "Unresolved" }}'
+      detail: '{{ .status.parents[0].conditions[?(@.type=="ResolvedRefs")].message }}'
+    - when: { path: '.status.parents[0].conditions[?(@.type=="Accepted")].status', equals: 'True' }
+      health: healthy
+      label: Accepted
+    - health: progressing
+      label: Pending
+  links:
+    - name: Gateway
+      kind: Gateway.gateway.networking.k8s.io
+      objectName: '{{ .spec.parentRefs[0].name }}'
+      namespace: '{{ .spec.parentRefs[0].namespace }}'
+    - name: Backend
+      kind: Service
+      objectName: '{{ .spec.rules[0].backendRefs[0].name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: gateway-api-classes
+spec:
+  kinds:
+    - { group: gateway.networking.k8s.io, kind: GatewayClass }
+  icon: globe
+  columns:
+    - { name: Controller, path: .spec.controllerName }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Accepted")].status', equals: 'True' }
+      health: healthy
+      label: Accepted
+    - when: { path: '.status.conditions[?(@.type=="Accepted")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Accepted")].reason ?? "Not accepted" }}'
+      detail: '{{ .status.conditions[?(@.type=="Accepted")].message }}'

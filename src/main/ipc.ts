@@ -11,6 +11,7 @@ import type { KubeService } from './kube/service'
 import type { Forwards, Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { isMetricsSourceSetting, isTheme, type SettingsStore } from './settings'
+import { readViews } from './views'
 
 interface Dependencies {
   kube: KubeService
@@ -18,6 +19,8 @@ interface Dependencies {
   settings: SettingsStore
   terminals: Terminals
   forwards: Forwards
+  /** Where the user's own views are, and how that folder is shown. */
+  viewsDirectory: { path: string; shown: string }
   /** Only frames showing this URL may call into the main process. */
   rendererUrl: string
 }
@@ -28,6 +31,7 @@ export function registerIpc({
   settings,
   terminals,
   forwards,
+  viewsDirectory,
   rendererUrl,
 }: Dependencies): void {
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
@@ -82,9 +86,12 @@ export function registerIpc({
     if (allowed) await shell.openExternal(url)
     return allowed
   })
+  handle(IPC.views, () => readViews(viewsDirectory))
 
   handle(IPC.contexts, () => kube.contexts())
   handle(IPC.version, (context) => kube.version(context))
+  handle(IPC.resources, (context) => kube.resources(context))
+  handle(IPC.schema, (context, kind) => kube.schema(context, kind))
   handle(IPC.list, (query) => kube.list(query))
   handle(IPC.get, (query) => kube.get(query))
   handle(IPC.metrics, (query) => kube.metrics(query))
