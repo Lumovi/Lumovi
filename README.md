@@ -255,6 +255,12 @@ hooks, three-way merges and Helm's own record of revisions work as they always d
 - **Uninstall**, keeping the release's history if you want to roll it back into being.
 - **Install** a chart found on [Artifact Hub](https://artifacthub.io) (or typed), starting
   from its default values, again reviewed as a dry run.
+- **Charts on your computer**, for the chart you're working on: choose a chart folder or
+  a packaged `.tgz` (or type its path, `~/` included). KubeStacks shows what it is, warns
+  when it's another chart than the release runs or an older version, checks it with
+  `helm lint` against your values (again before every review), downloads missing subcharts
+  (`helm dependency update`), and loads the values files beside it (`values-prod.yaml`,
+  `ci/*.yaml`). The next upgrade of that release starts from the same chart.
 
 Releases that Flux's helm-controller manages say so, link to their `HelmRelease`, and warn
 that Flux will put back changes made any other way. Every change shows its `helm` command,

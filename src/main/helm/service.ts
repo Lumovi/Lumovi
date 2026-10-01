@@ -5,9 +5,9 @@
  * the login shell's PATH.
  */
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join, resolve, sep } from 'node:path'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { parse, stringify } from 'yaml'
 import type {
   ChartSearchResult,
@@ -19,6 +19,8 @@ import type {
   HelmReleaseDetail,
   HelmRollback,
   HelmUninstall,
+  LintResult,
+  LocalChart,
   Result,
 } from '@shared/api'
 import { KubeRequestError, toKubeError } from '../kube/errors'
@@ -226,6 +228,75 @@ export class HelmService {
     })
   }
 
+  /** What a chart on this computer is (`helm show chart`), and what it needs. */
+  local(path: unknown): Promise<Result<LocalChart>> {
+    return this.#result(async () => {
+      const at = await chartPath(path)
+      const archive = !(await stat(at)).isDirectory()
+      const chart = parse(await this.#helm(['show', 'chart', at])) as {
+        name: string
+        version: string
+        appVersion?: string
+        description?: string
+        dependencies?: unknown[]
+      }
+      return {
+        path: at,
+        archive,
+        name: chart.name,
+        version: String(chart.version),
+        appVersion: chart.appVersion,
+        description: chart.description,
+        dependencies: chart.dependencies?.length
+          ? dependencyList(await this.#helm(['dependency', 'list', at]))
+          : [],
+        valuesFiles: archive ? [] : await valuesFiles(at),
+      }
+    })
+  }
+
+  /** `helm lint` with these values: what it found, errors first. */
+  lint(path: unknown, values: unknown): Promise<Result<LintResult>> {
+    return this.#result(async () => {
+      const at = await chartPath(path)
+      if (typeof values !== 'string') throw invalid('values must be a string')
+      const directory = await mkdtemp(join(tmpdir(), 'kubestacks-lint-'))
+      try {
+        await writeFile(join(directory, 'values.yaml'), values)
+        const run = await this.#run(['lint', at, '--values', join(directory, 'values.yaml')])
+        const messages = lintMessages(run.stdout)
+        // It fails when it finds errors; failing without any is helm failing.
+        if (run.code !== 0 && !messages.some((m) => m.severity === 'error')) throw helmError(run)
+        return { passed: run.code === 0, messages }
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    })
+  }
+
+  /** One of the values files beside a local chart. */
+  valuesFile(path: unknown, file: unknown): Promise<Result<string>> {
+    return this.#result(async () => {
+      const at = await chartPath(path)
+      if (!(await valuesFiles(at)).includes(file as string)) {
+        throw invalid(`${String(file)} isn’t one of ${basename(at)}’s values files`)
+      }
+      return readFile(join(at, file as string), 'utf8')
+    })
+  }
+
+  /** `helm dependency update`: downloads a chart folder's subcharts into its charts/ folder. */
+  updateDependencies(path: unknown): Promise<Result<null>> {
+    return this.#result(async () => {
+      const at = await chartPath(path)
+      if (!(await stat(at)).isDirectory()) {
+        throw invalid('A packaged chart has its dependencies already; this updates chart folders')
+      }
+      await this.#helm(['dependency', 'update', at])
+      return null
+    })
+  }
+
   #list(context: string) {
     return (path: string, selector: string) => this.kube.listRaw(context, path, selector)
   }
@@ -244,6 +315,13 @@ export class HelmService {
 
   /** Runs helm, resolving with what it printed, or rejecting with what it said went wrong. */
   async #helm(args: string[]): Promise<string> {
+    const run = await this.#run(args)
+    if (run.code !== 0) throw helmError(run)
+    return run.stdout
+  }
+
+  /** Runs helm, resolving with how it ended and what it printed. */
+  async #run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
     await this.envReady
     const command = this.#command
     // A .cmd or .bat wrapper (on Windows) only runs through the shell.
@@ -273,10 +351,7 @@ export class HelmService {
           ),
         ),
       )
-      child.on('close', (code) => {
-        if (code === 0) done(stdout)
-        else fail(new KubeRequestError('helm', (stderr || stdout).trim().replace(/^Error: /, '')))
-      })
+      child.on('close', (code) => done({ code: code!, stdout, stderr }))
     })
   }
 
@@ -301,6 +376,71 @@ function assertUrl(value: unknown, field: string): asserts value is string {
   if (!/^https?:\/\/\S+$/.test(value)) throw invalid(`${field} must be an http or https URL`)
 }
 
+/** What helm said went wrong. */
+function helmError(run: { stdout: string; stderr: string }): KubeRequestError {
+  return new KubeRequestError('helm', (run.stderr || run.stdout).trim().replace(/^Error: /, ''))
+}
+
+/** `~/charts/web` as the full path it means. */
+const expandHome = (path: string) => (path.startsWith('~/') ? join(homedir(), path.slice(2)) : path)
+
+/** A chart on this computer by its full path (or one from ~): there, and a chart. */
+async function chartPath(value: unknown): Promise<string> {
+  assertString(value, 'path')
+  const path = expandHome(value)
+  if (!isAbsolute(path)) throw invalid('Give the chart’s full path, or choose it')
+  const info = await stat(path).catch(() => {
+    throw new KubeRequestError('not-found', `Nothing is at ${path}.`)
+  })
+  if (info.isDirectory()) {
+    const chart = await stat(join(path, 'Chart.yaml')).catch(() => null)
+    if (!chart) throw invalid(`${path} has no Chart.yaml, so it isn’t a chart.`)
+  } else if (!/\.tgz$/i.test(path)) {
+    throw invalid(`${basename(path)} isn’t a packaged chart (.tgz).`)
+  }
+  return path
+}
+
+const YAML_FILE = /\.ya?ml$/i
+const NOT_VALUES = new Set(['Chart.yaml', 'values.yaml'])
+
+/** Values files beside a chart's own: values-prod.yaml, and its ci/ folder's (as helm's own tests use). */
+async function valuesFiles(folder: string): Promise<string[]> {
+  const root = (await readdir(folder)).filter((n) => YAML_FILE.test(n) && !NOT_VALUES.has(n))
+  const ci = await readdir(join(folder, 'ci')).catch((): string[] => [])
+  return [...root, ...ci.filter((n) => YAML_FILE.test(n)).map((n) => `ci/${n}`)].sort()
+}
+
+/** `helm dependency list`'s table: a row of tab-separated cells per subchart, after its header. */
+function dependencyList(output: string): LocalChart['dependencies'] {
+  return output
+    .split('\n')
+    .slice(1)
+    .filter((line) => line.trim())
+    .map((line) => {
+      const [name, version, repository, status] = line.split('\t').map((cell) => cell.trim())
+      return { name: name!, version: version!, repository: repository!, status: status! }
+    })
+}
+
+const LINT_LINE = /^\[(INFO|WARNING|ERROR)\] (.*)$/
+const SEVERITY_RANK = { error: 0, warning: 1, info: 2 }
+
+/** `helm lint`'s findings, errors first; a finding can go on over indented lines. */
+function lintMessages(output: string): LintResult['messages'] {
+  const messages: LintResult['messages'] = []
+  for (const line of output.split('\n')) {
+    const found = LINT_LINE.exec(line)
+    if (found) {
+      const severity = found[1]!.toLowerCase() as LintResult['messages'][number]['severity']
+      messages.push({ severity, text: found[2]! })
+    } else if (/^\s+\S/.test(line)) {
+      messages.at(-1)!.text += `\n${line.trim()}`
+    }
+  }
+  return messages.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
+}
+
 /** What helm takes to find a chart: never an option in disguise. */
 function sourceArgs(source: unknown): string[] {
   const s = assertQuery<ChartSource>(source)
@@ -310,7 +450,7 @@ function sourceArgs(source: unknown): string[] {
   optionalString(s.version, 'version')
   if (s.version?.startsWith('-')) throw invalid('version can’t start with a dash')
   return [
-    s.chart,
+    expandHome(s.chart),
     ...(s.repository ? ['--repo', s.repository] : []),
     ...(s.version ? ['--version', s.version] : []),
   ]

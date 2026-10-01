@@ -47,6 +47,11 @@ const api: KubestacksApi = {
     defaults: (source) => invoke(IPC.helmDefaults, source),
     versions: (repository, chart) => invoke(IPC.helmVersions, repository, chart),
     search: (query) => invoke(IPC.helmSearch, query),
+    choose: (kind) => invoke(IPC.helmChoose, kind),
+    local: (path) => invoke(IPC.helmLocal, path),
+    lint: (path, values) => invoke(IPC.helmLint, path, values),
+    valuesFile: (path, file) => invoke(IPC.helmValuesFile, path, file),
+    updateDependencies: (path) => invoke(IPC.helmDependencies, path),
   },
   usage: {
     source: (context, refresh) => invoke(IPC.usageSource, context, refresh),

@@ -325,6 +325,27 @@ export interface ChartSearchResult {
   repository: { name: string; url: string }
 }
 
+/** A chart on this computer: a folder, or a packaged chart (.tgz). */
+export interface LocalChart {
+  /** Its full path. */
+  path: string
+  archive: boolean
+  name: string
+  version: string
+  appVersion?: string
+  description?: string
+  /** Its subcharts, and whether they're in its charts/ folder (`helm dependency list`). */
+  dependencies: { name: string; version: string; repository: string; status: string }[]
+  /** Values files beside it (values-prod.yaml, ci/test-values.yaml), relative to it. */
+  valuesFiles: string[]
+}
+
+/** What `helm lint` found. */
+export interface LintResult {
+  passed: boolean
+  messages: { severity: 'info' | 'warning' | 'error'; text: string }[]
+}
+
 /** View files the user keeps next to KubeStacks' own (see docs/views.md). */
 export interface LocalViews {
   directory: string
@@ -571,6 +592,16 @@ export interface KubestacksApi {
     versions(repository: string, chart: string): Promise<Result<string[]>>
     /** Charts on Artifact Hub. */
     search(query: string): Promise<Result<ChartSearchResult[]>>
+    /** Asks for a chart folder or a packaged chart; null if the user cancels. */
+    choose(kind: 'folder' | 'archive'): Promise<string | null>
+    /** What a chart on this computer is, and what it needs. */
+    local(path: string): Promise<Result<LocalChart>>
+    /** Checks a local chart with these values (`helm lint`). */
+    lint(path: string, values: string): Promise<Result<LintResult>>
+    /** One of a local chart's values files. */
+    valuesFile(path: string, file: string): Promise<Result<string>>
+    /** Downloads a local chart's subcharts into its charts/ folder (`helm dependency update`). */
+    updateDependencies(path: string): Promise<Result<null>>
   }
   /** Interactive shells in containers (`kubectl exec -it`). */
   terminal: {
@@ -634,6 +665,11 @@ export const IPC = {
   helmDefaults: 'helm:defaults',
   helmVersions: 'helm:versions',
   helmSearch: 'helm:search',
+  helmChoose: 'helm:choose',
+  helmLocal: 'helm:local',
+  helmLint: 'helm:lint',
+  helmValuesFile: 'helm:values-file',
+  helmDependencies: 'helm:dependencies',
   usageSource: 'usage:source',
   usageTest: 'usage:test',
   usageRange: 'usage:range',
