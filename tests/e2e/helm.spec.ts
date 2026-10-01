@@ -825,7 +825,9 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   await expect(upgrade.getByRole('list', { name: 'helm lint' })).toContainText(
     'Chart.yaml: icon is recommended',
   )
-  await expect(upgrade).toContainText(`helm upgrade storefront ${web} --values values.yaml`)
+  // Quoted for a shell when it needs to be, as Windows paths (C:\Users\RUNNER~1\…) do.
+  const shown = /^[\w@%+=:,./-]+$/.test(web) ? web : `'${web}'`
+  await expect(upgrade).toContainText(`helm upgrade storefront ${shown} --values values.yaml`)
 
   // Values from the chart's own files.
   const loadFrom = upgrade.getByRole('combobox', { name: 'Load values from' })
