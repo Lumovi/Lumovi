@@ -366,6 +366,22 @@ test('an object that cannot be loaded explains why', async ({ page, clusters }) 
   await expect(detail.getByRole('alert')).toBeVisible()
 })
 
+test('errors KubeStacks didn’t expect still explain themselves', async ({ kubestacks }) => {
+  const { page, app } = kubestacks
+  await openCluster(page)
+  // A failure outside the API, as a bug in the app would be.
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('kube:list')
+    ipcMain.handle('kube:list', () => {
+      throw new Error('something broke')
+    })
+  })
+  await goTo(page, 'Services')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('Something went wrong')
+  await expect(alert).toContainText('something broke')
+})
+
 test('logs can be searched and followed', async ({ page, clusters }) => {
   const pod = DEMO.pods.storefront[0]!
   await openCluster(page)

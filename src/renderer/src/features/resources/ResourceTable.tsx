@@ -183,6 +183,8 @@ export function ResourceTable({
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // Keys on a column header (Enter or Space to sort) are its own.
+    if ((event.target as Element).closest('[role="columnheader"]')) return
     if (selectable) {
       // x picks the active row, ⌘A the whole page, Escape lets go of everything.
       // The grid only shows with rows, and focusing it makes one active.
@@ -258,7 +260,6 @@ export function ResourceTable({
                 {column.sort ? (
                   <button
                     type="button"
-                    tabIndex={-1}
                     onClick={() => onSort(column.id)}
                     className={cn(
                       'flex items-center gap-1 text-2xs font-medium tracking-wider uppercase transition-colors hover:text-ink-1',

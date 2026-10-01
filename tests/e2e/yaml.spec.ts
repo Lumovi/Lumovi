@@ -126,7 +126,7 @@ test('mistakes in the YAML are explained before anything is saved', async ({ pag
     text.replace(/name: cart\n/, 'name: basket\n'),
   )
   await detail.getByRole('button', { name: 'Review changes' }).click()
-  await expect(detail.getByRole('alert')).toContainText('name does not match')
+  await expect(detail.getByRole('alert')).toContainText('name doesn’t match')
 })
 
 test('a change made meanwhile is caught, not overwritten', async ({ page, clusters }) => {

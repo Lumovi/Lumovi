@@ -41,7 +41,8 @@ const MAX_VALUES = 1024 * 1024
 /** Release names, like namespaces: DNS labels (Helm allows at most 53 characters). */
 const NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 /** What a .cmd or .bat wrapper may be given: the shell it runs in reads anything else. */
-const PLAIN = /^[\w@%+=:,./\\~-]+$/
+// No % either: cmd.exe expands %VARIABLES% even inside arguments.
+const PLAIN = /^[\w@+=:,./\\~-]+$/
 /** What the environment can change. */
 const DEFAULTS = {
   KUBESTACKS_HELM: 'helm',
@@ -321,7 +322,7 @@ export class HelmService {
   }
 
   /** Runs helm, resolving with how it ended and what it printed. */
-  async #run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  async #run(args: string[]): Promise<HelmRun> {
     await this.envReady
     const command = this.#command
     // A .cmd or .bat wrapper (on Windows) only runs through the shell.
@@ -341,8 +342,9 @@ export class HelmService {
       })
       let stdout = ''
       let stderr = ''
-      child.stdout.on('data', (chunk: Buffer) => (stdout += chunk))
-      child.stderr.on('data', (chunk: Buffer) => (stderr += chunk))
+      // Decoded as a stream, so a character split across chunks stays whole.
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk))
+      child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
       child.on('error', () =>
         fail(
           new KubeRequestError(
@@ -351,7 +353,8 @@ export class HelmService {
           ),
         ),
       )
-      child.on('close', (code) => done({ code: code!, stdout, stderr }))
+      // No code when it was stopped, e.g. after RUN_TIMEOUT_MS.
+      child.on('close', (code, signal) => done({ code: code ?? -1, signal, stdout, stderr }))
     })
   }
 
@@ -377,8 +380,22 @@ function assertUrl(value: unknown, field: string): asserts value is string {
 }
 
 /** What helm said went wrong. */
-function helmError(run: { stdout: string; stderr: string }): KubeRequestError {
-  return new KubeRequestError('helm', (run.stderr || run.stdout).trim().replace(/^Error: /, ''))
+interface HelmRun {
+  code: number
+  signal: NodeJS.Signals | null
+  stdout: string
+  stderr: string
+}
+
+function helmError(run: HelmRun): KubeRequestError {
+  const said = (run.stderr || run.stdout).trim().replace(/^Error: /, '')
+  return new KubeRequestError(
+    'helm',
+    said ||
+      (run.signal
+        ? `helm was stopped (${run.signal}) before it finished.`
+        : `helm failed (exit code ${run.code}) without saying why.`),
+  )
 }
 
 /** `~/charts/web` as the full path it means. */

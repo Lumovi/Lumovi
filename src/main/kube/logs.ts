@@ -73,9 +73,10 @@ export class LogStreams {
         if (batch.length) this.emit.lines(id, batch)
         batch = []
       }
-      // The API server ends every line; a chunk can end mid-line.
-      body.on('data', (chunk: Buffer) => {
-        const lines = (partial + chunk.toString('utf8')).split('\n')
+      // The API server ends every line; a chunk can end mid-line, or mid-character.
+      body.setEncoding('utf8')
+      body.on('data', (chunk: string) => {
+        const lines = (partial + chunk).split('\n')
         partial = lines.pop()!
         batch.push(...lines.filter(Boolean))
         timer ??= setTimeout(flush, BATCH_MS)

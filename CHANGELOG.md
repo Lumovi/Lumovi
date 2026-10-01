@@ -83,5 +83,5 @@ All notable changes to KubeStacks are documented here. The format follows
 - The window remembers its size and position.
 - Support for multiple kubeconfig files, client certificates, tokens and exec credential
   plugins, including loading the login shell's `PATH` on macOS and Linux.
-- Integration tests that run the app against a real three-node kind cluster with
-  metrics-server and Prometheus (`npm run test:kind`), in CI on every change.
+
+[Unreleased]: https://github.com/kotapeter/kubestacks/commits/main

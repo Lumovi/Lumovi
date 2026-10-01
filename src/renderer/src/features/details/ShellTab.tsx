@@ -171,6 +171,7 @@ function Session({
     term.open(host.current!)
     fit.fit()
     let open = false
+    let disposed = false
     const offData = api.terminal.onData((session, data) => {
       if (session === id) term.write(data)
     })
@@ -189,6 +190,8 @@ function Session({
     const observer = new ResizeObserver(resize)
     observer.observe(host.current!)
     void api.terminal.open(id, request).then((result) => {
+      // Closed while connecting: the main process ends the shell.
+      if (disposed) return
       if (!result.ok) {
         setPhase({ state: 'failed', error: result.error.message })
         return
@@ -199,6 +202,7 @@ function Session({
       takeFocus(host.current!, term)
     })
     return () => {
+      disposed = true
       observer.disconnect()
       input.dispose()
       offData()

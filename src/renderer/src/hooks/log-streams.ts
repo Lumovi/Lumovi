@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KubeError } from '@shared/api'
+import type { KubeError, KubeErrorCode } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { mergeLines, parseLine, type LogLine } from '@renderer/lib/logs'
 import { useCluster } from '@renderer/state/cluster'
@@ -36,6 +36,14 @@ export interface LogSnapshot {
 /** The most lines kept; older ones go first. */
 export const MAX_LINES = 20_000
 const RETRY_MS = 3_000
+/** Failures that trying again won't fix: the user has to (sign in, ask for access…). */
+const LASTING: ReadonlySet<KubeErrorCode> = new Set([
+  'auth',
+  'unauthorized',
+  'forbidden',
+  'tls',
+  'insecure',
+])
 /** The page updates at most this often, however fast lines arrive. */
 const FLUSH_MS = 100
 
@@ -151,7 +159,7 @@ class LogSession {
 
   #ended(stream: Stream, error?: KubeError) {
     this.#handlers.delete(stream.id)
-    if (this.options.follow && !this.options.previous) {
+    if (this.options.follow && !this.options.previous && !(error && LASTING.has(error.code))) {
       // The container restarted or stopped, or the connection dropped: try again.
       stream.state = { status: 'reconnecting', error }
       stream.retry = setTimeout(() => void this.#start(stream), RETRY_MS)

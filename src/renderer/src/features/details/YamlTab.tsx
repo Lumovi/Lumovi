@@ -15,11 +15,19 @@ import { YamlEditor } from './YamlEditor'
 export const MASK = '••••••••'
 
 /** Secret values stay hidden until the user asks to see them. */
+/** `kubectl apply` keeps what it applied here: for a Secret, its values in plain text. */
+export const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
+
 export function maskSecret(secret: KubeObject): KubeObject {
   const data = Object.fromEntries(
     Object.keys((secret.data as object | undefined) ?? {}).map((key) => [key, MASK]),
   )
-  return { ...secret, data }
+  const annotations = secret.metadata.annotations ?? {}
+  const metadata =
+    LAST_APPLIED in annotations
+      ? { ...secret.metadata, annotations: { ...annotations, [LAST_APPLIED]: MASK } }
+      : secret.metadata
+  return { ...secret, metadata, data }
 }
 
 export function YamlTab({ object }: { object: KubeObject }) {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import { PassThrough, Writable } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 import { Exec, PortForward as Forwarder, type KubeConfig } from '@kubernetes/client-node'
 import type {
   ForwardKind,
@@ -37,13 +38,15 @@ async function prepare(kc: KubeConfig): Promise<void> {
 class TerminalOutput extends Writable {
   columns = 80
   rows = 24
+  // A chunk can end in the middle of a character.
+  readonly #decoder = new StringDecoder('utf8')
 
   constructor(private readonly onData: (text: string) => void) {
     super({ decodeStrings: false })
   }
 
   override _write(chunk: Buffer | string, _encoding: BufferEncoding, done: () => void) {
-    this.onData(chunk.toString())
+    this.onData(this.#decoder.write(chunk))
     done()
   }
 
@@ -75,6 +78,9 @@ function exitOf(status: {
 /** Interactive shells in containers, streamed to the page (`kubectl exec -it`). */
 export class Terminals {
   readonly #sessions = new Map<string, Session>()
+  /** Sessions closed while they were still connecting. */
+  readonly #abandoned = new Set<string>()
+  readonly #connecting = new Set<string>()
 
   constructor(
     private readonly deps: Dependencies,
@@ -86,7 +92,12 @@ export class Terminals {
 
   async open(id: unknown, request: unknown): Promise<Result<null>> {
     try {
-      if (typeof id !== 'string' || !/^[\w-]{8,64}$/.test(id) || this.#sessions.has(id)) {
+      if (
+        typeof id !== 'string' ||
+        !/^[\w-]{8,64}$/.test(id) ||
+        this.#sessions.has(id) ||
+        this.#connecting.has(id)
+      ) {
         throw invalid('A new session needs a new id')
       }
       const r = assertQuery<ShellRequest>(request)
@@ -101,34 +112,46 @@ export class Terminals {
         )
       }
       const kc = this.deps.store.forContext(r.context)
-      await this.deps.envReady
-      await prepare(kc)
-      const input = new PassThrough()
-      const output = new TerminalOutput((text) => this.emit.data(id, text))
-      let ended = false
-      const end = (exit: ShellExit) => {
-        if (ended) return
-        ended = true
-        this.#sessions.delete(id)
-        this.emit.exit(id, exit)
+      this.#connecting.add(id)
+      try {
+        await this.#connect(id, kc, r)
+      } finally {
+        this.#connecting.delete(id)
+        this.#abandoned.delete(id)
       }
-      const socket = await new Exec(kc).exec(
-        r.namespace,
-        r.pod,
-        r.container,
-        SHELL,
-        output,
-        output,
-        input,
-        true,
-        (status) => end(exitOf(status)),
-      )
-      socket.on('close', () => end({ message: 'The connection to the container closed.' }))
-      this.#sessions.set(id, { input, output, close: () => socket.close() })
       return { ok: true, data: null }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
+  }
+
+  async #connect(id: string, kc: KubeConfig, r: ShellRequest): Promise<void> {
+    await this.deps.envReady
+    await prepare(kc)
+    const input = new PassThrough()
+    const output = new TerminalOutput((text) => this.emit.data(id, text))
+    let ended = false
+    const end = (exit: ShellExit) => {
+      if (ended) return
+      ended = true
+      this.#sessions.delete(id)
+      this.emit.exit(id, exit)
+    }
+    const socket = await new Exec(kc).exec(
+      r.namespace,
+      r.pod,
+      r.container,
+      SHELL,
+      output,
+      output,
+      input,
+      true,
+      (status) => end(exitOf(status)),
+    )
+    socket.on('close', () => end({ message: 'The connection to the container closed.' }))
+    // Nobody is waiting for it any more: don't leave a shell running in the container.
+    if (this.#abandoned.has(id)) socket.close()
+    else this.#sessions.set(id, { input, output, close: () => socket.close() })
   }
 
   write(id: unknown, data: unknown): void {
@@ -142,7 +165,9 @@ export class Terminals {
   }
 
   close(id: unknown): void {
-    this.#sessions.get(String(id))?.close()
+    const key = String(id)
+    if (this.#connecting.has(key)) this.#abandoned.add(key)
+    this.#sessions.get(key)?.close()
   }
 
   closeAll(): void {
@@ -274,7 +299,9 @@ export class Forwards {
     forward.sockets.add(socket)
     forward.connections++
     this.#notify()
-    socket.once('close', () => {
+    // Listened for now: the local end can close while the tunnel is still opening.
+    const closed = new Promise<void>((resolve) => socket.once('close', resolve))
+    void closed.then(() => {
       forward.sockets.delete(socket)
       forward.connections--
       this.#notify()
@@ -288,7 +315,7 @@ export class Forwards {
         null,
         socket,
       )) as { close(): void; on(event: 'close', listener: () => void): void }
-      socket.once('close', () => ws.close())
+      void closed.then(() => ws.close())
       ws.on('close', () => socket.end())
       if (forward.error) {
         delete forward.error

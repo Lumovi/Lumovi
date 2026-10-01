@@ -203,12 +203,6 @@ for (const theme of ['dark', 'light'] as const) {
     await page.screenshot({ path: file('helm-upgrade') })
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Close (Esc)' }).click()
-
-    await nav(page, 'Nodes')
-    await page.keyboard.press('ControlOrMeta+k')
-    await page.keyboard.type('dep')
-    await page.waitForTimeout(400)
-    await page.screenshot({ path: file('palette') })
   })
 }
 

@@ -287,7 +287,6 @@ function PinButton({ kind, label }: { kind: ResourceKind; label: string }) {
     <IconButton
       label={pinned ? `Unpin ${label} from the sidebar` : `Pin ${label} to the sidebar`}
       onClick={() => setPinned(kind, !pinned)}
-      aria-pressed={pinned}
     >
       {pinned ? <PinOff /> : <Pin />}
     </IconButton>

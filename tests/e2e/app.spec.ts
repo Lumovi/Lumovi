@@ -100,6 +100,15 @@ test('never navigates away or opens pop-ups', async ({ kubestacks }) => {
   expect(app.windows()).toHaveLength(1)
 })
 
+test('the page gets none of the browser’s permissions', async ({ page }) => {
+  expect(await page.evaluate(() => Notification.requestPermission())).toBe('denied')
+  expect(
+    await page.evaluate(
+      async () => (await navigator.permissions.query({ name: 'geolocation' })).state,
+    ),
+  ).toBe('denied')
+})
+
 test('only hands https links to the operating system', async ({ kubestacks }) => {
   const opened = await mockOpenExternal(kubestacks.app)
   const results = await kubestacks.page.evaluate(() =>
@@ -395,7 +404,7 @@ test.describe('login shell PATH', () => {
 
 test('connects to plain HTTP clusters only when allowed', async ({ page }) => {
   await openCluster(page, CONTEXTS.plainHttp)
-  await expect(page.getByRole('alert')).toContainText('Plain HTTP is not allowed')
+  await expect(page.getByRole('alert')).toContainText('Plain HTTP isn’t allowed')
   await expect(page.getByRole('alert')).toContainText('insecure-skip-tls-verify')
 })
 
@@ -483,7 +492,7 @@ test('rejects malformed changes from the renderer', async ({ page, clusters }) =
     'invalid: patchType must be one of merge, strategic, json',
     'invalid: A JSON patch must be a list',
     'invalid: patch must be an object',
-    'invalid: The object’s name does not match the one being replaced',
+    'invalid: The object’s name doesn’t match the one being replaced',
     'invalid: object must be an object',
     'invalid: object must be an object',
     'invalid: propagation must be one of Background, Foreground, Orphan',

@@ -77,13 +77,16 @@ function flavorOf(service: MetricsService): MetricsFlavor {
     : 'prometheus'
 }
 
+/** A path below a service's proxy (`/select/0/prometheus`): no `.` or `..` to climb out of it. */
+export const PROXY_PATH = /^(\/(?!\.\.?(?:\/|$))[\w.~-]+)*$/
+
 export function assertService(value: unknown): asserts value is MetricsService {
   assertObject(value, 'service')
   const service = value as MetricsService
   assertString(service.namespace, 'namespace')
   assertString(service.service, 'service')
   assertString(service.port, 'port')
-  if (typeof service.path !== 'string' || !/^(\/[\w.~-]+)*$/.test(service.path)) {
+  if (typeof service.path !== 'string' || !PROXY_PATH.test(service.path)) {
     throw invalid('path must be empty or start with / (like /select/0/prometheus)')
   }
 }

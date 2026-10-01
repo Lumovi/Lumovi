@@ -6,8 +6,8 @@ Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 
 - **Bugs and ideas:** open an [issue](https://github.com/kotapeter/kubestacks/issues) first
   for anything bigger than a small fix, so we can agree on the approach.
-- **Scope:** KubeStacks is for looking after workloads and clusters. Installing apps (Helm
-  charts, operators) and managing kubeconfig files are out of scope.
+- **Scope:** KubeStacks is for looking after workloads, clusters and Helm releases. Managing
+  kubeconfig files (adding contexts, signing in to cloud providers) is out of scope.
 - **Security issues:** please don't open a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Setting up
@@ -37,7 +37,11 @@ production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    ```
 
 5. Open a pull request describing what changed and why. Screenshots help for UI changes
-   (`node scripts/screenshots.ts` captures the standard set).
+   (`npm run build && node scripts/screenshots.ts` captures the standard set).
+
+Changes to how KubeStacks talks to clusters are also worth checking against a real one:
+`npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
+integration tests (see the README).
 
 ## Coverage
 
@@ -55,8 +59,8 @@ cluster and a test that shows it.
 
 ## Code style
 
-- TypeScript everywhere, `strict` mode. Prettier and ESLint are enforced in CI (`npm run
-format` fixes formatting).
+- TypeScript everywhere, `strict` mode. Prettier and ESLint are enforced in CI
+  (`npm run format` fixes formatting).
 - UI: Tailwind CSS with the design tokens in `src/renderer/src/styles/index.css`. Use the
   status colors only for health, and always pair them with an icon and a label.
 - Main process: everything that crosses IPC is untrusted input and must be validated.
@@ -65,8 +69,13 @@ format` fixes formatting).
 
 1. Update `version` in `package.json` and add an entry to `CHANGELOG.md`.
 2. Tag the commit: `git tag v0.2.0 && git push --tags`.
-3. The _Release_ workflow builds installers for every platform and attaches them to a draft
-   GitHub release. Review the draft, then publish it.
+3. The _Release_ workflow checks that the tag matches `package.json`, creates a draft GitHub
+   release, builds installers for every platform, and adds them with a `SHA256SUMS.txt`.
+   Review the draft, then publish it.
 
-Code signing is optional. Add `CSC_LINK`/`CSC_KEY_PASSWORD` (and for macOS notarization
-`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) as repository secrets to enable it.
+Code signing is optional. Builds are signed when these secrets are set in the repository's
+`release` environment:
+
+- macOS: `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate),
+  plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to notarize.
+- Windows: `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.

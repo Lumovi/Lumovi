@@ -369,7 +369,7 @@ export class KubeService {
         case 'replace': {
           assertObject(change.object, 'object')
           if (change.object.metadata?.name !== r.name) {
-            throw invalid('The object’s name does not match the one being replaced')
+            throw invalid('The object’s name doesn’t match the one being replaced')
           }
           const at = resourcePath(atVersion(resource, change.object), r.namespace, r.name)
           return send(`${at}${dryRun}`, { method: 'PUT', body: change.object })

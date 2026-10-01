@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 import { coverage } from './scripts/vite-coverage'
+import { licenses } from './scripts/vite-licenses'
 
 const withCoverage = process.env.KUBESTACKS_COVERAGE === 'true'
 
@@ -25,7 +26,7 @@ const alias = { '@shared': resolve('src/shared') }
 export default defineConfig({
   main: {
     resolve: { alias },
-    plugins: [...coverage('main', withCoverage)],
+    plugins: [...coverage('main', withCoverage), licenses()],
     build: {
       externalizeDeps: true,
       sourcemap: withCoverage ? false : 'hidden',
@@ -33,7 +34,7 @@ export default defineConfig({
   },
   preload: {
     resolve: { alias },
-    plugins: [...coverage('preload', withCoverage)],
+    plugins: [...coverage('preload', withCoverage), licenses()],
     build: {
       externalizeDeps: true,
       rollupOptions: {
@@ -51,6 +52,7 @@ export default defineConfig({
       tailwindcss(),
       devContentSecurityPolicy,
       ...coverage('renderer', withCoverage),
+      licenses(),
     ],
     build: {
       minify: true,

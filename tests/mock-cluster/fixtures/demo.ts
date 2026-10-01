@@ -985,7 +985,19 @@ export function demoCluster(now = Date.now()): ClusterFixture {
         database: base64('storefront'),
       },
     },
-    { labels: postgresTemplate.labels },
+    {
+      labels: postgresTemplate.labels,
+      // Created with `kubectl apply`, which keeps the values it applied in plain text.
+      annotations: {
+        'kubectl.kubernetes.io/last-applied-configuration': JSON.stringify({
+          apiVersion: 'v1',
+          kind: 'Secret',
+          metadata: { name: 'postgres-credentials', namespace: 'data' },
+          stringData: { username: 'app', password: DEMO.postgresPassword, database: 'storefront' },
+          type: 'Opaque',
+        }),
+      },
+    },
   )
 
   // ── monitoring ───────────────────────────────────────────────────────────

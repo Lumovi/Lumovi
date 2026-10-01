@@ -24,7 +24,7 @@ test('lists every context with its connection status', async ({ page, clusters }
   await expect(clusterRow(page, CONTEXTS.expired)).toContainText('Unauthorized')
   await expect(clusterRow(page, CONTEXTS.untrusted)).toContainText('Certificate error')
   await expect(clusterRow(page, CONTEXTS.execMissing)).toContainText('Credentials failed')
-  await expect(clusterRow(page, CONTEXTS.execMissing).getByTitle(/was not found/)).toBeAttached()
+  await expect(clusterRow(page, CONTEXTS.execMissing).getByTitle(/wasn’t found/)).toBeAttached()
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('No cluster defined')
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('Misconfigured')
   await expect(clusterRow(page, CONTEXTS.plainHttp)).toContainText('Plain HTTP blocked')
@@ -96,7 +96,7 @@ test('reports a kubeconfig that cannot be parsed', async ({ launch }) => {
   writeFileSync(path, 'clusters: [unterminated\n')
   const { page } = await launch({ env: { KUBECONFIG: path } })
   await expect(
-    page.getByRole('heading', { name: 'Your kubeconfig could not be read' }),
+    page.getByRole('heading', { name: 'Your kubeconfig couldn’t be read' }),
   ).toBeVisible()
   await expect(page.getByText(`Could not read ${path}`)).toBeVisible()
   await expect(page.getByText('Fix the file, then choose Reload.')).toBeVisible()

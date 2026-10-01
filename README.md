@@ -68,8 +68,8 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
 - **Many at once.** Pick rows (Shift-click for a range) to restart, cordon, suspend or
   delete them together, with progress per object and a retry for any that fail. Create
   objects from YAML, from a template or pasted, several at a time.
-- **Built for big clusters.** Lists load in chunks and are paginated and virtualized, so tens
-  of thousands of pods stay smooth. Busy lists refresh less often, and a label selector
+- **Built for big clusters.** Lists load in chunks of 500 and are paginated and virtualized,
+  so thousands of pods stay smooth. Busy lists refresh less often, and a label selector
   narrows a list on the server.
 - **Keyboard first.** Every view is a shortcut away, lists work with the arrow keys, and
   `⌘K` / `Ctrl+K` jumps to any view, object, namespace or cluster. Navigation animates
@@ -94,8 +94,8 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
 
 ## Install
 
-Download the installer for your platform from the
-[latest release](https://github.com/kotapeter/kubestacks/releases):
+Download the installer for your platform from
+[Releases](https://github.com/kotapeter/kubestacks/releases):
 
 | Platform                      | Files                       |
 | ----------------------------- | --------------------------- |
@@ -103,8 +103,21 @@ Download the installer for your platform from the
 | Windows (x64 & arm64)         | `.exe` installer            |
 | Linux (x64 & arm64)           | `.AppImage`, `.deb`, `.rpm` |
 
-> Early builds are not code-signed yet. On macOS, right-click the app and choose **Open**
-> the first time; on Windows, choose **More info → Run anyway**.
+> Builds aren't code-signed yet. **macOS:** if it says the app is damaged or can't be
+> verified, open **System Settings → Privacy & Security** and choose **Open Anyway** (or run
+> `xattr -dr com.apple.quarantine /Applications/KubeStacks.app`). **Windows:** choose
+> **More info → Run anyway**.
+
+Or build it yourself: `npm ci && npm run dist` (Node.js 24 or later) puts the installers for
+your platform in `release/`.
+
+**Requirements.** macOS 12 or later, Windows 10 or later, or a recent 64-bit Linux, and
+Kubernetes 1.25 or later (fields are explained from the cluster's OpenAPI schema from 1.27).
+`kubectl` isn't needed; [Helm](https://helm.sh) is, only to change Helm releases.
+
+**Privacy.** KubeStacks has no telemetry and no accounts. It connects to the clusters in your
+kubeconfig, through them to the Prometheus you pick for usage history, and to
+[Artifact Hub](https://artifacthub.io) only when you search it for charts.
 
 ## Using it
 
@@ -130,7 +143,7 @@ problems, missing credential plugin…).
 | `⌘⌫`                               | Delete the open object                                |
 | `⌘S`                               | Review a YAML edit                                    |
 | `⌘⇧C`                              | All clusters                                          |
-| `?`                                | All shortcuts, also in the **Help** menu              |
+| `?` or `⌘/`                        | All shortcuts, also in the **Help** menu              |
 
 The sidebar shows each view's `G` shortcut when you hover it.
 
@@ -153,6 +166,18 @@ The sidebar shows each view's `G` shortcut when you hover it.
   to change the limit.
 - **Slow API servers.** Requests time out after 20 seconds. Set
   `KUBESTACKS_REQUEST_TIMEOUT_MS` to change that.
+
+Settings that come from the environment (read at startup):
+
+| Variable                        | What it does                                                     |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `KUBECONFIG`                    | Where clusters come from, as for `kubectl`                       |
+| `KUBESTACKS_READ_ONLY=1`        | Makes every cluster read-only, whatever is set in the app        |
+| `KUBESTACKS_MAX_LIST_ITEMS`     | The most objects a list loads (5,000)                            |
+| `KUBESTACKS_REQUEST_TIMEOUT_MS` | How long the API server has to answer (20,000)                   |
+| `KUBESTACKS_VIEWS_DIR`          | Where your own views are (`~/.kubestacks/views`)                 |
+| `KUBESTACKS_HELM`               | The `helm` to run (the one on your login shell's `PATH`)         |
+| `KUBESTACKS_ARTIFACT_HUB_URL`   | The Artifact Hub to search for charts (`https://artifacthub.io`) |
 
 ### Changing things, safely
 
@@ -279,6 +304,7 @@ npm run dev        # the app against your own kubeconfig
 | Command                                 |                                                               |
 | --------------------------------------- | ------------------------------------------------------------- |
 | `npm run dev` / `dev:mock`              | Run with hot reload (real clusters / demo cluster)            |
+| `npm run verify`                        | Everything CI checks: format, lint, types, e2e with coverage  |
 | `npm run mock-cluster`                  | Start the demo clusters alone and print a kubeconfig for them |
 | `npm run test:e2e`                      | Build with coverage instrumentation and run the e2e suite     |
 | `npm run coverage`                      | The above, plus a coverage report in `coverage/`              |
@@ -298,6 +324,9 @@ src/
 tests/
   e2e/            Playwright tests that drive the real Electron app
   mock-cluster/   A mock Kubernetes API server with realistic demo clusters
+  integration/    The same app against a real kind cluster
+docs/             Views reference, and the README's screenshots
+scripts/          Coverage tooling, screenshots, icon rendering
 ```
 
 - **Security.** The page runs sandboxed with context isolation and no Node.js access, under

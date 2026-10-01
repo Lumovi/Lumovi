@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { KubeErrorCode } from '@shared/api'
-import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { Button } from './Button'
 
@@ -27,17 +26,17 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
     icon: WifiOff,
   },
   timeout: {
-    title: 'The cluster is not responding',
-    hint: 'The API server accepted the connection but did not answer in time.',
+    title: 'The cluster isn’t responding',
+    hint: 'The API server accepted the connection but didn’t answer in time.',
     icon: Clock,
   },
   tls: {
-    title: 'The cluster’s certificate could not be verified',
-    hint: 'The certificate authority in your kubeconfig does not match the API server.',
+    title: 'The cluster’s certificate couldn’t be verified',
+    hint: 'The certificate authority in your kubeconfig doesn’t match the API server.',
     icon: ShieldAlert,
   },
   insecure: {
-    title: 'Plain HTTP is not allowed',
+    title: 'Plain HTTP isn’t allowed',
     hint: 'Unencrypted connections have to be enabled explicitly for this cluster in your kubeconfig.',
     icon: ShieldOff,
   },
@@ -53,12 +52,12 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   forbidden: {
     title: 'Access denied',
-    hint: 'Your account is not allowed to read this. If you only have access to some namespaces, pick one from the namespace menu.',
+    hint: 'Your account isn’t allowed to read this. If you only have access to some namespaces, pick one from the namespace menu.',
     icon: Ban,
   },
   'not-found': {
     title: 'Not found',
-    hint: 'It may have been deleted, or this API is not available on the cluster.',
+    hint: 'It may have been deleted, or this API isn’t available on the cluster.',
     icon: SearchX,
   },
   server: {
@@ -68,7 +67,7 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   invalid: {
     title: 'Invalid request',
-    hint: 'KubeStacks sent a request the cluster could not process.',
+    hint: 'KubeStacks sent a request the cluster couldn’t process.',
     icon: CircleAlert,
   },
   conflict: {
@@ -88,19 +87,27 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
 }
 
+/** For errors KubeStacks didn't see coming: a bug, or a failure outside the API. */
+const UNEXPECTED = {
+  title: 'Something went wrong',
+  hint: 'KubeStacks didn’t expect this. If trying again doesn’t help, please report it.',
+  icon: TriangleAlert,
+}
+
 export function ErrorState({
   error,
   onRetry,
   className,
   children,
 }: {
-  error: KubeApiError
+  /** A `KubeApiError`, or any other error. */
+  error: { code?: KubeErrorCode; message: string }
   onRetry: () => void
   className?: string
   /** Extra actions next to "Try again". */
   children?: ReactNode
 }) {
-  const copy = ERROR_COPY[error.code]
+  const copy = (error.code && ERROR_COPY[error.code]) || UNEXPECTED
   const Icon = copy.icon
   return (
     <div
@@ -129,7 +136,13 @@ export function ErrorState({
 }
 
 /** Shown above data that is still displayed after a refresh failed. */
-export function StaleNotice({ error, onRetry }: { error: KubeApiError; onRetry: () => void }) {
+export function StaleNotice({
+  error,
+  onRetry,
+}: {
+  error: { message: string }
+  onRetry: () => void
+}) {
   return (
     <div
       role="status"

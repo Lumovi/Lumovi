@@ -323,6 +323,20 @@ test('roll back and uninstall, with helm', async ({ page, kubestacks }) => {
   scriptHelm(kubestacks, { uninstall: { code: 1, stdout: 'Error: uninstall: timed out\n' } })
   await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await expect(uninstall.getByRole('alert')).toHaveText('uninstall: timed out')
+  // Or nothing at all.
+  scriptHelm(kubestacks, { uninstall: { code: 2 } })
+  await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
+  await expect(uninstall.getByRole('alert')).toHaveText(
+    'helm failed (exit code 2) without saying why.',
+  )
+  // Stopped (Windows has no signals: the process just exits).
+  scriptHelm(kubestacks, { uninstall: { signal: 'SIGTERM' } })
+  await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
+  await expect(uninstall.getByRole('alert')).toHaveText(
+    process.platform === 'win32'
+      ? /^helm failed \(exit code \d+\) without saying why\.$/
+      : 'helm was stopped (SIGTERM) before it finished.',
+  )
   scriptHelm(kubestacks, {})
   await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await expect(toasts(page)).toContainText('Uninstalled storefront')
@@ -513,10 +527,16 @@ test('upgrade from a repository, and install a chart found on Artifact Hub', asy
     await expect(
       install.getByRole('button', { name: 'Start from the chart’s defaults' }),
     ).toBeDisabled()
-    await install.getByLabel('Search Artifact Hub').fill('broken')
-    await install.getByRole('button', { name: 'Search' }).click()
+    // Enter searches, and doesn't submit the dialog; with nothing to search for, it does nothing.
+    const hub = install.getByLabel('Search Artifact Hub')
+    await hub.fill('')
+    await hub.press('Enter')
+    await expect(install.getByRole('alert')).toHaveCount(0)
+    await expect(install.getByRole('button', { name: 'Review' })).toBeVisible()
+    await hub.pressSequentially('broken')
+    await hub.press('Enter')
     await expect(install.getByRole('alert')).toContainText('answered 500 Internal Server Error')
-    await install.getByLabel('Search Artifact Hub').fill('nothing')
+    await hub.fill('nothing')
     await install.getByRole('button', { name: 'Search' }).click()
     await expect(install.getByRole('list', { name: 'Charts found' })).toHaveText('No charts match.')
     await install.getByLabel('Search Artifact Hub').fill('redis')
@@ -676,15 +696,18 @@ test('rejects malformed helm requests', async ({ page }) => {
     'invalid: redis’s chart has subcharts, which Helm doesn’t keep with the release. Choose the chart to upgrade with.',
   ])
 
-  // A .cmd wrapper (the stand-in, on Windows) runs through the shell, so it's only given plain words.
-  const spaced = await page.evaluate(() => window.kubestacks.helm.defaults({ chart: 'a b' }))
-  if (process.platform === 'win32') {
-    expect(spaced).toMatchObject({
-      ok: false,
-      error: { message: expect.stringContaining('is a script, and can’t be given') },
-    })
-  } else {
-    expect(spaced).toMatchObject({ ok: true })
+  // A .cmd wrapper (the stand-in, on Windows) runs through the shell, so it's only given plain
+  // words: no spaces, and no %VARIABLES% for cmd.exe to expand.
+  for (const chart of ['a b', 'x%PATH%']) {
+    const answer = await page.evaluate((chart) => window.kubestacks.helm.defaults({ chart }), chart)
+    if (process.platform === 'win32') {
+      expect(answer).toMatchObject({
+        ok: false,
+        error: { message: expect.stringContaining('is a script, and can’t be given') },
+      })
+    } else {
+      expect(answer).toMatchObject({ ok: true })
+    }
   }
 })
 
@@ -767,7 +790,8 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   writeChart(home, 'not-a-chart', { 'README.md': 'Nothing to see.\n' })
   writeFileSync(join(home, 'notes.txt'), 'Nothing to see.\n')
   const packaged = join(home, 'storefront-2.5.0.tgz')
-  execFileSync('tar', ['-czf', packaged, '-C', home, 'web'])
+  // Relative paths: Git for Windows' tar reads `C:` as a remote host.
+  execFileSync('tar', ['-czf', 'storefront-2.5.0.tgz', 'web'], { cwd: home })
 
   const kubestacks = await launch({ env: { HOME: home, USERPROFILE: home } })
   const { page, app } = kubestacks

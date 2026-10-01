@@ -44,7 +44,7 @@ export const MAX_STREAMS = 30
 const LINE_HEIGHT = 20
 /** How close to the bottom still counts as "at the end" for auto-scrolling. */
 const STICKY_DISTANCE = 32
-/** Pods' colors, in the charts' order; the ninth and later share the last. */
+/** Pods' colors, in the charts' order; the ninth and later are gray. */
 const POD_COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `var(--series-${n})`)
 const OTHER_COLOR = 'var(--series-other)'
 

@@ -104,6 +104,24 @@ test('a shell in a container', async ({ page, clusters }) => {
   await expect(detail.getByRole('status')).toContainText('The connection to the container closed.')
 })
 
+test('a shell closed while it connects doesn’t stay running in the container', async ({
+  page,
+  clusters,
+}) => {
+  clusters.demo.fail(`/api/v1/namespaces/shop/pods/${POD}/exec`, { delayMs: 1500 })
+  await open(page, 'Pods', POD)
+  const detail = panel(page, 'Pod', POD)
+  await detail.getByRole('button', { name: 'Shell' }).click()
+  await expect(detail.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true')
+  await expect
+    .poll(() => clusters.demo.requests.some((r) => r.path.endsWith(`/pods/${POD}/exec`)))
+    .toBe(true)
+  await detail.getByRole('tab', { name: 'Overview' }).click()
+  // The connection is answered after the tab is gone, and closed straight away.
+  await page.waitForTimeout(2000)
+  await expect.poll(() => clusters.demo.shells()).toBe(0)
+})
+
 test('an opened shell is ready to type, unless tabs are browsed by keyboard', async ({ page }) => {
   await open(page, 'Pods', POD)
   const detail = panel(page, 'Pod', POD)
@@ -251,7 +269,7 @@ test('debug a pod with a temporary container', async ({ page, clusters }) => {
   )
 })
 
-test('forward a port to a pod', async ({ page, kubestacks }) => {
+test('forward a port to a pod', async ({ page, kubestacks, clusters }) => {
   const opened = await mockOpenExternal(kubestacks.app)
   const local = await freePort()
   await open(page, 'Pods', POD)
@@ -285,6 +303,17 @@ test('forward a port to a pod', async ({ page, kubestacks }) => {
   await expect(list).toContainText('1 connection')
   socket.destroy()
   await expect(list).toContainText('0 connections')
+  // One that ends while its tunnel is still opening takes the tunnel with it.
+  const unfail = clusters.demo.fail(`/api/v1/namespaces/shop/pods/${POD}/portforward`, {
+    delayMs: 1000,
+  })
+  const early = net.connect(local, '127.0.0.1')
+  await expect(list).toContainText('1 connection')
+  early.destroy()
+  await expect(list).toContainText('0 connections')
+  await page.waitForTimeout(1500)
+  await expect.poll(() => clusters.demo.tunnels()).toBe(0)
+  unfail()
   await list.getByRole('button', { name: `localhost:${local}` }).click()
   await expect.poll(opened).toHaveLength(3)
   // Stopping also ends the connections still open.

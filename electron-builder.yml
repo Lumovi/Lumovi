@@ -11,7 +11,25 @@ directories:
 files:
   - out/**/*
   - '!out/**/*.map'
+  - '!out/THIRD_PARTY_NOTICES.txt'
   - package.json
+
+# Next to the app, where people (and package tools) can find them.
+extraResources:
+  - LICENSE
+  - from: out/THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
+
+# Turn off what only a debugger or another program would use to run code as the app.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  enableCookieEncryption: true
+  # Flipping fuses breaks the ad-hoc signature unsigned builds run with on Apple silicon.
+  resetAdHocDarwinSignature: true
 
 mac:
   category: public.app-category.developer-tools
@@ -22,8 +40,7 @@ mac:
       arch: [arm64, x64]
   hardenedRuntime: true
   entitlementsInherit: build/entitlements.mac.plist
-  # Signing and notarization are enabled when CSC_LINK / APPLE_* secrets are configured.
-  notarize: false
+  # Signed when CSC_LINK is set, and notarized when the APPLE_* secrets are too.
 
 dmg:
   writeUpdateInfo: false
@@ -43,14 +60,14 @@ linux:
   executableName: kubestacks
   category: Development
   synopsis: A beautiful, fast Kubernetes app for the desktop
-  maintainer: KubeStacks contributors
+  maintainer: Peter Kota <kotapeter@gmail.com>
   target:
     - target: AppImage
       arch: [x64, arm64]
     - target: deb
       arch: [x64, arm64]
     - target: rpm
-      arch: [x64]
+      arch: [x64, arm64]
 
 publish:
   provider: github

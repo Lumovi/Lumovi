@@ -313,6 +313,11 @@ function ChartPicker({
   const [results, setResults] = useState<ChartSearchResult[]>()
   const [versions, setVersions] = useState<string[]>()
   const [problem, setProblem] = useState<string>()
+  const search = async () => {
+    const found = await api.helm.search(query.trim())
+    setProblem(found.ok ? undefined : found.error.message)
+    if (found.ok) setResults(found.data)
+  }
   const set = (patch: Partial<ChartSource>) => {
     onSource({ ...source, ...patch })
     setVersions(undefined)
@@ -431,17 +436,19 @@ function ChartPicker({
               placeholder="Search Artifact Hub"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                // Searches, rather than submitting the dialog.
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                if (query.trim()) void search()
+              }}
               className={cn(field, 'w-48 font-sans')}
             />
             <Button
               variant="ghost"
               className="h-7 px-2 text-xs"
               disabled={!query.trim()}
-              onClick={async () => {
-                const found = await api.helm.search(query.trim())
-                setProblem(found.ok ? undefined : found.error.message)
-                if (found.ok) setResults(found.data)
-              }}
+              onClick={search}
             >
               <Search /> Search
             </Button>

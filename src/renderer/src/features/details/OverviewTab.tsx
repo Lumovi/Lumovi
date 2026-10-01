@@ -7,6 +7,7 @@ import { viewFor, viewLinks } from '@renderer/lib/views'
 import { factsFor } from './facts'
 import { FieldTree } from './FieldTree'
 import { ObjectLink } from './ObjectLink'
+import { LAST_APPLIED } from './YamlTab'
 import {
   Conditions,
   Containers,
@@ -181,11 +182,15 @@ export function OverviewTab({ object }: { object: KubeObject }) {
           <KeyValueGrid
             entries={annotations.map(([key, value]) => ({
               label: key,
-              value: (
-                <span className="line-clamp-3 font-mono text-xs text-ink-2" title={value}>
-                  {value}
-                </span>
-              ),
+              value:
+                kind === 'Secret' && key === LAST_APPLIED ? (
+                  // It holds the values: they're revealed in the YAML tab.
+                  <span className="text-xs text-ink-3">Hidden: it holds the secret’s values</span>
+                ) : (
+                  <span className="line-clamp-3 font-mono text-xs text-ink-2" title={value}>
+                    {value}
+                  </span>
+                ),
             }))}
           />
         </Section>
