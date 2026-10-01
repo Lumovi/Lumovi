@@ -17,7 +17,7 @@ export const USAGE_METRICS: Record<UsageMetric, { label: string; noun: string; u
   restarts: { label: 'Restarts', noun: 'restarts', unit: 'count' },
 }
 
-export type Matcher = readonly [label: string, op: '=' | '!=' | '=~', value: string]
+export type Matcher = readonly [label: string, op: '=' | '!=' | '=~' | '!~', value: string]
 
 export const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -30,6 +30,12 @@ const CONTAINERS: Matcher[] = [
   ['container', '!=', 'POD'],
 ]
 
+// Pods on the host network see the node's own interfaces too: loopback, every pod's
+// veth, bridges and tunnels. Counting them would count other pods' traffic again.
+const INTERFACES: Matcher[] = [
+  ['interface', '!~', 'lo|veth.*|cali.*|lxc.*|cni.*|flannel.*|vxlan.*|tunl.*|docker.*|br-.*'],
+]
+
 /** The per-series expression before summing: a rate, an increase, or a gauge. */
 function inner(metric: UsageMetric, matchers: readonly Matcher[], window: number): string {
   const range = `[${window}s]`
@@ -39,9 +45,9 @@ function inner(metric: UsageMetric, matchers: readonly Matcher[], window: number
     case 'memory':
       return `container_memory_working_set_bytes${selector([...CONTAINERS, ...matchers])}`
     case 'rx':
-      return `rate(container_network_receive_bytes_total${selector(matchers)}${range})`
+      return `rate(container_network_receive_bytes_total${selector([...INTERFACES, ...matchers])}${range})`
     case 'tx':
-      return `rate(container_network_transmit_bytes_total${selector(matchers)}${range})`
+      return `rate(container_network_transmit_bytes_total${selector([...INTERFACES, ...matchers])}${range})`
     case 'restarts':
       return `increase(kube_pod_container_status_restarts_total${selector(matchers)}${range})`
   }

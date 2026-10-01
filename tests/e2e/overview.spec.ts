@@ -144,7 +144,10 @@ test('shows an error when the cluster is unreachable', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('Can’t reach the cluster', { timeout })
   await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText('Unavailable')
   await page.getByRole('button', { name: 'Try again' }).click()
-  await expect(page.getByRole('alert')).toContainText('ECONNREFUSED', { timeout })
+  // Each card may say so too, while the cluster stays unreachable.
+  await expect(page.getByRole('alert').filter({ hasText: 'ECONNREFUSED' }).first()).toBeVisible({
+    timeout,
+  })
 })
 
 test('keeps working when one resource is forbidden', async ({ page, clusters }) => {

@@ -42,6 +42,10 @@
     "coverage": "npm run test:e2e && nyc report",
     "coverage:report": "nyc report",
     "coverage:check": "node scripts/check-coverage.ts",
+    "kind:up": "node tests/integration/cluster.ts up",
+    "kind:down": "node tests/integration/cluster.ts down",
+    "test:integration": "npm run build && playwright test -c playwright.integration.config.ts",
+    "test:kind": "npm run kind:up && npm run test:integration",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run coverage"

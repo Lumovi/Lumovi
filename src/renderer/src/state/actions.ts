@@ -10,8 +10,8 @@ interface ActionsState {
   editing: string | null
   /** A tab the detail panel should switch to, e.g. after choosing "Shell". */
   tab: { ref: string; tab: string } | null
-  /** The container to open a shell in first, like a debug container just added. */
-  shell: string | null
+  /** The container to open a pod's shell in, like a debug container just added. */
+  shell: { ref: string; container: string } | null
   start(id: string, object: KubeObject): void
   close(): void
   setMenu(open: boolean): void
@@ -30,7 +30,8 @@ export const useActionsUi = create<ActionsState>((set) => ({
   close: () => set({ active: null }),
   setMenu: (menu) => set({ menu }),
   edit: (editing) => set({ editing }),
-  showTab: (ref, tab, shell) => set({ tab: { ref, tab }, shell: shell ?? null }),
+  showTab: (ref, tab, shell) =>
+    set({ tab: { ref, tab }, shell: shell ? { ref, container: shell } : null }),
   tabShown: () => set({ tab: null }),
 }))
 

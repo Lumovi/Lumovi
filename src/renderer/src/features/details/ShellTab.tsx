@@ -10,6 +10,7 @@ import { useAccess } from '@renderer/hooks/access'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { formatRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 
@@ -45,11 +46,20 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
     ...pod.spec.containers.map((c: { name: string }) => c.name),
     ...(pod.spec.ephemeralContainers ?? []).map((c: { name: string }) => c.name),
   ]
-  // A debug container that was just added is opened first.
-  const requested = useActionsUi((state) => state.shell)
-  const [container, setContainer] = useState(
-    requested && containers.includes(requested) ? requested : containers[0]!,
+  // A debug container that was just added is opened first, also when the tab is
+  // already open (debugging is offered when a container has no shell).
+  const ref = formatRef({ kind: 'Pod', name, namespace })
+  const requested = useActionsUi((state) =>
+    state.shell?.ref === ref ? state.shell.container : null,
   )
+  const [container, setContainer] = useState(requested ?? containers[0]!)
+  const [honored, setHonored] = useState(requested)
+  if (requested && requested !== honored) {
+    setHonored(requested)
+    setContainer(requested)
+  }
+  // Until the pod shows it, a new container is listed, and waited for.
+  const choices = containers.includes(container) ? containers : [...containers, container]
   const [attempt, setAttempt] = useState(0)
   const { readOnly } = useReadOnly()
   const [allowed] = useAccess([
@@ -100,7 +110,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
           onChange={(event) => setContainer(event.target.value)}
           className="h-7 max-w-48 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
         >
-          {containers.map((c) => (
+          {choices.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>

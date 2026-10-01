@@ -132,7 +132,13 @@ test('when a shell can’t run', async ({ page, clusters }) => {
   await expect(status).toContainText('metrics-server has no shell.')
   await status.getByRole('button', { name: 'Debug' }).click()
   await expect(dialog(page)).toContainText(`Debug ${metrics}`)
-  await page.keyboard.press('Escape')
+  // The open Shell tab moves to the debug container, waits for it, then connects.
+  await dialog(page).getByRole('button', { name: 'Start debugging' }).click()
+  const detail = panel(page, 'Pod', metrics)
+  await expect(detail.getByLabel('Container')).toHaveValue(/^debugger-/)
+  await expect(
+    page.getByRole('region', { name: /^Shell in debugger-/ }).locator('.xterm-rows'),
+  ).toContainText(`root@${metrics}:/#`, { timeout: 15_000 })
 
   // A container that isn't running.
   const checkout = DEMO.pods.checkout[0]!

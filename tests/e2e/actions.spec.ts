@@ -172,12 +172,10 @@ test('restart, evict and force-delete pods', async ({ page, clusters }) => {
   await dialog(page).getByRole('checkbox').check()
   await expect(dialog(page)).toContainText('--grace-period=0 --force')
   await dialog(page).getByRole('button', { name: 'Force delete' }).click()
-  expect(
-    writes(clusters.demo, 'DELETE', `/api/v1/namespaces/default/pods/${DEMO.pods.debugShell}`)[0]!
-      .body,
-  ).toMatchObject({
-    gracePeriodSeconds: 0,
-  })
+  const deletes = () =>
+    writes(clusters.demo, 'DELETE', `/api/v1/namespaces/default/pods/${DEMO.pods.debugShell}`)
+  await expect.poll(() => deletes().length).toBe(1)
+  expect(deletes()[0]!.body).toMatchObject({ gracePeriodSeconds: 0 })
   // The panel closes on what was deleted.
   await expect(shell).toHaveCount(0)
 

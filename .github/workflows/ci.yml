@@ -149,10 +149,11 @@ jobs:
             npx playwright test $specs
           fi
 
-  real-cluster:
-    name: Real cluster (kind)
+  integration:
+    name: Integration (kind)
     needs: checks
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -160,12 +161,29 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # kind and kubectl only: cluster.ts creates the cluster, with its own kubeconfig.
       - uses: helm/kind-action@v1
         with:
-          cluster_name: kubestacks
+          install_only: true
+          version: v0.33.0
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm run build
-      - name: Run against the kind cluster
-        env:
-          KUBESTACKS_E2E_REAL_CONTEXT: kind-kubestacks
-        run: xvfb-run --auto-servernum npx playwright test tests/e2e/real-cluster.spec.ts
+      - name: Start the kind cluster, with metrics-server and Prometheus
+        run: node tests/integration/cluster.ts up
+      - name: Run the integration tests
+        run: xvfb-run --auto-servernum npx playwright test -c playwright.integration.config.ts
+      - name: Cluster state
+        if: ${{ failure() }}
+        run: |
+          export KUBECONFIG=.kind/kubeconfig
+          kubectl get nodes,pods --all-namespaces -o wide
+          kubectl get events --all-namespaces --sort-by=.lastTimestamp | tail -60
+      - name: Upload test report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-integration
+          path: |
+            playwright-report-integration/
+            test-results-integration/
+          retention-days: 7

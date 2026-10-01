@@ -1,0 +1,44 @@
+# kube-prometheus-stack, trimmed to what KubeStacks reads: Prometheus with cAdvisor
+# (through the kubelet) and kube-state-metrics, scraping often so charts fill quickly.
+# Everything runs on the control plane, so draining a worker in a test can't take
+# Prometheus (and its history) away.
+x-control-plane: &control-plane
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ''
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+defaultRules:
+  create: false
+alertmanager:
+  enabled: false
+grafana:
+  enabled: false
+nodeExporter:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+prometheusOperator:
+  <<: *control-plane
+  admissionWebhooks:
+    patch:
+      <<: *control-plane
+kube-state-metrics:
+  <<: *control-plane
+prometheus:
+  prometheusSpec:
+    <<: *control-plane
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    retention: 6h
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
