@@ -243,6 +243,7 @@ export function LogsView({ pods, name }: { pods: KubeObject[]; name: string }) {
     previous,
     follow,
     attempt,
+    container,
   })
 
   const podOf = (line: LogLine) => line.source.slice(0, line.source.indexOf('/'))
