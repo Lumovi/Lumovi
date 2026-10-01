@@ -1,4 +1,6 @@
 import { Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import type { SettingsStore } from './settings'
+import type { Updates } from './updates'
 import { IPC } from '@shared/api'
 import { REPO_URL, SPONSOR_URL } from '@shared/app'
 import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
@@ -7,7 +9,10 @@ import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
  * The native menu. Its commands are sent to the page, which runs them exactly
  * like the matching keyboard shortcuts.
  */
-export function buildMenu(win: BrowserWindow): Menu {
+export function buildMenu(
+  win: BrowserWindow,
+  { updates, settings }: { updates: Updates; settings: SettingsStore },
+): Menu {
   const command = (
     id: AppCommand,
     label: string,
@@ -73,6 +78,22 @@ export function buildMenu(win: BrowserWindow): Menu {
         link('github', 'KubeStacks on GitHub', REPO_URL),
         link('issue', 'Report an Issue…', `${REPO_URL}/issues/new/choose`),
         link('sponsor', 'Sponsor KubeStacks…', SPONSOR_URL),
+        { type: 'separator' },
+        {
+          id: 'check-updates',
+          label: 'Check for Updates…',
+          click: () => void updates.check(true),
+        },
+        {
+          id: 'auto-updates',
+          label: 'Check for Updates Automatically',
+          type: 'checkbox',
+          checked: settings.get().autoUpdate,
+          click: ({ checked }) => {
+            settings.update({ autoUpdate: checked })
+            updates.setAuto(checked)
+          },
+        },
       ],
     },
   ]

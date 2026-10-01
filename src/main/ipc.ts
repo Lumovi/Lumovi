@@ -18,6 +18,7 @@ import type { Forwards, Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { assertString, invalid } from './kube/validate'
 import { isMetricsSourceSetting, isTheme, type SettingsStore } from './settings'
+import type { Updates } from './updates'
 import { readViews } from './views'
 
 interface Dependencies {
@@ -28,6 +29,7 @@ interface Dependencies {
   terminals: Terminals
   forwards: Forwards
   logs: LogStreams
+  updates: Updates
   /** Where the user's own views are, and how that folder is shown. */
   viewsDirectory: { path: string; shown: string }
   /** Only frames showing this URL may call into the main process. */
@@ -42,6 +44,7 @@ export function registerIpc({
   terminals,
   forwards,
   logs,
+  updates,
   viewsDirectory,
   rendererUrl,
 }: Dependencies): void {
@@ -155,6 +158,9 @@ export function registerIpc({
   on(IPC.terminalInput, (id, data) => terminals.write(id, data))
   on(IPC.terminalResize, (id, columns, rows) => terminals.resize(id, columns, rows))
   on(IPC.terminalClose, (id) => terminals.close(id))
+  handle(IPC.updateState, () => updates.state())
+  handle(IPC.updateCheck, () => updates.check(true))
+  handle(IPC.updateInstall, () => updates.install())
   handle(IPC.forwardStart, (request) => forwards.start(request))
   handle(IPC.forwardList, () => forwards.list())
   handle(IPC.forwardStop, (id) => forwards.stop(id))

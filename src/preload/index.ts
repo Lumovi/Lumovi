@@ -73,6 +73,12 @@ const api: KubestacksApi = {
     stop: (id) => invoke(IPC.forwardStop, id),
     onChange: (listener) => subscribe(IPC.forwardsChanged, listener),
   },
+  updates: {
+    state: () => invoke(IPC.updateState),
+    check: () => invoke(IPC.updateCheck),
+    install: () => invoke(IPC.updateInstall),
+    onChange: (listener) => subscribe(IPC.updateChanged, listener),
+  },
   logs: {
     start: (id, request) => invoke(IPC.logsStart, id, request),
     stop: (id) => ipcRenderer.send(IPC.logsStop, id),

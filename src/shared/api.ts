@@ -37,6 +37,27 @@ export interface Settings {
   readOnlyAll?: boolean
   /** Where each context's metrics history comes from, when not detected automatically. */
   metricsSource?: Record<string, MetricsSourceSetting>
+  /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
+  autoUpdate?: boolean
+}
+
+/** Where updating KubeStacks to a new version is at. */
+export type UpdateState =
+  /** Nothing to tell: no check yet. */
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'up-to-date' }
+  | { status: 'downloading'; version: string; percent: number }
+  /** Downloaded: installed when the app restarts or quits. */
+  | { status: 'ready'; version: string }
+  /** This copy can't update itself, e.g. while developing it. */
+  | { status: 'unsupported' }
+  | { status: 'error'; message: string }
+
+export interface UpdateEvent {
+  state: UpdateState
+  /** The outcome of a check the user asked for (rather than one in the background). */
+  manual: boolean
 }
 
 /** A Prometheus-compatible service, reached through the API server's service proxy. */
@@ -633,6 +654,15 @@ export interface KubestacksApi {
     stop(id: string): Promise<void>
     onChange(listener: (forwards: PortForward[]) => void): () => void
   }
+  /** New versions of KubeStacks, from its GitHub releases. */
+  updates: {
+    state(): Promise<UpdateEvent>
+    /** Looks for a new version now, as Help → Check for Updates does. */
+    check(): Promise<void>
+    /** Restarts into the downloaded version. */
+    install(): Promise<void>
+    onChange(listener: (event: UpdateEvent) => void): () => void
+  }
 }
 
 /** IPC channel names, shared so the preload and main process cannot drift apart. */
@@ -689,4 +719,8 @@ export const IPC = {
   logsLines: 'logs:lines',
   logsEnd: 'logs:end',
   fullScreen: 'window:full-screen',
+  updateState: 'update:state',
+  updateCheck: 'update:check',
+  updateInstall: 'update:install',
+  updateChanged: 'update:changed',
 } as const

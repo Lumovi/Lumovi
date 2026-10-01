@@ -27,3 +27,6 @@ KubeStacks handles cluster credentials, so it's built to keep them contained:
   the user made read-only (or all of them, with `KUBESTACKS_READ_ONLY`).
 - Only `https://` links, and `http://localhost:<port>` for your own port forwards, are handed
   to the operating system.
+- Updates come from this repository's GitHub releases over HTTPS. Each download is checked
+  against the SHA-512 checksum the release lists, and on macOS the new version must carry
+  the same Developer ID signature.

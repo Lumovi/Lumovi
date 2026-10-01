@@ -8,6 +8,9 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ### Added
 
+- KubeStacks updates itself: new versions download in the background and install when you
+  restart or quit, with a notice when one is ready. **Help → Check for Updates…** looks right
+  away, and **Help → Check for Updates Automatically** turns the background checks off.
 - **Help → Sponsor KubeStacks…** opens the project's GitHub Sponsors page.
 
 ## [1.0.0] - 2026-10-01

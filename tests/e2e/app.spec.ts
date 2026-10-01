@@ -262,6 +262,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     theme: 'system',
     readOnly: [],
     metricsSource: {},
+    autoUpdate: true,
   })
 
   const unknown = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
@@ -282,6 +283,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
         expired: null,
         other: { mode: 'sometimes' },
       },
+      autoUpdate: false,
     }),
   )
   const second = await launch({ userDataDir: unknown })
@@ -289,18 +291,21 @@ test('recovers from unreadable settings', async ({ launch }) => {
     theme: 'system',
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
+    autoUpdate: false,
   })
 
   const odd = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
   writeFileSync(
     join(odd, 'settings.json'),
-    JSON.stringify({ theme: 'dark', readOnly: 'all', metricsSource: 'none' }),
+    // Only false turns update checks off.
+    JSON.stringify({ theme: 'dark', readOnly: 'all', metricsSource: 'none', autoUpdate: 'no' }),
   )
   const third = await launch({ userDataDir: odd })
   expect(await third.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
     theme: 'dark',
     readOnly: [],
     metricsSource: {},
+    autoUpdate: true,
   })
 })
 

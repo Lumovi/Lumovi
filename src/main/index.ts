@@ -13,6 +13,7 @@ import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
 import { loadLoginShellPath } from './shell-env'
 import { viewsDirectory } from './views'
+import { Updates } from './updates'
 import { createMainWindow, rendererUrl } from './window'
 
 if (!app.requestSingleInstanceLock()) {
@@ -62,6 +63,10 @@ if (!app.requestSingleInstanceLock()) {
         end: (id, error) => send(IPC.logsEnd, id, error),
       },
     )
+    const updates = new Updates(
+      (event) => send(IPC.updateChanged, event),
+      settings.get().autoUpdate!,
+    )
     win.on('enter-full-screen', () => send(IPC.fullScreen, true))
     win.on('leave-full-screen', () => send(IPC.fullScreen, false))
     // A page that (re)loads learns how the window is now.
@@ -74,6 +79,7 @@ if (!app.requestSingleInstanceLock()) {
       terminals,
       forwards,
       logs,
+      updates,
       viewsDirectory: viewsDirectory(homedir()),
       rendererUrl: url,
     })
@@ -87,7 +93,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!details.isSameDocument) closeStreams()
     })
     app.on('will-quit', closeStreams)
-    Menu.setApplicationMenu(buildMenu(win))
+    Menu.setApplicationMenu(buildMenu(win, { updates, settings }))
     app.on('second-instance', () => {
       if (win.isMinimized()) win.restore()
       win.focus()
