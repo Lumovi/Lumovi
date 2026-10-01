@@ -53,6 +53,8 @@ win:
       arch: [x64, arm64]
 
 nsis:
+  # One installer for x64 and arm64, which installs the one the computer needs.
+  artifactName: ${productName}-${version}-win.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
