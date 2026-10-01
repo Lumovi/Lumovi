@@ -36,6 +36,8 @@ production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    npm run verify   # format check, lint, typecheck, e2e tests with coverage report
    ```
 
+   With Docker, `npm run test:linux` also runs the e2e tests on Linux, as CI does.
+
 5. Open a pull request describing what changed and why. Screenshots help for UI changes
    (`npm run build && node scripts/screenshots.ts` captures the standard set).
 

@@ -1,4 +1,4 @@
-import { CONTEXTS, DEMO, expect, openCluster, panel, test } from './fixtures.ts'
+import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, test } from './fixtures.ts'
 
 test.describe('demo cluster', () => {
   test.beforeEach(async ({ page }) => {
@@ -72,6 +72,30 @@ test.describe('demo cluster', () => {
     await trend.hover({ position: { x: width - 2, y: 24 } })
     await page.mouse.move(0, 0)
     await expect(page.getByRole('tooltip')).toHaveCount(0)
+  })
+
+  test('a namespace without running pods, picked on another page', async ({ page, clusters }) => {
+    await expect(page.getByRole('list', { name: 'Top CPU' })).toBeVisible()
+    await goTo(page, 'Pods')
+    await page.getByRole('button', { name: 'Namespace' }).click()
+    await page.getByRole('option', { name: DEMO.terminatingNamespace }).click()
+    await page
+      .getByRole('navigation', { name: 'Resources' })
+      .getByRole('link', { name: 'Overview' })
+      .click()
+    // Once its usage is in: nothing to rank, and nothing breaks.
+    await expect
+      .poll(() =>
+        clusters.demo.requests.some(
+          (r) =>
+            r.path === `/apis/metrics.k8s.io/v1beta1/namespaces/${DEMO.terminatingNamespace}/pods`,
+        ),
+      )
+      .toBe(true)
+    await expect(page.getByRole('region', { name: 'CPU', exact: true })).toBeVisible()
+    await expect(page.getByRole('list', { name: 'Top CPU' })).toHaveCount(0)
+    await expect(page.getByRole('list', { name: 'Top memory' })).toHaveCount(0)
+    await expect(page.getByRole('alert')).toHaveCount(0)
   })
 
   test('breaks pods down by status and namespace', async ({ page }) => {

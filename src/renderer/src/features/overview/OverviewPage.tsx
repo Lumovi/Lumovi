@@ -146,7 +146,8 @@ export function OverviewPage() {
         </Card>
       </div>
 
-      {podMetrics.data?.available && (
+      {/* A namespace without running pods has no usage to rank. */}
+      {podMetrics.data?.available && podMetrics.data.items.length > 0 && (
         <div className="grid animate-rise gap-4 [animation-delay:240ms] @3xl:grid-cols-2">
           <TopPods
             title="Top CPU"
