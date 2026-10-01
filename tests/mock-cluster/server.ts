@@ -35,7 +35,11 @@ import { prometheusApi } from './prometheus.ts'
 import { streamingEndpoints } from './streams.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
-export type Fault = { status: number; body?: string; contentType?: string } | { hang: true }
+export type Fault =
+  | { status: number; body?: string; contentType?: string }
+  | { hang: true }
+  /** Not a failure: the answer, after a wait. */
+  | { delayMs: number }
 
 export interface RecordedRequest {
   method: string
@@ -91,6 +95,15 @@ export interface MockCluster {
   upsert(object: KubeObject): void
   /** Removes an object; `kind` as the app names it ("Pod", "Certificate.cert-manager.io"). */
   remove(kind: string, namespace: string | undefined, name: string): boolean
+  /** A container writes these lines (now): followed logs get them, and later reads include them. */
+  appendLogs(namespace: string, pod: string, container: string, lines: string[]): void
+  /**
+   * Ends a pod's followed logs, as the API server does when its container
+   * stops; `abruptly`, as a dropped connection does.
+   */
+  endLogs(namespace: string, pod: string, options?: { abruptly?: boolean }): void
+  /** How many log streams are being followed. */
+  logFollowers(): number
   setMetricsAvailable(available: boolean): void
   /**
    * Makes the next `times` requests that carry a `continue` token fail with 410 Gone
@@ -290,6 +303,10 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   let expireContinue = 0
   let expireList: { kind: string; namespace?: string } | undefined
   const denials: AccessRule[] = []
+  // Logs keep the times they were written: running containers' fixture lines end when the cluster starts.
+  const started = Date.now()
+  const appended = new Map<string, { at: number; line: string }[]>()
+  const followers = new Set<{ key: string; res: http.ServerResponse }>()
 
   const store$: Store = {
     get: (kind, namespace, name) => store.get(objectKey(kind, namespace, name)),
@@ -500,20 +517,29 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         `container "${container}" in pod "${name}" is waiting to start: ${detail}`,
       )
     }
-    let lines = fixture.logs?.(pod, container, previous) ?? genericLogs(pod, container)
-    const tail = Number(query.get('tailLines'))
-    if (query.has('tailLines') && Number.isInteger(tail) && tail >= 0)
-      lines = tail === 0 ? [] : lines.slice(-tail)
-    if (query.get('timestamps') !== 'true') return lines.map((line) => `${line}\n`).join('')
+    const fixed = fixture.logs?.(pod, container, previous) ?? genericLogs(pod, container)
     const finished: string | undefined = previous
       ? status?.lastState?.terminated?.finishedAt
       : (status?.state?.terminated?.finishedAt ??
         (waiting ? status?.lastState?.terminated?.finishedAt : undefined))
-    const end = finished ? Date.parse(finished) : Date.now()
+    const end = finished ? Date.parse(finished) : started
     const step = 1300 + ((name.length * 97 + container.length * 31) % 900)
-    return lines
-      .map((line, i) => `${rfc3339Nano(end - (lines.length - 1 - i) * step)} ${line}\n`)
-      .join('')
+    let lines = [
+      ...fixed.map((line, i) => ({ at: end - (fixed.length - 1 - i) * step, line })),
+      ...(previous ? [] : (appended.get(`${namespace}/${name}/${container}`) ?? [])),
+    ]
+    const sinceSeconds = Number(query.get('sinceSeconds'))
+    const since = query.has('sinceTime')
+      ? Date.parse(query.get('sinceTime')!)
+      : query.has('sinceSeconds')
+        ? Date.now() - sinceSeconds * 1000
+        : -Infinity
+    lines = lines.filter((l) => l.at >= since)
+    const tail = Number(query.get('tailLines'))
+    if (query.has('tailLines') && Number.isInteger(tail) && tail >= 0)
+      lines = tail === 0 ? [] : lines.slice(-tail)
+    if (query.get('timestamps') !== 'true') return lines.map((l) => `${l.line}\n`).join('')
+    return lines.map((l) => `${rfc3339Nano(l.at)} ${l.line}\n`).join('')
   }
 
   function denied(attributes: AccessRule): boolean {
@@ -1173,6 +1199,11 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const fault = faults.find(({ match }) =>
       typeof match === 'string' ? match === url.pathname : match.test(url.pathname),
     )?.fault
+    const serve = () => answer(req, res, url, body, accept)
+    if (fault && 'delayMs' in fault) {
+      setTimeout(serve, fault.delayMs)
+      return
+    }
     if (fault) {
       if ('hang' in fault) {
         pending.add(res)
@@ -1191,7 +1222,35 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       send(req, res, fault.status, body, fault.contentType ?? 'application/json')
       return
     }
+    serve()
+  }
+
+  /** Answers a request: reads, writes, the service proxy, and followed logs. */
+  function answer(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    url: URL,
+    body: Json,
+    accept: string,
+  ): void {
+    const json = (status: number, payload: Json) =>
+      send(req, res, status, JSON.stringify(payload), 'application/json')
     try {
+      const followed = /^\/api\/v1\/namespaces\/([^/]+)\/pods\/([^/]+)\/log$/.exec(url.pathname)
+      if (req.method === 'GET' && followed && url.searchParams.get('follow') === 'true') {
+        const [, namespace, name] = followed as unknown as [string, string, string]
+        const text = logs(namespace, name, url.searchParams)
+        res.writeHead(200, { 'Content-Type': 'text/plain' })
+        res.flushHeaders()
+        res.write(text)
+        const follower = {
+          key: `${namespace}/${name}/${url.searchParams.get('container')}`,
+          res,
+        }
+        followers.add(follower)
+        res.on('close', () => followers.delete(follower))
+        return
+      }
       const proxied =
         req.method === 'GET' ? serviceProxy(url.pathname, url.searchParams) : undefined
       if (proxied) {
@@ -1212,6 +1271,15 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     } catch (error) {
       if (error instanceof HttpError) json(error.status, error.body)
       else json(500, statusBody(500, 'InternalError', (error as Error).message))
+    }
+  }
+
+  /** Ends a pod's followed logs: as its container stopping does, or a dropped connection. */
+  function endLogs(namespace: string, pod: string, abruptly = false): void {
+    for (const follower of [...followers]) {
+      if (!follower.key.startsWith(`${namespace}/${pod}/`)) continue
+      if (abruptly) follower.res.socket?.destroy()
+      else follower.res.end()
     }
   }
 
@@ -1319,8 +1387,19 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
     remove(kind, namespace, name) {
       resourceVersion += 1
+      // A deleted pod's logs stop.
+      if (kind === 'Pod') endLogs(namespace!, name)
       return store.delete(objectKey(kind, namespace, name))
     },
+    appendLogs(namespace, pod, container, lines) {
+      const key = `${namespace}/${pod}/${container}`
+      const written = lines.map((line) => ({ at: Date.now(), line }))
+      appended.set(key, [...(appended.get(key) ?? []), ...written])
+      const text = written.map((l) => `${rfc3339Nano(l.at)} ${l.line}\n`).join('')
+      for (const follower of followers) if (follower.key === key) follower.res.write(text)
+    },
+    endLogs: (namespace, pod, { abruptly = false } = {}) => endLogs(namespace, pod, abruptly),
+    logFollowers: () => followers.size,
     setMetricsAvailable(available) {
       metricsAvailable = available
     },
@@ -1334,6 +1413,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     object: (kind, namespace, name) => store$.get(kind, namespace, name),
     reset() {
       for (const res of pending) res.destroy()
+      for (const follower of followers) follower.res.destroy()
+      appended.clear()
       controllers.stop()
       streams.closeAll()
       load()
@@ -1341,6 +1422,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     close() {
       controllers.stop()
       streams.closeAll()
+      for (const follower of followers) follower.res.destroy()
       for (const res of pending) res.destroy()
       server.closeAllConnections()
       return new Promise<void>((resolve) => server.close(() => resolve()))

@@ -1,14 +1,15 @@
 import {
+  panel,
+  clipboardText,
   CONTEXTS,
   DEMO,
-  LARGE,
-  expect,
   goTo,
+  LARGE,
   openCluster,
-  panel,
   row,
   rows,
   test,
+  expect,
 } from './fixtures.ts'
 
 const number = (n: number) => n.toLocaleString('en-US')
@@ -153,9 +154,8 @@ test('the list is driven by the keyboard', async ({ page }) => {
   await expect(panel(page, 'Deployment', DEMO.deployments.checkout)).toBeVisible()
 })
 
-test('rows have a context menu', async ({ kubestacks }) => {
-  const { page, app } = kubestacks
-  const clipboard = () => app.evaluate(({ clipboard }) => clipboard.readText())
+test('rows have a context menu', async ({ page }) => {
+  const clipboard = () => clipboardText(page)
   await openCluster(page)
   await goTo(page, 'Pods')
   await page.getByPlaceholder('Filter pods').fill(DEMO.pods.debugShell)

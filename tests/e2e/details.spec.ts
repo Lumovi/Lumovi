@@ -1,6 +1,16 @@
 import type { Page } from '@playwright/test'
 import { demoCluster } from '../mock-cluster/fixtures/demo.ts'
-import { DEMO, expect, goTo, openCluster, panel, row, rows, test } from './fixtures.ts'
+import {
+  panel,
+  clipboardText,
+  DEMO,
+  goTo,
+  openCluster,
+  row,
+  rows,
+  test,
+  expect,
+} from './fixtures.ts'
 
 /** Narrows the (virtualized) list so the row is rendered. */
 async function findObject(page: Page, label: string, name: string) {
@@ -17,9 +27,6 @@ async function openObject(page: Page, label: string, name: string) {
   await findObject(page, label, name)
   await openRow(page, label, name)
 }
-
-const readClipboard = (kubestacks: { app: import('@playwright/test').ElectronApplication }) =>
-  kubestacks.app.evaluate(({ clipboard }) => clipboard.readText())
 
 test.beforeEach(async ({ page }) => {
   await openCluster(page)
@@ -113,7 +120,7 @@ test('logs: container, lines, previous, follow, wrap and copy', async ({
   await expect.poll(logRequest((q) => q.previous === 'true')).toBe(true)
   await expect(log).toContainText('panic:')
 
-  await detail.getByRole('combobox', { name: 'Lines' }).selectOption('100')
+  await detail.getByRole('combobox', { name: 'Show' }).selectOption('100')
   await expect.poll(logRequest((q) => q.tailLines === '100')).toBe(true)
   await detail.getByRole('button', { name: 'Follow' }).click()
   await expect(detail.getByRole('button', { name: 'Follow' })).toHaveAttribute(
@@ -124,7 +131,7 @@ test('logs: container, lines, previous, follow, wrap and copy', async ({
   await expect(log.locator('.whitespace-pre-wrap').first()).toBeVisible()
 
   await detail.getByRole('button', { name: 'Copy logs' }).click()
-  await expect.poll(() => readClipboard(kubestacks)).toContain('starting checkout service')
+  await expect.poll(() => clipboardText(kubestacks.page)).toContain('starting checkout service')
   await expect(detail.getByRole('button', { name: 'Copied' })).toBeVisible()
   await expect(detail.getByRole('button', { name: 'Copy logs' })).toBeVisible({ timeout: 5_000 })
 })
@@ -179,7 +186,7 @@ test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
   await detail.getByRole('button', { name: 'Hide password' }).click()
   await expect(detail).not.toContainText(DEMO.postgresPassword)
   await detail.getByRole('button', { name: 'Copy password' }).click()
-  await expect.poll(() => readClipboard(kubestacks)).toBe(DEMO.postgresPassword)
+  await expect.poll(() => clipboardText(kubestacks.page)).toBe(DEMO.postgresPassword)
 
   await detail.getByRole('tab', { name: 'YAML' }).click()
   const yaml = detail.getByRole('tabpanel', { name: 'YAML' })
@@ -191,7 +198,7 @@ test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
   await detail.getByRole('button', { name: 'Hide values' }).click()
   await expect(yaml).toContainText('password: ••••••••')
   await detail.getByRole('button', { name: 'Copy YAML' }).click()
-  await expect.poll(() => readClipboard(kubestacks)).toContain('kind: Secret')
+  await expect.poll(() => clipboardText(kubestacks.page)).toContain('kind: Secret')
 })
 
 test('config maps show their data', async ({ page }) => {

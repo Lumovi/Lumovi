@@ -51,10 +51,8 @@ export interface KubeStacks {
   close(): Promise<void>
 }
 
-/** Keeps test windows out of the way (see the file); KUBESTACKS_E2E_FOREGROUND=1 shows them. */
-const BACKGROUND = process.env.KUBESTACKS_E2E_FOREGROUND
-  ? []
-  : ['-r', resolve('tests/e2e/background.cjs')]
+/** Keeps test windows and copies out of your way (see the file). */
+const HARNESS = ['-r', resolve('tests/e2e/harness.cjs')]
 
 /** The stand-in for helm the e2e tests run, instead of a real one. */
 const FAKE_HELM = resolve('tests/e2e/helm', process.platform === 'win32' ? 'helm.cmd' : 'helm')
@@ -109,7 +107,7 @@ export async function launchApp(
   const app = await electron.launch({
     ...(executablePath ? { executablePath } : {}),
     args: [
-      ...BACKGROUND,
+      ...HARNESS,
       ...(executablePath ? [] : ['.']),
       `--user-data-dir=${userDataDir}`,
       // Parallel test windows cover each other. Like Playwright does for browsers,
@@ -383,6 +381,11 @@ export async function goTo(page: Page, label: string): Promise<void> {
     await sidebar.getByRole('link', { name: label, exact: true }).click()
   }
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(label)
+}
+
+/** What the app last copied (to its own clipboard: see harness.cjs). */
+export function clipboardText(page: Page): Promise<string> {
+  return page.evaluate(() => (window as { __clipboard?: string }).__clipboard ?? '')
 }
 
 /** The detail panel for an object. */

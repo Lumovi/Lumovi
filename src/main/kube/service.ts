@@ -11,7 +11,6 @@ import type {
   KubeList,
   KubeObject,
   ListQuery,
-  LogsQuery,
   MetricsQuery,
   MetricsSnapshot,
   Result,
@@ -113,7 +112,8 @@ interface PodMetric {
  * resolves to a `Result` and never rejects.
  */
 export class KubeService {
-  readonly #timeoutMs: number
+  /** How long the API server has to answer (KUBESTACKS_REQUEST_TIMEOUT_MS). */
+  readonly timeoutMs: number
   readonly #maxListItems: number
   readonly #checks = new Limiter(CONCURRENT_CHECKS)
   readonly #discoveries = new Limiter(CONCURRENT_DISCOVERY)
@@ -129,7 +129,7 @@ export class KubeService {
     private readonly isReadOnly: (context: string) => boolean,
     env: NodeJS.ProcessEnv = process.env,
   ) {
-    this.#timeoutMs = Number(env.KUBESTACKS_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
+    this.timeoutMs = Number(env.KUBESTACKS_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
     this.#maxListItems = Number(env.KUBESTACKS_MAX_LIST_ITEMS) || DEFAULT_MAX_LIST_ITEMS
   }
 
@@ -324,24 +324,6 @@ export class KubeService {
         }
         throw error
       }
-    })
-  }
-
-  logs(query: unknown): Promise<Result<string>> {
-    return this.#run(async () => {
-      const q = assertQuery<LogsQuery>(query)
-      assertString(q.namespace, 'namespace')
-      assertString(q.pod, 'pod')
-      assertString(q.container, 'container')
-      assertIntegerInRange(q.tailLines, 'tailLines', 1, 10_000)
-      const params = new URLSearchParams({
-        container: q.container,
-        tailLines: String(q.tailLines),
-        timestamps: 'true',
-        previous: String(q.previous === true),
-      })
-      const pod = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/pods/${encodeURIComponent(q.pod)}`
-      return this.#get(q.context, `${pod}/log?${params}`)
     })
   }
 
@@ -598,7 +580,7 @@ export class KubeService {
     assertString(context, 'context')
     const kc = this.store.forContext(context)
     await this.envReady
-    return kubeRequest(kc, path, { ...options, timeoutMs: this.#timeoutMs })
+    return kubeRequest(kc, path, { ...options, timeoutMs: this.timeoutMs })
   }
 
   async #getJson<T>(context: unknown, path: string, accept?: string): Promise<T> {

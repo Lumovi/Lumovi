@@ -5,21 +5,20 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { demoCluster } from '../mock-cluster/fixtures/demo.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import {
+  panel,
+  clipboardText,
   CONTEXTS,
   DEMO,
-  expect,
   goTo,
   mockOpenExternal,
   openCluster,
-  panel,
   row,
   rows,
   test,
+  expect,
 } from './fixtures.ts'
 
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
-const clipboard = (app: ElectronApplication) =>
-  app.evaluate(({ clipboard }) => clipboard.readText())
 
 /** Clicks an item of the native menu, like a user choosing it. */
 const menu = (app: ElectronApplication, id: string) =>
@@ -220,7 +219,7 @@ test.describe('when things go wrong', () => {
     await expect(page.getByRole('navigation', { name: 'Resources' })).toBeVisible()
 
     await alert.getByRole('button', { name: 'Copy details' }).click()
-    await expect.poll(() => clipboard(app)).toContain('TypeError')
+    await expect.poll(() => clipboardText(page)).toContain('TypeError')
     await alert.getByRole('button', { name: 'Report issue' }).click()
     await expect.poll(opened).toEqual([expect.stringContaining('/issues/new?title=Crash')])
 
@@ -368,21 +367,30 @@ test('an object that cannot be loaded explains why', async ({ page, clusters }) 
 })
 
 test('logs can be searched and followed', async ({ page, clusters }) => {
+  const pod = DEMO.pods.storefront[0]!
   await openCluster(page)
   await goTo(page, 'Pods')
-  await page.getByPlaceholder('Filter pods').fill(DEMO.pods.storefront[0]!)
-  await row(page, 'Pods', DEMO.pods.storefront[0]!).first().click()
-  const detail = panel(page, 'Pod', DEMO.pods.storefront[0]!)
+  await page.getByPlaceholder('Filter pods').fill(pod)
+  await row(page, 'Pods', pod).first().click()
+  const detail = panel(page, 'Pod', pod)
   await detail.getByRole('tab', { name: 'Logs' }).click()
-  await detail.getByLabel('Lines', { exact: true }).selectOption('2000')
+  await detail.getByLabel('Show', { exact: true }).selectOption('2000')
   const log = detail.getByRole('log')
+  const search = detail.getByLabel('Search logs')
+  // The newest lines show first; searching finds the oldest.
+  await search.fill('starting storefront')
   await expect(log).toContainText('starting storefront')
   // JSON lines show their level and message first; other shapes are kept as text.
+  await search.fill('cache warmed')
   await expect(log.getByText('cache warmed')).toBeVisible()
+  await search.fill('heartbeat')
   await expect(log).toContainText('heartbeat')
+  await search.fill('"path":"/api/cart"')
+  // It's the oldest of many: at the top.
+  await log.evaluate((element) => element.scrollTo({ top: 0 }))
   await expect(log).toContainText('{"level":"info","msg":"request completed","path":"/api/cart"')
 
-  const search = detail.getByLabel('Search logs')
+  await search.fill('')
   await search.pressSequentially('cache')
   await expect(log.locator('mark').first()).toHaveText('cache')
   await expect(detail).toContainText(/\d+\/\d+/)
@@ -399,16 +407,24 @@ test('logs can be searched and followed', async ({ page, clusters }) => {
   await log.evaluate((element) => element.scrollTo({ top: 0 }))
   await detail.getByRole('button', { name: 'Jump to latest' }).click()
   await expect(detail.getByRole('button', { name: 'Jump to latest' })).toHaveCount(0)
+  // New lines arrive as they're written.
+  clusters.demo.appendLogs('shop', pod, 'app', ['{"level":"info","msg":"order 1042 placed"}'])
+  await expect(log).toContainText('order 1042 placed')
 
-  // A failed refresh keeps the lines on screen.
-  clusters.demo.fail(`/api/v1/namespaces/shop/pods/${DEMO.pods.storefront[0]}/log`, {
+  // A stream that can't be picked up again keeps the lines on screen, and says so.
+  const unfail = clusters.demo.fail(`/api/v1/namespaces/shop/pods/${pod}/log`, {
     status: 502,
     body: 'kubelet unavailable',
   })
-  const stale = detail.getByRole('status').filter({ hasText: 'Couldn’t refresh' })
-  await expect(stale).toBeVisible({ timeout: 10_000 })
-  await expect(log).toContainText('starting storefront')
-  await stale.getByRole('button', { name: 'Retry' }).click()
+  clusters.demo.endLogs('shop', pod)
+  const status = detail.getByRole('status')
+  await expect(status).toContainText('HTTP 502 · Trying again…', { timeout: 10_000 })
+  await expect(log).toContainText('order 1042 placed')
+  unfail()
+  await expect(status).toHaveCount(0, { timeout: 10_000 })
+  // Picked up where it left off: nothing twice.
+  await search.fill('order 1042 placed')
+  await expect(log.locator('[data-level]')).toHaveCount(1)
 })
 
 test('secret values can be revealed all at once', async ({ page }) => {

@@ -22,8 +22,8 @@ async function session(
   const userData = mkdtempSync(join(tmpdir(), 'kubestacks-shots-user-'))
   writeFileSync(join(userData, 'settings.json'), JSON.stringify({ theme }))
   const app = await electron.launch({
-    // Captured without showing a window (see tests/e2e/background.cjs).
-    args: ['-r', resolve('tests/e2e/background.cjs'), '.', `--user-data-dir=${userData}`],
+    // Captured without showing a window (see tests/e2e/harness.cjs).
+    args: ['-r', resolve('tests/e2e/harness.cjs'), '.', `--user-data-dir=${userData}`],
     env: {
       ...process.env,
       KUBECONFIG: clusters.kubeconfigPath,
@@ -97,15 +97,16 @@ for (const theme of ['dark', 'light'] as const) {
     await page.getByRole('tab', { name: 'Pods' }).click()
     await page.waitForTimeout(600)
     await page.screenshot({ path: file('deployment') })
+    // Every pod's logs, merged.
+    await page.getByRole('tab', { name: 'Logs' }).click()
+    await page.waitForTimeout(1500)
+    await page.screenshot({ path: file('logs') })
 
     await nav(page, 'Pods')
     await page.getByPlaceholder('Filter pods').fill(DEMO.pods.checkout[0]!)
     await openRow(page, DEMO.pods.checkout[0]!)
     await page.waitForTimeout(600)
     await page.screenshot({ path: file('pod') })
-    await page.getByRole('tab', { name: 'Logs' }).click()
-    await page.waitForTimeout(800)
-    await page.screenshot({ path: file('logs') })
     await page.getByRole('tab', { name: 'YAML' }).click()
     await page.waitForTimeout(500)
     await page.screenshot({ path: file('yaml') })
