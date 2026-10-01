@@ -719,12 +719,24 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     controllers.deleted(object)
   }
 
-  // A Map, so a content type like "constructor" finds nothing.
-  const PATCHES = new Map<string, (target: Json, patch: Json) => Json>([
-    ['application/merge-patch+json', mergePatch],
-    ['application/strategic-merge-patch+json', strategicMergePatch],
-    ['application/json-patch+json', jsonPatch],
-  ])
+  const PATCH_TYPES = [
+    'application/merge-patch+json',
+    'application/strategic-merge-patch+json',
+    'application/json-patch+json',
+  ]
+  /** How a patch in `contentType` applies, if the API server takes that format. */
+  function patchFormat(contentType: string): ((target: Json, patch: Json) => Json) | undefined {
+    switch (contentType) {
+      case 'application/merge-patch+json':
+        return mergePatch
+      case 'application/strategic-merge-patch+json':
+        return strategicMergePatch
+      case 'application/json-patch+json':
+        return jsonPatch
+      default:
+        return undefined
+    }
+  }
 
   function write(
     method: string,
@@ -768,14 +780,14 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     if (def.custom && subresource === 'status' && (method === 'PATCH' || method === 'PUT')) {
       // The status subresource changes the status, and nothing else.
       const changed =
-        method === 'PUT' ? body : (PATCHES.get(contentType) ?? mergePatch)(existing, body)
+        method === 'PUT' ? body : (patchFormat(contentType) ?? mergePatch)(existing, body)
       return {
         status: 200,
         body: save({ ...existing!, status: changed.status }, dryRun),
       }
     }
     if (def.custom && subresource === 'scale' && def.scale && method === 'PATCH') {
-      const scale = (PATCHES.get(contentType) ?? mergePatch)(scaleOf(def, existing!), body)
+      const scale = (patchFormat(contentType) ?? mergePatch)(scaleOf(def, existing!), body)
       const replicas = scale.spec?.replicas
       if (!Number.isInteger(replicas) || replicas < 0) {
         throw new HttpError(
@@ -915,11 +927,11 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       return { status: 200, body: save(prepare(def, body, existing, namespace), dryRun) }
     }
     if (method === 'PATCH' && existing) {
-      const apply = PATCHES.get(contentType)
+      const apply = patchFormat(contentType)
       if (!apply) {
         throw new HttpError(
           415,
-          `the body of the request was in an unknown format - accepted media types include: ${[...PATCHES.keys()].join(', ')}`,
+          `the body of the request was in an unknown format - accepted media types include: ${PATCH_TYPES.join(', ')}`,
         )
       }
       let patched: Json

@@ -11,8 +11,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: ci,
   retries: ci ? 1 : 0,
-  // A test per core on CI (4 on Linux and Windows runners, 3 on macOS).
-  workers: ci ? Math.max(2, availableParallelism()) : 4,
+  // On CI, a test per core on Linux and Windows (4); macOS runners (3 cores, 7 GB) are
+  // fastest with 2.
+  workers: ci ? (process.platform === 'darwin' ? 2 : availableParallelism()) : 4,
   reporter: ci
     ? [['github'], ['list'], ['html', { open: 'never' }]]
     : [['list'], ['html', { open: 'never' }]],
