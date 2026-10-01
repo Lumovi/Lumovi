@@ -16,6 +16,13 @@ All notable changes to KubeStacks are documented here. The format follows
   a diff), and delete with a choice of what happens to dependents.
 - Shells in containers, debug containers (`kubectl debug`) for pods, including those
   without a shell, and port forwards to pods and services, listed in the header.
+- Usage history from Prometheus or VictoriaMetrics, found among the cluster's services and
+  reached through the API server: a Metrics page that ranks namespaces, workloads, pods or
+  nodes by CPU, memory, network or restarts over 15 minutes to 7 days, with stacked or line
+  charts, zoom by dragging, a distribution to filter by and a sortable table; a Metrics tab
+  on pods, workloads and nodes, against requests, limits and allocatable capacity; and an
+  hour of history on the overview. The source can be chosen, tested or turned off per
+  cluster.
 - Bulk actions: pick rows with checkboxes, Shift-click, `X` or `⌘A`, then restart, cordon,
   uncordon, suspend, resume or delete them together, with progress per object and a retry
   for failures.

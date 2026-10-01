@@ -1,5 +1,5 @@
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import { ChevronRight, CircleCheck, Gauge, type LucideIcon } from 'lucide-react'
+import { ArrowRight, ChevronRight, CircleCheck, Gauge, type LucideIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { KubeObject, UsageSample } from '@shared/api'
 import type { ResourceKind } from '@shared/resources'
@@ -12,13 +12,15 @@ import { StackedBar } from '@renderer/components/StackedBar'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { HEALTH_STYLE, StatusDot, StatusPill } from '@renderer/components/Status'
 import { useGo } from '@renderer/hooks/go'
+import { timesOf, useHistorySource, useUsageRange } from '@renderer/hooks/history'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useContexts, useList, useMetrics, useVersion } from '@renderer/hooks/queries'
 import { useNodeUsage } from '@renderer/hooks/usage'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, hostOf, percent, pluralize } from '@renderer/lib/format'
-import { clusterPath } from '@renderer/lib/routes'
+import { rateWindow, usageQuery } from '@renderer/lib/promql'
+import { clusterPath, metricsPath } from '@renderer/lib/routes'
 import {
   HEALTH_RANK,
   nodeStatus,
@@ -328,7 +330,15 @@ function CapacityCard({
   reservations?: Reservations
 }) {
   const { context } = useCluster()
+  const go = useGo()
   const history = useUsageHistory((state) => state.byContext[context])
+  const ready = useHistorySource().data?.state === 'ready'
+  // With Prometheus, the trend covers the last hour, not just this session.
+  const trend = useUsageRange(
+    ['overview', resource],
+    ({ step }) => [{ id: 'total', expr: usageQuery(resource, [], [], rateWindow(step)) }],
+    { range: '1h' },
+  )
   const { title, format } = CAPACITY[resource]
   if (!usage || !reservations) {
     return (
@@ -341,17 +351,34 @@ function CapacityCard({
   const requested = reservations.requests / total
   const live = usage.metricsAvailable
   const headline = live ? used / total : requested
-  const points = (history ?? []).map((p) => ({ at: p.at, value: p[resource] }))
+  const recorded = ready ? trend.data?.results[0]!.series[0] : undefined
+  const points = recorded
+    ? timesOf(trend.data!)
+        .map((at, i) => [at, recorded.values[i]] as const)
+        .filter((p): p is readonly [number, number] => typeof p[1] === 'number')
+        .map(([at, value]) => ({ at, value: value / total }))
+    : (history ?? []).map((p) => ({ at: p.at, value: p[resource] }))
 
   return (
     <Card
       title={title}
       action={
-        !live && (
-          <span className="flex items-center gap-1.5 text-xs text-ink-3">
-            <Gauge className="size-3.5" /> Live usage needs metrics-server
-          </span>
-        )
+        <span className="flex items-center gap-3">
+          {!live && (
+            <span className="flex items-center gap-1.5 text-xs text-ink-3">
+              <Gauge className="size-3.5" /> Live usage needs metrics-server
+            </span>
+          )}
+          {recorded && (
+            <button
+              type="button"
+              onClick={() => go(`${metricsPath(context)}?metric=${resource}`)}
+              className="flex items-center gap-1 text-xs font-medium text-accent-strong hover:underline"
+            >
+              History <ArrowRight className="size-3.5" />
+            </button>
+          )}
+        </span>
       }
     >
       <div className="flex items-end justify-between gap-6">
@@ -367,11 +394,16 @@ function CapacityCard({
         </div>
         <div className="w-[46%] min-w-40">
           {points.length > 1 ? (
-            <Sparkline
-              label={`${title} usage`}
-              values={points.map((p) => p.value)}
-              times={points.map((p) => p.at)}
-            />
+            <>
+              <Sparkline
+                label={`${title} usage`}
+                values={points.map((p) => p.value)}
+                times={points.map((p) => p.at)}
+              />
+              <p className="mt-1 text-right text-2xs text-ink-3">
+                {recorded ? 'Last hour' : 'Since you opened it'}
+              </p>
+            </>
           ) : (
             <div className="flex h-12 flex-col justify-end gap-1.5 pb-1">
               <span className="block h-0.5 animate-shimmer rounded-full bg-accent-track" />

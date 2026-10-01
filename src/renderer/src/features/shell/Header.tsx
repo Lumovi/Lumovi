@@ -1,5 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, LayoutDashboard, Plus, RotateCw, Search } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChartSpline,
+  LayoutDashboard,
+  Plus,
+  RotateCw,
+  Search,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { resourceByPlural } from '@shared/resources'
@@ -20,9 +28,11 @@ export function Header() {
   const setPalette = useUi((ui) => ui.setPalette)
   const setCreate = useUi((ui) => ui.setCreate)
   const [refreshing, setRefreshing] = useState(false)
-  const resource = resourceByPlural(useLocation().pathname.split('/')[3] ?? '')
-  const Icon = resource ? KIND_ICONS[resource.kind] : LayoutDashboard
-  const title = resource?.label ?? 'Overview'
+  const page = useLocation().pathname.split('/')[3] ?? ''
+  const resource = resourceByPlural(page)
+  const metrics = page === 'metrics'
+  const Icon = resource ? KIND_ICONS[resource.kind] : metrics ? ChartSpline : LayoutDashboard
+  const title = resource?.label ?? (metrics ? 'Metrics' : 'Overview')
 
   useEffect(() => {
     // Shown in the Dock, the task switcher and Mission Control.

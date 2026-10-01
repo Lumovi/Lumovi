@@ -132,6 +132,27 @@ for (const theme of ['dark', 'light'] as const) {
     await page.screenshot({ path: file('create') })
     await page.keyboard.press('Escape')
 
+    // Usage history: the Metrics page, and a pod's Metrics tab.
+    await nav(page, 'Metrics')
+    await page
+      .getByRole('group', { name: 'Time range' })
+      .getByRole('button', { name: '6h' })
+      .click()
+    await page.waitForTimeout(1500)
+    await page.screenshot({ path: file('metrics') })
+    await nav(page, 'Pods')
+    await page.getByPlaceholder('Filter pods').fill(DEMO.pods.storefront[0]!)
+    await openRow(page, DEMO.pods.storefront[0]!)
+    await page.getByRole('tab', { name: 'Metrics' }).click()
+    await page.waitForTimeout(1500)
+    await page.screenshot({ path: file('pod-metrics') })
+    await page
+      .getByRole('group', { name: 'Time range' })
+      .getByRole('button', { name: '1h' })
+      .click()
+    await page.getByRole('button', { name: 'Close (Esc)' }).click()
+    await page.getByPlaceholder('Filter pods').fill('')
+
     await nav(page, 'Nodes')
     await page.keyboard.press('ControlOrMeta+k')
     await page.keyboard.type('dep')

@@ -26,8 +26,10 @@ const STATUS_CODES: Record<number, KubeErrorCode> = {
 export function statusError(status: number, body: string): KubeRequestError {
   let message = `The API server responded with HTTP ${status}`
   try {
-    const parsed = JSON.parse(body) as { message?: unknown }
+    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown }
+    // Kubernetes Status objects have a message; Prometheus' API errors have an error.
     if (typeof parsed.message === 'string') message = parsed.message
+    else if (typeof parsed.error === 'string') message = parsed.error
   } catch {
     // Not a Kubernetes Status object (e.g. an HTML error page from a proxy).
   }

@@ -27,7 +27,32 @@ export function largeCluster(now = Date.now()): ClusterFixture {
   })
   b.namespace('default', 30 * DAY)
   b.namespace(LARGE.namespace, 30 * DAY)
-  const fixture = b.build()
+  // VictoriaMetrics: a single-node server that answers PromQL, and a cluster's query
+  // frontend that isn't running.
+  b.namespace('monitoring', 30 * DAY)
+  b.service({
+    namespace: 'monitoring',
+    name: 'vmsingle-vm',
+    age: 30 * DAY,
+    clusterIP: '10.96.8.29',
+    labels: { 'app.kubernetes.io/name': 'vmsingle' },
+    ports: [{ name: 'http', port: 8429 }],
+  })
+  b.service({
+    namespace: 'monitoring',
+    name: 'vmselect-vm',
+    age: 30 * DAY,
+    clusterIP: '10.96.8.81',
+    labels: { 'app.kubernetes.io/name': 'vmselect' },
+    // A port by an unusual name and number: the first one is used.
+    ports: [{ name: 'query', port: 8080 }],
+  })
+  const fixture = {
+    ...b.build(),
+    prometheus: [
+      { namespace: 'monitoring', service: 'vmsingle-vm', flavor: 'victoriametrics' as const },
+    ],
+  }
   const created = b.time(3 * DAY)
   const started = b.time(3 * DAY - 20 * SECOND)
   // Pods are built directly (not through the builder) to keep 2500 of them cheap.

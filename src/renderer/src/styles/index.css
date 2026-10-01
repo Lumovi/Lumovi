@@ -20,7 +20,16 @@
   --accent-strong: #1c5cab;
   --accent-soft: rgb(42 120 214 / 0.1);
   --accent-track: #dbe8f8;
+  /* Categorical chart slots, in their validated order (adjacent pairs stay apart under CVD). */
+  --series-1: #2a78d6;
   --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-other: #a3a29d;
   --shadow-panel: 0 1px 2px rgb(12 12 20 / 0.04), 0 8px 24px -12px rgb(12 12 20 / 0.12);
   --shadow-pop: 0 12px 40px -8px rgb(12 12 20 / 0.25), 0 0 0 1px rgb(12 12 20 / 0.06);
 
@@ -52,7 +61,15 @@
     --accent-strong: #5ea2f0;
     --accent-soft: rgb(57 135 229 / 0.16);
     --accent-track: rgb(57 135 229 / 0.2);
+    --series-1: #3987e5;
     --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --series-other: #5f5e5a;
     --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.02), 0 8px 24px -12px rgb(0 0 0 / 0.6);
     --shadow-pop: 0 16px 48px -8px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
     --good-text: #3fb950;

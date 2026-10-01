@@ -113,7 +113,7 @@ test('an opened shell is ready to type, unless tabs are browsed by keyboard', as
   await expect(screen(page)).toContainText(`root@${POD}:/#`)
   await expect(detail.getByRole('tab', { name: 'Shell' })).toBeFocused()
   await page.keyboard.press('ArrowRight')
-  await expect(detail.getByRole('tab', { name: 'Events' })).toBeFocused()
+  await expect(detail.getByRole('tab', { name: 'Metrics' })).toBeFocused()
 
   // Clicking the tab goes straight to the prompt.
   await detail.getByRole('tab', { name: 'Shell' }).click()

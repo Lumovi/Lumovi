@@ -242,25 +242,46 @@ test('recovers from unreadable settings', async ({ launch }) => {
   expect(await first.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
     theme: 'system',
     readOnly: [],
+    metricsSource: {},
   })
 
   const unknown = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
   writeFileSync(
     join(unknown, 'settings.json'),
-    JSON.stringify({ theme: 'neon', readOnly: ['prod', 5, null] }),
+    JSON.stringify({
+      theme: 'neon',
+      readOnly: ['prod', 5, null],
+      // Metrics sources that don't make sense fall back to detection.
+      metricsSource: {
+        demo: { mode: 'off' },
+        sandbox: {
+          mode: 'service',
+          service: { namespace: 'monitoring', service: 'prom', port: 'web', path: 'no-slash' },
+        },
+        large: { mode: 'service', service: null },
+        offline: 'prometheus',
+        expired: null,
+        other: { mode: 'sometimes' },
+      },
+    }),
   )
   const second = await launch({ userDataDir: unknown })
   expect(await second.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
     theme: 'system',
     readOnly: ['prod'],
+    metricsSource: { demo: { mode: 'off' } },
   })
 
   const odd = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
-  writeFileSync(join(odd, 'settings.json'), JSON.stringify({ theme: 'dark', readOnly: 'all' }))
+  writeFileSync(
+    join(odd, 'settings.json'),
+    JSON.stringify({ theme: 'dark', readOnly: 'all', metricsSource: 'none' }),
+  )
   const third = await launch({ userDataDir: odd })
   expect(await third.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
     theme: 'dark',
     readOnly: [],
+    metricsSource: {},
   })
 })
 

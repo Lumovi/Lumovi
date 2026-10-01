@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
+  ChartSpline,
   CornerDownLeft,
   FilePlus2,
   Keyboard,
@@ -12,6 +13,7 @@ import {
   Monitor,
   Moon,
   Server,
+  Settings2,
   Sun,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
@@ -26,7 +28,7 @@ import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
 import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { matchWords } from '@renderer/lib/match'
-import { clusterPath, formatRef, kindPath, parseRef } from '@renderer/lib/routes'
+import { clusterPath, formatRef, kindPath, metricsPath, parseRef } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { useUi } from '@renderer/state/ui'
@@ -85,6 +87,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
+  const setMetricsSource = useUi((ui) => ui.setMetricsSource)
   const objects = useCachedObjects(context)
   const open = useSearchParams()[0].get('open')
   const readOnly = useReadOnly()
@@ -148,6 +151,14 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => go(clusterPath(context)))}
           >
             Overview
+          </Item>
+          <Item
+            icon={<ChartSpline />}
+            value="Metrics usage history Prometheus"
+            hint={<Keys keys={['G', 'U']} />}
+            onSelect={run(() => go(metricsPath(context)))}
+          >
+            Metrics
           </Item>
           {RESOURCES.map((resource) => {
             const Icon = KIND_ICONS[resource.kind]
@@ -213,6 +224,13 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => setCreate(true))}
           >
             Create from YAML
+          </Item>
+          <Item
+            icon={<Settings2 />}
+            value="Metrics source Prometheus VictoriaMetrics settings"
+            onSelect={run(() => setMetricsSource(true))}
+          >
+            Metrics source…
           </Item>
           <Item
             icon={<Keyboard />}

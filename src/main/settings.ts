@@ -1,12 +1,31 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Settings, ThemePreference } from '@shared/api'
+import type { MetricsSourceSetting, Settings, ThemePreference } from '@shared/api'
 
 const THEMES: readonly ThemePreference[] = ['system', 'light', 'dark']
-const DEFAULTS: Settings = { theme: 'system', readOnly: [] }
+const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {} }
 
 export function isTheme(value: unknown): value is ThemePreference {
   return THEMES.includes(value as ThemePreference)
+}
+
+const text = (value: unknown) => typeof value === 'string' && value !== ''
+
+/** A stored or requested metrics source: detection, off, or a service to use. */
+export function isMetricsSourceSetting(value: unknown): value is MetricsSourceSetting {
+  if (typeof value !== 'object' || value === null) return false
+  const { mode, service } = value as { mode?: unknown; service?: Record<string, unknown> }
+  if (mode === 'auto' || mode === 'off') return true
+  return (
+    mode === 'service' &&
+    typeof service === 'object' &&
+    service !== null &&
+    text(service.namespace) &&
+    text(service.service) &&
+    text(service.port) &&
+    typeof service.path === 'string' &&
+    /^(\/[\w.~-]+)*$/.test(service.path)
+  )
 }
 
 /** Persists user preferences as JSON in the app's userData directory. */
@@ -38,6 +57,18 @@ export class SettingsStore {
     return this.update({ readOnly: readOnly ? [...others, context] : others })
   }
 
+  /** Where `context`'s metrics history comes from; detected unless set otherwise. */
+  metricsSource(context: string): MetricsSourceSetting {
+    return this.#settings.metricsSource![context] ?? { mode: 'auto' }
+  }
+
+  setMetricsSource(context: string, setting: MetricsSourceSetting): Settings {
+    const { [context]: _previous, ...others } = this.#settings.metricsSource!
+    return this.update({
+      metricsSource: setting.mode === 'auto' ? others : { ...others, [context]: setting },
+    })
+  }
+
   update(patch: Partial<Omit<Settings, 'readOnlyAll'>>): Settings {
     this.#settings = { ...this.#settings, ...patch }
     mkdirSync(this.dir, { recursive: true })
@@ -55,6 +86,12 @@ export class SettingsStore {
         readOnly: Array.isArray(stored.readOnly)
           ? stored.readOnly.filter((name) => typeof name === 'string')
           : [],
+        // Settings that don't make sense (edited by hand, say) fall back to detection.
+        metricsSource: Object.fromEntries(
+          Object.entries(stored.metricsSource ?? {}).filter(([, setting]) =>
+            isMetricsSourceSetting(setting),
+          ),
+        ),
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.

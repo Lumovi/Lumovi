@@ -457,6 +457,11 @@ export class KubeService {
     }
   }
 
+  /** GETs any path on the cluster as text, for the usage history's service proxy calls. */
+  fetchText(context: string, path: string): Promise<string> {
+    return this.#request(context, path, {})
+  }
+
   #get(context: unknown, path: string): Promise<string> {
     return this.#request(context, path, {})
   }

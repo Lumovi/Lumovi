@@ -2030,5 +2030,22 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     source: { component: 'namespace-controller' },
   })
 
-  return b.build(demoLogs)
+  // A second, older Prometheus that only answers when the first one can't.
+  b.service({
+    namespace: 'data',
+    name: 'prometheus-archive',
+    age: 400 * DAY,
+    clusterIP: '10.96.9.91',
+    labels: { 'app.kubernetes.io/name': 'prometheus' },
+    // An unnamed port, picked by its number.
+    ports: [{ port: 9090 }],
+  })
+
+  return {
+    ...b.build(demoLogs),
+    prometheus: [
+      { namespace: 'monitoring', service: 'prometheus', flavor: 'prometheus' },
+      { namespace: 'data', service: 'prometheus-archive', flavor: 'prometheus' },
+    ],
+  }
 }

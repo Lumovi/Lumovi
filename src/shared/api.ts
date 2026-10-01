@@ -35,6 +35,74 @@ export interface Settings {
   readOnly?: string[]
   /** Every context is read-only (KUBESTACKS_READ_ONLY is set); not stored. */
   readOnlyAll?: boolean
+  /** Where each context's metrics history comes from, when not detected automatically. */
+  metricsSource?: Record<string, MetricsSourceSetting>
+}
+
+/** A Prometheus-compatible service, reached through the API server's service proxy. */
+export interface MetricsService {
+  namespace: string
+  service: string
+  /** The service port, by name or number. */
+  port: string
+  /** What comes before /api/v1, e.g. /select/0/prometheus for VictoriaMetrics' vmselect. */
+  path: string
+}
+
+/** How a cluster's metrics history is found: detected (the default), turned off, or chosen. */
+export type MetricsSourceSetting =
+  { mode: 'auto' } | { mode: 'off' } | { mode: 'service'; service: MetricsService }
+
+export type MetricsFlavor = 'prometheus' | 'victoriametrics'
+
+/** Where a cluster's metrics history comes from right now, or why there is none. */
+export type HistorySource =
+  | {
+      state: 'ready'
+      flavor: MetricsFlavor
+      service: MetricsService
+      version?: string
+      /** Chosen in settings rather than detected. */
+      configured: boolean
+    }
+  /** Turned off in settings: only live usage from the metrics API. */
+  | { state: 'off' }
+  /** Nothing Prometheus-like was found among the cluster's services. */
+  | { state: 'missing' }
+  | { state: 'error'; message: string; configured: boolean; service?: MetricsService }
+
+/** PromQL to evaluate over a time range; times in milliseconds. */
+export interface RangeQuery {
+  context: string
+  queries: { id: string; expr: string }[]
+  start: number
+  end: number
+  step: number
+}
+
+export interface RangeSeries {
+  labels: Record<string, string>
+  /** One value per step from `start` (null where there is no sample). */
+  values: (number | null)[]
+}
+
+export interface RangeResult {
+  start: number
+  step: number
+  /** How many steps each series has. */
+  points: number
+  results: { id: string; series: RangeSeries[] }[]
+}
+
+/** PromQL to evaluate at one moment (milliseconds). */
+export interface InstantQuery {
+  context: string
+  queries: { id: string; expr: string }[]
+  time: number
+}
+
+export interface InstantResult {
+  results: { id: string; series: { labels: Record<string, string>; value: number | null }[] }[]
 }
 
 export interface KubeContext {
@@ -294,7 +362,17 @@ export interface KubestacksApi {
     settings(): Promise<Settings>
     setTheme(theme: ThemePreference): Promise<Settings>
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
+    setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
     openExternal(url: string): Promise<boolean>
+  }
+  /** Usage history from the cluster's Prometheus or VictoriaMetrics. */
+  usage: {
+    /** Detects the source once per session; `refresh` looks again. */
+    source(context: string, refresh?: boolean): Promise<Result<HistorySource>>
+    /** Checks that a service answers PromQL, before it's saved as the source. */
+    test(context: string, service: MetricsService): Promise<Result<HistorySource>>
+    range(query: RangeQuery): Promise<Result<RangeResult>>
+    instant(query: InstantQuery): Promise<Result<InstantResult>>
   }
   kube: {
     contexts(): Promise<ContextsResult>
@@ -338,6 +416,7 @@ export const IPC = {
   settings: 'app:settings',
   setTheme: 'app:set-theme',
   setReadOnly: 'app:set-read-only',
+  setMetricsSource: 'app:set-metrics-source',
   openExternal: 'app:open-external',
   contexts: 'kube:contexts',
   version: 'kube:version',
@@ -348,6 +427,10 @@ export const IPC = {
   change: 'kube:change',
   can: 'kube:can',
   history: 'kube:history',
+  usageSource: 'usage:source',
+  usageTest: 'usage:test',
+  usageRange: 'usage:range',
+  usageInstant: 'usage:instant',
   terminalOpen: 'terminal:open',
   terminalInput: 'terminal:input',
   terminalResize: 'terminal:resize',
