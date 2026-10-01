@@ -122,11 +122,13 @@ test('explains missing metrics and a calm cluster', async ({ page }) => {
 })
 
 test('shows an error when the cluster is unreachable', async ({ page }) => {
+  // Windows takes about two seconds to give up on each refused connection.
+  const timeout = 20_000
   await openCluster(page, CONTEXTS.offline)
-  await expect(page.getByRole('alert')).toContainText('Can’t reach the cluster')
+  await expect(page.getByRole('alert')).toContainText('Can’t reach the cluster', { timeout })
   await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText('Unavailable')
   await page.getByRole('button', { name: 'Try again' }).click()
-  await expect(page.getByRole('alert')).toContainText('ECONNREFUSED')
+  await expect(page.getByRole('alert')).toContainText('ECONNREFUSED', { timeout })
 })
 
 test('keeps working when one resource is forbidden', async ({ page, clusters }) => {
