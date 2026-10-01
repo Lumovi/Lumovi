@@ -36,6 +36,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -43,14 +44,49 @@ jobs:
           persist-credentials: false
       - name: The version, unless it's released already
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           version=$(node -p "require('./package.json').version")
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+          if ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::package.json's version, $version, isn't a semantic version."
+            exit 1
+          fi
+          if [ "$(gh release view "v$version" --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
             echo "v$version is released already."
             exit 0
           fi
+          # A release is newer than every one before it.
+          mapfile -t tags < <(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/v##')
+          if ! newer=$(node - "$version" "${tags[@]}" <<'EOF'
+          const [version, ...tags] = process.argv.slice(2)
+          const parse = (v) => {
+            const [core, pre] = v.split(/-(.*)/)
+            return [...core.split('.').map(Number), pre]
+          }
+          const compare = (a, b) => {
+            const [x, y] = [parse(a), parse(b)]
+            for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]
+            if (x[3] === y[3]) return 0
+            return !x[3] ? 1 : !y[3] ? -1 : x[3] < y[3] ? -1 : 1
+          }
+          const released = tags.filter((t) => /^\d+\.\d+\.\d+(-.+)?$/.test(t) && t !== version)
+          const newer = released.find((t) => compare(version, t) < 0)
+          if (newer) {
+            console.log(newer)
+            process.exit(1)
+          }
+          EOF
+          ); then
+            echo "::error::$version is older than v$newer, released already."
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # 1.2.0-beta.1 and the like are pre-releases, never the latest release.
+          if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
       - name: Its CHANGELOG section, for the release notes
         if: steps.version.outputs.version
         env:
@@ -66,6 +102,15 @@ jobs:
             echo "::error::CHANGELOG.md has no entry for $VERSION."
             exit 1
           fi
+          cat >> "$RUNNER_TEMP/notes.md" <<EOF
+
+          ---
+
+          **Downloads** are below: \`.dmg\` for macOS (signed and notarized by Apple), \`.exe\`
+          for Windows, \`.AppImage\`, \`.deb\` and \`.rpm\` for Linux. \`SHA256SUMS.txt\` lists
+          their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
+          that a file was built by this repository's release workflow.
+          EOF
       # Created once, here: the builds below would otherwise race to create it.
       - name: Create the draft release
         if: steps.version.outputs.version
@@ -93,6 +138,9 @@ jobs:
     environment: release
     permissions:
       contents: write
+      # For the build provenance attestation.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -132,6 +180,11 @@ jobs:
           # Unsigned builds shouldn't go looking for a certificate in the keychain.
           if [ -z "$CSC_LINK$WIN_CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --publish always
+      # A signed record that these files were built here, from this commit.
+      - name: Attest the installers' provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: release/KubeStacks-*
 
   publish:
     name: Checksums and publish
@@ -142,7 +195,10 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.preflight.outputs.version }}
       TAG: v${{ needs.preflight.outputs.version }}
+      SHA: ${{ needs.preflight.outputs.sha }}
+      PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
       - name: Add SHA256SUMS.txt
         run: |
@@ -154,6 +210,14 @@ jobs:
           sha256sum "${files[@]}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
           gh release upload "$TAG" SHA256SUMS.txt --clobber
-      # Publishing creates the tag, on the commit CI passed.
+      # An annotated tag, on the commit CI passed: who tagged it, when, and why.
+      - name: Tag the commit
+        run: |
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" --silent 2>/dev/null; then exit 0; fi
+          tag=$(gh api "repos/$GH_REPO/git/tags" -f tag="$TAG" -f message="KubeStacks $VERSION" \
+            -f object="$SHA" -f type=commit --jq .sha)
+          gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$tag" --silent
       - name: Publish the release
-        run: gh release edit "$TAG" --draft=false --latest
+        run: |
+          if [ "$PRERELEASE" = true ]; then kind=--prerelease; else kind=--latest; fi
+          gh release edit "$TAG" --draft=false "$kind" --verify-tag
