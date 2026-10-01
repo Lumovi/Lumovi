@@ -7,6 +7,7 @@ import { TooltipProvider } from './components/Tooltip'
 import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
 import { OverviewPage } from './features/overview/OverviewPage'
+import { MetricsPage } from './features/metrics/MetricsPage'
 import { ResourcePage } from './features/resources/ResourcePage'
 import { ClusterLayout } from './features/shell/ClusterLayout'
 import { WelcomePage } from './features/welcome/WelcomePage'
@@ -36,6 +37,7 @@ const router = createHashRouter([
             errorElement: <RouteError />,
             children: [
               { index: true, element: <OverviewPage /> },
+              { path: 'metrics', element: <MetricsPage /> },
               ...RESOURCES.map((resource) => ({
                 path: resource.plural,
                 element: <ResourcePage key={resource.kind} kind={resource.kind} />,

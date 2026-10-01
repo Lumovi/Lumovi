@@ -1,8 +1,7 @@
 import { Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { IPC } from '@shared/api'
 import { REPO_URL } from '@shared/app'
-import { QUICK_NAV, type AppCommand } from '@shared/navigation'
-import { resourceByKind } from '@shared/resources'
+import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
 
 /**
  * The native menu. Its commands are sent to the page, which runs them exactly
@@ -59,11 +58,7 @@ export function buildMenu(win: BrowserWindow): Menu {
         command('forward', 'Forward', 'CmdOrCtrl+]'),
         { type: 'separator' },
         ...QUICK_NAV.map((target, i) =>
-          command(
-            `go:${target}`,
-            target === 'overview' ? 'Overview' : resourceByKind(target).label,
-            `CmdOrCtrl+${i + 1}`,
-          ),
+          command(`go:${target}`, navLabel(target), `CmdOrCtrl+${i + 1}`),
         ),
         { type: 'separator' },
         command('clusters', 'All Clusters', 'CmdOrCtrl+Shift+C'),

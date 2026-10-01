@@ -19,6 +19,7 @@ const api: KubestacksApi = {
     settings: () => invoke(IPC.settings),
     setTheme: (theme) => invoke(IPC.setTheme, theme),
     setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
+    setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
     openExternal: (url) => invoke(IPC.openExternal, url),
   },
   kube: {
@@ -31,6 +32,12 @@ const api: KubestacksApi = {
     change: (request) => invoke(IPC.change, request),
     can: (context, checks) => invoke(IPC.can, context, checks),
     history: (query) => invoke(IPC.history, query),
+  },
+  usage: {
+    source: (context, refresh) => invoke(IPC.usageSource, context, refresh),
+    test: (context, service) => invoke(IPC.usageTest, context, service),
+    range: (query) => invoke(IPC.usageRange, query),
+    instant: (query) => invoke(IPC.usageInstant, query),
   },
   terminal: {
     open: (id, request) => invoke(IPC.terminalOpen, id, request),

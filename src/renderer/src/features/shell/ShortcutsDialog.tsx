@@ -1,12 +1,8 @@
 import { Dialog } from 'radix-ui'
 import { X } from 'lucide-react'
-import { GO_KEYS, QUICK_NAV, type NavTarget } from '@shared/navigation'
-import { resourceByKind } from '@shared/resources'
+import { GO_KEYS, navLabel, QUICK_NAV } from '@shared/navigation'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { useUi } from '@renderer/state/ui'
-
-const label = (target: NavTarget) =>
-  target === 'overview' ? 'Overview' : resourceByKind(target).label
 
 const SECTIONS: {
   title: string
@@ -49,7 +45,7 @@ const SECTIONS: {
     shortcuts: GO_KEYS.map(({ key, target }) => {
       const quick = QUICK_NAV.indexOf(target)
       return {
-        label: label(target),
+        label: navLabel(target),
         keys: ['G', key.toUpperCase()],
         alt: quick >= 0 ? [MOD_KEY, String(quick + 1)] : undefined,
       }

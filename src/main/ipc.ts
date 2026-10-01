@@ -9,10 +9,12 @@ import {
 import { IPC, type AppInfo } from '@shared/api'
 import type { KubeService } from './kube/service'
 import type { Forwards, Terminals } from './kube/streams'
-import { isTheme, type SettingsStore } from './settings'
+import type { UsageHistory } from './kube/usage'
+import { isMetricsSourceSetting, isTheme, type SettingsStore } from './settings'
 
 interface Dependencies {
   kube: KubeService
+  usage: UsageHistory
   settings: SettingsStore
   terminals: Terminals
   forwards: Forwards
@@ -22,6 +24,7 @@ interface Dependencies {
 
 export function registerIpc({
   kube,
+  usage,
   settings,
   terminals,
   forwards,
@@ -62,6 +65,14 @@ export function registerIpc({
     }
     return settings.setReadOnly(context, readOnly)
   })
+  handle(IPC.setMetricsSource, (context, setting) => {
+    if (typeof context !== 'string' || context === '' || !isMetricsSourceSetting(setting)) {
+      throw new Error('Expected a context name and a metrics source')
+    }
+    const updated = settings.setMetricsSource(context, setting)
+    usage.forget(context)
+    return updated
+  })
   handle(IPC.openExternal, async (url) => {
     // Only hand web links to the OS (plain HTTP only for forwarded ports on this machine);
     // never file:// or custom protocol handlers.
@@ -81,6 +92,10 @@ export function registerIpc({
   handle(IPC.change, (request) => kube.change(request))
   handle(IPC.can, (context, checks) => kube.can(context, checks))
   handle(IPC.history, (query) => kube.history(query))
+  handle(IPC.usageSource, (context, refresh) => usage.source(context, refresh))
+  handle(IPC.usageTest, (context, service) => usage.test(context, service))
+  handle(IPC.usageRange, (query) => usage.range(query))
+  handle(IPC.usageInstant, (query) => usage.instant(query))
 
   handle(IPC.terminalOpen, (id, request) => terminals.open(id, request))
   on(IPC.terminalInput, (id, data) => terminals.write(id, data))

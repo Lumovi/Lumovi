@@ -19,6 +19,7 @@ import { RESOURCES, type ResourceDefinition } from '../../src/shared/resources.t
 import { suffix } from './builders.ts'
 import { Controllers, type Store } from './controllers.ts'
 import { jsonPatch, mergePatch, PatchError, strategicMergePatch } from './patch.ts'
+import { prometheusApi } from './prometheus.ts'
 import { streamingEndpoints } from './streams.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
@@ -960,6 +961,50 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     return { def, namespace, name, subresource }
   }
 
+  /**
+   * `/api/v1/namespaces/{ns}/services/{name}:{port}/proxy/…`: the services the
+   * fixture marks as Prometheus answer PromQL; Grafana serves its web page;
+   * anything else has no pods behind it.
+   */
+  function serviceProxy(
+    pathname: string,
+    params: URLSearchParams,
+  ): { status: number; body: string; contentType: string } | undefined {
+    const match = /^\/api\/v1\/namespaces\/([^/]+)\/services\/([^/]+)\/proxy(\/.*)?$/.exec(pathname)
+    if (!match) return undefined
+    const namespace = decodeURIComponent(match[1]!)
+    const [name, port] = decodeURIComponent(match[2]!).split(':') as [string, string | undefined]
+    if (denied({ verb: 'get', resource: 'services', subresource: 'proxy', namespace, name })) {
+      throw new HttpError(
+        403,
+        `services "${name}" is forbidden: User "kubestacks-demo" cannot get resource "services/proxy" in API group "" in the namespace "${namespace}"`,
+      )
+    }
+    const service = store$.get('Service', namespace, name)
+    if (!service) throw new HttpError(404, `services "${name}" not found`)
+    const ports: { name?: string; port: number }[] = service.spec.ports ?? []
+    if (port !== undefined && !ports.some((p) => p.name === port || String(p.port) === port)) {
+      throw new HttpError(503, `no endpoints available for service "${name}:${port}"`)
+    }
+    const backend = fixture.prometheus?.find((b) => b.namespace === namespace && b.service === name)
+    if (backend) {
+      const pods = [...store.values()].filter((o) => o.kind === 'Pod')
+      const sources = (fixture.metrics?.pods ?? []).flatMap((usage) => {
+        const pod = store$.get('Pod', usage.namespace, usage.name)
+        return pod ? [{ pod, containers: usage.containers }] : []
+      })
+      return prometheusApi(backend.flavor, match[3] ?? '/', params, sources, pods)
+    }
+    if (name === 'grafana') {
+      return {
+        status: 200,
+        body: '<!doctype html><title>Grafana</title>',
+        contentType: 'text/html',
+      }
+    }
+    throw new HttpError(503, `no endpoints available for service "${name}"`)
+  }
+
   function route(pathname: string, query: URLSearchParams): { body: Json; contentType?: string } {
     if (pathname === '/version' || pathname === '/version/') {
       const [, major = '1', minor = '34'] = gitVersion.match(/^v(\d+)\.(\d+)/) ?? []
@@ -1106,6 +1151,12 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       return
     }
     try {
+      const proxied =
+        req.method === 'GET' ? serviceProxy(url.pathname, url.searchParams) : undefined
+      if (proxied) {
+        send(req, res, proxied.status, proxied.body, proxied.contentType)
+        return
+      }
       if (req.method !== 'GET') {
         const contentType = String(req.headers['content-type'] ?? '')
           .split(';')[0]!

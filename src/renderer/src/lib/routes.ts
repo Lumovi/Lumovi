@@ -10,9 +10,14 @@ export function kindPath(context: string, kind: ResourceKind): string {
   return `${clusterPath(context)}/${resourceByKind(kind).plural}`
 }
 
-/** The route for the overview or a resource list. */
+export function metricsPath(context: string): string {
+  return `${clusterPath(context)}/metrics`
+}
+
+/** The route for the overview, the metrics or a resource list. */
 export function targetPath(context: string, target: NavTarget): string {
-  return target === 'overview' ? clusterPath(context) : kindPath(context, target)
+  if (target === 'overview') return clusterPath(context)
+  return target === 'metrics' ? metricsPath(context) : kindPath(context, target)
 }
 
 export interface ObjectRef {

@@ -2,13 +2,20 @@
  * Navigation shortcuts shared by the renderer's hotkeys and the native menu,
  * so the two always agree.
  */
-import type { ResourceKind } from './resources'
+import { resourceByKind, type ResourceKind } from './resources'
 
-export type NavTarget = 'overview' | ResourceKind
+export type NavTarget = 'overview' | 'metrics' | ResourceKind
+
+/** What a view is called in menus and the shortcut sheet. */
+export function navLabel(target: NavTarget): string {
+  if (target === 'overview') return 'Overview'
+  return target === 'metrics' ? 'Metrics' : resourceByKind(target).label
+}
 
 /** Press g, then a letter, to jump to a view. */
 export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'o', target: 'overview' },
+  { key: 'u', target: 'metrics' },
   { key: 'n', target: 'Node' },
   { key: 'm', target: 'Namespace' },
   { key: 'e', target: 'Event' },

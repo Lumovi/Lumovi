@@ -3,6 +3,7 @@ import { IPC } from '@shared/api'
 import { registerIpc } from './ipc'
 import { KubeConfigStore } from './kube/kubeconfig'
 import { KubeService } from './kube/service'
+import { UsageHistory } from './kube/usage'
 import { Forwards, Terminals } from './kube/streams'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
@@ -25,6 +26,7 @@ if (!app.requestSingleInstanceLock()) {
     const store = new KubeConfigStore()
     const isReadOnly = (context: string) => settings.isReadOnly(context)
     const kube = new KubeService(store, envReady, isReadOnly)
+    const usage = new UsageHistory(kube, (context) => settings.metricsSource(context))
     // The page loads asynchronously, so the handlers below are in place before it can call them.
     const win = createMainWindow(url, settings.get().window, (window) =>
       settings.update({ window }),
@@ -39,7 +41,7 @@ if (!app.requestSingleInstanceLock()) {
       exit: (id, exit) => send(IPC.terminalExit, id, exit),
     })
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
-    registerIpc({ kube, settings, terminals, forwards, rendererUrl: url })
+    registerIpc({ kube, usage, settings, terminals, forwards, rendererUrl: url })
     // Shells and forwards belong to the page that started them.
     const closeStreams = () => {
       terminals.closeAll()

@@ -32,6 +32,10 @@ export function sandboxCluster(now = Date.now()): ClusterFixture {
     labels: { component: 'apiserver', provider: 'kubernetes' },
     ports: [{ name: 'https', port: 443, targetPort: 6443 }],
   })
+  // An alias for an outside host: a service without ports.
+  b.simple('v1', 'Service', 'docs', 'default', DAY, {
+    spec: { type: 'ExternalName', externalName: 'docs.example.com' },
+  })
   const { metrics: _metrics, ...fixture } = b.build()
   return fixture
 }

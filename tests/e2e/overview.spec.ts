@@ -33,7 +33,23 @@ test.describe('demo cluster', () => {
     await expect(cpu).toContainText('Limits')
     const memory = page.getByRole('region', { name: 'Memory', exact: true })
     await expect(memory).toContainText('GiB in use')
-    await expect(memory).toContainText('Collecting usage…')
+    // With Prometheus, the trend covers the last hour, and leads to the history.
+    await expect(memory).toContainText('Last hour')
+    await memory.getByRole('button', { name: 'History' }).click()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Metrics')
+    await expect(
+      page.getByRole('group', { name: 'Metric' }).getByRole('button', { name: 'Memory' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('without history, the trend is what this session saw', async ({ launch }) => {
+    const { page } = await launch()
+    await page.evaluate(() => window.kubestacks.app.setMetricsSource('demo', { mode: 'off' }))
+    await openCluster(page)
+    const cpu = page.getByRole('region', { name: 'CPU', exact: true })
+    await expect(cpu).toContainText('Collecting usage…')
+    await expect(cpu).toContainText('Since you opened it', { timeout: 15_000 })
+    await expect(cpu.getByRole('button', { name: 'History' })).toHaveCount(0)
   })
 
   test('draws usage trends with a hover readout', async ({ page }) => {

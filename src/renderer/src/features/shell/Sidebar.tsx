@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Command } from 'cmdk'
-import { Check, ChevronsUpDown, LayoutDashboard, List, Lock } from 'lucide-react'
+import { ChartSpline, Check, ChevronsUpDown, LayoutDashboard, List, Lock } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
 import { NavLink } from 'react-router'
@@ -18,7 +18,7 @@ import { useReadOnly } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
-import { clusterPath, kindPath } from '@renderer/lib/routes'
+import { clusterPath, kindPath, metricsPath } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
@@ -95,6 +95,10 @@ export function Sidebar() {
         <NavItem end to={clusterPath(context)}>
           <LayoutDashboard className="size-4 text-ink-3" /> Overview
           <GoHint target="overview" />
+        </NavItem>
+        <NavItem to={metricsPath(context)}>
+          <ChartSpline className="size-4 text-ink-3" /> Metrics
+          <GoHint target="metrics" />
         </NavItem>
         {(Object.keys(CATEGORY_LABELS) as ResourceCategory[]).map((category) => (
           <div key={category} className="mt-4">

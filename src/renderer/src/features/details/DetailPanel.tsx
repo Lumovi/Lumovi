@@ -26,6 +26,7 @@ import { EventsTab } from './EventsTab'
 import { LogsTab } from './LogsTab'
 import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
+import { hasMetrics, MetricsTab } from '../metrics/MetricsTab'
 import { ShellTab } from './ShellTab'
 import { YamlTab } from './YamlTab'
 
@@ -254,6 +255,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
           { value: 'shell', label: 'Shell' },
         ]
       : []),
+    ...(hasMetrics(kind) ? [{ value: 'metrics', label: 'Metrics' }] : []),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'yaml', label: 'YAML' },
   ]
@@ -283,6 +285,11 @@ function DetailTabs({ object }: { object: KubeObject }) {
       {kind === 'Pod' && (
         <TabContent value="shell" className={cn(content, 'flex flex-col')}>
           <ShellTab pod={object} />
+        </TabContent>
+      )}
+      {hasMetrics(kind) && (
+        <TabContent value="metrics" className={cn(content, 'flex flex-col')}>
+          <MetricsTab object={object} />
         </TabContent>
       )}
       {kind !== 'Event' && (

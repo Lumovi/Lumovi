@@ -42,6 +42,11 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   from its notification where that makes sense.
 - **Hands-on when you need it.** Open a shell in any container, add a debug container with
   tools to a running pod (even distroless ones), and forward ports to pods and services.
+- **Usage over time.** KubeStacks finds your Prometheus or VictoriaMetrics and charts what
+  the cluster uses, from the last 15 minutes to the last week: a **Metrics** page that ranks
+  and compares namespaces, workloads, pods and nodes, with a distribution you can filter by,
+  and a **Metrics** tab on pods, workloads and nodes that sets usage against requests,
+  limits and capacity. Drag across any chart to zoom in.
 - **Many at once.** Pick rows (Shift-click for a range) to restart, cordon, suspend or
   delete them together, with progress per object and a retry for any that fail. Create
   objects from YAML, from a template or pasted, several at a time.
@@ -59,12 +64,13 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
 - **Light and dark.** Follows your system, or pick one. Native window controls match.
 
-|                                                          |                                                                |
-| -------------------------------------------------------- | -------------------------------------------------------------- |
-| ![Pods](docs/screenshots/pods-dark.png)                  | ![Pod details](docs/screenshots/pod-light.png)                 |
-| ![A shell in a pod](docs/screenshots/shell-dark.png)     | ![Scaling a deployment](docs/screenshots/scale-light.png)      |
-| ![Several pods selected](docs/screenshots/bulk-dark.png) | ![Create from YAML](docs/screenshots/create-light.png)         |
-| ![Logs](docs/screenshots/logs-dark.png)                  | ![Overview in light mode](docs/screenshots/overview-light.png) |
+|                                                          |                                                                  |
+| -------------------------------------------------------- | ---------------------------------------------------------------- |
+| ![Pods](docs/screenshots/pods-dark.png)                  | ![Pod details](docs/screenshots/pod-light.png)                   |
+| ![A shell in a pod](docs/screenshots/shell-dark.png)     | ![Scaling a deployment](docs/screenshots/scale-light.png)        |
+| ![Several pods selected](docs/screenshots/bulk-dark.png) | ![Create from YAML](docs/screenshots/create-light.png)           |
+| ![The Metrics page](docs/screenshots/metrics-dark.png)   | ![A pod's usage history](docs/screenshots/pod-metrics-light.png) |
+| ![Logs](docs/screenshots/logs-dark.png)                  | ![Overview in light mode](docs/screenshots/overview-light.png)   |
 
 ## Install
 
@@ -160,6 +166,23 @@ The guard rails:
 Shells run in a terminal in the pod's **Shell** tab (bash when the image has it, sh
 otherwise). Port forwards listen on `localhost` only, are listed under the plug icon in the
 header while they run, and stop when you stop them or quit.
+
+### Usage history
+
+Live usage comes from the metrics API (metrics-server), like `kubectl top`. History comes
+from a Prometheus-compatible server in the cluster, reached through the API server's
+service proxy with your own credentials, so nothing needs to be port-forwarded or exposed.
+
+- **Found automatically.** KubeStacks looks among the cluster's services for Prometheus
+  (kube-prometheus-stack, the Prometheus chart, kube-prometheus) and VictoriaMetrics
+  (single-node `vmsingle` and the cluster version's `vmselect`), and uses the first that
+  answers a query.
+- **Or chosen.** Open **Metrics source** from the chip on any chart, or from the command
+  palette, to pick a namespace, service, port and path (`/select/0/prometheus` for
+  vmselect), test it, or turn history off for that cluster.
+- **What it needs.** Your account needs `get` on `services/proxy` in the source's namespace.
+  Charts use cAdvisor's `container_*` metrics; restarts come from kube-state-metrics, which
+  also places pods on nodes when cAdvisor's series don't carry a `node` label.
 
 ## Development
 
