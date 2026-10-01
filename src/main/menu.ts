@@ -1,6 +1,6 @@
 import { Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { IPC } from '@shared/api'
-import { REPO_URL } from '@shared/app'
+import { REPO_URL, SPONSOR_URL } from '@shared/app'
 import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
 
 /**
@@ -72,6 +72,7 @@ export function buildMenu(win: BrowserWindow): Menu {
         { type: 'separator' },
         link('github', 'KubeStacks on GitHub', REPO_URL),
         link('issue', 'Report an Issue…', `${REPO_URL}/issues/new/choose`),
+        link('sponsor', 'Sponsor KubeStacks…', SPONSOR_URL),
       ],
     },
   ]

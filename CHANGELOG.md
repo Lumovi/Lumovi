@@ -6,6 +6,10 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Help → Sponsor KubeStacks…** opens the project's GitHub Sponsors page.
+
 ## [1.0.0] - 2026-10-01
 
 ### Added
