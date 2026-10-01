@@ -173,6 +173,10 @@ class LogSession {
     clearTimeout(stream.retry)
     if (this.#handlers.delete(stream.id)) api.logs.stop(stream.id)
     this.#streams.delete(stream.source.key)
+    // Its lines go too: a container switched away from, a pod that's gone.
+    const kept = (line: LogLine) => line.source !== stream.source.key
+    this.#lines = this.#lines.filter(kept)
+    this.#pending = this.#pending.filter(kept)
   }
 
   #schedule() {
