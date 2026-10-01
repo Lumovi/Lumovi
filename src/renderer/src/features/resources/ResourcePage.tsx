@@ -1,4 +1,4 @@
-import { Gauge, Info, Pin, PinOff, SearchX, Tag } from 'lucide-react'
+import { Gauge, Info, Pin, PinOff, SearchX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
@@ -12,27 +12,21 @@ import { IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
-import { HEALTH_STYLE } from '@renderer/components/Status'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
 import { useViews } from '@renderer/hooks/views'
 import type { KubeApiError } from '@renderer/lib/api'
-import { cn } from '@renderer/lib/cn'
-import {
-  HEALTH_RANK,
-  hasHealth,
-  healthName,
-  statusFor,
-  statusOf,
-  type Health,
-} from '@renderer/lib/health'
+import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
 import { fieldValue, viewFor } from '@renderer/lib/views'
+import { isWorkloadType } from '@renderer/lib/workloads'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { SelectionBar } from '../actions/BulkActions'
+import { WorkloadTabs } from '../workloads/WorkloadTabs'
 import { columnsFor, customColumnsFor, metricsKey, sortRows, type CellContext } from './columns'
 import { useListState } from './list-state'
+import { countBy, HealthChips, LabelSelector } from './ListToolbar'
 import { Pagination } from './Pagination'
 import { ResourceTable } from './ResourceTable'
 import { TableSkeleton } from './TableSkeleton'
@@ -41,10 +35,6 @@ const METRICS_TARGET: Partial<Record<ResourceKind, 'pods' | 'nodes'>> = {
   Pod: 'pods',
   Node: 'nodes',
 }
-
-const HEALTH_ORDER = (Object.keys(HEALTH_RANK) as Health[]).sort(
-  (a, b) => HEALTH_RANK[a] - HEALTH_RANK[b],
-)
 
 const number = new Intl.NumberFormat()
 
@@ -103,7 +93,6 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   })
   if (picked.scope !== scopeKey) setPicked({ scope: scopeKey, keys: new Set() })
   const labelsRef = useRef<HTMLInputElement>(null)
-  const [labelDraft, setLabelDraft] = useState(state.labels)
 
   const query = {
     namespace: resource.namespaced ? undefined : null,
@@ -148,13 +137,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
       : undefined,
   }
 
-  const counts = new Map<Health, number>()
-  if (withHealth) {
-    for (const object of items) {
-      const { health } = statusOf(kind, object)
-      counts.set(health, (counts.get(health) ?? 0) + 1)
-    }
-  }
+  const counts = countBy(withHealth ? items : [], (object) => statusOf(kind, object).health)
 
   const needle = state.q.trim().toLowerCase()
   const column = columns.find((c) => c.id === state.sort) ?? columns[0]!
@@ -220,7 +203,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           onPick={kind === 'Event' ? undefined : (keys) => setPicked({ scope: scopeKey, keys })}
         />
         <SelectionBar
-          kind={kind}
+          noun={noun}
           // Only what's on screen: rows hidden by a filter since stay out of it.
           objects={rows.filter((o) => picked.keys.has(objectKey(o)))}
           onClear={() => setPicked({ scope: scopeKey, keys: new Set() })}
@@ -238,32 +221,17 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
 
   return (
     <div className="relative flex h-full flex-col">
+      {isWorkloadType(kind) && <WorkloadTabs current={kind} />}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
         <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
           {number.format(items.length)} {items.length === 1 ? 'item' : 'items'}
         </span>
-        {HEALTH_ORDER.filter((h) => counts.has(h)).map((health) => {
-          const style = HEALTH_STYLE[health]
-          const active = state.health.includes(health)
-          return (
-            <button
-              key={health}
-              type="button"
-              aria-pressed={active}
-              onClick={() => toggleHealth(health)}
-              className={cn(
-                'flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors',
-                active
-                  ? 'border-transparent bg-ink-1 text-surface'
-                  : 'border-line text-ink-2 hover:border-line-strong hover:text-ink-1',
-              )}
-            >
-              <span aria-hidden className={cn('size-1.5 rounded-full', style.dot)} />
-              {healthName(kind, health)}
-              <span className="font-semibold tabular-nums">{counts.get(health)}</span>
-            </button>
-          )
-        })}
+        <HealthChips
+          counts={counts}
+          active={state.health}
+          onToggle={toggleHealth}
+          name={(health) => healthName(kind, health)}
+        />
         <div className="flex-1" />
         {!builtin && <PinButton kind={kind} label={resource.label} />}
         {metrics.data?.available === false && (
@@ -271,27 +239,11 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
             <Gauge className="size-3.5" /> Live usage needs metrics-server
           </span>
         )}
-        <label
-          className={cn(
-            'flex h-8 w-52 items-center gap-2 rounded-lg border bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
-            state.labels ? 'border-accent/60' : 'border-line',
-          )}
-        >
-          <Tag className="size-3.5 shrink-0" />
-          <input
-            ref={labelsRef}
-            aria-label="Label selector"
-            value={labelDraft}
-            onChange={(event) => setLabelDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') update({ labels: labelDraft.trim() })
-            }}
-            onBlur={() => setLabelDraft(state.labels)}
-            placeholder="Label selector, e.g. app=web"
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent font-mono text-xs text-ink-1 outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-ink-3"
-          />
-        </label>
+        <LabelSelector
+          ref={labelsRef}
+          value={state.labels}
+          onApply={(labels) => update({ labels })}
+        />
         <SearchInput
           value={state.q}
           onChange={(q) => update({ q })}

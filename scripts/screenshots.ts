@@ -42,6 +42,10 @@ async function session(
     BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 900),
   )
   await page.waitForTimeout(800)
+  // Screenshots don't show macOS's window controls, so lay out as full screen does.
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]!.emit('enter-full-screen'),
+  )
   await shoot(page, (n) => join(outDir, `${n}-${theme}.png`))
   await app.close()
 }
@@ -63,10 +67,17 @@ async function openRow(page: Page, text: string) {
 }
 
 async function nav(page: Page, label: string) {
-  await page
-    .getByRole('navigation', { name: 'Resources' })
-    .getByRole('link', { name: label, exact: true })
-    .click()
+  const sidebar = page.getByRole('navigation', { name: 'Resources' })
+  // A kind of workload is a tab of Workloads.
+  if (label === 'Deployments') {
+    await sidebar.getByRole('link', { name: 'Workloads', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Workload types' })
+      .getByRole('link', { name: /^Deployments/ })
+      .click()
+  } else {
+    await sidebar.getByRole('link', { name: label, exact: true }).click()
+  }
   await page.waitForTimeout(700)
 }
 
@@ -77,9 +88,8 @@ for (const theme of ['dark', 'light'] as const) {
     // Let a few metrics samples arrive so the trend lines have shape.
     await page.waitForTimeout(16_000)
     await page.screenshot({ path: file('overview') })
-
-    await nav(page, 'Pods')
-    await page.screenshot({ path: file('pods') })
+    await nav(page, 'Workloads')
+    await page.screenshot({ path: file('workloads') })
 
     await nav(page, 'Deployments')
     await openRow(page, DEMO.deployments.checkout)

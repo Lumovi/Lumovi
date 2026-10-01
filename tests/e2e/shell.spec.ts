@@ -82,7 +82,14 @@ test('the namespace picker scopes lists', async ({ page }) => {
   await goTo(page, 'Deployments')
   await expect(picker).toHaveText('shop')
   await picker.click()
-  await page.getByRole('option', { name: 'All namespaces' }).click()
+  // The option under the pointer, or reached with the arrow keys, stands out.
+  const all = page.getByRole('option', { name: 'All namespaces' })
+  const data = page.getByRole('option', { name: 'data', exact: true })
+  await data.hover()
+  await expect(data).toHaveAttribute('aria-selected', 'true')
+  await expect(data).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(all).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await all.click()
   await expect(picker).toHaveText('All namespaces')
 })
 
@@ -118,7 +125,10 @@ test('switches clusters from the sidebar', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('1/1')
 
   await page.getByRole('button', { name: 'Switch cluster' }).click()
-  await page.getByRole('option', { name: 'All clusters' }).click()
+  const all = page.getByRole('option', { name: 'All clusters' })
+  await all.hover()
+  await expect(all).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await all.click()
   await expect(page.getByRole('heading', { name: 'KubeStacks' })).toBeVisible()
 })
 

@@ -238,6 +238,13 @@
 :root:not([data-platform='darwin']) .titlebar-trailing {
   padding-right: 148px;
 }
+/* macOS draws its window controls at the top of the sidebar, except in full screen. */
+.traffic-lights {
+  display: none;
+}
+[data-platform='darwin']:not([data-fullscreen]) .traffic-lights {
+  display: block;
+}
 
 /*
  * Page transitions (View Transitions API): only the page content and its title

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   Blocks,
+  Boxes,
   ChartSpline,
   Check,
   ChevronsUpDown,
@@ -12,7 +13,7 @@ import {
 } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
-import { NavLink } from 'react-router'
+import { NavLink, useLocation } from 'react-router'
 import type { KubeContext } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import {
@@ -23,7 +24,7 @@ import {
 } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
-import { GithubMark, Logo } from '@renderer/components/Logo'
+import { GithubMark } from '@renderer/components/Logo'
 import { StatusDot } from '@renderer/components/Status'
 import { Switch } from '@renderer/components/Switch'
 import { useGo } from '@renderer/hooks/go'
@@ -40,6 +41,7 @@ import {
   helmPath,
   kindPath,
   metricsPath,
+  workloadsPath,
 } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
@@ -55,7 +57,9 @@ export const CATEGORY_LABELS: Record<ResourceCategory, string> = {
   storage: 'Storage',
 }
 
-const navItem = ({ isActive }: { isActive: boolean }) =>
+const SIDEBAR_CATEGORIES: ResourceCategory[] = ['cluster', 'network', 'config', 'storage']
+
+const navItem = (isActive: boolean) =>
   cn(
     'group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-100 no-drag',
     isActive
@@ -63,14 +67,33 @@ const navItem = ({ isActive }: { isActive: boolean }) =>
       : 'text-ink-2 hover:bg-surface-3/60 hover:text-ink-1',
   )
 
-/** A sidebar link that navigates with a page transition. */
-function NavItem({ to, end, children }: { to: string; end?: boolean; children: ReactNode }) {
+/** The lists Workloads leads to: its tabs, and the kinds that run them. */
+const WORKLOAD_PAGES = RESOURCES.filter((r) => r.category === 'workloads' && r.kind !== 'Pod').map(
+  (r) => r.plural,
+)
+
+/**
+ * A sidebar link that navigates with a page transition. It also shows as the
+ * current page on the routes in `also`.
+ */
+function NavItem({
+  to,
+  end,
+  also = [],
+  children,
+}: {
+  to: string
+  end?: boolean
+  also?: string[]
+  children: ReactNode
+}) {
   const go = useGo()
+  const page = useLocation().pathname.split('/')[3]!
   return (
     <NavLink
       end={end}
       to={to}
-      className={navItem}
+      className={({ isActive }) => navItem(isActive || also.includes(page))}
       onClick={(event) => {
         event.preventDefault()
         go(to)
@@ -96,28 +119,26 @@ function GoHint({ target }: { target: string }) {
 
 export function Sidebar() {
   const { context } = useCluster()
-  const go = useGo()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
   return (
     <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
-      <div className="titlebar-leading flex h-[52px] shrink-0 items-center px-3">
-        <button
-          type="button"
-          aria-label="All clusters"
-          onClick={() => go('/')}
-          className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors no-drag hover:bg-surface-3/60"
-        >
-          <Logo className="size-6" />
-          <span className="text-[14px] font-semibold tracking-[-0.01em]">KubeStacks</span>
-        </button>
-      </div>
-      <div className="px-3 pb-3">
+      {/* Room for macOS's window controls, which sit above the cluster. */}
+      <div aria-hidden className="traffic-lights h-10 shrink-0" />
+      <div className="p-3">
         <ClusterSwitcher />
       </div>
       <nav aria-label="Resources" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 no-drag">
         <NavItem end to={clusterPath(context)}>
           <LayoutDashboard className="size-4 text-ink-3" /> Overview
           <GoHint target="overview" />
+        </NavItem>
+        <NavItem to={workloadsPath(context)} also={WORKLOAD_PAGES}>
+          <Boxes className="size-4 text-ink-3" /> Workloads
+          <GoHint target="workloads" />
+        </NavItem>
+        <NavItem to={kindPath(context, 'Pod')}>
+          <KIND_ICONS.Pod className="size-4 text-ink-3" /> Pods
+          <GoHint target="Pod" />
         </NavItem>
         <NavItem to={metricsPath(context)}>
           <ChartSpline className="size-4 text-ink-3" /> Metrics
@@ -127,7 +148,8 @@ export function Sidebar() {
           <ShipWheel className="size-4 text-ink-3" /> Helm releases
           <GoHint target="helm" />
         </NavItem>
-        {(Object.keys(CATEGORY_LABELS) as ResourceCategory[]).map((category) => (
+        {/* Workloads and Pods lead to the workload kinds' lists. */}
+        {SIDEBAR_CATEGORIES.map((category) => (
           <div key={category} className="mt-4">
             <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
               {CATEGORY_LABELS[category]}

@@ -31,9 +31,17 @@ test.describe('keyboard shortcuts', () => {
   test('jump between views', async ({ page }) => {
     await openCluster(page)
     await page.keyboard.press('Meta+2')
+    await expect(heading(page)).toHaveText('Workloads')
+    await page.keyboard.press('Meta+3')
     await expect(heading(page)).toHaveText('Pods')
     await page.keyboard.press('Control+4')
     await expect(heading(page)).toHaveText('Services')
+    await page.keyboard.press('g')
+    await page.keyboard.press('w')
+    await expect(heading(page)).toHaveText('Workloads')
+    await page.keyboard.press('g')
+    await page.keyboard.press('d')
+    await expect(heading(page)).toHaveText('Deployments')
     await page.keyboard.press('g')
     await page.keyboard.press('n')
     await expect(heading(page)).toHaveText('Nodes')
@@ -62,7 +70,7 @@ test.describe('keyboard shortcuts', () => {
     await expect(heading(page)).toHaveText('Overview')
 
     // Typing in a field never triggers single-key shortcuts.
-    await page.keyboard.press('Meta+2')
+    await page.keyboard.press('Meta+3')
     await page.getByPlaceholder('Filter pods').fill('')
     await page.keyboard.press('g')
     await page.keyboard.press('n')
@@ -118,10 +126,10 @@ test('keys typed while a view opens reach it', async ({ kubestacks }) => {
   // Both commands arrive before the next view has rendered.
   await app.evaluate(({ Menu }) => {
     const menu = Menu.getApplicationMenu()!
-    menu.getMenuItemById('go:Deployment')!.click()
+    menu.getMenuItemById('go:workloads')!.click()
     menu.getMenuItemById('filter')!.click()
   })
-  const filter = page.getByPlaceholder('Filter deployments')
+  const filter = page.getByPlaceholder('Filter workloads')
   await expect(filter).toBeFocused()
   // Fast typing keeps every key, even while the URL catches up.
   await page.keyboard.type('storefront')
@@ -184,7 +192,11 @@ test('the header navigates back and forward', async ({ page }) => {
   await openCluster(page)
   await goTo(page, 'Jobs')
   await page.getByRole('button', { name: /^Back/ }).click()
+  await expect(heading(page)).toHaveText('Workloads')
+  await page.getByRole('button', { name: /^Back/ }).click()
   await expect(heading(page)).toHaveText('Overview')
+  await page.getByRole('button', { name: /^Forward/ }).click()
+  await expect(heading(page)).toHaveText('Workloads')
   await page.getByRole('button', { name: /^Forward/ }).click()
   await expect(heading(page)).toHaveText('Jobs')
   await expect(page).toHaveTitle(`Jobs · ${CONTEXTS.demo} — KubeStacks`)
@@ -197,7 +209,10 @@ test.describe('when things go wrong', () => {
     const broken = demoCluster().objects.find((o) => o.kind === 'Deployment')!
     clusters.demo.upsert({ ...broken, spec: { ...broken.spec, template: undefined } })
     await openCluster(page)
-    await goTo(page, 'Deployments')
+    await page
+      .getByRole('navigation', { name: 'Resources' })
+      .getByRole('link', { name: 'Workloads', exact: true })
+      .click()
     const alert = page.getByRole('alert')
     await expect(alert).toContainText('Something went wrong')
     await expect(alert).toContainText('Your clusters were not changed.')
@@ -430,7 +445,11 @@ test.describe('overview', () => {
     await expect(heading(page)).toHaveText('Nodes')
     await page.keyboard.press('Meta+1')
     await page.getByRole('region', { name: 'Workloads healthy' }).getByRole('button').click()
-    await expect(heading(page)).toHaveText('Deployments')
+    await expect(heading(page)).toHaveText('Workloads')
+    await expect(page.getByRole('button', { name: /^Failing/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   test('needs attention can show everything', async ({ page }) => {
@@ -522,13 +541,32 @@ test('the cluster switcher filters clusters', async ({ page }) => {
   await expect(page.getByRole('option', { name: /^demo/ })).toBeVisible()
 })
 
-test('the sidebar logo returns to all clusters', async ({ page }) => {
+test('the sidebar leaves room for macOS’s window controls, except in full screen', async ({
+  kubestacks,
+}) => {
+  const { app, page } = kubestacks
   await openCluster(page)
-  await page
-    .getByRole('complementary', { name: 'Sidebar' })
-    .getByRole('button', { name: 'All clusters' })
-    .click()
-  await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+  const room = page.getByRole('complementary', { name: 'Sidebar' }).locator('.traffic-lights')
+  // Windows and Linux draw theirs on the right, over the header.
+  await expect(room).toBeVisible({ visible: process.platform === 'darwin' })
+  const fullScreen = (on: boolean) =>
+    app.evaluate(({ BrowserWindow }, on) => {
+      BrowserWindow.getAllWindows()[0]!.emit(on ? 'enter-full-screen' : 'leave-full-screen')
+    }, on)
+  await fullScreen(true)
+  await expect(page.locator('html')).toHaveAttribute('data-fullscreen', '')
+  await expect(room).toBeHidden()
+  await fullScreen(false)
+  await expect(page.locator('html')).not.toHaveAttribute('data-fullscreen')
+  await expect(room).toBeVisible({ visible: process.platform === 'darwin' })
+
+  // A page reloaded in full screen knows it is.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]!.isFullScreen = () => true
+  })
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-fullscreen', '')
+  await expect(room).toBeHidden()
 })
 
 test('the window remembers its size and position', async ({ launch }) => {

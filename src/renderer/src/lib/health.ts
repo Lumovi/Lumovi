@@ -279,7 +279,8 @@ function phaseStatus(phase: string, detail?: string): Status {
   return { health, label: phase, ...(detail ? { detail } : {}) }
 }
 
-const DEFAULT_NAMES: Record<Health, string> = {
+/** What each health level is called where no kind gives it a name of its own. */
+export const HEALTH_NAMES: Record<Health, string> = {
   healthy: 'Healthy',
   progressing: 'In progress',
   warning: 'Warning',
@@ -303,5 +304,5 @@ const NAMES: Partial<Record<BuiltinKind, Partial<Record<Health, string>>>> = {
 }
 
 export function healthName(kind: ResourceKind, health: Health): string {
-  return (isBuiltinKind(kind) ? NAMES[kind]?.[health] : undefined) ?? DEFAULT_NAMES[health]
+  return (isBuiltinKind(kind) ? NAMES[kind]?.[health] : undefined) ?? HEALTH_NAMES[health]
 }

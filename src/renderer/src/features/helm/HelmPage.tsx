@@ -5,16 +5,16 @@ import type { HelmRelease, KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
-import { HEALTH_STYLE, StatusPill } from '@renderer/components/Status'
+import { StatusPill } from '@renderer/components/Status'
 import { useHelmReleases } from '@renderer/hooks/helm'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { KubeApiError } from '@renderer/lib/api'
-import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { HEALTH_RANK, type Health } from '@renderer/lib/health'
 import { releaseStatus } from '@renderer/lib/helm'
 import { useCluster } from '@renderer/state/cluster'
 import { nameColumn, sortRows, type CellContext, type Column } from '../resources/columns'
+import { countBy, HealthChips } from '../resources/ListToolbar'
 import { ResourceTable } from '../resources/ResourceTable'
 import { TableSkeleton } from '../resources/TableSkeleton'
 import { DeployDialog } from './DeployDialog'
@@ -81,10 +81,6 @@ const COLUMNS: Column[] = [
   },
 ]
 
-const HEALTH_ORDER = (Object.keys(HEALTH_RANK) as Health[]).sort(
-  (a, b) => HEALTH_RANK[a] - HEALTH_RANK[b],
-)
-
 /** Every Helm release in the cluster (or the namespace picked), read from Helm's own records. */
 export function HelmPage() {
   const { namespace } = useCluster()
@@ -101,11 +97,7 @@ export function HelmPage() {
     metadata: { name: r.name, namespace: r.namespace, uid: `${r.namespace}/${r.name}` },
     release: r,
   }))
-  const counts = new Map<Health, number>()
-  for (const row of rows) {
-    const h = releaseStatus(row.release.status).health
-    counts.set(h, (counts.get(h) ?? 0) + 1)
-  }
+  const counts = countBy(rows, (row) => releaseStatus(row.release.status).health)
   const needle = filter.trim().toLowerCase()
   const open = (o: KubeObject) =>
     updateParams((p) => p.set('release', `${o.metadata.namespace}/${o.metadata.name}`))
@@ -178,27 +170,14 @@ export function HelmPage() {
         <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
           {rows.length} {rows.length === 1 ? 'release' : 'releases'}
         </span>
-        {HEALTH_ORDER.filter((h) => counts.has(h)).map((h) => {
-          const active = health.includes(h)
-          return (
-            <button
-              key={h}
-              type="button"
-              aria-pressed={active}
-              onClick={() => setHealth(active ? health.filter((x) => x !== h) : [...health, h])}
-              className={cn(
-                'flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors',
-                active
-                  ? 'border-transparent bg-ink-1 text-surface'
-                  : 'border-line text-ink-2 hover:border-line-strong hover:text-ink-1',
-              )}
-            >
-              <span aria-hidden className={cn('size-1.5 rounded-full', HEALTH_STYLE[h].dot)} />
-              {RELEASE_HEALTH_NAMES[h]}
-              <span className="font-semibold tabular-nums">{counts.get(h)}</span>
-            </button>
-          )
-        })}
+        <HealthChips
+          counts={counts}
+          active={health}
+          onToggle={(h) =>
+            setHealth(health.includes(h) ? health.filter((x) => x !== h) : [...health, h])
+          }
+          name={(h) => RELEASE_HEALTH_NAMES[h]}
+        />
         <div className="flex-1" />
         <Button variant="secondary" onClick={() => setInstalling(true)}>
           <PackagePlus /> Install chart

@@ -17,6 +17,7 @@ import {
   Settings2,
   ShipWheel,
   Sun,
+  Boxes,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
@@ -38,6 +39,7 @@ import {
   formatRef,
   kindPath,
   metricsPath,
+  workloadsPath,
   parseRef,
 } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
@@ -166,6 +168,14 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => go(clusterPath(context)))}
           >
             Overview
+          </Item>
+          <Item
+            icon={<Boxes />}
+            value="Workloads"
+            hint={<Keys keys={['G', 'W']} />}
+            onSelect={run(() => go(workloadsPath(context)))}
+          >
+            Workloads
           </Item>
           <Item
             icon={<ChartSpline />}

@@ -72,6 +72,7 @@ export function ResourceTable({
   resetKey,
   picked,
   onPick,
+  rowKey = objectKey,
 }: {
   ref?: Ref<HTMLDivElement>
   label: string
@@ -91,6 +92,8 @@ export function ResourceTable({
   /** Rows picked for bulk actions, by object key; the table shows checkboxes when set. */
   picked?: ReadonlySet<string>
   onPick?: (keys: Set<string>) => void
+  /** Each row's identity, for selection and picking: `namespace/name` unless kinds mix. */
+  rowKey?: (object: KubeObject) => string
 }) {
   const id = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -132,8 +135,8 @@ export function ResourceTable({
     ].join(' '),
     minWidth: minWidth(visible) + (selectable ? PICK_WIDTH : 0),
   }
-  const keyOf = (index: number) => objectKey(rows[index]!)
-  const pickedOnPage = rows.filter((object) => picked?.has(objectKey(object))).length
+  const keyOf = (index: number) => rowKey(rows[index]!)
+  const pickedOnPage = rows.filter((object) => picked?.has(rowKey(object))).length
   const pick = (index: number, range: boolean) => {
     const next = new Set(picked)
     const on = !next.has(keyOf(index))
@@ -150,8 +153,8 @@ export function ResourceTable({
   const pickPage = (on: boolean) => {
     const next = new Set(picked)
     for (const object of rows) {
-      if (on) next.add(objectKey(object))
-      else next.delete(objectKey(object))
+      if (on) next.add(rowKey(object))
+      else next.delete(rowKey(object))
     }
     onPick!(next)
   }
@@ -293,7 +296,7 @@ export function ResourceTable({
           >
             {virtualizer.getVirtualItems().map((item) => {
               const object = rows[item.index]!
-              const key = objectKey(object)
+              const key = rowKey(object)
               return (
                 <div
                   key={key}

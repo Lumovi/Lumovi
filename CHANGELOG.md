@@ -26,6 +26,11 @@ All notable changes to KubeStacks are documented here. The format follows
   for cert-manager, Argo CD and Rollouts, Flux, Gateway API, Karpenter, KEDA, External
   Secrets, the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane are
   included, and your own in `~/.kubestacks/views` replace them (see docs/views.md).
+- Workloads: every Deployment, StatefulSet, DaemonSet, Job, CronJob and unmanaged pod in
+  one list, with status, ready pods, autoscaler ranges and usage per workload, filters by
+  health and labels, and bulk actions across kinds. Each
+  kind's own list is a tab away. The sidebar leads with Workloads and Pods; ReplicaSets and
+  autoscalers are reached from their owners and ⌘K.
 - Helm releases: every release read from where Helm 3 and 4 keep them (Secrets or
   ConfigMaps, no helm needed), with their status, values (alone or with the chart's
   defaults), the objects they made and their live status, notes, and revisions diffed

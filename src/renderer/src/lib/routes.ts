@@ -13,6 +13,11 @@ export function kindPath(context: string, kind: ResourceKind): string {
     : `${clusterPath(context)}/r/${encodeURIComponent(kind)}`
 }
 
+/** Every workload, whatever its kind. */
+export function workloadsPath(context: string): string {
+  return `${clusterPath(context)}/workloads`
+}
+
 export function metricsPath(context: string): string {
   return `${clusterPath(context)}/metrics`
 }
@@ -27,11 +32,16 @@ export function apiResourcesPath(context: string): string {
   return `${clusterPath(context)}/api-resources`
 }
 
-/** The route for the overview, the metrics or a resource list. */
+const PAGES: Partial<Record<NavTarget, (context: string) => string>> = {
+  overview: clusterPath,
+  workloads: workloadsPath,
+  metrics: metricsPath,
+  helm: helmPath,
+}
+
+/** The route for a page, or a resource list. */
 export function targetPath(context: string, target: NavTarget): string {
-  if (target === 'overview') return clusterPath(context)
-  if (target === 'helm') return helmPath(context)
-  return target === 'metrics' ? metricsPath(context) : kindPath(context, target)
+  return (PAGES[target] ?? ((c: string) => kindPath(c, target)))(context)
 }
 
 export interface ObjectRef {
