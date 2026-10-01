@@ -22,6 +22,13 @@ test('change container images, then undo', async ({ page, clusters }) => {
     .toBe('ghcr.io/acme/storefront:'.length)
   await page.keyboard.type('v3.9.0')
   await expect(app).toHaveValue('ghcr.io/acme/storefront:v3.9.0')
+  // Coming back to it selects what's there, like any field, rather than the tag again.
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(app).toBeFocused()
+  await expect
+    .poll(() => app.evaluate((input: HTMLInputElement) => input.selectionStart))
+    .toBe(0)
   await expect(images).toContainText(
     'kubectl set image deployment/storefront app=ghcr.io/acme/storefront:v3.9.0',
   )

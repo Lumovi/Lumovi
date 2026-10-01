@@ -126,6 +126,7 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
     return Promise.all([
       call(kube.list(loose(null))),
       call(kube.list(loose('pods'))),
+      call(kube.list(loose({ context: 'demo', kind: '../secrets' }))),
       call(kube.list(loose({ context: 'demo', kind: 'Widget' }))),
       call(kube.list(loose({ context: 'demo', kind: 'Pod', namespace: 5 }))),
       call(kube.list(loose({ context: '', kind: 'Pod' }))),
@@ -163,7 +164,9 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
   expect(errors).toEqual([
     'invalid: Expected a query object',
     'invalid: Expected a query object',
-    'invalid: Unknown resource kind "Widget"',
+    'invalid: Unknown resource kind "../secrets"',
+    // The cluster serves Widget.example.com, not a Widget in the core group.
+    'not-found: demo doesn’t serve Widget resources.',
     'invalid: namespace must be a non-empty string',
     'invalid: context must be a non-empty string',
     'invalid: name must be a non-empty string',

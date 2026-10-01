@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   ArrowRight,
+  Blocks,
   ChartSpline,
   LayoutDashboard,
   Plus,
@@ -10,10 +11,11 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { resourceByPlural } from '@shared/resources'
+import { apiKindOf, resourceByPlural } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
-import { KIND_ICONS } from '@renderer/components/KindIcon'
+import { KindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { useResource } from '@renderer/hooks/resources'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
@@ -28,11 +30,20 @@ export function Header() {
   const setPalette = useUi((ui) => ui.setPalette)
   const setCreate = useUi((ui) => ui.setCreate)
   const [refreshing, setRefreshing] = useState(false)
-  const page = useLocation().pathname.split('/')[3] ?? ''
-  const resource = resourceByPlural(page)
+  const [page = '', custom] = useLocation().pathname.split('/').slice(3)
+  // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
+  const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
+  const resource = useResource(kind).resource
   const metrics = page === 'metrics'
-  const Icon = resource ? KIND_ICONS[resource.kind] : metrics ? ChartSpline : LayoutDashboard
-  const title = resource?.label ?? (metrics ? 'Metrics' : 'Overview')
+  const browse = page === 'api-resources'
+  const PageIcon = metrics ? ChartSpline : browse ? Blocks : LayoutDashboard
+  const title = kind
+    ? (resource?.label ?? apiKindOf(kind))
+    : metrics
+      ? 'Metrics'
+      : browse
+        ? 'API resources'
+        : 'Overview'
 
   useEffect(() => {
     // Shown in the Dock, the task switcher and Mission Control.
@@ -56,10 +67,14 @@ export function Header() {
         </IconButton>
       </div>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-1 [view-transition-name:page-title]">
-        <Icon className="size-4 shrink-0 text-ink-3" />
+        {kind ? (
+          <KindIcon kind={kind} className="size-4 shrink-0 text-ink-3" />
+        ) : (
+          <PageIcon className="size-4 shrink-0 text-ink-3" />
+        )}
         <h1 className="truncate text-[14px] font-semibold tracking-[-0.01em]">{title}</h1>
       </div>
-      <NamespacePicker clusterScoped={resource?.namespaced === false} />
+      <NamespacePicker clusterScoped={Boolean(kind) && resource?.namespaced === false} />
       <button
         type="button"
         onClick={() => setPalette(true)}

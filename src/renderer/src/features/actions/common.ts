@@ -1,6 +1,8 @@
 import type { KubeObject } from '@shared/api'
-import { resourceByKind, type ResourceKind } from '@shared/resources'
+import { kindOf } from '@shared/resources'
 import type { ClusterChange } from '@renderer/hooks/change'
+
+export { kindOf }
 
 /** What every action dialog is given. */
 export interface ActionProps {
@@ -8,20 +10,18 @@ export interface ActionProps {
   onClose: () => void
 }
 
-export const kindOf = (object: KubeObject) => object.kind as ResourceKind
-
 /** "Deployment · shop", or just the kind for cluster-wide objects. */
 export function subjectOf(object: KubeObject): string {
   const { namespace } = object.metadata
   return namespace ? `${object.kind} · ${namespace}` : object.kind!
 }
 
-/** The part of a change request that names `object`. */
+/** The part of a change request that names `object` (cluster-wide objects have no namespace). */
 export function target(object: KubeObject): Pick<ClusterChange, 'kind' | 'name' | 'namespace'> {
   return {
     kind: kindOf(object),
     name: object.metadata.name,
-    namespace: resourceByKind(kindOf(object)).namespaced ? object.metadata.namespace : undefined,
+    namespace: object.metadata.namespace,
   }
 }
 

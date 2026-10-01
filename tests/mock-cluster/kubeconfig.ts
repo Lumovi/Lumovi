@@ -135,7 +135,13 @@ export async function startTestClusters(
       gitVersion: DEMO.gitVersion,
       jitter: options.jitter,
     }),
-    startMockCluster({ fixture: () => sandboxCluster(), gitVersion: SANDBOX.gitVersion }),
+    // An older cluster: discovery one API group at a time, and no OpenAPI v3.
+    startMockCluster({
+      fixture: () => sandboxCluster(),
+      gitVersion: SANDBOX.gitVersion,
+      aggregatedDiscovery: false,
+      openApi: false,
+    }),
     startMockCluster({
       fixture: () => largeCluster(),
       tls: true,

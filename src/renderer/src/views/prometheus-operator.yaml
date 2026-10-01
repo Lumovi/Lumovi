@@ -1,0 +1,68 @@
+# Prometheus operator (https://prometheus-operator.dev), as kube-prometheus-stack installs it.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: prometheus-operator-servers
+spec:
+  kinds:
+    - { group: monitoring.coreos.com, kind: Prometheus }
+    - { group: monitoring.coreos.com, kind: Alertmanager }
+  icon: activity
+  columns:
+    - { name: Version, path: .spec.version }
+    - { name: Replicas, path: .spec.replicas, type: number, default: '1' }
+    - { name: Available, path: .status.availableReplicas, type: number, default: '0' }
+    - { name: Retention, path: .spec.retention }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Reconciled")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Reconciled")].reason ?? "Not reconciled" }}'
+      detail: '{{ .status.conditions[?(@.type=="Reconciled")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Available")].status', equals: 'True' }
+      health: healthy
+      label: Available
+    - when: { path: '.status.conditions[?(@.type=="Available")].status', equals: Degraded }
+      health: warning
+      label: Degraded
+      detail: '{{ .status.conditions[?(@.type=="Available")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Available")].status', equals: 'False' }
+      health: critical
+      label: Unavailable
+      detail: '{{ .status.conditions[?(@.type=="Available")].message }}'
+  details:
+    - { name: Version, path: .spec.version }
+    - { name: Retention, path: .spec.retention }
+    - { name: Shards, path: .spec.shards, type: number }
+    - { name: External URL, path: .spec.externalUrl }
+    - { name: Scrape interval, path: .spec.scrapeInterval }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: prometheus-operator-monitors
+spec:
+  kinds:
+    - { group: monitoring.coreos.com, kind: ServiceMonitor }
+    - { group: monitoring.coreos.com, kind: PodMonitor }
+  icon: radar
+  columns:
+    - { name: Ports, path: '.spec.endpoints[*].port' }
+    - { name: Pod ports, path: '.spec.podMetricsEndpoints[*].port' }
+    - { name: Intervals, path: '.spec.endpoints[*].interval' }
+  details:
+    - { name: Endpoints, path: '.spec.endpoints', type: count }
+    - { name: Namespaces, path: '.spec.namespaceSelector.matchNames[*]', default: its own }
+    - { name: Job label, path: .spec.jobLabel }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: prometheus-operator-rules
+spec:
+  kinds:
+    - { group: monitoring.coreos.com, kind: PrometheusRule }
+  icon: bell
+  columns:
+    - { name: Groups, path: '.spec.groups', type: count }
+    - { name: Rules, path: '.spec.groups[*].rules[*]', type: count }
+    - { name: Alerts, path: '.spec.groups[*].rules[*].alert' }

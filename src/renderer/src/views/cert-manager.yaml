@@ -1,0 +1,99 @@
+# cert-manager (https://cert-manager.io): certificates, their requests, and issuers.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cert-manager-certificates
+spec:
+  kinds:
+    - { group: cert-manager.io, kind: Certificate }
+  icon: shield-check
+  columns:
+    - { name: Hosts, path: '.spec.dnsNames[*]' }
+    - { name: Secret, path: .spec.secretName }
+    - { name: Expires, path: .status.notAfter, type: date }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Issuing")].status', equals: 'True' }
+      health: progressing
+      label: Issuing
+      detail: '{{ .status.conditions[?(@.type=="Issuing")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: Hosts, path: '.spec.dnsNames[*]' }
+    - { name: Issuer, path: .spec.issuerRef.name }
+    - { name: Valid from, path: .status.notBefore, type: date }
+    - { name: Expires, path: .status.notAfter, type: date }
+    - { name: Renews, path: .status.renewalTime, type: date }
+    - { name: Lifetime, path: .spec.duration, default: 90 days (the default) }
+    - { name: Failed attempts, path: .status.failedIssuanceAttempts, type: number }
+  links:
+    - name: Secret
+      kind: Secret
+      objectName: '{{ .spec.secretName }}'
+    - name: Issuer
+      kind: '{{ .spec.issuerRef.kind ?? "Issuer" }}.cert-manager.io'
+      objectName: '{{ .spec.issuerRef.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cert-manager-certificate-requests
+spec:
+  kinds:
+    - { group: cert-manager.io, kind: CertificateRequest }
+  icon: shield-check
+  columns:
+    - { name: Approved, path: '.status.conditions[?(@.type=="Approved")].status' }
+    - { name: Issuer, path: .spec.issuerRef.name }
+    - { name: Requester, path: .spec.username }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Denied")].status', equals: 'True' }
+      health: critical
+      label: Denied
+      detail: '{{ .status.conditions[?(@.type=="Denied")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Issued
+    - when: { path: '.status.conditions[?(@.type=="Ready")].reason', equals: Pending }
+      health: progressing
+      label: Pending
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Failed" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  links:
+    - name: Certificate
+      kind: Certificate.cert-manager.io
+      objectName: "{{ .metadata.annotations['cert-manager.io/certificate-name'] }}"
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cert-manager-issuers
+spec:
+  kinds:
+    - { group: cert-manager.io, kind: ClusterIssuer }
+    - { group: cert-manager.io, kind: Issuer }
+  icon: key-round
+  columns:
+    - { name: ACME server, path: .spec.acme.server }
+    - { name: Email, path: .spec.acme.email }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: ACME server, path: .spec.acme.server }
+    - { name: Email, path: .spec.acme.email }
+    - { name: CA secret, path: .spec.ca.secretName }
+    - { name: Vault server, path: .spec.vault.server }

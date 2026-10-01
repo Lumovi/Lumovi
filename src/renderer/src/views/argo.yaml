@@ -1,0 +1,134 @@
+# Argo CD (https://argo-cd.readthedocs.io) and Argo Rollouts (https://argoproj.github.io/rollouts).
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: argo-cd-applications
+spec:
+  kinds:
+    - { group: argoproj.io, kind: Application }
+  icon: git-branch
+  columns:
+    - { name: Sync, path: .status.sync.status }
+    - { name: Repository, path: .spec.source.repoURL }
+    - { name: Path, path: .spec.source.path }
+    - { name: Destination, path: .spec.destination.namespace }
+  status:
+    - when: { path: .status.health.status, equals: Healthy }
+      health: healthy
+      label: Healthy
+    - when: { path: .status.health.status, equals: Progressing }
+      health: progressing
+      label: Progressing
+      detail: '{{ .status.health.message }}'
+    - when: { path: .status.health.status, equals: Degraded }
+      health: critical
+      label: Degraded
+      detail: '{{ .status.health.message }}'
+    - when: { path: .status.health.status, equals: Missing }
+      health: warning
+      label: Missing
+      detail: '{{ .status.health.message }}'
+    - when: { path: .status.health.status, equals: Suspended }
+      health: neutral
+      label: Suspended
+    - health: neutral
+      label: '{{ .status.health.status ?? "Unknown" }}'
+  details:
+    - { name: Project, path: .spec.project }
+    - { name: Sync, path: .status.sync.status }
+    - { name: Repository, path: .spec.source.repoURL }
+    - { name: Path, path: .spec.source.path }
+    - { name: Target revision, path: .spec.source.targetRevision, default: HEAD }
+    - { name: Synced revision, path: .status.sync.revision }
+    - { name: Destination, path: .spec.destination.server }
+    - { name: Auto-sync, path: .spec.syncPolicy.automated, type: boolean, default: 'No' }
+    - { name: Last synced, path: .status.operationState.finishedAt, type: date }
+    - { name: Last checked, path: .status.reconciledAt, type: date }
+  links:
+    - name: Destination
+      kind: Namespace
+      objectName: '{{ .spec.destination.namespace }}'
+  actions:
+    - name: Sync
+      icon: refresh-cw
+      primary: true
+      # Argo CD starts an operation it finds on the application; none may be running already.
+      when: { path: .operation, exists: false }
+      patch:
+        operation:
+          initiatedBy: { username: kubestacks }
+          sync: { syncStrategy: { hook: {} } }
+      done: Started syncing {{ .metadata.name }}
+    - name: Refresh
+      icon: radar
+      patch:
+        metadata:
+          annotations: { argocd.argoproj.io/refresh: normal }
+      done: Asked Argo CD to compare {{ .metadata.name }} with its repository
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: argo-rollouts
+spec:
+  kinds:
+    - { group: argoproj.io, kind: Rollout }
+  icon: rocket
+  columns:
+    - { name: Desired, path: .spec.replicas, type: number }
+    - { name: Ready, path: .status.readyReplicas, type: number, default: '0' }
+    - { name: Updated, path: .status.updatedReplicas, type: number, default: '0' }
+    - { name: Steps, path: '.spec.strategy.canary.steps', type: count }
+  status:
+    - when: { path: .status.abort, equals: true }
+      health: critical
+      label: Aborted
+      detail: '{{ .status.message }}'
+    - when: { path: .status.phase, equals: Healthy }
+      health: healthy
+      label: Healthy
+    - when: { path: .status.phase, equals: Paused }
+      health: neutral
+      label: Paused
+      detail: '{{ .status.message }}'
+    - when: { path: .status.phase, equals: Degraded }
+      health: critical
+      label: Degraded
+      detail: '{{ .status.message }}'
+    - when: { path: .status.phase, exists: true }
+      health: progressing
+      label: '{{ .status.phase }}'
+      detail: '{{ .status.message }}'
+  details:
+    - { name: Phase, path: .status.phase }
+    - { name: Step, path: .status.currentStepIndex, type: number }
+    - { name: Canary steps, path: '.spec.strategy.canary.steps', type: count }
+    - { name: Stable, path: .status.stableRS }
+    - { name: Restarted, path: .spec.restartAt, type: date }
+  actions:
+    - name: Promote
+      icon: rocket
+      primary: true
+      when: { path: '.status.pauseConditions[0]', exists: true }
+      subresource: status
+      patch: { status: { pauseConditions: null } }
+      done: Promoted {{ .metadata.name }} to its next step
+    - name: Resume
+      icon: rocket
+      primary: true
+      when: { path: .spec.paused, equals: true }
+      patch: { spec: { paused: false } }
+      undo: { spec: { paused: true } }
+      done: Resumed {{ .metadata.name }}
+    - name: Restart
+      icon: refresh-cw
+      confirm: Its pods are replaced a few at a time, as its strategy says.
+      patch: { spec: { restartAt: '{{ now }}' } }
+      done: Restarted {{ .metadata.name }}
+    - name: Abort
+      danger: true
+      when: { path: .status.phase, in: [Progressing, Paused] }
+      confirm: The rollout stops and traffic goes back to the stable version. It stays aborted until it's promoted or changed again.
+      subresource: status
+      patch: { status: { abort: true } }
+      done: Aborted the rollout of {{ .metadata.name }}

@@ -1,8 +1,12 @@
+import { useQuery } from '@tanstack/react-query'
 import { ArrowUpDown, Info } from 'lucide-react'
 import { useState } from 'react'
+import { isBuiltinKind } from '@shared/resources'
+import { Loading } from '@renderer/components/States'
 import { Stepper } from '@renderer/components/Stepper'
-import { useChange } from '@renderer/hooks/change'
+import { useChange, type ClusterChange } from '@renderer/hooks/change'
 import { useList } from '@renderer/hooks/queries'
+import { api, unwrap } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
@@ -13,12 +17,61 @@ const PRESETS = [0, 1, 2, 3, 5, 10]
 /** Beyond this many pods the preview summarises instead of drawing each one. */
 const MAX_DOTS = 24
 
+/**
+ * Scales a workload: built-in ones through their spec, custom ones through
+ * the scale subresource, which knows where their replicas are.
+ */
 export function ScaleDialog({ object, onClose }: ActionProps) {
+  const { context } = useCluster()
+  const { name, namespace } = object.metadata
+  const kind = kindOf(object)
+  const builtin = isBuiltinKind(kind)
+  const scale = useQuery({
+    queryKey: ['object', context, kind, namespace, name, 'scale'],
+    queryFn: () => unwrap(api.kube.get({ context, kind, name, namespace, subresource: 'scale' })),
+    enabled: !builtin,
+    // Read afresh each time the dialog opens: scaling is about how many there are now.
+    gcTime: 0,
+  })
+  // The API server defaults built-in workloads' replicas, so they're always set.
+  const current: number | undefined = builtin ? object.spec.replicas : scale.data?.spec.replicas
+  const scaleTo = (to: number): ClusterChange => ({
+    ...target(object),
+    change: {
+      action: 'patch',
+      patchType: 'merge',
+      ...(builtin ? {} : { subresource: 'scale' as const }),
+      patch: { spec: { replicas: to } },
+    },
+  })
+  return (
+    <ScaleForm
+      // Starts over once the replicas are known.
+      key={current === undefined ? 'reading' : 'read'}
+      object={object}
+      current={current}
+      readError={scale.error?.message}
+      scaleTo={scaleTo}
+      onClose={onClose}
+    />
+  )
+}
+
+function ScaleForm({
+  object,
+  current,
+  readError,
+  scaleTo,
+  onClose,
+}: ActionProps & {
+  /** Unknown while it's being read. */
+  current: number | undefined
+  readError?: string
+  scaleTo: (to: number) => ClusterChange
+}) {
   const { context } = useCluster()
   const change = useChange()
   const { name, namespace } = object.metadata
-  // The API server defaults replicas, so it is always set.
-  const current: number = object.spec.replicas
   const [replicas, setReplicas] = useState(current)
   const { pending, error, submit } = useSubmit(onClose)
   const autoscaler = useList('HorizontalPodAutoscaler', { namespace }).data?.find(
@@ -26,18 +79,15 @@ export function ScaleDialog({ object, onClose }: ActionProps) {
       hpa.spec.scaleTargetRef?.kind === object.kind && hpa.spec.scaleTargetRef?.name === name,
   )
 
-  const command = (to: number) =>
-    kubectl(context, namespace, 'scale', objectArg(kindOf(object), name), `--replicas=${to}`)
-  const scaleTo = (to: number) => ({
-    ...target(object),
-    change: {
-      action: 'patch' as const,
-      patchType: 'merge' as const,
-      patch: { spec: { replicas: to } },
-    },
-  })
+  const command = (to?: number) =>
+    kubectl(
+      context,
+      namespace,
+      'scale',
+      objectArg(kindOf(object), name),
+      ...(to === undefined ? [] : [`--replicas=${to}`]),
+    )
   const valid = Number.isInteger(replicas)
-  const delta = replicas - current
 
   return (
     <ActionDialog
@@ -46,19 +96,19 @@ export function ScaleDialog({ object, onClose }: ActionProps) {
       subject={subjectOf(object)}
       command={command(valid ? replicas : current)}
       confirmLabel="Scale"
-      ready={valid && delta !== 0}
+      ready={valid && replicas !== current}
       pending={pending}
-      error={error}
+      error={error ?? readError}
       onClose={onClose}
       onSubmit={() =>
         void submit(() =>
-          change(scaleTo(replicas), {
-            title: `Scaled ${name} to ${count(replicas, 'replica')}`,
+          change(scaleTo(replicas!), {
+            title: `Scaled ${name} to ${count(replicas!, 'replica')}`,
             command: command(replicas),
             undo: {
-              change: scaleTo(current),
+              change: scaleTo(current!),
               meta: {
-                title: `Scaled ${name} back to ${count(current, 'replica')}`,
+                title: `Scaled ${name} back to ${count(current!, 'replica')}`,
                 command: command(current),
               },
             },
@@ -66,24 +116,36 @@ export function ScaleDialog({ object, onClose }: ActionProps) {
         )
       }
     >
-      <div className="flex flex-col items-center gap-3 py-2">
-        <Stepper label="Replicas" value={replicas} onChange={setReplicas} size="lg" autoFocus />
-        <div className="flex gap-1.5" role="group" aria-label="Presets">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => setReplicas(preset)}
-              aria-pressed={replicas === preset}
-              className="h-6 min-w-7 rounded-md border border-line px-1.5 text-xs font-medium text-ink-2 tabular-nums transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:border-accent aria-pressed:bg-accent-soft aria-pressed:text-accent-strong"
-            >
-              {preset}
-            </button>
-          ))}
-        </div>
-      </div>
+      {current === undefined ? (
+        !readError && <Loading label="Reading its replicas…" />
+      ) : (
+        <>
+          <div className="flex flex-col items-center gap-3 py-2">
+            <Stepper
+              label="Replicas"
+              value={replicas!}
+              onChange={setReplicas}
+              size="lg"
+              autoFocus
+            />
+            <div className="flex gap-1.5" role="group" aria-label="Presets">
+              {PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setReplicas(preset)}
+                  aria-pressed={replicas === preset}
+                  className="h-6 min-w-7 rounded-md border border-line px-1.5 text-xs font-medium text-ink-2 tabular-nums transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:border-accent aria-pressed:bg-accent-soft aria-pressed:text-accent-strong"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <PodPreview current={current} next={valid ? replicas : current} />
+          <PodPreview current={current} next={valid ? replicas! : current} />
+        </>
+      )}
 
       {autoscaler && (
         <p className="flex gap-2 rounded-lg bg-accent-soft px-3 py-2.5 text-[13px] leading-relaxed text-ink-2">

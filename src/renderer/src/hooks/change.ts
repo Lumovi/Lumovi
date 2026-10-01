@@ -33,8 +33,11 @@ export function useChange() {
   const queryClient = useQueryClient()
   const { start, finish } = useActivity()
 
-  const refresh = () => {
-    for (const key of ['list', 'object', 'metrics', 'history']) {
+  const refresh = (request: ClusterChange) => {
+    // A new or removed CRD changes the kinds the cluster serves.
+    const keys = ['list', 'object', 'metrics', 'history']
+    if (request.kind === 'CustomResourceDefinition.apiextensions.k8s.io') keys.push('resources')
+    for (const key of keys) {
       void queryClient.invalidateQueries({ queryKey: [key, context] })
     }
   }
@@ -57,8 +60,8 @@ export function useChange() {
       return result
     }
     finish(id, 'done')
-    refresh()
-    setTimeout(refresh, SETTLE_DELAY)
+    refresh(request)
+    setTimeout(() => refresh(request), SETTLE_DELAY)
     if (!meta.silent) {
       const { undo } = meta
       toast({

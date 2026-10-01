@@ -191,8 +191,18 @@ test('explains YAML that can’t be created', async ({ page }) => {
   const cases: [string, string, string][] = [
     ['kind: [Deployment', 'YAML', 'Flow sequence'],
     ['just some text', 'YAML', 'Each object needs a kind, like Deployment.'],
-    ['kind: Widget', 'Widget/…', 'KubeStacks can’t create Widget objects yet.'],
-    ['kind: Widget\nmetadata:\n  name: gear', 'Widget/gear', 'KubeStacks can’t create Widget'],
+    ['kind: Widget', 'Widget/…', 'Add its apiVersion, like example.com/v1'],
+    [
+      'apiVersion: example.org/v1\nkind: Gadget\nmetadata:\n  name: gear',
+      'Gadget/gear',
+      'demo doesn’t serve Gadget in example.org/v1. If its CustomResourceDefinition is in this YAML too, create that first.',
+    ],
+    // The kind is served, but not in this version.
+    [
+      'apiVersion: example.com/v2\nkind: Widget\nmetadata:\n  name: gear\nspec:\n  size: 1',
+      'Widget/gear',
+      'the server could not find the requested resource',
+    ],
     ['', 'YAML', 'There’s nothing to create.'],
     ['apiVersion: v1\nkind: ConfigMap', 'ConfigMap/…', 'name or generateName is required'],
   ]

@@ -1,0 +1,19 @@
+# Kubernetes' own kinds that have no page of their own.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: custom-resource-definitions
+spec:
+  kinds:
+    - { group: apiextensions.k8s.io, kind: CustomResourceDefinition }
+  icon: puzzle
+  columns:
+    - { name: Kind, path: .spec.names.kind }
+    - { name: Group, path: .spec.group }
+    - { name: Scope, path: .spec.scope }
+    - { name: Versions, path: '.spec.versions[*].name' }
+  details:
+    - { name: Kind, path: .spec.names.kind }
+    - { name: Plural, path: .spec.names.plural }
+    - { name: Short names, path: '.spec.names.shortNames[*]' }
+    - { name: Stored versions, path: '.status.storedVersions[*]' }

@@ -20,6 +20,7 @@ import {
   type PodTemplate,
 } from '../builders.ts'
 import type { ClusterFixture, KubeObject } from '../types.ts'
+import { demoCustomResources } from './custom.ts'
 import { demoLogs } from './demo-logs.ts'
 
 const REVISION = {
@@ -2040,6 +2041,8 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     // An unnamed port, picked by its number.
     ports: [{ port: 9090 }],
   })
+
+  demoCustomResources(b, now)
 
   return {
     ...b.build(demoLogs),

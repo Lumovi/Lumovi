@@ -1,17 +1,25 @@
 import type { NavTarget } from '@shared/navigation'
-import type { ResourceKind } from '@shared/resources'
-import { resourceByKind } from '@shared/resources'
+import { builtinResource, type ResourceKind } from '@shared/resources'
 
 export function clusterPath(context: string): string {
   return `/cluster/${encodeURIComponent(context)}`
 }
 
+/** A kind's list: built-in kinds by their plural, others by their name (`r/Certificate.cert-manager.io`). */
 export function kindPath(context: string, kind: ResourceKind): string {
-  return `${clusterPath(context)}/${resourceByKind(kind).plural}`
+  const builtin = builtinResource(kind)
+  return builtin
+    ? `${clusterPath(context)}/${builtin.plural}`
+    : `${clusterPath(context)}/r/${encodeURIComponent(kind)}`
 }
 
 export function metricsPath(context: string): string {
   return `${clusterPath(context)}/metrics`
+}
+
+/** Every kind the cluster serves, and the views that show them. */
+export function apiResourcesPath(context: string): string {
+  return `${clusterPath(context)}/api-resources`
 }
 
 /** The route for the overview, the metrics or a resource list. */

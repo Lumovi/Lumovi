@@ -19,6 +19,7 @@ const TYPE_TO_DELETE: readonly ResourceKind[] = [
   'PersistentVolume',
   'PersistentVolumeClaim',
   'StorageClass',
+  'CustomResourceDefinition.apiextensions.k8s.io',
 ]
 
 /** Kinds that own other objects, where the user picks what happens to them. */
@@ -57,7 +58,7 @@ const CASCADE_FLAG: Record<DeletePropagation, string | undefined> = {
 
 function consequence(object: ActionProps['object']): string | undefined {
   const owner = object.metadata.ownerReferences?.find((ref) => ref.controller)
-  switch (object.kind) {
+  switch (kindOf(object)) {
     case 'Pod':
       return owner
         ? `Its ${owner.kind} ${owner.name} will start a new pod to replace it.`
@@ -70,6 +71,8 @@ function consequence(object: ActionProps['object']): string | undefined {
       return 'Its volume, and the data on it, may be deleted too, depending on the reclaim policy.'
     case 'PersistentVolume':
       return `Its reclaim policy is ${object.spec.persistentVolumeReclaimPolicy}; the data on it may be lost.`
+    case 'CustomResourceDefinition.apiextensions.k8s.io':
+      return `Every ${object.spec.names.kind} in the cluster is deleted with it, and the cluster stops serving ${object.spec.names.plural}.`
     default:
       return undefined
   }

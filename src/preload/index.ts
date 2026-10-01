@@ -21,10 +21,13 @@ const api: KubestacksApi = {
     setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
     setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
     openExternal: (url) => invoke(IPC.openExternal, url),
+    views: () => invoke(IPC.views),
   },
   kube: {
     contexts: () => invoke(IPC.contexts),
     version: (context) => invoke(IPC.version, context),
+    resources: (context) => invoke(IPC.resources, context),
+    schema: (context, kind) => invoke(IPC.schema, context, kind),
     list: (query) => invoke(IPC.list, query),
     get: (query) => invoke(IPC.get, query),
     metrics: (query) => invoke(IPC.metrics, query),

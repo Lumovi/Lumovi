@@ -1,0 +1,29 @@
+# Crossplane (https://crossplane.io): the packages that extend it.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: crossplane-packages
+spec:
+  kinds:
+    - { group: pkg.crossplane.io, kind: Provider }
+    - { group: pkg.crossplane.io, kind: Configuration }
+    - { group: pkg.crossplane.io, kind: Function }
+  icon: package
+  columns:
+    - { name: Package, path: .spec.package }
+    - { name: Installed, path: '.status.conditions[?(@.type=="Installed")].status' }
+    - { name: Healthy, path: '.status.conditions[?(@.type=="Healthy")].status' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Installed")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Installed")].reason ?? "Not installed" }}'
+      detail: '{{ .status.conditions[?(@.type=="Installed")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Healthy")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Healthy")].reason ?? "Unhealthy" }}'
+      detail: '{{ .status.conditions[?(@.type=="Healthy")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Healthy")].status', equals: 'True' }
+      health: healthy
+      label: Healthy
+    - health: progressing
+      label: Installing

@@ -2,10 +2,11 @@ import { CircleCheck, CircleX, FilePlus2 } from 'lucide-react'
 import { useState } from 'react'
 import { parseAllDocuments } from 'yaml'
 import type { KubeObject } from '@shared/api'
-import { isResourceKind, resourceByKind, type ResourceKind } from '@shared/resources'
+import { kindFor, kindOf, type ResourceKind } from '@shared/resources'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { useChange } from '@renderer/hooks/change'
 import { useOpenObject } from '@renderer/hooks/open-object'
+import { resourceFor, useResources } from '@renderer/hooks/resources'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
@@ -119,9 +120,14 @@ const labelOf = (object: KubeObject) =>
 
 /**
  * Reads the YAML's documents into objects to create, or explains what's
- * wrong with them. Objects without a namespace go to `namespace`.
+ * wrong with them. Objects without a namespace go to `namespace`; kinds must
+ * be ones `context` serves.
  */
-function plan(text: string, namespace: string): { planned: Planned[]; problems: Outcome[] } {
+function plan(
+  text: string,
+  namespace: string,
+  context: string,
+): { planned: Planned[]; problems: Outcome[] } {
   const planned: Planned[] = []
   const problems: Outcome[] = []
   for (const document of parseAllDocuments(text)) {
@@ -140,19 +146,22 @@ function plan(text: string, namespace: string): { planned: Planned[]; problems: 
       })
       continue
     }
-    if (!isResourceKind(object.kind)) {
+    const kind = kindFor(object.apiVersion, object.kind)
+    const resource = resourceFor(kind)
+    if (!resource) {
       problems.push({
         label: labelOf(object),
         ok: false,
-        error: `KubeStacks can’t create ${object.kind} objects yet.`,
+        error: object.apiVersion
+          ? `${context} doesn’t serve ${object.kind} in ${object.apiVersion}. If its CustomResourceDefinition is in this YAML too, create that first.`
+          : `Add its apiVersion, like example.com/v1: ${context} serves no ${object.kind} without one.`,
       })
       continue
     }
-    const namespaced = resourceByKind(object.kind).namespaced
-    const ns = namespaced ? (object.metadata?.namespace ?? namespace) : undefined
+    const ns = resource.namespaced ? (object.metadata?.namespace ?? namespace) : undefined
     const metadata = { ...object.metadata, ...(ns ? { namespace: ns } : {}) }
     planned.push({
-      kind: object.kind,
+      kind,
       name: metadata.name ?? metadata.generateName,
       namespace: ns,
       object: { ...object, metadata },
@@ -174,13 +183,15 @@ function Create({ onClose }: { onClose: () => void }) {
   const openObject = useOpenObject()
   const { readOnly } = useReadOnly()
   const target = namespace ?? 'default'
+  // What the cluster serves decides what can be created.
+  useResources()
   const [text, setText] = useState(() => TEMPLATES.Deployment!(target))
   const [outcomes, setOutcomes] = useState<Outcome[]>([])
   const [pending, setPending] = useState(false)
   const command = kubectl(context, target, 'create', '-f', 'objects.yaml')
 
   const create = async () => {
-    const { planned, problems } = plan(text, target)
+    const { planned, problems } = plan(text, target, context)
     if (problems.length || planned.length === 0) {
       setOutcomes(
         problems.length
@@ -217,7 +228,7 @@ function Create({ onClose }: { onClose: () => void }) {
     for (const p of planned) {
       const result = await change(
         { kind: p.kind, namespace: p.namespace, change: { action: 'create', object: p.object } },
-        { title: `Created ${p.kind.toLowerCase()} ${p.name}`, command, silent: true },
+        { title: `Created ${p.object.kind!.toLowerCase()} ${p.name}`, command, silent: true },
       )
       // The server names objects that only have a generateName.
       if (result.ok) first ??= result.data!
@@ -229,14 +240,17 @@ function Create({ onClose }: { onClose: () => void }) {
     }
     setPending(false)
     if (results.every((r) => r.ok)) {
-      const { kind, metadata } = first as KubeObject & { kind: ResourceKind }
+      const { metadata } = first!
       toast({
         tone: 'success',
         title:
           planned.length === 1
-            ? `Created ${kind.toLowerCase()} ${metadata.name}`
+            ? `Created ${first!.kind!.toLowerCase()} ${metadata.name}`
             : `Created ${planned.length} objects`,
-        action: { label: 'Open', run: () => openObject(kind, metadata.name, metadata.namespace) },
+        action: {
+          label: 'Open',
+          run: () => openObject(kindOf(first!), metadata.name, metadata.namespace),
+        },
       })
       onClose()
     } else {

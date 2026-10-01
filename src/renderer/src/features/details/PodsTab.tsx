@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import type { KubeObject } from '@shared/api'
+import { kindOf } from '@shared/resources'
 import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useList, useMetrics } from '@renderer/hooks/queries'
+import { resourceFor } from '@renderer/hooks/resources'
 import type { KubeApiError } from '@renderer/lib/api'
 import {
   ageColumn,
@@ -30,7 +32,8 @@ function labelQuery(labels: Record<string, string> | undefined): PodQuery | unde
 
 /** How to find the pods that belong to `object`, if it has any. */
 export function podQuery(object: KubeObject): PodQuery | undefined {
-  switch (object.kind) {
+  const kind = kindOf(object)
+  switch (kind) {
     case 'Node':
       return { fieldSelector: `spec.nodeName=${object.metadata.name}` }
     case 'Service':
@@ -42,7 +45,10 @@ export function podQuery(object: KubeObject): PodQuery | undefined {
     case 'Job':
       return labelQuery(object.spec.selector.matchLabels)
     default:
-      return undefined
+      // Custom workloads (Argo Rollouts, say) scale pods they select, like Deployments do.
+      return resourceFor(kind)?.subresources?.includes('scale')
+        ? labelQuery(object.spec?.selector?.matchLabels)
+        : undefined
   }
 }
 

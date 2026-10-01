@@ -13,10 +13,11 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import type { KubeObject } from '@shared/api'
-import { resourceByKind, type ResourceKind } from '@shared/resources'
+import { apiKindOf, isBuiltinKind, type ResourceKind } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { useChange, type ClusterChange } from '@renderer/hooks/change'
+import { labelFor } from '@renderer/hooks/resources'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { looksLikeProduction } from '@renderer/lib/production'
@@ -142,16 +143,22 @@ const RISKY: readonly ResourceKind[] = [
   'PersistentVolume',
   'PersistentVolumeClaim',
   'StorageClass',
+  // Deleting a CRD deletes every object of its kind.
+  'CustomResourceDefinition.apiextensions.k8s.io',
 ]
 
 /** "3 pods", "1 volume claim", "2 StatefulSets": a resource's label, counted. */
 export function countOf(kind: ResourceKind, n: number): string {
-  let label = resourceByKind(kind).label
-  if (n === 1)
-    label = label
-      .replace(/ies$/, 'y')
-      .replace(/(ss|sh|ch)es$/, '$1')
-      .replace(/s$/, '')
+  let label = labelFor(kind)
+  if (n === 1) {
+    // Other kinds' singular is their kind.
+    label = isBuiltinKind(kind)
+      ? label
+          .replace(/ies$/, 'y')
+          .replace(/(ss|sh|ch)es$/, '$1')
+          .replace(/s$/, '')
+      : apiKindOf(kind)
+  }
   // Plain words read better lowercase; CamelCase kinds stay as Kubernetes spells them.
   if (/^[A-Z][a-z]+( [A-Z][a-z]+)*$/.test(label)) label = label.toLowerCase()
   return `${n} ${label}`
@@ -255,7 +262,7 @@ function BulkDialog({
   const [progress, setProgress] = useState<Record<string, Progress>>({})
   const [phase, setPhase] = useState<'review' | 'running' | 'done'>('review')
   const key = (o: KubeObject) => `${o.metadata.namespace}/${o.metadata.name}`
-  const plural = resourceByKind(kind).label.toLowerCase()
+  const plural = labelFor(kind).toLowerCase()
   const namespaces = [...new Set(objects.map((o) => o.metadata.namespace))]
   const command = namespaces
     .map((namespace) =>
@@ -312,7 +319,7 @@ function BulkDialog({
       icon={action.icon}
       tone={action.danger ? 'danger' : 'default'}
       title={`${action.label} ${countOf(kind, objects.length)}?`}
-      subject={resourceByKind(kind).label}
+      subject={labelFor(kind)}
       command={command}
       confirmLabel={phase === 'done' ? 'Retry failed' : action.label}
       typeToConfirm={risky && phase === 'review' ? `${action.id} ${plural}` : undefined}

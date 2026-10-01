@@ -1,4 +1,4 @@
-import type { ResourceKind } from '@shared/resources'
+import { apiGroupOf, apiKindOf, type ResourceKind } from '@shared/resources'
 
 const SAFE = /^[\w@%+=:,./-]+$/
 
@@ -7,9 +7,13 @@ function quote(arg: string): string {
   return SAFE.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`
 }
 
-/** `deployment/storefront`: how kubectl names one object. */
+/**
+ * `deployment/storefront`, `certificate.cert-manager.io/api-tls`: how kubectl
+ * names one object, with the group when it isn't one of the built-in kinds.
+ */
 export function objectArg(kind: ResourceKind, name: string): string {
-  return `${kind.toLowerCase()}/${name}`
+  const group = apiGroupOf(kind)
+  return `${apiKindOf(kind).toLowerCase()}${group ? `.${group}` : ''}/${name}`
 }
 
 /**

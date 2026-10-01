@@ -5,6 +5,7 @@ import type {
   ChangeRequest,
   ClusterVersion,
   ContextsResult,
+  FieldSchema,
   HistoryQuery,
   GetQuery,
   KubeList,
@@ -16,14 +17,23 @@ import type {
   Result,
   Revision,
   RolloutKind,
+  TableColumn,
   UsageSample,
 } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
-import { resourceByKind, resourcePath } from '@shared/resources'
+import {
+  builtinResource,
+  resourceByKind,
+  resourcePath,
+  type ResourceDefinition,
+  type ResourceKind,
+} from '@shared/resources'
 import { kubeRequest, type RequestOptions } from './client'
+import { discover } from './discovery'
 import { KubeRequestError, toKubeError } from './errors'
 import type { KubeConfigStore } from './kubeconfig'
 import { Limiter } from './limiter'
+import { schemaOf, type DocumentCache } from './schemas'
 import {
   assertIntegerInRange,
   assertKind,
@@ -46,6 +56,16 @@ const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
  * start a credential plugin, so only a few run at a time.
  */
 const CONCURRENT_CHECKS = 4
+/** Discovery without aggregation asks each API group separately, a few at a time. */
+const CONCURRENT_DISCOVERY = 8
+/** A kind that isn't known looks again at most this often: it may have just been installed. */
+const REDISCOVER_AFTER_MS = 5_000
+/** Lists of kinds without built-in columns come as Tables, with the server's columns. */
+const TABLE_ACCEPT = [
+  'application/json;as=Table;v=v1;g=meta.k8s.io',
+  'application/json;as=Table;v=v1beta1;g=meta.k8s.io',
+  'application/json',
+].join(',')
 const ACCESS_REVIEWS = '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews'
 const MAX_ACCESS_CHECKS = 50
 const VERBS: readonly AccessVerb[] = ['get', 'list', 'create', 'update', 'patch', 'delete']
@@ -55,6 +75,7 @@ const PATCH_TYPES = {
   json: 'application/json-patch+json',
 }
 const PROPAGATION = ['Background', 'Foreground', 'Orphan'] as const
+const SUBRESOURCES = ['status', 'scale'] as const
 const ROLLOUT_KINDS: readonly RolloutKind[] = ['Deployment', 'StatefulSet', 'DaemonSet']
 const REVISION = 'deployment.kubernetes.io/revision'
 const CHANGE_CAUSE = 'kubernetes.io/change-cause'
@@ -62,6 +83,13 @@ const TEMPLATE_HASH = 'pod-template-hash'
 
 interface ListResponse {
   items: KubeObject[]
+  metadata: { continue?: string; remainingItemCount?: number }
+}
+
+interface TableResponse {
+  kind: 'Table'
+  columnDefinitions: TableColumn[]
+  rows: { cells: unknown[]; object: KubeObject }[]
   metadata: { continue?: string; remainingItemCount?: number }
 }
 
@@ -88,6 +116,10 @@ export class KubeService {
   readonly #timeoutMs: number
   readonly #maxListItems: number
   readonly #checks = new Limiter(CONCURRENT_CHECKS)
+  readonly #discoveries = new Limiter(CONCURRENT_DISCOVERY)
+  /** Each context's kinds, as last discovered. */
+  readonly #discovered = new Map<string, { at: number; resources: Promise<ResourceDefinition[]> }>()
+  readonly #documents: DocumentCache = new Map()
 
   constructor(
     private readonly store: KubeConfigStore,
@@ -115,24 +147,85 @@ export class KubeService {
     )
   }
 
+  /** Every kind the cluster serves that can be listed, looked up afresh. */
+  resources(context: unknown): Promise<Result<ResourceDefinition[]>> {
+    return this.#run(() => {
+      assertString(context, 'context')
+      return this.#discover(context, 0)
+    })
+  }
+
+  /** The kinds `context` serves, discovered again if what's known is older than `maxAge` ms. */
+  #discover(context: string, maxAge: number): Promise<ResourceDefinition[]> {
+    const cached = this.#discovered.get(context)
+    if (cached && Date.now() - cached.at < maxAge) return cached.resources
+    const resources = discover(
+      (path, accept) => this.#getJson(context, path, accept),
+      (task) => this.#discoveries.run(task),
+    )
+    this.#discovered.set(context, { at: Date.now(), resources })
+    // A failed discovery isn't kept, so the next call tries again.
+    resources.catch(() => this.#discovered.delete(context))
+    return resources
+  }
+
+  /** What `kind` is on `context`: built in, or found by discovery (again, if it's new). */
+  async #resource(context: string, kind: ResourceKind): Promise<ResourceDefinition> {
+    const builtin = builtinResource(kind)
+    if (builtin) return builtin
+    // A kind that isn't known may be new: look again, but not on every request.
+    for (const maxAge of [Infinity, REDISCOVER_AFTER_MS]) {
+      const found = (await this.#discover(context, maxAge)).find((r) => r.kind === kind)
+      if (found) return found
+    }
+    throw new KubeRequestError('not-found', `${context} doesn’t serve ${kind} resources.`)
+  }
+
+  /** A kind's schema from the cluster's OpenAPI documents; null when it has none. */
+  schema(context: unknown, kind: unknown): Promise<Result<FieldSchema | null>> {
+    return this.#run(async () => {
+      assertString(context, 'context')
+      assertKind(kind)
+      const resource = await this.#resource(context, kind)
+      try {
+        return await schemaOf(resource, (path) => this.#getJson(context, path), this.#documents)
+      } catch (error) {
+        // Clusters before Kubernetes 1.27 have no OpenAPI v3; fields just go unexplained.
+        if (error instanceof KubeRequestError && error.status === 404) return null
+        throw error
+      }
+    })
+  }
+
   list(query: unknown): Promise<Result<KubeList>> {
     return this.#run(async () => {
       const q = assertQuery<ListQuery>(query)
+      assertString(q.context, 'context')
       assertKind(q.kind)
       optionalString(q.namespace, 'namespace')
       optionalString(q.labelSelector, 'labelSelector')
       optionalString(q.fieldSelector, 'fieldSelector')
-      const resource = resourceByKind(q.kind)
+      const resource = await this.#resource(q.context, q.kind)
+      // Kinds without columns of their own get the server's, like `kubectl get`.
+      const table = !builtinResource(q.kind)
       const params = new URLSearchParams()
       for (const key of ['labelSelector', 'fieldSelector'] as const) {
         if (q[key]) params.set(key, q[key])
       }
-      const list = await this.#listChunks(q.context, resourcePath(resource, q.namespace), params)
+      if (table) params.set('includeObject', 'Object')
+      const list = await this.#listChunks(
+        q.context,
+        resourcePath(resource, q.namespace),
+        params,
+        table,
+      )
       const apiVersion = resource.group ? `${resource.group}/${resource.version}` : resource.version
       return {
         ...list,
         // List items omit apiVersion/kind; add them back so detail views and YAML are complete.
-        items: list.items.map((item) => slimListItem({ apiVersion, kind: resource.kind, ...item })),
+        items: list.items.map((item) =>
+          slimListItem({ apiVersion, kind: resource.apiKind, ...item }),
+        ),
       }
     })
   }
@@ -145,43 +238,61 @@ export class KubeService {
     context: string,
     path: string,
     params: URLSearchParams,
+    table = false,
     restarted = false,
   ): Promise<KubeList> {
     const items: KubeObject[] = []
+    const cells: unknown[][] = []
+    let columns: TableColumn[] | undefined
     let token: string | undefined
     let remaining: number
     do {
       const chunk = new URLSearchParams(params)
       chunk.set('limit', String(Math.min(LIST_CHUNK, this.#maxListItems - items.length)))
       if (token) chunk.set('continue', token)
-      let list: ListResponse
+      let list: ListResponse | TableResponse
       try {
-        list = await this.#getJson<ListResponse>(context, `${path}?${chunk}`)
+        list = await this.#getJson<ListResponse | TableResponse>(
+          context,
+          `${path}?${chunk}`,
+          table ? TABLE_ACCEPT : undefined,
+        )
       } catch (error) {
         // The continue token expired (the collection changed a lot between chunks): start over once.
         if (!restarted && error instanceof KubeRequestError && error.status === 410) {
-          return this.#listChunks(context, path, params, true)
+          return this.#listChunks(context, path, params, table, true)
         }
         throw error
       }
-      items.push(...list.items)
+      if ('rows' in list) {
+        columns ??= list.columnDefinitions
+        for (const row of list.rows) {
+          items.push(row.object)
+          cells.push(row.cells)
+        }
+      } else {
+        items.push(...list.items)
+      }
       token = list.metadata.continue
       remaining = list.metadata.remainingItemCount ?? 0
     } while (token && items.length < this.#maxListItems)
     const truncated = Boolean(token)
     // The API only reports how many objects are left for unfiltered lists.
     const total = truncated && remaining === 0 ? undefined : items.length + remaining
-    return { items, truncated, total }
+    return { items, truncated, total, ...(columns ? { table: { columns, cells } } : {}) }
   }
 
   get(query: unknown): Promise<Result<KubeObject>> {
     return this.#run(async () => {
       const q = assertQuery<GetQuery>(query)
+      assertString(q.context, 'context')
       assertKind(q.kind)
       assertString(q.name, 'name')
       optionalString(q.namespace, 'namespace')
-      const path = resourcePath(resourceByKind(q.kind), q.namespace, q.name)
-      return slim(await this.#getJson<KubeObject>(q.context, path))
+      if (q.subresource !== undefined) assertOneOf(q.subresource, 'subresource', ['scale'])
+      const path = resourcePath(await this.#resource(q.context, q.kind), q.namespace, q.name)
+      const subresource = q.subresource ? `/${q.subresource}` : ''
+      return slim(await this.#getJson<KubeObject>(q.context, `${path}${subresource}`))
     })
   }
 
@@ -239,7 +350,7 @@ export class KubeService {
       const r = assertQuery<ChangeRequest>(request)
       assertString(r.context, 'context')
       assertKind(r.kind)
-      const resource = resourceByKind(r.kind)
+      const resource = await this.#resource(r.context, r.kind)
       if (resource.namespaced) assertString(r.namespace, 'namespace')
       else if (r.namespace !== undefined) throw invalid(`${r.kind} objects have no namespace`)
       const change = assertQuery<Change>(r.change)
@@ -263,7 +374,11 @@ export class KubeService {
           } else {
             assertObject(change.patch, 'patch')
           }
-          return send(`${path}${dryRun}`, {
+          if (change.subresource !== undefined) {
+            assertOneOf(change.subresource, 'subresource', SUBRESOURCES)
+          }
+          const subresource = change.subresource ? `/${change.subresource}` : ''
+          return send(`${path}${subresource}${dryRun}`, {
             method: 'PATCH',
             body: change.patch,
             contentType: PATCH_TYPES[change.patchType],
@@ -274,11 +389,12 @@ export class KubeService {
           if (change.object.metadata?.name !== r.name) {
             throw invalid('The object’s name does not match the one being replaced')
           }
-          return send(`${path}${dryRun}`, { method: 'PUT', body: change.object })
+          const at = resourcePath(atVersion(resource, change.object), r.namespace, r.name)
+          return send(`${at}${dryRun}`, { method: 'PUT', body: change.object })
         }
         case 'create': {
           assertObject(change.object, 'object')
-          const collection = resourcePath(resource, r.namespace)
+          const collection = resourcePath(atVersion(resource, change.object), r.namespace)
           return send(`${collection}${dryRun}`, { method: 'POST', body: change.object })
         }
         case 'delete': {
@@ -423,7 +539,7 @@ export class KubeService {
           optionalString(c.namespace, 'namespace')
           optionalString(c.name, 'name')
           optionalString(c.subresource, 'subresource')
-          const resource = resourceByKind(c.kind)
+          const resource = await this.#resource(context, c.kind)
           const review = JSON.parse(
             await this.#request(context, ACCESS_REVIEWS, {
               method: 'POST',
@@ -462,8 +578,8 @@ export class KubeService {
     return this.#request(context, path, {})
   }
 
-  #get(context: unknown, path: string): Promise<string> {
-    return this.#request(context, path, {})
+  #get(context: unknown, path: string, accept?: string): Promise<string> {
+    return this.#request(context, path, accept ? { accept } : {})
   }
 
   async #request(
@@ -477,9 +593,18 @@ export class KubeService {
     return kubeRequest(kc, path, { ...options, timeoutMs: this.#timeoutMs })
   }
 
-  async #getJson<T>(context: unknown, path: string): Promise<T> {
-    return JSON.parse(await this.#get(context, path)) as T
+  async #getJson<T>(context: unknown, path: string, accept?: string): Promise<T> {
+    return JSON.parse(await this.#get(context, path, accept)) as T
   }
+}
+
+/**
+ * `resource` at the API version an object says it's in, as kubectl sends it:
+ * the API server refuses objects of another version than the path's.
+ */
+function atVersion(resource: ResourceDefinition, object: KubeObject): ResourceDefinition {
+  const version = object.apiVersion?.split('/').at(-1)
+  return version ? { ...resource, version } : resource
 }
 
 /** Drops server-side bookkeeping that is large and never shown. */
