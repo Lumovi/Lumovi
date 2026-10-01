@@ -6,7 +6,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { cpus, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   _electron as electron,
@@ -234,6 +235,30 @@ async function diagnose(path: string, clusters: TestClusters, launched: KubeStac
       ),
     ).catch((error: Error) => error.message)
     lines.push(`app ${i}: main answered in ${mainMs}ms ${window}; page ${state}`)
+  }
+  for (const [i, { app }] of launched.entries()) {
+    const metrics = await within(
+      app.evaluate(({ app }) =>
+        app
+          .getAppMetrics()
+          .map((m) => `${m.type} ${m.pid}: ${(m.cpu.cumulativeCPUUsage ?? 0).toFixed(1)}s of CPU`)
+          .join(', '),
+      ),
+    ).catch((error: Error) => error.message)
+    lines.push(`app ${i} processes: ${metrics}`)
+  }
+  if (process.platform === 'win32') {
+    // What else keeps the machine busy (total CPU seconds so far).
+    const top = execFileSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-Command',
+        'Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU,WorkingSet | Format-Table -AutoSize | Out-String -Width 200',
+      ],
+      { encoding: 'utf8' },
+    )
+    lines.push(`busiest processes:${top}`, `cpus: ${cpus().length}`)
   }
   for (const name of ['demo', 'sandbox', 'large'] as const) {
     const { requests } = clusters[name]
