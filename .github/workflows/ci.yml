@@ -45,6 +45,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # Electron's download, kept between runs: faster, and spared GitHub's occasional errors.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Allow Chromium's sandbox
         # Ubuntu 24.04 restricts the unprivileged user namespaces Electron's sandbox needs.
@@ -137,6 +145,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # Electron's download, kept between runs: faster, and spared GitHub's occasional errors.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run build
       # Playwright drives the app through the Node.js inspector, which release builds turn off.
@@ -168,6 +184,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # Electron's download, kept between runs: faster, and spared GitHub's occasional errors.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       # kind and kubectl only: cluster.ts creates the cluster, with its own kubeconfig.
       - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
