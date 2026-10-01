@@ -76,6 +76,7 @@ cluster and a test that shows it.
 Code signing is optional. Builds are signed when these secrets are set in the repository's
 `release` environment:
 
-- macOS: `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate),
-  plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to notarize.
+- macOS: `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate,
+  exported as a base64-encoded `.p12`), plus an App Store Connect API key to notarize:
+  `APPLE_API_KEY_P8` (the `.p8` file's contents), `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
 - Windows: `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.

@@ -136,7 +136,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       # Playwright drives the app through the Node.js inspector, which release builds turn off.
+      # (In bash: PowerShell would split the -c.… argument.)
       - run: npx electron-builder --dir -c.electronFuses.enableNodeCliInspectArguments=true
+        shell: bash
       - if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Smoke test the packaged app
