@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { app, Menu, nativeTheme } from 'electron'
+import { app, Menu, nativeTheme, session } from 'electron'
 import { IPC } from '@shared/api'
 import { HelmService } from './helm/service'
 import { registerIpc } from './ipc'
@@ -25,6 +25,12 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     const settings = new SettingsStore(app.getPath('userData'))
     nativeTheme.themeSource = settings.get().theme
+    // The page needs none of the browser's permissions (camera, notifications…), only to copy.
+    const allowed = (permission: string) => permission === 'clipboard-sanitized-write'
+    session.defaultSession.setPermissionRequestHandler((_contents, permission, grant) =>
+      grant(allowed(permission)),
+    )
+    session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission))
 
     const url = rendererUrl()
     const store = new KubeConfigStore()

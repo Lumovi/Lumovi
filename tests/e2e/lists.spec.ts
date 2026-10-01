@@ -27,7 +27,11 @@ test.describe('large lists', () => {
     await expect(pagination).toContainText('Page 1 of 25')
     expect(await rows(page, 'Pods').count()).toBeLessThan(60)
 
-    await page.getByRole('columnheader', { name: 'Name' }).getByRole('button').click()
+    // Sorting works from the keyboard too.
+    const name = page.getByRole('columnheader', { name: 'Name' })
+    await name.getByRole('button').focus()
+    await page.keyboard.press('Enter')
+    await expect(name).toHaveAttribute('aria-sort', 'ascending')
     await pagination.getByRole('button', { name: 'Next page' }).click()
     await expect(pagination).toContainText('101–200')
     await expect(row(page, 'Pods', LARGE.podName(100))).toBeVisible()

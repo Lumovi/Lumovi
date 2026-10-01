@@ -140,8 +140,15 @@ function forward(socket: WebSocket, pod: KubeObject, port: number) {
 export interface StreamContext {
   /** The stored pod, if there is one. */
   pod(namespace: string, name: string): KubeObject | undefined
-  /** Whether the request may go on: false after the context has answered it (401, 403, a fault…). */
-  admit(req: http.IncomingMessage, socket: Duplex, subresource: 'exec' | 'portforward'): boolean
+  /**
+   * Whether the request may go on: false after the context has answered it (401, 403, a
+   * fault…), or a delay in milliseconds before it goes on.
+   */
+  admit(
+    req: http.IncomingMessage,
+    socket: Duplex,
+    subresource: 'exec' | 'portforward',
+  ): boolean | number
 }
 
 /** Answers WebSocket upgrades for pods' `exec` and `portforward` subresources. */
@@ -171,13 +178,34 @@ export function streamingEndpoints(context: StreamContext) {
       string,
       'exec' | 'portforward',
     ]
-    if (!context.admit(req, socket, subresource)) return
+    const admitted = context.admit(req, socket, subresource)
+    if (admitted === false) return
+    if (typeof admitted === 'number') {
+      setTimeout(() => serve(req, socket, head, url, namespace, name, subresource), admitted)
+    } else {
+      serve(req, socket, head, url, namespace, name, subresource)
+    }
+  }
+
+  const shells = new Set<WebSocket>()
+  const tunnels = new Set<WebSocket>()
+  const serve = (
+    req: http.IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    url: URL,
+    namespace: string,
+    name: string,
+    subresource: 'exec' | 'portforward',
+  ) => {
     const pod = context.pod(namespace, name)
     if (!pod) return reject(socket, 404, `pods "${name}" not found`)
 
     if (subresource === 'portforward') {
       const port = Number(url.searchParams.get('ports'))
       wss.handleUpgrade(req, socket, head, (ws) => {
+        tunnels.add(ws)
+        ws.on('close', () => tunnels.delete(ws))
         const target = forward(ws, pod, port)
         ws.on('message', (data: Buffer) => {
           if (data[0] === 0) target.input(data.subarray(1))
@@ -217,6 +245,8 @@ export function streamingEndpoints(context: StreamContext) {
         ws.close()
         return
       }
+      shells.add(ws)
+      ws.on('close', () => shells.delete(ws))
       const session = shell(ws, pod, container)
       ws.on('message', (data: Buffer) => {
         if (data[0] === 0) session.input(data.subarray(1).toString())
@@ -232,6 +262,8 @@ export function streamingEndpoints(context: StreamContext) {
   }
   return {
     upgrade,
+    shells: () => shells.size,
+    tunnels: () => tunnels.size,
     /** Ends every open stream, e.g. when the cluster is reset. */
     closeAll: () => {
       for (const client of wss.clients) client.terminate()

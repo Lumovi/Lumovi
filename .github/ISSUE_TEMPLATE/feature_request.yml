@@ -15,4 +15,4 @@ body:
       label: What would help?
   - type: markdown
     attributes:
-      value: KubeStacks is a read-only viewer, so features that change cluster state are out of scope.
+      value: KubeStacks changes clusters only through its guard rails (permission checks first, the equivalent command shown, undo where it can). If your idea changes things, say how it fits them.

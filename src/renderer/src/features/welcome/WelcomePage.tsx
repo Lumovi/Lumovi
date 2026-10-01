@@ -55,7 +55,7 @@ export function WelcomePage() {
           {contexts.isPending ? (
             <Loading label="Reading kubeconfig…" />
           ) : contexts.data!.error ? (
-            <EmptyState icon={FileWarning} title="Your kubeconfig could not be read">
+            <EmptyState icon={FileWarning} title="Your kubeconfig couldn’t be read">
               <pre className="mt-2 max-h-60 overflow-auto rounded-lg border border-line bg-surface-3 px-3 py-2 text-left font-mono text-xs whitespace-pre-wrap text-ink-2 selectable">
                 {contexts.data!.error}
               </pre>

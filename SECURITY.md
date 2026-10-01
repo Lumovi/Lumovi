@@ -3,8 +3,8 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through
-[GitHub security advisories](https://github.com/kotapeter/kubestacks/security/advisories/new).
-Please don't open a public issue.
+[GitHub security advisories](https://github.com/kotapeter/kubestacks/security/advisories/new),
+or by email to kotapeter@gmail.com. Please don't open a public issue.
 
 Include what you found, how to reproduce it and the impact you expect. You'll get an
 acknowledgement within a few days, and we'll keep you posted as we work on a fix.
@@ -25,4 +25,5 @@ KubeStacks handles cluster credentials, so it's built to keep them contained:
   argument.
 - Changes to clusters go through a small set of validated operations, refused for contexts
   the user made read-only (or all of them, with `KUBESTACKS_READ_ONLY`).
-- Only `https://` links are handed to the operating system.
+- Only `https://` links, and `http://localhost:<port>` for your own port forwards, are handed
+  to the operating system.

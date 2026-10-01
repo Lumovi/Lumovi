@@ -97,7 +97,7 @@ export function NamespacePicker({ clusterScoped }: { clusterScoped: boolean }) {
             </Command.List>
             {namespaces.isError && (
               <p className="border-t border-line px-3 py-2 text-xs text-ink-3">
-                Namespaces could not be listed. Type a name to use it.
+                Namespaces couldn’t be listed. Type a name to use it.
               </p>
             )}
           </Command>

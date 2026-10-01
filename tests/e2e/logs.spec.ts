@@ -283,6 +283,24 @@ test('streams stop when the logs close, even ones still starting', async ({ page
   expect(clusters.demo.logFollowers()).toBe(0)
 })
 
+test('logs the account may not read aren’t asked for again and again', async ({
+  page,
+  clusters,
+}) => {
+  await openCluster(page)
+  const path = `/api/v1/namespaces/shop/pods/${PODS[0]}/log`
+  clusters.demo.fail(path, { status: 403 })
+  await open(page, 'Pods', PODS[0]!)
+  const detail = panel(page, 'Pod', PODS[0]!)
+  await detail.getByRole('tab', { name: 'Logs' }).click()
+  await expect(detail.getByRole('alert')).toContainText('injected fault (HTTP 403)')
+  const asked = () => clusters.demo.requests.filter((r) => r.path === path).length
+  const before = asked()
+  // Longer than it waits before trying again after other failures.
+  await page.waitForTimeout(4000)
+  expect(asked()).toBe(before)
+})
+
 test('colors and styles from escape codes', async ({ page, clusters }) => {
   await openCluster(page)
   await open(page, 'Pods', PODS[0]!)
@@ -359,5 +377,5 @@ test('logs over plain HTTP, and an API server too slow to answer', async ({ laun
 
   clusters.sandbox.fail('/api/v1/namespaces/shop/pods/plain/log', { hang: true })
   await detail.getByRole('combobox', { name: 'Show' }).selectOption('Last 100 lines')
-  await expect(detail.getByRole('alert')).toContainText('The API server did not respond within 1s')
+  await expect(detail.getByRole('alert')).toContainText('The API server didn’t respond within 1s')
 })

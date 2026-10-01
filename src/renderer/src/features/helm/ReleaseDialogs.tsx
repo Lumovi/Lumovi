@@ -91,7 +91,8 @@ export function RollbackReleaseDialog({
                     Revision {r.revision}
                   </span>
                   <span className="text-xs text-ink-3">
-                    {r.status} · {age(r.updated!)} ago
+                    {r.status}
+                    {r.updated && ` · ${age(r.updated)} ago`}
                   </span>
                 </span>
                 <span className="mt-0.5 block text-xs text-ink-2">

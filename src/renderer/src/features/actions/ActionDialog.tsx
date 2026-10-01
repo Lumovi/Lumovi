@@ -202,10 +202,14 @@ export function useSubmit(onDone: () => void) {
   const submit = async (run: () => Promise<{ ok: boolean; error?: { message: string } }>) => {
     setPending(true)
     setError(undefined)
-    const result = await run()
-    setPending(false)
-    if (result.ok) onDone()
-    else setError(result.error!.message)
+    try {
+      const result = await run()
+      if (result.ok) onDone()
+      else setError(result.error!.message)
+    } finally {
+      // Even if the call itself fails, the dialog stays usable.
+      setPending(false)
+    }
   }
   return { pending, error, submit }
 }

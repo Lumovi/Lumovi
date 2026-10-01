@@ -104,6 +104,10 @@ export interface MockCluster {
   endLogs(namespace: string, pod: string, options?: { abruptly?: boolean }): void
   /** How many log streams are being followed. */
   logFollowers(): number
+  /** How many shells (exec streams) are open. */
+  shells(): number
+  /** How many port-forward streams are open. */
+  tunnels(): number
   setMetricsAvailable(available: boolean): void
   /**
    * Makes the next `times` requests that carry a `continue` token fail with 410 Gone
@@ -1336,7 +1340,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
           ),
         )
       }
-      return true
+      return fault && 'delayMs' in fault ? fault.delayMs : true
     },
   })
 
@@ -1400,6 +1404,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
     endLogs: (namespace, pod, { abruptly = false } = {}) => endLogs(namespace, pod, abruptly),
     logFollowers: () => followers.size,
+    shells: streams.shells,
+    tunnels: streams.tunnels,
     setMetricsAvailable(available) {
       metricsAvailable = available
     },

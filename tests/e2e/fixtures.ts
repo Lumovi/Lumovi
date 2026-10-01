@@ -117,6 +117,11 @@ export async function launchApp(
       '--disable-backgrounding-occluded-windows',
       '--disable-background-timer-throttling',
       '--disable-features=CalculateNativeWinOcclusion',
+      // Numbers and dates as the tests expect them, whatever this computer's language is.
+      '--lang=en-US',
+      // CI machines have no mouse, so Chromium would report `(hover: none)` and no hover
+      // style (Tailwind's `hover:` needs `(hover: hover)`) would ever apply. Say there is one.
+      '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
       ...(options.args ?? []),
     ],
     env,

@@ -20,7 +20,7 @@ export function CrashView({
 }) {
   const details = String(error.stack)
   const report = () => {
-    const body = `**What were you doing?**\n\n\n**Error**\n\n\`\`\`\n${details}\n\`\`\``
+    const body = `<!-- This issue is public: check the error for cluster or context names you'd rather not share. -->\n\n**What were you doing?**\n\n\n**Error**\n\n\`\`\`\n${details}\n\`\`\``
     void api.app.openExternal(
       `${REPO_URL}/issues/new?title=${encodeURIComponent(`Crash: ${error.message}`)}&body=${encodeURIComponent(body)}`,
     )

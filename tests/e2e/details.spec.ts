@@ -180,6 +180,7 @@ test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
   const name = DEMO.secrets.postgresCredentials
   await openObject(page, 'Secrets', name)
   const detail = panel(page, 'Secret', name)
+  await expect(detail).toContainText('Hidden: it holds the secret’s values')
   await expect(detail).not.toContainText(DEMO.postgresPassword)
   await detail.getByRole('button', { name: 'Reveal password' }).click()
   await expect(detail).toContainText(DEMO.postgresPassword)
@@ -191,10 +192,14 @@ test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
   await detail.getByRole('tab', { name: 'YAML' }).click()
   const yaml = detail.getByRole('tabpanel', { name: 'YAML' })
   await expect(yaml).toContainText('password: ••••••••')
+  // `kubectl apply` kept the values in an annotation: hidden too.
+  await expect(yaml).toContainText('kubectl.kubernetes.io/last-applied-configuration: ••••••••')
+  await expect(yaml).not.toContainText(DEMO.postgresPassword)
   await detail.getByRole('button', { name: 'Reveal values' }).click()
   await expect(yaml).toContainText(
     `password: ${Buffer.from(DEMO.postgresPassword).toString('base64')}`,
   )
+  await expect(yaml).toContainText(`"password":"${DEMO.postgresPassword}"`)
   await detail.getByRole('button', { name: 'Hide values' }).click()
   await expect(yaml).toContainText('password: ••••••••')
   await detail.getByRole('button', { name: 'Copy YAML' }).click()

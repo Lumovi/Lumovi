@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MetricsSourceSetting, Settings, ThemePreference } from '@shared/api'
+import { PROXY_PATH } from './kube/usage'
 
 const THEMES: readonly ThemePreference[] = ['system', 'light', 'dark']
 const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {} }
@@ -24,7 +25,7 @@ export function isMetricsSourceSetting(value: unknown): value is MetricsSourceSe
     text(service.service) &&
     text(service.port) &&
     typeof service.path === 'string' &&
-    /^(\/[\w.~-]+)*$/.test(service.path)
+    PROXY_PATH.test(service.path)
   )
 }
 

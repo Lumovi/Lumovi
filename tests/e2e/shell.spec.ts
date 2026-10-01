@@ -102,7 +102,7 @@ test('a namespace can be typed when namespaces cannot be listed', async ({ page,
   await openCluster(page)
   await page.getByRole('button', { name: 'Namespace' }).click()
   await expect(
-    page.getByText('Namespaces could not be listed. Type a name to use it.'),
+    page.getByText('Namespaces couldn’t be listed. Type a name to use it.'),
   ).toBeVisible()
   await page.getByPlaceholder('Find a namespace…').fill('data')
   await page.getByRole('option', { name: 'Use namespace “data”' }).click()

@@ -31,7 +31,9 @@ export function loadKubeConfig(paths: string[]): KubeConfig {
       kc.loadFromString(text)
       kc.makePathsAbsolute(dirname(file))
     } catch (error) {
-      throw new Error(`Could not read ${file}: ${(error as Error).message}`, { cause: error })
+      // Only the reason and where: the parser quotes the lines around it, credentials and all.
+      const reason = (error as Error).message.split('\n')[0]
+      throw new Error(`Could not read ${file}: ${reason}`, { cause: error })
     }
     addMissing(merged.clusters, kc.clusters)
     addMissing(merged.users, kc.users)
@@ -95,7 +97,7 @@ export class KubeConfigStore {
     if (!this.#base.getCluster(context.cluster)) {
       throw new KubeRequestError(
         'invalid',
-        `Context "${name}" points at cluster "${context.cluster}", which is not defined`,
+        `Context "${name}" points at cluster "${context.cluster}", which isn’t defined`,
       )
     }
     const kc = new KubeConfig()

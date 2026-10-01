@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A stand-in for helm in the e2e tests: it records how it was run (in
 // $FAKE_HELM_DIR/calls.jsonl) and answers like helm does, or as
-// $FAKE_HELM_DIR/responses.json says ({ "<subcommand>": { code, stdout, stderr } }).
+// $FAKE_HELM_DIR/responses.json says ({ "<subcommand>": { code, stdout, stderr, signal } }).
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -25,6 +25,8 @@ const scripted = responses[command]
 if (scripted) {
   process.stdout.write(scripted.stdout ?? '')
   process.stderr.write(scripted.stderr ?? '')
+  // Stopped, as helm is when it runs too long.
+  if (scripted.signal) process.kill(process.pid, scripted.signal)
   process.exit(scripted.code ?? 0)
 }
 

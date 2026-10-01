@@ -10,8 +10,9 @@ import { KubeRequestError, statusError } from './errors'
  */
 export function serverUrl(kc: KubeConfig, path: string): URL {
   const cluster = kc.getCurrentCluster()!
-  // Keep any path prefix on the server URL (e.g. Rancher's /k8s/clusters/<id>).
-  const url = new URL(cluster.server.replace(/\/+$/, '') + path)
+  // Keep any path prefix on the server URL (e.g. Rancher's /k8s/clusters/<id>). The path
+  // always starts with a slash, so it can't name another host (`@elsewhere/…`).
+  const url = new URL(`${cluster.server.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`)
   if (url.protocol === 'http:' && !cluster.skipTLSVerify) {
     // Same policy as the official client: unencrypted connections must be opted into.
     throw new KubeRequestError(
@@ -32,7 +33,7 @@ export async function authorize(kc: KubeConfig, request: https.RequestOptions): 
     throw new KubeRequestError(
       'auth',
       plugin
-        ? `The credential plugin “${plugin}” was not found. Install it, or make sure it is on your PATH.`
+        ? `The credential plugin “${plugin}” wasn’t found. Install it, or make sure it’s on your PATH.`
         : `Could not get credentials: ${message}`,
     )
   }
@@ -99,7 +100,7 @@ export async function kubeRequest(
       req.destroy(
         new KubeRequestError(
           'timeout',
-          `The API server did not respond within ${options.timeoutMs / 1000}s`,
+          `The API server didn’t respond within ${options.timeoutMs / 1000}s`,
         ),
       )
     })
@@ -144,7 +145,7 @@ export async function kubeStream(
       req.destroy(
         new KubeRequestError(
           'timeout',
-          `The API server did not respond within ${options.timeoutMs / 1000}s`,
+          `The API server didn’t respond within ${options.timeoutMs / 1000}s`,
         ),
       )
     })

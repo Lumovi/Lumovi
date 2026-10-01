@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, nativeTheme, screen, type Rectangle } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen, type Rectangle } from 'electron'
 import type { WindowState } from '@shared/api'
 
 /** Keep in sync with the `--app-bg`/`--text-2` tokens in the renderer's theme. */
@@ -10,10 +10,13 @@ const CHROME = {
 }
 const TITLE_BAR_HEIGHT = 52
 
-/** The dev server URL under `electron-vite dev`, otherwise the bundled page. */
+/**
+ * The dev server URL under `electron-vite dev`, otherwise the bundled page.
+ * A packaged app never loads another page, whatever its environment says.
+ */
 export function rendererUrl(): string {
   return (
-    process.env.ELECTRON_RENDERER_URL ??
+    (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) ||
     pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
   )
 }
