@@ -30,6 +30,19 @@ jobs:
             echo "::error::The tag is $GITHUB_REF_NAME, but package.json says $version."
             exit 1
           fi
+      - name: The changelog has an entry for this version
+        run: |
+          # Its section of CHANGELOG.md becomes the release notes.
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { next }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no entry for ${GITHUB_REF_NAME#v}."
+            exit 1
+          fi
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
@@ -39,7 +52,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+        run: >
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag
+          --title "KubeStacks ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
 
   build:
     name: Build (${{ matrix.os }})

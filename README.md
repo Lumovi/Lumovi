@@ -103,10 +103,9 @@ Download the installer for your platform from
 | Windows (x64 & arm64)         | `.exe` installer            |
 | Linux (x64 & arm64)           | `.AppImage`, `.deb`, `.rpm` |
 
-> Builds aren't code-signed yet. **macOS:** if it says the app is damaged or can't be
-> verified, open **System Settings → Privacy & Security** and choose **Open Anyway** (or run
-> `xattr -dr com.apple.quarantine /Applications/KubeStacks.app`). **Windows:** choose
-> **More info → Run anyway**.
+> The macOS app is signed and notarized by Apple. Windows builds aren't code-signed yet: if
+> Windows says it protected your PC, choose **More info → Run anyway**. Each release lists
+> the installers' SHA-256 checksums in `SHA256SUMS.txt`.
 
 Or build it yourself: `npm ci && npm run dist` (Node.js 24 or later) puts the installers for
 your platform in `release/`.
