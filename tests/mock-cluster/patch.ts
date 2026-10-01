@@ -7,19 +7,23 @@ import type { Json } from './types.ts'
 const isObject = (value: Json): value is Record<string, Json> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** Keys a patch may not set: they'd reach the prototype rather than the object. */
-const UNSAFE = new Set(['__proto__', 'constructor', 'prototype'])
+/**
+ * Merges an object patch into `target`: `null` removes a field, anything else is merged
+ * in with `merge`. Built from a Map, so no key (not even `__proto__`) reaches a prototype.
+ */
+function mergeFields(target: Json, patch: Record<string, Json>, merge: typeof mergePatch): Json {
+  const fields = new Map(Object.entries(isObject(target) ? target : {}))
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) fields.delete(key)
+    else fields.set(key, merge(fields.get(key), value))
+  }
+  return Object.fromEntries(fields)
+}
 
 /** RFC 7386 JSON merge patch: objects merge, `null` removes, everything else replaces. */
 export function mergePatch(target: Json, patch: Json): Json {
   if (!isObject(patch)) return structuredClone(patch)
-  const result: Record<string, Json> = isObject(target) ? { ...target } : {}
-  for (const [key, value] of Object.entries(patch)) {
-    if (UNSAFE.has(key)) continue
-    if (value === null) delete result[key]
-    else result[key] = mergePatch(result[key], value)
-  }
-  return result
+  return mergeFields(target, patch, mergePatch)
 }
 
 /**
@@ -43,13 +47,7 @@ export function strategicMergePatch(target: Json, patch: Json): Json {
     return result
   }
   if (!isObject(patch)) return structuredClone(patch)
-  const result: Record<string, Json> = isObject(target) ? { ...target } : {}
-  for (const [key, value] of Object.entries(patch)) {
-    if (UNSAFE.has(key)) continue
-    if (value === null) delete result[key]
-    else result[key] = strategicMergePatch(result[key], value)
-  }
-  return result
+  return mergeFields(target, patch, strategicMergePatch)
 }
 
 class PatchError extends Error {}
