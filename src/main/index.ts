@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { app, Menu, nativeTheme, session } from 'electron'
 import { IPC } from '@shared/api'
+import icon from '../../build/icon.png?asset'
 import { HelmService } from './helm/service'
 import { registerIpc } from './ipc'
 import { KubeConfigStore } from './kube/kubeconfig'
@@ -23,6 +24,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => app.quit())
 
   void app.whenReady().then(() => {
+    // The app's own icon in the Dock, also when it runs as plain Electron (npm run dev).
+    app.dock?.setIcon(icon)
     const settings = new SettingsStore(app.getPath('userData'))
     nativeTheme.themeSource = settings.get().theme
     // The page needs none of the browser's permissions (camera, notifications…), only to copy.

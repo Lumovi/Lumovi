@@ -46,6 +46,8 @@ dmg:
   writeUpdateInfo: false
 
 win:
+  # Edge to edge, as Windows icons are (macOS and Linux use build/icon.png).
+  icon: build/icon-win.png
   target:
     - target: nsis
       arch: [x64, arm64]
