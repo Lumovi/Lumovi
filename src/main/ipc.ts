@@ -1,16 +1,22 @@
+import { writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import {
   app,
+  dialog,
   ipcMain,
   nativeTheme,
   shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron'
-import { IPC, type AppInfo } from '@shared/api'
+import { IPC, type AppInfo, type Result } from '@shared/api'
 import type { HelmService } from './helm/service'
+import { toKubeError } from './kube/errors'
 import type { KubeService } from './kube/service'
+import type { LogStreams } from './kube/logs'
 import type { Forwards, Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
+import { assertString, invalid } from './kube/validate'
 import { isMetricsSourceSetting, isTheme, type SettingsStore } from './settings'
 import { readViews } from './views'
 
@@ -21,6 +27,7 @@ interface Dependencies {
   settings: SettingsStore
   terminals: Terminals
   forwards: Forwards
+  logs: LogStreams
   /** Where the user's own views are, and how that folder is shown. */
   viewsDirectory: { path: string; shown: string }
   /** Only frames showing this URL may call into the main process. */
@@ -34,6 +41,7 @@ export function registerIpc({
   settings,
   terminals,
   forwards,
+  logs,
   viewsDirectory,
   rendererUrl,
 }: Dependencies): void {
@@ -89,6 +97,21 @@ export function registerIpc({
     if (allowed) await shell.openExternal(url)
     return allowed
   })
+  handle(IPC.saveFile, async (name, text): Promise<Result<boolean>> => {
+    try {
+      assertString(name, 'name')
+      if (typeof text !== 'string') throw invalid('text must be a string')
+      // Only a file name is offered; the user picks where it goes.
+      const { canceled, filePath } = await dialog.showSaveDialog({
+        defaultPath: join(app.getPath('downloads'), basename(name)),
+      })
+      if (canceled) return { ok: true, data: false }
+      await writeFile(filePath, text)
+      return { ok: true, data: true }
+    } catch (error) {
+      return { ok: false, error: toKubeError(error) }
+    }
+  })
   handle(IPC.views, () => readViews(viewsDirectory))
 
   handle(IPC.contexts, () => kube.contexts())
@@ -98,7 +121,6 @@ export function registerIpc({
   handle(IPC.list, (query) => kube.list(query))
   handle(IPC.get, (query) => kube.get(query))
   handle(IPC.metrics, (query) => kube.metrics(query))
-  handle(IPC.logs, (query) => kube.logs(query))
   handle(IPC.change, (request) => kube.change(request))
   handle(IPC.can, (context, checks) => kube.can(context, checks))
   handle(IPC.history, (query) => kube.history(query))
@@ -123,4 +145,6 @@ export function registerIpc({
   handle(IPC.forwardStart, (request) => forwards.start(request))
   handle(IPC.forwardList, () => forwards.list())
   handle(IPC.forwardStop, (id) => forwards.stop(id))
+  handle(IPC.logsStart, (id, request) => logs.start(id, request))
+  on(IPC.logsStop, (id) => logs.stop(id))
 }

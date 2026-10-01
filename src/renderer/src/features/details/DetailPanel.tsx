@@ -20,7 +20,7 @@ import { useActionsUi } from '@renderer/state/actions'
 import { ActionBar } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { EventsTab } from './EventsTab'
-import { LogsTab } from './LogsTab'
+import { LogsView, PodLogs } from '../logs/LogsView'
 import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
 import { hasMetrics, MetricsTab } from '../metrics/MetricsTab'
@@ -164,9 +164,12 @@ function DetailTabs({ object }: { object: KubeObject }) {
   useEffect(() => {
     if (requested) tabShown()
   }, [requested, tabShown])
+  // Workloads and services have the logs of their pods; a node's would be everything on it.
+  const podLogs = pods && kind !== 'Node'
   const tabs = [
     { value: 'overview', label: 'Overview' },
     ...(pods ? [{ value: 'pods', label: 'Pods' }] : []),
+    ...(podLogs ? [{ value: 'logs', label: 'Logs' }] : []),
     ...(kind === 'Pod'
       ? [
           { value: 'logs', label: 'Logs' },
@@ -197,7 +200,16 @@ function DetailTabs({ object }: { object: KubeObject }) {
       )}
       {kind === 'Pod' && (
         <TabContent value="logs" className={cn(content, 'flex flex-col')}>
-          <LogsTab pod={object} />
+          <LogsView pods={[object]} name={object.metadata.name} />
+        </TabContent>
+      )}
+      {podLogs && (
+        <TabContent value="logs" className={cn(content, 'flex flex-col')}>
+          <PodLogs
+            namespace={object.metadata.namespace!}
+            query={pods}
+            name={object.metadata.name}
+          />
         </TabContent>
       )}
       {kind === 'Pod' && (

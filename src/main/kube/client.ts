@@ -107,3 +107,48 @@ export async function kubeRequest(
     req.end(payload)
   })
 }
+
+/** A response being streamed, and a way to stop it. */
+export interface KubeStream {
+  body: NodeJS.ReadableStream
+  abort(): void
+}
+
+/**
+ * GETs a path whose response keeps coming (followed pod logs): resolves once
+ * the API server accepts the request, with its body as it arrives. Only the
+ * wait for that answer can time out; a stream may then be quiet for hours.
+ */
+export async function kubeStream(
+  kc: KubeConfig,
+  path: string,
+  options: { timeoutMs: number },
+): Promise<KubeStream> {
+  const url = serverUrl(kc, path)
+  const request: https.RequestOptions = { method: 'GET', headers: { Accept: '*/*' } }
+  await authorize(kc, request)
+  const transport = url.protocol === 'http:' ? http : https
+  return new Promise((resolve, reject) => {
+    const req = transport.request(url, request, (res) => {
+      req.setTimeout(0)
+      const status = res.statusCode!
+      if (status >= 200 && status < 300) {
+        resolve({ body: res, abort: () => req.destroy() })
+        return
+      }
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => reject(statusError(status, Buffer.concat(chunks).toString('utf8'))))
+    })
+    req.setTimeout(options.timeoutMs, () => {
+      req.destroy(
+        new KubeRequestError(
+          'timeout',
+          `The API server did not respond within ${options.timeoutMs / 1000}s`,
+        ),
+      )
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}

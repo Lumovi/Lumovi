@@ -31,6 +31,10 @@ All notable changes to KubeStacks are documented here. The format follows
   health and labels, and bulk actions across kinds. Each
   kind's own list is a tab away. The sidebar leads with Workloads and Pods; ReplicaSets and
   autoscalers are reached from their owners and ⌘K.
+- Logs streamed as they're written (`kubectl logs -f`): a pod's, or every pod's of a
+  workload or service merged by time with each line marked by its pod and color, new pods
+  joining and dropped streams picked up where they left off. Search, level and pod filters,
+  ANSI colors, time ranges, the previous container, and copy or download.
 - Helm releases: every release read from where Helm 3 and 4 keep them (Secrets or
   ConfigMaps, no helm needed), with their status, values (alone or with the chart's
   defaults), the objects they made and their live status, notes, and revisions diffed

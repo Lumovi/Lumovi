@@ -53,6 +53,11 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   cordon and drain nodes, evict and delete, edit labels or any object's YAML. Every change
   shows the equivalent `kubectl` command, checks your permissions first, and can be undone
   from its notification where that makes sense.
+- **Logs as they're written.** A pod's logs, or every pod's of a workload or service merged
+  in the order they were written, each line marked with its pod; pods that start later
+  join in. Search, keep only errors or warnings, leave pods out, see the colors apps print,
+  start from the last lines or a time, read a crashed container's previous run, and copy or
+  download what you see.
 - **Hands-on when you need it.** Open a shell in any container, add a debug container with
   tools to a running pod (even distroless ones), and forward ports to pods and services.
 - **Usage over time.** KubeStacks finds your Prometheus or VictoriaMetrics and charts what
@@ -309,7 +314,8 @@ offline, expired token, untrusted certificate, missing credential plugin, broken
 kubeconfig entries and blocked plain HTTP.
 
 The app's windows stay invisible while the tests run, never take focus and stay out of the
-Dock, so you can keep working. Set `KUBESTACKS_E2E_FOREGROUND=1` to watch them.
+Dock, and what the tests copy stays in the app, so you can keep working. Set
+`KUBESTACKS_E2E_FOREGROUND=1` to watch them.
 
 **Coverage is 100% for statements, branches, functions and lines, measured end-to-end.** The
 build is instrumented with Istanbul, and coverage is collected from all three Electron

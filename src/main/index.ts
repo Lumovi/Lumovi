@@ -6,6 +6,7 @@ import { registerIpc } from './ipc'
 import { KubeConfigStore } from './kube/kubeconfig'
 import { KubeService } from './kube/service'
 import { UsageHistory } from './kube/usage'
+import { LogStreams } from './kube/logs'
 import { Forwards, Terminals } from './kube/streams'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
@@ -45,6 +46,13 @@ if (!app.requestSingleInstanceLock()) {
       exit: (id, exit) => send(IPC.terminalExit, id, exit),
     })
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
+    const logs = new LogStreams(
+      { ...deps, timeoutMs: kube.timeoutMs },
+      {
+        lines: (id, lines) => send(IPC.logsLines, id, lines),
+        end: (id, error) => send(IPC.logsEnd, id, error),
+      },
+    )
     win.on('enter-full-screen', () => send(IPC.fullScreen, true))
     win.on('leave-full-screen', () => send(IPC.fullScreen, false))
     // A page that (re)loads learns how the window is now.
@@ -56,13 +64,15 @@ if (!app.requestSingleInstanceLock()) {
       settings,
       terminals,
       forwards,
+      logs,
       viewsDirectory: viewsDirectory(homedir()),
       rendererUrl: url,
     })
-    // Shells and forwards belong to the page that started them.
+    // Shells, forwards and log streams belong to the page that started them.
     const closeStreams = () => {
       terminals.closeAll()
       forwards.stopAll()
+      logs.stopAll()
     }
     win.webContents.on('did-start-navigation', (details) => {
       if (!details.isSameDocument) closeStreams()

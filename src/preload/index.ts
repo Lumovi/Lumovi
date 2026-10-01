@@ -22,6 +22,7 @@ const api: KubestacksApi = {
     setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
     setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
     openExternal: (url) => invoke(IPC.openExternal, url),
+    saveFile: (name, text) => invoke(IPC.saveFile, name, text),
     views: () => invoke(IPC.views),
   },
   kube: {
@@ -32,7 +33,6 @@ const api: KubestacksApi = {
     list: (query) => invoke(IPC.list, query),
     get: (query) => invoke(IPC.get, query),
     metrics: (query) => invoke(IPC.metrics, query),
-    logs: (query) => invoke(IPC.logs, query),
     change: (request) => invoke(IPC.change, request),
     can: (context, checks) => invoke(IPC.can, context, checks),
     history: (query) => invoke(IPC.history, query),
@@ -67,6 +67,12 @@ const api: KubestacksApi = {
     list: () => invoke(IPC.forwardList),
     stop: (id) => invoke(IPC.forwardStop, id),
     onChange: (listener) => subscribe(IPC.forwardsChanged, listener),
+  },
+  logs: {
+    start: (id, request) => invoke(IPC.logsStart, id, request),
+    stop: (id) => ipcRenderer.send(IPC.logsStop, id),
+    onLines: (listener) => subscribe(IPC.logsLines, listener),
+    onEnd: (listener) => subscribe(IPC.logsEnd, listener),
   },
 }
 

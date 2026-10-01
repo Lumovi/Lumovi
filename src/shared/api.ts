@@ -383,13 +383,22 @@ export interface MetricsSnapshot {
   items: UsageSample[]
 }
 
-export interface LogsQuery {
+/** A container's logs to stream (`kubectl logs`), and where to start. */
+export interface LogStreamRequest {
   context: string
   namespace: string
   pod: string
   container: string
-  tailLines: number
+  /** Start with its last lines… */
+  tailLines?: number
+  /** …or with those written in the last so many seconds… */
+  sinceSeconds?: number
+  /** …or since a time (RFC 3339), to carry on after a stream ends. */
+  sinceTime?: string
+  /** The container's previous instance: its lines arrive, then the stream ends. */
   previous: boolean
+  /** Keep the stream open for new lines (`-f`). */
+  follow: boolean
 }
 
 export type PatchType = 'merge' | 'strategic' | 'json'
@@ -515,6 +524,8 @@ export interface KubestacksApi {
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
     openExternal(url: string): Promise<boolean>
+    /** Asks where to save `text` (offering `name`) and saves it; false if the user cancels. */
+    saveFile(name: string, text: string): Promise<Result<boolean>>
     /** The user's own view files, read when asked. */
     views(): Promise<LocalViews>
   }
@@ -537,7 +548,6 @@ export interface KubestacksApi {
     list(query: ListQuery): Promise<Result<KubeList>>
     get(query: GetQuery): Promise<Result<KubeObject>>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
-    logs(query: LogsQuery): Promise<Result<string>>
     /** Resolves with the changed object, or null for deletions and evictions. */
     change(request: ChangeRequest): Promise<Result<KubeObject | null>>
     can(context: string, checks: AccessCheck[]): Promise<Result<boolean[]>>
@@ -575,6 +585,16 @@ export interface KubestacksApi {
     onData(listener: (id: string, data: string) => void): () => void
     onExit(listener: (id: string, exit: ShellExit) => void): () => void
   }
+  /** Container logs as they're written (`kubectl logs -f --timestamps`). */
+  logs: {
+    /** Starts a stream; the page picks its id, so it can listen before lines arrive. */
+    start(id: string, request: LogStreamRequest): Promise<Result<null>>
+    stop(id: string): void
+    /** Lines, each starting with its timestamp, in batches as they arrive. */
+    onLines(listener: (id: string, lines: string[]) => void): () => void
+    /** A stream ended: its container stopped, the connection closed, or it failed. */
+    onEnd(listener: (id: string, error?: KubeError) => void): () => void
+  }
   /** Local ports forwarded to pods and services (`kubectl port-forward`). */
   forwards: {
     start(request: PortForwardRequest): Promise<Result<PortForward>>
@@ -593,6 +613,7 @@ export const IPC = {
   setReadOnly: 'app:set-read-only',
   setMetricsSource: 'app:set-metrics-source',
   openExternal: 'app:open-external',
+  saveFile: 'app:save-file',
   views: 'app:views',
   contexts: 'kube:contexts',
   version: 'kube:version',
@@ -601,7 +622,6 @@ export const IPC = {
   list: 'kube:list',
   get: 'kube:get',
   metrics: 'kube:metrics',
-  logs: 'kube:logs',
   change: 'kube:change',
   can: 'kube:can',
   history: 'kube:history',
@@ -628,5 +648,9 @@ export const IPC = {
   forwardList: 'forward:list',
   forwardStop: 'forward:stop',
   forwardsChanged: 'forward:changed',
+  logsStart: 'logs:start',
+  logsStop: 'logs:stop',
+  logsLines: 'logs:lines',
+  logsEnd: 'logs:end',
   fullScreen: 'window:full-screen',
 } as const

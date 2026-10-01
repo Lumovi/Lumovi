@@ -132,28 +132,30 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
       call(kube.list(loose({ context: '', kind: 'Pod' }))),
       call(kube.get(loose({ context: 'demo', kind: 'Pod', namespace: 'default' }))),
       call(kube.metrics(loose({ context: 'demo', target: 'services' }))),
-      call(
-        kube.logs(
-          loose({
-            context: 'demo',
-            namespace: 'default',
-            pod: 'debug-shell',
-            container: 'shell',
-            tailLines: 0,
-          }),
+      ...[
+        { id: 'short', tailLines: 10 },
+        { id: 'stream-0001', tailLines: 0 },
+        { id: 'stream-0002', sinceSeconds: 2.5 },
+        { id: 'stream-0003', sinceTime: 'yesterday' },
+        { id: 'stream-0004', container: '' },
+      ].map(({ id, ...request }) =>
+        call(
+          window.kubestacks.logs.start(
+            id,
+            loose({
+              context: 'demo',
+              namespace: 'default',
+              pod: 'debug-shell',
+              container: 'shell',
+              previous: false,
+              follow: true,
+              ...request,
+            }),
+          ),
         ),
       ),
-      call(
-        kube.logs(
-          loose({
-            context: 'demo',
-            namespace: 'default',
-            pod: 'debug-shell',
-            container: 'shell',
-            tailLines: 2.5,
-          }),
-        ),
-      ),
+      call(window.kubestacks.app.saveFile(loose(5), 'text')),
+      call(window.kubestacks.app.saveFile('logs.log', loose(5))),
       call(kube.version('no-such-context')),
       window.kubestacks.app.setTheme(loose('neon')).then(
         () => 'ok',
@@ -171,8 +173,13 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
     'invalid: context must be a non-empty string',
     'invalid: name must be a non-empty string',
     'invalid: target must be "nodes" or "pods"',
+    'invalid: A new stream needs a new id',
     'invalid: tailLines must be an integer between 1 and 10000',
-    'invalid: tailLines must be an integer between 1 and 10000',
+    'invalid: sinceSeconds must be an integer between 1 and 2592000',
+    'invalid: sinceTime must be a time',
+    'invalid: container must be a non-empty string',
+    'invalid: name must be a non-empty string',
+    'invalid: text must be a string',
     'invalid: Unknown context "no-such-context"',
     expect.stringContaining('Unknown theme "neon"'),
   ])
