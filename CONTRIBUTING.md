@@ -69,14 +69,21 @@ cluster and a test that shows it.
 
 ## Releasing (maintainers)
 
-1. Update `version` in `package.json` and add an entry to `CHANGELOG.md`.
-2. Tag the commit: `git tag v0.2.0 && git push --tags`.
-3. The _Release_ workflow checks that the tag matches `package.json`, creates a draft GitHub
-   release, builds installers for every platform, and adds them with a `SHA256SUMS.txt`.
-   Review the draft, then publish it.
+Releases are automatic: a version is released once it reaches `main` and CI passes.
 
-Code signing is optional. Builds are signed when these secrets are set in the repository's
-`release` environment:
+1. Set the version: `npm version 1.2.0 --no-git-tag-version`.
+2. In `CHANGELOG.md`, move what's under _Unreleased_ into a `## [1.2.0] - <date>` section,
+   and update the links at the bottom.
+3. Commit and push to `main`.
+
+When CI passes on that commit, the _Release_ workflow sees a version without a release, and
+builds the installers for every platform (signing and notarizing the macOS app). It attaches
+them and a `SHA256SUMS.txt` to a GitHub release, with the version's CHANGELOG section as
+its notes, and publishes it, which tags the commit `v1.2.0`. A release that fails part of
+the way can be run again from the workflow's page (_Run workflow_).
+
+The signing secrets are in the repository's `release` environment, which only `main` can
+use:
 
 - macOS: `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate,
   exported as a base64-encoded `.p12`), plus an App Store Connect API key to notarize:
