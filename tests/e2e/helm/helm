@@ -135,6 +135,7 @@ switch (command) {
 function chartYaml(chart) {
   if (fs.statSync(chart).isDirectory()) return path.join(chart, 'Chart.yaml')
   const unpacked = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-helm-'))
-  execFileSync('tar', ['-xzf', chart, '-C', unpacked])
+  // Extracted from where it is: Git for Windows' tar reads `C:` in an archive's path as a host.
+  execFileSync('tar', ['-xzf', path.basename(chart), '-C', unpacked], { cwd: path.dirname(chart) })
   return path.join(unpacked, fs.readdirSync(unpacked)[0], 'Chart.yaml')
 }

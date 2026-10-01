@@ -141,10 +141,12 @@ test('logs: init containers, empty output and errors', async ({ page }) => {
   await openObject(page, 'Pods', pod)
   const detail = panel(page, 'Pod', pod)
   await detail.getByRole('tab', { name: 'Logs' }).click()
+  await expect(detail.getByRole('log', { name: 'Logs for app' })).toContainText('request completed')
   await detail.getByRole('combobox', { name: 'Container' }).selectOption('migrate')
-  await expect(detail.getByRole('log', { name: 'Logs for migrate' })).toContainText(
-    'schema is up to date',
-  )
+  // Only that container's lines: the app's go.
+  const migrate = detail.getByRole('log', { name: 'Logs for migrate' })
+  await expect(migrate).toContainText('schema is up to date')
+  await expect(migrate).not.toContainText('request completed')
 
   await detail.getByRole('button', { name: 'Previous container' }).click()
   await expect(detail.getByRole('alert')).toContainText('previous terminated container')

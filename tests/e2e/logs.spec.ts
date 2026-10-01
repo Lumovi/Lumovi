@@ -118,14 +118,32 @@ test('a workload’s logs: every pod’s, merged in the order they were written'
   await detail.getByRole('button', { name: 'Download' }).click()
   await expect(toasts(page)).toContainText('Couldn’t save the logs')
 
-  // Wrapped, a line's pod stays beside its time, on its first line; the pointer picks a line out.
-  await detail.getByRole('button', { name: 'Wrap lines' }).click()
-  const row = log.locator('[data-level="info"]').last()
-  await expect(row.locator('[data-label]')).toHaveCSS('align-items', 'flex-start')
+  // The pointer picks a line out: one in the middle of what shows, so pointing at it scrolls
+  // nothing (which would render other lines), and away from the toast in the corner.
+  const index = await log.evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    const middle = box.top + box.height / 2
+    const distance = (line: Element) => {
+      const { top, height } = line.getBoundingClientRect()
+      return Math.abs(top + height / 2 - middle)
+    }
+    const lines = [...element.querySelectorAll('[data-level="info"]')]
+    return (lines.sort((a, b) => distance(a) - distance(b))[0] as HTMLElement).dataset.index
+  })
+  const row = log.locator(`[data-index="${index}"]`)
   await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  // By its time, on the left: the toast in the corner can cover the rest of the row.
-  await row.hover({ position: { x: 8, y: 8 } })
-  await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  // Lines still arriving can move it from under a pointer that got there first.
+  await expect(async () => {
+    await row.hover({ position: { x: 8, y: 8 } })
+    await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)', { timeout: 500 })
+  }).toPass()
+
+  // Wrapped, a line's pod stays beside its time, on its first line.
+  await detail.getByRole('button', { name: 'Wrap lines' }).click()
+  await expect(log.locator('[data-level="info"] [data-label]').first()).toHaveCSS(
+    'align-items',
+    'flex-start',
+  )
   await detail.getByRole('button', { name: 'Wrap lines' }).click()
 
   // Every container: each line says whose it is.
