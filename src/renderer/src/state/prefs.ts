@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware'
 import type { RangeId } from '@renderer/lib/promql'
 
 const MAX_RECENT = 5
+/** Custom kinds kept in the sidebar per cluster, most recently opened first. */
+const MAX_RECENT_KINDS = 5
 
 interface Prefs {
   /** The namespace picked per context; `null` is "All namespaces". */
@@ -20,9 +22,9 @@ interface Prefs {
   /** Kinds pinned to the sidebar, shown in every cluster that has them. */
   pinned: string[]
   setPinned: (kind: string, pinned: boolean) => void
-  /** API groups unfolded in the sidebar's custom resources. */
-  openGroups: string[]
-  setGroupOpen: (group: string, open: boolean) => void
+  /** Custom kinds opened most recently, per context, newest first. */
+  recentKinds: Record<string, string[]>
+  touchKind: (context: string, kind: string) => void
 }
 
 const toggled = (list: string[], item: string, on: boolean) =>
@@ -45,9 +47,17 @@ export const usePrefs = create<Prefs>()(
       pinned: [],
       setPinned: (kind, pinned) =>
         set((prefs) => ({ pinned: toggled(prefs.pinned, kind, pinned) })),
-      openGroups: [],
-      setGroupOpen: (group, open) =>
-        set((prefs) => ({ openGroups: toggled(prefs.openGroups, group, open) })),
+      recentKinds: {},
+      touchKind: (context, kind) =>
+        set((prefs) => ({
+          recentKinds: {
+            ...prefs.recentKinds,
+            [context]: [
+              kind,
+              ...(prefs.recentKinds[context] ?? []).filter((k) => k !== kind),
+            ].slice(0, MAX_RECENT_KINDS),
+          },
+        })),
     }),
     { name: 'kubestacks:prefs' },
   ),

@@ -13,12 +13,15 @@ export function SearchInput({
   onArrowDown,
   placeholder,
   className,
+  autoFocus,
 }: {
   value: string
   onChange: (value: string) => void
   onArrowDown: () => void
   placeholder: string
   className?: string
+  /** For pages whose first job is finding something. */
+  autoFocus?: boolean
 }) {
   // The field shows what was typed right away, even if `value` catches up a
   // moment later (e.g. through the URL); changes made elsewhere replace it.
@@ -43,6 +46,7 @@ export function SearchInput({
       <Search className="size-3.5 shrink-0" />
       <input
         data-hotkey-target="filter"
+        autoFocus={autoFocus}
         value={draft}
         onChange={(event) => change(event.target.value)}
         onKeyDown={(event) => {

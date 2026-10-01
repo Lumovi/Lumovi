@@ -71,12 +71,13 @@ const DEFINITION = {
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 
+/** Opens a custom kind's list from its API group on the API resources page. */
 async function openKind(page: Page, group: string, label: string) {
-  const toggle = sidebar(page).getByRole('button', {
-    name: new RegExp(`^${group.replaceAll('.', '\\.')}`),
-  })
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
-  await sidebar(page).getByRole('link', { name: label, exact: true }).click()
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
+  await page
+    .getByRole('rowgroup', { name: group, exact: true })
+    .getByRole('button', { name: new RegExp(`^${label}\\b`) })
+    .click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(label)
 }
 
@@ -173,9 +174,10 @@ test('a CRD of one’s own, end to end', async ({ page }) => {
   await expect(dialog(page)).toContainText('Every Gadget in the cluster is deleted with it')
   await dialog(page).getByRole('textbox').fill(CRD)
   await dialog(page).getByRole('button', { name: 'Delete', exact: true }).click()
-  await expect(
-    sidebar(page).getByRole('button', { name: new RegExp(`^${GROUP.replaceAll('.', '\\.')}`) }),
-  ).toHaveCount(0, { timeout: 60_000 })
+  // It leaves the sidebar too, where it was among the kinds opened lately.
+  await expect(sidebar(page).getByRole('link', { name: 'Gadgets' })).toHaveCount(0, {
+    timeout: 60_000,
+  })
   expect(kubectl(['get', 'crd', '-o', 'name'])).not.toContain(CRD)
 })
 

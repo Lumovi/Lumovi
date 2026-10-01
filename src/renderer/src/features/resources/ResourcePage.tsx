@@ -1,5 +1,5 @@
 import { Gauge, Info, Pin, PinOff, SearchX, Tag } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import {
@@ -79,7 +79,12 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const kind = resource.kind
   const builtin = isBuiltinKind(kind)
   const noun = builtin ? resource.label.toLowerCase() : resource.label
-  const { namespace } = useCluster()
+  const { context, namespace } = useCluster()
+  const touchKind = usePrefs((prefs) => prefs.touchKind)
+  // Custom kinds opened lately stay at hand in the sidebar.
+  useEffect(() => {
+    if (!builtin) touchKind(context, kind)
+  }, [builtin, context, kind, touchKind])
   const [params] = useSearchParams()
   // Views decide the columns, status and icon of the kinds they cover.
   useViews()

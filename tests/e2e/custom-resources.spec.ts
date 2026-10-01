@@ -5,12 +5,13 @@ import { CONTEXTS, expect, openCluster, panel, row, rows, test } from './fixture
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 
-/** Opens a custom kind's list from its API group in the sidebar. */
+/** Opens a custom kind's list from its API group on the API resources page. */
 async function openKind(page: Page, group: string, label: string) {
-  const nav = sidebar(page)
-  const toggle = nav.getByRole('button', { name: new RegExp(`^${group.replaceAll('.', '\\.')}`) })
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
-  await nav.getByRole('link', { name: label, exact: true }).click()
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
+  await page
+    .getByRole('rowgroup', { name: group, exact: true })
+    .getByRole('button', { name: new RegExp(`^${label}\\b`) })
+    .click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(label)
 }
 
@@ -32,11 +33,19 @@ test.describe('custom resources', () => {
   }) => {
     const nav = sidebar(page)
     await expect(nav.getByText('Custom resources')).toBeVisible()
-    // Groups start folded, and remember being opened.
-    const group = nav.getByRole('button', { name: /^cert-manager\.io/ })
-    await expect(group).toHaveAttribute('aria-expanded', 'false')
-    await expect(group).toContainText('3')
+    // However many custom kinds there are, the sidebar only keeps those opened lately.
+    const lately = nav.getByRole('group', { name: 'Opened lately' })
+    await expect(lately.getByRole('link')).toHaveCount(0)
+    await expect(nav.getByRole('link', { name: /API resources/ })).toContainText(/\d+/)
     await openKind(page, 'cert-manager.io', 'Certificates')
+    await expect(lately.getByRole('link', { name: 'Certificates' })).toBeVisible()
+    // Custom resources are browsed by API group, with the filter ready.
+    await nav.getByRole('link', { name: /API resources/ }).click()
+    await expect(page.getByPlaceholder('Filter kinds')).toBeFocused()
+    await expect(
+      page.getByRole('rowgroup', { name: 'cert-manager.io', exact: true }),
+    ).toContainText('ClusterIssuers')
+    await lately.getByRole('link', { name: 'Certificates' }).click()
     await expect(page).toHaveTitle(/^Certificates · demo/)
     await expect(headers(page, 'Certificates')).toHaveText([
       '',
@@ -219,7 +228,9 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
 
   const filter = page.getByPlaceholder('Filter kinds')
   await filter.fill('ks')
-  await expect(custom.getByRole('row')).toHaveCount(2)
+  // One kind matches, in its group.
+  await expect(custom.getByRole('rowgroup', { name: 'kustomize.toolkit.fluxcd.io' })).toBeVisible()
+  await expect(custom.locator('[data-kind-link]')).toHaveCount(1)
   await filter.press('ArrowDown')
   await expect(custom.getByRole('button', { name: /^Kustomizations/ })).toBeFocused()
   await filter.fill('nothing-like-this')
@@ -230,6 +241,13 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await custom.getByRole('row').filter({ hasText: 'Kustomizations' }).hover()
   await custom.getByRole('button', { name: 'Pin Kustomizations' }).click()
   const pinned = sidebar(page).getByRole('heading', { name: 'Pinned' })
+  await expect(pinned).toBeVisible()
+  // Pins show in clusters that serve the kind; the sandbox doesn't run Flux.
+  await page.evaluate(() => (location.hash = '#/cluster/sandbox'))
+  await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText('sandbox')
+  await expect(sidebar(page).getByRole('link', { name: 'API resources' })).toBeVisible()
+  await expect(pinned).toHaveCount(0)
+  await page.evaluate(() => (location.hash = '#/cluster/demo/api-resources'))
   await expect(pinned).toBeVisible()
   await kubernetes.getByRole('button', { name: /^ServiceAccounts/ }).click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('ServiceAccounts')
@@ -543,7 +561,7 @@ spec:
   await expect(dialog(page)).toContainText('Every Gizmo in the cluster is deleted with it')
   await dialog(page).getByRole('textbox').fill('gizmos.toys.example.org')
   await dialog(page).getByRole('button', { name: 'Delete', exact: true }).click()
-  await expect(sidebar(page).getByRole('button', { name: /^toys\.example\.org/ })).toHaveCount(0)
+  await expect(sidebar(page).getByRole('link', { name: 'Gizmos' })).toHaveCount(0)
   expect(clusters.demo.object('Gizmo.toys.example.org', 'default', 'spinner')).toBeUndefined()
   await page.evaluate(() => (location.hash = '#/cluster/demo/r/Gizmo.toys.example.org'))
   await expect(page.getByText('demo doesn’t serve Gizmo.toys.example.org')).toBeVisible()
@@ -633,10 +651,27 @@ test('when discovery fails', async ({ page, clusters }) => {
 test('hundreds of CRDs stay manageable', async ({ page }) => {
   await openCluster(page, CONTEXTS.large)
   const nav = sidebar(page)
-  await expect(nav.getByRole('button', { name: /^ec2\.aws\.upbound\.io/ })).toContainText('40')
-  await expect(nav.getByRole('button', { name: /\.aws\.upbound\.io/ })).toHaveCount(10)
+  await expect(nav.getByRole('link', { name: /API resources/ })).toContainText('400')
+  await nav.getByRole('link', { name: /API resources/ }).click()
+  await expect(page.getByRole('region', { name: 'Custom resources' })).toContainText(
+    '400 kinds in 10 groups',
+  )
+  await expect(
+    page.getByRole('rowgroup', { name: 'ec2.aws.upbound.io', exact: true }),
+  ).toContainText('40')
   await openKind(page, 'rds.aws.upbound.io', 'Resource07s')
   await expect(page.getByText('No Resource07s in this cluster')).toBeVisible()
+  // The sidebar keeps the five opened last, newest first.
+  for (const kind of ['Resource01s', 'Resource02s', 'Resource03s', 'Resource04s', 'Resource05s']) {
+    await openKind(page, 's3.aws.upbound.io', kind)
+  }
+  await expect(nav.getByRole('group', { name: 'Opened lately' }).getByRole('link')).toHaveText([
+    'Resource05s',
+    'Resource04s',
+    'Resource03s',
+    'Resource02s',
+    'Resource01s',
+  ])
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByRole('dialog').getByRole('combobox').fill('Resource39 sqs')
   await expect(page.getByRole('dialog').getByRole('option', { name: /Resource39s/ })).toHaveCount(1)

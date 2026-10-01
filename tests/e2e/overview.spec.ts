@@ -53,6 +53,11 @@ test.describe('demo cluster', () => {
   })
 
   test('draws usage trends with a hover readout', async ({ page }) => {
+    // The hour of history replaces the live trend once Prometheus answers; hover that one.
+    await expect(page.getByRole('region', { name: 'CPU', exact: true })).toContainText(
+      'Last hour',
+      { timeout: 15_000 },
+    )
     const trend = page.getByRole('img', { name: /^CPU usage trend, now \d+%$/ })
     await expect(trend).toBeVisible({ timeout: 15_000 })
     const box = (await trend.boundingBox())!
