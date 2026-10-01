@@ -372,7 +372,8 @@ test('less common shapes of common objects', async ({ page }) => {
 
   await goTo(page, 'CronJobs')
   await expect(row(page, 'CronJobs', 'nightly-report')).toContainText('At 02:00 AM')
-  await expect(row(page, 'CronJobs', 'nightly-report')).toContainText(/in \d+h/)
+  // kubectl-style, so it depends on the time of day: "in 45s", "in 147m", "in 5h12m", "in 20h".
+  await expect(row(page, 'CronJobs', 'nightly-report')).toContainText(/in \d+[hms]/)
   await expect(row(page, 'CronJobs', 'quarterly-audit')).toContainText('—')
   await openObject(page, 'CronJobs', 'nightly-report')
   await expect(panel(page, 'CronJob', 'nightly-report')).toContainText('No')
