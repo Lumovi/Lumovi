@@ -13,6 +13,7 @@ import { MetricsPage } from './features/metrics/MetricsPage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
 import { ClusterLayout } from './features/shell/ClusterLayout'
 import { WelcomePage } from './features/welcome/WelcomePage'
+import { WorkloadsPage } from './features/workloads/WorkloadsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ const router = createHashRouter([
             errorElement: <RouteError />,
             children: [
               { index: true, element: <OverviewPage /> },
+              { path: 'workloads', element: <WorkloadsPage /> },
               { path: 'metrics', element: <MetricsPage /> },
               ...RESOURCES.map((resource) => ({
                 path: resource.plural,

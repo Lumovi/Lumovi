@@ -3,12 +3,14 @@ import {
   ArrowLeft,
   ArrowRight,
   Blocks,
+  Boxes,
   ChartSpline,
   LayoutDashboard,
   Plus,
   RotateCw,
   Search,
   ShipWheel,
+  type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -24,6 +26,14 @@ import { ActivityButton } from '../activity/ActivityButton'
 import { ForwardsButton } from '../activity/ForwardsButton'
 import { NamespacePicker } from './NamespacePicker'
 
+const PAGES: Record<string, [string, LucideIcon]> = {
+  '': ['Overview', LayoutDashboard],
+  workloads: ['Workloads', Boxes],
+  metrics: ['Metrics', ChartSpline],
+  'api-resources': ['API resources', Blocks],
+  helm: ['Helm releases', ShipWheel],
+}
+
 export function Header() {
   const { context } = useCluster()
   const navigate = useNavigate()
@@ -35,19 +45,9 @@ export function Header() {
   // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
   const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
   const resource = useResource(kind).resource
-  const metrics = page === 'metrics'
-  const browse = page === 'api-resources'
-  const helm = page === 'helm'
-  const PageIcon = metrics ? ChartSpline : browse ? Blocks : helm ? ShipWheel : LayoutDashboard
-  const title = kind
-    ? (resource?.label ?? apiKindOf(kind))
-    : metrics
-      ? 'Metrics'
-      : browse
-        ? 'API resources'
-        : helm
-          ? 'Helm releases'
-          : 'Overview'
+  // Pages other than a kind's list go by their route (and anything unknown is the overview's).
+  const [pageTitle, PageIcon] = PAGES[page] ?? PAGES['']!
+  const title = kind ? (resource?.label ?? apiKindOf(kind)) : pageTitle
 
   useEffect(() => {
     // Shown in the Dock, the task switcher and Mission Control.

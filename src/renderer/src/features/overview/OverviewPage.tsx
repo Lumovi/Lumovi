@@ -273,8 +273,7 @@ function PodsTile({ pods }: { pods?: KubeObject[] }) {
 }
 
 function WorkloadsTile({ workloads, loaded }: { workloads: Status[]; loaded: boolean }) {
-  if (!loaded)
-    return <Tile icon={KIND_ICONS.Deployment} label="Workloads healthy" to="deployments" />
+  if (!loaded) return <Tile icon={KIND_ICONS.Deployment} label="Workloads healthy" to="workloads" />
   const healthy = workloads.filter((s) => s.health === 'healthy' || s.health === 'neutral').length
   const degraded = workloads.length - healthy
   return (
@@ -290,7 +289,7 @@ function WorkloadsTile({ workloads, loaded }: { workloads: Status[]; loaded: boo
             ? `${degraded} degraded`
             : 'All healthy'
       }
-      to={degraded ? `deployments?${UNHEALTHY}` : 'deployments'}
+      to={degraded ? `workloads?${UNHEALTHY}` : 'workloads'}
     />
   )
 }

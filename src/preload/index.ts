@@ -14,6 +14,7 @@ function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) 
 const api: KubestacksApi = {
   platform: process.platform,
   onCommand: (listener) => subscribe(IPC.command, listener),
+  onFullScreen: (listener) => subscribe(IPC.fullScreen, listener),
   app: {
     info: () => invoke(IPC.appInfo),
     settings: () => invoke(IPC.settings),

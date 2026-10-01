@@ -361,12 +361,27 @@ export function clusterOption(page: Page, context: string) {
   return page.getByRole('option', { name: new RegExp(`^${context}\\b`) })
 }
 
-/** Navigates with the sidebar. */
+/** The kinds of workload, each a tab of Workloads. */
+const WORKLOAD_TABS = ['Deployments', 'StatefulSets', 'DaemonSets', 'Jobs', 'CronJobs']
+/** Lists the sidebar doesn't show, found with ⌘K. */
+const PALETTE_ONLY = ['ReplicaSets', 'Autoscalers']
+
+/** Navigates as a user would: with the sidebar, Workloads' tabs, or ⌘K. */
 export async function goTo(page: Page, label: string): Promise<void> {
-  await page
-    .getByRole('navigation', { name: 'Resources' })
-    .getByRole('link', { name: label, exact: true })
-    .click()
+  const sidebar = page.getByRole('navigation', { name: 'Resources' })
+  if (WORKLOAD_TABS.includes(label)) {
+    await sidebar.getByRole('link', { name: 'Workloads', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Workload types' })
+      .getByRole('link', { name: new RegExp(`^${label}\\b`) })
+      .click()
+  } else if (PALETTE_ONLY.includes(label)) {
+    await page.keyboard.press('ControlOrMeta+k')
+    // Options are named with their hint ("Autoscalers Workloads").
+    await page.getByRole('option', { name: new RegExp(`^${label}\\b`) }).click()
+  } else {
+    await sidebar.getByRole('link', { name: label, exact: true }).click()
+  }
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(label)
 }
 

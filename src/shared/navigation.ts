@@ -4,18 +4,24 @@
  */
 import { resourceByKind, type BuiltinKind } from './resources'
 
-export type NavTarget = 'overview' | 'metrics' | 'helm' | BuiltinKind
+export type NavTarget = 'overview' | 'workloads' | 'metrics' | 'helm' | BuiltinKind
+
+const PAGE_LABELS: Record<string, string> = {
+  overview: 'Overview',
+  workloads: 'Workloads',
+  metrics: 'Metrics',
+  helm: 'Helm releases',
+}
 
 /** What a view is called in menus and the shortcut sheet. */
 export function navLabel(target: NavTarget): string {
-  if (target === 'overview') return 'Overview'
-  if (target === 'helm') return 'Helm releases'
-  return target === 'metrics' ? 'Metrics' : resourceByKind(target).label
+  return PAGE_LABELS[target] ?? resourceByKind(target as BuiltinKind).label
 }
 
 /** Press g, then a letter, to jump to a view. */
 export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'o', target: 'overview' },
+  { key: 'w', target: 'workloads' },
   { key: 'u', target: 'metrics' },
   { key: 'h', target: 'helm' },
   { key: 'n', target: 'Node' },
@@ -35,7 +41,7 @@ export const GO_KEYS: { key: string; target: NavTarget }[] = [
 ]
 
 /** ⌘/Ctrl + 1…6, also listed in the Go menu. */
-export const QUICK_NAV: NavTarget[] = ['overview', 'Pod', 'Deployment', 'Service', 'Node', 'Event']
+export const QUICK_NAV: NavTarget[] = ['overview', 'workloads', 'Pod', 'Service', 'Node', 'Event']
 
 export type AppCommand =
   | 'palette'

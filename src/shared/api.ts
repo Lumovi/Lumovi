@@ -506,6 +506,8 @@ export interface KubestacksApi {
   platform: string
   /** Subscribes to commands from the native menu; returns an unsubscribe function. */
   onCommand(listener: (command: AppCommand) => void): () => void
+  /** Called when the window enters or leaves full screen (where macOS hides its window controls). */
+  onFullScreen(listener: (fullScreen: boolean) => void): () => void
   app: {
     info(): Promise<AppInfo>
     settings(): Promise<Settings>
@@ -626,4 +628,5 @@ export const IPC = {
   forwardList: 'forward:list',
   forwardStop: 'forward:stop',
   forwardsChanged: 'forward:changed',
+  fullScreen: 'window:full-screen',
 } as const

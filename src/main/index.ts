@@ -45,6 +45,10 @@ if (!app.requestSingleInstanceLock()) {
       exit: (id, exit) => send(IPC.terminalExit, id, exit),
     })
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
+    win.on('enter-full-screen', () => send(IPC.fullScreen, true))
+    win.on('leave-full-screen', () => send(IPC.fullScreen, false))
+    // A page that (re)loads learns how the window is now.
+    win.webContents.on('did-finish-load', () => send(IPC.fullScreen, win.isFullScreen()))
     registerIpc({
       kube,
       helm,

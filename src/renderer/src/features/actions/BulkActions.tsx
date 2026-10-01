@@ -166,12 +166,13 @@ export function countOf(kind: ResourceKind, n: number): string {
 
 /** The rows picked in a list, and what can be done to all of them at once. */
 export function SelectionBar({
-  kind,
   objects,
+  noun,
   onClear,
 }: {
-  kind: ResourceKind
   objects: KubeObject[]
+  /** What they're called together when their kinds differ ("workloads"). */
+  noun: string
   onClear: () => void
 }) {
   const { readOnly } = useReadOnly()
@@ -225,7 +226,7 @@ export function SelectionBar({
       </div>
       {running && (
         <BulkDialog
-          kind={kind}
+          noun={noun}
           action={running.action}
           objects={running.objects.filter(running.action.applies)}
           skipped={running.objects.filter((o) => !running.action.applies(o)).length}
@@ -245,13 +246,13 @@ type Progress = 'running' | 'done' | { error: string }
 const CONCURRENCY = 4
 
 function BulkDialog({
-  kind,
+  noun,
   action,
   objects,
   skipped,
   onClose,
 }: {
-  kind: ResourceKind
+  noun: string
   action: BulkAction
   objects: KubeObject[]
   skipped: number
@@ -261,20 +262,22 @@ function BulkDialog({
   const change = useChange()
   const [progress, setProgress] = useState<Record<string, Progress>>({})
   const [phase, setPhase] = useState<'review' | 'running' | 'done'>('review')
-  const key = (o: KubeObject) => `${o.metadata.namespace}/${o.metadata.name}`
-  const plural = labelFor(kind).toLowerCase()
-  const namespaces = [...new Set(objects.map((o) => o.metadata.namespace))]
-  const command = namespaces
-    .map((namespace) =>
-      kubectl(
-        context,
-        namespace,
-        ...action.args(
-          kind,
-          objects.filter((o) => o.metadata.namespace === namespace).map((o) => o.metadata.name),
-        ),
-      ),
-    )
+  const key = (o: KubeObject) => `${kindOf(o)}/${o.metadata.namespace}/${o.metadata.name}`
+  const kinds = [...new Set(objects.map(kindOf))]
+  const kind = kinds.length === 1 ? kinds[0] : undefined
+  const counted = kind ? countOf(kind, objects.length) : `${objects.length} ${noun}`
+  const plural = kind ? labelFor(kind).toLowerCase() : noun
+  // One command per namespace and kind: kubectl's arguments differ between kinds.
+  const groups = new Map<string, { namespace?: string; kind: ResourceKind; names: string[] }>()
+  for (const o of objects) {
+    const group = `${o.metadata.namespace}/${kindOf(o)}`
+    if (!groups.has(group)) {
+      groups.set(group, { namespace: o.metadata.namespace, kind: kindOf(o), names: [] })
+    }
+    groups.get(group)!.names.push(o.metadata.name)
+  }
+  const command = [...groups.values()]
+    .map((g) => kubectl(context, g.namespace, ...action.args(g.kind, g.names)))
     .join('\n')
   const failures = objects.filter((o) => typeof progress[key(o)] === 'object')
 
@@ -308,18 +311,19 @@ function BulkDialog({
     if (failed) {
       setPhase('done')
     } else {
-      toast({ tone: 'success', title: `${action.done} ${countOf(kind, objects.length)}` })
+      toast({ tone: 'success', title: `${action.done} ${counted}` })
       onClose(true)
     }
   }
 
-  const risky = action.danger && (RISKY.includes(kind) || looksLikeProduction(context))
+  const risky =
+    action.danger && (kinds.some((k) => RISKY.includes(k)) || looksLikeProduction(context))
   return (
     <ActionDialog
       icon={action.icon}
       tone={action.danger ? 'danger' : 'default'}
-      title={`${action.label} ${countOf(kind, objects.length)}?`}
-      subject={labelFor(kind)}
+      title={`${action.label} ${counted}?`}
+      subject={kind ? labelFor(kind) : noun.charAt(0).toUpperCase() + noun.slice(1)}
       command={command}
       confirmLabel={phase === 'done' ? 'Retry failed' : action.label}
       typeToConfirm={risky && phase === 'review' ? `${action.id} ${plural}` : undefined}

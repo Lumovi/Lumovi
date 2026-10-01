@@ -30,9 +30,10 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   needs attention and the most recent warnings.
 - **Resource consumption.** Live CPU and memory from metrics-server against allocatable
   capacity, with requests and limits, per-node meters, usage trends and the busiest pods.
-- **Every common kind.** Nodes, namespaces, events, pods, deployments, stateful sets,
-  daemon sets, replica sets, jobs, cron jobs, autoscalers, services, ingresses, network
-  policies, config maps, secrets, volume claims, volumes and storage classes.
+- **Every common kind.** Workloads of every kind in one list, with what each runs and
+  uses, and nodes, namespaces, events, pods, deployments, stateful sets, daemon sets,
+  replica sets, jobs, cron jobs, autoscalers, services, ingresses, network policies,
+  config maps, secrets, volume claims, volumes and storage classes.
 - **And every other kind.** Custom resources and the rest of the API, found through
   discovery: browsed by API group, with the columns `kubectl get` shows, a
   status read from their conditions, and fields explained by their schema. Views for
@@ -76,15 +77,15 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
 - **Light and dark.** Follows your system, or pick one. Native window controls match.
 
-|                                                             |                                                                            |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------- |
-| ![Pods](docs/screenshots/pods-dark.png)                     | ![Pod details](docs/screenshots/pod-light.png)                             |
-| ![A shell in a pod](docs/screenshots/shell-dark.png)        | ![Scaling a deployment](docs/screenshots/scale-light.png)                  |
-| ![Several pods selected](docs/screenshots/bulk-dark.png)    | ![Create from YAML](docs/screenshots/create-light.png)                     |
-| ![The Metrics page](docs/screenshots/metrics-dark.png)      | ![A pod's usage history](docs/screenshots/pod-metrics-light.png)           |
-| ![Logs](docs/screenshots/logs-dark.png)                     | ![Overview in light mode](docs/screenshots/overview-light.png)             |
-| ![A custom resource](docs/screenshots/custom-dark.png)      | ![Every kind the cluster serves](docs/screenshots/api-resources-light.png) |
-| ![A Helm release's history](docs/screenshots/helm-dark.png) | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light.png)       |
+|                                                                    |                                                                            |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| ![Every workload in one list](docs/screenshots/workloads-dark.png) | ![Pod details](docs/screenshots/pod-light.png)                             |
+| ![A shell in a pod](docs/screenshots/shell-dark.png)               | ![Scaling a deployment](docs/screenshots/scale-light.png)                  |
+| ![Several pods selected](docs/screenshots/bulk-dark.png)           | ![Create from YAML](docs/screenshots/create-light.png)                     |
+| ![The Metrics page](docs/screenshots/metrics-dark.png)             | ![A pod's usage history](docs/screenshots/pod-metrics-light.png)           |
+| ![Logs](docs/screenshots/logs-dark.png)                            | ![Overview in light mode](docs/screenshots/overview-light.png)             |
+| ![A custom resource](docs/screenshots/custom-dark.png)             | ![Every kind the cluster serves](docs/screenshots/api-resources-light.png) |
+| ![A Helm release's history](docs/screenshots/helm-dark.png)        | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light.png)       |
 
 ## Install
 
@@ -110,8 +111,8 @@ problems, missing credential plugin…).
 | Shortcut (macOS; `Ctrl` elsewhere) |                                                       |
 | ---------------------------------- | ----------------------------------------------------- |
 | `⌘K`                               | Command palette: views, objects, namespaces, clusters |
-| `⌘1` … `⌘6`                        | Overview, Pods, Deployments, Services, Nodes, Events  |
-| `G`, then a letter                 | Go to a view (`G P` pods, `G D` deployments…)         |
+| `⌘1` … `⌘6`                        | Overview, Workloads, Pods, Services, Nodes, Events    |
+| `G`, then a letter                 | Go to a view (`G W` workloads, `G D` deployments…)    |
 | `⌘[` / `⌘]`, `Alt+←` / `Alt+→`     | Back / forward                                        |
 | `⌘R`                               | Refresh now                                           |
 | `⌘N`                               | Create from YAML                                      |
@@ -128,6 +129,12 @@ problems, missing credential plugin…).
 
 The sidebar shows each view's `G` shortcut when you hover it.
 
+- **Workloads.** One list of every Deployment, StatefulSet, DaemonSet, Job and CronJob
+  (and the Jobs, ReplicaSets and pods nothing manages), with each one's status, ready
+  pods, autoscaler range, and CPU and memory added up over its pods, so problems of every
+  kind sort to the top together. A tab per kind shows that kind's own list and columns.
+  ReplicaSets a Deployment runs and Jobs a CronJob starts are left out; they're on their
+  owner's panel, and in ⌘K. **Pods** have a list of their own.
 - **Namespaces.** The namespace menu scopes every list. It starts in the namespace set on
   your kubeconfig context, and remembers your choice per cluster. If your account can't
   list namespaces, type one in.

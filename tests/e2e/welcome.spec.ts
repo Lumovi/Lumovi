@@ -52,7 +52,8 @@ test('the cluster search is focused and driven by the keyboard', async ({ page }
 
 test('recently opened clusters come first', async ({ page }) => {
   await openCluster(page, CONTEXTS.sandbox)
-  await page.getByRole('button', { name: 'All clusters' }).click()
+  await page.getByRole('button', { name: 'Switch cluster' }).click()
+  await page.getByRole('option', { name: 'All clusters' }).click()
   const recent = page.getByRole('group', { name: 'Recent' })
   await expect(recent.getByRole('option')).toHaveCount(1)
   await expect(recent).toContainText(CONTEXTS.sandbox)
