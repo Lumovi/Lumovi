@@ -60,10 +60,16 @@ test.describe('demo cluster', () => {
     )
     const trend = page.getByRole('img', { name: /^CPU usage trend, now \d+%$/ })
     await expect(trend).toBeVisible({ timeout: 15_000 })
-    const box = (await trend.boundingBox())!
-    await page.mouse.move(box.x + 4, box.y + box.height / 2)
-    await expect(page.getByRole('tooltip').filter({ hasText: '%' })).toBeVisible()
-    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2)
+    // Hovered where the trend is now: on a slow machine the page can still settle (fonts…),
+    // and a shift moves the trend out from under a pointer placed earlier.
+    await expect(async () => {
+      await trend.hover({ position: { x: 4, y: 24 } })
+      await expect(page.getByRole('tooltip').filter({ hasText: '%' })).toBeVisible({
+        timeout: 1000,
+      })
+    }).toPass()
+    const { width } = (await trend.boundingBox())!
+    await trend.hover({ position: { x: width - 2, y: 24 } })
     await page.mouse.move(0, 0)
     await expect(page.getByRole('tooltip')).toHaveCount(0)
   })

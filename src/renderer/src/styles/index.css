@@ -1,6 +1,14 @@
 @import 'tailwindcss';
 
 /*
+ * Hover styles whenever the pointer is over something. Tailwind only applies them
+ * on devices that report `(hover: hover)`, which a Windows laptop with a touchscreen
+ * (or a machine with no mouse plugged in) may not, though a desktop app is used
+ * with a pointer.
+ */
+@custom-variant hover (&:hover);
+
+/*
  * Design tokens. The theme follows `prefers-color-scheme`, which Electron's
  * nativeTheme drives from the user's System / Light / Dark preference, so the
  * native window controls and the page always agree.
