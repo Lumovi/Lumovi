@@ -55,8 +55,9 @@ jobs:
       - name: Run e2e tests
         shell: bash
         env:
-          # Nobody's watching: draw the windows, as transparent ones render slowly on Linux and Windows.
-          KUBESTACKS_E2E_OPAQUE: '1'
+          # Nobody's watching: draw the windows, as transparent ones render slowly on Linux and
+          # Windows (on macOS, transparent ones are the faster).
+          KUBESTACKS_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run --auto-servernum npx playwright test

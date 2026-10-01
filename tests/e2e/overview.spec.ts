@@ -1,4 +1,13 @@
-import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, test } from './fixtures.ts'
+import {
+  CONTEXTS,
+  DEMO,
+  expect,
+  goTo,
+  hoverForTooltip,
+  openCluster,
+  panel,
+  test,
+} from './fixtures.ts'
 
 test.describe('demo cluster', () => {
   test.beforeEach(async ({ page }) => {
@@ -102,8 +111,7 @@ test.describe('demo cluster', () => {
     const bar = page.getByRole('list', { name: 'Pods by status' })
     await expect(bar.getByRole('listitem', { name: 'Running: 28' })).toBeVisible()
     await expect(bar.getByRole('listitem', { name: 'Failing: 5' })).toBeVisible()
-    await bar.getByRole('listitem', { name: 'Failing: 5' }).hover()
-    await expect(page.getByRole('tooltip', { name: 'Failing: 5' })).toBeVisible()
+    await hoverForTooltip(bar.getByRole('listitem', { name: 'Failing: 5' }), 'Failing: 5')
 
     const namespaces = page.getByRole('list', { name: 'Pods by namespace' })
     await expect(namespaces.getByRole('button', { name: /shop/ })).toContainText('issues')

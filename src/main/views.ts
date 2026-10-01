@@ -4,7 +4,7 @@
  * up on the next refresh; the page checks and applies them.
  */
 import type { Dirent } from 'node:fs'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { LocalViews } from '@shared/api'
 
@@ -42,12 +42,17 @@ export async function readViews({
     .slice(0, MAX_FILES)
   const files = await Promise.all(
     names.map(async (name) => {
-      const file = join(path, name)
-      const { size } = await stat(file)
-      if (size > MAX_BYTES) {
-        return { name, text: '', error: `It’s larger than ${MAX_BYTES / 1024} KB.` }
+      // Checked and read through one open file, so it can't be swapped in between.
+      const file = await open(join(path, name), 'r')
+      try {
+        const { size } = await file.stat()
+        if (size > MAX_BYTES) {
+          return { name, text: '', error: `It’s larger than ${MAX_BYTES / 1024} KB.` }
+        }
+        return { name, text: await file.readFile('utf8') }
+      } finally {
+        await file.close()
       }
-      return { name, text: await readFile(file, 'utf8') }
     }),
   )
   return { directory, files }

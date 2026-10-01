@@ -7,11 +7,15 @@ import type { Json } from './types.ts'
 const isObject = (value: Json): value is Record<string, Json> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** Keys a patch may not set: they'd reach the prototype rather than the object. */
+const UNSAFE = new Set(['__proto__', 'constructor', 'prototype'])
+
 /** RFC 7386 JSON merge patch: objects merge, `null` removes, everything else replaces. */
 export function mergePatch(target: Json, patch: Json): Json {
   if (!isObject(patch)) return structuredClone(patch)
   const result: Record<string, Json> = isObject(target) ? { ...target } : {}
   for (const [key, value] of Object.entries(patch)) {
+    if (UNSAFE.has(key)) continue
     if (value === null) delete result[key]
     else result[key] = mergePatch(result[key], value)
   }
@@ -41,6 +45,7 @@ export function strategicMergePatch(target: Json, patch: Json): Json {
   if (!isObject(patch)) return structuredClone(patch)
   const result: Record<string, Json> = isObject(target) ? { ...target } : {}
   for (const [key, value] of Object.entries(patch)) {
+    if (UNSAFE.has(key)) continue
     if (value === null) delete result[key]
     else result[key] = strategicMergePatch(result[key], value)
   }

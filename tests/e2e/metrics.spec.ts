@@ -1,6 +1,16 @@
 import type { Locator, Page } from '@playwright/test'
 import { open, toasts } from './action-helpers.ts'
-import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import {
+  CONTEXTS,
+  DEMO,
+  expect,
+  goTo,
+  hoverForTooltip,
+  openCluster,
+  panel,
+  row,
+  test,
+} from './fixtures.ts'
 
 const METRICS = '/api/v1/namespaces/monitoring/services/prometheus:web/proxy'
 
@@ -174,8 +184,7 @@ test.describe('the metrics page', () => {
     const spread = page.getByRole('group', { name: 'How pods spread by CPU' })
     const bands = spread.getByRole('button', { disabled: false })
     await expect(bands.first()).toHaveAccessibleName(/^\d+ pods from 0 to /)
-    await bands.first().hover()
-    await expect(page.getByRole('tooltip')).toContainText('pods ·')
+    await hoverForTooltip(bands.first(), 'pods ·')
     await bands.first().focus()
     await bands.first().blur()
     const before = await table(page, 'pods').getByRole('row').count()

@@ -132,8 +132,11 @@ switch (command) {
 
 /** A chart's Chart.yaml: from its folder, or from inside its package. */
 function chartYaml(chart) {
-  if (fs.statSync(chart).isDirectory())
+  try {
     return fs.readFileSync(path.join(chart, 'Chart.yaml'), 'utf8')
+  } catch {
+    // Not a folder with one: a package.
+  }
   // A package is a gzipped tar, read here rather than by a tar program (Git for Windows'
   // tar takes `C:` in a path for a host): 512-byte headers, each followed by its file.
   const archive = zlib.gunzipSync(fs.readFileSync(chart))
