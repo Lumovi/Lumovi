@@ -4,7 +4,7 @@ import type { MetricsSourceSetting, Settings, ThemePreference } from '@shared/ap
 import { PROXY_PATH } from './kube/usage'
 
 const THEMES: readonly ThemePreference[] = ['system', 'light', 'dark']
-const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {} }
+const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {}, autoUpdate: true }
 
 export function isTheme(value: unknown): value is ThemePreference {
   return THEMES.includes(value as ThemePreference)
@@ -93,6 +93,8 @@ export class SettingsStore {
             isMetricsSourceSetting(setting),
           ),
         ),
+        // On unless turned off.
+        autoUpdate: stored.autoUpdate !== false,
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.

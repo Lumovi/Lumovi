@@ -3,6 +3,7 @@ import { createHashRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
+import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
 import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
@@ -65,6 +66,7 @@ export function App() {
       <TooltipProvider delayDuration={500} skipDelayDuration={200}>
         <RouterProvider router={router} />
         <Toaster />
+        <UpdateNotice />
       </TooltipProvider>
     </QueryClientProvider>
   )

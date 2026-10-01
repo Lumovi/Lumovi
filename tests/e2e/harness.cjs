@@ -10,9 +10,35 @@
 //   (CI, npm run test:linux), KUBESTACKS_E2E_OPAQUE=1 draws them, still
 //   click-through: Linux and Windows treat a fully transparent window as not
 //   drawn, and render it slowly (macOS renders transparent ones faster).
+// - electron-updater is a stand-in the tests drive (globalThis.__updater):
+//   nothing is looked up or downloaded.
 // -r loads CommonJS.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { app, BrowserWindow } = require('electron')
+const Module = require('node:module')
+const { EventEmitter } = require('node:events')
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+const updater = Object.assign(new EventEmitter(), {
+  checks: 0,
+  installs: 0,
+  // What a check resolves to: null when the app can't update itself.
+  result: {},
+  checkForUpdates() {
+    this.checks++
+    return Promise.resolve(this.result)
+  },
+  quitAndInstall() {
+    this.installs++
+  },
+})
+globalThis.__updater = updater
+const load = Module._load
+Module._load = function (request, ...rest) {
+  return request === 'electron-updater'
+    ? { autoUpdater: updater }
+    : load.call(this, request, ...rest)
+}
 
 const CLIPBOARD = `
   window.__clipboard = ''

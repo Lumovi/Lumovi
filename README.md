@@ -116,8 +116,13 @@ Kubernetes 1.25 or later (fields are explained from the cluster's OpenAPI schema
 `kubectl` isn't needed; [Helm](https://helm.sh) is, only to change Helm releases.
 
 **Privacy.** KubeStacks has no telemetry and no accounts. It connects to the clusters in your
-kubeconfig, through them to the Prometheus you pick for usage history, and to
-[Artifact Hub](https://artifacthub.io) only when you search it for charts.
+kubeconfig, through them to the Prometheus you pick for usage history, to
+[Artifact Hub](https://artifacthub.io) only when you search it for charts, and to GitHub to
+look for new versions (which **Help → Check for Updates Automatically** turns off).
+
+**Updates.** KubeStacks keeps itself up to date: a new version downloads in the background,
+and installs when you restart or quit the app. **Help → Check for Updates…** looks right
+away.
 
 ## Using it
 
