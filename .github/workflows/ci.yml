@@ -169,11 +169,11 @@ jobs:
         env:
           KUBESTACKS_E2E_EXECUTABLE: ${{ github.workspace }}/${{ matrix.executable }}
         run: |
-          specs="tests/e2e/welcome.spec.ts tests/e2e/overview.spec.ts"
+          specs=(tests/e2e/welcome.spec.ts tests/e2e/overview.spec.ts)
           if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run --auto-servernum npx playwright test $specs
+            xvfb-run --auto-servernum npx playwright test "${specs[@]}"
           else
-            npx playwright test $specs
+            npx playwright test "${specs[@]}"
           fi
 
   integration:

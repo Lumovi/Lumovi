@@ -1,76 +1,102 @@
 name: Release
 
-# Push a tag like v0.2.0 to build installers for every platform and attach them
-# to a draft GitHub release. Review the draft, then publish it.
+# Releases a version when it reaches main. Once CI passes on a commit whose
+# package.json version has no release yet, this builds the installers for every
+# platform (macOS signed and notarized), attaches them and their checksums to a
+# GitHub release with the version's CHANGELOG notes, and publishes it, which
+# tags the commit. To release, bump the version, add its CHANGELOG section and
+# push (see CONTRIBUTING.md).
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # By hand, to retry a release that failed part of the way.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   preflight:
-    name: Check the tag and the code
+    name: Find the version to release
+    # Only what CI passed on main, pushed to this repository.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - name: The tag matches package.json
+      - name: The version, unless it's released already
+        id: version
         run: |
           version=$(node -p "require('./package.json').version")
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::The tag is $GITHUB_REF_NAME, but package.json says $version."
-            exit 1
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version is released already."
+            exit 0
           fi
-      - name: The changelog has an entry for this version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Its CHANGELOG section, for the release notes
+        if: steps.version.outputs.version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Its section of CHANGELOG.md becomes the release notes.
-          awk -v v="${GITHUB_REF_NAME#v}" '
+          awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found && /^\[[^]]+\]: / { next }
             found { print }
           ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
-            echo "::error::CHANGELOG.md has no entry for ${GITHUB_REF_NAME#v}."
+            echo "::error::CHANGELOG.md has no entry for $VERSION."
             exit 1
           fi
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
       # Created once, here: the builds below would otherwise race to create it.
       - name: Create the draft release
+        if: steps.version.outputs.version
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: >
-          gh release create "$GITHUB_REF_NAME" --draft --verify-tag
-          --title "KubeStacks ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          # A draft left by an attempt that failed is started over.
+          if gh release view "v$VERSION" >/dev/null 2>&1; then gh release delete "v$VERSION" --yes; fi
+          gh release create "v$VERSION" --draft --target "$SHA" \
+            --title "KubeStacks $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
   build:
     name: Build (${{ matrix.os }})
     needs: preflight
+    if: needs.preflight.outputs.version != ''
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # Signing secrets live in this environment, so they can be guarded (e.g. by required reviewers).
+    # The signing secrets live in this environment, which only main can deploy from.
     environment: release
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.preflight.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -107,20 +133,27 @@ jobs:
           if [ -z "$CSC_LINK$WIN_CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --publish always
 
-  checksums:
-    name: Checksums
-    needs: build
+  publish:
+    name: Checksums and publish
+    needs: [preflight, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: v${{ needs.preflight.outputs.version }}
     steps:
-      - name: Add SHA256SUMS.txt to the draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+      - name: Add SHA256SUMS.txt
         run: |
           mkdir assets && cd assets
-          gh release download "$GITHUB_REF_NAME" --pattern 'KubeStacks-*'
-          sha256sum $(ls KubeStacks-* | grep -v '\.blockmap$') > SHA256SUMS.txt
+          gh release download "$TAG" --pattern 'KubeStacks-*'
+          # The installers, not the files updates use to download less.
+          files=()
+          for file in KubeStacks-*; do [[ $file == *.blockmap ]] || files+=("$file"); done
+          sha256sum "${files[@]}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
-          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
+      # Publishing creates the tag, on the commit CI passed.
+      - name: Publish the release
+        run: gh release edit "$TAG" --draft=false --latest
