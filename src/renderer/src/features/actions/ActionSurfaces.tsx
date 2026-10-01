@@ -185,7 +185,7 @@ function ActionItems({
 }
 
 /** Shown instead of working actions when the cluster is read-only, with a way to allow changes. */
-function ReadOnlyBadge() {
+export function ReadOnlyBadge() {
   const { context } = useCluster()
   const { locked, set } = useReadOnly()
   return (

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "replicas": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many pods serve the greeting."
+    },
+    "message": { "type": "string", "description": "What they say." },
+    "image": { "type": "string" }
+  }
+}

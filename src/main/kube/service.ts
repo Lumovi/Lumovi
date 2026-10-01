@@ -573,6 +573,14 @@ export class KubeService {
     }
   }
 
+  /**
+   * The objects at `path` that match `labelSelector`, as the API server has
+   * them (nothing left out): for reading Helm's records of releases.
+   */
+  async listRaw(context: string, path: string, labelSelector: string): Promise<KubeObject[]> {
+    return (await this.#listChunks(context, path, new URLSearchParams({ labelSelector }))).items
+  }
+
   /** GETs any path on the cluster as text, for the usage history's service proxy calls. */
   fetchText(context: string, path: string): Promise<string> {
     return this.#request(context, path, {})

@@ -46,8 +46,18 @@ export interface KubeStacks {
   app: ElectronApplication
   page: Page
   userDataDir: string
+  /** Where the stand-in helm records its calls and reads scripted answers (tests/e2e/helm). */
+  helmDir?: string
   close(): Promise<void>
 }
+
+/** Keeps test windows out of the way (see the file); KUBESTACKS_E2E_FOREGROUND=1 shows them. */
+const BACKGROUND = process.env.KUBESTACKS_E2E_FOREGROUND
+  ? []
+  : ['-r', resolve('tests/e2e/background.cjs')]
+
+/** The stand-in for helm the e2e tests run, instead of a real one. */
+const FAKE_HELM = resolve('tests/e2e/helm', process.platform === 'win32' ? 'helm.cmd' : 'helm')
 
 async function collectCoverage(app: ElectronApplication): Promise<void> {
   for (const window of app.windows()) {
@@ -99,6 +109,7 @@ export async function launchApp(
   const app = await electron.launch({
     ...(executablePath ? { executablePath } : {}),
     args: [
+      ...BACKGROUND,
       ...(executablePath ? [] : ['.']),
       `--user-data-dir=${userDataDir}`,
       // Parallel test windows cover each other. Like Playwright does for browsers,
@@ -300,8 +311,13 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     // On CI, failures keep a trace (DOM snapshots, actions, console) to see what happened.
     const trace = Boolean(process.env.CI)
     const profiles: (() => Promise<void>)[] = []
-    await use(async (options) => {
-      const instance = await launchApp(clusters.kubeconfigPath, options)
+    await use(async (options = {}) => {
+      const helmDir = mkdtempSync(join(tmpdir(), 'kubestacks-helm-'))
+      const instance = await launchApp(clusters.kubeconfigPath, {
+        ...options,
+        env: { KUBESTACKS_HELM: FAKE_HELM, FAKE_HELM_DIR: helmDir, ...options.env },
+      })
+      instance.helmDir = helmDir
       if (trace) {
         await instance.app.context().tracing.start({ screenshots: true, snapshots: true })
         profiles.push(await profile(instance, testInfo, launched.length))

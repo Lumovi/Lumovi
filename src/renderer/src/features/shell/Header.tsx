@@ -8,6 +8,7 @@ import {
   Plus,
   RotateCw,
   Search,
+  ShipWheel,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -36,14 +37,17 @@ export function Header() {
   const resource = useResource(kind).resource
   const metrics = page === 'metrics'
   const browse = page === 'api-resources'
-  const PageIcon = metrics ? ChartSpline : browse ? Blocks : LayoutDashboard
+  const helm = page === 'helm'
+  const PageIcon = metrics ? ChartSpline : browse ? Blocks : helm ? ShipWheel : LayoutDashboard
   const title = kind
     ? (resource?.label ?? apiKindOf(kind))
     : metrics
       ? 'Metrics'
       : browse
         ? 'API resources'
-        : 'Overview'
+        : helm
+          ? 'Helm releases'
+          : 'Overview'
 
   useEffect(() => {
     // Shown in the Dock, the task switcher and Mission Control.

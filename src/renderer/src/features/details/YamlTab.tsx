@@ -4,22 +4,13 @@ import type { KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { Tooltip } from '@renderer/components/Tooltip'
-import { cn } from '@renderer/lib/cn'
+import { YamlText } from '@renderer/components/YamlText'
 import { formatRef } from '@renderer/lib/routes'
-import { toYaml, tokenizeYamlLine, type YamlTokenType } from '@renderer/lib/yaml'
+import { toYaml } from '@renderer/lib/yaml'
 import { useActionsUi } from '@renderer/state/actions'
 import { kindOf } from '../actions/common'
 import { useObjectActions } from '../actions/use-actions'
 import { YamlEditor } from './YamlEditor'
-
-const TOKEN_CLASS: Record<YamlTokenType, string> = {
-  key: 'text-accent-strong',
-  string: 'text-good-text',
-  number: 'text-serious-text',
-  literal: 'text-serious-text',
-  punct: 'text-ink-3',
-  plain: 'text-ink-1',
-}
 
 export const MASK = '••••••••'
 
@@ -82,25 +73,7 @@ function YamlView({ object, onEdit }: { object: KubeObject; onEdit: () => void }
         <CopyButton text={yaml} label="Copy YAML" />
         <EditButton object={object} onEdit={onEdit} />
       </div>
-      <pre
-        aria-label="YAML"
-        className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] select-text selectable"
-      >
-        <code className="grid grid-cols-[auto_1fr]">
-          {lines.map((line, index) => (
-            <span key={index} className="contents">
-              <span className="pr-4 pl-5 text-right text-ink-3/60 select-none">{index + 1}</span>
-              <span className="pr-5 whitespace-pre">
-                {tokenizeYamlLine(line).map((token, i) => (
-                  <span key={i} className={cn(TOKEN_CLASS[token.type])}>
-                    {token.text}
-                  </span>
-                ))}
-              </span>
-            </span>
-          ))}
-        </code>
-      </pre>
+      <YamlText text={yaml} label="YAML" />
     </div>
   )
 }

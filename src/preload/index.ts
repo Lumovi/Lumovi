@@ -36,6 +36,17 @@ const api: KubestacksApi = {
     can: (context, checks) => invoke(IPC.can, context, checks),
     history: (query) => invoke(IPC.history, query),
   },
+  helm: {
+    releases: (context, namespace) => invoke(IPC.helmReleases, context, namespace),
+    release: (context, namespace, name) => invoke(IPC.helmRelease, context, namespace, name),
+    cli: () => invoke(IPC.helmCli),
+    rollback: (request) => invoke(IPC.helmRollback, request),
+    uninstall: (request) => invoke(IPC.helmUninstall, request),
+    deploy: (request) => invoke(IPC.helmDeploy, request),
+    defaults: (source) => invoke(IPC.helmDefaults, source),
+    versions: (repository, chart) => invoke(IPC.helmVersions, repository, chart),
+    search: (query) => invoke(IPC.helmSearch, query),
+  },
   usage: {
     source: (context, refresh) => invoke(IPC.usageSource, context, refresh),
     test: (context, service) => invoke(IPC.usageTest, context, service),

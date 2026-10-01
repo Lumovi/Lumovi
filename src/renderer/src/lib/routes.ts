@@ -17,6 +17,11 @@ export function metricsPath(context: string): string {
   return `${clusterPath(context)}/metrics`
 }
 
+/** The cluster's Helm releases. */
+export function helmPath(context: string): string {
+  return `${clusterPath(context)}/helm`
+}
+
 /** Every kind the cluster serves, and the views that show them. */
 export function apiResourcesPath(context: string): string {
   return `${clusterPath(context)}/api-resources`
@@ -25,6 +30,7 @@ export function apiResourcesPath(context: string): string {
 /** The route for the overview, the metrics or a resource list. */
 export function targetPath(context: string, target: NavTarget): string {
   if (target === 'overview') return clusterPath(context)
+  if (target === 'helm') return helmPath(context)
   return target === 'metrics' ? metricsPath(context) : kindPath(context, target)
 }
 

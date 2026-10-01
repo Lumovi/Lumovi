@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
 import { TooltipProvider } from './components/Tooltip'
+import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
@@ -45,6 +46,7 @@ const router = createHashRouter([
               })),
               { path: 'r/:kind', element: <CustomResourcePage /> },
               { path: 'api-resources', element: <ApiResourcesPage /> },
+              { path: 'helm', element: <HelmPage /> },
               { path: '*', element: <NotFound /> },
             ],
           },

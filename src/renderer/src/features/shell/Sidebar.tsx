@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   List,
   Lock,
+  ShipWheel,
 } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
@@ -33,7 +34,13 @@ import { useReadOnly } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
-import { apiResourcesPath, clusterPath, kindPath, metricsPath } from '@renderer/lib/routes'
+import {
+  apiResourcesPath,
+  clusterPath,
+  helmPath,
+  kindPath,
+  metricsPath,
+} from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { REPO_URL } from '../welcome/WelcomePage'
@@ -115,6 +122,10 @@ export function Sidebar() {
         <NavItem to={metricsPath(context)}>
           <ChartSpline className="size-4 text-ink-3" /> Metrics
           <GoHint target="metrics" />
+        </NavItem>
+        <NavItem to={helmPath(context)}>
+          <ShipWheel className="size-4 text-ink-3" /> Helm releases
+          <GoHint target="helm" />
         </NavItem>
         {(Object.keys(CATEGORY_LABELS) as ResourceCategory[]).map((category) => (
           <div key={category} className="mt-4">

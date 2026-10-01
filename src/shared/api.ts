@@ -135,6 +135,7 @@ export type KubeErrorCode =
   | 'invalid'
   | 'conflict'
   | 'read-only'
+  | 'helm'
 
 export interface KubeError {
   code: KubeErrorCode
@@ -212,6 +213,116 @@ export interface FieldSchema {
   properties?: Record<string, FieldSchema>
   items?: FieldSchema
   additionalProperties?: FieldSchema
+}
+
+/** A Helm release, as its latest revision describes it. */
+export interface HelmRelease {
+  name: string
+  namespace: string
+  revision: number
+  /** deployed, failed, pending-install, pending-upgrade, pending-rollback, uninstalling… */
+  status: string
+  chart: string
+  chartVersion: string
+  appVersion?: string
+  /** When its latest revision was deployed. */
+  updated?: string
+  description?: string
+  /** The Flux HelmRelease that manages it, if one does. */
+  managedBy?: { name: string; namespace: string }
+}
+
+/** One revision of a release: what it was given, and what it rendered. */
+export interface HelmRevision {
+  revision: number
+  status: string
+  updated?: string
+  chartVersion: string
+  appVersion?: string
+  description?: string
+  /** The values the user set, not the chart's defaults. */
+  values: Record<string, unknown>
+  manifest: string
+  notes?: string
+}
+
+export interface HelmReleaseDetail extends HelmRelease {
+  firstDeployed?: string
+  chartInfo: {
+    description?: string
+    home?: string
+    sources?: string[]
+    /** Its subcharts; a chart without any can be upgraded as the cluster stores it. */
+    dependencies: string[]
+  }
+  /** The chart's default values. */
+  defaults: Record<string, unknown>
+  /** The chart's values.schema.json, when it has one. */
+  schema?: unknown
+  /** Newest first. */
+  revisions: HelmRevision[]
+}
+
+/** Where a chart comes from, the way helm takes it. */
+export interface ChartSource {
+  /** A chart name with `repository`, a repo/chart, an oci:// reference, a URL or a path. */
+  chart: string
+  /** A chart repository's URL (helm's --repo). */
+  repository?: string
+  version?: string
+}
+
+/** The user's helm, which makes the changes. */
+export interface HelmCli {
+  available: boolean
+  /** What runs: KUBESTACKS_HELM, or helm on the PATH. */
+  command: string
+  version?: string
+}
+
+export interface HelmRollback {
+  context: string
+  namespace: string
+  name: string
+  revision: number
+}
+
+export interface HelmUninstall {
+  context: string
+  namespace: string
+  name: string
+  keepHistory: boolean
+}
+
+/** An upgrade, or with `install`, a new release. */
+export interface HelmDeploy {
+  context: string
+  namespace: string
+  name: string
+  /** The chart; `stored` upgrades with the chart the release already runs. */
+  source: ChartSource | 'stored'
+  /** All the values the user sets, as YAML (what `-f values.yaml` would hold). */
+  values: string
+  install?: boolean
+  createNamespace?: boolean
+  /** Asks the API server, changes nothing. */
+  dryRun: boolean
+}
+
+/** What a deploy did, or would do. */
+export interface HelmDeployed {
+  revision: number
+  manifest: string
+  notes?: string
+}
+
+/** A chart found on Artifact Hub. */
+export interface ChartSearchResult {
+  name: string
+  version: string
+  appVersion?: string
+  description?: string
+  repository: { name: string; url: string }
 }
 
 /** View files the user keeps next to KubeStacks' own (see docs/views.md). */
@@ -431,6 +542,24 @@ export interface KubestacksApi {
     /** A workload's rollout history, newest first. */
     history(query: HistoryQuery): Promise<Result<Revision[]>>
   }
+  /**
+   * Helm releases: read from the cluster (where Helm keeps them), changed with
+   * the user's helm.
+   */
+  helm: {
+    releases(context: string, namespace?: string): Promise<Result<HelmRelease[]>>
+    release(context: string, namespace: string, name: string): Promise<Result<HelmReleaseDetail>>
+    cli(): Promise<HelmCli>
+    rollback(request: HelmRollback): Promise<Result<null>>
+    uninstall(request: HelmUninstall): Promise<Result<null>>
+    deploy(request: HelmDeploy): Promise<Result<HelmDeployed>>
+    /** A chart's default values, as YAML. */
+    defaults(source: ChartSource): Promise<Result<string>>
+    /** The versions a chart repository has of a chart, newest first. */
+    versions(repository: string, chart: string): Promise<Result<string[]>>
+    /** Charts on Artifact Hub. */
+    search(query: string): Promise<Result<ChartSearchResult[]>>
+  }
   /** Interactive shells in containers (`kubectl exec -it`). */
   terminal: {
     /**
@@ -474,6 +603,15 @@ export const IPC = {
   change: 'kube:change',
   can: 'kube:can',
   history: 'kube:history',
+  helmReleases: 'helm:releases',
+  helmRelease: 'helm:release',
+  helmCli: 'helm:cli',
+  helmRollback: 'helm:rollback',
+  helmUninstall: 'helm:uninstall',
+  helmDeploy: 'helm:deploy',
+  helmDefaults: 'helm:defaults',
+  helmVersions: 'helm:versions',
+  helmSearch: 'helm:search',
   usageSource: 'usage:source',
   usageTest: 'usage:test',
   usageRange: 'usage:range',

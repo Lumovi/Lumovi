@@ -5,7 +5,7 @@
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { _electron as electron, type Page } from '@playwright/test'
 import { DEMO, startTestClusters } from '../tests/mock-cluster/kubeconfig.ts'
 
@@ -22,13 +22,16 @@ async function session(
   const userData = mkdtempSync(join(tmpdir(), 'kubestacks-shots-user-'))
   writeFileSync(join(userData, 'settings.json'), JSON.stringify({ theme }))
   const app = await electron.launch({
-    args: ['.', `--user-data-dir=${userData}`],
+    // Captured without showing a window (see tests/e2e/background.cjs).
+    args: ['-r', resolve('tests/e2e/background.cjs'), '.', `--user-data-dir=${userData}`],
     env: {
       ...process.env,
       KUBECONFIG: clusters.kubeconfigPath,
       SHELL: '',
       // Only KubeStacks' own views, from a home of its own.
       KUBESTACKS_VIEWS_DIR: '',
+      // The e2e tests' stand-in, so no real helm runs against the mock cluster.
+      KUBESTACKS_HELM: resolve('tests/e2e/helm/helm'),
       HOME: userData,
       USERPROFILE: userData,
     } as Record<string, string>,
@@ -173,6 +176,21 @@ for (const theme of ['dark', 'light'] as const) {
     await openRow(page, 'api-tls')
     await page.waitForTimeout(800)
     await page.screenshot({ path: file('custom') })
+    await page.getByRole('button', { name: 'Close (Esc)' }).click()
+
+    // A Helm release's history, and an upgrade with new values.
+    await nav(page, 'Helm releases')
+    await row(page, 'storefront').getByRole('gridcell').nth(1).click()
+    await page.getByRole('tab', { name: 'History' }).click()
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: file('helm') })
+    await page.getByRole('button', { name: 'Upgrade…' }).click()
+    await page.getByRole('textbox', { name: 'Values' }).click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.insertText('ingress:\n  enabled: true\n')
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: file('helm-upgrade') })
+    await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Close (Esc)' }).click()
 
     await nav(page, 'Nodes')

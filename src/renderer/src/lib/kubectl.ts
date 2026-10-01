@@ -16,6 +16,11 @@ export function objectArg(kind: ResourceKind, name: string): string {
   return `${apiKindOf(kind).toLowerCase()}${group ? `.${group}` : ''}/${name}`
 }
 
+/** The helm command for a release's namespace on `context`. */
+export function helm(context: string, namespace: string, ...args: string[]): string {
+  return ['helm', ...args, '--namespace', namespace, '--kube-context', context].map(quote).join(' ')
+}
+
 /**
  * The kubectl command that makes the same change, shown next to every action
  * so people can learn from it, script it, or run it elsewhere.
