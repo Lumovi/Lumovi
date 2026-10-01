@@ -11,6 +11,7 @@ See what's healthy, what's struggling and where your capacity goes across every 
 [![CI](https://github.com/kotapeter/kubestacks/actions/workflows/ci.yml/badge.svg)](https://github.com/kotapeter/kubestacks/actions/workflows/ci.yml)
 [![E2E coverage](https://img.shields.io/badge/e2e%20coverage-100%25-3fb950)](#testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Sponsor](https://img.shields.io/github/sponsors/kotapeter?label=Sponsor&logo=githubsponsors&color=ea4aaa)](https://github.com/sponsors/kotapeter)
 
 macOS · Windows · Linux
 
@@ -388,6 +389,12 @@ npm run kind:down          # delete the cluster
 The cluster gets its own kubeconfig in `.kind/`. Your `~/.kube/config` isn't read or
 changed, and the tests never use any other cluster. The tests can be rerun against the same
 cluster: each spec starts from a fresh namespace.
+
+## Sponsoring
+
+KubeStacks is free and open source, made in spare time. If it saves you time, you can
+[sponsor its development](https://github.com/sponsors/kotapeter) on GitHub; the app has a
+link in its **Help** menu too.
 
 ## Contributing
 

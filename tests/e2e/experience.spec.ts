@@ -173,11 +173,13 @@ test('the native menu runs the same commands', async ({ kubestacks, clusters }) 
 
   await menu(app, 'github')
   await menu(app, 'issue')
+  await menu(app, 'sponsor')
   await expect
     .poll(opened)
     .toEqual([
       'https://github.com/kotapeter/kubestacks',
       'https://github.com/kotapeter/kubestacks/issues/new/choose',
+      'https://github.com/sponsors/kotapeter',
     ])
 
   await menu(app, 'clusters')
