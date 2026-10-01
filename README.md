@@ -307,6 +307,7 @@ npm run dev        # the app against your own kubeconfig
 | `npm run verify`                        | Everything CI checks: format, lint, types, e2e with coverage  |
 | `npm run mock-cluster`                  | Start the demo clusters alone and print a kubeconfig for them |
 | `npm run test:e2e`                      | Build with coverage instrumentation and run the e2e suite     |
+| `npm run test:linux`                    | The same, on Linux in Docker, as CI runs it                   |
 | `npm run coverage`                      | The above, plus a coverage report in `coverage/`              |
 | `npm run coverage:check`                | Fail unless every file, line, branch and function is covered  |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
@@ -351,6 +352,9 @@ kubeconfig entries and blocked plain HTTP.
 The app's windows stay invisible while the tests run, never take focus and stay out of the
 Dock, and what the tests copy stays in the app, so you can keep working. Set
 `KUBESTACKS_E2E_FOREGROUND=1` to watch them.
+
+`npm run test:linux` runs the suite on Linux in Docker, the way CI does (Xvfb, no mouse), so
+Linux-only problems show up before you push. It takes about as long as a local run.
 
 **Coverage is 100% for statements, branches, functions and lines, measured end-to-end.** The
 build is instrumented with Istanbul, and coverage is collected from all three Electron

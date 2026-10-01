@@ -40,6 +40,7 @@
     "format:check": "prettier --check .",
     "test": "npm run test:e2e",
     "test:e2e": "npm run build:coverage && playwright test",
+    "test:linux": "node scripts/test-linux.ts",
     "coverage": "npm run test:e2e && nyc report",
     "coverage:report": "nyc report",
     "coverage:check": "node scripts/check-coverage.ts",

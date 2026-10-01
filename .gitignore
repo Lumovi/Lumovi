@@ -5,6 +5,7 @@ release/
 coverage/
 .nyc_output/
 test-results/
+test-results-linux/
 playwright-report/
 blob-report/
 *.log
