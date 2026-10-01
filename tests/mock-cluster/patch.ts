@@ -62,6 +62,21 @@ function pointer(path: string): string[] {
     .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'))
 }
 
+/** `object`'s own field `key`: never one it inherits (`__proto__`, `constructor`…). */
+const own = (object: Json, key: string): Json =>
+  object !== null && typeof object === 'object' && Object.hasOwn(object, key)
+    ? object[key]
+    : undefined
+
+/** Sets `object`'s own field `key`, even one named `__proto__`, without touching a prototype. */
+const setOwn = (object: Json, key: string, value: Json) =>
+  Object.defineProperty(object, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  })
+
 /** RFC 6902 JSON patch: `add`, `replace`, `remove` and `test`. */
 export function jsonPatch(target: Json, operations: Json[]): Json {
   let document = structuredClone(target)
@@ -75,7 +90,7 @@ export function jsonPatch(target: Json, operations: Json[]): Json {
     const key = parts.at(-1)!
     let parent: Json = document
     for (const part of parts.slice(0, -1)) {
-      parent = Array.isArray(parent) ? parent[Number(part)] : parent?.[part]
+      parent = Array.isArray(parent) ? parent[Number(part)] : own(parent, part)
       if (parent === undefined || parent === null) {
         throw new PatchError(`doc is missing path: "${operation.path}"`)
       }
@@ -88,19 +103,24 @@ export function jsonPatch(target: Json, operations: Json[]): Json {
             0,
             structuredClone(operation.value),
           )
-        } else parent[key] = structuredClone(operation.value)
+        } else setOwn(parent, key, structuredClone(operation.value))
         break
       case 'replace':
-        if (!(key in parent)) throw new PatchError(`doc is missing key: "${operation.path}"`)
-        parent[key] = structuredClone(operation.value)
+        if (own(parent, key) === undefined) {
+          throw new PatchError(`doc is missing key: "${operation.path}"`)
+        }
+        if (Array.isArray(parent)) parent.splice(Number(key), 1, structuredClone(operation.value))
+        else setOwn(parent, key, structuredClone(operation.value))
         break
       case 'remove':
-        if (!(key in parent)) throw new PatchError(`doc is missing key: "${operation.path}"`)
+        if (own(parent, key) === undefined) {
+          throw new PatchError(`doc is missing key: "${operation.path}"`)
+        }
         if (Array.isArray(parent)) parent.splice(Number(key), 1)
         else delete parent[key]
         break
       case 'test':
-        if (JSON.stringify(parent[key]) !== JSON.stringify(operation.value)) {
+        if (JSON.stringify(own(parent, key)) !== JSON.stringify(operation.value)) {
           throw new PatchError(`testing value ${operation.path} failed`)
         }
         break
