@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, nativeTheme, screen, type Rectangle } from 'electron'
 import type { WindowState } from '@shared/api'
+import icon from '../../build/icon.png?asset'
 
 /** Keep in sync with the `--app-bg`/`--text-2` tokens in the renderer's theme. */
 const CHROME = {
@@ -58,6 +59,8 @@ export function createMainWindow(
     titleBarStyle: 'hidden',
     titleBarOverlay: { ...chrome(), height: TITLE_BAR_HEIGHT },
     trafficLightPosition: { x: 18, y: 18 },
+    // Linux takes a window's icon from the window; macOS and Windows from the app.
+    ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: true,
