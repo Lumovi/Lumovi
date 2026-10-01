@@ -94,11 +94,14 @@ test('lists are capped, with a way to narrow them', async ({ launch }) => {
 
 test('expired continue tokens restart the list once', async ({ page, clusters }) => {
   await openCluster(page, CONTEXTS.large)
-  clusters.large.expireContinueTokens(1)
+  // Only the Pods view's list (the context's namespace): other lists loading meanwhile,
+  // like all pods for the overview, keep their tokens.
+  const pods = { kind: 'Pod', namespace: LARGE.namespace }
+  clusters.large.expireContinueTokens(1, pods)
   await goTo(page, 'Pods')
   await expect(page.getByText(`${number(LARGE.podCount)} items`)).toBeVisible()
 
-  clusters.large.expireContinueTokens(2)
+  clusters.large.expireContinueTokens(2, pods)
   await page.getByRole('button', { name: /^Refresh/ }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Couldn’t refresh' })).toContainText(
     'continue parameter is too old',
