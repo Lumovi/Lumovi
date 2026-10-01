@@ -69,7 +69,11 @@ cluster and a test that shows it.
 
 ## Releasing (maintainers)
 
-Releases are automatic: a version is released once it reaches `main` and CI passes.
+Releases are automatic: a version is released once it reaches `main` and CI passes. Versions
+follow [semantic versioning](https://semver.org): a fix is a patch release (1.2.1), anything
+new a minor one (1.3.0), and a change that breaks how people use the app (dropping a
+platform or a Kubernetes version, removing a feature) a major one (2.0.0). A version with a
+suffix, like `1.3.0-beta.1`, is published as a pre-release.
 
 1. Set the version: `npm version 1.2.0 --no-git-tag-version`.
 2. In `CHANGELOG.md`, move what's under _Unreleased_ into a `## [1.2.0] - <date>` section,
@@ -79,7 +83,10 @@ Releases are automatic: a version is released once it reaches `main` and CI pass
 When CI passes on that commit, the _Release_ workflow sees a version without a release, and
 builds the installers for every platform (signing and notarizing the macOS app). It attaches
 them and a `SHA256SUMS.txt` to a GitHub release, with the version's CHANGELOG section as
-its notes, and publishes it, which tags the commit `v1.2.0`. A release that fails part of
+its notes, and publishes it with an annotated tag, `v1.2.0`, on the commit CI tested. It
+refuses a version that isn't newer than the last release, or that has no CHANGELOG section.
+Each file gets a signed build provenance attestation (`gh attestation verify <file> --repo
+kotapeter/kubestacks`), and published releases are immutable. A release that fails part of
 the way can be run again from the workflow's page (_Run workflow_).
 
 The signing secrets are in the repository's `release` environment, which only `main` can
