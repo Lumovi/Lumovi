@@ -1,7 +1,7 @@
 {
   "name": "kubestacks",
   "productName": "KubeStacks",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A beautiful, fast Kubernetes app for the desktop.",
   "keywords": [
     "kubernetes",
