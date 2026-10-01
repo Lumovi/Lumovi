@@ -242,4 +242,5 @@ const ERROR_LABELS: Record<KubeApiError['code'], string> = {
   invalid: 'Misconfigured',
   conflict: 'Conflict',
   'read-only': 'Read-only',
+  helm: 'Helm failed',
 }

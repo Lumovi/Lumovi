@@ -1,0 +1,5 @@
+# How many pods serve the greeting.
+replicas: 1
+# What they say.
+message: hello
+image: nginx:1.27-alpine

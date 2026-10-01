@@ -1,21 +1,17 @@
-import { diffLines } from 'diff'
 import { CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react'
 import { useState } from 'react'
 import { parse } from 'yaml'
 import type { KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
+import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { useChange } from '@renderer/hooks/change'
 import { api } from '@renderer/lib/api'
-import { cn } from '@renderer/lib/cn'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
 import { kindOf, target } from '../actions/common'
-
-/** Unchanged lines shown around each change in the review. */
-const CONTEXT = 3
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -77,44 +73,6 @@ function fromEditing(edited: Record<string, unknown>, base: KubeObject): KubeObj
     delete saved.stringData
   }
   return saved
-}
-
-interface DiffLine {
-  type: 'added' | 'removed' | 'same' | 'gap'
-  text: string
-}
-
-/** A unified diff with unchanged stretches folded away. */
-function unifiedDiff(
-  before: string,
-  after: string,
-): { lines: DiffLine[]; added: number; removed: number } {
-  const all: DiffLine[] = diffLines(before, after).flatMap((part) =>
-    part.value
-      .replace(/\n$/, '')
-      .split('\n')
-      .map(
-        (text) =>
-          ({ type: part.added ? 'added' : part.removed ? 'removed' : 'same', text }) as DiffLine,
-      ),
-  )
-  const near = (i: number) =>
-    all.slice(Math.max(0, i - CONTEXT), i + CONTEXT + 1).some((line) => line.type !== 'same')
-  const lines: DiffLine[] = []
-  let skipped = 0
-  all.forEach((line, i) => {
-    if (near(i)) {
-      if (skipped) lines.push({ type: 'gap', text: `${skipped} unchanged lines` })
-      skipped = 0
-      lines.push(line)
-    } else skipped++
-  })
-  if (skipped) lines.push({ type: 'gap', text: `${skipped} unchanged lines` })
-  return {
-    lines,
-    added: all.filter((l) => l.type === 'added').length,
-    removed: all.filter((l) => l.type === 'removed').length,
-  }
 }
 
 /**
@@ -264,29 +222,7 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
       )}
 
       {diff ? (
-        <pre
-          aria-label="Changes"
-          className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] selectable"
-        >
-          {diff.lines.map((line, i) => (
-            <div
-              key={i}
-              data-change={line.type}
-              className={cn(
-                'px-5 whitespace-pre',
-                line.type === 'added' && 'bg-good/10 text-good-text',
-                line.type === 'removed' && 'bg-critical/10 text-critical-text',
-                line.type === 'same' && 'text-ink-2',
-                line.type === 'gap' && 'my-1 bg-surface-3/60 py-0.5 font-sans text-2xs text-ink-3',
-              )}
-            >
-              <span className="mr-3 inline-block w-3 text-ink-3 select-none">
-                {{ added: '+', removed: '−', same: ' ', gap: '⋯' }[line.type]}
-              </span>
-              {line.text}
-            </div>
-          ))}
-        </pre>
+        <DiffView diff={diff} label="Changes" />
       ) : (
         <div className="min-h-0 flex-1 bg-surface-2/60">
           <CodeEditor

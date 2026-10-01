@@ -21,6 +21,7 @@ import {
 } from '../builders.ts'
 import type { ClusterFixture, KubeObject } from '../types.ts'
 import { demoCustomResources } from './custom.ts'
+import { demoHelmReleases } from './helm.ts'
 import { demoLogs } from './demo-logs.ts'
 
 const REVISION = {
@@ -2043,6 +2044,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
   })
 
   demoCustomResources(b, now)
+  demoHelmReleases(b, now)
 
   return {
     ...b.build(demoLogs),

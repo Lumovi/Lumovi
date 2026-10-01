@@ -15,6 +15,7 @@ import {
   Moon,
   Server,
   Settings2,
+  ShipWheel,
   Sun,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
@@ -33,6 +34,7 @@ import { matchWords } from '@renderer/lib/match'
 import {
   apiResourcesPath,
   clusterPath,
+  helmPath,
   formatRef,
   kindPath,
   metricsPath,
@@ -208,6 +210,14 @@ function Palette({ onDone }: { onDone: () => void }) {
               </Item>
             )
           })}
+          <Item
+            icon={<ShipWheel />}
+            value="Helm releases charts"
+            hint={<Keys keys={['G', 'H']} />}
+            onSelect={run(() => go(helmPath(context)))}
+          >
+            Helm releases
+          </Item>
           <Item
             icon={<Blocks />}
             value="API resources kinds custom resources CRDs views"

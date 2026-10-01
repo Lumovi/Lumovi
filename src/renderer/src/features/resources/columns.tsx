@@ -15,8 +15,8 @@ export interface CellContext {
   metrics?: Map<string, UsageSample>
   /** Each object's cells in the API server's columns, for kinds that use them. */
   cells?: Map<KubeObject, unknown[]>
-  /** Opens another object in the detail panel. */
-  open: (kind: ResourceKind, name: string, namespace?: string) => void
+  /** Opens another object in the detail panel (for columns that link to one, like events'). */
+  open?: (kind: ResourceKind, name: string, namespace?: string) => void
   now: number
 }
 
@@ -579,7 +579,8 @@ const eventColumns: Column[] = [
           className="truncate text-left font-mono text-xs text-accent-strong hover:underline"
           onClick={(event) => {
             event.stopPropagation()
-            ctx.open(target.kind, target.name, target.namespace)
+            // Every page that lists events passes it.
+            ctx.open!(target.kind, target.name, target.namespace)
           }}
         >
           {target.kind}/{target.name}

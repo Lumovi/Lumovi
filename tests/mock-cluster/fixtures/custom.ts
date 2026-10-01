@@ -377,23 +377,6 @@ export function demoCustomResources(b: Builder, now: number): void {
     firstAgo: 3 * MINUTE,
     component: 'cert-manager-certificates-trigger',
   })
-  b.simple(
-    'v1',
-    'Secret',
-    CUSTOM.certificates.ready,
-    'shop',
-    10 * DAY,
-    {
-      type: 'kubernetes.io/tls',
-      data: { 'tls.crt': 'LS0tLS1CRUdJTi…', 'tls.key': 'LS0tLS1CRUdJTi…' },
-    },
-    {
-      annotations: {
-        'cert-manager.io/certificate-name': CUSTOM.certificates.ready,
-        'cert-manager.io/issuer-name': CUSTOM.clusterIssuers.production,
-      },
-    },
-  )
 
   // ── Argo CD and Argo Rollouts ───────────────────────────────────────────
   b.namespace(CUSTOM.namespaces.argocd, 75 * DAY)
@@ -595,6 +578,48 @@ export function demoCustomResources(b: Builder, now: number): void {
       12 * MINUTE,
     ),
     40 * DAY,
+  )
+  crd(b, 90 * DAY, {
+    group: 'helm.toolkit.fluxcd.io',
+    kind: 'HelmRelease',
+    plural: 'helmreleases',
+    shortNames: ['hr'],
+    versions: ['v2'],
+    columns: [AGE, ...READY().map((col) => ({ ...col, priority: 0 }))],
+    subresources: { status: {} },
+  })
+  b.simple(
+    'helm.toolkit.fluxcd.io/v2',
+    'HelmRelease',
+    'podinfo',
+    CUSTOM.namespaces.flux,
+    30 * DAY,
+    {
+      spec: {
+        interval: '10m',
+        chart: {
+          spec: {
+            chart: 'podinfo',
+            version: '6.7.x',
+            sourceRef: { kind: 'HelmRepository', name: 'podinfo' },
+          },
+        },
+        values: { replicaCount: 2 },
+      },
+      status: {
+        conditions: [
+          c(
+            'Ready',
+            'True',
+            'InstallSucceeded',
+            'Helm install succeeded for release flux-system/podinfo.v1 with chart podinfo@6.7.1',
+            30 * DAY,
+          ),
+        ],
+        history: [{ chartVersion: '6.7.1', status: 'deployed', version: 1 }],
+      },
+    },
+    { generation: 1 },
   )
   crd(b, 90 * DAY, {
     group: 'source.toolkit.fluxcd.io',

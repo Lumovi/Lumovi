@@ -7,6 +7,7 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron'
 import { IPC, type AppInfo } from '@shared/api'
+import type { HelmService } from './helm/service'
 import type { KubeService } from './kube/service'
 import type { Forwards, Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
@@ -15,6 +16,7 @@ import { readViews } from './views'
 
 interface Dependencies {
   kube: KubeService
+  helm: HelmService
   usage: UsageHistory
   settings: SettingsStore
   terminals: Terminals
@@ -27,6 +29,7 @@ interface Dependencies {
 
 export function registerIpc({
   kube,
+  helm,
   usage,
   settings,
   terminals,
@@ -99,6 +102,15 @@ export function registerIpc({
   handle(IPC.change, (request) => kube.change(request))
   handle(IPC.can, (context, checks) => kube.can(context, checks))
   handle(IPC.history, (query) => kube.history(query))
+  handle(IPC.helmReleases, (context, namespace) => helm.releases(context, namespace))
+  handle(IPC.helmRelease, (context, namespace, name) => helm.release(context, namespace, name))
+  handle(IPC.helmCli, () => helm.cli())
+  handle(IPC.helmRollback, (request) => helm.rollback(request))
+  handle(IPC.helmUninstall, (request) => helm.uninstall(request))
+  handle(IPC.helmDeploy, (request) => helm.deploy(request))
+  handle(IPC.helmDefaults, (source) => helm.defaults(source))
+  handle(IPC.helmVersions, (repository, chart) => helm.versions(repository, chart))
+  handle(IPC.helmSearch, (query) => helm.search(query))
   handle(IPC.usageSource, (context, refresh) => usage.source(context, refresh))
   handle(IPC.usageTest, (context, service) => usage.test(context, service))
   handle(IPC.usageRange, (query) => usage.range(query))

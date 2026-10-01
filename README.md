@@ -40,6 +40,11 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane add the columns,
   links and actions (sync, reconcile, suspend, promote…) that matter for each, and you can
   write your own.
+- **Helm releases.** Every release in the cluster, read from where Helm keeps them (no helm
+  needed to look): its status, chart, values with and without the chart's defaults, what it
+  made and how that's doing, its notes, and every revision with a diff between any two.
+  Upgrade with new values (reviewed as a server-side dry run first), roll back, uninstall,
+  or install a chart found on Artifact Hub, all with your own helm.
 - **Detail without digging.** A side panel with the facts that matter per kind, container
   state and restarts, conditions, labels, related pods, events, logs and syntax-highlighted
   YAML. Secret values stay hidden until you reveal them.
@@ -71,14 +76,15 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
 - **Light and dark.** Follows your system, or pick one. Native window controls match.
 
-|                                                          |                                                                            |
-| -------------------------------------------------------- | -------------------------------------------------------------------------- |
-| ![Pods](docs/screenshots/pods-dark.png)                  | ![Pod details](docs/screenshots/pod-light.png)                             |
-| ![A shell in a pod](docs/screenshots/shell-dark.png)     | ![Scaling a deployment](docs/screenshots/scale-light.png)                  |
-| ![Several pods selected](docs/screenshots/bulk-dark.png) | ![Create from YAML](docs/screenshots/create-light.png)                     |
-| ![The Metrics page](docs/screenshots/metrics-dark.png)   | ![A pod's usage history](docs/screenshots/pod-metrics-light.png)           |
-| ![Logs](docs/screenshots/logs-dark.png)                  | ![Overview in light mode](docs/screenshots/overview-light.png)             |
-| ![A custom resource](docs/screenshots/custom-dark.png)   | ![Every kind the cluster serves](docs/screenshots/api-resources-light.png) |
+|                                                             |                                                                            |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------- |
+| ![Pods](docs/screenshots/pods-dark.png)                     | ![Pod details](docs/screenshots/pod-light.png)                             |
+| ![A shell in a pod](docs/screenshots/shell-dark.png)        | ![Scaling a deployment](docs/screenshots/scale-light.png)                  |
+| ![Several pods selected](docs/screenshots/bulk-dark.png)    | ![Create from YAML](docs/screenshots/create-light.png)                     |
+| ![The Metrics page](docs/screenshots/metrics-dark.png)      | ![A pod's usage history](docs/screenshots/pod-metrics-light.png)           |
+| ![Logs](docs/screenshots/logs-dark.png)                     | ![Overview in light mode](docs/screenshots/overview-light.png)             |
+| ![A custom resource](docs/screenshots/custom-dark.png)      | ![Every kind the cluster serves](docs/screenshots/api-resources-light.png) |
+| ![A Helm release's history](docs/screenshots/helm-dark.png) | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light.png)       |
 
 ## Install
 
@@ -216,6 +222,32 @@ or group.
 - **Scaling.** Kinds with the scale subresource (Argo Rollouts, say) can be scaled like
   Deployments.
 
+### Helm releases
+
+**Helm releases** (`G` then `H`) lists every release in the cluster, or the namespace you
+picked, read from the Secrets (or ConfigMaps) Helm 3 and 4 keep them in, so looking needs
+no helm and nothing beyond the right to list Secrets. A release shows its chart, the values
+set for it (alone or merged with the chart's defaults), the objects its manifest makes with
+their live status (and any that are missing), its notes, and its revisions, with a diff of
+the values or the manifest between any two.
+
+Changes go through your own `helm` (on your `PATH`, or the one in `KUBESTACKS_HELM`), so
+hooks, three-way merges and Helm's own record of revisions work as they always do:
+
+- **Upgrade** with new values, using the chart the release already runs (Helm stores it
+  with the release, apart from subcharts) or another chart from a repository, an OCI
+  registry or a folder, at any version the repository lists. KubeStacks runs it as a
+  server-side dry run first and shows what the manifest would change, before anything
+  does.
+- **Roll back** to any earlier revision, seeing how much of its values and manifest differ.
+- **Uninstall**, keeping the release's history if you want to roll it back into being.
+- **Install** a chart found on [Artifact Hub](https://artifacthub.io) (or typed), starting
+  from its default values, again reviewed as a dry run.
+
+Releases that Flux's helm-controller manages say so, link to their `HelmRelease`, and warn
+that Flux will put back changes made any other way. Every change shows its `helm` command,
+and a cluster you made read-only can't be changed with Helm either.
+
 ## Development
 
 You need [Node.js](https://nodejs.org) 26 (see `.nvmrc`; 24 also works) and npm.
@@ -269,6 +301,9 @@ metrics, and one with 2,500 pods) plus contexts that fail in every way a real on
 offline, expired token, untrusted certificate, missing credential plugin, broken
 kubeconfig entries and blocked plain HTTP.
 
+The app's windows stay invisible while the tests run, never take focus and stay out of the
+Dock, so you can keep working. Set `KUBESTACKS_E2E_FOREGROUND=1` to watch them.
+
 **Coverage is 100% for statements, branches, functions and lines, measured end-to-end.** The
 build is instrumented with Istanbul, and coverage is collected from all three Electron
 processes (main, preload and renderer). A few lines only run on one operating system, such
@@ -287,8 +322,9 @@ They change things for real and check the result with kubectl: scaling, rollouts
 rollbacks, YAML edits and conflicts, creating from YAML, cordoning and draining against a
 PodDisruptionBudget, shells, port forwards, debug containers, every usage-history query
 against Prometheus, custom resources (a CRD of their own, with validation, status and
-scaling, and the Prometheus operator's through KubeStacks' views), and what a view-only
-account is offered.
+scaling, and the Prometheus operator's through KubeStacks' views), Helm releases (read in
+both storage drivers, upgraded, rolled back and uninstalled with helm, and a chart installed
+from a folder), and what a view-only account is offered.
 
 You need Docker, [kind](https://kind.sigs.k8s.io), kubectl and Helm.
 

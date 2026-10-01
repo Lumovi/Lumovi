@@ -9,6 +9,7 @@ import {
   ServerCrash,
   ShieldAlert,
   ShieldOff,
+  ShipWheel,
   TriangleAlert,
   WifiOff,
   type LucideIcon,
@@ -79,6 +80,11 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
     title: 'Changes are turned off',
     hint: 'This cluster is read-only in KubeStacks.',
     icon: Lock,
+  },
+  helm: {
+    title: 'Helm couldn’t do it',
+    hint: 'This is what helm said.',
+    icon: ShipWheel,
   },
 }
 

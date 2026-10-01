@@ -4,11 +4,12 @@
  */
 import { resourceByKind, type BuiltinKind } from './resources'
 
-export type NavTarget = 'overview' | 'metrics' | BuiltinKind
+export type NavTarget = 'overview' | 'metrics' | 'helm' | BuiltinKind
 
 /** What a view is called in menus and the shortcut sheet. */
 export function navLabel(target: NavTarget): string {
   if (target === 'overview') return 'Overview'
+  if (target === 'helm') return 'Helm releases'
   return target === 'metrics' ? 'Metrics' : resourceByKind(target).label
 }
 
@@ -16,6 +17,7 @@ export function navLabel(target: NavTarget): string {
 export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'o', target: 'overview' },
   { key: 'u', target: 'metrics' },
+  { key: 'h', target: 'helm' },
   { key: 'n', target: 'Node' },
   { key: 'm', target: 'Namespace' },
   { key: 'e', target: 'Event' },

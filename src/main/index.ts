@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { app, Menu, nativeTheme } from 'electron'
 import { IPC } from '@shared/api'
+import { HelmService } from './helm/service'
 import { registerIpc } from './ipc'
 import { KubeConfigStore } from './kube/kubeconfig'
 import { KubeService } from './kube/service'
@@ -29,6 +30,7 @@ if (!app.requestSingleInstanceLock()) {
     const isReadOnly = (context: string) => settings.isReadOnly(context)
     const kube = new KubeService(store, envReady, isReadOnly)
     const usage = new UsageHistory(kube, (context) => settings.metricsSource(context))
+    const helm = new HelmService(kube, envReady, isReadOnly)
     // The page loads asynchronously, so the handlers below are in place before it can call them.
     const win = createMainWindow(url, settings.get().window, (window) =>
       settings.update({ window }),
@@ -45,6 +47,7 @@ if (!app.requestSingleInstanceLock()) {
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
     registerIpc({
       kube,
+      helm,
       usage,
       settings,
       terminals,

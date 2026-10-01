@@ -1,5 +1,5 @@
 import { Maximize2, Minimize2, X } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { apiKindOf, kindOf } from '@shared/resources'
@@ -11,131 +11,49 @@ import { StatusPill } from '@renderer/components/Status'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useObject } from '@renderer/hooks/queries'
 import { useViews } from '@renderer/hooks/views'
-import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
-import { usePrefs } from '@renderer/state/prefs'
 import { ActionBar } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
-import { CrashView } from '../errors/CrashView'
-import { ErrorBoundary } from '../errors/ErrorBoundary'
 import { EventsTab } from './EventsTab'
 import { LogsTab } from './LogsTab'
 import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
 import { hasMetrics, MetricsTab } from '../metrics/MetricsTab'
 import { ShellTab } from './ShellTab'
+import { SidePanel, type PanelFrame } from './SidePanel'
 import { YamlTab } from './YamlTab'
-
-const DEFAULT_WIDTH = 600
-const MIN_WIDTH = 400
-/** Arrow keys on the resize handle move it by this much. */
-const RESIZE_STEP = 32
 
 /**
  * The object named by the `?open=Kind/namespace/name` search param, in a
- * resizable pane next to the list. It animates in and out, and returns focus
- * to where it was when it closes.
+ * resizable pane next to the list.
  */
 export function DetailPanel() {
-  const [params] = useSearchParams()
-  const updateParams = useUpdateParams()
-  const value = params.get('open')
-  // Keep showing the last object while the panel animates out.
-  const [shown, setShown] = useState(value)
-  if (value && value !== shown) setShown(value)
-  const closing = !value && shown !== null
-  const returnFocus = useRef<Element | null>(null)
-  const [expanded, setExpanded] = useState(false)
-  const storedWidth = usePrefs((prefs) => prefs.panelWidth)
-  const setStoredWidth = usePrefs((prefs) => prefs.setPanelWidth)
-  const [width, setWidth] = useState(storedWidth ?? DEFAULT_WIDTH)
-
-  useEffect(() => {
-    if (value) returnFocus.current ??= document.activeElement
-  }, [value])
-
+  const value = useSearchParams()[0].get('open')
   // An edit in progress belongs to the object it was started on: opening another ends it.
   useEffect(() => {
     const { editing, edit } = useActionsUi.getState()
     if (editing && editing !== value) edit(null)
   }, [value])
-
-  if (!shown) return null
-
-  const close = () => {
-    updateParams((current) => current.delete('open'))
-    ;(returnFocus.current as HTMLElement | null)?.focus()
-    returnFocus.current = null
-  }
-
-  const resizeTo = (next: number) => {
-    const clamped = Math.round(Math.max(MIN_WIDTH, next))
-    setWidth(clamped)
-    setStoredWidth(clamped)
-  }
-
-  const startResize = (event: PointerEvent) => {
-    const startX = event.clientX
-    const startWidth = width
-    const onMove = (move: globalThis.PointerEvent) => resizeTo(startWidth + startX - move.clientX)
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', () => window.removeEventListener('pointermove', onMove), {
-      once: true,
-    })
-  }
-
-  const onHandleKey = (event: KeyboardEvent) => {
-    const delta = ({ ArrowLeft: RESIZE_STEP, ArrowRight: -RESIZE_STEP } as Record<string, number>)[
-      event.key
-    ]
-    if (delta) resizeTo(width + delta)
-  }
-
-  const target = parseRef(shown)
   return (
-    <aside
-      aria-label={`${apiKindOf(target.kind)} ${target.name}`}
-      onAnimationEnd={() => {
-        if (closing) setShown(null)
+    <SidePanel
+      param="open"
+      label={(shown) => {
+        const target = parseRef(shown)
+        return `${apiKindOf(target.kind)} ${target.name}`
       }}
-      style={{ width: expanded ? undefined : width }}
-      className={cn(
-        'flex min-w-0 shrink-0 flex-col bg-surface',
-        // Expanded, it covers the list; otherwise it sits beside it.
-        expanded
-          ? 'absolute inset-0 z-20'
-          : 'relative max-w-[calc(100%-280px)] border-l border-line',
-        closing ? 'animate-slide-out' : 'animate-slide-in',
-      )}
-    >
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panel"
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={startResize}
-        onKeyDown={onHandleKey}
-        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:bg-accent after:opacity-0 after:transition-opacity hover:after:opacity-60 focus-visible:after:opacity-100"
-      />
-      <ErrorBoundary
-        key={shown}
-        fallback={(error) => <CrashView error={error} title="This object couldn’t be displayed" />}
-      >
-        <Detail
-          target={target}
-          expanded={expanded}
-          onExpand={() => setExpanded(!expanded)}
-          onClose={close}
-        />
-      </ErrorBoundary>
-    </aside>
+      crashTitle="This object couldn’t be displayed"
+      content={ObjectDetail}
+    />
   )
+}
+
+function ObjectDetail({ value, ...frame }: PanelFrame) {
+  return <Detail target={parseRef(value)} {...frame} />
 }
 
 function Detail({

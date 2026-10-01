@@ -10,6 +10,7 @@ import { ActionHost } from '../actions/ActionSurfaces'
 import { CreateDialog } from '../actions/CreateDialog'
 import { SourceDialog } from '../metrics/SourceDialog'
 import { DetailPanel } from '../details/DetailPanel'
+import { ReleasePanel } from '../helm/ReleasePanel'
 import { CommandPalette } from './CommandPalette'
 import { Commands } from './Commands'
 import { Header } from './Header'
@@ -57,6 +58,7 @@ export function ClusterLayout() {
                 <Outlet />
               </div>
               <DetailPanel />
+              <ReleasePanel />
             </div>
           </div>
         </main>
