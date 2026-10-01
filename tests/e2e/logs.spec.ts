@@ -123,7 +123,8 @@ test('a workload’s logs: every pod’s, merged in the order they were written'
   const row = log.locator('[data-level="info"]').last()
   await expect(row.locator('[data-label]')).toHaveCSS('align-items', 'flex-start')
   await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  await row.hover()
+  // By its time, on the left: the toast in the corner can cover the rest of the row.
+  await row.hover({ position: { x: 8, y: 8 } })
   await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await detail.getByRole('button', { name: 'Wrap lines' }).click()
 
