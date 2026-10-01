@@ -6,6 +6,8 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-01
+
 ### Added
 
 - First version: a Kubernetes app for macOS, Windows and Linux.
@@ -84,4 +86,5 @@ All notable changes to KubeStacks are documented here. The format follows
 - Support for multiple kubeconfig files, client certificates, tokens and exec credential
   plugins, including loading the login shell's `PATH` on macOS and Linux.
 
-[Unreleased]: https://github.com/kotapeter/kubestacks/commits/main
+[Unreleased]: https://github.com/kotapeter/kubestacks/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kotapeter/kubestacks/releases/tag/v1.0.0
