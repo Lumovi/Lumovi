@@ -314,7 +314,7 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
       detail.getByRole('term').filter({ hasText: new RegExp(`^${fact}$`) }),
     ).toBeVisible()
     await expect(detail).toContainText(
-      new RegExp(`${fact}.{0,30}${value.replace(/[()]/g, '\\$&')}`),
+      new RegExp(`${fact}.{0,30}${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
     )
   }
   await expect(detail.getByRole('button', { name: 'Namespace/default' })).toBeVisible()

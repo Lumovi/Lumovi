@@ -14,6 +14,7 @@ import {
   expect,
   test as base,
   type ElectronApplication,
+  type Locator,
   type Page,
   type TestInfo,
 } from '@playwright/test'
@@ -388,6 +389,18 @@ export async function goTo(page: Page, label: string): Promise<void> {
 /** What the app last copied (to its own clipboard: see harness.cjs). */
 export function clipboardText(page: Page): Promise<string> {
   return page.evaluate(() => (window as { __clipboard?: string }).__clipboard ?? '')
+}
+
+/**
+ * Hovers `target` until its tooltip says `text`. A page that's still settling (data
+ * arriving, fonts) can move what's under the pointer, and the tooltip closes with it.
+ */
+export async function hoverForTooltip(target: Locator, text: string | RegExp): Promise<void> {
+  const tooltip = target.page().getByRole('tooltip')
+  await expect(async () => {
+    await target.hover()
+    await expect(tooltip).toContainText(text, { timeout: 1000 })
+  }).toPass()
 }
 
 /** The detail panel for an object. */

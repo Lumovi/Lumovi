@@ -9,7 +9,7 @@
 //   KUBESTACKS_E2E_FOREGROUND=1 shows them as usual. Where nobody's watching
 //   (CI, npm run test:linux), KUBESTACKS_E2E_OPAQUE=1 draws them, still
 //   click-through: Linux and Windows treat a fully transparent window as not
-//   drawn, and render it slowly.
+//   drawn, and render it slowly (macOS renders transparent ones faster).
 // -r loads CommonJS.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { app, BrowserWindow } = require('electron')

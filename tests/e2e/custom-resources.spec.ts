@@ -1,7 +1,16 @@
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
-import { CONTEXTS, expect, openCluster, panel, row, rows, test } from './fixtures.ts'
+import {
+  CONTEXTS,
+  expect,
+  hoverForTooltip,
+  openCluster,
+  panel,
+  row,
+  rows,
+  test,
+} from './fixtures.ts'
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 
@@ -87,8 +96,8 @@ test.describe('custom resources', () => {
 
     // Fields are explained by the CRD's schema.
     const spec = detail.getByRole('tree', { name: 'Spec' })
-    await spec.getByText('secretName').hover()
-    await expect(page.getByRole('tooltip')).toContainText(
+    await hoverForTooltip(
+      spec.getByText('secretName'),
       'Name of the Secret resource that will be automatically created',
     )
     // Nested fields fold.
@@ -178,8 +187,7 @@ test.describe('custom resources', () => {
     await expect(orders$.getByRole('treeitem', { name: 'tags' })).toContainText('[]')
     await expect(orders$.getByRole('treeitem', { name: 'options' })).toContainText('{}')
     await expect(orders$.getByRole('treeitem', { name: 'backupWindow' })).toContainText('null')
-    await orders$.getByText('storageGB').hover()
-    await expect(page.getByRole('tooltip')).toContainText(/How much disk.*…$/)
+    await hoverForTooltip(orders$.getByText('storageGB'), /How much disk.*…$/)
 
     // A single object of its kind, deleted from the list.
     await row(page, 'Databases', 'odd').getByRole('checkbox').click()
@@ -260,11 +268,10 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(headers(page, 'ServiceAccounts')).toHaveText(['', 'Name', 'Age'])
   await openRow(page, 'ServiceAccounts', 'storefront')
   const account = panel(page, 'ServiceAccount', 'storefront')
-  await account
-    .getByRole('tree', { name: 'Fields' })
-    .getByText('automountServiceAccountToken')
-    .hover()
-  await expect(page.getByRole('tooltip')).toContainText('API token automatically mounted')
+  await hoverForTooltip(
+    account.getByRole('tree', { name: 'Fields' }).getByText('automountServiceAccountToken'),
+    'API token automatically mounted',
+  )
 
   // Kinds whose group the OpenAPI documents don't describe, or don't describe in full.
   for (const [label, name, kind] of <[string, string, string][]>[
@@ -544,8 +551,7 @@ spec:
     .getByRole('button', { name: 'Open' })
     .click()
   const spinner = panel(page, 'Gizmo', 'spinner')
-  await spinner.getByText('speed').hover()
-  await expect(page.getByRole('tooltip')).toContainText('How fast it spins.')
+  await hoverForTooltip(spinner.getByText('speed'), 'How fast it spins.')
 
   // Deleting the CRD deletes its objects; that has to be typed.
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
