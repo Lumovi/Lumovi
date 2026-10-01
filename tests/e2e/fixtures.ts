@@ -70,7 +70,8 @@ async function collectCoverage(app: ElectronApplication): Promise<void> {
 }
 
 export async function launchApp(
-  clusters: TestClusters,
+  /** The kubeconfig the app sees: the mock clusters', or a test cluster's. */
+  kubeconfig: string,
   options: LaunchOptions = {},
 ): Promise<KubeStacks> {
   const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
@@ -81,7 +82,7 @@ export async function launchApp(
   const env: Record<string, string> = {}
   const merged = {
     ...process.env,
-    KUBECONFIG: clusters.kubeconfigPath,
+    KUBECONFIG: kubeconfig,
     KUBESTACKS_COVERAGE_DIR: COVERAGE_DIR,
     // Keep tests independent of the developer's login shell.
     SHELL: undefined,
@@ -298,7 +299,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     const trace = Boolean(process.env.CI)
     const profiles: (() => Promise<void>)[] = []
     await use(async (options) => {
-      const instance = await launchApp(clusters, options)
+      const instance = await launchApp(clusters.kubeconfigPath, options)
       if (trace) {
         await instance.app.context().tracing.start({ screenshots: true, snapshots: true })
         profiles.push(await profile(instance, testInfo, launched.length))

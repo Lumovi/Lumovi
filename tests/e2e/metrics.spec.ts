@@ -60,14 +60,21 @@ test.describe('the metrics page', () => {
     // Allocatable capacity is far above what's used, so it's noted rather than drawn.
     await expect(chart).toContainText('↑ Allocatable')
     await expect(chart).toContainText('above the chart')
-    await expect(legend(chart).getByRole('button')).toHaveText([
+    // The legend is in the ranking's order, busiest first. (The mock's usage moves with
+    // the clock, so the middle of the order does too.)
+    const byRank = table(page, 'namespaces').getByRole('row').locator('td:first-child')
+    await expect(byRank).toHaveCount(6)
+    const order = await byRank.allTextContents()
+    expect(order[0]).toBe('batch')
+    expect(order.toSorted()).toEqual([
       'batch',
-      'shop',
       'data',
-      'monitoring',
-      'kube-system',
       'default',
+      'kube-system',
+      'monitoring',
+      'shop',
     ])
+    await expect(legend(chart).getByRole('button')).toHaveText(order)
 
     // Hovering reads every namespace at that time, with the total.
     const box = await plotBox(chart)
@@ -354,12 +361,15 @@ test.describe('the metrics page', () => {
 test('VictoriaMetrics, and thousands of pods', async ({ page }) => {
   await openCluster(page, CONTEXTS.large)
   await openMetrics(page)
+  // Ranking 2,500 pods over the hour takes the mock a moment on slow runners.
   await expect(
     page.getByRole('button', { name: /^VictoriaMetrics monitoring\/vmsingle-vm$/ }),
-  ).toBeVisible()
+  ).toBeVisible({ timeout: 40_000 })
   await page.getByRole('combobox', { name: 'Group by' }).selectOption('pod')
   const ranked = table(page, 'pods')
-  await expect(ranked.getByRole('button', { name: /^Show 50 more of 2,500$/ })).toBeVisible()
+  await expect(ranked.getByRole('button', { name: /^Show 50 more of 2,500$/ })).toBeVisible({
+    timeout: 40_000,
+  })
   await ranked.getByRole('button', { name: /^Show 50 more/ }).click()
   await expect(ranked.getByRole('row')).toHaveCount(101)
   await expect(chartOf(page, 'CPU by pod')).toContainText('The top 7 of 2,500 pods')

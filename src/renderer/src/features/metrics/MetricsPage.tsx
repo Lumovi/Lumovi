@@ -552,6 +552,8 @@ function rowsOf(
     for (const { labels, value } of series) {
       const { key, name, namespace, kind } = identify(labels, group, owners)
       const row = rows.get(key) ?? { key, name, namespace, kind, avg: 0 }
+      // History has pods that are gone; a live one says what the workload is.
+      row.kind ??= kind
       // Prometheus can answer NaN (say, 0/0); that counts as nothing.
       const amount = value ?? 0
       if (id === 'avg') row.avg += amount

@@ -18,3 +18,8 @@ blob-report/
 .idea/
 *.tsbuildinfo
 .nyc_output-*/
+
+# The integration tests' kind cluster (its own kubeconfig).
+.kind/
+playwright-report-integration/
+test-results-integration/

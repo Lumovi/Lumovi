@@ -244,14 +244,29 @@ as native title-bar colors on Windows and Linux, so CI runs the suite on Linux, 
 Windows and enforces 100% on the merged result. Locally, `npm run coverage` shows what your
 platform reaches.
 
-CI also packages the app on every platform and runs tests against the packaged build, and it
-runs a smoke test against a real [kind](https://kind.sigs.k8s.io) cluster. To run that
-locally:
+CI also packages the app on every platform and runs tests against the packaged build.
+
+### Integration tests
+
+The e2e tests above run against mock API servers, so they're fast and can stage any state.
+The integration tests check the same app against a real cluster: a three-node
+[kind](https://kind.sigs.k8s.io) cluster with metrics-server and kube-prometheus-stack.
+They change things for real and check the result with kubectl: scaling, rollouts and
+rollbacks, YAML edits and conflicts, creating from YAML, cordoning and draining against a
+PodDisruptionBudget, shells, port forwards, debug containers, every usage-history query
+against Prometheus, and what a view-only account is offered.
+
+You need Docker, [kind](https://kind.sigs.k8s.io), kubectl and Helm.
 
 ```sh
-kind create cluster --name kubestacks
-KUBESTACKS_E2E_REAL_CONTEXT=kind-kubestacks npx playwright test real-cluster
+npm run kind:up            # create the cluster and install metrics-server and Prometheus (a few minutes)
+npm run test:integration   # build, then run the integration tests
+npm run kind:down          # delete the cluster
 ```
+
+The cluster gets its own kubeconfig in `.kind/`. Your `~/.kube/config` isn't read or
+changed, and the tests never use any other cluster. The tests can be rerun against the same
+cluster: each spec starts from a fresh namespace.
 
 ## Contributing
 

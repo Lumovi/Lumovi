@@ -1,0 +1,9 @@
+# kind's kubelets serve self-signed certificates. On the control plane, like Prometheus.
+args:
+  - --kubelet-insecure-tls
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ''
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule

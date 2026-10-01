@@ -11,6 +11,7 @@
     "tests/**/*",
     "scripts/**/*",
     "playwright.config.ts",
+    "playwright.integration.config.ts",
     "src/shared/**/*",
     "src/preload/api.d.ts"
   ]
