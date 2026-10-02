@@ -26,6 +26,7 @@ import type { ChangeMeta, ClusterChange } from '@renderer/hooks/change'
 import { resourceFor } from '@renderer/hooks/resources'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { holds, viewFor } from '@renderer/lib/views'
+import { api } from '@renderer/lib/api'
 import { kindOf, target, type ActionProps } from './common'
 import { EvictDialog, RestartDialog, RestartPodDialog, RunNowDialog } from './ConfirmDialogs'
 import { DeleteDialog } from './DeleteDialog'
@@ -341,16 +342,21 @@ export const ACTIONS: readonly Action[] = [
     access: can('patch', 'ephemeralcontainers'),
     dialog: DebugDialog,
   },
-  {
-    id: 'forward',
-    label: 'Forward a port…',
-    icon: Cable,
-    kinds: ['Pod', 'Service'],
-    when: (o) => (o.kind === 'Pod' ? running(o) : Boolean(o.spec.selector)),
-    access: can('create', 'portforward', 'Pod'),
-    safe: true,
-    dialog: PortForwardDialog,
-  },
+  // To a port on this computer: only the desktop app has one.
+  ...(api.forwards
+    ? [
+        {
+          id: 'forward',
+          label: 'Forward a port…',
+          icon: Cable,
+          kinds: ['Pod', 'Service'],
+          when: (o: KubeObject) => (o.kind === 'Pod' ? running(o) : Boolean(o.spec.selector)),
+          access: can('create', 'portforward', 'Pod'),
+          safe: true,
+          dialog: PortForwardDialog,
+        } satisfies Action,
+      ]
+    : []),
   {
     id: 'evict',
     label: 'Evict…',

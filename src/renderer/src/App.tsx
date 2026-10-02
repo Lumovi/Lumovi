@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createHashRouter } from 'react-router'
+import { createBrowserRouter, createHashRouter, Navigate, type RouteObject } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
@@ -12,9 +12,15 @@ import { RouteError } from './features/errors/RouteError'
 import { OverviewPage } from './features/overview/OverviewPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
+import { SessionGate } from './features/session/SessionGate'
 import { ClusterLayout } from './features/shell/ClusterLayout'
 import { WelcomePage } from './features/welcome/WelcomePage'
 import { WorkloadsPage } from './features/workloads/WorkloadsPage'
+import { api } from './lib/api'
+import { clusterPath } from './lib/routes'
+import { useSession } from './state/session'
+import { SETTINGS_CHANGED } from './web/api'
+import { basename } from './web/session'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,11 +33,17 @@ const queryClient = new QueryClient({
   },
 })
 
-const router = createHashRouter([
+/** The start: the desktop app's clusters to choose from, or the one a server shows. */
+function Home() {
+  const session = useSession()
+  return session ? <Navigate replace to={clusterPath(session.cluster)} /> : <WelcomePage />
+}
+
+const routes: RouteObject[] = [
   {
     errorElement: <RouteError />,
     children: [
-      { path: '/', element: <WelcomePage /> },
+      { path: '/', element: <Home /> },
       {
         path: '/cluster/:context',
         element: <ClusterLayout />,
@@ -58,15 +70,34 @@ const router = createHashRouter([
       { path: '*', element: <NotFound /> },
     ],
   },
-])
+]
+
+// Another tab changed which clusters are read-only, or where metrics come from.
+addEventListener(
+  SETTINGS_CHANGED,
+  () => void queryClient.invalidateQueries({ queryKey: ['settings'] }),
+)
+
+// The desktop app's page is a file, so it keeps its place in the hash; a served page has real
+// addresses, below the server's base path, that can be shared.
+const router =
+  api.host === 'desktop'
+    ? createHashRouter(routes)
+    : createBrowserRouter(routes, { basename: basename() || '/' })
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={500} skipDelayDuration={200}>
-        <RouterProvider router={router} />
+        {api.host === 'server' ? (
+          <SessionGate>
+            <RouterProvider router={router} />
+          </SessionGate>
+        ) : (
+          <RouterProvider router={router} />
+        )}
         <Toaster />
-        <UpdateNotice />
+        {api.updates && <UpdateNotice updates={api.updates} />}
       </TooltipProvider>
     </QueryClientProvider>
   )

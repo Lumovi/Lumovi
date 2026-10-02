@@ -1,0 +1,15 @@
+# Only what the image's build needs.
+.git
+node_modules
+out
+dist
+release
+coverage
+.nyc_output
+test-results*
+playwright-report*
+blob-report
+.kind
+docs/screenshots
+*.log
+.DS_Store

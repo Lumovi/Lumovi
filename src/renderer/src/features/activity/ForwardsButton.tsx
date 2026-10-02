@@ -2,20 +2,24 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cable, CircleAlert, ExternalLink, Square } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useEffect } from 'react'
-import type { PortForward } from '@shared/api'
+import type { KubestacksApi, PortForward } from '@shared/api'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { menuContent } from '../shell/menu-styles'
 
-/** Ports forwarded to pods, in every cluster; shown while there are any. */
-export function ForwardsButton() {
+/** Ports forwarded to pods (by the desktop app), in every cluster; shown while there are any. */
+export function ForwardsButton({
+  api: forwarding,
+}: {
+  api: NonNullable<KubestacksApi['forwards']>
+}) {
   const queryClient = useQueryClient()
-  const forwards = useQuery({ queryKey: ['forwards'], queryFn: () => api.forwards.list() }).data
+  const forwards = useQuery({ queryKey: ['forwards'], queryFn: () => forwarding.list() }).data
   useEffect(
-    () => api.forwards.onChange((list) => queryClient.setQueryData(['forwards'], list)),
-    [queryClient],
+    () => forwarding.onChange((list) => queryClient.setQueryData(['forwards'], list)),
+    [forwarding, queryClient],
   )
   if (!forwards?.length) return null
   const failing = forwards.some((f) => f.error)
@@ -41,7 +45,7 @@ export function ForwardsButton() {
           </header>
           <ul className="max-h-[60vh] divide-y divide-line overflow-y-auto">
             {forwards.map((forward) => (
-              <Forward key={forward.id} forward={forward} />
+              <Forward key={forward.id} forward={forward} stop={forwarding.stop} />
             ))}
           </ul>
         </Popover.Content>
@@ -50,7 +54,7 @@ export function ForwardsButton() {
   )
 }
 
-function Forward({ forward }: { forward: PortForward }) {
+function Forward({ forward, stop }: { forward: PortForward; stop: (id: string) => Promise<void> }) {
   const url = `http://localhost:${forward.localPort}`
   return (
     <li className="px-4 py-3">
@@ -65,7 +69,7 @@ function Forward({ forward }: { forward: PortForward }) {
         </button>
         <span className="flex-1" />
         <CopyButton text={url} label="Copy address" />
-        <IconButton label="Stop forwarding" onClick={() => void api.forwards.stop(forward.id)}>
+        <IconButton label="Stop forwarding" onClick={() => void stop(forward.id)}>
           <Square />
         </IconButton>
       </div>

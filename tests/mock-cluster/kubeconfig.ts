@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { demoCluster, DEMO } from './fixtures/demo.ts'
 import { largeCluster, LARGE } from './fixtures/large.ts'
 import { sandboxCluster, SANDBOX } from './fixtures/sandbox.ts'
-import { startMockCluster, type MockCluster } from './server.ts'
+import { startMockCluster, type MockCluster, type MockUser } from './server.ts'
 
 export interface KubeconfigSpec {
   currentContext?: string
@@ -98,6 +98,15 @@ export const CONTEXTS = {
 } as const
 
 export const DEMO_TOKEN = 'kubestacks-demo-token'
+
+/** People the demo cluster knows, by their tokens (signing in to a KubeStacks server). */
+export const PEOPLE: Record<'alice' | 'bob', { token: string; user: MockUser }> = {
+  alice: {
+    token: 'alice-token',
+    user: { username: 'alice@example.com', groups: ['developers', 'on-call'] },
+  },
+  bob: { token: 'bob-token', user: { username: 'bob@example.com' } },
+}
 export const MISSING_PLUGIN = 'kubestacks-missing-credential-plugin'
 
 export { DEMO, LARGE, SANDBOX }
@@ -132,6 +141,7 @@ export async function startTestClusters(
       fixture: () => demoCluster(),
       tls: true,
       token: DEMO_TOKEN,
+      users: Object.fromEntries(Object.values(PEOPLE).map(({ token, user }) => [token, user])),
       gitVersion: DEMO.gitVersion,
       jitter: options.jitter,
     }),

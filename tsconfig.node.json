@@ -4,14 +4,18 @@
     "lib": ["ES2023"],
     "types": ["node", "electron-vite/node"],
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@backend/*": ["./src/backend/*"]
     }
   },
   "include": [
     "src/main/**/*",
+    "src/backend/**/*",
+    "src/server/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
     "electron.vite.config.ts",
-    "scripts/vite-*.ts"
+    "scripts/vite-*.ts",
+    "vite.server.config.ts"
   ]
 }

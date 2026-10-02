@@ -30,7 +30,7 @@ import {
 import { kubeRequest, type RequestOptions } from './client'
 import { discover } from './discovery'
 import { KubeRequestError, toKubeError } from './errors'
-import type { KubeConfigStore } from './kubeconfig'
+import type { ClusterConfigs } from './kubeconfig'
 import { Limiter } from './limiter'
 import { schemaOf, type DocumentCache } from './schemas'
 import {
@@ -108,8 +108,8 @@ interface PodMetric {
 }
 
 /**
- * Access to the clusters in the user's kubeconfig. Every public method
- * resolves to a `Result` and never rejects.
+ * Access to the clusters KubeStacks shows. Every public method resolves to a
+ * `Result` and never rejects.
  */
 export class KubeService {
   /** How long the API server has to answer (KUBESTACKS_REQUEST_TIMEOUT_MS). */
@@ -122,7 +122,7 @@ export class KubeService {
   readonly #documents: DocumentCache = new Map()
 
   constructor(
-    private readonly store: KubeConfigStore,
+    private readonly store: ClusterConfigs,
     /** Resolves once the environment (login shell PATH) is ready for credential plugins. */
     private readonly envReady: Promise<void>,
     /** Whether the user made a context read-only; changes to it are refused. */

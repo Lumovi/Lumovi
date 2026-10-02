@@ -23,6 +23,8 @@ interface PackageJson {
 // Builds run from the project folder (Vite bundles this file, so import.meta.dirname can't tell).
 const ROOT = process.cwd()
 const OUTPUT = join(ROOT, 'out', 'THIRD_PARTY_NOTICES.txt')
+/** The server bundles everything it uses: it ships without node_modules. */
+const SERVER_OUTPUT = join(ROOT, 'out', 'server', 'THIRD_PARTY_NOTICES.txt')
 /** Used from CSS rather than imported, so they're not in the module graph. */
 const FROM_CSS = ['tailwindcss']
 const LEGAL_FILE = /^(licen[sc]e|copying|notice)/i
@@ -77,8 +79,8 @@ function notice(dir: string): string {
   ].join('\n')
 }
 
-function write(): void {
-  const dirs = new Set([...bundled, ...shippedPackages()])
+function write(output: string, dependencies: boolean): void {
+  const dirs = new Set([...bundled, ...(dependencies ? shippedPackages() : [])])
   for (const name of FROM_CSS) dirs.add(join(ROOT, 'node_modules', name))
   const byName = new Map<string, string>()
   for (const dir of dirs) {
@@ -87,9 +89,9 @@ function write(): void {
   }
   const sections = [...byName.keys()].sort().map((key) => notice(byName.get(key)!))
   const rule = '\n\n' + '='.repeat(80) + '\n\n'
-  mkdirSync(dirname(OUTPUT), { recursive: true })
+  mkdirSync(dirname(output), { recursive: true })
   writeFileSync(
-    OUTPUT,
+    output,
     'KubeStacks includes the following third-party software, under the licenses below.' +
       rule +
       sections.join(rule) +
@@ -97,7 +99,8 @@ function write(): void {
   )
 }
 
-export function licenses(): Plugin {
+/** For the desktop app's builds, or (`server`) the server's, which ships with the page's files. */
+export function licenses(target: 'desktop' | 'server' = 'desktop'): Plugin {
   return {
     name: 'kubestacks:licenses',
     apply: 'build',
@@ -106,7 +109,8 @@ export function licenses(): Plugin {
         const dir = packageDir(id)
         if (dir) bundled.add(dir)
       }
-      write()
+      if (target === 'server') write(SERVER_OUTPUT, false)
+      else write(OUTPUT, true)
     },
   }
 }

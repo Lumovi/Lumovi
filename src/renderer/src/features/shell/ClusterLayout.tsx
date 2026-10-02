@@ -1,11 +1,15 @@
 import { WifiOff } from 'lucide-react'
 import { useEffect } from 'react'
-import { Outlet, useParams } from 'react-router'
+import { Navigate, Outlet, useParams } from 'react-router'
 import { Button } from '@renderer/components/Button'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
+import { api } from '@renderer/lib/api'
+import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
+import { useSession } from '@renderer/state/session'
+import { ServerBanner } from '../session/ServerBanner'
 import { ActionHost } from '../actions/ActionSurfaces'
 import { CreateDialog } from '../actions/CreateDialog'
 import { SourceDialog } from '../metrics/SourceDialog'
@@ -23,6 +27,7 @@ const HEALTH_CHECK_INTERVAL = 15_000
 
 export function ClusterLayout() {
   const context = useParams().context!
+  const session = useSession()
   const contextInfo = useContexts().data?.contexts.find((c) => c.name === context)
   const stored = usePrefs((prefs) => prefs.namespaces[context])
   const setStored = usePrefs((prefs) => prefs.setNamespace)
@@ -32,6 +37,10 @@ export function ClusterLayout() {
 
   useEffect(() => touchRecent(context), [context, touchRecent])
 
+  // A server shows one cluster: an address with another (a link from before it was renamed) goes there.
+  if (session && context !== session.cluster) {
+    return <Navigate replace to={clusterPath(session.cluster)} />
+  }
   return (
     <ClusterContext.Provider
       value={{ context, namespace, setNamespace: (value) => setStored(context, value) }}
@@ -48,6 +57,7 @@ export function ClusterLayout() {
         <main className="flex min-w-0 flex-1 flex-col py-2 pr-2 drag">
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel no-drag">
             <Header />
+            {api.host === 'server' && <ServerBanner />}
             <ConnectionBanner />
             <div className="relative flex min-h-0 flex-1">
               <div
@@ -93,9 +103,11 @@ function ConnectionBanner() {
       <Button variant="ghost" onClick={() => void version.refetch()}>
         Retry now
       </Button>
-      <Button variant="ghost" onClick={() => go('/')}>
-        All clusters
-      </Button>
+      {api.host === 'desktop' && (
+        <Button variant="ghost" onClick={() => go('/')}>
+          All clusters
+        </Button>
+      )}
     </div>
   )
 }

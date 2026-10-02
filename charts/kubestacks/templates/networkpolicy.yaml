@@ -1,0 +1,21 @@
+{{- if .Values.networkPolicy.enabled }}
+# Only what `from` allows reaches KubeStacks (with auth.mode proxy: the proxy alone).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kubestacks.fullname" . }}
+  labels:
+    {{- include "kubestacks.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kubestacks.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: http
+      {{- with .Values.networkPolicy.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

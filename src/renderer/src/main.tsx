@@ -4,10 +4,13 @@ import './styles/index.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { api } from './lib/api'
 
-// Lets CSS leave room for the native window controls of each platform (none in full screen).
-document.documentElement.dataset.platform = window.kubestacks.platform
-window.kubestacks.onFullScreen((fullScreen) =>
+// Lets CSS leave room for the desktop app's window controls: macOS's on the left (none in full
+// screen), others' on the right. A browser has its own, around the page.
+document.documentElement.dataset.windowControls =
+  api.host === 'server' ? 'none' : api.platform === 'darwin' ? 'left' : 'right'
+api.desktop?.onFullScreen((fullScreen) =>
   document.documentElement.toggleAttribute('data-fullscreen', fullScreen),
 )
 

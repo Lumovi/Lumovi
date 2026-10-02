@@ -1,6 +1,12 @@
-import type { KubeErrorCode, Result } from '@shared/api'
+import type { KubeErrorCode, KubestacksApi, Result } from '@shared/api'
+import { createWebApi } from '@renderer/web/api'
 
-export const api = window.kubestacks
+/**
+ * What runs the page: the desktop app (through its preload script), or a
+ * KubeStacks server. Either way it's window.kubestacks, as a page's scripts
+ * (and the tests) find it.
+ */
+export const api: KubestacksApi = (window.kubestacks ??= createWebApi())
 
 /** A failed cluster request, with the reason the main process reported. */
 export class KubeApiError extends Error {

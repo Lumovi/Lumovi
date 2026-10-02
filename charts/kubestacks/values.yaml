@@ -1,0 +1,161 @@
+# KubeStacks, served from your cluster. See docs/server.md for what each setting does.
+
+image:
+  repository: ghcr.io/kubestacks/kubestacks
+  # The chart's appVersion unless set.
+  tag: ''
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ''
+fullnameOverride: ''
+
+# What KubeStacks calls the cluster: in its pages, their addresses and titles.
+clusterName: in-cluster
+
+# The address people open KubeStacks at, like https://kubestacks.example.com. Single sign-on
+# needs it (the provider sends people back there); it also makes cookies HTTPS-only.
+url: ''
+# Where KubeStacks is below that address, when it shares a host with other apps: /kubestacks
+basePath: /
+
+auth:
+  # How people sign in:
+  # - token: with a token the cluster accepts (a service account's, say). Each person's
+  #   requests carry their own token; KubeStacks' own service account needs no permissions.
+  # - oidc: single sign-on with an OpenID Connect provider (Dex, Keycloak, Okta, Entra ID,
+  #   Google…). KubeStacks impersonates whoever signs in, so their RBAC applies.
+  # - proxy: behind an authenticating proxy (oauth2-proxy, Pomerium…) that names people in
+  #   request headers. KubeStacks impersonates them. Only safe when nothing but the proxy
+  #   can reach KubeStacks: see networkPolicy.
+  mode: token
+
+  oidc:
+    # The provider's issuer URL, where /.well-known/openid-configuration is.
+    issuer: ''
+    clientId: ''
+    # The client's secret (empty for public clients), or a Secret that has it under
+    # client-secret.
+    clientSecret: ''
+    existingSecret: ''
+    scopes: openid email profile
+    # The ID token's claims that name people, and list their groups.
+    usernameClaim: email
+    groupsClaim: groups
+    # On the sign-in button: "Sign in with Okta".
+    providerName: ''
+    # When the API server itself trusts the provider (its --oidc-* flags, a structured
+    # authentication config, EKS's OIDC identity providers…): `id` or `access`, the
+    # token requests carry instead of KubeStacks impersonating people. KubeStacks then
+    # needs no permissions, and renews tokens with refresh tokens (ask for them:
+    # offline_access, for most providers). Unset, it impersonates.
+    forwardToken: ''
+
+  proxy:
+    userHeader: X-Forwarded-User
+    groupsHeader: X-Forwarded-Groups
+    # Where signing out of the proxy is, like https://kubestacks.example.com/oauth2/sign_out
+    signOutUrl: ''
+
+  # Prefixed to impersonated users' and groups' names, like the API server's
+  # --oidc-username-prefix: "oidc:" makes alice@example.com oidc:alice@example.com in RBAC.
+  usernamePrefix: ''
+  groupsPrefix: ''
+
+  # How long a session lasts. Sessions live in KubeStacks' memory: a restart signs people out.
+  sessionHours: 12
+
+# Nobody changes anything through KubeStacks, whatever their RBAC allows.
+readOnly: false
+
+metrics:
+  # Where usage history comes from: auto (KubeStacks looks for Prometheus or VictoriaMetrics),
+  # off, or a service: monitoring/prometheus-operated:9090 (with a path after the port for
+  # vmselect: vm/vmselect:8481/select/0/prometheus). Each person can choose another.
+  source: auto
+
+helm:
+  # KubeStacks fetches charts only from public addresses unless this allows private ones
+  # (a ChartMuseum or Harbor in your network).
+  allowPrivateCharts: false
+  # Where KubeStacks searches for charts.
+  artifactHubUrl: https://artifacthub.io
+
+# Views everyone sees, by file name: see docs/views.md.
+#   views:
+#     team.yaml: |
+#       apiVersion: kubestacks.dev/v1alpha1
+#       kind: View
+#       ...
+views: {}
+
+serviceAccount:
+  create: true
+  # The chart's fullname unless set.
+  name: ''
+  annotations: {}
+
+rbac:
+  # With oidc or proxy, KubeStacks' service account may impersonate users and groups:
+  # whoever can reach KubeStacks' pod can act as anyone. Keep it in a namespace only cluster
+  # admins can exec into, and use auth.usernamePrefix and auth.groupsPrefix.
+  create: true
+
+# Sessions live in each replica's memory: more than one needs sticky sessions.
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ''
+  annotations: {}
+  # KubeStacks' WebSocket stays open: give the ingress controller a long read timeout,
+  # like nginx.ingress.kubernetes.io/proxy-read-timeout: "3600".
+  hosts:
+    - kubestacks.example.com
+  tls: []
+  #  - secretName: kubestacks-tls
+  #    hosts: [kubestacks.example.com]
+
+networkPolicy:
+  # Only lets in what `from` allows (with auth.mode proxy: the proxy's pods).
+  enabled: false
+  from: []
+  #  - podSelector:
+  #      matchLabels:
+  #        app.kubernetes.io/name: oauth2-proxy
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# More environment variables, as a container's env (see docs/server.md).
+extraEnv: []
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ''

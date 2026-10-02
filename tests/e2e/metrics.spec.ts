@@ -527,7 +527,7 @@ test.describe('where history comes from', () => {
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByRole('button', { name: /monitoring\/prometheus$/ })).toBeVisible()
     expect(
-      await page.evaluate(() => window.kubestacks.app.settings().then((s) => s.metricsSource)),
+      await page.evaluate(() => window.kubestacks!.app.settings().then((s) => s.metricsSource)),
     ).toEqual({})
   })
 
@@ -871,7 +871,7 @@ test('the main process checks what it is asked', async ({ page }) => {
   const now = Date.now()
   const bad = await page.evaluate(
     async ([now]) => {
-      const { usage, app } = window.kubestacks
+      const { usage, app } = window.kubestacks!
       const query = { id: 'q', expr: 'up' }
       const results = await Promise.all([
         usage.source(''),
@@ -943,7 +943,7 @@ test('the main process checks what it is asked', async ({ page }) => {
   // A query Prometheus can't parse says why.
   const parse = await page.evaluate(
     (now) =>
-      window.kubestacks.usage.instant({
+      window.kubestacks!.usage.instant({
         context: 'demo',
         queries: [{ id: 'q', expr: 'nonsense(' }],
         time: now,

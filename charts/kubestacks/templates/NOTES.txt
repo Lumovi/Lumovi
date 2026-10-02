@@ -1,0 +1,31 @@
+KubeStacks shows {{ .Values.clusterName }} to whoever signs in.
+{{- if .Values.ingress.enabled }}
+
+Open it at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ . }}{{ include "kubestacks.basePath" $ }}
+{{- end }}
+{{- else }}
+
+Reach it from your computer:
+  kubectl port-forward --namespace {{ .Release.Namespace }} service/{{ include "kubestacks.fullname" . }} 8080:{{ .Values.service.port }}
+and open http://localhost:8080{{ include "kubestacks.basePath" . }}
+{{- end }}
+{{- if eq .Values.auth.mode "token" }}
+
+People sign in with a token the cluster accepts, and see and change what it allows. For a
+service account's:
+  kubectl create token NAME --namespace NAMESPACE
+{{- else if and (eq .Values.auth.mode "oidc") .Values.auth.oidc.forwardToken }}
+
+People sign in with {{ .Values.auth.oidc.providerName | default "single sign-on" }}, and their requests carry their own
+{{ .Values.auth.oidc.forwardToken }} token: the API server must trust the provider.
+{{- else if eq .Values.auth.mode "oidc" }}
+
+People sign in with {{ .Values.auth.oidc.providerName | default "single sign-on" }}; KubeStacks acts as them in the cluster, so
+their RBAC applies. Its service account may impersonate anyone: keep its namespace to admins.
+{{- else }}
+
+KubeStacks trusts the {{ .Values.auth.proxy.userHeader }} header: make sure only the
+authenticating proxy can reach it{{ if not .Values.networkPolicy.enabled }} (networkPolicy.enabled keeps everything else out){{ end }}.
+{{- end }}

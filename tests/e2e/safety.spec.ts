@@ -245,7 +245,7 @@ test.describe('read-only clusters', () => {
 
     // The main process refuses too, whatever the page asks for.
     const refused = await page.evaluate(() =>
-      window.kubestacks.kube.change({
+      window.kubestacks!.kube.change({
         context: 'demo',
         kind: 'Deployment',
         namespace: 'shop',

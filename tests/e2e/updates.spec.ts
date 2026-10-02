@@ -47,13 +47,13 @@ test('a new version downloads in the background, then installs on restart', asyn
   const { app, page } = kubestacks
   const opened = await mockOpenExternal(app)
   // Nothing to install yet.
-  await page.evaluate(() => window.kubestacks.updates.install())
+  await page.evaluate(() => window.kubestacks!.updates!.install())
   expect((await fake(app)).installs).toBe(0)
 
   await emit(app, 'checking-for-update')
   await emit(app, 'update-available', { version: '9.9.9' })
   await emit(app, 'download-progress', { percent: 41.7 })
-  expect(await page.evaluate(() => window.kubestacks.updates.state())).toEqual({
+  expect(await page.evaluate(() => window.kubestacks!.updates!.state())).toEqual({
     state: { status: 'downloading', version: '9.9.9', percent: 41 },
     manual: false,
   })
@@ -101,7 +101,7 @@ test('Check for Updates says what it found', async ({ kubestacks }) => {
 
   // From the page, too.
   await checksResolveTo(app, {})
-  await page.evaluate(() => window.kubestacks.updates.check())
+  await page.evaluate(() => window.kubestacks!.updates!.check())
   await emit(app, 'update-available', { version: '9.9.9' })
   await expect(notifications).toContainText('Downloading KubeStacks 9.9.9…')
   await emit(app, 'update-downloaded', { version: '9.9.9' })
@@ -123,7 +123,7 @@ test('checks in the background stay quiet, and can be turned off', async ({ kube
   await expect(toasts(page)).toBeEmpty()
 
   const autoUpdate = () =>
-    page.evaluate(async () => (await window.kubestacks.app.settings()).autoUpdate)
+    page.evaluate(async () => (await window.kubestacks!.app.settings()).autoUpdate)
   await menu(app, 'auto-updates')
   expect(await autoUpdate()).toBe(false)
   await menu(app, 'auto-updates')

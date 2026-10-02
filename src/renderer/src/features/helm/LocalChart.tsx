@@ -27,14 +27,15 @@ export interface CheckedChart {
 
 /**
  * A chart on this computer, read and checked with `helm lint` against the
- * values being edited; fetching it again checks it again.
+ * values being edited; fetching it again checks it again. Only the desktop
+ * app has charts on this computer (`api.localCharts`).
  */
 export function useLocalChart(path: string, values: string, enabled: boolean) {
   return useQuery({
     queryKey: ['helm-local', path],
     queryFn: async (): Promise<CheckedChart> => {
-      const chart = await unwrap(api.helm.local(path))
-      return { chart, lint: await unwrap(api.helm.lint(chart.path, values)) }
+      const chart = await unwrap(api.localCharts!.read(path))
+      return { chart, lint: await unwrap(api.localCharts!.lint(chart.path, values)) }
     },
     enabled: enabled && path !== '',
     gcTime: 0,
@@ -107,14 +108,14 @@ export function LocalChartPanel({
     else onPath(next)
   }
   const choose = async (kind: 'folder' | 'archive') => {
-    const chosen = await api.helm.choose(kind)
+    const chosen = await api.localCharts!.choose(kind)
     if (chosen) open(chosen)
   }
   const data = checked.data
   const missing = data?.chart.dependencies.filter((d) => !PRESENT.has(d.status)) ?? []
   const download = async () => {
     setDownloading(true)
-    const result = await api.helm.updateDependencies(data!.chart.path)
+    const result = await api.localCharts!.updateDependencies(data!.chart.path)
     setDownloading(false)
     if (result.ok) void checked.refetch()
     else setProblem(result.error.message)

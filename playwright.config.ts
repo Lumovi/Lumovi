@@ -4,7 +4,6 @@ import { defineConfig } from '@playwright/test'
 const ci = Boolean(process.env.CI)
 
 export default defineConfig({
-  testDir: 'tests/e2e',
   globalSetup: './tests/e2e/global-setup.ts',
   timeout: 60_000,
   expect: { timeout: 10_000 },
@@ -21,4 +20,21 @@ export default defineConfig({
     screenshot: 'off',
     trace: 'off',
   },
+  projects: [
+    // The desktop app (Electron), driven through its window.
+    { name: 'desktop', testDir: 'tests/e2e' },
+    // KubeStacks served from a cluster (out/server), in a browser.
+    {
+      name: 'web',
+      testDir: 'tests/web',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 1440, height: 920 },
+        locale: 'en-US',
+        // Transitions are shortened under reduced motion, which keeps the tests quick and stable.
+        reducedMotion: 'reduce',
+        trace: ci ? 'retain-on-failure' : 'off',
+      },
+    },
+  ],
 })

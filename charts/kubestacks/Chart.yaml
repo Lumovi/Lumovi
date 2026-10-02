@@ -1,0 +1,21 @@
+apiVersion: v2
+name: kubestacks
+description: A fast, beautiful Kubernetes dashboard, served from your cluster to everyone who signs in.
+type: application
+# Released with KubeStacks itself: the chart's version is the app's.
+version: 1.1.1
+appVersion: 1.1.1
+home: https://kubestacks.com
+icon: https://raw.githubusercontent.com/KubeStacks/KubeStacks/main/build/icon.png
+sources:
+  - https://github.com/KubeStacks/KubeStacks
+keywords:
+  - kubernetes
+  - dashboard
+  - helm
+  - ui
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/KubeStacks/KubeStacks/blob/main/docs/server.md

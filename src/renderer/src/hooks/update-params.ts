@@ -1,4 +1,5 @@
 import { useSearchParams } from 'react-router'
+import { currentPath } from '@renderer/lib/routes'
 
 export type UpdateParams = (
   change: (params: URLSearchParams) => void,
@@ -16,7 +17,7 @@ export function useUpdateParams(): UpdateParams {
   const [, setParams] = useSearchParams()
   return (change, { replace = false } = {}) => {
     const apply = () => {
-      const params = new URLSearchParams(window.location.hash.split('?')[1])
+      const params = new URLSearchParams(currentPath().split('?')[1])
       change(params)
       // Rendered at once, so lists keep up with typing.
       setParams(params, { replace, flushSync: true })

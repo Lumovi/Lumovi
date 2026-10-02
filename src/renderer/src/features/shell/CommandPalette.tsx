@@ -26,11 +26,12 @@ import type { KubeList, KubeObject } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import { isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
 import { KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
 import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
+import { api } from '@renderer/lib/api'
 import { matchWords } from '@renderer/lib/match'
 import {
   apiResourcesPath,
@@ -255,26 +256,29 @@ function Palette({ onDone }: { onDone: () => void }) {
             </Item>
           ))}
         </Command.Group>
-        <Command.Group heading="Clusters">
-          {contexts.map(({ name }) => (
-            <Item
-              key={name}
-              icon={<Server />}
-              value={`${name} cluster`}
-              onSelect={run(() => go(clusterPath(name)))}
-            >
-              {name}
+        {/* A server shows one cluster. */}
+        {api.host === 'desktop' && (
+          <Command.Group heading="Clusters">
+            {contexts.map(({ name }) => (
+              <Item
+                key={name}
+                icon={<Server />}
+                value={`${name} cluster`}
+                onSelect={run(() => go(clusterPath(name)))}
+              >
+                {name}
+              </Item>
+            ))}
+            <Item icon={<LogOut />} value="All clusters" onSelect={run(() => go('/'))}>
+              All clusters
             </Item>
-          ))}
-          <Item icon={<LogOut />} value="All clusters" onSelect={run(() => go('/'))}>
-            All clusters
-          </Item>
-        </Command.Group>
+          </Command.Group>
+        )}
         <Command.Group heading="Help & appearance">
           <Item
             icon={<FilePlus2 />}
             value="Create from YAML new object"
-            hint={<Keys keys={[MOD_KEY, 'N']} />}
+            hint={WINDOW_SHORTCUTS && <Keys keys={[MOD_KEY, 'N']} />}
             onSelect={run(() => setCreate(true))}
           >
             Create from YAML

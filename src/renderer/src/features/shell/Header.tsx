@@ -17,8 +17,9 @@ import { useLocation, useNavigate } from 'react-router'
 import { apiKindOf, resourceByPlural } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { KindIcon } from '@renderer/components/KindIcon'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useResource } from '@renderer/hooks/resources'
+import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
@@ -89,10 +90,13 @@ export function Header() {
         <Kbd>{MOD_KEY}</Kbd>
         <Kbd>K</Kbd>
       </button>
-      <IconButton label={`Create from YAML (${MOD_KEY}N)`} onClick={() => setCreate(true)}>
+      <IconButton
+        label={WINDOW_SHORTCUTS ? `Create from YAML (${MOD_KEY}N)` : 'Create from YAML'}
+        onClick={() => setCreate(true)}
+      >
         <Plus />
       </IconButton>
-      <ForwardsButton />
+      {api.forwards && <ForwardsButton api={api.forwards} />}
       <ActivityButton />
       <IconButton label={`Refresh (${MOD_KEY}R)`} onClick={() => void refresh()}>
         <RotateCw className={cn(refreshing && 'animate-spin [animation-duration:0.8s]')} />

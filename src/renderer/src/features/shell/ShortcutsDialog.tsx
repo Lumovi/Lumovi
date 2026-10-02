@@ -1,7 +1,7 @@
 import { Dialog } from 'radix-ui'
 import { X } from 'lucide-react'
 import { GO_KEYS, navLabel, QUICK_NAV } from '@shared/navigation'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useUi } from '@renderer/state/ui'
 
 const SECTIONS: {
@@ -14,7 +14,7 @@ const SECTIONS: {
       { keys: [MOD_KEY, 'K'], label: 'Command palette' },
       { keys: ['/'], label: 'Filter the list' },
       { keys: [MOD_KEY, 'R'], label: 'Refresh' },
-      { keys: [MOD_KEY, 'N'], label: 'Create from YAML' },
+      ...(WINDOW_SHORTCUTS ? [{ keys: [MOD_KEY, 'N'], label: 'Create from YAML' }] : []),
       { keys: [MOD_KEY, '['], label: 'Back' },
       { keys: [MOD_KEY, ']'], label: 'Forward' },
       { keys: ['?'], label: 'Keyboard shortcuts' },
@@ -47,7 +47,7 @@ const SECTIONS: {
       return {
         label: navLabel(target),
         keys: ['G', key.toUpperCase()],
-        alt: quick >= 0 ? [MOD_KEY, String(quick + 1)] : undefined,
+        alt: WINDOW_SHORTCUTS && quick >= 0 ? [MOD_KEY, String(quick + 1)] : undefined,
       }
     }),
   },
