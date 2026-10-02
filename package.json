@@ -106,7 +106,7 @@
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0",
     "selfsigned": "^5.5.0",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0",
     "typescript-eslint": "^8.71.0",
