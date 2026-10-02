@@ -1,5 +1,18 @@
 # Velero (https://velero.io): backups of cluster resources and volumes.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: velero
+spec:
+  label: Velero
+  icon: archive
+  kinds:
+    - { group: velero.io, kind: Backup }
+    - { group: velero.io, kind: Restore }
+    - { group: velero.io, kind: Schedule }
+    - { group: velero.io, kind: BackupStorageLocation }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: velero-backups

@@ -186,6 +186,13 @@ test('the Prometheus operator’s kinds, through KubeStacks’ views of them', a
   const prometheus = row(page, 'Prometheuses', 'kps-kube-prometheus-stack-prometheus')
   await expect(prometheus).toContainText('Available')
   await expect(prometheus).toContainText(/v\d+\.\d+/)
+  // Its pods, found by the labels the operator gives them.
+  await prometheus.getByRole('gridcell').nth(1).click()
+  const detail = panel(page, 'Prometheus', 'kps-kube-prometheus-stack-prometheus')
+  await detail.getByRole('tab', { name: 'Pods' }).click()
+  await expect(detail.getByRole('grid', { name: 'Pods' })).toContainText(
+    'prometheus-kps-kube-prometheus-stack-prometheus-0',
+  )
   await openKind(page, 'monitoring.coreos.com', 'ServiceMonitors')
   await expect(row(page, 'ServiceMonitors', 'kps-kube-prometheus-stack-apiserver')).toContainText(
     'https',

@@ -1,0 +1,95 @@
+# OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper): constraint templates, the
+# constraints made from them (a kind for each template), and mutations.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: gatekeeper
+spec:
+  label: Gatekeeper
+  icon: shield-check
+  kinds:
+    - { group: constraints.gatekeeper.sh, kind: '*' }
+    - { group: templates.gatekeeper.sh, kind: ConstraintTemplate }
+    - { group: mutations.gatekeeper.sh, kind: Assign }
+    - { group: mutations.gatekeeper.sh, kind: AssignMetadata }
+    - { group: mutations.gatekeeper.sh, kind: ModifySet }
+    - { group: mutations.gatekeeper.sh, kind: AssignImage }
+    - { group: expansion.gatekeeper.sh, kind: ExpansionTemplate }
+    - { group: config.gatekeeper.sh, kind: Config }
+---
+# Every constraint, whatever template made its kind: what the last audit found.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: gatekeeper-constraints
+spec:
+  kinds:
+    - { group: constraints.gatekeeper.sh, kind: '*' }
+  icon: shield-check
+  columns:
+    - { name: Action, path: .spec.enforcementAction, default: deny }
+    - { name: Violations, path: .status.totalViolations, type: number, default: '0' }
+    - { name: Audited, path: .status.auditTimestamp, type: date }
+  status:
+    - when:
+        all:
+          - { path: .status.totalViolations, exists: true }
+          - { path: .status.totalViolations, notEquals: 0 }
+      health: warning
+      label: '{{ .status.totalViolations }} violations'
+      detail: '{{ .status.violations[*].message }}'
+    - when: { path: .status.auditTimestamp, exists: true }
+      health: healthy
+      label: No violations
+    - health: progressing
+      label: Not audited yet
+  details:
+    - { name: Action, path: .spec.enforcementAction, default: deny }
+    - { name: Kinds, path: '.spec.match.kinds[*].kinds[*]' }
+    - { name: Namespaces, path: '.spec.match.namespaces[*]' }
+    - { name: Violating, path: '.status.violations[*].name' }
+    - { name: Audited, path: .status.auditTimestamp, type: date }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: gatekeeper-constraint-templates
+spec:
+  kinds:
+    - { group: templates.gatekeeper.sh, kind: ConstraintTemplate }
+  icon: package
+  columns:
+    - { name: Constraint kind, path: .spec.crd.spec.names.kind }
+  status:
+    - when: { path: '.status.byPod[*].errors[*].message', exists: true }
+      health: critical
+      label: Errors
+      detail: '{{ .status.byPod[*].errors[*].message }}'
+    - when: { path: .status.created, equals: true }
+      health: healthy
+      label: Created
+    - health: progressing
+      label: Creating
+  details:
+    - { name: Constraint kind, path: .spec.crd.spec.names.kind }
+    - { name: Engines, path: '.spec.targets[*].code[*].engine' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: gatekeeper-mutations
+spec:
+  kinds:
+    - { group: mutations.gatekeeper.sh, kind: Assign }
+    - { group: mutations.gatekeeper.sh, kind: AssignMetadata }
+    - { group: mutations.gatekeeper.sh, kind: ModifySet }
+    - { group: mutations.gatekeeper.sh, kind: AssignImage }
+  icon: refresh-cw
+  columns:
+    - { name: Location, path: .spec.location }
+    - { name: Applies to, path: '.spec.applyTo[*].kinds[*]' }
+  status:
+    - when: { path: '.status.byPod[*].errors[*].message', exists: true }
+      health: critical
+      label: Errors
+      detail: '{{ .status.byPod[*].errors[*].message }}'

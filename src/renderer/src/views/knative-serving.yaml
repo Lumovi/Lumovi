@@ -1,0 +1,96 @@
+# Knative Serving (https://knative.dev/docs/serving): services that scale with requests,
+# their revisions, and the routes that split traffic between them.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: knative-serving
+spec:
+  label: Knative Serving
+  icon: rocket
+  kinds:
+    - { group: serving.knative.dev, kind: Service }
+    - { group: serving.knative.dev, kind: Revision }
+    - { group: serving.knative.dev, kind: Route }
+    - { group: serving.knative.dev, kind: Configuration }
+    - { group: serving.knative.dev, kind: DomainMapping }
+---
+# Knative reports on everything in a Ready condition.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: knative-services
+spec:
+  kinds:
+    - { group: serving.knative.dev, kind: Service }
+    - { group: serving.knative.dev, kind: Route }
+    - { group: serving.knative.dev, kind: Configuration }
+    - { group: serving.knative.dev, kind: DomainMapping }
+  icon: rocket
+  columns:
+    - { name: URL, path: .status.url }
+    - { name: Latest revision, path: .status.latestReadyRevisionName }
+    - { name: Traffic, path: '.status.traffic[*].percent' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - health: progressing
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Deploying" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: URL, path: .status.url }
+    - { name: Address, path: .status.address.url }
+    - { name: Latest revision, path: .status.latestReadyRevisionName }
+    - { name: Latest created, path: .status.latestCreatedRevisionName }
+    - { name: Traffic to, path: '.status.traffic[*].revisionName' }
+    - { name: Percent, path: '.status.traffic[*].percent' }
+  links:
+    - name: Latest revision
+      kind: Revision.serving.knative.dev
+      objectName: '{{ .status.latestReadyRevisionName }}'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { serving.knative.dev/service: '{{ .metadata.name }}' }
+    - name: Revisions
+      kind: Revision.serving.knative.dev
+      labels: { serving.knative.dev/service: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: knative-revisions
+spec:
+  kinds:
+    - { group: serving.knative.dev, kind: Revision }
+  icon: package
+  columns:
+    - { name: Service, path: ".metadata.labels['serving.knative.dev/service']" }
+    - { name: Replicas, path: .status.actualReplicas, type: number, default: '0' }
+    - { name: Wanted, path: .status.desiredReplicas, type: number, default: '0' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - health: progressing
+      label: Deploying
+  details:
+    - { name: Images, path: '.status.containerStatuses[*].imageDigest' }
+    - { name: Concurrency, path: .spec.containerConcurrency, type: number, default: '0' }
+    - { name: Timeout, path: .spec.timeoutSeconds, type: number }
+  links:
+    - name: Service
+      kind: Service.serving.knative.dev
+      objectName: "{{ .metadata.labels['serving.knative.dev/service'] }}"
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { serving.knative.dev/revision: '{{ .metadata.name }}' }

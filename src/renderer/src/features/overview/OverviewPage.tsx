@@ -168,7 +168,7 @@ export function OverviewPage() {
 }
 
 /** Renders a card body once its query has data, with loading and error states in place. */
-function Body<T>({
+export function Body<T>({
   query,
   children,
 }: {
@@ -191,7 +191,7 @@ function Body<T>({
 // ——— Stat tiles ———
 
 /** A headline number; clicking it opens the list behind it, filtered to what matters. */
-function Tile({
+export function Tile({
   icon: Icon,
   label,
   value,
@@ -574,7 +574,7 @@ function NodeList({ nodes, usage }: { nodes: KubeObject[]; usage?: NodeUsage }) 
   )
 }
 
-function MiniMeter({ label, value, node }: { label: string; value: number; node: string }) {
+export function MiniMeter({ label, value, node }: { label: string; value: number; node: string }) {
   return (
     <span className="flex flex-col gap-1">
       <span className="flex justify-between text-2xs text-ink-3">

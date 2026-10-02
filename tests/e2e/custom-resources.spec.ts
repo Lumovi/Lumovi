@@ -46,16 +46,19 @@ test.describe('custom resources', () => {
     const lately = nav.getByRole('group', { name: 'Opened lately' })
     await expect(lately.getByRole('link')).toHaveCount(0)
     await expect(nav.getByRole('link', { name: /API resources/ })).toContainText(/\d+/)
-    await openKind(page, 'cert-manager.io', 'Certificates')
-    await expect(lately.getByRole('link', { name: 'Certificates' })).toBeVisible()
+    await openKind(page, 'example.com', 'Databases')
+    await expect(lately.getByRole('link', { name: 'Databases' })).toBeVisible()
     // Custom resources are browsed by API group, with the filter ready.
     await nav.getByRole('link', { name: /API resources/ }).click()
     await expect(page.getByPlaceholder('Filter kinds')).toBeFocused()
     await expect(
       page.getByRole('rowgroup', { name: 'cert-manager.io', exact: true }),
     ).toContainText('ClusterIssuers')
-    await lately.getByRole('link', { name: 'Certificates' }).click()
+    // A tool's kinds are a click away under its add-on, so they aren't kept here too.
+    await openKind(page, 'cert-manager.io', 'Certificates')
     await expect(page).toHaveTitle(/^Certificates · demo/)
+    await expect(lately.getByRole('link', { name: 'Certificates' })).toHaveCount(0)
+    await expect(lately.getByRole('link', { name: 'Databases' })).toBeVisible()
     await expect(headers(page, 'Certificates')).toHaveText([
       '',
       'Name',
@@ -684,11 +687,14 @@ test('hundreds of CRDs stay manageable', async ({ page }) => {
 })
 
 test('a cluster without custom resources', async ({ page, clusters }) => {
-  clusters.sandbox.remove(
-    'CustomResourceDefinition.apiextensions.k8s.io',
-    undefined,
+  for (const crd of [
     'widgets.example.com',
-  )
+    'nodepools.karpenter.sh',
+    'nodeclaims.karpenter.sh',
+    'ec2nodeclasses.karpenter.k8s.aws',
+  ]) {
+    clusters.sandbox.remove('CustomResourceDefinition.apiextensions.k8s.io', undefined, crd)
+  }
   await openCluster(page, CONTEXTS.sandbox)
   await expect(sidebar(page).getByText('None in this cluster')).toBeVisible()
 })

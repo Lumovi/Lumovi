@@ -1,0 +1,135 @@
+# Trivy Operator (https://aquasecurity.github.io/trivy-operator): what it found scanning the cluster.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: trivy-operator
+spec:
+  label: Trivy
+  icon: bug
+  kinds:
+    - { group: aquasecurity.github.io, kind: VulnerabilityReport }
+    - { group: aquasecurity.github.io, kind: ConfigAuditReport }
+    - { group: aquasecurity.github.io, kind: ExposedSecretReport }
+    - { group: aquasecurity.github.io, kind: RbacAssessmentReport }
+    - { group: aquasecurity.github.io, kind: ClusterRbacAssessmentReport }
+    - { group: aquasecurity.github.io, kind: ClusterComplianceReport }
+---
+# A report for each container image a workload runs.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: trivy-vulnerability-reports
+spec:
+  kinds:
+    - { group: aquasecurity.github.io, kind: VulnerabilityReport }
+  icon: bug
+  columns:
+    - { name: Workload, path: ".metadata.labels['trivy-operator.resource.name']" }
+    - { name: Container, path: ".metadata.labels['trivy-operator.container.name']" }
+    - { name: Image, path: .report.artifact.repository }
+    - { name: Critical, path: .report.summary.criticalCount, type: number, default: '0' }
+    - { name: High, path: .report.summary.highCount, type: number, default: '0' }
+    - { name: Medium, path: .report.summary.mediumCount, type: number, default: '0' }
+  status:
+    - when:
+        all:
+          - { path: .report.summary.criticalCount, exists: true }
+          - { path: .report.summary.criticalCount, notEquals: 0 }
+      health: critical
+      label: '{{ .report.summary.criticalCount }} critical'
+      detail: '{{ .report.vulnerabilities[?(@.severity=="CRITICAL")].vulnerabilityID }}'
+    - when:
+        all:
+          - { path: .report.summary.highCount, exists: true }
+          - { path: .report.summary.highCount, notEquals: 0 }
+      health: warning
+      label: '{{ .report.summary.highCount }} high'
+      detail: '{{ .report.vulnerabilities[?(@.severity=="HIGH")].vulnerabilityID }}'
+    - health: healthy
+      label: No critical or high
+  details:
+    - { name: Workload, path: ".metadata.labels['trivy-operator.resource.kind']" }
+    - { name: Image, path: .report.artifact.repository }
+    - { name: Tag, path: .report.artifact.tag }
+    - { name: Digest, path: .report.artifact.digest }
+    - { name: OS, path: .report.os.name }
+    - { name: Scanned, path: .report.updateTimestamp, type: date }
+    - { name: Low, path: .report.summary.lowCount, type: number, default: '0' }
+    - { name: Unknown, path: .report.summary.unknownCount, type: number, default: '0' }
+    - { name: Critical, path: '.report.vulnerabilities[?(@.severity=="CRITICAL")].vulnerabilityID' }
+    - { name: High, path: '.report.vulnerabilities[?(@.severity=="HIGH")].vulnerabilityID' }
+  links:
+    - name: Workload
+      kind: "{{ .metadata.labels['trivy-operator.resource.kind'] }}"
+      objectName: "{{ .metadata.labels['trivy-operator.resource.name'] }}"
+---
+# Misconfigurations, secrets in images and risky RBAC: checks that failed, by severity.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: trivy-findings
+spec:
+  kinds:
+    - { group: aquasecurity.github.io, kind: ConfigAuditReport }
+    - { group: aquasecurity.github.io, kind: ExposedSecretReport }
+    - { group: aquasecurity.github.io, kind: RbacAssessmentReport }
+    - { group: aquasecurity.github.io, kind: ClusterRbacAssessmentReport }
+  icon: file-check
+  columns:
+    - { name: Resource, path: ".metadata.labels['trivy-operator.resource.name']" }
+    - { name: Critical, path: .report.summary.criticalCount, type: number, default: '0' }
+    - { name: High, path: .report.summary.highCount, type: number, default: '0' }
+    - { name: Medium, path: .report.summary.mediumCount, type: number, default: '0' }
+    - { name: Low, path: .report.summary.lowCount, type: number, default: '0' }
+  status:
+    - when:
+        all:
+          - { path: .report.summary.criticalCount, exists: true }
+          - { path: .report.summary.criticalCount, notEquals: 0 }
+      health: critical
+      label: '{{ .report.summary.criticalCount }} critical'
+    - when:
+        all:
+          - { path: .report.summary.highCount, exists: true }
+          - { path: .report.summary.highCount, notEquals: 0 }
+      health: warning
+      label: '{{ .report.summary.highCount }} high'
+    - health: healthy
+      label: No critical or high
+  details:
+    - { name: Resource, path: ".metadata.labels['trivy-operator.resource.kind']" }
+    - { name: Scanned, path: .report.updateTimestamp, type: date }
+    - { name: Secrets found, path: '.report.secrets[*].title' }
+  links:
+    - name: Resource
+      kind: "{{ .metadata.labels['trivy-operator.resource.kind'] }}"
+      objectName: "{{ .metadata.labels['trivy-operator.resource.name'] }}"
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: trivy-compliance-reports
+spec:
+  kinds:
+    - { group: aquasecurity.github.io, kind: ClusterComplianceReport }
+  icon: file-check
+  columns:
+    - { name: Standard, path: .spec.compliance.title }
+    - { name: Failing, path: .status.summary.failCount, type: number, default: '0' }
+    - { name: Passing, path: .status.summary.passCount, type: number, default: '0' }
+    - { name: Schedule, path: .spec.cron }
+  status:
+    - when:
+        all:
+          - { path: .status.summary.failCount, exists: true }
+          - { path: .status.summary.failCount, notEquals: 0 }
+      health: warning
+      label: '{{ .status.summary.failCount }} failing'
+    - when: { path: .status.summary.passCount, exists: true }
+      health: healthy
+      label: Compliant
+  details:
+    - { name: Standard, path: .spec.compliance.title }
+    - { name: Version, path: .spec.compliance.version }
+    - { name: Schedule, path: .spec.cron }
+    - { name: Report, path: .spec.reportType }

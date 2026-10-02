@@ -1,5 +1,21 @@
 # Flux (https://fluxcd.io): what it applies, and where it fetches it from.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: flux
+spec:
+  label: Flux
+  icon: git-merge
+  kinds:
+    - { group: kustomize.toolkit.fluxcd.io, kind: Kustomization }
+    - { group: helm.toolkit.fluxcd.io, kind: HelmRelease }
+    - { group: source.toolkit.fluxcd.io, kind: GitRepository }
+    - { group: source.toolkit.fluxcd.io, kind: OCIRepository }
+    - { group: source.toolkit.fluxcd.io, kind: HelmRepository }
+    - { group: source.toolkit.fluxcd.io, kind: HelmChart }
+    - { group: source.toolkit.fluxcd.io, kind: Bucket }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: flux-kustomizations

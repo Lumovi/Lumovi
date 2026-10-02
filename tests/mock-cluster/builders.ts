@@ -169,6 +169,8 @@ export interface NodeInput {
   usage?: { cpu: number; memory: number }
   /** How long ago the kubelet last reported (for NotReady nodes). */
   lastHeartbeatAgo?: number
+  /** More labels, like those of the autoscaler that launched it. */
+  labels?: Record<string, string>
 }
 
 /** Overrides container runtime state by container name, keeping the template's spec. */
@@ -439,6 +441,7 @@ export function clusterBuilder(now: number) {
           'topology.kubernetes.io/region': 'eu-west-1',
           'topology.kubernetes.io/zone': n.zone,
           ...(n.role ? { 'node-role.kubernetes.io/control-plane': '' } : {}),
+          ...n.labels,
         },
         annotations: {
           'node.alpha.kubernetes.io/ttl': '0',

@@ -1,0 +1,161 @@
+# Kyverno (https://kyverno.io): policies, and what they found in the cluster's resources.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: kyverno
+spec:
+  label: Kyverno
+  icon: shield-check
+  kinds:
+    - { group: wgpolicyk8s.io, kind: PolicyReport }
+    - { group: wgpolicyk8s.io, kind: ClusterPolicyReport }
+    - { group: kyverno.io, kind: ClusterPolicy }
+    - { group: kyverno.io, kind: Policy }
+    - { group: policies.kyverno.io, kind: ValidatingPolicy }
+    - { group: kyverno.io, kind: PolicyException }
+    - { group: kyverno.io, kind: ClusterCleanupPolicy }
+    - { group: kyverno.io, kind: CleanupPolicy }
+---
+# A report for each resource: how it did against every policy that applies to it.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kyverno-policy-reports
+spec:
+  kinds:
+    - { group: wgpolicyk8s.io, kind: PolicyReport }
+    - { group: wgpolicyk8s.io, kind: ClusterPolicyReport }
+  icon: shield-check
+  columns:
+    - { name: Kind, path: .scope.kind }
+    - { name: Resource, path: .scope.name }
+    - { name: Fail, path: .summary.fail, type: number, default: '0' }
+    - { name: Warn, path: .summary.warn, type: number, default: '0' }
+    - { name: Pass, path: .summary.pass, type: number, default: '0' }
+  status:
+    # Counts left out are zero.
+    - when:
+        all:
+          - { path: .summary.error, exists: true }
+          - { path: .summary.error, notEquals: 0 }
+      health: critical
+      label: '{{ .summary.error }} errors'
+      detail: '{{ .results[?(@.result=="error")].message }}'
+    - when:
+        all:
+          - { path: .summary.fail, exists: true }
+          - { path: .summary.fail, notEquals: 0 }
+      health: critical
+      label: '{{ .summary.fail }} failing'
+      detail: '{{ .results[?(@.result=="fail")].message }}'
+    - when:
+        all:
+          - { path: .summary.warn, exists: true }
+          - { path: .summary.warn, notEquals: 0 }
+      health: warning
+      label: '{{ .summary.warn }} warnings'
+      detail: '{{ .results[?(@.result=="warn")].message }}'
+    - when: { path: .summary.pass, exists: true }
+      health: healthy
+      label: Passing
+    - health: neutral
+      label: Skipped
+  details:
+    - { name: Failing, path: '.results[?(@.result=="fail")].policy' }
+    - { name: Warning, path: '.results[?(@.result=="warn")].policy' }
+    - { name: Passing, path: '.results[?(@.result=="pass")].policy' }
+    - { name: Skipped, path: '.results[?(@.result=="skip")].policy' }
+  links:
+    - name: Resource
+      kind: '{{ .scope.kind }}'
+      objectName: '{{ .scope.name }}'
+      namespace: '{{ .scope.namespace }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kyverno-policies
+spec:
+  kinds:
+    - { group: kyverno.io, kind: ClusterPolicy }
+    - { group: kyverno.io, kind: Policy }
+  icon: shield-check
+  columns:
+    - { name: Rules, path: .spec.rules, type: count }
+    - { name: On failure, path: .spec.validationFailureAction, default: Audit }
+    - { name: Background, path: .spec.background, type: boolean, default: 'Yes' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: Rules, path: '.spec.rules[*].name' }
+    - { name: Validating, path: .status.rulecount.validate, type: number, default: '0' }
+    - { name: Mutating, path: .status.rulecount.mutate, type: number, default: '0' }
+    - { name: Generating, path: .status.rulecount.generate, type: number, default: '0' }
+    - { name: Verifying images, path: .status.rulecount.verifyimages, type: number, default: '0' }
+    - { name: On failure, path: .spec.validationFailureAction, default: Audit }
+    - { name: Webhook timeout, path: .spec.webhookTimeoutSeconds, default: 10s }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kyverno-validating-policies
+spec:
+  kinds:
+    - { group: policies.kyverno.io, kind: ValidatingPolicy }
+  icon: shield-check
+  columns:
+    - { name: Actions, path: '.spec.validationActions[*]' }
+    - { name: Validations, path: .spec.validations, type: count }
+    - { name: Mode, path: .spec.evaluation.mode, default: Kubernetes }
+  status:
+    - when: { path: .status.conditionStatus.ready, equals: true }
+      health: healthy
+      label: Ready
+    - when: { path: .status.conditionStatus.ready, equals: false }
+      health: critical
+      label: Not ready
+      detail: '{{ .status.conditionStatus.message }}'
+  details:
+    - { name: Actions, path: '.spec.validationActions[*]' }
+    - { name: Failure policy, path: .spec.failurePolicy, default: Fail }
+    - { name: In background, path: .spec.evaluation.background.enabled, type: boolean }
+    - { name: At admission, path: .spec.evaluation.admission.enabled, type: boolean }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kyverno-exceptions
+spec:
+  kinds:
+    - { group: kyverno.io, kind: PolicyException }
+  icon: lock
+  columns:
+    - { name: Policies, path: '.spec.exceptions[*].policyName' }
+    - { name: Rules, path: '.spec.exceptions[*].ruleNames[*]' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kyverno-cleanup-policies
+spec:
+  kinds:
+    - { group: kyverno.io, kind: ClusterCleanupPolicy }
+    - { group: kyverno.io, kind: CleanupPolicy }
+  icon: timer
+  columns:
+    - { name: Schedule, path: .spec.schedule }
+    - { name: Last run, path: .status.lastExecutionTime, type: date }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'

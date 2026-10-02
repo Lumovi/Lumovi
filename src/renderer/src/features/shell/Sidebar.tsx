@@ -24,10 +24,11 @@ import {
   type ResourceDefinition,
 } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
-import { KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
+import { AddOnIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { GithubMark } from '@renderer/components/Logo'
 import { StatusDot } from '@renderer/components/Status'
 import { Switch } from '@renderer/components/Switch'
+import { useAddOns, type ServedAddOn } from '@renderer/hooks/add-ons'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
@@ -37,6 +38,7 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
 import {
+  addOnPath,
   apiResourcesPath,
   clusterPath,
   helmPath,
@@ -77,17 +79,19 @@ const WORKLOAD_PAGES = RESOURCES.filter((r) => r.category === 'workloads' && r.k
 
 /**
  * A sidebar link that navigates with a page transition. It also shows as the
- * current page on the routes in `also`.
+ * current page on the routes in `also`, or when `current` says so.
  */
 function NavItem({
   to,
   end,
   also = [],
+  current = false,
   children,
 }: {
   to: string
   end?: boolean
   also?: string[]
+  current?: boolean
   children: ReactNode
 }) {
   const go = useGo()
@@ -96,7 +100,7 @@ function NavItem({
     <NavLink
       end={end}
       to={to}
-      className={({ isActive }) => navItem(isActive || also.includes(page))}
+      className={({ isActive }) => navItem(isActive || current || also.includes(page))}
       onClick={(event) => {
         event.preventDefault()
         go(to)
@@ -120,9 +124,26 @@ function GoHint({ target }: { target: string }) {
   )
 }
 
+/** An add-on's entry: current on its page, and on its kinds' lists. */
+function AddOnItem({ served }: { served: ServedAddOn }) {
+  const { context } = useCluster()
+  const [page, kind] = useLocation().pathname.split('/').slice(3)
+  const { addOn, kinds } = served
+  return (
+    <NavItem
+      to={addOnPath(context, addOn.name)}
+      current={page === 'r' && kinds.some((r) => r.kind === decodeURIComponent(kind!))}
+    >
+      <AddOnIcon addOn={addOn} className="size-4 shrink-0 text-ink-3" />
+      <span className="truncate">{addOn.label}</span>
+    </NavItem>
+  )
+}
+
 export function Sidebar() {
   const { context } = useCluster()
   const session = useSession()
+  const addOns = useAddOns()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
   return (
     <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
@@ -131,7 +152,11 @@ export function Sidebar() {
       <div className="p-3">
         <ClusterSwitcher />
       </div>
-      <nav aria-label="Resources" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 no-drag">
+      <nav
+        aria-label="Resources"
+        // With add-ons it can be longer than the window; it scrolls without a scrollbar, as macOS's do.
+        className="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto px-3 pb-3 no-drag"
+      >
         <NavItem end to={clusterPath(context)}>
           <LayoutDashboard className="size-4 text-ink-3" /> Overview
           <GoHint target="overview" />
@@ -167,9 +192,15 @@ export function Sidebar() {
                 </NavItem>
               )
             })}
+            {/* Add-ons that extend Kubernetes' own, like Gateway API, sit with them. */}
+            {addOns
+              .filter((served) => served.addOn.category === category)
+              .map((served) => (
+                <AddOnItem key={served.addOn.name} served={served} />
+              ))}
           </div>
         ))}
-        <CustomResources />
+        <CustomResources addOns={addOns} />
       </nav>
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
         <ThemeMenu />
@@ -317,10 +348,11 @@ function SwitcherItem({
 }
 
 /**
- * Pinned kinds, and the custom kinds opened lately in this cluster: a few,
- * however many the cluster has. Browsing them all is what API resources is for.
+ * Pinned kinds, the add-ons of the tools the cluster has, and the custom
+ * kinds opened lately in this cluster: a few, however many the cluster has.
+ * Browsing them all is what API resources is for.
  */
-function CustomResources() {
+function CustomResources({ addOns }: { addOns: ServedAddOn[] }) {
   const { context } = useCluster()
   const resources = useResources().data
   // Views pick the kinds' icons.
@@ -329,10 +361,13 @@ function CustomResources() {
   const recentKinds = usePrefs((prefs) => prefs.recentKinds[context])
   const served = new Map((resources ?? []).map((r) => [r.kind as string, r]))
   const pinned = pinnedKinds.flatMap((kind) => served.get(kind) ?? [])
+  // Kinds an add-on has are a click away already.
+  const inAddOns = new Set(addOns.flatMap(({ kinds }) => kinds.map((r) => r.kind)))
   const recent = (recentKinds ?? [])
-    .filter((kind) => !pinnedKinds.includes(kind))
+    .filter((kind) => !pinnedKinds.includes(kind) && !inAddOns.has(kind))
     .flatMap((kind) => served.get(kind) ?? [])
     .filter((r) => isCustomGroup(r.group))
+  const ownSection = addOns.filter((served) => !served.addOn.category)
   const custom = (resources ?? []).filter((r) => isCustomGroup(r.group)).length
   const item = (resource: ResourceDefinition) => {
     const Icon = kindIcon(resource.kind)
@@ -351,6 +386,16 @@ function CustomResources() {
             Pinned
           </h3>
           {pinned.map(item)}
+        </div>
+      )}
+      {ownSection.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+            Add-ons
+          </h3>
+          {ownSection.map((served) => (
+            <AddOnItem key={served.addOn.name} served={served} />
+          ))}
         </div>
       )}
       <div className="mt-4">

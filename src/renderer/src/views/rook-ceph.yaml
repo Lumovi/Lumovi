@@ -1,0 +1,126 @@
+# Rook (https://rook.io): Ceph clusters, and the pools, filesystems and object stores on them.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: rook-ceph
+spec:
+  label: Rook Ceph
+  icon: layers
+  category: storage
+  kinds:
+    - { group: ceph.rook.io, kind: CephCluster }
+    - { group: ceph.rook.io, kind: CephBlockPool }
+    - { group: ceph.rook.io, kind: CephFilesystem }
+    - { group: ceph.rook.io, kind: CephObjectStore }
+    - { group: ceph.rook.io, kind: CephObjectStoreUser }
+    - { group: ceph.rook.io, kind: CephNFS }
+    - { group: objectbucket.io, kind: ObjectBucketClaim }
+---
+# Ceph's own health: HEALTH_OK, HEALTH_WARN or HEALTH_ERR, and the checks behind it.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: rook-ceph-clusters
+spec:
+  kinds:
+    - { group: ceph.rook.io, kind: CephCluster }
+  icon: layers
+  columns:
+    - { name: Health, path: .status.ceph.health }
+    - { name: Used, path: .status.ceph.capacity.bytesUsed, type: number }
+    - { name: Total, path: .status.ceph.capacity.bytesTotal, type: number }
+    - { name: Ceph, path: .status.version.version }
+  status:
+    - when: { path: .status.phase, equals: Failure }
+      health: critical
+      label: Failed
+      detail: '{{ .status.message }}'
+    - when: { path: .status.ceph.health, equals: HEALTH_ERR }
+      health: critical
+      label: HEALTH_ERR
+      detail: '{{ .status.ceph.details.*.message }}'
+    - when: { path: .status.ceph.health, equals: HEALTH_WARN }
+      health: warning
+      label: HEALTH_WARN
+      detail: '{{ .status.ceph.details.*.message }}'
+    - when: { path: .status.ceph.health, equals: HEALTH_OK }
+      health: healthy
+      label: HEALTH_OK
+    - health: progressing
+      label: '{{ .status.phase ?? "Creating" }}'
+      detail: '{{ .status.message }}'
+  details:
+    - { name: Health, path: .status.ceph.health }
+    - { name: Checks, path: '.status.ceph.details.*.message' }
+    - { name: Used in bytes, path: .status.ceph.capacity.bytesUsed, type: number }
+    - { name: Available in bytes, path: .status.ceph.capacity.bytesAvailable, type: number }
+    - { name: Total in bytes, path: .status.ceph.capacity.bytesTotal, type: number }
+    - { name: Ceph image, path: .spec.cephVersion.image }
+    - { name: Monitors, path: .spec.mon.count, type: number }
+    - { name: FSID, path: .status.ceph.fsid }
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { rook_cluster: '{{ .metadata.namespace }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: rook-ceph-storage
+spec:
+  kinds:
+    - { group: ceph.rook.io, kind: CephBlockPool }
+    - { group: ceph.rook.io, kind: CephFilesystem }
+    - { group: ceph.rook.io, kind: CephObjectStore }
+    - { group: ceph.rook.io, kind: CephObjectStoreUser }
+    - { group: ceph.rook.io, kind: CephNFS }
+  icon: database
+  columns:
+    - { name: Replicas, path: .spec.replicated.size, type: number }
+    - { name: Failure domain, path: .spec.failureDomain }
+    - { name: Endpoints, path: '.status.endpoints.insecure[*]' }
+  status:
+    - when: { path: .status.phase, equals: Ready }
+      health: healthy
+      label: Ready
+    - when: { path: .status.phase, in: [Failure, Failed] }
+      health: critical
+      label: Failed
+      detail: '{{ .status.message }}'
+    - when: { path: .status.phase, exists: true }
+      health: progressing
+      label: '{{ .status.phase }}'
+  details:
+    - { name: Replicas, path: .spec.replicated.size, type: number }
+    - { name: Failure domain, path: .spec.failureDomain }
+    - { name: Endpoints, path: '.status.endpoints.insecure[*]' }
+    - { name: Secure endpoints, path: '.status.endpoints.secure[*]' }
+    - { name: Store, path: .spec.store }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: rook-object-bucket-claims
+spec:
+  kinds:
+    - { group: objectbucket.io, kind: ObjectBucketClaim }
+  icon: archive
+  columns:
+    - { name: Bucket, path: .spec.bucketName }
+    - { name: Storage class, path: .spec.storageClassName }
+  status:
+    - when: { path: .status.phase, equals: Bound }
+      health: healthy
+      label: Bound
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+    - health: progressing
+      label: '{{ .status.phase ?? "Pending" }}'
+  links:
+    - name: Credentials
+      kind: Secret
+      objectName: '{{ .metadata.name }}'
+    - name: Endpoint
+      kind: ConfigMap
+      objectName: '{{ .metadata.name }}'

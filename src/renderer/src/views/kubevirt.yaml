@@ -1,0 +1,188 @@
+# KubeVirt (https://kubevirt.io): virtual machines, their running instances and migrations,
+# and the disks CDI imports for them.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: kubevirt
+spec:
+  label: KubeVirt
+  icon: server
+  kinds:
+    - { group: kubevirt.io, kind: VirtualMachine }
+    - { group: kubevirt.io, kind: VirtualMachineInstance }
+    - { group: kubevirt.io, kind: VirtualMachineInstanceMigration }
+    - { group: cdi.kubevirt.io, kind: DataVolume }
+    - { group: cdi.kubevirt.io, kind: DataSource }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kubevirt-virtual-machines
+spec:
+  kinds:
+    - { group: kubevirt.io, kind: VirtualMachine }
+  icon: server
+  columns:
+    - { name: Run strategy, path: .spec.runStrategy }
+    - { name: CPU cores, path: .spec.template.spec.domain.cpu.cores, type: number }
+    - { name: Memory, path: .spec.template.spec.domain.memory.guest }
+    - { name: Ready, path: .status.ready, type: boolean, default: 'No' }
+  status:
+    - when: { path: .status.printableStatus, equals: Running }
+      health: healthy
+      label: Running
+    - when: { path: .status.printableStatus, in: [Stopped, Paused] }
+      health: neutral
+      label: '{{ .status.printableStatus }}'
+    - when: { path: .status.printableStatus, matches: '^Err|Error|CrashLoop|Unschedulable' }
+      health: critical
+      label: '{{ .status.printableStatus }}'
+      detail: '{{ .status.conditions[?(@.type=="Failure")].message }}'
+    - health: progressing
+      label: '{{ .status.printableStatus ?? "Provisioning" }}'
+  details:
+    - { name: Run strategy, path: .spec.runStrategy }
+    - { name: CPU cores, path: .spec.template.spec.domain.cpu.cores, type: number }
+    - { name: Memory, path: .spec.template.spec.domain.memory.guest }
+    - { name: Disks, path: '.spec.template.spec.domain.devices.disks[*].name' }
+    - { name: Instance type, path: .spec.instancetype.name }
+    - { name: Preference, path: .spec.preference.name }
+  links:
+    - name: Instance
+      kind: VirtualMachineInstance.kubevirt.io
+      objectName: '{{ .metadata.name }}'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { vm.kubevirt.io/name: '{{ .metadata.name }}' }
+  actions:
+    - name: Start
+      icon: play
+      primary: true
+      when: { path: .status.printableStatus, equals: Stopped }
+      patch: { spec: { runStrategy: Always, running: null } }
+      undo: { spec: { runStrategy: Halted } }
+      done: Starting {{ .metadata.name }}
+    - name: Stop
+      danger: true
+      when: { path: .status.printableStatus, notEquals: Stopped }
+      confirm: Its guest is shut down, and it stays stopped until it's started again.
+      patch: { spec: { runStrategy: Halted, running: null } }
+      undo: { spec: { runStrategy: Always } }
+      done: Stopping {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kubevirt-instances
+spec:
+  kinds:
+    - { group: kubevirt.io, kind: VirtualMachineInstance }
+  icon: server
+  columns:
+    - { name: Node, path: .status.nodeName }
+    - { name: IP, path: '.status.interfaces[0].ipAddress' }
+    - { name: OS, path: .status.guestOSInfo.prettyName }
+  status:
+    - when: { path: .status.phase, equals: Running }
+      health: healthy
+      label: Running
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.reason }}'
+    - when: { path: .status.phase, equals: Succeeded }
+      health: neutral
+      label: Shut down
+    - health: progressing
+      label: '{{ .status.phase ?? "Pending" }}'
+  details:
+    - { name: Node, path: .status.nodeName }
+    - { name: IPs, path: '.status.interfaces[*].ipAddresses[*]' }
+    - { name: OS, path: .status.guestOSInfo.prettyName }
+    - { name: Kernel, path: .status.guestOSInfo.kernelRelease }
+    - { name: Migration, path: .status.migrationMethod }
+  links:
+    - name: Virtual machine
+      kind: VirtualMachine.kubevirt.io
+      objectName: '{{ .metadata.name }}'
+    - name: Node
+      kind: Node
+      objectName: '{{ .status.nodeName }}'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { kubevirt.io/created-by: '{{ .metadata.uid }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kubevirt-migrations
+spec:
+  kinds:
+    - { group: kubevirt.io, kind: VirtualMachineInstanceMigration }
+  icon: route
+  columns:
+    - { name: Instance, path: .spec.vmiName }
+  status:
+    - when: { path: .status.phase, equals: Succeeded }
+      health: healthy
+      label: Migrated
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+    - health: progressing
+      label: '{{ .status.phase ?? "Pending" }}'
+  links:
+    - name: Instance
+      kind: VirtualMachineInstance.kubevirt.io
+      objectName: '{{ .spec.vmiName }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kubevirt-data-volumes
+spec:
+  kinds:
+    - { group: cdi.kubevirt.io, kind: DataVolume }
+  icon: database
+  columns:
+    - { name: Progress, path: .status.progress }
+    - { name: From, path: .spec.source.http.url }
+    - { name: Image, path: .spec.source.registry.url }
+    - { name: Claim, path: .status.claimName }
+  status:
+    - when: { path: .status.phase, equals: Succeeded }
+      health: healthy
+      label: Ready
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.conditions[?(@.type=="Running")].message }}'
+    - health: progressing
+      label: '{{ .status.phase ?? "Pending" }}'
+      detail: '{{ .status.progress }}'
+  links:
+    - name: Claim
+      kind: PersistentVolumeClaim
+      objectName: '{{ .status.claimName ?? .metadata.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: kubevirt-data-sources
+spec:
+  kinds:
+    - { group: cdi.kubevirt.io, kind: DataSource }
+  icon: archive
+  columns:
+    - { name: Claim, path: .spec.source.pvc.name }
+    - { name: Snapshot, path: .spec.source.snapshot.name }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: warning
+      label: Not ready
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'

@@ -1,0 +1,273 @@
+# Strimzi (https://strimzi.io): Kafka clusters, their topics and users, and Kafka Connect.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: strimzi
+spec:
+  label: Strimzi
+  icon: waves
+  kinds:
+    - { group: kafka.strimzi.io, kind: Kafka }
+    - { group: kafka.strimzi.io, kind: KafkaNodePool }
+    - { group: kafka.strimzi.io, kind: KafkaTopic }
+    - { group: kafka.strimzi.io, kind: KafkaUser }
+    - { group: kafka.strimzi.io, kind: KafkaConnect }
+    - { group: kafka.strimzi.io, kind: KafkaConnector }
+    - { group: kafka.strimzi.io, kind: KafkaMirrorMaker2 }
+    - { group: kafka.strimzi.io, kind: KafkaBridge }
+    - { group: kafka.strimzi.io, kind: KafkaRebalance }
+---
+# Strimzi reports on everything in a Ready condition, and adds Warning ones for what it fixed or ignored.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: strimzi-kafkas
+spec:
+  kinds:
+    - { group: kafka.strimzi.io, kind: Kafka }
+  icon: waves
+  columns:
+    - { name: Version, path: .status.kafkaVersion }
+    - { name: Node pools, path: '.status.kafkaNodePools[*].name' }
+    - { name: Bootstrap, path: '.status.listeners[*].bootstrapServers' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when:
+        all:
+          - { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+          - { path: '.status.conditions[?(@.type=="Warning")].status', equals: 'True' }
+      health: warning
+      label: Ready, with warnings
+      detail: '{{ .status.conditions[?(@.type=="Warning")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - health: progressing
+      label: Reconciling
+  details:
+    - { name: Version, path: .status.kafkaVersion }
+    - { name: Metadata version, path: .status.kafkaMetadataVersion }
+    - { name: Cluster ID, path: .status.clusterId }
+    - { name: Listeners, path: '.status.listeners[*].name' }
+    - { name: Bootstrap, path: '.status.listeners[*].bootstrapServers' }
+    - { name: Node pools, path: '.status.kafkaNodePools[*].name' }
+    - { name: Operator version, path: .status.operatorLastSuccessfulVersion }
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { strimzi.io/cluster: '{{ .metadata.name }}', strimzi.io/kind: Kafka }
+    - name: Node pools
+      kind: KafkaNodePool.kafka.strimzi.io
+      labels: { strimzi.io/cluster: '{{ .metadata.name }}' }
+    - name: Topics
+      kind: KafkaTopic.kafka.strimzi.io
+      labels: { strimzi.io/cluster: '{{ .metadata.name }}' }
+    - name: Users
+      kind: KafkaUser.kafka.strimzi.io
+      labels: { strimzi.io/cluster: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: strimzi-node-pools
+spec:
+  kinds:
+    - { group: kafka.strimzi.io, kind: KafkaNodePool }
+  icon: server
+  columns:
+    - { name: Cluster, path: ".metadata.labels['strimzi.io/cluster']" }
+    - { name: Roles, path: '.spec.roles[*]' }
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Node IDs, path: '.status.nodeIds[*]' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  links:
+    - name: Cluster
+      kind: Kafka.kafka.strimzi.io
+      objectName: "{{ .metadata.labels['strimzi.io/cluster'] }}"
+  related:
+    - name: Pods
+      kind: Pod
+      labels:
+        strimzi.io/cluster: "{{ .metadata.labels['strimzi.io/cluster'] }}"
+        strimzi.io/pool-name: '{{ .metadata.name }}'
+---
+# Topics and users: kept in sync with Kafka by the entity operator.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: strimzi-topics-and-users
+spec:
+  kinds:
+    - { group: kafka.strimzi.io, kind: KafkaTopic }
+    - { group: kafka.strimzi.io, kind: KafkaUser }
+  icon: waves
+  columns:
+    - { name: Cluster, path: ".metadata.labels['strimzi.io/cluster']" }
+    - { name: Topic, path: .status.topicName }
+    - { name: Partitions, path: .spec.partitions, type: number }
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Authentication, path: .spec.authentication.type }
+    - { name: Authorization, path: .spec.authorization.type }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: Topic ID, path: .status.topicId }
+    - { name: Secret, path: .status.secret }
+    - { name: User name, path: .status.username }
+  links:
+    - name: Cluster
+      kind: Kafka.kafka.strimzi.io
+      objectName: "{{ .metadata.labels['strimzi.io/cluster'] }}"
+    - name: Secret
+      kind: Secret
+      objectName: '{{ .status.secret }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: strimzi-connect
+spec:
+  kinds:
+    - { group: kafka.strimzi.io, kind: KafkaConnect }
+    - { group: kafka.strimzi.io, kind: KafkaMirrorMaker2 }
+    - { group: kafka.strimzi.io, kind: KafkaBridge }
+  icon: route
+  columns:
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Version, path: .spec.version }
+    - { name: URL, path: .status.url }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: URL, path: .status.url }
+    - { name: Bootstrap, path: .spec.bootstrapServers }
+    - { name: Connector plugins, path: '.status.connectorPlugins[*].class' }
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { strimzi.io/cluster: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: strimzi-connectors
+spec:
+  kinds:
+    - { group: kafka.strimzi.io, kind: KafkaConnector }
+  icon: package
+  columns:
+    - { name: Connect, path: ".metadata.labels['strimzi.io/cluster']" }
+    - { name: Class, path: .spec.class }
+    - { name: Tasks, path: .spec.tasksMax, type: number }
+    - { name: State, path: .spec.state, default: running }
+  status:
+    - when: { path: .spec.state, in: [paused, stopped] }
+      health: neutral
+      label: '{{ .spec.state }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Running
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+  details:
+    - { name: Class, path: .spec.class }
+    - { name: Tasks, path: .spec.tasksMax, type: number }
+    - { name: Restarted automatically, path: .status.autoRestart.count, type: number }
+  links:
+    - name: Connect
+      kind: KafkaConnect.kafka.strimzi.io
+      objectName: "{{ .metadata.labels['strimzi.io/cluster'] }}"
+  actions:
+    - name: Pause
+      when: { path: .spec.state, notEquals: paused }
+      patch: { spec: { state: paused } }
+      undo: { spec: { state: running } }
+      done: Paused {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.state, in: [paused, stopped] }
+      patch: { spec: { state: running } }
+      done: Resumed {{ .metadata.name }}
+    - name: Restart
+      icon: refresh-cw
+      confirm: The connector and its tasks restart.
+      patch:
+        metadata:
+          annotations: { strimzi.io/restart: 'true' }
+      done: Restarting {{ .metadata.name }}
+---
+# Cruise Control's plans to even out partitions over the brokers: proposed, then approved.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: strimzi-rebalances
+spec:
+  kinds:
+    - { group: kafka.strimzi.io, kind: KafkaRebalance }
+  icon: scaling
+  columns:
+    - { name: Cluster, path: ".metadata.labels['strimzi.io/cluster']" }
+    - { name: Mode, path: .spec.mode, default: full }
+    - { name: State, path: '.status.conditions[0].type' }
+  status:
+    - when: { path: '.status.conditions[0].type', equals: Ready }
+      health: healthy
+      label: Done
+    - when: { path: '.status.conditions[0].type', equals: ProposalReady }
+      health: warning
+      label: Waiting for approval
+    - when: { path: '.status.conditions[0].type', in: [NotReady, Stopped] }
+      health: critical
+      label: '{{ .status.conditions[0].type }}'
+      detail: '{{ .status.conditions[0].message }}'
+    - when: { path: '.status.conditions[0].type', exists: true }
+      health: progressing
+      label: '{{ .status.conditions[0].type }}'
+  links:
+    - name: Cluster
+      kind: Kafka.kafka.strimzi.io
+      objectName: "{{ .metadata.labels['strimzi.io/cluster'] }}"
+  actions:
+    - name: Approve
+      primary: true
+      when: { path: '.status.conditions[0].type', equals: ProposalReady }
+      confirm: Cruise Control starts moving partitions as it proposed.
+      patch:
+        metadata:
+          annotations: { strimzi.io/rebalance: approve }
+      done: Approved {{ .metadata.name }}
+    - name: Refresh
+      icon: refresh-cw
+      patch:
+        metadata:
+          annotations: { strimzi.io/rebalance: refresh }
+      done: Asked for a new proposal for {{ .metadata.name }}
+    - name: Stop
+      danger: true
+      when: { path: '.status.conditions[0].type', equals: Rebalancing }
+      confirm: Cruise Control stops moving partitions; what it moved stays moved.
+      patch:
+        metadata:
+          annotations: { strimzi.io/rebalance: stop }
+      done: Stopping {{ .metadata.name }}

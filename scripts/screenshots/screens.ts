@@ -242,6 +242,22 @@ export const SCREENS: Screen[] = [
     },
   },
   {
+    name: 'add-on',
+    title: 'An add-on',
+    description:
+      "Flux's add-on: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.",
+    app: 'desktop',
+    path: `${cluster}/add-ons/flux`,
+  },
+  {
+    name: 'karpenter',
+    title: 'Karpenter',
+    description:
+      "Karpenter's node pools against their limits, the nodes they launched, and what's being replaced or waiting for a node.",
+    app: 'desktop',
+    path: `${cluster}/add-ons/karpenter`,
+  },
+  {
     name: 'helm-releases',
     title: 'Helm releases',
     description: 'Every Helm release, its chart, version and status.',

@@ -15,13 +15,13 @@
 
 type Literal = string | number | boolean | null
 
-interface Filter {
+export interface Filter {
   path: Step[]
   op?: string
   value?: Literal
 }
 
-type Step = { key: string } | { index: number } | { all: true } | { filter: Filter }
+export type Step = { key: string } | { index: number } | { all: true } | { filter: Filter }
 
 export class JsonPathError extends Error {}
 
@@ -39,7 +39,8 @@ export function checkPath(path: string): void {
 
 const cache = new Map<string, Step[]>()
 
-function parse(path: string): Step[] {
+/** A path's steps: fields, indexes, every item, and filters. Throws JsonPathError when malformed. */
+export function parse(path: string): Step[] {
   let steps = cache.get(path)
   if (!steps) {
     steps = parseSteps(path)

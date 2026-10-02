@@ -1,0 +1,145 @@
+# Cilium (https://cilium.io): network policies, endpoints and nodes of the cluster's network.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: cilium
+spec:
+  label: Cilium
+  icon: hexagon
+  category: network
+  kinds:
+    - { group: cilium.io, kind: CiliumNetworkPolicy }
+    - { group: cilium.io, kind: CiliumClusterwideNetworkPolicy }
+    - { group: cilium.io, kind: CiliumEndpoint }
+    - { group: cilium.io, kind: CiliumNode }
+    - { group: cilium.io, kind: CiliumLoadBalancerIPPool }
+    - { group: cilium.io, kind: CiliumEgressGatewayPolicy }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cilium-network-policies
+spec:
+  kinds:
+    - { group: cilium.io, kind: CiliumNetworkPolicy }
+    - { group: cilium.io, kind: CiliumClusterwideNetworkPolicy }
+  icon: shield-check
+  columns:
+    - { name: Ingress rules, path: .spec.ingress, type: count }
+    - { name: Egress rules, path: .spec.egress, type: count }
+    - { name: Description, path: .spec.description }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Valid")].status', equals: 'False' }
+      health: critical
+      label: Invalid
+      detail: '{{ .status.conditions[?(@.type=="Valid")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Valid")].status', equals: 'True' }
+      health: healthy
+      label: Valid
+  details:
+    - { name: Description, path: .spec.description }
+    - { name: Ingress rules, path: .spec.ingress, type: count }
+    - { name: Ingress denied, path: .spec.ingressDeny, type: count }
+    - { name: Egress rules, path: .spec.egress, type: count }
+    - { name: Egress denied, path: .spec.egressDeny, type: count }
+    - { name: Default deny, path: .spec.enableDefaultDeny }
+---
+# An endpoint for each pod Cilium manages, named after it.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cilium-endpoints
+spec:
+  kinds:
+    - { group: cilium.io, kind: CiliumEndpoint }
+  icon: network
+  columns:
+    - { name: Identity, path: .status.identity.id, type: number }
+    - { name: IPv4, path: '.status.networking.addressing[*].ipv4' }
+    - { name: Node, path: .status.networking.node }
+    - { name: Ingress policy, path: .status.policy.ingress.state }
+    - { name: Egress policy, path: .status.policy.egress.state }
+  status:
+    - when: { path: .status.state, equals: ready }
+      health: healthy
+      label: Ready
+    - when: { path: .status.state, in: [not-ready, disconnected, invalid] }
+      health: critical
+      label: '{{ .status.state }}'
+    - when: { path: .status.state, exists: true }
+      health: progressing
+      label: '{{ .status.state }}'
+  details:
+    - { name: Endpoint ID, path: .status.id, type: number }
+    - { name: Identity, path: .status.identity.id, type: number }
+    - { name: Identity labels, path: '.status.identity.labels[*]' }
+    - { name: IPv4, path: '.status.networking.addressing[*].ipv4' }
+    - { name: IPv6, path: '.status.networking.addressing[*].ipv6' }
+    - { name: Node, path: .status.networking.node }
+  links:
+    - name: Pod
+      kind: Pod
+      objectName: '{{ .metadata.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cilium-nodes
+spec:
+  kinds:
+    - { group: cilium.io, kind: CiliumNode }
+  icon: server
+  columns:
+    - { name: Addresses, path: '.spec.addresses[*].ip' }
+    - { name: Pod CIDRs, path: '.spec.ipam.podCIDRs[*]' }
+    - { name: Instance type, path: '.spec.eni.instance-type' }
+  details:
+    - { name: Addresses, path: '.spec.addresses[*].ip' }
+    - { name: Pod CIDRs, path: '.spec.ipam.podCIDRs[*]' }
+    - { name: Health address, path: .spec.health.ipv4 }
+    - { name: Instance type, path: '.spec.eni.instance-type' }
+    - { name: Zone, path: '.spec.eni.availability-zone' }
+  links:
+    - name: Node
+      kind: Node
+      objectName: '{{ .metadata.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cilium-load-balancer-pools
+spec:
+  kinds:
+    - { group: cilium.io, kind: CiliumLoadBalancerIPPool }
+  icon: globe
+  columns:
+    - { name: CIDRs, path: '.spec.blocks[*].cidr' }
+    - { name: Disabled, path: .spec.disabled, type: boolean, default: 'No' }
+  status:
+    - when: { path: .spec.disabled, equals: true }
+      health: neutral
+      label: Disabled
+    - when:
+        { path: '.status.conditions[?(@.type=="cilium.io/PoolConflict")].status', equals: 'True' }
+      health: critical
+      label: Conflicts
+      detail: '{{ .status.conditions[?(@.type=="cilium.io/PoolConflict")].message }}'
+    - health: healthy
+      label: Ready
+      detail: '{{ .status.conditions[?(@.type=="cilium.io/IPsAvailable")].message }}'
+  details:
+    - { name: CIDRs, path: '.spec.blocks[*].cidr' }
+    - { name: First IP, path: '.spec.blocks[*].start' }
+    - { name: Last IP, path: '.spec.blocks[*].stop' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cilium-egress-gateway-policies
+spec:
+  kinds:
+    - { group: cilium.io, kind: CiliumEgressGatewayPolicy }
+  icon: route
+  columns:
+    - { name: Destinations, path: '.spec.destinationCIDRs[*]' }
+    - { name: Egress IP, path: .spec.egressGateway.egressIP }

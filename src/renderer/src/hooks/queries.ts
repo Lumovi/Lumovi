@@ -1,6 +1,6 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
 import type { KubeList, KubeObject } from '@shared/api'
-import type { ResourceKind } from '@shared/resources'
+import type { ResourceDefinition, ResourceKind } from '@shared/resources'
 import { api, unwrap } from '@renderer/lib/api'
 import { useCluster } from '@renderer/state/cluster'
 
@@ -35,19 +35,31 @@ export function listPollInterval(items: number): number {
   return items > 500 ? 10_000 : POLL_INTERVAL
 }
 
-function useListQuery<T>(kind: ResourceKind, options: ListOptions, select: (list: KubeList) => T) {
-  const { context, namespace: selected } = useCluster()
+/** A list's query, for useQuery or useQueries. */
+function listQuery<T>(
+  context: string,
+  selected: string | null,
+  kind: ResourceKind,
+  options: ListOptions,
+  select: (list: KubeList) => T,
+) {
   const namespace = (options.namespace === undefined ? selected : options.namespace) ?? undefined
   const { labelSelector, fieldSelector, enabled = true } = options
-  return useQuery({
+  return {
     queryKey: ['list', context, kind, namespace, labelSelector, fieldSelector],
     queryFn: () =>
       unwrap(api.kube.list({ context, kind, namespace, labelSelector, fieldSelector })),
     select,
-    refetchInterval: (query) => listPollInterval(query.state.data?.items.length ?? 0),
+    refetchInterval: (query: { state: { data?: KubeList } }) =>
+      listPollInterval(query.state.data?.items.length ?? 0),
     placeholderData: keepPreviousData,
     enabled,
-  })
+  }
+}
+
+function useListQuery<T>(kind: ResourceKind, options: ListOptions, select: (list: KubeList) => T) {
+  const { context, namespace } = useCluster()
+  return useQuery(listQuery(context, namespace, kind, options, select))
 }
 
 const selectItems = (list: KubeList) => list.items
@@ -66,6 +78,25 @@ const selectAll = (list: KubeList) => list
 /** The whole list, with the API server's columns for kinds that get them. */
 export function useListResponse(kind: ResourceKind, options: ListOptions) {
   return useListQuery(kind, options, selectAll)
+}
+
+/**
+ * The whole lists of several kinds, as `useListResponse` reads each: in the
+ * namespace picked, or the whole cluster for kinds without namespaces.
+ */
+export function useListResponses(resources: ResourceDefinition[], labelSelector?: string) {
+  const { context, namespace } = useCluster()
+  return useQueries({
+    queries: resources.map((resource) =>
+      listQuery(
+        context,
+        namespace,
+        resource.kind,
+        { namespace: resource.namespaced ? undefined : null, labelSelector },
+        selectAll,
+      ),
+    ),
+  })
 }
 
 /** How complete a list is: loaded items, whether it was capped, and the server-side total. */

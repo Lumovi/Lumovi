@@ -1,0 +1,223 @@
+# Longhorn (https://longhorn.io): replicated volumes, their snapshots and backups, and the
+# nodes and disks they're on.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: longhorn
+spec:
+  label: Longhorn
+  icon: database
+  category: storage
+  kinds:
+    - { group: longhorn.io, kind: Volume }
+    - { group: longhorn.io, kind: Node }
+    - { group: longhorn.io, kind: Snapshot }
+    - { group: longhorn.io, kind: Backup }
+    - { group: longhorn.io, kind: BackupTarget }
+    - { group: longhorn.io, kind: RecurringJob }
+    - { group: longhorn.io, kind: Replica }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: longhorn-volumes
+spec:
+  kinds:
+    - { group: longhorn.io, kind: Volume }
+  icon: database
+  columns:
+    - { name: Claim, path: .status.kubernetesStatus.pvcName }
+    - { name: Size, path: .spec.size, type: number }
+    - { name: Replicas, path: .spec.numberOfReplicas, type: number }
+    - { name: Node, path: .status.currentNodeID }
+    - { name: Last backup, path: .status.lastBackupAt, type: date }
+  status:
+    - when: { path: .status.robustness, equals: faulted }
+      health: critical
+      label: Faulted
+    - when: { path: .status.robustness, equals: degraded }
+      health: warning
+      label: Degraded
+      detail: Fewer healthy replicas than it should have; Longhorn is rebuilding them.
+    - when: { path: .status.state, equals: detached }
+      health: neutral
+      label: Detached
+    - when: { path: .status.robustness, equals: healthy }
+      health: healthy
+      label: Healthy
+    - health: progressing
+      label: '{{ .status.state ?? "Creating" }}'
+  details:
+    - { name: State, path: .status.state }
+    - { name: Robustness, path: .status.robustness }
+    - { name: Size in bytes, path: .spec.size, type: number }
+    - { name: Used in bytes, path: .status.actualSize, type: number }
+    - { name: Replicas, path: .spec.numberOfReplicas, type: number }
+    - { name: Access mode, path: .spec.accessMode }
+    - { name: Data engine, path: .spec.dataEngine }
+    - { name: Last backup, path: .status.lastBackupAt, type: date }
+  links:
+    - name: Claim
+      kind: PersistentVolumeClaim
+      objectName: '{{ .status.kubernetesStatus.pvcName }}'
+      namespace: '{{ .status.kubernetesStatus.namespace }}'
+    - name: Volume
+      kind: PersistentVolume
+      objectName: '{{ .status.kubernetesStatus.pvName }}'
+    - name: Node
+      kind: Node
+      objectName: '{{ .status.currentNodeID }}'
+  related:
+    - name: Replicas
+      kind: Replica.longhorn.io
+      labels: { longhornvolume: '{{ .metadata.name }}' }
+    - name: Snapshots
+      kind: Snapshot.longhorn.io
+      labels: { longhornvolume: '{{ .metadata.name }}' }
+  actions:
+    - name: Take a snapshot
+      icon: camera
+      create:
+        apiVersion: longhorn.io/v1beta2
+        kind: Snapshot
+        metadata:
+          generateName: '{{ .metadata.name }}-'
+          labels: { longhornvolume: '{{ .metadata.name }}' }
+        spec:
+          volume: '{{ .metadata.name }}'
+          createSnapshot: true
+      done: Taking a snapshot of {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: longhorn-nodes
+spec:
+  kinds:
+    - { group: longhorn.io, kind: Node }
+  icon: server
+  columns:
+    - { name: Disks, path: .spec.disks.*, type: count }
+    - { name: Scheduling, path: .spec.allowScheduling, type: boolean }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: Not ready
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
+    - when: { path: .spec.allowScheduling, equals: false }
+      health: neutral
+      label: Not scheduling
+    - when: { path: '.status.conditions[?(@.type=="Schedulable")].status', equals: 'False' }
+      health: warning
+      label: Unschedulable
+      detail: '{{ .status.conditions[?(@.type=="Schedulable")].message }}'
+    - health: healthy
+      label: Ready
+  details:
+    - { name: Disks, path: '.spec.disks.*.path' }
+    - { name: Tags, path: '.spec.tags[*]' }
+    - { name: Zone, path: .status.zone }
+  links:
+    - name: Node
+      kind: Node
+      objectName: '{{ .metadata.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: longhorn-snapshots-and-backups
+spec:
+  kinds:
+    - { group: longhorn.io, kind: Snapshot }
+    - { group: longhorn.io, kind: Backup }
+  icon: archive
+  columns:
+    - { name: Volume, path: .spec.volume }
+    - { name: Of, path: .status.volumeName }
+    - { name: Size, path: .status.size }
+    - { name: Taken, path: .status.creationTime, type: date }
+    - { name: Backed up, path: .status.backupCreatedAt, type: date }
+  status:
+    - when: { path: .status.state, equals: Completed }
+      health: healthy
+      label: Completed
+    - when: { path: .status.state, equals: Error }
+      health: critical
+      label: Failed
+      detail: '{{ .status.error }}'
+    - when: { path: .status.state, exists: true }
+      health: progressing
+      label: '{{ .status.state }}'
+      detail: '{{ .status.progress }}%'
+    - when: { path: .status.readyToUse, equals: true }
+      health: healthy
+      label: Ready
+    - when: { path: .status.error, exists: true }
+      health: critical
+      label: Failed
+      detail: '{{ .status.error }}'
+  links:
+    - name: Volume
+      kind: Volume.longhorn.io
+      objectName: '{{ .spec.volume ?? .status.volumeName }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: longhorn-backup-targets
+spec:
+  kinds:
+    - { group: longhorn.io, kind: BackupTarget }
+  icon: cloud
+  columns:
+    - { name: URL, path: .spec.backupTargetURL }
+    - { name: Poll interval, path: .spec.pollInterval }
+  status:
+    - when: { path: .status.available, equals: true }
+      health: healthy
+      label: Available
+    - when: { path: .status.available, equals: false }
+      health: critical
+      label: Unavailable
+      detail: '{{ .status.conditions[?(@.type=="Unavailable")].message }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: longhorn-recurring-jobs
+spec:
+  kinds:
+    - { group: longhorn.io, kind: RecurringJob }
+  icon: timer
+  columns:
+    - { name: Task, path: .spec.task }
+    - { name: Schedule, path: .spec.cron }
+    - { name: Keeps, path: .spec.retain, type: number }
+    - { name: Groups, path: '.spec.groups[*]' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: longhorn-replicas
+spec:
+  kinds:
+    - { group: longhorn.io, kind: Replica }
+  icon: layers
+  columns:
+    - { name: Volume, path: .spec.volumeName }
+    - { name: Node, path: .spec.nodeID }
+    - { name: State, path: .status.currentState }
+  status:
+    - when: { path: .status.currentState, equals: running }
+      health: healthy
+      label: Running
+    - when: { path: .status.currentState, equals: error }
+      health: critical
+      label: Error
+    - when: { path: .status.currentState, exists: true }
+      health: progressing
+      label: '{{ .status.currentState }}'
+  links:
+    - name: Volume
+      kind: Volume.longhorn.io
+      objectName: '{{ .spec.volumeName }}'

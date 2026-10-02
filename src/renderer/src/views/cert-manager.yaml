@@ -1,5 +1,20 @@
 # cert-manager (https://cert-manager.io): certificates, their requests, and issuers.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: cert-manager
+spec:
+  label: cert-manager
+  icon: shield-check
+  kinds:
+    - { group: cert-manager.io, kind: Certificate }
+    - { group: cert-manager.io, kind: CertificateRequest }
+    - { group: cert-manager.io, kind: Issuer }
+    - { group: cert-manager.io, kind: ClusterIssuer }
+    - { group: acme.cert-manager.io, kind: Order }
+    - { group: acme.cert-manager.io, kind: Challenge }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: cert-manager-certificates

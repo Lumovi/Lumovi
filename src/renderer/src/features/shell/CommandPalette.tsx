@@ -25,15 +25,17 @@ import { useSearchParams } from 'react-router'
 import type { KubeList, KubeObject } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import { isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
-import { KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
+import { addOnIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
+import { useAddOns } from '@renderer/hooks/add-ons'
 import { useResources } from '@renderer/hooks/resources'
 import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { matchWords } from '@renderer/lib/match'
 import {
+  addOnPath,
   apiResourcesPath,
   clusterPath,
   helmPath,
@@ -100,6 +102,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
   // The cluster's other kinds, custom resources included.
   const others = (useResources().data ?? []).filter((r) => !isBuiltinKind(r.kind))
+  const addOns = useAddOns()
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
@@ -204,6 +207,20 @@ function Palette({ onDone }: { onDone: () => void }) {
                 onSelect={run(() => go(kindPath(context, resource.kind)))}
               >
                 {resource.label}
+              </Item>
+            )
+          })}
+          {addOns.map(({ addOn, kinds }) => {
+            const Icon = addOnIcon(addOn)
+            return (
+              <Item
+                key={addOn.name}
+                icon={<Icon />}
+                value={`${addOn.label} add-on ${kinds.map((r) => r.label).join(' ')}`}
+                hint={<span className="text-xs text-ink-3">Add-on</span>}
+                onSelect={run(() => go(addOnPath(context, addOn.name)))}
+              >
+                {addOn.label}
               </Item>
             )
           })}

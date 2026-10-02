@@ -5,6 +5,7 @@ import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
 import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
+import { AddOnPage } from './features/add-ons/AddOnPage'
 import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
@@ -60,6 +61,7 @@ const routes: RouteObject[] = [
                 element: <ResourcePage key={resource.kind} resource={resource} />,
               })),
               { path: 'r/:kind', element: <CustomResourcePage /> },
+              { path: 'add-ons/:name', element: <AddOnPage /> },
               { path: 'api-resources', element: <ApiResourcesPage /> },
               { path: 'helm', element: <HelmPage /> },
               { path: '*', element: <NotFound /> },

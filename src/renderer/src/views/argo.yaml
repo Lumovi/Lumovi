@@ -1,5 +1,31 @@
 # Argo CD (https://argo-cd.readthedocs.io) and Argo Rollouts (https://argoproj.github.io/rollouts).
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: argo-cd
+spec:
+  label: Argo CD
+  icon: git-branch
+  kinds:
+    - { group: argoproj.io, kind: Application }
+    - { group: argoproj.io, kind: ApplicationSet }
+    - { group: argoproj.io, kind: AppProject }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: argo-rollouts
+spec:
+  label: Argo Rollouts
+  icon: rocket
+  kinds:
+    - { group: argoproj.io, kind: Rollout }
+    - { group: argoproj.io, kind: AnalysisRun }
+    - { group: argoproj.io, kind: AnalysisTemplate }
+    - { group: argoproj.io, kind: ClusterAnalysisTemplate }
+    - { group: argoproj.io, kind: Experiment }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: argo-cd-applications

@@ -54,10 +54,11 @@ export function podQuery(object: KubeObject): PodQuery | undefined {
 
 const PAGE_SIZE = 50
 
-export function PodsTab({ namespace, query }: { namespace?: string; query: PodQuery }) {
+/** The pods `query` finds in `namespace`, or in every namespace when it's `null`. */
+export function PodsTab({ namespace, query }: { namespace: string | null; query: PodQuery }) {
   const open = useOpenObject()
   const [page, setPage] = useState(1)
-  const pods = useList('Pod', { namespace: namespace ?? null, ...query })
+  const pods = useList('Pod', { namespace, ...query })
   const metrics = useMetrics('pods', namespace)
   const [sort, setSort] = useState({ id: 'status', desc: false })
 

@@ -20,7 +20,7 @@ import {
   type PodTemplate,
 } from '../builders.ts'
 import type { ClusterFixture, KubeObject } from '../types.ts'
-import { demoCustomResources } from './custom.ts'
+import { CUSTOM, demoCustomResources } from './custom.ts'
 import { demoHelmReleases } from './helm.ts'
 import { demoLogs } from './demo-logs.ts'
 
@@ -149,6 +149,18 @@ function kubeRootCa(
   )
 }
 
+/** What Karpenter labels the nodes it launches with (the workers are its, from one node pool). */
+function karpenterLabels(capacity: 'on-demand' | 'spot'): Record<string, string> {
+  return {
+    'karpenter.sh/nodepool': CUSTOM.karpenter.nodePools.general,
+    'karpenter.sh/capacity-type': capacity,
+    'karpenter.sh/registered': 'true',
+    'karpenter.sh/initialized': 'true',
+    'karpenter.k8s.aws/ec2nodeclass': CUSTOM.karpenter.nodeClasses.default,
+    'karpenter.k8s.aws/instance-family': 'm6i',
+  }
+}
+
 export function demoCluster(now = Date.now()): ClusterFixture {
   const b = clusterBuilder(now)
   const clusterAge = 800 * DAY
@@ -168,6 +180,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     }),
     worker1: b.node({
       name: 'worker-1',
+      labels: karpenterLabels('on-demand'),
       age: clusterAge - HOUR,
       ip: '10.0.1.11',
       zone: 'eu-west-1a',
@@ -178,6 +191,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     }),
     worker2: b.node({
       name: 'worker-2',
+      labels: karpenterLabels('spot'),
       age: 96 * DAY,
       ip: '10.0.1.12',
       zone: 'eu-west-1b',
@@ -189,6 +203,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     }),
     worker3: b.node({
       name: 'worker-3',
+      labels: karpenterLabels('spot'),
       age: 45 * DAY,
       ip: '10.0.1.13',
       zone: 'eu-west-1c',
@@ -1044,8 +1059,14 @@ export function demoCluster(now = Date.now()): ClusterFixture {
       }),
     }),
   )
+  // The Prometheus operator's labels: its Prometheus "k8s" relates the pods to itself by them.
   const prometheusTemplate: PodTemplate = {
-    labels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/part-of': 'monitoring' },
+    labels: {
+      'app.kubernetes.io/name': 'prometheus',
+      'app.kubernetes.io/part-of': 'monitoring',
+      'app.kubernetes.io/instance': 'k8s',
+      'app.kubernetes.io/managed-by': 'prometheus-operator',
+    },
     serviceAccount: 'prometheus',
     containers: [
       {

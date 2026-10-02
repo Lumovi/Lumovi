@@ -1,0 +1,121 @@
+# Elastic Cloud on Kubernetes (https://www.elastic.co/guide/en/cloud-on-k8s/current):
+# Elasticsearch, Kibana and the rest of the Elastic Stack. Each reports its health as
+# green, yellow or red.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: eck
+spec:
+  label: Elastic
+  icon: database
+  kinds:
+    - { group: elasticsearch.k8s.elastic.co, kind: Elasticsearch }
+    - { group: kibana.k8s.elastic.co, kind: Kibana }
+    - { group: agent.k8s.elastic.co, kind: Agent }
+    - { group: beat.k8s.elastic.co, kind: Beat }
+    - { group: apm.k8s.elastic.co, kind: ApmServer }
+    - { group: logstash.k8s.elastic.co, kind: Logstash }
+    - { group: maps.k8s.elastic.co, kind: ElasticMapsServer }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: eck-elasticsearch
+spec:
+  kinds:
+    - { group: elasticsearch.k8s.elastic.co, kind: Elasticsearch }
+  icon: database
+  columns:
+    - { name: Version, path: .status.version }
+    - { name: Nodes, path: .status.availableNodes, type: number, default: '0' }
+    - { name: Phase, path: .status.phase }
+  status:
+    - when: { path: .status.health, equals: red }
+      health: critical
+      label: Red
+      detail: Some primary shards aren't allocated.
+    - when: { path: .status.phase, equals: Invalid }
+      health: critical
+      label: Invalid
+    - when: { path: .status.health, equals: yellow }
+      health: warning
+      label: Yellow
+      detail: Some replica shards aren't allocated.
+    - when: { path: .status.health, equals: green }
+      health: healthy
+      label: Green
+    - health: progressing
+      label: '{{ .status.phase ?? "Starting" }}'
+  details:
+    - { name: Version, path: .status.version }
+    - { name: Node sets, path: '.spec.nodeSets[*].name' }
+    - { name: Nodes in each, path: '.spec.nodeSets[*].count' }
+    - { name: Available nodes, path: .status.availableNodes, type: number, default: '0' }
+    - { name: Phase, path: .status.phase }
+  links:
+    - name: Password of the elastic user
+      kind: Secret
+      objectName: '{{ .metadata.name }}-es-elastic-user'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { elasticsearch.k8s.elastic.co/cluster-name: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: eck-kibana
+spec:
+  kinds:
+    - { group: kibana.k8s.elastic.co, kind: Kibana }
+  icon: activity
+  columns:
+    - { name: Version, path: .status.version }
+    - { name: Nodes, path: .status.availableNodes, type: number, default: '0' }
+    - { name: Elasticsearch, path: .spec.elasticsearchRef.name }
+  status:
+    - when: { path: .status.health, equals: red }
+      health: critical
+      label: Red
+    - when: { path: .status.health, equals: green }
+      health: healthy
+      label: Green
+    - health: progressing
+      label: Starting
+  links:
+    - name: Elasticsearch
+      kind: Elasticsearch.elasticsearch.k8s.elastic.co
+      objectName: '{{ .spec.elasticsearchRef.name }}'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { kibana.k8s.elastic.co/name: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: eck-stack
+spec:
+  kinds:
+    - { group: agent.k8s.elastic.co, kind: Agent }
+    - { group: beat.k8s.elastic.co, kind: Beat }
+    - { group: apm.k8s.elastic.co, kind: ApmServer }
+    - { group: logstash.k8s.elastic.co, kind: Logstash }
+    - { group: maps.k8s.elastic.co, kind: ElasticMapsServer }
+  icon: activity
+  columns:
+    - { name: Version, path: .status.version }
+    - { name: Available, path: .status.availableNodes, type: number, default: '0' }
+    - { name: Expected, path: .status.expectedNodes, type: number }
+  status:
+    - when: { path: .status.health, equals: red }
+      health: critical
+      label: Red
+    - when: { path: .status.health, equals: yellow }
+      health: warning
+      label: Yellow
+    - when: { path: .status.health, equals: green }
+      health: healthy
+      label: Green
+    - health: progressing
+      label: Starting

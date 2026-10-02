@@ -1,0 +1,84 @@
+# Vertical Pod Autoscaler (https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler):
+# the requests it recommends for workloads, and whether it applies them.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: vertical-pod-autoscaler
+spec:
+  label: Vertical Pod Autoscaler
+  icon: scaling
+  kinds:
+    - { group: autoscaling.k8s.io, kind: VerticalPodAutoscaler }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: vertical-pod-autoscalers
+spec:
+  kinds:
+    - { group: autoscaling.k8s.io, kind: VerticalPodAutoscaler }
+  icon: scaling
+  columns:
+    - { name: Target, path: .spec.targetRef.name }
+    - { name: Mode, path: .spec.updatePolicy.updateMode, default: Auto }
+    - { name: CPU, path: '.status.recommendation.containerRecommendations[0].target.cpu' }
+    - { name: Memory, path: '.status.recommendation.containerRecommendations[0].target.memory' }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="ConfigUnsupported")].status', equals: 'True' }
+      health: critical
+      label: Unsupported
+      detail: '{{ .status.conditions[?(@.type=="ConfigUnsupported")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="NoPodsMatched")].status', equals: 'True' }
+      health: warning
+      label: No pods
+      detail: '{{ .status.conditions[?(@.type=="NoPodsMatched")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="LowConfidence")].status', equals: 'True' }
+      health: warning
+      label: Low confidence
+      detail: '{{ .status.conditions[?(@.type=="LowConfidence")].message }}'
+    - when:
+        path: '.status.conditions[?(@.type=="RecommendationProvided")].status'
+        equals: 'True'
+      health: healthy
+      label: Recommending
+    - health: progressing
+      label: Gathering data
+  details:
+    - { name: Target, path: .spec.targetRef.kind }
+    - { name: Mode, path: .spec.updatePolicy.updateMode, default: Auto }
+    - { name: Minimum replicas, path: .spec.updatePolicy.minReplicas, type: number }
+    - { name: Containers, path: '.status.recommendation.containerRecommendations[*].containerName' }
+    - { name: Target CPU, path: '.status.recommendation.containerRecommendations[*].target.cpu' }
+    - {
+        name: Target memory,
+        path: '.status.recommendation.containerRecommendations[*].target.memory',
+      }
+    - { name: CPU from, path: '.status.recommendation.containerRecommendations[*].lowerBound.cpu' }
+    - { name: CPU to, path: '.status.recommendation.containerRecommendations[*].upperBound.cpu' }
+    - {
+        name: Memory from,
+        path: '.status.recommendation.containerRecommendations[*].lowerBound.memory',
+      }
+    - {
+        name: Memory to,
+        path: '.status.recommendation.containerRecommendations[*].upperBound.memory',
+      }
+  links:
+    - name: Target
+      kind: '{{ .spec.targetRef.kind }}'
+      objectName: '{{ .spec.targetRef.name }}'
+  actions:
+    - name: Change mode
+      icon: scaling
+      inputs:
+        - name: mode
+          label: Mode
+          type: choice
+          options: ['Off', Initial, Recreate, InPlaceOrRecreate]
+          default: '{{ .spec.updatePolicy.updateMode ?? "Recreate" }}'
+      confirm: >-
+        Off only recommends; Initial sets requests on new pods; Recreate also evicts pods to
+        update them; InPlaceOrRecreate resizes them in place where it can.
+      patch: { spec: { updatePolicy: { updateMode: '{{ input.mode }}' } } }
+      undo: { spec: { updatePolicy: { updateMode: '{{ .spec.updatePolicy.updateMode }}' } } }
+      done: Set {{ .metadata.name }} to {{ input.mode }}
