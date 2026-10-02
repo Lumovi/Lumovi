@@ -46,7 +46,7 @@ production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 
 Changes to how KubeStacks talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
-integration tests (see the README).
+integration tests (see [docs/development.md](docs/development.md#integration-tests)).
 
 ## Coverage
 

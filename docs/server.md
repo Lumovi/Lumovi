@@ -69,7 +69,9 @@ kubectl create clusterrolebinding alice-view --clusterrole view \
 kubectl create token alice --namespace kubestacks
 ```
 
-When the token expires, or is revoked, the session ends and KubeStacks asks for another.
+KubeStacks asks the cluster whose token it is (a SelfSubjectReview), which needs Kubernetes
+1.28 or later. When the token expires, or is revoked, the session ends and KubeStacks asks
+for another.
 Tokens from your identity provider work too, if the API server accepts them (its
 `--oidc-*` flags, or a structured authentication configuration).
 
