@@ -30,6 +30,7 @@ import {
   pixelsOf,
   remove,
   same,
+  sizeCheck,
   WIDTH,
   type Theme,
 } from './images.ts'
@@ -117,7 +118,7 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
   const cwd = dirname(dirname(kubeconfig))
   const app = await electron.launch({
     cwd,
-    // Shown without a window on screen (see tests/e2e/harness.cjs), at 2× whatever the screen.
+    // Shown without a window on screen (see tests/e2e/harness.cjs).
     args: [
       '-r',
       resolve('tests/e2e/harness.cjs'),
@@ -125,7 +126,6 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
       resolve('scripts/screenshots/harness.cjs'),
       resolve('.'),
       `--user-data-dir=${home}`,
-      '--force-device-scale-factor=2',
       // Drawn in software: on the GPU, things come out a little differently from time to time.
       '--disable-gpu',
       '--lang=en-US',
@@ -148,14 +148,23 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
   await app.context().addInitScript(stopClock, EPOCH)
   await app.context().addInitScript(stopAnimations)
   const page = await app.firstWindow()
-  await app.evaluate(
-    ({ BrowserWindow }, [width, height]) =>
-      BrowserWindow.getAllWindows()[0]!.setContentSize(width!, height!),
-    [WIDTH, HEIGHT],
-  )
+  // The page's size and density, set as Playwright sets a browser's: a window can't be bigger
+  // than the screen it's on, and some are small (GitHub's Macs: 1024 × 681 at 2×).
+  const cdp = await app.context().newCDPSession(page)
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: WIDTH,
+    height: HEIGHT,
+    deviceScaleFactor: 2,
+    mobile: false,
+  })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   return {
     page,
+    /** What the page shows, at the density set above (Playwright's would be the screen's). */
+    async screenshot() {
+      const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' })
+      return Buffer.from(data, 'base64')
+    },
     /** Opens `path` afresh, as if the app had just started there. */
     async open(path: string) {
       await page.evaluate((hash) => {
@@ -243,7 +252,7 @@ const PROXY_HEADERS = {
 }
 
 /** A screenshot of the page once it's settled: nothing loading, and nothing changing. */
-async function capture(page: Page): Promise<Buffer> {
+async function capture(page: Page, screenshot: () => Promise<Buffer>): Promise<Buffer> {
   await page.waitForFunction(() => !document.querySelector('.animate-spin'), undefined, {
     timeout: 30_000,
   })
@@ -260,10 +269,10 @@ async function capture(page: Page): Promise<Buffer> {
   })
   // Out of the way of anything that shows on hover.
   await page.mouse.move(WIDTH / 2, 2)
-  let shot = await page.screenshot({ animations: 'disabled' })
+  let shot = await screenshot()
   for (let tries = 0; tries < 40; tries++) {
     await page.waitForTimeout(250)
-    const next = await page.screenshot({ animations: 'disabled' })
+    const next = await screenshot()
     if (next.equals(shot)) return next
     shot = next
   }
@@ -275,12 +284,17 @@ const failed: string[] = []
 let unchanged = 0
 
 /** Opens a screen afresh, does its steps, and captures it. */
-async function shoot(screen: Screen, page: Page): Promise<Buffer> {
+async function shoot(
+  screen: Screen,
+  page: Page,
+  screenshot: () => Promise<Buffer> = () => page.screenshot(),
+): Promise<Buffer> {
   try {
     await page.waitForTimeout(500)
     await screen.steps?.(page)
-    const png = await capture(page)
+    const png = await capture(page, screenshot)
     await screen.after?.(page)
+    await sizeCheck(png)
     return png
   } catch (error) {
     // What it was waiting for, and how the screen looked then.
@@ -344,7 +358,7 @@ try {
       for (const screen of desktop) {
         await take(screen, theme, async () => {
           await app.open(screen.path)
-          return shoot(screen, app.page)
+          return shoot(screen, app.page, app.screenshot)
         })
       }
     } finally {
