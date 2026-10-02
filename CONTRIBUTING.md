@@ -41,7 +41,8 @@ production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    With Docker, `npm run test:linux` also runs the e2e tests on Linux, as CI does.
 
 5. Open a pull request describing what changed and why. Screenshots help for UI changes
-   (`npm run build && node scripts/screenshots.ts` captures the standard set).
+   (`npm run screenshots -- overview pods` takes those two, light and dark, into
+   `docs/screenshots`; see [Screenshots](#screenshots)).
 
 Changes to how KubeStacks talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
@@ -69,6 +70,21 @@ cluster and a test that shows it.
   status colors only for health, and always pair them with an icon and a label.
 - Main process and server: everything that crosses IPC, or the network, is untrusted input
   and must be validated.
+
+## Screenshots
+
+`docs/screenshots` holds a screenshot of every screen worth showing, light and dark, for the
+README, the docs and the website, which link to them by name (see its
+[README](docs/screenshots/README.md)). `npm run screenshots` takes them all again from the mock
+clusters, and rewrites only those whose pixels changed: the clock is stopped, animations are off,
+and addresses are fixed, so an unchanged screen comes out the same. A screen that came out
+differently is taken again, up to three times, before it counts as changed.
+
+Take them again after changing how a screen looks, and after a release (they show the version):
+Actions → **Screenshots** → _Run workflow_ takes them on macOS and proposes the ones that
+changed in a pull request. Taking them on another kind of machine changes every one, as text is
+drawn a little differently. To add a screen, describe it in `scripts/screenshots/screens.ts`:
+its name (keep it once published), what it shows, where it starts, and what to do there.
 
 ## Releasing (maintainers)
 

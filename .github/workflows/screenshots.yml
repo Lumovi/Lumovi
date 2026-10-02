@@ -1,0 +1,80 @@
+name: Screenshots
+
+# Takes KubeStacks' screenshots again (docs/screenshots), and proposes the ones that changed:
+# Actions → Screenshots → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      screens:
+        description: Only these screenshots (names, separated by spaces), or all of them
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  take:
+    name: Take screenshots
+    # Always the same kind of machine: elsewhere, text is drawn a little differently, and every
+    # screenshot would change.
+    runs-on: macos-15
+    permissions:
+      # To push a branch with the screenshots, and propose it.
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      # For KubeStacks served from a cluster, in a browser.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install chromium
+      - name: Take screenshots
+        env:
+          SCREENS: ${{ inputs.screens }}
+        # Unquoted: a name each.
+        run: npm run screenshots -- $SCREENS
+      - name: Propose the ones that changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.ref_name }}
+        run: |
+          if [ -z "$(git status --porcelain -- docs/screenshots)" ]; then
+            echo "No screenshot changed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="screenshots/$GITHUB_RUN_ID"
+          git switch --create "$branch"
+          git add docs/screenshots
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --quiet --message 'Refresh the screenshots'
+          git push --quiet origin "$branch"
+          changed=$(git diff --name-only HEAD~1 -- 'docs/screenshots/*.webp' | grep -v -- '-1x\.webp$' |
+            sed 's|docs/screenshots/||; s|\.webp$||; s|^|- |')
+          body=$(printf 'Taken again by the Screenshots workflow ([run](%s)). Changed:\n\n%s\n' \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "$changed")
+          # Opening it needs "Allow GitHub Actions to create and approve pull requests" in the
+          # repository's Actions settings; without it, the branch waits for someone to propose it.
+          if gh pr create --base "$BASE" --head "$branch" --title 'Refresh the screenshots' \
+            --body "$body" >> "$GITHUB_STEP_SUMMARY"; then
+            exit 0
+          fi
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE...$branch?expand=1"
+          printf 'Screenshots changed: [open a pull request](%s).\n\n%s\n' "$url" "$changed" \
+            >> "$GITHUB_STEP_SUMMARY"
