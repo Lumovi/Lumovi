@@ -1,0 +1,301 @@
+{
+  "url": "https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/",
+  "width": 1440,
+  "height": 900,
+  "screenshots": [
+    {
+      "name": "clusters",
+      "title": "Clusters",
+      "description": "Every cluster in the kubeconfig, ready to open.",
+      "app": "desktop",
+      "light": { "2x": "clusters-light.webp", "1x": "clusters-light-1x.webp" },
+      "dark": { "2x": "clusters-dark.webp", "1x": "clusters-dark-1x.webp" }
+    },
+    {
+      "name": "overview",
+      "title": "Overview",
+      "description": "A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention.",
+      "app": "desktop",
+      "light": { "2x": "overview-light.webp", "1x": "overview-light-1x.webp" },
+      "dark": { "2x": "overview-dark.webp", "1x": "overview-dark-1x.webp" }
+    },
+    {
+      "name": "workloads",
+      "title": "Workloads",
+      "description": "Every workload, whatever its kind, in one list, with its health.",
+      "app": "desktop",
+      "light": { "2x": "workloads-light.webp", "1x": "workloads-light-1x.webp" },
+      "dark": { "2x": "workloads-dark.webp", "1x": "workloads-dark-1x.webp" }
+    },
+    {
+      "name": "deployment",
+      "title": "A deployment",
+      "description": "A deployment that's failing, with its pods and why they're restarting.",
+      "app": "desktop",
+      "light": { "2x": "deployment-light.webp", "1x": "deployment-light-1x.webp" },
+      "dark": { "2x": "deployment-dark.webp", "1x": "deployment-dark-1x.webp" }
+    },
+    {
+      "name": "logs",
+      "title": "Logs",
+      "description": "The logs of every pod of a deployment, merged as they happened.",
+      "app": "desktop",
+      "light": { "2x": "logs-light.webp", "1x": "logs-light-1x.webp" },
+      "dark": { "2x": "logs-dark.webp", "1x": "logs-dark-1x.webp" }
+    },
+    {
+      "name": "pods",
+      "title": "Pods",
+      "description": "Every pod, its status and restarts, with the failing ones first.",
+      "app": "desktop",
+      "light": { "2x": "pods-light.webp", "1x": "pods-light-1x.webp" },
+      "dark": { "2x": "pods-dark.webp", "1x": "pods-dark-1x.webp" }
+    },
+    {
+      "name": "pod",
+      "title": "A pod",
+      "description": "A pod's details next to the list: its containers, their usage and state.",
+      "app": "desktop",
+      "light": { "2x": "pod-light.webp", "1x": "pod-light-1x.webp" },
+      "dark": { "2x": "pod-dark.webp", "1x": "pod-dark-1x.webp" }
+    },
+    {
+      "name": "shell",
+      "title": "Shell",
+      "description": "A shell in a running container.",
+      "app": "desktop",
+      "light": { "2x": "shell-light.webp", "1x": "shell-light-1x.webp" },
+      "dark": { "2x": "shell-dark.webp", "1x": "shell-dark-1x.webp" }
+    },
+    {
+      "name": "yaml",
+      "title": "Editing YAML",
+      "description": "A change to a ConfigMap's YAML, checked by the cluster and shown before it's saved.",
+      "app": "desktop",
+      "light": { "2x": "yaml-light.webp", "1x": "yaml-light-1x.webp" },
+      "dark": { "2x": "yaml-dark.webp", "1x": "yaml-dark-1x.webp" }
+    },
+    {
+      "name": "bulk",
+      "title": "Several at once",
+      "description": "Several pods picked, to act on them at once.",
+      "app": "desktop",
+      "light": { "2x": "bulk-light.webp", "1x": "bulk-light-1x.webp" },
+      "dark": { "2x": "bulk-dark.webp", "1x": "bulk-dark-1x.webp" }
+    },
+    {
+      "name": "scale",
+      "title": "Scaling",
+      "description": "Scaling a deployment, with what will change.",
+      "app": "desktop",
+      "light": { "2x": "scale-light.webp", "1x": "scale-light-1x.webp" },
+      "dark": { "2x": "scale-dark.webp", "1x": "scale-dark-1x.webp" }
+    },
+    {
+      "name": "create",
+      "title": "Create from YAML",
+      "description": "Creating resources from YAML, checked as it's typed.",
+      "app": "desktop",
+      "light": { "2x": "create-light.webp", "1x": "create-light-1x.webp" },
+      "dark": { "2x": "create-dark.webp", "1x": "create-dark-1x.webp" }
+    },
+    {
+      "name": "metrics",
+      "title": "Metrics",
+      "description": "Usage over the last six hours from Prometheus, by namespace.",
+      "app": "desktop",
+      "light": { "2x": "metrics-light.webp", "1x": "metrics-light-1x.webp" },
+      "dark": { "2x": "metrics-dark.webp", "1x": "metrics-dark-1x.webp" }
+    },
+    {
+      "name": "pod-metrics",
+      "title": "A pod's usage",
+      "description": "A pod's CPU and memory over time, against its requests and limits.",
+      "app": "desktop",
+      "light": { "2x": "pod-metrics-light.webp", "1x": "pod-metrics-light-1x.webp" },
+      "dark": { "2x": "pod-metrics-dark.webp", "1x": "pod-metrics-dark-1x.webp" }
+    },
+    {
+      "name": "nodes",
+      "title": "Nodes",
+      "description": "Nodes, their usage and conditions: one under memory pressure, one not ready.",
+      "app": "desktop",
+      "light": { "2x": "nodes-light.webp", "1x": "nodes-light-1x.webp" },
+      "dark": { "2x": "nodes-dark.webp", "1x": "nodes-dark-1x.webp" }
+    },
+    {
+      "name": "node",
+      "title": "A node",
+      "description": "A node under memory pressure, with what runs on it and ways to drain it.",
+      "app": "desktop",
+      "light": { "2x": "node-light.webp", "1x": "node-light-1x.webp" },
+      "dark": { "2x": "node-dark.webp", "1x": "node-dark-1x.webp" }
+    },
+    {
+      "name": "events",
+      "title": "Events",
+      "description": "What happened in the cluster, warnings first.",
+      "app": "desktop",
+      "light": { "2x": "events-light.webp", "1x": "events-light-1x.webp" },
+      "dark": { "2x": "events-dark.webp", "1x": "events-dark-1x.webp" }
+    },
+    {
+      "name": "services",
+      "title": "Services",
+      "description": "Services with their ports and endpoints.",
+      "app": "desktop",
+      "light": { "2x": "services-light.webp", "1x": "services-light-1x.webp" },
+      "dark": { "2x": "services-dark.webp", "1x": "services-dark-1x.webp" }
+    },
+    {
+      "name": "port-forward",
+      "title": "Port forwarding",
+      "description": "Forwarding a local port to a service.",
+      "app": "desktop",
+      "light": { "2x": "port-forward-light.webp", "1x": "port-forward-light-1x.webp" },
+      "dark": { "2x": "port-forward-dark.webp", "1x": "port-forward-dark-1x.webp" }
+    },
+    {
+      "name": "secret",
+      "title": "A secret",
+      "description": "A secret's keys, hidden until asked for.",
+      "app": "desktop",
+      "light": { "2x": "secret-light.webp", "1x": "secret-light-1x.webp" },
+      "dark": { "2x": "secret-dark.webp", "1x": "secret-dark-1x.webp" }
+    },
+    {
+      "name": "storage",
+      "title": "Storage",
+      "description": "Persistent volume claims, their capacity and what uses them.",
+      "app": "desktop",
+      "light": { "2x": "storage-light.webp", "1x": "storage-light-1x.webp" },
+      "dark": { "2x": "storage-dark.webp", "1x": "storage-dark-1x.webp" }
+    },
+    {
+      "name": "api-resources",
+      "title": "API resources",
+      "description": "Every kind the cluster serves, custom resources included.",
+      "app": "desktop",
+      "light": { "2x": "api-resources-light.webp", "1x": "api-resources-light-1x.webp" },
+      "dark": { "2x": "api-resources-dark.webp", "1x": "api-resources-dark-1x.webp" }
+    },
+    {
+      "name": "custom-resource",
+      "title": "A custom resource",
+      "description": "A cert-manager certificate, shown with KubeStacks' view of it.",
+      "app": "desktop",
+      "light": { "2x": "custom-resource-light.webp", "1x": "custom-resource-light-1x.webp" },
+      "dark": { "2x": "custom-resource-dark.webp", "1x": "custom-resource-dark-1x.webp" }
+    },
+    {
+      "name": "helm-releases",
+      "title": "Helm releases",
+      "description": "Every Helm release, its chart, version and status.",
+      "app": "desktop",
+      "light": { "2x": "helm-releases-light.webp", "1x": "helm-releases-light-1x.webp" },
+      "dark": { "2x": "helm-releases-dark.webp", "1x": "helm-releases-dark-1x.webp" }
+    },
+    {
+      "name": "helm",
+      "title": "A Helm release",
+      "description": "A Helm release's history, ready to roll back.",
+      "app": "desktop",
+      "light": { "2x": "helm-light.webp", "1x": "helm-light-1x.webp" },
+      "dark": { "2x": "helm-dark.webp", "1x": "helm-dark-1x.webp" }
+    },
+    {
+      "name": "helm-upgrade",
+      "title": "Upgrading a release",
+      "description": "Upgrading a Helm release with new values.",
+      "app": "desktop",
+      "light": { "2x": "helm-upgrade-light.webp", "1x": "helm-upgrade-light-1x.webp" },
+      "dark": { "2x": "helm-upgrade-dark.webp", "1x": "helm-upgrade-dark-1x.webp" }
+    },
+    {
+      "name": "helm-install",
+      "title": "Installing a chart",
+      "description": "Finding a chart on Artifact Hub to install.",
+      "app": "desktop",
+      "light": { "2x": "helm-install-light.webp", "1x": "helm-install-light-1x.webp" },
+      "dark": { "2x": "helm-install-dark.webp", "1x": "helm-install-dark-1x.webp" }
+    },
+    {
+      "name": "command-palette",
+      "title": "Command palette",
+      "description": "Finding anything in the cluster, or anything to do, from the keyboard.",
+      "app": "desktop",
+      "light": { "2x": "command-palette-light.webp", "1x": "command-palette-light-1x.webp" },
+      "dark": { "2x": "command-palette-dark.webp", "1x": "command-palette-dark-1x.webp" }
+    },
+    {
+      "name": "shortcuts",
+      "title": "Keyboard shortcuts",
+      "description": "Every keyboard shortcut.",
+      "app": "desktop",
+      "light": { "2x": "shortcuts-light.webp", "1x": "shortcuts-light-1x.webp" },
+      "dark": { "2x": "shortcuts-dark.webp", "1x": "shortcuts-dark-1x.webp" }
+    },
+    {
+      "name": "delete",
+      "title": "Deleting safely",
+      "description": "Deleting in a production cluster asks for its name first.",
+      "app": "desktop",
+      "light": { "2x": "delete-light.webp", "1x": "delete-light-1x.webp" },
+      "dark": { "2x": "delete-dark.webp", "1x": "delete-dark-1x.webp" }
+    },
+    {
+      "name": "read-only",
+      "title": "Read-only",
+      "description": "A cluster made read-only: KubeStacks won't change anything in it until allowed.",
+      "app": "desktop",
+      "light": { "2x": "read-only-light.webp", "1x": "read-only-light-1x.webp" },
+      "dark": { "2x": "read-only-dark.webp", "1x": "read-only-dark-1x.webp" }
+    },
+    {
+      "name": "unreachable",
+      "title": "An unreachable cluster",
+      "description": "A cluster that doesn't answer, and what to try.",
+      "app": "desktop",
+      "light": { "2x": "unreachable-light.webp", "1x": "unreachable-light-1x.webp" },
+      "dark": { "2x": "unreachable-dark.webp", "1x": "unreachable-dark-1x.webp" }
+    },
+    {
+      "name": "large-cluster",
+      "title": "Thousands of pods",
+      "description": "Thousands of pods, listed as fast as a handful.",
+      "app": "desktop",
+      "light": { "2x": "large-cluster-light.webp", "1x": "large-cluster-light-1x.webp" },
+      "dark": { "2x": "large-cluster-dark.webp", "1x": "large-cluster-dark-1x.webp" }
+    },
+    {
+      "name": "server-sign-in",
+      "title": "Signing in with a token",
+      "description": "KubeStacks served from a cluster: signing in with a token.",
+      "app": "server",
+      "light": { "2x": "server-sign-in-light.webp", "1x": "server-sign-in-light-1x.webp" },
+      "dark": { "2x": "server-sign-in-dark.webp", "1x": "server-sign-in-dark-1x.webp" }
+    },
+    {
+      "name": "server-single-sign-on",
+      "title": "Single sign-on",
+      "description": "KubeStacks served from a cluster: signing in with single sign-on.",
+      "app": "server",
+      "light": {
+        "2x": "server-single-sign-on-light.webp",
+        "1x": "server-single-sign-on-light-1x.webp"
+      },
+      "dark": {
+        "2x": "server-single-sign-on-dark.webp",
+        "1x": "server-single-sign-on-dark-1x.webp"
+      }
+    },
+    {
+      "name": "server-account",
+      "title": "Signed in",
+      "description": "KubeStacks served from a cluster: who's signed in, and their groups.",
+      "app": "server",
+      "light": { "2x": "server-account-light.webp", "1x": "server-account-light-1x.webp" },
+      "dark": { "2x": "server-account-dark.webp", "1x": "server-account-dark-1x.webp" }
+    }
+  ]
+}

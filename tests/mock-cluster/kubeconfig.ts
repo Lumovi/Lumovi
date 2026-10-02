@@ -131,11 +131,18 @@ async function closedPort(): Promise<number> {
   return port
 }
 
-/** Starts the demo, sandbox and large clusters and writes a kubeconfig for them into `dir`. */
+/**
+ * Starts the demo, sandbox and large clusters and writes a kubeconfig for
+ * them into `dir`. They listen on any free ports, unless `ports` says which.
+ */
 export async function startTestClusters(
   dir: string,
-  options: { jitter?: boolean } = {},
+  options: {
+    jitter?: boolean
+    ports?: { demo: number; sandbox: number; large: number; offline: number }
+  } = {},
 ): Promise<TestClusters> {
+  const { ports } = options
   const [demo, sandbox, large, offlinePort] = await Promise.all([
     startMockCluster({
       fixture: () => demoCluster(),
@@ -144,6 +151,7 @@ export async function startTestClusters(
       users: Object.fromEntries(Object.values(PEOPLE).map(({ token, user }) => [token, user])),
       gitVersion: DEMO.gitVersion,
       jitter: options.jitter,
+      port: ports?.demo,
     }),
     // An older cluster: discovery one API group at a time, and no OpenAPI v3.
     startMockCluster({
@@ -151,14 +159,16 @@ export async function startTestClusters(
       gitVersion: SANDBOX.gitVersion,
       aggregatedDiscovery: false,
       openApi: false,
+      port: ports?.sandbox,
     }),
     startMockCluster({
       fixture: () => largeCluster(),
       tls: true,
       gitVersion: LARGE.gitVersion,
       jitter: options.jitter,
+      port: ports?.large,
     }),
-    closedPort(),
+    ports?.offline ?? closedPort(),
   ])
   const offlineUrl = `https://127.0.0.1:${offlinePort}`
   const kubeconfigPath = writeKubeconfig(dir, {

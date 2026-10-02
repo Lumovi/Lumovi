@@ -35,6 +35,7 @@
     "build:coverage": "cross-env KUBESTACKS_COVERAGE=true npm run build",
     "start": "electron-vite preview",
     "serve": "node out/server/index.js",
+    "screenshots": "npm run build && node scripts/screenshots/index.ts",
     "dev:server": "node scripts/dev-server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint .",
@@ -105,6 +106,7 @@
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0",
     "selfsigned": "^5.5.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0",
     "typescript-eslint": "^8.71.0",
@@ -116,6 +118,7 @@
   "allowScripts": {
     "electron-winstaller": true,
     "esbuild": true,
-    "fsevents": false
+    "fsevents": false,
+    "sharp": false
   }
 }

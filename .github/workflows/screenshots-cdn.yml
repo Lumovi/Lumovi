@@ -1,0 +1,28 @@
+name: Screenshots on jsDelivr
+
+# The website and docs load the screenshots from jsDelivr, which keeps files from a branch for a
+# while: once they change on main, clear them there, so they show at once.
+on:
+  push:
+    branches: [main]
+    paths: ['docs/screenshots/**']
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    name: Clear changed screenshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Clear them from jsDelivr's cache
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
+          git diff --name-only "$BEFORE" HEAD -- docs/screenshots | while read -r file; do
+            curl --fail --silent --show-error --retry 3 \
+              "https://purge.jsdelivr.net/gh/$GITHUB_REPOSITORY@main/$file" > /dev/null
+            echo "Cleared $file"
+          done

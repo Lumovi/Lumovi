@@ -17,7 +17,10 @@ macOS · Windows · Linux
 
 </div>
 
-![KubeStacks overview in dark mode](docs/screenshots/overview-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp" />
+  <img src="docs/screenshots/overview-light.webp" alt="KubeStacks' overview of a cluster" />
+</picture>
 
 ## Why KubeStacks
 
@@ -83,15 +86,18 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
   `aws eks get-token`, `kubelogin`…), including when launched from the Dock.
 - **Light and dark.** Follows your system, or pick one. Native window controls match.
 
-|                                                                    |                                                                            |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| ![Every workload in one list](docs/screenshots/workloads-dark.png) | ![Pod details](docs/screenshots/pod-light.png)                             |
-| ![A shell in a pod](docs/screenshots/shell-dark.png)               | ![Scaling a deployment](docs/screenshots/scale-light.png)                  |
-| ![Several pods selected](docs/screenshots/bulk-dark.png)           | ![Create from YAML](docs/screenshots/create-light.png)                     |
-| ![The Metrics page](docs/screenshots/metrics-dark.png)             | ![A pod's usage history](docs/screenshots/pod-metrics-light.png)           |
-| ![Logs](docs/screenshots/logs-dark.png)                            | ![Overview in light mode](docs/screenshots/overview-light.png)             |
-| ![A custom resource](docs/screenshots/custom-dark.png)             | ![Every kind the cluster serves](docs/screenshots/api-resources-light.png) |
-| ![A Helm release's history](docs/screenshots/helm-dark.png)        | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light.png)       |
+|                                                                            |                                                                                |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| ![Every workload in one list](docs/screenshots/workloads-dark-1x.webp)     | ![A pod's details](docs/screenshots/pod-light-1x.webp)                         |
+| ![A shell in a pod](docs/screenshots/shell-dark-1x.webp)                   | ![Scaling a deployment](docs/screenshots/scale-light-1x.webp)                  |
+| ![Several pods selected](docs/screenshots/bulk-dark-1x.webp)               | ![Create from YAML](docs/screenshots/create-light-1x.webp)                     |
+| ![The Metrics page](docs/screenshots/metrics-dark-1x.webp)                 | ![A pod's usage history](docs/screenshots/pod-metrics-light-1x.webp)           |
+| ![Logs](docs/screenshots/logs-dark-1x.webp)                                | ![Overview in light mode](docs/screenshots/overview-light-1x.webp)             |
+| ![A custom resource](docs/screenshots/custom-resource-dark-1x.webp)        | ![Every kind the cluster serves](docs/screenshots/api-resources-light-1x.webp) |
+| ![A Helm release's history](docs/screenshots/helm-dark-1x.webp)            | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light-1x.webp)       |
+| ![A YAML edit, checked by the cluster](docs/screenshots/yaml-dark-1x.webp) | ![The command palette](docs/screenshots/command-palette-light-1x.webp)         |
+
+More, light and dark: [docs/screenshots](docs/screenshots).
 
 ## Install
 
@@ -353,7 +359,7 @@ tests/
   mock-cluster/   A mock Kubernetes API server with realistic demo clusters
   mock-oidc/      A small OpenID Connect provider, for single sign-on
   integration/    The same app (and the image, with the chart) against a real kind cluster
-docs/             The server's and views' references, and the README's screenshots
+docs/             The server's and views' references, and screenshots
 scripts/          Coverage tooling, screenshots, icon rendering
 ```
 

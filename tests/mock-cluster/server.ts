@@ -95,6 +95,8 @@ export interface MockClusterOptions {
   aggregatedDiscovery?: boolean
   /** Like Kubernetes 1.27+: OpenAPI v3 documents. Off: /openapi/v3 is missing. */
   openApi?: boolean
+  /** The port to listen on; any free one unless set. */
+  port?: number
 }
 
 export interface MockCluster {
@@ -1445,7 +1447,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   server.on('upgrade', streams.upgrade)
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => resolve())
+    server.listen(options.port ?? 0, '127.0.0.1', () => resolve())
   })
   const { port } = server.address() as AddressInfo
 

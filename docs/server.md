@@ -5,6 +5,11 @@ desktop one, in a browser: people open its address, sign in, and see and change 
 own Kubernetes permissions allow. Nobody installs anything, and links to any page (a pod,
 its logs, a release) can be shared.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/server-account-dark-1x.webp" />
+  <img src="screenshots/server-account-light-1x.webp" alt="KubeStacks served from a cluster, with the menu of who's signed in open" />
+</picture>
+
 ## Install it
 
 With [Helm](https://helm.sh):
@@ -43,6 +48,11 @@ Node.js, helm and KubeStacks, runs as a non-root user without a shell, and only 
 
 KubeStacks never gives anyone more than their own permissions. How it learns who someone
 is depends on `auth.mode`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/server-sign-in-dark-1x.webp" />
+  <img src="screenshots/server-sign-in-light-1x.webp" alt="Signing in with a token" />
+</picture>
 
 ### With a token (the default)
 
