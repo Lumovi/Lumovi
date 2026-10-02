@@ -3,8 +3,13 @@ import type { KubeObject } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
 import type { ResourceKind } from '@shared/resources'
 import type { ChartReference } from '@renderer/components/charts/TimeChart'
+import { KIND_ICONS } from '@renderer/components/KindIcon'
+import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
 import { SeriesColorScope, useUsageRange } from '@renderer/hooks/history'
+import { useList } from '@renderer/hooks/queries'
+import type { KubeApiError } from '@renderer/lib/api'
 import {
+  escapeRegex,
   nodeQuery,
   podPattern,
   rateWindow,
@@ -14,6 +19,7 @@ import {
   type TimeSelection,
 } from '@renderer/lib/promql'
 import { usePrefs } from '@renderer/state/prefs'
+import type { PodQuery } from '../details/PodsTab'
 import { RangePicker } from './ChartCard'
 import { HistoryGate, SourceChip } from './source'
 import { pick, UsageChart } from './UsageChart'
@@ -60,8 +66,17 @@ const NETWORK_EMPTY =
   'cAdvisor reports network traffic per pod; there are no samples for this time.'
 const RESTARTS_EMPTY = 'Restarts come from kube-state-metrics.'
 
-/** Usage history for a pod, a workload's pods, or a node, over a time the user picks. */
-export function MetricsTab({ object }: { object: KubeObject }) {
+/** Pods found by a view, for custom kinds; `null` looks in every namespace. */
+export interface OwnPods {
+  query: PodQuery
+  namespace: string | null
+}
+
+/**
+ * Usage history for a pod, a workload's pods, a node, or the pods a custom
+ * object has, over a time the user picks.
+ */
+export function MetricsTab({ object, pods }: { object: KubeObject; pods?: OwnPods }) {
   const preset = usePrefs((prefs) => prefs.metricsRange)
   const setPreset = usePrefs((prefs) => prefs.setMetricsRange)
   const [selection, setSelection] = useState<TimeSelection>({ range: preset })
@@ -84,6 +99,8 @@ export function MetricsTab({ object }: { object: KubeObject }) {
               <PodCharts {...props} />
             ) : object.kind === 'Node' ? (
               <NodeCharts {...props} />
+            ) : pods ? (
+              <OwnPodCharts {...props} pods={pods} />
             ) : (
               <WorkloadCharts {...props} />
             )}
@@ -198,14 +215,70 @@ function PodCharts({ object, selection, zoom }: ChartsProps) {
 /** A workload's pods, one line each, against what each pod requests. */
 function WorkloadCharts({ object, selection, zoom }: ChartsProps) {
   const { namespace, name } = object.metadata
-  const matchers: Matcher[] = [
-    ['namespace', '=', namespace!],
-    ['pod', '=~', podPattern(object.kind as ResourceKind, name)],
-  ]
-  const key = ['workload', object.kind, namespace, name]
+  return (
+    <PodSetCharts
+      chartKey={['workload', object.kind, namespace, name]}
+      matchers={[
+        ['namespace', '=', namespace!],
+        ['pod', '=~', podPattern(object.kind as ResourceKind, name)],
+      ]}
+      containers={templateOf(object)}
+      selection={selection}
+      zoom={zoom}
+    />
+  )
+}
+
+/**
+ * The pods a custom object has now, by name: unlike a workload's, their
+ * names follow no pattern KubeStacks knows.
+ */
+function OwnPodCharts({ object, pods: own, selection, zoom }: ChartsProps & { pods: OwnPods }) {
+  const pods = useList('Pod', { namespace: own.namespace, ...own.query })
+  if (pods.isPending) return <Loading label="Finding its pods…" />
+  if (!pods.data) {
+    return <ErrorState error={pods.error as KubeApiError} onRetry={() => void pods.refetch()} />
+  }
+  if (pods.data.length === 0) {
+    return (
+      <EmptyState icon={KIND_ICONS.Pod} title="No pods">
+        Nothing is running for this right now, so there’s no usage to chart.
+      </EmptyState>
+    )
+  }
+  const names = pods.data.map((pod) => pod.metadata.name).sort()
+  const namespaces = [...new Set(pods.data.map((pod) => pod.metadata.namespace!))]
+  const { namespace, name } = object.metadata
+  return (
+    <PodSetCharts
+      chartKey={['pods-of', object.kind, namespace, name, ...names]}
+      matchers={[
+        ['namespace', '=~', namespaces.map(escapeRegex).join('|')],
+        ['pod', '=~', names.map(escapeRegex).join('|')],
+      ]}
+      containers={pods.data[0]!.spec.containers}
+      selection={selection}
+      zoom={zoom}
+    />
+  )
+}
+
+/** Pods, one line each, against what one of them requests. */
+function PodSetCharts({
+  chartKey: key,
+  matchers,
+  containers,
+  selection,
+  zoom,
+}: {
+  chartKey: unknown[]
+  matchers: Matcher[]
+  containers: Container[]
+  selection: TimeSelection
+  zoom: (from: number, to: number) => void
+}) {
   const usage = useUsage(key, matchers, ['pod'], selection)
   const restarts = useRestarts(key, matchers, 'pod', selection)
-  const containers = templateOf(object)
   const pod = (labels: Record<string, string>) => labels.pod!
   const note = 'The busiest pods; each is compared with what one pod requests.'
   return (

@@ -1,0 +1,78 @@
+# Volume snapshots (https://kubernetes.io/docs/concepts/storage/volume-snapshots): point-in-time
+# copies of volumes, taken by CSI drivers.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: volume-snapshots
+spec:
+  label: Volume Snapshots
+  icon: camera
+  category: storage
+  kinds:
+    - { group: snapshot.storage.k8s.io, kind: VolumeSnapshot }
+    - { group: snapshot.storage.k8s.io, kind: VolumeSnapshotContent }
+    - { group: snapshot.storage.k8s.io, kind: VolumeSnapshotClass }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: volume-snapshots
+spec:
+  kinds:
+    - { group: snapshot.storage.k8s.io, kind: VolumeSnapshot }
+    - { group: snapshot.storage.k8s.io, kind: VolumeSnapshotContent }
+  icon: camera
+  columns:
+    - { name: Volume claim, path: .spec.source.persistentVolumeClaimName }
+    - { name: Snapshot, path: .spec.volumeSnapshotRef.name }
+    - { name: Size, path: .status.restoreSize }
+    - { name: Class, path: .spec.volumeSnapshotClassName }
+    - { name: Taken, path: .status.creationTime, type: date }
+  status:
+    - when: { path: .status.error.message, exists: true }
+      health: critical
+      label: Failed
+      detail: '{{ .status.error.message }}'
+    - when: { path: .status.readyToUse, equals: true }
+      health: healthy
+      label: Ready
+    - health: progressing
+      label: Taking
+  details:
+    - { name: Volume claim, path: .spec.source.persistentVolumeClaimName }
+    - { name: Size, path: .status.restoreSize }
+    - { name: Driver, path: .spec.driver }
+    - { name: Deletion policy, path: .spec.deletionPolicy }
+    - { name: Snapshot handle, path: .status.snapshotHandle }
+    - { name: Taken, path: .status.creationTime, type: date }
+  links:
+    - name: Volume claim
+      kind: PersistentVolumeClaim
+      objectName: '{{ .spec.source.persistentVolumeClaimName }}'
+    - name: Content
+      kind: VolumeSnapshotContent.snapshot.storage.k8s.io
+      objectName: '{{ .status.boundVolumeSnapshotContentName }}'
+    - name: Snapshot
+      kind: VolumeSnapshot.snapshot.storage.k8s.io
+      objectName: '{{ .spec.volumeSnapshotRef.name }}'
+      namespace: '{{ .spec.volumeSnapshotRef.namespace }}'
+    - name: Class
+      kind: VolumeSnapshotClass.snapshot.storage.k8s.io
+      objectName: '{{ .spec.volumeSnapshotClassName }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: volume-snapshot-classes
+spec:
+  kinds:
+    - { group: snapshot.storage.k8s.io, kind: VolumeSnapshotClass }
+  icon: archive
+  columns:
+    - { name: Driver, path: .driver }
+    - { name: Deletion policy, path: .deletionPolicy }
+    - {
+        name: Default,
+        path: ".metadata.annotations['snapshot.storage.kubernetes.io/is-default-class']",
+        default: 'false',
+      }

@@ -1,5 +1,18 @@
 # KEDA (https://keda.sh): event-driven autoscaling of workloads and jobs.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: keda
+spec:
+  label: KEDA
+  icon: gauge
+  kinds:
+    - { group: keda.sh, kind: ScaledObject }
+    - { group: keda.sh, kind: ScaledJob }
+    - { group: keda.sh, kind: TriggerAuthentication }
+    - { group: keda.sh, kind: ClusterTriggerAuthentication }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: keda-scaled-objects
@@ -13,6 +26,9 @@ spec:
     - { name: Max, path: .spec.maxReplicaCount, type: number, default: '100' }
     - { name: Triggers, path: '.spec.triggers[*].type' }
   status:
+    - when: { path: ".metadata.annotations['autoscaling.keda.sh/paused-replicas']", exists: true }
+      health: neutral
+      label: Paused at {{ .metadata.annotations['autoscaling.keda.sh/paused-replicas'] }}
     - when: { path: ".metadata.annotations['autoscaling.keda.sh/paused']", equals: 'true' }
       health: neutral
       label: Paused
@@ -48,15 +64,31 @@ spec:
         metadata:
           annotations: { autoscaling.keda.sh/paused: null }
       done: Paused autoscaling of {{ .spec.scaleTargetRef.name }}
-    - name: Resume
-      primary: true
-      when: { path: ".metadata.annotations['autoscaling.keda.sh/paused']", equals: 'true' }
+    - name: Pause at
+      icon: timer
+      when: { path: ".metadata.annotations['autoscaling.keda.sh/paused-replicas']", exists: false }
+      inputs:
+        - name: replicas
+          label: Replicas while paused
+          type: number
+          default: '{{ .status.originalReplicaCount }}'
       patch:
         metadata:
-          annotations: { autoscaling.keda.sh/paused: null }
+          annotations: { autoscaling.keda.sh/paused-replicas: '{{ input.replicas }}' }
       undo:
         metadata:
-          annotations: { autoscaling.keda.sh/paused: 'true' }
+          annotations: { autoscaling.keda.sh/paused-replicas: null }
+      done: Paused {{ .spec.scaleTargetRef.name }} at {{ input.replicas }} replicas
+    - name: Resume
+      primary: true
+      when:
+        any:
+          - { path: ".metadata.annotations['autoscaling.keda.sh/paused']", equals: 'true' }
+          - { path: ".metadata.annotations['autoscaling.keda.sh/paused-replicas']", exists: true }
+      patch:
+        metadata:
+          annotations:
+            { autoscaling.keda.sh/paused: null, autoscaling.keda.sh/paused-replicas: null }
       done: Resumed autoscaling of {{ .spec.scaleTargetRef.name }}
 ---
 apiVersion: kubestacks.dev/v1alpha1
@@ -70,3 +102,7 @@ spec:
   columns:
     - { name: Max, path: .spec.maxReplicaCount, type: number, default: '100' }
     - { name: Triggers, path: '.spec.triggers[*].type' }
+  related:
+    - name: Jobs
+      kind: Job
+      labels: { scaledjob.keda.sh/name: '{{ .metadata.name }}' }

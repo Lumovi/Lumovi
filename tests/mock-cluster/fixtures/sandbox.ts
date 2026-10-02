@@ -4,7 +4,7 @@
  */
 import { clusterBuilder, DAY, HOUR } from '../builders.ts'
 import type { ClusterFixture } from '../types.ts'
-import { widgets } from './custom.ts'
+import { karpenterKinds, widgets } from './custom.ts'
 
 export const SANDBOX = {
   gitVersion: 'v1.33.4',
@@ -38,6 +38,8 @@ export function sandboxCluster(now = Date.now()): ClusterFixture {
     spec: { type: 'ExternalName', externalName: 'docs.example.com' },
   })
   widgets(b)
+  // Karpenter is installed, but has nothing to do yet.
+  karpenterKinds(b)
   const { metrics: _metrics, ...fixture } = b.build()
   return fixture
 }

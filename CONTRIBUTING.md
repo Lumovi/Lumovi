@@ -48,6 +48,37 @@ Changes to how KubeStacks talks to clusters are also worth checking against a re
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
 integration tests (see [docs/development.md](docs/development.md#integration-tests)).
 
+## Adding a tool
+
+KubeStacks shows what popular operators run through _views_ and _add-ons_, written as data
+in `src/renderer/src/views/<tool>.yaml` (the format:
+[docs.kubestacks.com/reference/view-format](https://docs.kubestacks.com/reference/view-format)).
+An add-on gives a tool its entry in the sidebar and lists its kinds; views say how each kind
+is shown: its columns, status, details, related objects, links and actions. Adding a tool
+needs no code, and is a good first contribution. To ask for one instead, open a
+[_Support a tool_](https://github.com/KubeStacks/KubeStacks/issues/new?template=tool_request.yml)
+issue.
+
+1. Pin the tool's CRDs: add its release to `tests/views/crds/sources.json`, under the
+   add-on's name, with the URLs of its CRD manifests, and run `npm run crds -- <name>`. That
+   keeps what the check needs of them in `tests/views/crds/<name>.json`. A chart's templates
+   work too (`"helm": true`), and for a tool whose operator creates its CRDs itself, the JSON
+   Schema of each kind will do (KubeVirt's come from the
+   [CRDs catalog](https://github.com/datreeio/CRDs-catalog)).
+2. Write `src/renderer/src/views/<name>.yaml`: the `AddOn`, then a `View` for each kind (or
+   group of kinds) worth more than the generic columns. Status rules are where views help
+   most: say what healthy, in progress, failing and paused look like for this tool.
+3. Run `npm run views:check`. It checks every kind, path, template, link, related list and
+   action against the CRDs you pinned, so a misremembered field fails here rather than
+   showing nothing. Labels and annotations aren't in schemas, so check those against the
+   tool's documentation, or a real cluster.
+4. Look at it: put the file in `~/.kubestacks/views` (or the folder `KUBESTACKS_VIEWS_DIR`
+   names) while running `npm run dev` against a cluster with the tool installed. Views are
+   read again on refresh (⌘R / Ctrl+R).
+
+To check views against a newer release of a tool, change its version in `sources.json`, run
+`npm run crds -- <name>` and `npm run views:check`.
+
 ## Coverage
 
 The project keeps **100% end-to-end coverage** of statements, branches, functions and lines,

@@ -1,0 +1,256 @@
+# Cluster API (https://cluster-api.sigs.k8s.io): the clusters this one manages, and their machines.
+# Status rules read both API versions: v1beta2 says Available where v1beta1 says Ready.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: cluster-api
+spec:
+  label: Cluster API
+  icon: boxes
+  kinds:
+    - { group: cluster.x-k8s.io, kind: Cluster }
+    - { group: cluster.x-k8s.io, kind: MachineDeployment }
+    - { group: controlplane.cluster.x-k8s.io, kind: KubeadmControlPlane }
+    - { group: cluster.x-k8s.io, kind: Machine }
+    - { group: cluster.x-k8s.io, kind: MachineSet }
+    - { group: cluster.x-k8s.io, kind: MachinePool }
+    - { group: cluster.x-k8s.io, kind: MachineHealthCheck }
+    - { group: cluster.x-k8s.io, kind: ClusterClass }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cluster-api-clusters
+spec:
+  kinds:
+    - { group: cluster.x-k8s.io, kind: Cluster }
+  icon: boxes
+  columns:
+    - { name: Version, path: .spec.topology.version }
+    - { name: Control plane, path: .status.controlPlane.readyReplicas, type: number }
+    - { name: Workers, path: .status.workers.readyReplicas, type: number }
+    - { name: Endpoint, path: .spec.controlPlaneEndpoint.host }
+  status:
+    - when: { path: .spec.paused, equals: true }
+      health: neutral
+      label: Paused
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.failureMessage ?? .status.deprecated.v1beta1.failureMessage }}'
+    - when:
+        any:
+          - { path: '.status.conditions[?(@.type=="Available")].status', equals: 'True' }
+          - { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Available
+    - when: { path: .status.phase, in: [Pending, Provisioning, Deleting] }
+      health: progressing
+      label: '{{ .status.phase }}'
+    - when: { path: '.status.conditions[?(@.type=="Available")].status', equals: 'False' }
+      health: warning
+      label: Not available
+      detail: '{{ .status.conditions[?(@.type=="Available")].message }}'
+    - health: progressing
+      label: '{{ .status.phase ?? "Provisioning" }}'
+  details:
+    - { name: Version, path: .spec.topology.version }
+    - { name: Class, path: .spec.topology.classRef.name }
+    - { name: Phase, path: .status.phase }
+    - { name: Endpoint, path: .spec.controlPlaneEndpoint.host }
+    - { name: Pod CIDRs, path: '.spec.clusterNetwork.pods.cidrBlocks[*]' }
+    - { name: Control plane ready, path: .status.controlPlane.readyReplicas, type: number }
+    - { name: Control plane wanted, path: .status.controlPlane.desiredReplicas, type: number }
+    - { name: Workers ready, path: .status.workers.readyReplicas, type: number }
+    - { name: Workers wanted, path: .status.workers.desiredReplicas, type: number }
+  links:
+    - name: Control plane
+      kind: '{{ .spec.controlPlaneRef.kind }}.controlplane.cluster.x-k8s.io'
+      objectName: '{{ .spec.controlPlaneRef.name }}'
+  related:
+    - name: Machine deployments
+      kind: MachineDeployment.cluster.x-k8s.io
+      labels: { cluster.x-k8s.io/cluster-name: '{{ .metadata.name }}' }
+    - name: Machines
+      kind: Machine.cluster.x-k8s.io
+      labels: { cluster.x-k8s.io/cluster-name: '{{ .metadata.name }}' }
+  actions:
+    - name: Pause
+      when: { path: .spec.paused, notEquals: true }
+      confirm: Cluster API stops reconciling it, its machines included, until it's resumed.
+      patch: { spec: { paused: true } }
+      undo: { spec: { paused: false } }
+      done: Paused {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.paused, equals: true }
+      patch: { spec: { paused: false } }
+      undo: { spec: { paused: true } }
+      done: Resumed {{ .metadata.name }}
+---
+# Groups of machines, scaled like Deployments (their scale subresource).
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cluster-api-machine-groups
+spec:
+  kinds:
+    - { group: cluster.x-k8s.io, kind: MachineDeployment }
+    - { group: cluster.x-k8s.io, kind: MachineSet }
+    - { group: cluster.x-k8s.io, kind: MachinePool }
+  icon: server
+  columns:
+    - { name: Cluster, path: .spec.clusterName }
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Ready, path: .status.readyReplicas, type: number, default: '0' }
+    - { name: Version, path: .spec.template.spec.version }
+  status:
+    - when:
+        any:
+          - { path: '.status.conditions[?(@.type=="Available")].status', equals: 'True' }
+          - { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Available
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+    - when:
+        any:
+          - { path: '.status.conditions[?(@.type=="Available")].status', equals: 'False' }
+          - { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: warning
+      label: Not available
+      detail: >-
+        {{ .status.conditions[?(@.type=="Available")].message ??
+        .status.conditions[?(@.type=="Ready")].message }}
+    - health: progressing
+      label: '{{ .status.phase ?? "Scaling" }}'
+  details:
+    - { name: Cluster, path: .spec.clusterName }
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Ready, path: .status.readyReplicas, type: number, default: '0' }
+    - { name: Up to date, path: .status.upToDateReplicas, type: number }
+    - { name: Phase, path: .status.phase }
+  links:
+    - name: Cluster
+      kind: Cluster.cluster.x-k8s.io
+      objectName: '{{ .spec.clusterName }}'
+  related:
+    - name: Machines
+      kind: Machine.cluster.x-k8s.io
+      labels: { cluster.x-k8s.io/deployment-name: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cluster-api-control-planes
+spec:
+  kinds:
+    - { group: controlplane.cluster.x-k8s.io, kind: KubeadmControlPlane }
+  icon: server-cog
+  columns:
+    - { name: Cluster, path: ".metadata.labels['cluster.x-k8s.io/cluster-name']" }
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Ready, path: .status.readyReplicas, type: number, default: '0' }
+    - { name: Version, path: .spec.version }
+  status:
+    - when:
+        any:
+          - { path: '.status.conditions[?(@.type=="Available")].status', equals: 'True' }
+          - { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Available
+    - when:
+        any:
+          - { path: '.status.conditions[?(@.type=="Available")].status', equals: 'False' }
+          - { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: warning
+      label: Not available
+      detail: >-
+        {{ .status.conditions[?(@.type=="Available")].message ??
+        .status.conditions[?(@.type=="Ready")].message }}
+    - health: progressing
+      label: Initializing
+  details:
+    - { name: Version, path: .spec.version }
+    - { name: Replicas, path: .spec.replicas, type: number }
+    - { name: Ready, path: .status.readyReplicas, type: number, default: '0' }
+    - { name: Up to date, path: .status.upToDateReplicas, type: number }
+    - { name: Rollout strategy, path: .spec.rollout.strategy.type }
+  links:
+    - name: Cluster
+      kind: Cluster.cluster.x-k8s.io
+      objectName: "{{ .metadata.labels['cluster.x-k8s.io/cluster-name'] }}"
+  related:
+    - name: Machines
+      kind: Machine.cluster.x-k8s.io
+      labels: { cluster.x-k8s.io/control-plane-name: '{{ .metadata.name }}' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cluster-api-machines
+spec:
+  kinds:
+    - { group: cluster.x-k8s.io, kind: Machine }
+  icon: server
+  columns:
+    - { name: Cluster, path: .spec.clusterName }
+    - { name: Node, path: .status.nodeRef.name }
+    - { name: Version, path: .spec.version }
+    - { name: Provider ID, path: .spec.providerID }
+  status:
+    - when: { path: .status.phase, equals: Running }
+      health: healthy
+      label: Running
+    - when: { path: .status.phase, equals: Failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.failureMessage ?? .status.deprecated.v1beta1.failureMessage }}'
+    - when: { path: .status.phase, exists: true }
+      health: progressing
+      label: '{{ .status.phase }}'
+  details:
+    - { name: Node, path: .status.nodeRef.name }
+    - { name: Version, path: .spec.version }
+    - { name: Provider ID, path: .spec.providerID }
+    - { name: Addresses, path: '.status.addresses[*].address' }
+    - { name: Failure domain, path: .spec.failureDomain }
+  links:
+    - name: Cluster
+      kind: Cluster.cluster.x-k8s.io
+      objectName: '{{ .spec.clusterName }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cluster-api-health-checks
+spec:
+  kinds:
+    - { group: cluster.x-k8s.io, kind: MachineHealthCheck }
+  icon: activity
+  columns:
+    - { name: Cluster, path: .spec.clusterName }
+    - { name: Machines, path: .status.expectedMachines, type: number }
+    - { name: Healthy, path: .status.currentHealthy, type: number }
+  status:
+    - when: { path: .status.remediationsAllowed, equals: 0 }
+      health: warning
+      label: Not remediating
+      detail: Too many machines are unhealthy for it to replace any.
+  links:
+    - name: Cluster
+      kind: Cluster.cluster.x-k8s.io
+      objectName: '{{ .spec.clusterName }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: cluster-api-cluster-classes
+spec:
+  kinds:
+    - { group: cluster.x-k8s.io, kind: ClusterClass }
+  icon: layers
+  columns:
+    - { name: Workers, path: '.spec.workers.machineDeployments[*].class' }
+    - { name: Variables, path: '.spec.variables[*].name' }

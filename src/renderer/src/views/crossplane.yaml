@@ -1,5 +1,19 @@
 # Crossplane (https://crossplane.io): the packages that extend it.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: crossplane
+spec:
+  label: Crossplane
+  icon: cloud
+  kinds:
+    - { group: pkg.crossplane.io, kind: Provider }
+    - { group: pkg.crossplane.io, kind: Configuration }
+    - { group: pkg.crossplane.io, kind: Function }
+    - { group: apiextensions.crossplane.io, kind: CompositeResourceDefinition }
+    - { group: apiextensions.crossplane.io, kind: Composition }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: crossplane-packages

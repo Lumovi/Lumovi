@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
-import { expect, mockOpenExternal, openCluster, panel, row, test } from './fixtures.ts'
+import { expect, mockOpenExternal, openCluster, panel, row, rows, test } from './fixtures.ts'
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 
@@ -186,6 +186,51 @@ spec:
     - { name: Do, patch: text }
     - { name: Do2, type: json, patch: { spec: {} } }
     - { name: Do3, patch: { a: 1 }, undo: [{ op: add }] }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata: { name: wrong-relations }
+spec:
+  kinds: [{ group: example.com, kind: Gadget }, { kind: '*' }]
+  related:
+    - { name: Everything, kind: Pod }
+    - { name: Listed, kind: Pod, labels: [1] }
+    - { name: Counted, kind: Pod, labels: { a: 5 } }
+  actions:
+    - { name: Neither }
+    - name: Both
+      patch: { a: 1 }
+      create: { apiVersion: v1, kind: ConfigMap, metadata: { name: x } }
+    - { name: Kindless, create: { apiVersion: v1, metadata: { name: x } } }
+    - { name: Nameless, create: { apiVersion: v1, kind: ConfigMap } }
+    - name: Undone
+      create: { apiVersion: v1, kind: ConfigMap, metadata: { generateName: x- } }
+      undo: { a: 1 }
+    - { name: Unasked, patch: { a: '{{ input.missing }}' } }
+    - { name: Unasking, inputs: [], patch: { a: 1 } }
+    - name: Badly asked
+      patch: { a: 1 }
+      inputs:
+        - { name: two words, label: X }
+        - { name: c, label: C, type: choice }
+        - { name: t, label: T, options: [a] }
+        - { name: d, label: D, type: choice, options: [a], from: .x }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata: { name: pods-too }
+spec:
+  label: Pods too
+  kinds: [{ kind: Pod }]
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata: { name: messy }
+spec:
+  label: Messy
+  category: workloads
+  colour: blue
+  kinds: []
 `
 
 test('your own views: they replace KubeStacks’, and what’s wrong with them is shown', async ({
@@ -205,7 +250,7 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   const problems = page.getByRole('list', { name: 'View problems' })
   for (const problem of [
-    'broken.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View',
+    'broken.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View or AddOn',
     'broken.yaml (document 2): needs metadata.name',
     'broken.yaml (document 3): ',
     'broken.yaml (document 5): not-a-map: spec: should be a map of fields, not a list',
@@ -240,6 +285,25 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
     'spec.actions[0].patch: should be a patch (an object or a list), not a string',
     'spec.actions[1]: patches are an object for type merge, and a list for type json',
     'spec.actions[2]: patches are an object for type merge, and a list for type json',
+    'wrong-relations: spec.kinds[1]: every kind (*) is of a group: name it',
+    'wrong-relations: spec.related[0]: needs labels or a fieldSelector to find them',
+    'spec.related[1].labels: should be a map of fields, not a list',
+    'spec.related[2].labels.a: should be text, not a number',
+    'spec.actions[0]: needs a patch, or an object to create (not both)',
+    'spec.actions[1]: needs a patch, or an object to create (not both)',
+    'spec.actions[2]: what it creates needs an apiVersion, a kind, and a metadata.name or generateName',
+    'spec.actions[3]: what it creates needs an apiVersion',
+    'spec.actions[4]: can’t undo creating something',
+    'spec.actions[5]: {{ input.missing }} isn’t one of its inputs',
+    'spec.actions[6].inputs: should not be empty',
+    'spec.actions[7].inputs[0]: "two words" should be letters, digits and _, like replicas',
+    'spec.actions[7].inputs[1]: a choice needs options, or a path to read them from',
+    'spec.actions[7].inputs[2]: only a choice has options',
+    'spec.actions[7].inputs[3]: a choice needs options, or a path to read them from',
+    'pods-too: spec: Pod has a page of its own, so it can’t be in an add-on',
+    'messy: spec.category: should be one of cluster, network, config, storage, not "workloads"',
+    'messy: spec.colour: isn’t something an add-on has',
+    'messy: spec.kinds: should not be empty',
     'huge.yaml: It’s larger than 256 KB.',
   ]) {
     await expect(problems).toContainText(problem)
@@ -365,8 +429,381 @@ test('views live in ~/.kubestacks/views unless KUBESTACKS_VIEWS_DIR says otherwi
   // Only the user's view has something wrong with it, not KubeStacks' own.
   await expect(page.getByRole('alert')).toContainText('A view couldn’t be used')
   await expect(page.getByRole('list', { name: 'View problems' }).getByRole('listitem')).toHaveText([
-    'mine.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View',
+    'mine.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View or AddOn',
   ])
   await page.getByRole('button', { name: 'How to write a view' }).click()
   await expect.poll(opened).toEqual(['https://docs.kubestacks.com/custom-resources/write-a-view'])
+})
+
+/** Widgets related to what they need, and actions that ask first or make something new. */
+const WORKSHOP = String.raw`
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: widget-workshop
+spec:
+  kinds:
+    - { group: example.com, kind: Widget }
+  related:
+    - name: Storefront
+      kind: Pod
+      labels: { app.kubernetes.io/name: '{{ .spec.app ?? "storefront" }}' }
+      namespace: '{{ .spec.missing ?? "shop" }}'
+    - name: On worker-1
+      kind: Pod
+      fieldSelector: spec.nodeName=worker-1
+    - name: Settings
+      kind: ConfigMap
+      labels: { widget: '{{ .metadata.name }}' }
+      namespace: '{{ .spec.missing }}'
+    - name: Nodes
+      kind: Node
+      labels: { kubernetes.io/os: linux }
+    - name: Things
+      kind: Thing.example.com
+      labels: { widget: '{{ .metadata.name }}' }
+    - name: Owners
+      kind: Secret
+      labels: { owner: '{{ .spec.missing }}' }
+    - name: Placed
+      kind: Pod
+      fieldSelector: 'spec.nodeName={{ .spec.missing }},status.phase=Running'
+  actions:
+    - name: Resize
+      icon: gauge
+      inputs:
+        - { name: size, label: New size, type: number, default: '{{ .spec.size }}' }
+        - { name: unit, label: Unit, type: choice, options: [cm, in] }
+        - { name: part, label: Part, type: choice, from: '.spec.parts[*].name', default: gear }
+        - { name: note, label: Note, default: '{{ .spec.missing }}' }
+      # A number on its own is a number, but annotations are always text.
+      patch:
+        metadata:
+          annotations: { example.com/resized-to: '{{ input.size }}' }
+        spec:
+          size: '{{ input.size }}'
+          unit: '{{ input.unit }}'
+          part: '{{ input.part }}'
+          note: '{{ input.note }}'
+          previous: null
+      undo: { spec: { size: 3 } }
+      done: Resized {{ .metadata.name }} to {{ input.size }} {{ input.unit }}
+    - name: Count
+      inputs: [{ name: n, label: How many, type: number }]
+      confirm: Counts to {{ input.n ?? "nothing" }}.
+      patch: { spec: { count: '{{ input.n }}' } }
+    - name: Pick an alias
+      inputs: [{ name: alias, label: Alias, type: choice, from: .spec.nothing }]
+      patch: { spec: { alias: '{{ input.alias }}' } }
+    - name: Clone
+      icon: package
+      create:
+        apiVersion: example.com/v1
+        kind: Widget
+        metadata:
+          generateName: '{{ .metadata.name }}-copy-'
+          labels: { app.kubernetes.io/name: widgets, size: '{{ .spec.size }}' }
+        # Values on their own are copied as they are; labels are always text.
+        spec:
+          size: '{{ .spec.size }}'
+          color: '{{ .spec.color }}'
+          aliases: '{{ .spec.aliases[*] }}'
+          parts: '{{ .spec.parts }}'
+          note: '{{ .spec.missing }}'
+          shade: '{{ .spec.missing ?? "plain" }}'
+          tint: '{{ .spec.missing ?? .spec.color }}'
+          copied: '{{ now }}'
+          tags: ['{{ .spec.missing }}', copy]
+      done: Cloned {{ .metadata.name }}
+    - name: Copy to shop
+      create:
+        apiVersion: example.com/v1
+        kind: Widget
+        metadata: { name: '{{ .metadata.name }}-in-shop', namespace: shop }
+        spec: { size: 2 }
+    - name: Give it a namespace
+      create: { apiVersion: v1, kind: Namespace, metadata: { name: '{{ .metadata.name }}-ns' } }
+    - name: Make a thing
+      create: { apiVersion: example.com/v1, kind: Thing, metadata: { name: thing } }
+---
+# Cluster-wide issuers, related to pods in every namespace.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: issuers-and-pods
+spec:
+  kinds:
+    - { group: cert-manager.io, kind: ClusterIssuer }
+  related:
+    - name: Storefront pods
+      kind: Pod
+      labels: { app.kubernetes.io/name: storefront }
+`
+
+async function writeViews(userDataDir: string, files: Record<string, string>) {
+  const views = join(userDataDir, 'views')
+  mkdirSync(views, { recursive: true })
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(views, name), text)
+}
+
+test('related objects: a tab each, and pods with their logs and usage', async ({
+  kubestacks,
+  clusters,
+}) => {
+  const { page, userDataDir } = kubestacks
+  await writeViews(userDataDir, { 'workshop.yaml': WORKSHOP })
+  // More settings than a page shows.
+  for (let i = 0; i < 55; i++) {
+    clusters.demo.upsert({
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: { name: `setting-${i}`, namespace: 'default', labels: { widget: CUSTOM.widget } },
+      data: { value: String(i) },
+    })
+  }
+  await openCluster(page)
+  await openKind(page, 'example.com', 'Widgets')
+  await row(page, 'Widgets', CUSTOM.widget).getByRole('gridcell').nth(1).click()
+  const detail = panel(page, 'Widget', CUSTOM.widget)
+  // A view's pods are its first related pods, named as it says, with their logs and usage.
+  // Lists whose templates find nothing are left out.
+  await expect(detail.getByRole('tab')).toHaveText([
+    'Overview',
+    'Storefront',
+    'Logs',
+    'Metrics',
+    'On worker-1',
+    'Settings',
+    'Nodes',
+    'Things',
+    'Events',
+    'YAML',
+  ])
+  await detail.getByRole('tab', { name: 'Storefront' }).click()
+  await expect(detail.getByRole('grid', { name: 'Pods' })).toContainText('storefront-')
+  await detail.getByRole('tab', { name: 'Logs' }).click()
+  await expect(detail.getByRole('log')).toBeVisible()
+  await detail.getByRole('tab', { name: 'Metrics' }).click()
+  await expect(detail.getByRole('region', { name: 'CPU per pod' })).toBeVisible()
+
+  // Other related lists have their kind's columns: pods' and nodes' with their usage.
+  await detail.getByRole('tab', { name: 'On worker-1' }).click()
+  await expect(detail.getByRole('grid', { name: 'On worker-1' })).toContainText('Running')
+  // A list that can't be read says why, and can be tried again.
+  const nodesFault = clusters.demo.fail('/api/v1/nodes', { status: 500 })
+  await detail.getByRole('tab', { name: 'Nodes' }).click()
+  await expect(detail.getByRole('button', { name: 'Try again' })).toBeVisible()
+  nodesFault()
+  await detail.getByRole('button', { name: 'Try again' }).click()
+  await expect(detail.getByRole('grid', { name: 'Nodes' }).getByRole('meter')).not.toHaveCount(0)
+  await detail.getByRole('tab', { name: 'Things' }).click()
+  await expect(detail).toContainText('This cluster doesn’t serve Thing.')
+  await detail.getByRole('tab', { name: 'Settings' }).click()
+  const settings = detail.getByRole('grid', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  await expect(detail.getByRole('navigation', { name: 'Pagination' })).toContainText('1–50 of 55')
+  await detail.getByRole('button', { name: 'Next page' }).click()
+  await expect(detail.getByRole('navigation', { name: 'Pagination' })).toContainText('51–55 of 55')
+  // Opening one opens it in the panel.
+  await rows(page, 'Settings').first().getByRole('gridcell').first().click()
+  await expect(page.getByRole('complementary', { name: /^ConfigMap setting-/ })).toBeVisible()
+  await page.goBack()
+
+  // A widget whose pods can't be listed for their usage, and then aren't running at all.
+  clusters.demo.upsert({
+    apiVersion: 'example.com/v1',
+    kind: 'Widget',
+    metadata: { name: 'idle-widget', namespace: 'default' },
+    spec: { size: 1, app: 'nothing-here' },
+  })
+  const fault = clusters.demo.fail('/api/v1/namespaces/shop/pods', { status: 500 })
+  await page.getByRole('button', { name: /^Refresh/ }).click()
+  await row(page, 'Widgets', 'idle-widget').getByRole('gridcell').nth(1).click()
+  const idle = panel(page, 'Widget', 'idle-widget')
+  await idle.getByRole('tab', { name: 'Metrics' }).click()
+  await expect(idle.getByRole('button', { name: 'Try again' })).toBeVisible()
+  fault()
+  await idle.getByRole('button', { name: 'Try again' }).click()
+  await expect(idle).toContainText('so there’s no usage to chart')
+  await idle.getByRole('tab', { name: 'Storefront' }).click()
+  await expect(idle).toContainText('Nothing is running for this right now.')
+  await idle.getByRole('tab', { name: 'Settings' }).click()
+  await expect(idle).toContainText('No settings')
+  await expect(idle).toContainText('No configmaps match widget=idle-widget right now.')
+
+  // A cluster-wide object's pods are found in every namespace.
+  await openKind(page, 'cert-manager.io', 'ClusterIssuers')
+  await row(page, 'ClusterIssuers', CUSTOM.clusterIssuers.production)
+    .getByRole('gridcell')
+    .nth(1)
+    .click()
+  const issuer = panel(page, 'ClusterIssuer', CUSTOM.clusterIssuers.production)
+  await issuer.getByRole('tab', { name: 'Storefront pods' }).click()
+  await expect(issuer.getByRole('grid', { name: 'Pods' })).toContainText('shop')
+})
+
+test('view actions that ask for values, and ones that create objects', async ({
+  kubestacks,
+  clusters,
+}) => {
+  const { page, userDataDir } = kubestacks
+  await writeViews(userDataDir, { 'workshop.yaml': WORKSHOP })
+  await openCluster(page)
+  await openKind(page, 'example.com', 'Widgets')
+  await row(page, 'Widgets', CUSTOM.widget).getByRole('gridcell').nth(1).click()
+  const path = `/apis/example.com/v1/namespaces/default/widgets/${CUSTOM.widget}`
+
+  // Values it asks for start as its defaults say: a number, choices, and text to fill in.
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Resize…')
+  const form = dialog(page)
+  await expect(form.getByRole('textbox', { name: 'New size' })).toHaveValue('3')
+  await expect(form.getByRole('radio', { name: 'cm' })).toBeChecked()
+  await expect(form.getByRole('radio', { name: 'gear' })).toBeChecked()
+  const resize = form.getByRole('button', { name: 'Resize', exact: true })
+  await expect(resize).toBeDisabled()
+  await form.getByLabel('Note').fill('bigger')
+  await form.getByRole('textbox', { name: 'New size' }).fill('')
+  await expect(resize).toBeDisabled()
+  await form.getByRole('textbox', { name: 'New size' }).fill('3')
+  await form.getByRole('button', { name: 'Increase new size' }).click()
+  await form.getByRole('radio', { name: 'in' }).check()
+  await form.getByRole('radio', { name: 'bolt' }).check()
+  await expect(form).toContainText('"size":4')
+  await resize.click()
+  await expect(toasts(page)).toContainText('Resized blue-widget to 4 in')
+  expect(writes(clusters.demo, 'PATCH', path).at(-1)!.body).toEqual({
+    metadata: { annotations: { 'example.com/resized-to': '4' } },
+    spec: { size: 4, unit: 'in', part: 'bolt', note: 'bigger', previous: null },
+  })
+
+  // Its text can fall back when a value is left out.
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Count…')
+  await expect(form).toContainText('Counts to 0.')
+  await form.getByRole('textbox', { name: 'How many' }).fill('')
+  await expect(form).toContainText('Counts to nothing.')
+  await form.getByRole('textbox', { name: 'How many' }).fill('5')
+  await form.getByRole('button', { name: 'Count', exact: true }).click()
+  await expect(toasts(page)).toContainText('Count: blue-widget')
+
+  // A choice of nothing can't be made.
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Pick an alias…')
+  await expect(form).toContainText('There’s nothing to choose from.')
+  await expect(form.getByRole('button', { name: 'Pick an alias' })).toBeDisabled()
+  await form.getByRole('button', { name: 'Cancel' }).click()
+
+  // What it creates is shown first, named as the API server would, and opened afterwards.
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Clone…')
+  await expect(form).toContainText(/Creates Widget blue-widget-copy-\w{5}/)
+  await expect(form.getByRole('code').last()).toContainText(
+    /kubectl create -f blue-widget-copy-\w{5}\.yaml -n default/,
+  )
+  await expect(form.getByLabel('Widget to create')).toContainText('color: blue')
+  await expect(form.getByLabel('Widget to create')).not.toContainText('note')
+  await form.getByRole('button', { name: 'Clone', exact: true }).click()
+  await expect(toasts(page)).toContainText('Cloned blue-widget')
+  const created = writes(clusters.demo, 'POST', '/apis/example.com/v1/namespaces/default/widgets')
+  const clone = created.at(-1)!.body
+  expect(clone).toMatchObject({
+    metadata: {
+      name: expect.stringMatching(/^blue-widget-copy-\w{5}$/),
+      namespace: 'default',
+      // (Resized to 4 above.)
+      labels: { 'app.kubernetes.io/name': 'widgets', size: '4' },
+    },
+  })
+  expect(clone.spec).toEqual({
+    size: 4,
+    color: 'blue',
+    aliases: ['bw', 'blu'],
+    parts: [
+      { name: 'bolt', count: 4, spare: false },
+      { name: 'gear', count: 2, spare: true },
+    ],
+    shade: 'plain',
+    tint: 'blue',
+    copied: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/),
+    tags: ['copy'],
+  })
+  await toasts(page).getByRole('button', { name: 'Open' }).first().click()
+  await expect(page.getByRole('complementary', { name: /^Widget blue-widget-copy-/ })).toBeVisible()
+  await page.goBack()
+
+  // Elsewhere when it says so, and nowhere for kinds without namespaces.
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Copy to shop…')
+  await form.getByRole('button', { name: 'Copy to shop', exact: true }).click()
+  await expect(toasts(page)).toContainText('Copy to shop: blue-widget')
+  expect(
+    writes(clusters.demo, 'POST', '/apis/example.com/v1/namespaces/shop/widgets'),
+  ).toHaveLength(1)
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Give it a namespace…')
+  await form.getByRole('button', { name: 'Give it a namespace', exact: true }).click()
+  await expect(toasts(page)).toContainText('Give it a namespace: blue-widget')
+  expect(writes(clusters.demo, 'POST', '/api/v1/namespaces').at(-1)!.body).toMatchObject({
+    metadata: { name: 'blue-widget-ns' },
+  })
+
+  // A kind the cluster doesn't serve can't be created: the dialog says why.
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Make a thing…')
+  await form.getByRole('button', { name: 'Make a thing', exact: true }).click()
+  await expect(form.getByRole('alert')).toBeVisible()
+})
+
+test('add-ons of your own, and ones that replace KubeStacks’', async ({ kubestacks }) => {
+  const { page, userDataDir } = kubestacks
+  await writeViews(userDataDir, {
+    'add-ons.yaml': `
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata: { name: flux }
+spec:
+  label: GitOps
+  icon: git-branch
+  kinds:
+    - { group: kustomize.toolkit.fluxcd.io, kind: Kustomization }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata: { name: toys }
+spec:
+  label: Toys
+  category: config
+  kinds:
+    - { group: example.com, kind: Widget }
+    - { group: example.com, kind: Database }
+`,
+    // A view for every kind of a group.
+    'example.yaml': `
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata: { name: everything-example }
+spec:
+  kinds:
+    - { group: example.com, kind: '*' }
+  columns:
+    - { name: Made of, path: .spec.engine }
+`,
+  })
+  await openCluster(page)
+  const nav = sidebar(page)
+  await expect(nav.getByRole('link', { name: 'GitOps', exact: true })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Flux', exact: true })).toHaveCount(0)
+  // One that says where it goes sits there, with the custom resources' icon if it has none.
+  const links = await nav.getByRole('link').allTextContents()
+  expect(links.findIndex((text) => text.trim() === 'Toys')).toBe(
+    // (Kubernetes' own kinds' links end with their shortcut.)
+    links.findIndex((text) => text.trim().startsWith('Secrets')) + 1,
+  )
+  await nav.getByRole('link', { name: 'Toys', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Toys')
+  await expect(page.getByRole('navigation', { name: 'Toys' })).toContainText('AllWidgets')
+  await page
+    .getByRole('navigation', { name: 'Toys' })
+    .getByRole('link', { name: /^Databases/ })
+    .click()
+  await expect(
+    page.getByRole('grid', { name: 'Databases' }).getByRole('columnheader', { name: 'Made of' }),
+  ).toBeVisible()
+  await nav.getByRole('link', { name: 'GitOps', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: 'GitOps' })).toContainText('AllKustomizations3')
+  await expect(page.getByRole('navigation', { name: 'GitOps' })).not.toContainText('HelmReleases')
 })

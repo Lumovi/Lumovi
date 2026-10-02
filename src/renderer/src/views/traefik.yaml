@@ -1,0 +1,65 @@
+# Traefik (https://traefik.io): its routes, and what they pass requests through.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: traefik
+spec:
+  label: Traefik
+  icon: signpost
+  category: network
+  kinds:
+    - { group: traefik.io, kind: IngressRoute }
+    - { group: traefik.io, kind: Middleware }
+    - { group: traefik.io, kind: IngressRouteTCP }
+    - { group: traefik.io, kind: IngressRouteUDP }
+    - { group: traefik.io, kind: MiddlewareTCP }
+    - { group: traefik.io, kind: TraefikService }
+    - { group: traefik.io, kind: TLSOption }
+    - { group: traefik.io, kind: ServersTransport }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: traefik-routes
+spec:
+  kinds:
+    - { group: traefik.io, kind: IngressRoute }
+    - { group: traefik.io, kind: IngressRouteTCP }
+    - { group: traefik.io, kind: IngressRouteUDP }
+  icon: route
+  columns:
+    - { name: Entry points, path: '.spec.entryPoints[*]' }
+    - { name: Rules, path: '.spec.routes[*].match' }
+    - { name: Services, path: '.spec.routes[*].services[*].name' }
+    - { name: TLS secret, path: .spec.tls.secretName }
+  details:
+    - { name: Entry points, path: '.spec.entryPoints[*]' }
+    - { name: Rules, path: '.spec.routes[*].match' }
+    - { name: Services, path: '.spec.routes[*].services[*].name' }
+    - { name: Middlewares, path: '.spec.routes[*].middlewares[*].name' }
+    - { name: TLS secret, path: .spec.tls.secretName }
+    - { name: Certificate resolver, path: .spec.tls.certResolver }
+  links:
+    - name: TLS secret
+      kind: Secret
+      objectName: '{{ .spec.tls.secretName }}'
+    - name: Service
+      kind: Service
+      objectName: '{{ .spec.routes[0].services[0].name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: traefik-middlewares
+spec:
+  kinds:
+    - { group: traefik.io, kind: Middleware }
+    - { group: traefik.io, kind: MiddlewareTCP }
+  icon: layers
+  details:
+    - { name: Redirects to, path: .spec.redirectScheme.scheme }
+    - { name: Strips prefixes, path: '.spec.stripPrefix.prefixes[*]' }
+    - { name: Rate, path: .spec.rateLimit.average, type: number }
+    - { name: Allowed sources, path: '.spec.ipAllowList.sourceRange[*]' }
+    - { name: Forwards auth to, path: .spec.forwardAuth.address }
+    - { name: Chains, path: '.spec.chain.middlewares[*].name' }

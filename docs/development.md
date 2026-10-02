@@ -31,6 +31,8 @@ npm run dev:server # KubeStacks served, as in a cluster, against the demo cluste
 | `npm run coverage`                      | The above, plus a coverage report in `coverage/`              |
 | `npm run coverage:check`                | Fail unless every file, line, branch and function is covered  |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
+| `npm run views:check`                   | Check KubeStacks' views against the CRDs of their tools       |
+| `npm run crds`                          | Fetch those CRDs again, at the versions `sources.json` pins   |
 | `npm run package`                       | Build an unpacked app for this platform in `release/`         |
 | `npm run dist`                          | Build installers for this platform                            |
 | `npm run screenshots`                   | Take the screenshots in `docs/screenshots` again              |
@@ -49,6 +51,7 @@ charts/       The Helm chart that runs the server (its image: Dockerfile)
 tests/
   e2e/            Playwright tests that drive the real Electron app
   web/            The served app in Chromium, and the server's HTTP and WebSocket
+  views/          KubeStacks' views, checked against the CRDs of their tools (crds/)
   mock-cluster/   A mock Kubernetes API server with realistic demo clusters
   mock-oidc/      A small OpenID Connect provider, for single sign-on
   integration/    The same app (and the image, with the chart) against a real kind cluster

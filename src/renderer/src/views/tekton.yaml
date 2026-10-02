@@ -1,0 +1,215 @@
+# Tekton (https://tekton.dev): pipelines and tasks, and their runs.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: tekton
+spec:
+  label: Tekton
+  icon: workflow
+  kinds:
+    - { group: tekton.dev, kind: PipelineRun }
+    - { group: tekton.dev, kind: TaskRun }
+    - { group: tekton.dev, kind: Pipeline }
+    - { group: tekton.dev, kind: Task }
+---
+# Runs report how they're doing in their Succeeded condition.
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: tekton-pipeline-runs
+spec:
+  kinds:
+    - { group: tekton.dev, kind: PipelineRun }
+  icon: workflow
+  columns:
+    - { name: Pipeline, path: .spec.pipelineRef.name }
+    - { name: Started, path: .status.startTime, type: date }
+    - { name: Finished, path: .status.completionTime, type: date }
+  status:
+    - when: { path: .spec.status, equals: PipelineRunPending }
+      health: neutral
+      label: Pending
+    - when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'True' }
+      health: healthy
+      label: Succeeded
+    - when:
+        all:
+          - { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'False' }
+          - path: '.status.conditions[?(@.type=="Succeeded")].reason'
+            in: [Cancelled, PipelineRunCancelled, CancelledRunFinally, StoppedRunFinally]
+      health: neutral
+      label: Cancelled
+      detail: '{{ .status.conditions[?(@.type=="Succeeded")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Succeeded")].reason ?? "Failed" }}'
+      detail: '{{ .status.conditions[?(@.type=="Succeeded")].message }}'
+    - health: progressing
+      label: '{{ .status.conditions[?(@.type=="Succeeded")].reason ?? "Starting" }}'
+      detail: '{{ .status.conditions[?(@.type=="Succeeded")].message }}'
+  details:
+    - { name: Pipeline, path: .spec.pipelineRef.name }
+    - { name: Parameters, path: '.spec.params[*].name' }
+    - { name: Service account, path: .spec.taskRunTemplate.serviceAccountName }
+    - { name: Timeout, path: .spec.timeouts.pipeline, default: 1h (the default) }
+    - { name: Started, path: .status.startTime, type: date }
+    - { name: Finished, path: .status.completionTime, type: date }
+    - { name: Skipped tasks, path: '.status.skippedTasks[*].name' }
+  links:
+    - name: Pipeline
+      kind: Pipeline.tekton.dev
+      objectName: '{{ .spec.pipelineRef.name }}'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { tekton.dev/pipelineRun: '{{ .metadata.name }}' }
+    - name: Task runs
+      kind: TaskRun.tekton.dev
+      labels: { tekton.dev/pipelineRun: '{{ .metadata.name }}' }
+  actions:
+    - name: Stop
+      when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: Unknown }
+      confirm: No more tasks start; the running ones finish, and then its finally tasks run.
+      patch: { spec: { status: StoppedRunFinally } }
+      done: Stopping {{ .metadata.name }}
+    - name: Cancel
+      danger: true
+      when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: Unknown }
+      confirm: Its running tasks are stopped at once, and its finally tasks don't run.
+      patch: { spec: { status: Cancelled } }
+      done: Cancelled {{ .metadata.name }}
+    - name: Run again
+      icon: refresh-cw
+      when:
+        any:
+          - { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'True' }
+          - { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'False' }
+      create:
+        apiVersion: tekton.dev/v1
+        kind: PipelineRun
+        metadata:
+          generateName: '{{ .spec.pipelineRef.name ?? .metadata.name }}-run-'
+        spec:
+          pipelineRef: '{{ .spec.pipelineRef }}'
+          pipelineSpec: '{{ .spec.pipelineSpec }}'
+          params: '{{ .spec.params }}'
+          workspaces: '{{ .spec.workspaces }}'
+          taskRunTemplate: '{{ .spec.taskRunTemplate }}'
+          taskRunSpecs: '{{ .spec.taskRunSpecs }}'
+          timeouts: '{{ .spec.timeouts }}'
+      done: Ran {{ .spec.pipelineRef.name ?? .metadata.name }} again
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: tekton-task-runs
+spec:
+  kinds:
+    - { group: tekton.dev, kind: TaskRun }
+  icon: play
+  columns:
+    - { name: Task, path: .spec.taskRef.name }
+    - { name: Pipeline run, path: ".metadata.labels['tekton.dev/pipelineRun']" }
+    - { name: Started, path: .status.startTime, type: date }
+    - { name: Finished, path: .status.completionTime, type: date }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'True' }
+      health: healthy
+      label: Succeeded
+    - when:
+        all:
+          - { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'False' }
+          - { path: '.status.conditions[?(@.type=="Succeeded")].reason', equals: TaskRunCancelled }
+      health: neutral
+      label: Cancelled
+      detail: '{{ .status.conditions[?(@.type=="Succeeded")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Succeeded")].reason ?? "Failed" }}'
+      detail: '{{ .status.conditions[?(@.type=="Succeeded")].message }}'
+    - health: progressing
+      label: '{{ .status.conditions[?(@.type=="Succeeded")].reason ?? "Starting" }}'
+      detail: '{{ .status.conditions[?(@.type=="Succeeded")].message }}'
+  details:
+    - { name: Task, path: .spec.taskRef.name }
+    - { name: Steps, path: '.status.steps[*].name' }
+    - { name: Retries, path: .spec.retries, type: number, default: '0' }
+    - { name: Timeout, path: .spec.timeout, default: 1h (the default) }
+    - { name: Started, path: .status.startTime, type: date }
+    - { name: Finished, path: .status.completionTime, type: date }
+  links:
+    - name: Task
+      kind: Task.tekton.dev
+      objectName: '{{ .spec.taskRef.name }}'
+    - name: Pipeline run
+      kind: PipelineRun.tekton.dev
+      objectName: "{{ .metadata.labels['tekton.dev/pipelineRun'] }}"
+    - name: Pod
+      kind: Pod
+      objectName: '{{ .status.podName }}'
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { tekton.dev/taskRun: '{{ .metadata.name }}' }
+  actions:
+    - name: Cancel
+      danger: true
+      when: { path: '.status.conditions[?(@.type=="Succeeded")].status', equals: Unknown }
+      confirm: Its steps are stopped at once.
+      patch: { spec: { status: TaskRunCancelled } }
+      done: Cancelled {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: tekton-pipelines
+spec:
+  kinds:
+    - { group: tekton.dev, kind: Pipeline }
+  icon: workflow
+  columns:
+    - { name: Tasks, path: .spec.tasks, type: count }
+    - { name: Parameters, path: '.spec.params[*].name' }
+    - { name: Description, path: .spec.description }
+  details:
+    - { name: Tasks, path: '.spec.tasks[*].name' }
+    - { name: Finally, path: '.spec.finally[*].name' }
+    - { name: Parameters, path: '.spec.params[*].name' }
+    - { name: Workspaces, path: '.spec.workspaces[*].name' }
+  related:
+    - name: Runs
+      kind: PipelineRun.tekton.dev
+      labels: { tekton.dev/pipeline: '{{ .metadata.name }}' }
+  actions:
+    - name: Run
+      icon: rocket
+      primary: true
+      create:
+        apiVersion: tekton.dev/v1
+        kind: PipelineRun
+        metadata:
+          generateName: '{{ .metadata.name }}-run-'
+        spec:
+          pipelineRef: { name: '{{ .metadata.name }}' }
+      done: Started a run of {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: tekton-tasks
+spec:
+  kinds:
+    - { group: tekton.dev, kind: Task }
+  icon: play
+  columns:
+    - { name: Steps, path: .spec.steps, type: count }
+    - { name: Parameters, path: '.spec.params[*].name' }
+    - { name: Description, path: .spec.description }
+  details:
+    - { name: Steps, path: '.spec.steps[*].name' }
+    - { name: Parameters, path: '.spec.params[*].name' }
+    - { name: Results, path: '.spec.results[*].name' }
+  related:
+    - name: Runs
+      kind: TaskRun.tekton.dev
+      labels: { tekton.dev/task: '{{ .metadata.name }}' }

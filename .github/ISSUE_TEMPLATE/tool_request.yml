@@ -1,0 +1,41 @@
+name: Support a tool
+description: Ask for an add-on and views for an operator or tool, or offer to write them
+labels: [enhancement, add-on]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        KubeStacks shows a tool's custom resources through an **add-on** (its entry in the sidebar) and **views** (how each kind is shown). They're YAML, with no code to write: see [Adding a tool](https://github.com/KubeStacks/KubeStacks/blob/main/CONTRIBUTING.md#adding-a-tool).
+  - type: input
+    id: tool
+    attributes:
+      label: Tool
+      description: Its name, and a link to its project.
+      placeholder: Sealed Secrets, https://github.com/bitnami-labs/sealed-secrets
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version you run
+      placeholder: v0.32.0
+  - type: textarea
+    id: kinds
+    attributes:
+      label: Kinds that matter
+      description: Which of its custom resources you look at, and what you want to know about each.
+      placeholder: |
+        SealedSecret: whether it was unsealed, and into which Secret
+    validations:
+      required: true
+  - type: textarea
+    id: actions
+    attributes:
+      label: Actions
+      description: Anything you do to them often, with kubectl or the tool's CLI.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to write the add-on and views myself

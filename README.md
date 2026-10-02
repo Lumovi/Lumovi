@@ -54,8 +54,12 @@ suits you:
   services, ingresses, network policies, config maps, secrets, volumes and the rest. Custom
   resources are found through discovery, with the columns `kubectl get` shows and a status
   read from their conditions; views for cert-manager, Argo CD, Flux, Gateway API, Karpenter,
-  KEDA, Istio, Crossplane and more add the columns, links and actions that matter, and you
-  can write your own.
+  KEDA, Istio, Crossplane and more add the columns, related objects, links and actions that
+  matter, and you can write your own.
+- **Your tools, each in its place.** Every tool the cluster runs gets an entry in the
+  sidebar, with everything of its kinds on one page and what's failing first. Karpenter's
+  shows its node pools against their limits, the nodes they launched, what's being replaced
+  and the pods waiting for a node.
 - **Helm releases.** Every release in the cluster, its values, what it made and how that's
   doing, and every revision with a diff between any two. Upgrade (reviewed as a server-side
   dry run first), roll back, uninstall, or install a chart found on Artifact Hub.
@@ -199,6 +203,10 @@ and the [Changelog](CHANGELOG.md).
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first, and
 [docs/development.md](docs/development.md) to build and test KubeStacks.
+
+A good first contribution is support for a tool you run: an add-on and views, written as YAML
+and checked against the tool's CRDs, with no code to write. See
+[Adding a tool](CONTRIBUTING.md#adding-a-tool).
 
 ## Sponsoring
 

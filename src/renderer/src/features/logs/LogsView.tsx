@@ -552,7 +552,8 @@ export function PodLogs({
   query,
   name,
 }: {
-  namespace: string
+  /** `null` for every namespace. */
+  namespace: string | null
   query: PodQuery
   name: string
 }) {

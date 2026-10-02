@@ -1,0 +1,86 @@
+# VictoriaMetrics operator (https://docs.victoriametrics.com/operator): VictoriaMetrics and
+# VictoriaLogs, what they scrape, and their alerting rules. The operator reports on all of
+# them in status.updateStatus.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: victoriametrics-operator
+spec:
+  label: VictoriaMetrics
+  icon: activity
+  kinds:
+    - { group: operator.victoriametrics.com, kind: VMCluster }
+    - { group: operator.victoriametrics.com, kind: VMSingle }
+    - { group: operator.victoriametrics.com, kind: VMAgent }
+    - { group: operator.victoriametrics.com, kind: VMAlert }
+    - { group: operator.victoriametrics.com, kind: VMAlertmanager }
+    - { group: operator.victoriametrics.com, kind: VMAuth }
+    - { group: operator.victoriametrics.com, kind: VMServiceScrape }
+    - { group: operator.victoriametrics.com, kind: VMPodScrape }
+    - { group: operator.victoriametrics.com, kind: VMRule }
+    - { group: operator.victoriametrics.com, kind: VLSingle }
+    - { group: operator.victoriametrics.com, kind: VLCluster }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: victoriametrics-servers
+spec:
+  kinds:
+    - { group: operator.victoriametrics.com, kind: VMCluster }
+    - { group: operator.victoriametrics.com, kind: VMSingle }
+    - { group: operator.victoriametrics.com, kind: VMAgent }
+    - { group: operator.victoriametrics.com, kind: VMAlert }
+    - { group: operator.victoriametrics.com, kind: VMAlertmanager }
+    - { group: operator.victoriametrics.com, kind: VMAuth }
+    - { group: operator.victoriametrics.com, kind: VLSingle }
+    - { group: operator.victoriametrics.com, kind: VLCluster }
+  icon: activity
+  columns:
+    - { name: Retention, path: .spec.retentionPeriod }
+    - { name: Replicas, path: .spec.replicaCount, type: number }
+  status:
+    - when: { path: .status.updateStatus, equals: operational }
+      health: healthy
+      label: Operational
+    - when: { path: .status.updateStatus, equals: failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.reason }}'
+    - when: { path: .status.updateStatus, equals: paused }
+      health: neutral
+      label: Paused
+    - health: progressing
+      label: '{{ .status.updateStatus ?? "Creating" }}'
+      detail: '{{ .status.reason }}'
+  details:
+    - { name: Retention, path: .spec.retentionPeriod }
+    - { name: Replicas, path: .spec.replicaCount, type: number }
+    - { name: Storage, path: .spec.storage.resources.requests.storage }
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { app.kubernetes.io/instance: '{{ .metadata.name }}', managed-by: vm-operator }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: victoriametrics-scrapes-and-rules
+spec:
+  kinds:
+    - { group: operator.victoriametrics.com, kind: VMServiceScrape }
+    - { group: operator.victoriametrics.com, kind: VMPodScrape }
+    - { group: operator.victoriametrics.com, kind: VMRule }
+  icon: radar
+  columns:
+    - { name: Endpoints, path: '.spec.endpoints[*].port' }
+    - { name: Pod endpoints, path: '.spec.podMetricsEndpoints[*].port' }
+    - { name: Groups, path: '.spec.groups[*].name' }
+  status:
+    - when: { path: .status.updateStatus, equals: failed }
+      health: critical
+      label: Failed
+      detail: '{{ .status.reason }}'
+    - when: { path: .status.updateStatus, equals: operational }
+      health: healthy
+      label: Operational

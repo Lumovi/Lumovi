@@ -1,0 +1,110 @@
+# Linkerd (https://linkerd.io): the mesh's policy (servers, routes and who may reach them) and
+# service profiles.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: linkerd
+spec:
+  label: Linkerd
+  icon: waypoints
+  category: network
+  kinds:
+    - { group: policy.linkerd.io, kind: Server }
+    - { group: policy.linkerd.io, kind: AuthorizationPolicy }
+    - { group: policy.linkerd.io, kind: HTTPRoute }
+    - { group: policy.linkerd.io, kind: MeshTLSAuthentication }
+    - { group: policy.linkerd.io, kind: NetworkAuthentication }
+    - { group: policy.linkerd.io, kind: EgressNetwork }
+    - { group: linkerd.io, kind: ServiceProfile }
+    - { group: policy.linkerd.io, kind: ServerAuthorization }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: linkerd-servers
+spec:
+  kinds:
+    - { group: policy.linkerd.io, kind: Server }
+  icon: server
+  columns:
+    - { name: Port, path: .spec.port }
+    - { name: Protocol, path: .spec.proxyProtocol, default: unknown (detected) }
+    - { name: Pods, path: .spec.podSelector.matchLabels }
+  details:
+    - { name: Port, path: .spec.port }
+    - { name: Protocol, path: .spec.proxyProtocol, default: unknown (detected) }
+    - { name: Pods, path: .spec.podSelector.matchLabels }
+    - { name: Workloads, path: .spec.externalWorkloadSelector.matchLabels }
+    - { name: Access, path: .spec.accessPolicy, default: the default policy }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: linkerd-authorization-policies
+spec:
+  kinds:
+    - { group: policy.linkerd.io, kind: AuthorizationPolicy }
+  icon: lock
+  columns:
+    - { name: Target, path: .spec.targetRef.kind }
+    - { name: Name, path: .spec.targetRef.name }
+    - { name: Requires, path: '.spec.requiredAuthenticationRefs[*].name' }
+  links:
+    - name: Target
+      kind: '{{ .spec.targetRef.kind }}.{{ .spec.targetRef.group ?? "policy.linkerd.io" }}'
+      objectName: '{{ .spec.targetRef.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: linkerd-authentications
+spec:
+  kinds:
+    - { group: policy.linkerd.io, kind: MeshTLSAuthentication }
+    - { group: policy.linkerd.io, kind: NetworkAuthentication }
+  icon: key-round
+  columns:
+    - { name: Identities, path: '.spec.identities[*]' }
+    - { name: Service accounts, path: '.spec.identityRefs[*].name' }
+    - { name: Networks, path: '.spec.networks[*].cidr' }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: linkerd-routes
+spec:
+  kinds:
+    - { group: policy.linkerd.io, kind: HTTPRoute }
+  icon: route
+  columns:
+    - { name: Hostnames, path: '.spec.hostnames[*]' }
+    - { name: Parents, path: '.spec.parentRefs[*].name' }
+  status:
+    - when:
+        path: '.status.parents[*].conditions[?(@.type=="Accepted")].status'
+        equals: 'False'
+      health: critical
+      label: Not accepted
+      detail: '{{ .status.parents[*].conditions[?(@.type=="Accepted")].message }}'
+    - when:
+        path: '.status.parents[*].conditions[?(@.type=="Accepted")].status'
+        equals: 'True'
+      health: healthy
+      label: Accepted
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: linkerd-service-profiles
+spec:
+  kinds:
+    - { group: linkerd.io, kind: ServiceProfile }
+  icon: route
+  columns:
+    - { name: Routes, path: .spec.routes, type: count }
+    - { name: Retry ratio, path: .spec.retryBudget.retryRatio, type: number }
+  details:
+    - { name: Routes, path: '.spec.routes[*].name' }
+    - { name: Retried, path: '.spec.routes[?(@.isRetryable==true)].name' }
+    - { name: Timeouts, path: '.spec.routes[*].timeout' }
+    - { name: Opaque ports, path: '.spec.opaquePorts[*]' }

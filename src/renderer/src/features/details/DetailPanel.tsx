@@ -2,7 +2,7 @@ import { Maximize2, Minimize2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
-import { apiKindOf, kindOf } from '@shared/resources'
+import { apiKindOf, isBuiltinKind, kindOf } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { KindIcon } from '@renderer/components/KindIcon'
@@ -23,6 +23,7 @@ import { EventsTab } from './EventsTab'
 import { LogsView, PodLogs } from '../logs/LogsView'
 import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
+import { RelatedTab, relatedOf } from './RelatedTab'
 import { hasMetrics, MetricsTab } from '../metrics/MetricsTab'
 import { ShellTab } from './ShellTab'
 import { SidePanel, type PanelFrame } from './SidePanel'
@@ -151,7 +152,14 @@ function Detail({
 
 function DetailTabs({ object }: { object: KubeObject }) {
   const kind = kindOf(object)
-  const pods = podQuery(object)
+  // A view's pods are the ones it relates the object to; other related kinds get a tab each.
+  const related = relatedOf(object)
+  const ownPods = related.find((r) => r.kind === 'Pod')
+  const others = related.filter((r) => r !== ownPods)
+  const pods = ownPods
+    ? { labelSelector: ownPods.labelSelector, fieldSelector: ownPods.fieldSelector }
+    : podQuery(object)
+  const podsNamespace = ownPods ? ownPods.namespace : (object.metadata.namespace ?? null)
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
   const editing = useActionsUi((state) => state.editing === ref)
   const requested = useActionsUi((state) => (state.tab?.ref === ref ? state.tab.tab : null))
@@ -166,9 +174,11 @@ function DetailTabs({ object }: { object: KubeObject }) {
   }, [requested, tabShown])
   // Workloads and services have the logs of their pods; a node's would be everything on it.
   const podLogs = pods && kind !== 'Node'
+  // Custom kinds' pods have usage history too, found by name.
+  const metrics = hasMetrics(kind) || (pods && !isBuiltinKind(kind))
   const tabs = [
     { value: 'overview', label: 'Overview' },
-    ...(pods ? [{ value: 'pods', label: 'Pods' }] : []),
+    ...(pods ? [{ value: 'pods', label: ownPods?.name ?? 'Pods' }] : []),
     ...(podLogs ? [{ value: 'logs', label: 'Logs' }] : []),
     ...(kind === 'Pod'
       ? [
@@ -176,7 +186,8 @@ function DetailTabs({ object }: { object: KubeObject }) {
           { value: 'shell', label: 'Shell' },
         ]
       : []),
-    ...(hasMetrics(kind) ? [{ value: 'metrics', label: 'Metrics' }] : []),
+    ...(metrics ? [{ value: 'metrics', label: 'Metrics' }] : []),
+    ...others.map((r, i) => ({ value: `related:${i}`, label: r.name })),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'yaml', label: 'YAML' },
   ]
@@ -195,7 +206,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
       </TabContent>
       {pods && (
         <TabContent value="pods" className={cn(content, 'flex flex-col')}>
-          <PodsTab namespace={object.metadata.namespace} query={pods} />
+          <PodsTab namespace={podsNamespace} query={pods} />
         </TabContent>
       )}
       {kind === 'Pod' && (
@@ -205,11 +216,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
       )}
       {podLogs && (
         <TabContent value="logs" className={cn(content, 'flex flex-col')}>
-          <PodLogs
-            namespace={object.metadata.namespace!}
-            query={pods}
-            name={object.metadata.name}
-          />
+          <PodLogs namespace={podsNamespace} query={pods} name={object.metadata.name} />
         </TabContent>
       )}
       {kind === 'Pod' && (
@@ -217,11 +224,19 @@ function DetailTabs({ object }: { object: KubeObject }) {
           <ShellTab pod={object} />
         </TabContent>
       )}
-      {hasMetrics(kind) && (
+      {metrics && (
         <TabContent value="metrics" className={cn(content, 'flex flex-col')}>
-          <MetricsTab object={object} />
+          <MetricsTab
+            object={object}
+            pods={isBuiltinKind(kind) ? undefined : { query: pods!, namespace: podsNamespace }}
+          />
         </TabContent>
       )}
+      {others.map((r, i) => (
+        <TabContent key={i} value={`related:${i}`} className={cn(content, 'flex flex-col')}>
+          <RelatedTab related={r} />
+        </TabContent>
+      ))}
       {kind !== 'Event' && (
         <TabContent value="events" className={cn(content, 'overflow-y-auto')}>
           <EventsTab object={object} />

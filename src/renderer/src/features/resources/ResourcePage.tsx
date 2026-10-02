@@ -12,6 +12,7 @@ import { IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
+import { useAddOnOf } from '@renderer/hooks/add-ons'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
@@ -23,6 +24,7 @@ import { isWorkloadType } from '@renderer/lib/workloads'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { SelectionBar } from '../actions/BulkActions'
+import { AddOnTabs } from '../add-ons/AddOnPage'
 import { WorkloadTabs } from '../workloads/WorkloadTabs'
 import { columnsFor, customColumnsFor, metricsKey, sortRows, type CellContext } from './columns'
 import { useListState } from './list-state'
@@ -78,6 +80,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const [params] = useSearchParams()
   // Views decide the columns, status and icon of the kinds they cover.
   useViews()
+  const addOn = useAddOnOf(builtin ? undefined : kind)
   const showNamespace = resource.namespaced && namespace === null
   // Built-in kinds know their columns; others learn them, and whether they have a status, from the list.
   const builtinColumns = builtin
@@ -222,6 +225,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   return (
     <div className="relative flex h-full flex-col">
       {isWorkloadType(kind) && <WorkloadTabs current={kind} />}
+      {addOn && <AddOnTabs served={addOn} current={kind} />}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
         <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
           {number.format(items.length)} {items.length === 1 ? 'item' : 'items'}

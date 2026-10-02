@@ -7,6 +7,7 @@ import {
   ChartSpline,
   LayoutDashboard,
   Plus,
+  Puzzle,
   RotateCw,
   Search,
   ShipWheel,
@@ -16,8 +17,9 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { apiKindOf, resourceByPlural } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
-import { KindIcon } from '@renderer/components/KindIcon'
+import { addOnIcon, KindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
+import { useAddOns } from '@renderer/hooks/add-ons'
 import { useResource } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
@@ -33,6 +35,8 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   metrics: ['Metrics', ChartSpline],
   'api-resources': ['API resources', Blocks],
   helm: ['Helm releases', ShipWheel],
+  // An add-on the cluster doesn't have (the others go by their own names).
+  'add-ons': ['Add-ons', Puzzle],
 }
 
 export function Header() {
@@ -46,8 +50,16 @@ export function Header() {
   // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
   const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
   const resource = useResource(kind).resource
+  // An add-on's page is add-ons/<name>; its kinds' are theirs.
+  const served = useAddOns()
+  const addOn =
+    page === 'add-ons'
+      ? served.find((s) => s.addOn.name === decodeURIComponent(custom!))
+      : undefined
   // Pages other than a kind's list go by their route (and anything unknown is the overview's).
-  const [pageTitle, PageIcon] = PAGES[page] ?? PAGES['']!
+  const [pageTitle, PageIcon] = addOn
+    ? ([addOn.addOn.label, addOnIcon(addOn.addOn)] as const)
+    : (PAGES[page] ?? PAGES['']!)
   const title = kind ? (resource?.label ?? apiKindOf(kind)) : pageTitle
 
   useEffect(() => {
@@ -79,7 +91,11 @@ export function Header() {
         )}
         <h1 className="truncate text-[14px] font-semibold tracking-[-0.01em]">{title}</h1>
       </div>
-      <NamespacePicker clusterScoped={Boolean(kind) && resource?.namespaced === false} />
+      <NamespacePicker
+        clusterScoped={
+          kind ? resource?.namespaced === false : Boolean(addOn?.kinds.every((r) => !r.namespaced))
+        }
+      />
       <button
         type="button"
         onClick={() => setPalette(true)}

@@ -6,6 +6,30 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Add-ons: every tool a cluster runs gets an entry in the sidebar, leading to everything of
+  its kinds in one list (what's failing first) with a tab for each kind. KubeStacks has
+  add-ons for Argo CD, Argo Rollouts, Argo Workflows, cert-manager, Cilium, CloudNativePG,
+  Cluster API, Crossplane, Elastic (ECK), External Secrets, Flux, Gatekeeper, Gateway API,
+  Istio, Karpenter, KEDA, Knative Serving, KubeVirt, Kyverno, Linkerd, Longhorn, the
+  Prometheus operator, Rook Ceph, Sealed Secrets, Strimzi, Tekton, Traefik, Trivy, Velero,
+  VictoriaMetrics, the Vertical Pod Autoscaler and volume snapshots; you can write your own,
+  or replace KubeStacks'. A view or an add-on can name every kind of an API group, like the
+  constraints Gatekeeper makes from its templates.
+- Karpenter's add-on opens on an overview: its node pools against their limits, the nodes
+  they launched and the ones launching, the mix of instance types, capacity types and zones,
+  what's being disrupted and why, and the pods waiting for a node.
+- Views can relate objects to the ones that belong to them, a tab each in the detail panel;
+  related pods come with their logs and usage history. KubeStacks' views relate Kyverno's
+  reports, workflow and pipeline runs to their pods, Kafka clusters to their topics, node
+  pools to their nodes, and more.
+- View actions can ask for values first (text, a number or a choice), and can create objects
+  (shown as YAML before they're created), copying what they need from the object: run a
+  pipeline or a workflow again, back up a database now, approve a Kafka rebalance.
+- The detail panel's tabs, and the new tabs above lists, scroll sideways when there are more
+  than fit.
+
 ### Changed
 
 - The documentation has moved to [docs.kubestacks.com](https://docs.kubestacks.com).

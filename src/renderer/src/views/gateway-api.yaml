@@ -1,5 +1,23 @@
 # Gateway API (https://gateway-api.sigs.k8s.io): gateways and the routes attached to them.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: gateway-api
+spec:
+  label: Gateway API
+  icon: route
+  category: network
+  kinds:
+    - { group: gateway.networking.k8s.io, kind: Gateway }
+    - { group: gateway.networking.k8s.io, kind: HTTPRoute }
+    - { group: gateway.networking.k8s.io, kind: GRPCRoute }
+    - { group: gateway.networking.k8s.io, kind: TLSRoute }
+    - { group: gateway.networking.k8s.io, kind: TCPRoute }
+    - { group: gateway.networking.k8s.io, kind: UDPRoute }
+    - { group: gateway.networking.k8s.io, kind: GatewayClass }
+    - { group: gateway.networking.k8s.io, kind: ReferenceGrant }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: gateway-api-gateways

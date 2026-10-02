@@ -1,5 +1,20 @@
 # Istio (https://istio.io): traffic routing and security.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: istio
+spec:
+  label: Istio
+  icon: waypoints
+  kinds:
+    - { group: networking.istio.io, kind: VirtualService }
+    - { group: networking.istio.io, kind: DestinationRule }
+    - { group: networking.istio.io, kind: Gateway }
+    - { group: networking.istio.io, kind: ServiceEntry }
+    - { group: security.istio.io, kind: PeerAuthentication }
+    - { group: security.istio.io, kind: AuthorizationPolicy }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: istio-routing

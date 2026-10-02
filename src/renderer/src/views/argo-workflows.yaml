@@ -1,0 +1,215 @@
+# Argo Workflows (https://argoproj.github.io/workflows): workflows, their templates and schedules.
+apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: argo-workflows
+spec:
+  label: Argo Workflows
+  icon: workflow
+  kinds:
+    - { group: argoproj.io, kind: Workflow }
+    - { group: argoproj.io, kind: CronWorkflow }
+    - { group: argoproj.io, kind: WorkflowTemplate }
+    - { group: argoproj.io, kind: ClusterWorkflowTemplate }
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: argo-workflows
+spec:
+  kinds:
+    - { group: argoproj.io, kind: Workflow }
+  icon: workflow
+  columns:
+    - { name: Progress, path: .status.progress }
+    - { name: Started, path: .status.startedAt, type: date }
+    - { name: Finished, path: .status.finishedAt, type: date }
+    - { name: Template, path: .spec.workflowTemplateRef.name }
+  status:
+    - when:
+        all:
+          - { path: .status.phase, equals: Running }
+          - { path: .spec.suspend, equals: true }
+      health: neutral
+      label: Suspended
+    - when:
+        all:
+          - { path: .status.phase, equals: Running }
+          - { path: .spec.shutdown, exists: true }
+      health: progressing
+      label: Stopping
+    - when: { path: .status.phase, equals: Succeeded }
+      health: healthy
+      label: Succeeded
+    - when: { path: .status.phase, in: [Failed, Error] }
+      health: critical
+      label: '{{ .status.phase }}'
+      detail: '{{ .status.message }}'
+    - when: { path: .status.phase, exists: true }
+      health: progressing
+      label: '{{ .status.phase }}'
+      detail: '{{ .status.message }}'
+    - health: progressing
+      label: Pending
+  details:
+    - { name: Progress, path: .status.progress }
+    - { name: Entrypoint, path: .spec.entrypoint }
+    - { name: Parameters, path: '.spec.arguments.parameters[*].name' }
+    - { name: Service account, path: .spec.serviceAccountName }
+    - { name: Started, path: .status.startedAt, type: date }
+    - { name: Finished, path: .status.finishedAt, type: date }
+    - { name: Estimated duration, path: .status.estimatedDuration, type: number }
+  links:
+    - name: Template
+      kind: WorkflowTemplate.argoproj.io
+      objectName: '{{ .spec.workflowTemplateRef.name }}'
+    - name: Cron workflow
+      kind: CronWorkflow.argoproj.io
+      objectName: "{{ .metadata.labels['workflows.argoproj.io/cron-workflow'] }}"
+  related:
+    - name: Pods
+      kind: Pod
+      labels: { workflows.argoproj.io/workflow: '{{ .metadata.name }}' }
+  actions:
+    - name: Suspend
+      icon: timer
+      when:
+        all:
+          - { path: .status.phase, equals: Running }
+          - { path: .spec.suspend, notEquals: true }
+      patch: { spec: { suspend: true } }
+      undo: { spec: { suspend: null } }
+      done: Suspended {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.suspend, equals: true }
+      patch: { spec: { suspend: null } }
+      undo: { spec: { suspend: true } }
+      done: Resumed {{ .metadata.name }}
+    - name: Stop
+      when: { path: .status.phase, in: [Pending, Running] }
+      confirm: The steps running now are stopped, and its exit handlers still run.
+      patch: { spec: { shutdown: Stop } }
+      done: Stopping {{ .metadata.name }}
+    - name: Terminate
+      danger: true
+      when: { path: .status.phase, in: [Pending, Running] }
+      confirm: Everything it's running is stopped at once, exit handlers included.
+      patch: { spec: { shutdown: Terminate } }
+      done: Terminating {{ .metadata.name }}
+    - name: Resubmit
+      icon: refresh-cw
+      when: { path: .status.phase, in: [Succeeded, Failed, Error] }
+      create:
+        apiVersion: argoproj.io/v1alpha1
+        kind: Workflow
+        metadata:
+          generateName: '{{ .metadata.name }}-'
+          labels: { workflows.argoproj.io/resubmitted-from-workflow: '{{ .metadata.name }}' }
+        spec: '{{ .spec }}'
+      done: Resubmitted {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: argo-cron-workflows
+spec:
+  kinds:
+    - { group: argoproj.io, kind: CronWorkflow }
+  icon: timer
+  columns:
+    - { name: Schedules, path: '.spec.schedules[*]' }
+    - { name: Last run, path: .status.lastScheduledTime, type: date }
+    - { name: Running, path: .status.active, type: count }
+  status:
+    - when: { path: .spec.suspend, equals: true }
+      health: neutral
+      label: Suspended
+    - when: { path: .status.phase, equals: Stopped }
+      health: neutral
+      label: Stopped
+    - when: { path: '.status.conditions[?(@.type=="SubmissionError")].status', equals: 'True' }
+      health: critical
+      label: Can’t submit
+      detail: '{{ .status.conditions[?(@.type=="SubmissionError")].message }}'
+    - health: healthy
+      label: Scheduled
+  details:
+    - { name: Schedules, path: '.spec.schedules[*]' }
+    - { name: Time zone, path: .spec.timezone, default: UTC }
+    - { name: Concurrency, path: .spec.concurrencyPolicy, default: Allow }
+    - { name: Last run, path: .status.lastScheduledTime, type: date }
+    - { name: Succeeded, path: .status.succeeded, type: number, default: '0' }
+    - { name: Failed, path: .status.failed, type: number, default: '0' }
+  related:
+    - name: Runs
+      kind: Workflow.argoproj.io
+      labels: { workflows.argoproj.io/cron-workflow: '{{ .metadata.name }}' }
+  actions:
+    - name: Submit now
+      icon: rocket
+      primary: true
+      create:
+        apiVersion: argoproj.io/v1alpha1
+        kind: Workflow
+        metadata:
+          generateName: '{{ .metadata.name }}-'
+          labels: { workflows.argoproj.io/cron-workflow: '{{ .metadata.name }}' }
+        spec: '{{ .spec.workflowSpec }}'
+      done: Submitted {{ .metadata.name }}
+    - name: Suspend
+      when: { path: .spec.suspend, notEquals: true }
+      patch: { spec: { suspend: true } }
+      undo: { spec: { suspend: false } }
+      done: Suspended {{ .metadata.name }}
+    - name: Resume
+      primary: true
+      when: { path: .spec.suspend, equals: true }
+      patch: { spec: { suspend: false } }
+      undo: { spec: { suspend: true } }
+      done: Resumed {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: argo-workflow-templates
+spec:
+  kinds:
+    - { group: argoproj.io, kind: WorkflowTemplate }
+  icon: package
+  columns:
+    - { name: Entrypoint, path: .spec.entrypoint }
+    - { name: Parameters, path: '.spec.arguments.parameters[*].name' }
+  details:
+    - { name: Entrypoint, path: .spec.entrypoint }
+    - { name: Parameters, path: '.spec.arguments.parameters[*].name' }
+    - { name: Service account, path: .spec.serviceAccountName }
+  related:
+    - name: Runs
+      kind: Workflow.argoproj.io
+      labels: { workflows.argoproj.io/workflow-template: '{{ .metadata.name }}' }
+  actions:
+    - name: Submit
+      icon: rocket
+      primary: true
+      create:
+        apiVersion: argoproj.io/v1alpha1
+        kind: Workflow
+        metadata:
+          generateName: '{{ .metadata.name }}-'
+          labels: { workflows.argoproj.io/workflow-template: '{{ .metadata.name }}' }
+        spec:
+          workflowTemplateRef: { name: '{{ .metadata.name }}' }
+      done: Submitted {{ .metadata.name }}
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: argo-cluster-workflow-templates
+spec:
+  kinds:
+    - { group: argoproj.io, kind: ClusterWorkflowTemplate }
+  icon: package
+  columns:
+    - { name: Entrypoint, path: .spec.entrypoint }
+    - { name: Parameters, path: '.spec.arguments.parameters[*].name' }

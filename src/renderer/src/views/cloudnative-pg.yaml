@@ -1,5 +1,19 @@
 # CloudNativePG (https://cloudnative-pg.io): PostgreSQL clusters and their backups.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: cloudnative-pg
+spec:
+  label: CloudNativePG
+  icon: database
+  kinds:
+    - { group: postgresql.cnpg.io, kind: Cluster }
+    - { group: postgresql.cnpg.io, kind: Pooler }
+    - { group: postgresql.cnpg.io, kind: Backup }
+    - { group: postgresql.cnpg.io, kind: ScheduledBackup }
+    - { group: postgresql.cnpg.io, kind: Database }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: cloudnative-pg-clusters
@@ -32,7 +46,49 @@ spec:
     - name: Primary
       kind: Pod
       objectName: '{{ .status.currentPrimary }}'
+  related:
+    - name: Instances
+      kind: Pod
+      labels: { cnpg.io/cluster: '{{ .metadata.name }}', cnpg.io/podRole: instance }
+    - name: Volumes
+      kind: PersistentVolumeClaim
+      labels: { cnpg.io/cluster: '{{ .metadata.name }}' }
   actions:
+    - name: Back up now
+      icon: archive
+      primary: true
+      inputs:
+        - name: method
+          label: Method
+          type: choice
+          options: [barmanObjectStore, volumeSnapshot]
+      create:
+        apiVersion: postgresql.cnpg.io/v1
+        kind: Backup
+        metadata:
+          generateName: '{{ .metadata.name }}-'
+        spec:
+          cluster: { name: '{{ .metadata.name }}' }
+          method: '{{ input.method }}'
+      done: Started a backup of {{ .metadata.name }}
+    - name: Switch over
+      icon: refresh-cw
+      when: { path: '.status.instanceNames[1]', exists: true }
+      inputs:
+        - name: instance
+          label: New primary
+          type: choice
+          from: '.status.instanceNames[*]'
+      confirm: >-
+        The instance chosen becomes the primary, and {{ .status.currentPrimary }} a replica.
+        Connections to the primary drop for a moment.
+      subresource: status
+      patch:
+        status:
+          targetPrimary: '{{ input.instance }}'
+          phase: Switchover in progress
+          phaseReason: Switching over to {{ input.instance }}
+      done: Switching {{ .metadata.name }} over to {{ input.instance }}
     - name: Restart
       icon: refresh-cw
       confirm: The instances restart one at a time, replicas first and the primary last, with a switchover.
@@ -84,6 +140,10 @@ spec:
     - name: Cluster
       kind: Cluster.postgresql.cnpg.io
       objectName: '{{ .spec.cluster.name }}'
+  related:
+    - name: Backups
+      kind: Backup.postgresql.cnpg.io
+      labels: { cnpg.io/scheduled-backup: '{{ .metadata.name }}' }
   actions:
     - name: Suspend
       when: { path: .spec.suspend, notEquals: true }

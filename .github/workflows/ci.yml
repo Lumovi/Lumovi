@@ -31,6 +31,8 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
+      # KubeStacks' views against the CRDs of the operators they're for (tests/views).
+      - run: npm run views:check
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Helm chart
         run: |

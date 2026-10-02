@@ -1,5 +1,18 @@
 # Karpenter (https://karpenter.sh): node pools, and the nodes it launched for them.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: karpenter
+spec:
+  label: Karpenter
+  icon: server-cog
+  kinds:
+    - { group: karpenter.sh, kind: NodePool }
+    - { group: karpenter.sh, kind: NodeClaim }
+    - { group: karpenter.k8s.aws, kind: EC2NodeClass }
+    - { group: karpenter.azure.com, kind: AKSNodeClass }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: karpenter-node-pools
@@ -12,6 +25,14 @@ spec:
     - { name: CPU, path: .status.resources.cpu }
     - { name: Memory, path: .status.resources.memory }
     - { name: Weight, path: .spec.weight, type: number }
+  status:
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Ready")].reason ?? "Not ready" }}'
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
   details:
     - { name: Node class, path: .spec.template.spec.nodeClassRef.name }
     - { name: CPU limit, path: .spec.limits.cpu }
@@ -19,6 +40,17 @@ spec:
     - { name: Consolidation, path: .spec.disruption.consolidationPolicy }
     - { name: Consolidate after, path: .spec.disruption.consolidateAfter }
     - { name: Expire after, path: .spec.template.spec.expireAfter }
+  links:
+    - name: Node class
+      kind: '{{ .spec.template.spec.nodeClassRef.kind }}.{{ .spec.template.spec.nodeClassRef.group }}'
+      objectName: '{{ .spec.template.spec.nodeClassRef.name }}'
+  related:
+    - name: Nodes
+      kind: Node
+      labels: { karpenter.sh/nodepool: '{{ .metadata.name }}' }
+    - name: Node claims
+      kind: NodeClaim.karpenter.sh
+      labels: { karpenter.sh/nodepool: '{{ .metadata.name }}' }
 ---
 apiVersion: kubestacks.dev/v1alpha1
 kind: View
@@ -33,10 +65,36 @@ spec:
     - { name: Capacity, path: ".metadata.labels['karpenter.sh/capacity-type']" }
     - { name: Zone, path: ".metadata.labels['topology.kubernetes.io/zone']" }
     - { name: Node, path: .status.nodeName }
+  status:
+    - when: { path: .metadata.deletionTimestamp, exists: true }
+      health: progressing
+      label: Terminating
+    - when: { path: '.status.conditions[?(@.type=="Launched")].status', equals: 'False' }
+      health: critical
+      label: '{{ .status.conditions[?(@.type=="Launched")].reason ?? "Not launched" }}'
+      detail: '{{ .status.conditions[?(@.type=="Launched")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Drifted")].status', equals: 'True' }
+      health: warning
+      label: Drifted
+      detail: '{{ .status.conditions[?(@.type=="Drifted")].message }}'
+    - when: { path: '.status.conditions[?(@.type=="Ready")].status', equals: 'True' }
+      health: healthy
+      label: Ready
+    - when: { path: '.status.conditions[?(@.type=="Registered")].status', notEquals: 'True' }
+      health: progressing
+      label: Launching
+      detail: '{{ .status.conditions[?(@.type=="Registered")].message }}'
+    - health: critical
+      label: Not ready
+      detail: '{{ .status.conditions[?(@.type=="Ready")].message }}'
   details:
     - { name: Node pool, path: ".metadata.labels['karpenter.sh/nodepool']" }
     - { name: Instance type, path: ".metadata.labels['node.kubernetes.io/instance-type']" }
+    - { name: Capacity type, path: ".metadata.labels['karpenter.sh/capacity-type']" }
+    - { name: Zone, path: ".metadata.labels['topology.kubernetes.io/zone']" }
+    - { name: Image, path: .status.imageID }
     - { name: Provider ID, path: .status.providerID }
+    - { name: Expire after, path: .spec.expireAfter }
   links:
     - name: Node
       kind: Node
@@ -44,3 +102,24 @@ spec:
     - name: Node pool
       kind: NodePool.karpenter.sh
       objectName: "{{ .metadata.labels['karpenter.sh/nodepool'] }}"
+    - name: Node class
+      kind: '{{ .spec.nodeClassRef.kind }}.{{ .spec.nodeClassRef.group }}'
+      objectName: '{{ .spec.nodeClassRef.name }}'
+---
+apiVersion: kubestacks.dev/v1alpha1
+kind: View
+metadata:
+  name: karpenter-ec2-node-classes
+spec:
+  kinds:
+    - { group: karpenter.k8s.aws, kind: EC2NodeClass }
+  icon: cloud
+  columns:
+    - { name: Role, path: .spec.role }
+    - { name: AMIs, path: '.spec.amiSelectorTerms[*].alias' }
+  details:
+    - { name: Role, path: .spec.role }
+    - { name: Instance profile, path: .status.instanceProfile }
+    - { name: AMIs, path: '.status.amis[*].id' }
+    - { name: Subnets, path: '.status.subnets[*].id' }
+    - { name: Security groups, path: '.status.securityGroups[*].id' }

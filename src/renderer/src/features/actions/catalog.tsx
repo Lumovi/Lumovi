@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { AccessCheck, KubeObject } from '@shared/api'
-import { isBuiltinKind, type ResourceKind } from '@shared/resources'
+import { isBuiltinKind, kindFor, type ResourceKind } from '@shared/resources'
 import type { ChangeMeta, ClusterChange } from '@renderer/hooks/change'
 import { resourceFor } from '@renderer/hooks/resources'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
@@ -402,21 +402,35 @@ export const ACTIONS: readonly Action[] = [
   },
 ]
 
-/** A view's actions, as actions: they patch what the view says, after asking if it says to. */
+/**
+ * A view's actions, as actions: they patch what the view says, or create what
+ * it says, asking first if it says to, has questions, or creates something.
+ */
 function viewActions(kind: ResourceKind): Action[] {
-  return (viewFor(kind)?.actions ?? []).map((action, i) => ({
-    id: `view:${i}`,
-    label: action.confirm ? `${action.name}…` : action.name,
-    icon: viewActionIcon(action),
-    kinds: [kind],
-    when: action.when && ((object: KubeObject) => holds(action.when!, object)),
-    access: can('patch', action.subresource),
-    primary: action.primary,
-    danger: action.danger,
-    ...(action.confirm
-      ? { dialog: ViewActionDialog }
-      : { instant: (object: KubeObject, context: string) => viewChange(action, object, context) }),
-  }))
+  return (viewFor(kind)?.actions ?? []).map((action, i) => {
+    const asks = Boolean(action.confirm || action.inputs || action.create)
+    return {
+      id: `view:${i}`,
+      label: asks ? `${action.name}…` : action.name,
+      icon: viewActionIcon(action),
+      kinds: [kind],
+      when: action.when && ((object: KubeObject) => holds(action.when!, object)),
+      access: action.create
+        ? can(
+            'create',
+            undefined,
+            kindFor(action.create.apiVersion as string, action.create.kind as string),
+          )
+        : can('patch', action.subresource),
+      primary: action.primary,
+      danger: action.danger,
+      ...(asks
+        ? { dialog: ViewActionDialog }
+        : {
+            instant: (object: KubeObject, context: string) => viewChange(action, object, context),
+          }),
+    }
+  })
 }
 
 const appliesTo = (action: Action, kind: ResourceKind) =>

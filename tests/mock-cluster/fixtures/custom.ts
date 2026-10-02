@@ -25,6 +25,17 @@ export const CUSTOM = {
   widget: 'blue-widget',
   prometheus: 'k8s',
   serviceMonitor: 'storefront',
+  karpenter: {
+    nodePools: { general: 'general', gpu: 'gpu', arm: 'arm' },
+    nodeClasses: { default: 'default', arm: 'arm' },
+    /** The demo's workers, in order, and a node still launching for redis-1. */
+    nodeClaims: {
+      worker1: 'general-4fk8x',
+      worker2: 'general-p7n2c',
+      worker3: 'general-r6t9d',
+      launching: 'general-x2w5m',
+    },
+  },
 } as const
 
 const AGE = { name: 'Age', type: 'date', jsonPath: '.metadata.creationTimestamp' }
@@ -824,6 +835,7 @@ export function demoCustomResources(b: Builder, now: number): void {
     },
   })
 
+  karpenter(b, now)
   widgets(b)
   databases(b, now)
   for (const namespace of ['default', 'shop']) {
@@ -835,6 +847,327 @@ export function demoCustomResources(b: Builder, now: number): void {
   b.simple('rbac.authorization.k8s.io/v1', 'ClusterRole', 'view', undefined, 800 * DAY, {
     rules: [{ apiGroups: [''], resources: ['pods', 'services'], verbs: ['get', 'list', 'watch'] }],
   })
+}
+
+/** Karpenter's CRDs, as it installs them on AWS. */
+export function karpenterKinds(b: Builder): void {
+  const cluster = { scope: 'Cluster' as const, subresources: { status: {} } }
+  crd(b, 200 * DAY, {
+    ...cluster,
+    group: 'karpenter.sh',
+    kind: 'NodePool',
+    plural: 'nodepools',
+    columns: [
+      { name: 'NodeClass', type: 'string', jsonPath: '.spec.template.spec.nodeClassRef.name' },
+      { name: 'Nodes', type: 'string', jsonPath: '.status.resources.nodes' },
+      { name: 'Ready', type: 'string', jsonPath: '.status.conditions[?(@.type=="Ready")].status' },
+      AGE,
+      { name: 'Weight', type: 'integer', jsonPath: '.spec.weight', priority: 1 },
+      { name: 'CPU', type: 'string', jsonPath: '.status.resources.cpu', priority: 1 },
+      { name: 'Memory', type: 'string', jsonPath: '.status.resources.memory', priority: 1 },
+    ],
+  })
+  crd(b, 200 * DAY, {
+    ...cluster,
+    group: 'karpenter.sh',
+    kind: 'NodeClaim',
+    plural: 'nodeclaims',
+    columns: [
+      {
+        name: 'Type',
+        type: 'string',
+        jsonPath: '.metadata.labels.node\\.kubernetes\\.io/instance-type',
+      },
+      {
+        name: 'Capacity',
+        type: 'string',
+        jsonPath: '.metadata.labels.karpenter\\.sh/capacity-type',
+      },
+      {
+        name: 'Zone',
+        type: 'string',
+        jsonPath: '.metadata.labels.topology\\.kubernetes\\.io/zone',
+      },
+      { name: 'Node', type: 'string', jsonPath: '.status.nodeName' },
+      { name: 'Ready', type: 'string', jsonPath: '.status.conditions[?(@.type=="Ready")].status' },
+      AGE,
+    ],
+  })
+  crd(b, 200 * DAY, {
+    ...cluster,
+    group: 'karpenter.k8s.aws',
+    kind: 'EC2NodeClass',
+    plural: 'ec2nodeclasses',
+    shortNames: ['ec2nc', 'ec2ncs'],
+    columns: [
+      { name: 'Ready', type: 'string', jsonPath: '.status.conditions[?(@.type=="Ready")].status' },
+      AGE,
+      { name: 'Role', type: 'string', jsonPath: '.spec.role', priority: 1 },
+    ],
+  })
+}
+
+/**
+ * Karpenter, on AWS: the node pools the demo's workers come from (one of them
+ * drifted), one scaled to zero, one whose node class is broken, and a node
+ * being launched for the pod that can't be scheduled.
+ */
+function karpenter(b: Builder, now: number): void {
+  const { nodePools, nodeClasses, nodeClaims } = CUSTOM.karpenter
+  karpenterKinds(b)
+
+  const nodeClass = (name: string, ready: boolean, age: number) =>
+    b.simple('karpenter.k8s.aws/v1', 'EC2NodeClass', name, undefined, age, {
+      spec: {
+        role: 'KarpenterNodeRole-production',
+        amiSelectorTerms: [{ alias: 'al2023@latest' }],
+        subnetSelectorTerms: [{ tags: { 'karpenter.sh/discovery': `production-${name}` } }],
+        securityGroupSelectorTerms: [{ tags: { 'karpenter.sh/discovery': 'production' } }],
+      },
+      status: {
+        conditions: ready
+          ? [
+              condition('SubnetsReady', 'True', 'SubnetsReady', '', age, now),
+              condition('Ready', 'True', 'Ready', '', age, now),
+            ]
+          : [
+              condition(
+                'SubnetsReady',
+                'False',
+                'SubnetsNotFound',
+                'SubnetSelector did not match any Subnets',
+                age,
+                now,
+              ),
+              condition('Ready', 'False', 'SubnetsNotReady', 'SubnetsReady=False', age, now),
+            ],
+      },
+    })
+  nodeClass(nodeClasses.default, true, 200 * DAY)
+  nodeClass(nodeClasses.arm, false, 3 * DAY)
+
+  const nodePool = (
+    name: string,
+    age: number,
+    spec: { nodeClass: string; weight?: number; limits?: Json; requirements: Json[] },
+    status: { resources?: Record<string, string>; ready: boolean },
+  ) =>
+    b.simple('karpenter.sh/v1', 'NodePool', name, undefined, age, {
+      spec: {
+        ...(spec.weight === undefined ? {} : { weight: spec.weight }),
+        template: {
+          spec: {
+            nodeClassRef: {
+              group: 'karpenter.k8s.aws',
+              kind: 'EC2NodeClass',
+              name: spec.nodeClass,
+            },
+            requirements: spec.requirements,
+            expireAfter: 'Never',
+          },
+        },
+        ...(spec.limits ? { limits: spec.limits } : {}),
+        disruption: { consolidationPolicy: 'WhenEmptyOrUnderutilized', consolidateAfter: '1m' },
+      },
+      status: {
+        ...(status.resources ? { resources: status.resources } : {}),
+        conditions: status.ready
+          ? [
+              condition('ValidationSucceeded', 'True', 'ValidationSucceeded', '', age, now),
+              condition('NodeClassReady', 'True', 'NodeClassReady', '', age, now),
+              condition('Ready', 'True', 'Ready', '', age, now),
+            ]
+          : [
+              condition('ValidationSucceeded', 'True', 'ValidationSucceeded', '', age, now),
+              condition(
+                'NodeClassReady',
+                'False',
+                'NodeClassNotReady',
+                `EC2NodeClass "${spec.nodeClass}" is not ready`,
+                age,
+                now,
+              ),
+              condition(
+                'Ready',
+                'False',
+                'NodeClassNotReady',
+                `EC2NodeClass "${spec.nodeClass}" is not ready`,
+                age,
+                now,
+              ),
+            ],
+      },
+    })
+  const capacityTypes = (values: string[]) => ({
+    key: 'karpenter.sh/capacity-type',
+    operator: 'In',
+    values,
+  })
+  nodePool(
+    nodePools.general,
+    200 * DAY,
+    {
+      nodeClass: nodeClasses.default,
+      weight: 10,
+      limits: { cpu: '64', memory: '256Gi' },
+      requirements: [
+        capacityTypes(['spot', 'on-demand']),
+        { key: 'karpenter.k8s.aws/instance-family', operator: 'In', values: ['m6i', 'c6i'] },
+        { key: 'kubernetes.io/arch', operator: 'In', values: ['amd64'] },
+      ],
+    },
+    { resources: { cpu: '24', memory: '96Gi', pods: '330', nodes: '3' }, ready: true },
+  )
+  nodePool(
+    nodePools.gpu,
+    90 * DAY,
+    {
+      nodeClass: nodeClasses.default,
+      limits: { cpu: '64', 'nvidia.com/gpu': '4' },
+      // Without a capacity type, Karpenter launches on-demand nodes: any with a GPU, but an old one.
+      requirements: [
+        { key: 'karpenter.k8s.aws/instance-gpu-count', operator: 'Gt', values: ['0'] },
+        { key: 'node.kubernetes.io/instance-type', operator: 'NotIn', values: ['g4dn.xlarge'] },
+      ],
+    },
+    { resources: { cpu: '0', memory: '0', nodes: '0' }, ready: true },
+  )
+  nodePool(
+    nodePools.arm,
+    3 * DAY,
+    {
+      nodeClass: nodeClasses.arm,
+      // New, without limits, and never ready: nothing it has launched to count.
+      requirements: [
+        capacityTypes(['spot']),
+        { key: 'kubernetes.io/arch', operator: 'In', values: ['arm64'] },
+      ],
+    },
+    { ready: false },
+  )
+
+  const nodeClaim = (
+    name: string,
+    age: number,
+    node: { name?: string; capacity: 'spot' | 'on-demand'; type: string; zone: string },
+    conditions: ReturnType<typeof condition>[],
+  ) =>
+    b.simple(
+      'karpenter.sh/v1',
+      'NodeClaim',
+      name,
+      undefined,
+      age,
+      {
+        spec: {
+          nodeClassRef: {
+            group: 'karpenter.k8s.aws',
+            kind: 'EC2NodeClass',
+            name: nodeClasses.default,
+          },
+          requirements: [capacityTypes([node.capacity])],
+          resources: { requests: { cpu: '2150m', memory: '6Gi', pods: '9' } },
+          expireAfter: 'Never',
+        },
+        status: {
+          ...(node.name
+            ? { nodeName: node.name, providerID: `kubestacks://eu-west-1/${node.name}` }
+            : { providerID: 'aws:///eu-west-1b/i-0c2f7a91d3e5b8604' }),
+          imageID: 'ami-0e4b2cfa1d78e3f05',
+          capacity: { cpu: '8', memory: '32Gi', pods: '110' },
+          allocatable: { cpu: '7910m', memory: '31130Mi', pods: '110' },
+          conditions,
+        },
+      },
+      {
+        labels: {
+          'karpenter.sh/nodepool': nodePools.general,
+          'karpenter.sh/capacity-type': node.capacity,
+          'node.kubernetes.io/instance-type': node.type,
+          'topology.kubernetes.io/zone': node.zone,
+          'kubernetes.io/arch': 'amd64',
+        },
+        ownerReferences: [
+          {
+            apiVersion: 'karpenter.sh/v1',
+            kind: 'NodePool',
+            name: nodePools.general,
+            uid: `nodepool-${nodePools.general}`,
+            blockOwnerDeletion: true,
+          },
+        ],
+        finalizers: ['karpenter.sh/termination'],
+      },
+    )
+  const running = (age: number) => [
+    condition('Launched', 'True', 'Launched', '', age, now),
+    condition('Registered', 'True', 'Registered', '', age - 40 * 1000, now),
+    condition('Initialized', 'True', 'Initialized', '', age - 70 * 1000, now),
+  ]
+  nodeClaim(
+    nodeClaims.worker1,
+    800 * DAY - HOUR,
+    { name: 'worker-1', capacity: 'on-demand', type: 'm6i.2xlarge', zone: 'eu-west-1a' },
+    [...running(800 * DAY - HOUR), condition('Ready', 'True', 'Ready', '', 800 * DAY, now)],
+  )
+  nodeClaim(
+    nodeClaims.worker2,
+    96 * DAY,
+    { name: 'worker-2', capacity: 'spot', type: 'm6i.2xlarge', zone: 'eu-west-1b' },
+    [
+      ...running(96 * DAY),
+      condition(
+        'Drifted',
+        'True',
+        'NodeClassDrift',
+        'EC2NodeClass default changed: amiSelectorTerms',
+        2 * HOUR,
+        now,
+      ),
+      condition('Ready', 'True', 'Ready', '', 96 * DAY, now),
+    ],
+  )
+  nodeClaim(
+    nodeClaims.worker3,
+    45 * DAY,
+    { name: 'worker-3', capacity: 'spot', type: 'm6i.2xlarge', zone: 'eu-west-1c' },
+    [
+      ...running(45 * DAY),
+      condition('Ready', 'Unknown', 'NodeNotReady', 'Node status is NotReady', 53 * MINUTE, now),
+    ],
+  )
+  nodeClaim(
+    nodeClaims.launching,
+    40 * 1000,
+    { capacity: 'spot', type: 'c6i.2xlarge', zone: 'eu-west-1b' },
+    [
+      condition('Launched', 'True', 'Launched', '', 30 * 1000, now),
+      condition(
+        'Registered',
+        'Unknown',
+        'AwaitingReconciliation',
+        'Node not registered with cluster',
+        30 * 1000,
+        now,
+      ),
+      condition(
+        'Initialized',
+        'Unknown',
+        'AwaitingReconciliation',
+        'Node not initialized',
+        30 * 1000,
+        now,
+      ),
+      condition(
+        'Ready',
+        'Unknown',
+        'AwaitingReconciliation',
+        'Node not registered with cluster',
+        30 * 1000,
+        now,
+      ),
+    ],
+  )
 }
 
 /**

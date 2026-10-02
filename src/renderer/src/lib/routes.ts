@@ -35,6 +35,11 @@ export function helmPath(context: string): string {
   return `${clusterPath(context)}/helm`
 }
 
+/** An add-on's page: its kinds, all together and a tab each. */
+export function addOnPath(context: string, name: string): string {
+  return `${clusterPath(context)}/add-ons/${encodeURIComponent(name)}`
+}
+
 /** Every kind the cluster serves, and the views that show them. */
 export function apiResourcesPath(context: string): string {
   return `${clusterPath(context)}/api-resources`

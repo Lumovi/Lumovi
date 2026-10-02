@@ -1,5 +1,19 @@
 # Prometheus operator (https://prometheus-operator.dev), as kube-prometheus-stack installs it.
 apiVersion: kubestacks.dev/v1alpha1
+kind: AddOn
+metadata:
+  name: prometheus-operator
+spec:
+  label: Prometheus Operator
+  icon: flame
+  kinds:
+    - { group: monitoring.coreos.com, kind: Prometheus }
+    - { group: monitoring.coreos.com, kind: Alertmanager }
+    - { group: monitoring.coreos.com, kind: ServiceMonitor }
+    - { group: monitoring.coreos.com, kind: PodMonitor }
+    - { group: monitoring.coreos.com, kind: PrometheusRule }
+---
+apiVersion: kubestacks.dev/v1alpha1
 kind: View
 metadata:
   name: prometheus-operator-servers
@@ -35,6 +49,12 @@ spec:
     - { name: Shards, path: .spec.shards, type: number }
     - { name: External URL, path: .spec.externalUrl }
     - { name: Scrape interval, path: .spec.scrapeInterval }
+  related:
+    - name: Pods
+      kind: Pod
+      labels:
+        app.kubernetes.io/managed-by: prometheus-operator
+        app.kubernetes.io/instance: '{{ .metadata.name }}'
 ---
 apiVersion: kubestacks.dev/v1alpha1
 kind: View
