@@ -369,7 +369,10 @@ export interface LintResult {
   messages: { severity: 'info' | 'warning' | 'error'; text: string }[]
 }
 
-/** View files the user keeps next to KubeStacks' own (see docs/views.md). */
+/**
+ * View files the user keeps next to KubeStacks' own (the format:
+ * https://docs.kubestacks.com/reference/view-format).
+ */
 export interface LocalViews {
   directory: string
   /** Each file's text, or why it wasn't read. */

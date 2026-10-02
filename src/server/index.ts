@@ -1,6 +1,6 @@
 /**
  * `node out/server/index.js`: KubeStacks as a server, showing the cluster it
- * runs in to everyone who signs in (see docs/server.md).
+ * runs in to everyone who signs in (see https://docs.kubestacks.com/server/overview).
  */
 import { version } from '../../package.json'
 import { startServer } from './app'

@@ -6,7 +6,7 @@
  * reads the user's own from ~/.kubestacks/views; a user's view of a kind
  * replaces the shipped one. Views can't run code: they read fields with
  * JSONPath and change objects only with the patches they spell out.
- * docs/views.md describes the format.
+ * The format: https://docs.kubestacks.com/reference/view-format.
  */
 import { parseAllDocuments } from 'yaml'
 import { checkPath, jsonPath } from '@shared/jsonpath'

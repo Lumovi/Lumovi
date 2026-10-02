@@ -112,7 +112,7 @@ jobs:
           their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
           that a file was built by this repository's release workflow.
 
-          **In your cluster** ([docs/server.md](https://github.com/$GITHUB_REPOSITORY/blob/v$VERSION/docs/server.md)):
+          **In your cluster** ([documentation](https://docs.kubestacks.com/server/install)):
           \`helm install kubestacks oci://ghcr.io/kubestacks/charts/kubestacks --version $VERSION\`, with the
           image \`ghcr.io/kubestacks/kubestacks:$VERSION\` for \`linux/amd64\` and \`linux/arm64\`.
           EOF

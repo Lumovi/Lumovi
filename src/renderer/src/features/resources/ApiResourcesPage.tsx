@@ -1,6 +1,6 @@
 import { BookOpen, Pin, PinOff, SearchX, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
-import { REPO_URL } from '@shared/app'
+import { DOCS_URL } from '@shared/app'
 import { isCustomGroup, type ResourceDefinition } from '@shared/resources'
 import { Button, IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
@@ -15,7 +15,7 @@ import { viewFor } from '@renderer/lib/views'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 
-const VIEWS_GUIDE = `${REPO_URL}/blob/main/docs/views.md`
+const VIEWS_GUIDE = `${DOCS_URL}/custom-resources/write-a-view`
 
 /** Every kind the cluster serves, like `kubectl api-resources`, and the views that show them. */
 export function ApiResourcesPage() {
