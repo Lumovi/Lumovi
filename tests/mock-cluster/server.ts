@@ -7,9 +7,11 @@
  * the metrics API and pod logs, and writes — create, replace, the three patch
  * formats, delete with cascading, eviction, dry runs and access reviews —
  * with a few controllers simulated so changes play out (see controllers.ts).
+ * It knows who's asking: by their token, and as whoever they impersonate.
  * Responses mirror the real server's shapes (list kinds, Status errors, gzip)
  * so the app is tested against realistic payloads.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import http from 'node:http'
 import https from 'node:https'
 import type { AddressInfo } from 'node:net'
@@ -50,6 +52,8 @@ export interface RecordedRequest {
   headers: http.IncomingHttpHeaders
   /** The parsed JSON body of writes. */
   body?: Json
+  /** Who it was from, as they authenticated or were impersonated. */
+  user?: string
   /** When the request arrived (ms since the epoch), how long answering took, and the status. */
   at?: number
   ms?: number
@@ -58,6 +62,8 @@ export interface RecordedRequest {
 
 /** Access a SelfSubjectAccessReview (and the matching write) is refused; unset fields match anything. */
 export interface AccessRule {
+  /** Only this user's, as they authenticated or are impersonated. */
+  user?: string
   verb?: string
   resource?: string
   namespace?: string
@@ -65,11 +71,23 @@ export interface AccessRule {
   subresource?: string
 }
 
+/** Someone the cluster knows by their token. */
+export interface MockUser {
+  username: string
+  groups?: string[]
+  /** May act as others (Impersonate-User), as a KubeStacks server's service account may. */
+  impersonate?: boolean
+}
+
 export interface MockClusterOptions {
   fixture: () => ClusterFixture
   tls?: boolean
-  /** When set, every request must carry `Authorization: Bearer <token>`. */
+  /**
+   * When set, every request must carry `Authorization: Bearer <token>`: this
+   * one, an administrator's who may impersonate, or one of `users`.
+   */
   token?: string
+  users?: Record<string, MockUser>
   gitVersion?: string
   /** Let metrics drift slowly over time, for lively demos. */
   jitter?: boolean
@@ -116,6 +134,8 @@ export interface MockCluster {
   expireContinueTokens(times?: number, list?: { kind: string; namespace?: string }): void
   /** Denies access, as RBAC would: reviews say no and matching writes fail with 403. */
   deny(rule: AccessRule): void
+  /** Lets a token in as `user`, or (undefined) revokes it. */
+  setUser(token: string, user: MockUser | undefined): void
   /** The stored object, as the API server has it now. */
   object(kind: string, namespace: string | undefined, name: string): KubeObject | undefined
   /** Restores the fixture, clears faults and the request log. */
@@ -307,6 +327,10 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   let expireContinue = 0
   let expireList: { kind: string; namespace?: string } | undefined
   const denials: AccessRule[] = []
+  let users = new Map<string, MockUser>()
+  /** Who the request being answered is from. */
+  const who = new AsyncLocalStorage<MockUser>()
+  const username = () => who.getStore()?.username
   // Logs keep the times they were written: running containers' fixture lines end when the cluster starts.
   const started = Date.now()
   const appended = new Map<string, { at: number; line: string }[]>()
@@ -350,8 +374,40 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     faults.length = 0
     requests.length = 0
     denials.length = 0
+    users = new Map(Object.entries(options.users ?? {}))
   }
   load()
+
+  const ADMIN: MockUser = {
+    username: 'kubestacks-demo',
+    groups: ['system:masters'],
+    impersonate: true,
+  }
+
+  /** Who a request is from (with the groups everyone authenticated has), or why it's refused. */
+  function authenticate(
+    req: http.IncomingMessage,
+  ): MockUser | { refused: number; message: string } {
+    const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+    // Clusters without tokens let everyone in, as an administrator.
+    const secured = options.token !== undefined || options.users !== undefined
+    const user = !secured ? ADMIN : token === options.token ? ADMIN : users.get(token ?? '')
+    if (!user) return { refused: 401, message: 'Unauthorized' }
+    // Who they act as: themselves, or (when they may impersonate) whoever they say.
+    const as = req.headers['impersonate-user']
+    if (as !== undefined && !user.impersonate) {
+      return {
+        refused: 403,
+        message: `users "${as}" is forbidden: User "${user.username}" cannot impersonate resource "users" in API group "" at the cluster scope`,
+      }
+    }
+    const who: MockUser =
+      as === undefined
+        ? user
+        : { username: String(as), groups: req.headersDistinct['impersonate-group'] ?? [] }
+    // Everyone signed in is in system:authenticated.
+    return { ...who, groups: [...(who.groups ?? []), 'system:authenticated'] }
+  }
 
   const jitter = (seed: string) => {
     if (!options.jitter) return 1
@@ -547,8 +603,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   }
 
   function denied(attributes: AccessRule): boolean {
+    const asked = { ...attributes, user: username() }
     return denials.some((rule) =>
-      Object.entries(rule).every(([key, value]) => attributes[key as keyof AccessRule] === value),
+      Object.entries(rule).every(([key, value]) => asked[key as keyof AccessRule] === value),
     )
   }
 
@@ -745,6 +802,13 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     body: Json,
     contentType: string,
   ): { status: number; body: Json } {
+    if (method === 'POST' && pathname === '/apis/authentication.k8s.io/v1/selfsubjectreviews') {
+      const { username: name, groups } = who.getStore()!
+      return {
+        status: 201,
+        body: { ...body, status: { userInfo: { username: name, groups } } },
+      }
+    }
     if (
       method === 'POST' &&
       pathname === '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews'
@@ -772,7 +836,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       const target = name ? `${plural} "${name}"` : plural
       throw new HttpError(
         403,
-        `${target} is forbidden: User "kubestacks-demo" cannot ${verb} resource "${def.plural}${subresource ? `/${subresource}` : ''}" in API group "${def.group}"${namespace ? ` in the namespace "${namespace}"` : ''}`,
+        `${target} is forbidden: User "${username()}" cannot ${verb} resource "${def.plural}${subresource ? `/${subresource}` : ''}" in API group "${def.group}"${namespace ? ` in the namespace "${namespace}"` : ''}`,
       )
     }
     const existing = name ? get(def, namespace, name) : undefined
@@ -1028,7 +1092,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     if (denied({ verb: 'get', resource: 'services', subresource: 'proxy', namespace, name })) {
       throw new HttpError(
         403,
-        `services "${name}" is forbidden: User "kubestacks-demo" cannot get resource "services/proxy" in API group "" in the namespace "${namespace}"`,
+        `services "${name}" is forbidden: User "${username()}" cannot get resource "services/proxy" in API group "" in the namespace "${namespace}"`,
       )
     }
     const service = store$.get('Service', namespace, name)
@@ -1193,10 +1257,13 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const json = (status: number, body: Json) =>
       send(req, res, status, JSON.stringify(body), 'application/json')
 
-    if (options.token !== undefined && req.headers.authorization !== `Bearer ${options.token}`) {
-      json(401, statusBody(401, 'Unauthorized', 'Unauthorized'))
+    const caller = authenticate(req)
+    if ('refused' in caller) {
+      const reason = REASONS[caller.refused]!
+      json(caller.refused, statusBody(caller.refused, reason, caller.message))
       return
     }
+    recorded.user = caller.username
     // Like a real API server, refuse media types it cannot produce (even for pod logs).
     const accept = req.headers.accept ?? '*/*'
     if (
@@ -1217,7 +1284,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const fault = faults.find(({ match }) =>
       typeof match === 'string' ? match === url.pathname : match.test(url.pathname),
     )?.fault
-    const serve = () => answer(req, res, url, body, accept)
+    const serve = () => who.run(caller, () => answer(req, res, url, body, accept))
     if (fault && 'delayMs' in fault) {
       setTimeout(serve, fault.delayMs)
       return
@@ -1296,6 +1363,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   function endLogs(namespace: string, pod: string, abruptly = false): void {
     for (const follower of [...followers]) {
       if (!follower.key.startsWith(`${namespace}/${pod}/`)) continue
+      // Nothing more is written to it.
+      followers.delete(follower)
       if (abruptly) follower.res.socket?.destroy()
       else follower.res.end()
     }
@@ -1318,8 +1387,13 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         )
         return false
       }
-      if (options.token !== undefined && req.headers.authorization !== `Bearer ${options.token}`) {
-        return refuse(401, JSON.stringify(statusBody(401, 'Unauthorized', 'Unauthorized')))
+      const caller = authenticate(req)
+      if ('refused' in caller) {
+        const reason = REASONS[caller.refused]!
+        return refuse(
+          caller.refused,
+          JSON.stringify(statusBody(caller.refused, reason, caller.message)),
+        )
       }
       const fault = faults.find(({ match }) =>
         typeof match === 'string' ? match === url.pathname : match.test(url.pathname),
@@ -1338,10 +1412,11 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         )
       }
       const [, namespace, , name] = url.pathname.split('/').slice(3)
+      const refused = (rule: AccessRule) => who.run(caller, () => denied(rule))
       if (
-        denied({ verb: 'create', resource: 'pods', namespace, name, subresource }) ||
-        denied({ verb: 'create', resource: 'pods', namespace, subresource }) ||
-        denied({ verb: 'create', resource: 'pods', subresource })
+        refused({ verb: 'create', resource: 'pods', namespace, name, subresource }) ||
+        refused({ verb: 'create', resource: 'pods', namespace, subresource }) ||
+        refused({ verb: 'create', resource: 'pods', subresource })
       ) {
         return refuse(
           403,
@@ -1349,7 +1424,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
             statusBody(
               403,
               'Forbidden',
-              `pods "${name}" is forbidden: User "kubestacks-demo" cannot create resource "pods/${subresource}" in API group "" in the namespace "${namespace}"`,
+              `pods "${name}" is forbidden: User "${caller.username}" cannot create resource "pods/${subresource}" in API group "" in the namespace "${namespace}"`,
             ),
           ),
         )
@@ -1429,6 +1504,10 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
     deny(rule) {
       denials.push(rule)
+    },
+    setUser(token, user) {
+      if (user) users.set(token, user)
+      else users.delete(token)
     },
     object: (kind, namespace, name) => store$.get(kind, namespace, name),
     reset() {

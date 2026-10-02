@@ -13,8 +13,11 @@ function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) 
 // The renderer gets this narrow, typed API and nothing else from Electron or Node.
 const api: KubestacksApi = {
   platform: process.platform,
-  onCommand: (listener) => subscribe(IPC.command, listener),
-  onFullScreen: (listener) => subscribe(IPC.fullScreen, listener),
+  host: 'desktop',
+  desktop: {
+    onCommand: (listener) => subscribe(IPC.command, listener),
+    onFullScreen: (listener) => subscribe(IPC.fullScreen, listener),
+  },
   app: {
     info: () => invoke(IPC.appInfo),
     settings: () => invoke(IPC.settings),
@@ -47,8 +50,10 @@ const api: KubestacksApi = {
     defaults: (source) => invoke(IPC.helmDefaults, source),
     versions: (repository, chart) => invoke(IPC.helmVersions, repository, chart),
     search: (query) => invoke(IPC.helmSearch, query),
+  },
+  localCharts: {
     choose: (kind) => invoke(IPC.helmChoose, kind),
-    local: (path) => invoke(IPC.helmLocal, path),
+    read: (path) => invoke(IPC.helmLocal, path),
     lint: (path, values) => invoke(IPC.helmLint, path, values),
     valuesFile: (path, file) => invoke(IPC.helmValuesFile, path, file),
     updateDependencies: (path) => invoke(IPC.helmDependencies, path),

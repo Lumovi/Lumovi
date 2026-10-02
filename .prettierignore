@@ -9,3 +9,4 @@ playwright-report
 blob-report
 package-lock.json
 tests/integration/charts/
+charts/kubestacks/templates/

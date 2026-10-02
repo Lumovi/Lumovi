@@ -239,7 +239,7 @@ export function DeployDialog({
                   aria-label="Load values from"
                   value=""
                   onChange={async (event) => {
-                    const file = await api.helm.valuesFile(localPath, event.target.value)
+                    const file = await api.localCharts!.valuesFile(localPath, event.target.value)
                     if (file.ok) load(file.data)
                     else setProblem(file.error.message)
                   }}
@@ -340,11 +340,16 @@ function ChartPicker({
       label: 'A chart from a repository or a registry',
       hint: 'To change its version, or its chart.',
     },
-    {
-      mode: 'local',
-      label: 'A chart on this computer',
-      hint: 'A chart folder or a packaged chart: one you’re working on, say.',
-    },
+    // Only the desktop app has a computer's files to use.
+    ...(api.localCharts
+      ? [
+          {
+            mode: 'local' as const,
+            label: 'A chart on this computer',
+            hint: 'A chart folder or a packaged chart: one you’re working on, say.',
+          },
+        ]
+      : []),
   ]
   return (
     <fieldset className="space-y-2">
@@ -376,7 +381,9 @@ function ChartPicker({
           <div className="grid grid-cols-[1fr_1fr_8rem] gap-2">
             <input
               aria-label="Chart name or reference"
-              placeholder="nginx, oci://…, ./chart"
+              placeholder={
+                api.localCharts ? 'nginx, oci://…, ./chart' : 'nginx, oci://…, https://…/chart.tgz'
+              }
               value={source.chart}
               onChange={(event) => set({ chart: event.target.value.trim() })}
               spellCheck={false}

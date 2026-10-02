@@ -1,0 +1,167 @@
+{{- $basePath := include "kubestacks.basePath" . }}
+{{- if and (eq .Values.auth.mode "oidc") (not .Values.url) }}
+{{- fail "url must be set for single sign-on (auth.mode oidc): the provider sends people back there" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubestacks.fullname" . }}
+  labels:
+    {{- include "kubestacks.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubestacks.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # A change to the views rolls out a new pod, which reads them.
+        checksum/views: {{ toJson .Values.views | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kubestacks.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kubestacks.serviceAccountName" . }}
+      # Its token reaches the API server (with impersonation), and its CA checks it.
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: kubestacks
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KUBESTACKS_PORT
+              value: "8080"
+            - name: KUBESTACKS_CLUSTER_NAME
+              value: {{ .Values.clusterName | quote }}
+            - name: KUBESTACKS_BASE_PATH
+              value: {{ $basePath | quote }}
+            {{- with .Values.url }}
+            - name: KUBESTACKS_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: KUBESTACKS_AUTH
+              value: {{ .Values.auth.mode | quote }}
+            {{- if eq .Values.auth.mode "oidc" }}
+            {{- with .Values.auth.oidc }}
+            - name: KUBESTACKS_OIDC_ISSUER
+              value: {{ required "auth.oidc.issuer must be set for single sign-on" .issuer | quote }}
+            - name: KUBESTACKS_OIDC_CLIENT_ID
+              value: {{ required "auth.oidc.clientId must be set for single sign-on" .clientId | quote }}
+            {{- if or .clientSecret .existingSecret }}
+            - name: KUBESTACKS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | default (printf "%s-oidc" (include "kubestacks.fullname" $)) }}
+                  key: client-secret
+            {{- end }}
+            - name: KUBESTACKS_OIDC_SCOPES
+              value: {{ .scopes | quote }}
+            - name: KUBESTACKS_OIDC_USERNAME_CLAIM
+              value: {{ .usernameClaim | quote }}
+            - name: KUBESTACKS_OIDC_GROUPS_CLAIM
+              value: {{ .groupsClaim | quote }}
+            {{- with .providerName }}
+            - name: KUBESTACKS_OIDC_PROVIDER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .forwardToken }}
+            - name: KUBESTACKS_OIDC_FORWARD_TOKEN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.auth.mode "proxy" }}
+            - name: KUBESTACKS_PROXY_USER_HEADER
+              value: {{ .Values.auth.proxy.userHeader | quote }}
+            - name: KUBESTACKS_PROXY_GROUPS_HEADER
+              value: {{ .Values.auth.proxy.groupsHeader | quote }}
+            {{- with .Values.auth.proxy.signOutUrl }}
+            - name: KUBESTACKS_PROXY_SIGN_OUT_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.auth.usernamePrefix }}
+            - name: KUBESTACKS_USERNAME_PREFIX
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.groupsPrefix }}
+            - name: KUBESTACKS_GROUPS_PREFIX
+              value: {{ . | quote }}
+            {{- end }}
+            - name: KUBESTACKS_SESSION_HOURS
+              value: {{ .Values.auth.sessionHours | quote }}
+            - name: KUBESTACKS_READ_ONLY
+              value: {{ .Values.readOnly | quote }}
+            - name: KUBESTACKS_METRICS_SOURCE
+              value: {{ .Values.metrics.source | quote }}
+            - name: KUBESTACKS_ALLOW_PRIVATE_CHARTS
+              value: {{ .Values.helm.allowPrivateCharts | quote }}
+            - name: KUBESTACKS_ARTIFACT_HUB_URL
+              value: {{ .Values.helm.artifactHubUrl | quote }}
+            - name: KUBESTACKS_VIEWS_DIR
+              value: /etc/kubestacks/views
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ $basePath }}healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ $basePath }}healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # helm's caches, and the kubeconfigs KubeStacks writes for each run of it.
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.views }}
+            - name: views
+              mountPath: /etc/kubestacks/views
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.views }}
+        - name: views
+          configMap:
+            name: {{ include "kubestacks.fullname" . }}-views
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

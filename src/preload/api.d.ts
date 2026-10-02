@@ -2,6 +2,7 @@ import type { KubestacksApi } from '../shared/api'
 
 declare global {
   interface Window {
-    kubestacks: KubestacksApi
+    /** The desktop app's preload script sets it; a served page, lib/api.ts. */
+    kubestacks?: KubestacksApi
   }
 }

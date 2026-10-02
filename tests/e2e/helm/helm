@@ -12,6 +12,12 @@ const dir = process.env.FAKE_HELM_DIR
 // `show values`, `dependency list`…: subcommands go by both words.
 const command = ['show', 'dependency'].includes(args[0]) ? `${args[0]} ${args[1]}` : args[0]
 if (dir) fs.appendFileSync(path.join(dir, 'calls.jsonl'), `${JSON.stringify(args)}\n`)
+// The kubeconfig it was given (a KubeStacks server writes one for each person's run).
+const kubeconfig = process.env.KUBECONFIG
+if (dir && kubeconfig && fs.existsSync(kubeconfig)) {
+  const record = { args, kubeconfig: fs.readFileSync(kubeconfig, 'utf8') }
+  fs.appendFileSync(path.join(dir, 'kubeconfigs.jsonl'), `${JSON.stringify(record)}\n`)
+}
 
 const responses = (() => {
   try {

@@ -7,7 +7,7 @@
  * Everything goes through its own kubeconfig in .kind/, so the user's
  * ~/.kube/config (and the clusters in it) is never read or changed.
  */
-import { execFileSync, type ExecFileSyncOptions } from 'node:child_process'
+import { execFileSync, spawnSync, type ExecFileSyncOptions } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +24,9 @@ export const IMAGES = {
   shell: 'busybox:1.37',
   noShell: 'registry.k8s.io/pause:3.10',
 }
+
+/** KubeStacks served from the cluster (served.spec.ts): the image as it's released. */
+export const SERVED_IMAGE = 'kubestacks:integration'
 
 const CHARTS = {
   metricsServer: { repo: 'https://kubernetes-sigs.github.io/metrics-server/', version: '3.14.0' },
@@ -108,6 +111,12 @@ function up() {
     '--timeout',
     '5m',
   ])
+  // Built here unless it was already (CI builds it first). After changing KubeStacks,
+  // `docker build --tag kubestacks:integration .` and run this again.
+  if (spawnSync('docker', ['image', 'inspect', SERVED_IMAGE], { stdio: 'ignore' }).status !== 0) {
+    run('docker', ['build', '--tag', SERVED_IMAGE, resolve(HERE, '../..')])
+  }
+  run('kind', ['load', 'docker-image', SERVED_IMAGE, '--name', NAME])
   console.log(`\nReady: ${CONTEXT} (kubeconfig ${KUBECONFIG})`)
 }
 

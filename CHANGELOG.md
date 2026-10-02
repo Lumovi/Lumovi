@@ -6,6 +6,16 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- KubeStacks in your cluster: a container image (`ghcr.io/kubestacks/kubestacks`) and a Helm
+  chart (`oci://ghcr.io/kubestacks/charts/kubestacks`) serve the same app as a dashboard for
+  the cluster, opened in a browser. People sign in with a token the cluster accepts, with
+  single sign-on (OpenID Connect), or through an authenticating proxy, and see and change
+  what their own RBAC allows. With single sign-on, KubeStacks impersonates people, or, when
+  the API server trusts the provider itself, passes their own tokens on (and renews them).
+  Pages have addresses that can be shared. See [docs/server.md](docs/server.md).
+
 ## [1.1.1] - 2026-10-02
 
 ### Changed

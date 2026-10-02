@@ -113,9 +113,9 @@ test('only hands https links to the operating system', async ({ kubestacks }) =>
   const opened = await mockOpenExternal(kubestacks.app)
   const results = await kubestacks.page.evaluate(() =>
     Promise.all([
-      window.kubestacks.app.openExternal('file:///etc/passwd'),
-      window.kubestacks.app.openExternal(42 as unknown as string),
-      window.kubestacks.app.openExternal('https://kubernetes.io/docs/'),
+      window.kubestacks!.app.openExternal('file:///etc/passwd'),
+      window.kubestacks!.app.openExternal(42 as unknown as string),
+      window.kubestacks!.app.openExternal('https://kubernetes.io/docs/'),
     ]),
   )
   expect(results).toEqual([false, false, true])
@@ -124,7 +124,7 @@ test('only hands https links to the operating system', async ({ kubestacks }) =>
 
 test('rejects malformed requests from the renderer', async ({ page }) => {
   const errors = await page.evaluate(async () => {
-    const kube = window.kubestacks.kube
+    const kube = window.kubestacks!.kube
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = async (promise: Promise<any>) => {
       const result = await promise
@@ -149,7 +149,7 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
         { id: 'stream-0004', container: '' },
       ].map(({ id, ...request }) =>
         call(
-          window.kubestacks.logs.start(
+          window.kubestacks!.logs.start(
             id,
             loose({
               context: 'demo',
@@ -163,10 +163,10 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
           ),
         ),
       ),
-      call(window.kubestacks.app.saveFile(loose(5), 'text')),
-      call(window.kubestacks.app.saveFile('logs.log', loose(5))),
+      call(window.kubestacks!.app.saveFile(loose(5), 'text')),
+      call(window.kubestacks!.app.saveFile('logs.log', loose(5))),
       call(kube.version('no-such-context')),
-      window.kubestacks.app.setTheme(loose('neon')).then(
+      window.kubestacks!.app.setTheme(loose('neon')).then(
         () => 'ok',
         (error: Error) => error.message,
       ),
@@ -213,7 +213,7 @@ test('ignores calls from frames that are not the app', async ({ kubestacks }) =>
 })
 
 test('reports app and runtime versions', async ({ page }) => {
-  const info = await page.evaluate(() => window.kubestacks.app.info())
+  const info = await page.evaluate(() => window.kubestacks!.app.info())
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
   expect(info).toMatchObject({
     name: 'KubeStacks',
@@ -258,7 +258,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
   const corrupt = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
   writeFileSync(join(corrupt, 'settings.json'), '{ not json')
   const first = await launch({ userDataDir: corrupt })
-  expect(await first.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
+  expect(await first.page.evaluate(() => window.kubestacks!.app.settings())).toEqual({
     theme: 'system',
     readOnly: [],
     metricsSource: {},
@@ -287,7 +287,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     }),
   )
   const second = await launch({ userDataDir: unknown })
-  expect(await second.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
+  expect(await second.page.evaluate(() => window.kubestacks!.app.settings())).toEqual({
     theme: 'system',
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
@@ -301,7 +301,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     JSON.stringify({ theme: 'dark', readOnly: 'all', metricsSource: 'none', autoUpdate: 'no' }),
   )
   const third = await launch({ userDataDir: odd })
-  expect(await third.page.evaluate(() => window.kubestacks.app.settings())).toEqual({
+  expect(await third.page.evaluate(() => window.kubestacks!.app.settings())).toEqual({
     theme: 'dark',
     readOnly: [],
     metricsSource: {},
@@ -415,7 +415,7 @@ test('connects to plain HTTP clusters only when allowed', async ({ page }) => {
 
 test('rejects malformed changes from the renderer', async ({ page, clusters }) => {
   const errors = await page.evaluate(async () => {
-    const kube = window.kubestacks.kube
+    const kube = window.kubestacks!.kube
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = async (promise: Promise<any>) => {
       const result = await promise
@@ -483,7 +483,7 @@ test('rejects malformed changes from the renderer', async ({ page, clusters }) =
       call(kube.history(loose({ context: 'demo', kind: 'Pod', namespace: 'default', name: 'x' }))),
       call(kube.history(loose({ context: 'demo', kind: 'Deployment', name: 'x' }))),
       call(kube.history(loose({ context: 'demo', kind: 'Deployment', namespace: 'shop' }))),
-      window.kubestacks.app.setReadOnly(loose(''), loose('yes')).then(
+      window.kubestacks!.app.setReadOnly(loose(''), loose('yes')).then(
         () => 'ok',
         (error: Error) => error.message,
       ),
@@ -548,7 +548,8 @@ test('actions stay available when the cluster can’t answer access checks', asy
 
 test('rejects malformed shell and port-forward requests', async ({ page }) => {
   const results = await page.evaluate(async () => {
-    const { terminal, forwards, kube } = window.kubestacks
+    const { terminal, forwards: maybeForwards, kube } = window.kubestacks!
+    const forwards = maybeForwards!
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = async (promise: Promise<any>) => {
       const result = await promise
@@ -638,14 +639,14 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
   })
   // Without a local port, a free one is picked.
   const picked = await page.evaluate(async () => {
-    const result = await window.kubestacks.forwards.start({
+    const result = await window.kubestacks!.forwards!.start({
       context: 'demo',
       namespace: 'shop',
       kind: 'Service',
       name: 'storefront',
       port: 80,
     })
-    if (result.ok) await window.kubestacks.forwards.stop(result.data.id)
+    if (result.ok) await window.kubestacks!.forwards!.stop(result.data.id)
     return result.ok && result.data.localPort
   })
   expect(picked).toBeGreaterThan(1024)
@@ -678,7 +679,7 @@ test('opens local forwarded ports in the browser, but no other plain HTTP', asyn
         'http://localhost:3000',
         'http://localhost.example.com:80',
         'http://example.com',
-      ].map((url) => window.kubestacks.app.openExternal(url)),
+      ].map((url) => window.kubestacks!.app.openExternal(url)),
     ),
   )
   expect(results).toEqual([true, true, false, false])

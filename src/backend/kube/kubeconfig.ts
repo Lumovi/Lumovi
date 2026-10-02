@@ -51,8 +51,20 @@ function addMissing<T extends { name: string }>(target: T[], source: T[]): void 
   }
 }
 
+/**
+ * The clusters KubeStacks can show, and how to reach each: the user's
+ * kubeconfig on the desktop, or the server's one cluster, on behalf of
+ * whoever is signed in.
+ */
+export interface ClusterConfigs {
+  /** The contexts there are (on the desktop, the kubeconfig is read again). */
+  load(): ContextsResult
+  /** A KubeConfig whose current context is `name`, with the credentials to use. */
+  forContext(name: string): KubeConfig
+}
+
 /** Holds the merged kubeconfig and hands out per-context views of it. */
-export class KubeConfigStore {
+export class KubeConfigStore implements ClusterConfigs {
   #base = new KubeConfig()
   #perContext = new Map<string, KubeConfig>()
 

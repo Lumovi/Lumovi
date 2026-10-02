@@ -14,7 +14,7 @@ import type {
 } from '@shared/api'
 import { authorize, kubeRequest, serverUrl } from './client'
 import { KubeRequestError, toKubeError } from './errors'
-import type { KubeConfigStore } from './kubeconfig'
+import type { ClusterConfigs } from './kubeconfig'
 import { assertIntegerInRange, assertOneOf, assertQuery, assertString, invalid } from './validate'
 
 /** Starts bash when the container has it, and sh otherwise, like `kubectl debug` users do by hand. */
@@ -23,7 +23,7 @@ const FORWARD_KINDS: readonly ForwardKind[] = ['Pod', 'Service']
 const TIMEOUT_MS = 20_000
 
 interface Dependencies {
-  store: KubeConfigStore
+  store: ClusterConfigs
   envReady: Promise<void>
   isReadOnly: (context: string) => boolean
 }

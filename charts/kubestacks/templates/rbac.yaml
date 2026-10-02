@@ -1,0 +1,28 @@
+{{- if and .Values.rbac.create (include "kubestacks.impersonates" .) }}
+# KubeStacks acts as whoever signs in: the API server then applies their RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubestacks.fullname" . }}-impersonate
+  labels:
+    {{- include "kubestacks.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [users, groups]
+    verbs: [impersonate]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubestacks.fullname" . }}-impersonate
+  labels:
+    {{- include "kubestacks.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubestacks.fullname" . }}-impersonate
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubestacks.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

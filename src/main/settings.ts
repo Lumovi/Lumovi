@@ -1,36 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { MetricsSourceSetting, Settings, ThemePreference } from '@shared/api'
-import { PROXY_PATH } from './kube/usage'
+import type { MetricsSourceSetting, Settings } from '@shared/api'
+import { isMetricsSourceSetting, isTheme, type SettingsAccess } from '@backend/settings'
 
-const THEMES: readonly ThemePreference[] = ['system', 'light', 'dark']
 const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {}, autoUpdate: true }
 
-export function isTheme(value: unknown): value is ThemePreference {
-  return THEMES.includes(value as ThemePreference)
-}
-
-const text = (value: unknown) => typeof value === 'string' && value !== ''
-
-/** A stored or requested metrics source: detection, off, or a service to use. */
-export function isMetricsSourceSetting(value: unknown): value is MetricsSourceSetting {
-  if (typeof value !== 'object' || value === null) return false
-  const { mode, service } = value as { mode?: unknown; service?: Record<string, unknown> }
-  if (mode === 'auto' || mode === 'off') return true
-  return (
-    mode === 'service' &&
-    typeof service === 'object' &&
-    service !== null &&
-    text(service.namespace) &&
-    text(service.service) &&
-    text(service.port) &&
-    typeof service.path === 'string' &&
-    PROXY_PATH.test(service.path)
-  )
-}
-
 /** Persists user preferences as JSON in the app's userData directory. */
-export class SettingsStore {
+export class SettingsStore implements SettingsAccess {
   readonly #file: string
   #settings: Settings
   /** KUBESTACKS_READ_ONLY makes every context read-only, whatever was stored. */
@@ -58,7 +34,6 @@ export class SettingsStore {
     return this.update({ readOnly: readOnly ? [...others, context] : others })
   }
 
-  /** Where `context`'s metrics history comes from; detected unless set otherwise. */
   metricsSource(context: string): MetricsSourceSetting {
     return this.#settings.metricsSource![context] ?? { mode: 'auto' }
   }

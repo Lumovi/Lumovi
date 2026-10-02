@@ -12,9 +12,24 @@ const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
 ]
 
 export function ThemeMenu() {
-  const current = useSettings().data?.theme ?? 'system'
   const setTheme = useSetTheme()
-  const Icon = THEMES.find((theme) => theme.value === current)!.icon
+  return (
+    <ThemePicker
+      theme={useSettings().data?.theme ?? 'system'}
+      onChange={(theme) => setTheme(theme)}
+    />
+  )
+}
+
+/** The theme menu's button and choices, for whatever keeps the theme. */
+export function ThemePicker({
+  theme,
+  onChange,
+}: {
+  theme: ThemePreference
+  onChange: (theme: ThemePreference) => void
+}) {
+  const Icon = THEMES.find(({ value }) => value === theme)!.icon
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -28,8 +43,8 @@ export function ThemeMenu() {
             Appearance
           </DropdownMenu.Label>
           <DropdownMenu.RadioGroup
-            value={current}
-            onValueChange={(value) => setTheme(value as ThemePreference)}
+            value={theme}
+            onValueChange={(value) => onChange(value as ThemePreference)}
           >
             {THEMES.map(({ value, label, icon: ItemIcon }) => (
               <DropdownMenu.RadioItem key={value} value={value} className={menuItem}>

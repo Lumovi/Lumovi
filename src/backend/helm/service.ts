@@ -2,7 +2,7 @@
  * Helm releases: read from the cluster, and changed with the user's own helm
  * so changes behave exactly as Helm's do (hooks, three-way merges, its record
  * of revisions). KUBESTACKS_HELM names the helm to run; otherwise it's helm on
- * the login shell's PATH.
+ * the login shell's PATH (or, on the server, the one in its image).
  */
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -40,6 +40,8 @@ const FETCH_TIMEOUT_MS = 20_000
 const MAX_VALUES = 1024 * 1024
 /** Release names, like namespaces: DNS labels (Helm allows at most 53 characters). */
 const NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
+/** A chart's name in a repository's index. */
+const CHART_NAME = /^[\w.-]+$/
 /** What a .cmd or .bat wrapper may be given: the shell it runs in reads anything else. */
 // No % either: cmd.exe expands %VARIABLES% even inside arguments.
 const PLAIN = /^[\w@+=:,./\\~-]+$/
@@ -49,13 +51,50 @@ const DEFAULTS = {
   KUBESTACKS_ARTIFACT_HUB_URL: 'https://artifacthub.io',
 }
 
+/** How helm reaches a cluster: what to add to its command line and environment. */
+export interface HelmTarget {
+  args: string[]
+  env?: NodeJS.ProcessEnv
+  /** Cleans up once helm is done, e.g. removes a kubeconfig written for it. */
+  done?: () => Promise<void>
+}
+
+export interface HelmOptions {
+  /** Resolves once the environment (login shell PATH) is ready to run helm. */
+  envReady: Promise<void>
+  /** Whether a context is read-only; changes to it are refused. */
+  isReadOnly: (context: string) => boolean
+  /** The user's kubeconfig context, unless set otherwise. */
+  target?: (context: string) => Promise<HelmTarget>
+  /** Whether charts can come from files, as on the desktop (a server only takes remote ones). */
+  localCharts: boolean
+  /** Refuses URLs charts mustn't be fetched from (see the server's network policy). */
+  checkUrl?: (url: string) => Promise<void>
+}
+
+/** On the desktop: the context in the user's kubeconfig. */
+const kubeContext = async (context: string): Promise<HelmTarget> => ({
+  args: ['--kube-context', context],
+})
+
 export class HelmService {
+  private readonly envReady: Promise<void>
+  private readonly isReadOnly: (context: string) => boolean
+  private readonly env = process.env
+  readonly #target: (context: string) => Promise<HelmTarget>
+  readonly #localCharts: boolean
+  readonly #checkUrl: (url: string) => Promise<void>
+
   constructor(
     private readonly kube: KubeService,
-    private readonly envReady: Promise<void>,
-    private readonly isReadOnly: (context: string) => boolean,
-    private readonly env: NodeJS.ProcessEnv = process.env,
-  ) {}
+    options: HelmOptions,
+  ) {
+    this.envReady = options.envReady
+    this.isReadOnly = options.isReadOnly
+    this.#target = options.target ?? kubeContext
+    this.#localCharts = options.localCharts
+    this.#checkUrl = options.checkUrl ?? (async () => undefined)
+  }
 
   get #command(): string {
     return this.#setting('KUBESTACKS_HELM')
@@ -97,15 +136,12 @@ export class HelmService {
       const r = assertQuery<HelmRollback>(request)
       this.#assertChangeable(r)
       assertIntegerInRange(r.revision, 'revision', 1, 1_000_000)
-      await this.#helm([
-        'rollback',
-        r.name,
-        String(r.revision),
-        '--namespace',
-        r.namespace,
-        '--kube-context',
-        r.context,
-      ])
+      await this.#onCluster(r.context, (args, env) =>
+        this.#helm(
+          ['rollback', r.name, String(r.revision), '--namespace', r.namespace, ...args],
+          env,
+        ),
+      )
       return null
     })
   }
@@ -114,15 +150,19 @@ export class HelmService {
     return this.#result(async () => {
       const r = assertQuery<HelmUninstall>(request)
       this.#assertChangeable(r)
-      await this.#helm([
-        'uninstall',
-        r.name,
-        '--namespace',
-        r.namespace,
-        '--kube-context',
-        r.context,
-        ...(r.keepHistory === true ? ['--keep-history'] : []),
-      ])
+      await this.#onCluster(r.context, (args, env) =>
+        this.#helm(
+          [
+            'uninstall',
+            r.name,
+            '--namespace',
+            r.namespace,
+            ...args,
+            ...(r.keepHistory === true ? ['--keep-history'] : []),
+          ],
+          env,
+        ),
+      )
       return null
     })
   }
@@ -153,23 +193,27 @@ export class HelmService {
           }
           chart = [await writeChart(latest.chart, join(directory, 'chart'))]
         } else {
-          chart = sourceArgs(r.source)
+          chart = await this.#sourceArgs(r.source)
         }
-        const output = await this.#helm([
-          r.install === true ? 'install' : 'upgrade',
-          r.name,
-          ...chart,
-          '--namespace',
-          r.namespace,
-          '--kube-context',
-          r.context,
-          '--values',
-          values,
-          '--output',
-          'json',
-          ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
-          ...(r.dryRun === true ? ['--dry-run=server'] : []),
-        ])
+        const output = await this.#onCluster(r.context, (args, env) =>
+          this.#helm(
+            [
+              r.install === true ? 'install' : 'upgrade',
+              r.name,
+              ...chart,
+              '--namespace',
+              r.namespace,
+              ...args,
+              '--values',
+              values,
+              '--output',
+              'json',
+              ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
+              ...(r.dryRun === true ? ['--dry-run=server'] : []),
+            ],
+            env,
+          ),
+        )
         const deployed = JSON.parse(output) as StoredRelease
         return {
           revision: deployed.version,
@@ -184,7 +228,9 @@ export class HelmService {
 
   /** A chart's default values, as its values.yaml has them. */
   defaults(source: unknown): Promise<Result<string>> {
-    return this.#result(() => this.#helm(['show', 'values', ...sourceArgs(source)]))
+    return this.#result(async () =>
+      this.#helm(['show', 'values', ...(await this.#sourceArgs(source))]),
+    )
   }
 
   /** The versions a chart repository lists of a chart, as its index orders them (newest first). */
@@ -192,6 +238,7 @@ export class HelmService {
     return this.#result(async () => {
       assertUrl(repository, 'repository')
       assertString(chart, 'chart')
+      await this.#checkUrl(repository)
       const index = parse(await fetchText(`${repository.replace(/\/+$/, '')}/index.yaml`)) as {
         entries?: Record<string, { version: string }[]>
       }
@@ -298,6 +345,45 @@ export class HelmService {
     })
   }
 
+  /** What helm takes to find a chart: never an option in disguise, nor a file a server has. */
+  async #sourceArgs(source: unknown): Promise<string[]> {
+    const s = assertQuery<ChartSource>(source)
+    assertString(s.chart, 'chart')
+    if (s.chart.startsWith('-')) throw invalid('chart can’t start with a dash')
+    if (s.repository !== undefined) assertUrl(s.repository, 'repository')
+    optionalString(s.version, 'version')
+    if (s.version?.startsWith('-')) throw invalid('version can’t start with a dash')
+    const remote = /^(oci|https?):\/\//.test(s.chart)
+    if (!this.#localCharts) {
+      // Only a chart in a repository, a registry or at a URL: never a path on the server.
+      if (s.repository ? !CHART_NAME.test(s.chart) : !remote) {
+        throw invalid(
+          'Choose a chart from a repository (its name and the repository’s URL), an oci:// registry or a URL.',
+        )
+      }
+    }
+    if (s.repository) await this.#checkUrl(s.repository)
+    else if (remote) await this.#checkUrl(s.chart.replace(/^oci:/, 'https:'))
+    return [
+      this.#localCharts ? expandHome(s.chart) : s.chart,
+      ...(s.repository ? ['--repo', s.repository] : []),
+      ...(s.version ? ['--version', s.version] : []),
+    ]
+  }
+
+  /** Runs `task` with the flags (and environment) that point helm at `context`. */
+  async #onCluster<T>(
+    context: string,
+    task: (args: string[], env?: NodeJS.ProcessEnv) => Promise<T>,
+  ): Promise<T> {
+    const target = await this.#target(context)
+    try {
+      return await task(target.args, target.env)
+    } finally {
+      await target.done?.()
+    }
+  }
+
   #list(context: string) {
     return (path: string, selector: string) => this.kube.listRaw(context, path, selector)
   }
@@ -315,14 +401,14 @@ export class HelmService {
   }
 
   /** Runs helm, resolving with what it printed, or rejecting with what it said went wrong. */
-  async #helm(args: string[]): Promise<string> {
-    const run = await this.#run(args)
+  async #helm(args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
+    const run = await this.#run(args, env)
     if (run.code !== 0) throw helmError(run)
     return run.stdout
   }
 
   /** Runs helm, resolving with how it ended and what it printed. */
-  async #run(args: string[]): Promise<HelmRun> {
+  async #run(args: string[], env?: NodeJS.ProcessEnv): Promise<HelmRun> {
     await this.envReady
     const command = this.#command
     // A .cmd or .bat wrapper (on Windows) only runs through the shell.
@@ -335,7 +421,7 @@ export class HelmService {
     }
     return new Promise((done, fail) => {
       const child = spawn(command, args, {
-        env: this.env,
+        env: { ...this.env, ...env },
         shell,
         windowsHide: true,
         timeout: RUN_TIMEOUT_MS,
@@ -456,21 +542,6 @@ function lintMessages(output: string): LintResult['messages'] {
     }
   }
   return messages.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
-}
-
-/** What helm takes to find a chart: never an option in disguise. */
-function sourceArgs(source: unknown): string[] {
-  const s = assertQuery<ChartSource>(source)
-  assertString(s.chart, 'chart')
-  if (s.chart.startsWith('-')) throw invalid('chart can’t start with a dash')
-  if (s.repository !== undefined) assertUrl(s.repository, 'repository')
-  optionalString(s.version, 'version')
-  if (s.version?.startsWith('-')) throw invalid('version can’t start with a dash')
-  return [
-    expandHome(s.chart),
-    ...(s.repository ? ['--repo', s.repository] : []),
-    ...(s.version ? ['--version', s.version] : []),
-  ]
 }
 
 /** Writes a chart as a release stores it (without subcharts) to a folder helm can use. */

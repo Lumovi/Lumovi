@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router'
+import { currentPath } from '@renderer/lib/routes'
 
 /**
  * Navigates with a page transition. The transition starts right away
@@ -12,6 +13,6 @@ export function useGo(): (to: string) => void {
     void navigate(to, {
       viewTransition: true,
       flushSync: true,
-      replace: to === (window.location.hash.slice(1) || '/'),
+      replace: to === currentPath(),
     })
 }

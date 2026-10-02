@@ -29,8 +29,25 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/main/**', 'src/preload/**', 'scripts/**', 'tests/**', '*.config.{js,ts}'],
+    files: [
+      'src/main/**',
+      'src/backend/**',
+      'src/preload/**',
+      'scripts/**',
+      'tests/**',
+      '*.config.{js,ts}',
+    ],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // Shared by the desktop app and the server, which has no Electron.
+    files: ['src/backend/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: [{ name: 'electron', message: 'The server runs src/backend without Electron.' }] },
+      ],
+    },
   },
   {
     files: ['src/renderer/**'],

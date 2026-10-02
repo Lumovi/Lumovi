@@ -1,9 +1,10 @@
 /**
- * The contract between the renderer and the main process.
+ * The contract between the page and what runs it: the desktop app's main
+ * process (over IPC), or the server (over a WebSocket).
  *
  * Every call that talks to a cluster resolves to a `Result` instead of
- * throwing, because Electron flattens errors that cross IPC into plain
- * strings and we want the renderer to know *why* a request failed.
+ * throwing, because errors that cross IPC or the network are flattened into
+ * plain strings and we want the page to know *why* a request failed.
  */
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
@@ -14,8 +15,9 @@ export interface AppInfo {
   name: string
   version: string
   platform: string
-  electron: string
-  chrome: string
+  /** The desktop app's. */
+  electron?: string
+  chrome?: string
   node: string
 }
 
@@ -553,20 +555,29 @@ export interface AccessCheck {
   subresource?: string
 }
 
+/** Where KubeStacks runs: the desktop app, or a server in a cluster that pages connect to. */
+export type Host = 'desktop' | 'server'
+
 export interface KubestacksApi {
+  /** The operating system the page runs on, as Node.js names it (darwin, win32, linux). */
   platform: string
-  /** Subscribes to commands from the native menu; returns an unsubscribe function. */
-  onCommand(listener: (command: AppCommand) => void): () => void
-  /** Called when the window enters or leaves full screen (where macOS hides its window controls). */
-  onFullScreen(listener: (fullScreen: boolean) => void): () => void
+  host: Host
+  /** The desktop app's window: its native menu, and full screen. */
+  desktop?: {
+    /** Subscribes to commands from the native menu; returns an unsubscribe function. */
+    onCommand(listener: (command: AppCommand) => void): () => void
+    /** Called when the window enters or leaves full screen (where macOS hides its window controls). */
+    onFullScreen(listener: (fullScreen: boolean) => void): () => void
+  }
   app: {
     info(): Promise<AppInfo>
     settings(): Promise<Settings>
     setTheme(theme: ThemePreference): Promise<Settings>
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
+    /** Opens a web page in the browser. */
     openExternal(url: string): Promise<boolean>
-    /** Asks where to save `text` (offering `name`) and saves it; false if the user cancels. */
+    /** Saves `text` as a file named `name` (asking where, on the desktop); false if the user cancels. */
     saveFile(name: string, text: string): Promise<Result<boolean>>
     /** The user's own view files, read when asked. */
     views(): Promise<LocalViews>
@@ -598,7 +609,7 @@ export interface KubestacksApi {
   }
   /**
    * Helm releases: read from the cluster (where Helm keeps them), changed with
-   * the user's helm.
+   * helm.
    */
   helm: {
     releases(context: string, namespace?: string): Promise<Result<HelmRelease[]>>
@@ -613,10 +624,13 @@ export interface KubestacksApi {
     versions(repository: string, chart: string): Promise<Result<string[]>>
     /** Charts on Artifact Hub. */
     search(query: string): Promise<Result<ChartSearchResult[]>>
+  }
+  /** Helm charts on this computer: the desktop app's. */
+  localCharts?: {
     /** Asks for a chart folder or a packaged chart; null if the user cancels. */
     choose(kind: 'folder' | 'archive'): Promise<string | null>
     /** What a chart on this computer is, and what it needs. */
-    local(path: string): Promise<Result<LocalChart>>
+    read(path: string): Promise<Result<LocalChart>>
     /** Checks a local chart with these values (`helm lint`). */
     lint(path: string, values: string): Promise<Result<LintResult>>
     /** One of a local chart's values files. */
@@ -647,15 +661,15 @@ export interface KubestacksApi {
     /** A stream ended: its container stopped, the connection closed, or it failed. */
     onEnd(listener: (id: string, error?: KubeError) => void): () => void
   }
-  /** Local ports forwarded to pods and services (`kubectl port-forward`). */
-  forwards: {
+  /** Ports on this computer forwarded to pods and services (`kubectl port-forward`): the desktop app's. */
+  forwards?: {
     start(request: PortForwardRequest): Promise<Result<PortForward>>
     list(): Promise<PortForward[]>
     stop(id: string): Promise<void>
     onChange(listener: (forwards: PortForward[]) => void): () => void
   }
-  /** New versions of KubeStacks, from its GitHub releases. */
-  updates: {
+  /** New versions of the desktop app, from its GitHub releases. */
+  updates?: {
     state(): Promise<UpdateEvent>
     /** Looks for a new version now, as Help → Check for Updates does. */
     check(): Promise<void>
@@ -665,7 +679,7 @@ export interface KubestacksApi {
   }
 }
 
-/** IPC channel names, shared so the preload and main process cannot drift apart. */
+/** Channel names, shared so the page and what answers it cannot drift apart. */
 export const IPC = {
   command: 'app:command',
   appInfo: 'app:info',

@@ -6,7 +6,7 @@
 import type { KubeError, LogStreamRequest, Result } from '@shared/api'
 import { kubeStream } from './client'
 import { toKubeError } from './errors'
-import type { KubeConfigStore } from './kubeconfig'
+import type { ClusterConfigs } from './kubeconfig'
 import { assertIntegerInRange, assertQuery, assertString, invalid } from './validate'
 
 /** Lines are sent to the page at most this often, per stream. */
@@ -15,7 +15,7 @@ const MAX_TAIL = 10_000
 const MAX_SINCE = 30 * 86_400
 
 interface Dependencies {
-  store: KubeConfigStore
+  store: ClusterConfigs
   envReady: Promise<void>
   /** How long the API server has to start answering. */
   timeoutMs: number

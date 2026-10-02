@@ -4,8 +4,9 @@ name: Release
 # package.json version has no release yet, this builds the installers for every
 # platform (macOS signed and notarized), attaches them and their checksums to a
 # GitHub release with the version's CHANGELOG notes, and publishes it, which
-# tags the commit. To release, bump the version, add its CHANGELOG section and
-# push (see CONTRIBUTING.md).
+# tags the commit. The image and Helm chart for running KubeStacks in a cluster
+# go to GitHub's container registry. To release, bump the version, add its
+# CHANGELOG section and push (see CONTRIBUTING.md).
 on:
   workflow_run:
     workflows: [CI]
@@ -110,6 +111,10 @@ jobs:
           for Windows, \`.AppImage\`, \`.deb\` and \`.rpm\` for Linux. \`SHA256SUMS.txt\` lists
           their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
           that a file was built by this repository's release workflow.
+
+          **In your cluster** ([docs/server.md](https://github.com/$GITHUB_REPOSITORY/blob/v$VERSION/docs/server.md)):
+          \`helm install kubestacks oci://ghcr.io/kubestacks/charts/kubestacks --version $VERSION\`, with the
+          image \`ghcr.io/kubestacks/kubestacks:$VERSION\` for \`linux/amd64\` and \`linux/arm64\`.
           EOF
       # Created once, here: the builds below would otherwise race to create it.
       - name: Create the draft release
@@ -216,9 +221,71 @@ jobs:
         with:
           subject-path: release/KubeStacks-*
 
+  image:
+    name: Image and Helm chart
+    needs: preflight
+    if: needs.preflight.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To push to GitHub's container registry, and attest what was pushed.
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      IMAGE: ghcr.io/kubestacks/kubestacks
+      CHARTS: ghcr.io/kubestacks/charts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push the image
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ env.VERSION }}
+          # Pre-releases aren't the latest.
+          tags: |
+            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ needs.preflight.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE) || '' }}
+      - name: Attest the image's provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - name: Package and push the chart
+        id: chart
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          helm package charts/kubestacks --version "$VERSION" --app-version "$VERSION"
+          printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          helm push "kubestacks-$VERSION.tgz" "oci://$CHARTS" 2>&1 | tee push.log
+          echo "digest=$(sed -n 's/^Digest: //p' push.log)" >> "$GITHUB_OUTPUT"
+      - name: Attest the chart's provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-name: ${{ env.CHARTS }}/kubestacks
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true
+
   publish:
     name: Checksums and publish
-    needs: [preflight, build]
+    needs: [preflight, build, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write

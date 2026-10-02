@@ -31,6 +31,23 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - name: Helm chart
+        run: |
+          node scripts/chart-version.ts --check
+          helm lint charts/kubestacks --strict
+          # Every way of signing in, with everything turned on.
+          for mode in token oidc proxy; do
+            helm template kubestacks charts/kubestacks --set auth.mode="$mode" \
+              --set url=https://kubestacks.example.com \
+              --set auth.oidc.issuer=https://dex.example.com --set auth.oidc.clientId=kubestacks \
+              --set ingress.enabled=true --set networkPolicy.enabled=true >/dev/null
+          done
+          # Single sign-on with people's own tokens: no impersonation, so no ClusterRole.
+          ! helm template kubestacks charts/kubestacks --set auth.mode=oidc \
+            --set url=https://kubestacks.example.com --set auth.oidc.issuer=https://dex.example.com \
+            --set auth.oidc.clientId=kubestacks --set auth.oidc.forwardToken=id \
+            | grep -q 'kind: ClusterRole$'
 
   e2e:
     name: E2E (${{ matrix.os }}, ${{ matrix.shard }}/2)
@@ -56,6 +73,22 @@ jobs:
             ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+      # For KubeStacks served from a cluster, in a browser (tests/web).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
       - name: Allow Chromium's sandbox
         # Ubuntu 24.04 restricts the unprivileged user namespaces Electron's sandbox needs.
         if: runner.os == 'Linux'
@@ -202,7 +235,11 @@ jobs:
           install_only: true
           version: v0.33.0
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npx playwright install --with-deps chromium
       - run: npm run build
+      # The image, as released, for KubeStacks served from the cluster (cluster.ts installs it).
+      - name: Build the image
+        run: docker build --tag kubestacks:integration .
       - name: Start the kind cluster, with metrics-server and Prometheus
         run: node tests/integration/cluster.ts up
       - name: Run the integration tests

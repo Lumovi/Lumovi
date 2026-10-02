@@ -70,7 +70,7 @@ test('a shell in a container', async ({ page, clusters }) => {
   const lines = (await screen(page).innerText()).split('\n').length
   await page.evaluate(
     (pod) =>
-      window.kubestacks.terminal.open('someone-else', {
+      window.kubestacks!.terminal.open('someone-else', {
         context: 'demo',
         namespace: 'shop',
         pod,
@@ -204,7 +204,7 @@ test('shells need exec access and a writable cluster', async ({ page, clusters }
   )
   const refused = await page.evaluate(
     (pod) =>
-      window.kubestacks.terminal.open('refused-session', {
+      window.kubestacks!.terminal.open('refused-session', {
         context: 'demo',
         namespace: 'shop',
         pod,

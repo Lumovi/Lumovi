@@ -53,7 +53,7 @@ test.describe('demo cluster', () => {
 
   test('without history, the trend is what this session saw', async ({ launch }) => {
     const { page } = await launch()
-    await page.evaluate(() => window.kubestacks.app.setMetricsSource('demo', { mode: 'off' }))
+    await page.evaluate(() => window.kubestacks!.app.setMetricsSource('demo', { mode: 'off' }))
     await openCluster(page)
     const cpu = page.getByRole('region', { name: 'CPU', exact: true })
     await expect(cpu).toContainText('Collecting usage…')

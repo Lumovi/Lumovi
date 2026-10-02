@@ -620,7 +620,7 @@ test('without helm, or on a read-only cluster, releases can still be read', asyn
   )
   const ask = () =>
     page.evaluate(() =>
-      window.kubestacks.helm.uninstall({
+      window.kubestacks!.helm.uninstall({
         context: 'demo',
         namespace: 'shop',
         name: 'storefront',
@@ -645,7 +645,7 @@ test('without helm, or on a read-only cluster, releases can still be read', asyn
 test('rejects malformed helm requests', async ({ page }) => {
   await openCluster(page)
   const results = await page.evaluate(async () => {
-    const helm = window.kubestacks.helm
+    const helm = window.kubestacks!.helm
     const loose = <T>(value: unknown) => value as T
     const outcome = (result: { ok: boolean; error?: { code: string; message: string } }) =>
       result.ok ? 'ok' : `${result.error!.code}: ${result.error!.message}`
@@ -699,7 +699,10 @@ test('rejects malformed helm requests', async ({ page }) => {
   // A .cmd wrapper (the stand-in, on Windows) runs through the shell, so it's only given plain
   // words: no spaces, and no %VARIABLES% for cmd.exe to expand.
   for (const chart of ['a b', 'x%PATH%']) {
-    const answer = await page.evaluate((chart) => window.kubestacks.helm.defaults({ chart }), chart)
+    const answer = await page.evaluate(
+      (chart) => window.kubestacks!.helm.defaults({ chart }),
+      chart,
+    )
     if (process.platform === 'win32') {
       expect(answer).toMatchObject({
         ok: false,
@@ -948,15 +951,15 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   // What the main process won't do.
   const refused = await page.evaluate(
     async ({ web, packaged }) => {
-      const helm = window.kubestacks.helm
+      const charts = window.kubestacks!.localCharts!
       const loose = <T>(value: unknown) => value as T
       const outcome = (result: { ok: boolean; error?: { code: string; message: string } }) =>
         result.ok ? 'ok' : `${result.error!.code}: ${result.error!.message}`
       return Promise.all([
-        helm.local(loose(5)).then(outcome),
-        helm.lint(web, loose(5)).then(outcome),
-        helm.valuesFile(web, '../../secrets.yaml').then(outcome),
-        helm.updateDependencies(packaged).then(outcome),
+        charts.read(loose(5)).then(outcome),
+        charts.lint(web, loose(5)).then(outcome),
+        charts.valuesFile(web, '../../secrets.yaml').then(outcome),
+        charts.updateDependencies(packaged).then(outcome),
       ])
     },
     { web, packaged },
@@ -969,7 +972,9 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   ])
   // helm failing to lint at all.
   scriptHelm(kubestacks, { lint: { code: 1, stderr: 'Error: helm broke\n' } })
-  expect(await page.evaluate((web) => window.kubestacks.helm.lint(web, ''), web)).toMatchObject({
+  expect(
+    await page.evaluate((web) => window.kubestacks!.localCharts!.lint(web, ''), web),
+  ).toMatchObject({
     ok: false,
     error: { message: 'helm broke' },
   })

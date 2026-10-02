@@ -1,6 +1,6 @@
 import { CircleArrowUp, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { UpdateEvent, UpdateState } from '@shared/api'
+import type { KubestacksApi, UpdateEvent, UpdateState } from '@shared/api'
 import { REPO_URL } from '@shared/app'
 import { api } from '@renderer/lib/api'
 import { toast } from '@renderer/state/toasts'
@@ -36,8 +36,11 @@ function report(state: UpdateState) {
   }
 }
 
-/** Says when a new version is ready to install, and reports checks the user asked for. */
-export function UpdateNotice() {
+/**
+ * Says when a new version of the desktop app is ready to install, and reports
+ * checks the user asked for.
+ */
+export function UpdateNotice({ updates }: { updates: NonNullable<KubestacksApi['updates']> }) {
   // The version ready to install, until the notice is dismissed.
   const [ready, setReady] = useState<string>()
   useEffect(() => {
@@ -45,9 +48,9 @@ export function UpdateNotice() {
       setReady(state.status === 'ready' ? state.version : undefined)
       if (manual) report(state)
     }
-    void api.updates.state().then(apply)
-    return api.updates.onChange(apply)
-  }, [])
+    void updates.state().then(apply)
+    return updates.onChange(apply)
+  }, [updates])
 
   if (!ready) return null
   return (
@@ -68,7 +71,7 @@ export function UpdateNotice() {
           <Button
             variant="primary"
             className="h-7 px-2.5 text-xs"
-            onClick={() => void api.updates.install()}
+            onClick={() => void updates.install()}
           >
             Restart now
           </Button>

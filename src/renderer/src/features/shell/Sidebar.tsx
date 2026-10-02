@@ -5,6 +5,7 @@ import {
   Boxes,
   ChartSpline,
   Check,
+  ChevronDown,
   ChevronsUpDown,
   LayoutDashboard,
   List,
@@ -45,6 +46,8 @@ import {
 } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
+import { useSession } from '@renderer/state/session'
+import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
 import { ThemeMenu } from './ThemeMenu'
@@ -119,6 +122,7 @@ function GoHint({ target }: { target: string }) {
 
 export function Sidebar() {
   const { context } = useCluster()
+  const session = useSession()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
   return (
     <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
@@ -169,6 +173,7 @@ export function Sidebar() {
       </nav>
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
         <ThemeMenu />
+        {session && <AccountMenu session={session} />}
         <IconButton label="KubeStacks on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />
         </IconButton>
@@ -180,7 +185,12 @@ export function Sidebar() {
   )
 }
 
+/**
+ * The cluster, and whether KubeStacks may change it; in the desktop app, also
+ * the other clusters to switch to (a server shows one).
+ */
 function ClusterSwitcher() {
+  const switching = api.host === 'desktop'
   const { context } = useCluster()
   const navigateTo = useGo()
   const [open, setOpen] = useState(false)
@@ -196,7 +206,7 @@ function ClusterSwitcher() {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
-        aria-label="Switch cluster"
+        aria-label={switching ? 'Switch cluster' : 'Cluster'}
         className="flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-left shadow-panel transition-colors no-drag hover:bg-surface-3 data-[state=open]:bg-surface-3"
       >
         <StatusDot health={health} />
@@ -215,35 +225,55 @@ function ClusterSwitcher() {
                 : (server ?? 'Connecting…')}
           </span>
         </span>
-        <ChevronsUpDown className="size-4 shrink-0 text-ink-3" />
+        {switching ? (
+          <ChevronsUpDown className="size-4 shrink-0 text-ink-3" />
+        ) : (
+          <ChevronDown className="size-4 shrink-0 text-ink-3" />
+        )}
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content align="start" sideOffset={6} className={cn(menuContent, 'w-[300px] p-0')}>
-          <Command loop filter={matchWords} label="Clusters">
-            <Command.Input
-              placeholder="Switch to…"
-              className="h-10 w-full border-b border-line bg-transparent px-3 text-[13px] text-ink-1 outline-none placeholder:text-ink-3"
-            />
-            <Command.List className="max-h-80 overflow-y-auto p-1">
-              <Command.Empty className="px-3 py-6 text-center text-xs text-ink-3">
-                No clusters match.
-              </Command.Empty>
-              {contexts.map((c) => (
-                <SwitcherItem key={c.name} context={c} active={c.name === context} onSelect={go} />
-              ))}
-              <Command.Separator className="mx-1 my-1 h-px bg-line" />
-              <Command.Item value="All clusters" onSelect={() => go('/')} className={menuItem}>
-                <List className="size-4 text-ink-3" /> All clusters
-              </Command.Item>
-            </Command.List>
-          </Command>
+          {switching ? (
+            <Command loop filter={matchWords} label="Clusters">
+              <Command.Input
+                placeholder="Switch to…"
+                className="h-10 w-full border-b border-line bg-transparent px-3 text-[13px] text-ink-1 outline-none placeholder:text-ink-3"
+              />
+              <Command.List className="max-h-80 overflow-y-auto p-1">
+                <Command.Empty className="px-3 py-6 text-center text-xs text-ink-3">
+                  No clusters match.
+                </Command.Empty>
+                {contexts.map((c) => (
+                  <SwitcherItem
+                    key={c.name}
+                    context={c}
+                    active={c.name === context}
+                    onSelect={go}
+                  />
+                ))}
+                <Command.Separator className="mx-1 my-1 h-px bg-line" />
+                <Command.Item value="All clusters" onSelect={() => go('/')} className={menuItem}>
+                  <List className="size-4 text-ink-3" /> All clusters
+                </Command.Item>
+              </Command.List>
+            </Command>
+          ) : (
+            <div className="px-3 py-2.5">
+              <p className="truncate text-[13px] font-medium text-ink-1">{context}</p>
+              <p className="truncate font-mono text-xs text-ink-3 selectable" title={server}>
+                {server}
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-3 border-t border-line px-3 py-2.5">
             <Lock className="size-4 shrink-0 text-ink-3" />
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] text-ink-1">Read-only</span>
               <span className="block text-xs leading-snug text-ink-3">
                 {readOnly.locked
-                  ? 'Set by KUBESTACKS_READ_ONLY'
+                  ? switching
+                    ? 'Set by KUBESTACKS_READ_ONLY'
+                    : 'For everyone, on this server'
                   : `KubeStacks won’t change ${context}`}
               </span>
             </span>

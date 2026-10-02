@@ -1,0 +1,13 @@
+{{- if .Values.views }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubestacks.fullname" . }}-views
+  labels:
+    {{- include "kubestacks.labels" . | nindent 4 }}
+data:
+  {{- range $name, $view := .Values.views }}
+  {{ $name }}: |
+    {{- $view | nindent 4 }}
+  {{- end }}
+{{- end }}

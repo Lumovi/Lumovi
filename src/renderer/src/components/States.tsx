@@ -16,13 +16,19 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { KubeErrorCode } from '@shared/api'
+import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { Button } from './Button'
+
+/** Served pages reach the cluster through the KubeStacks server, as whoever signed in. */
+const served = api.host === 'server'
 
 const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: LucideIcon }> = {
   unreachable: {
     title: 'Can’t reach the cluster',
-    hint: 'Check that the API server is running and reachable from this machine — a VPN or tunnel may be required.',
+    hint: served
+      ? 'Check that the API server is running and reachable from where KubeStacks runs.'
+      : 'Check that the API server is running and reachable from this machine — a VPN or tunnel may be required.',
     icon: WifiOff,
   },
   timeout: {
@@ -32,7 +38,9 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   tls: {
     title: 'The cluster’s certificate couldn’t be verified',
-    hint: 'The certificate authority in your kubeconfig doesn’t match the API server.',
+    hint: served
+      ? 'The certificate authority KubeStacks was given doesn’t match the API server.'
+      : 'The certificate authority in your kubeconfig doesn’t match the API server.',
     icon: ShieldAlert,
   },
   insecure: {
@@ -47,7 +55,9 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   unauthorized: {
     title: 'Your credentials were rejected',
-    hint: 'The token or certificate may have expired. Sign in again, then retry.',
+    hint: served
+      ? 'KubeStacks’ own credentials may have expired, or been revoked.'
+      : 'The token or certificate may have expired. Sign in again, then retry.',
     icon: Lock,
   },
   forbidden: {

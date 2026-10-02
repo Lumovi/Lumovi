@@ -193,7 +193,7 @@ export function PortForwardDialog({ object, onClose }: ActionProps) {
       onClose={onClose}
       onSubmit={() =>
         void submit(async () => {
-          const result = await api.forwards.start({
+          const result = await api.forwards!.start({
             context,
             namespace: namespace!,
             kind,

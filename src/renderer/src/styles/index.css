@@ -9,10 +9,23 @@
 @custom-variant hover (&:hover);
 
 /*
- * Design tokens. The theme follows `prefers-color-scheme`, which Electron's
- * nativeTheme drives from the user's System / Light / Dark preference, so the
- * native window controls and the page always agree.
+ * The dark theme: the system's, unless Light is chosen, or Dark. In the desktop
+ * app Electron's nativeTheme drives `prefers-color-scheme` from the user's
+ * System / Light / Dark preference, so the native window controls and the page
+ * always agree; in a browser, `data-theme` says which was chosen.
  */
+@custom-variant theme-dark {
+  &:where([data-theme='dark']) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:not([data-theme='light'])) {
+      @slot;
+    }
+  }
+}
+
+/* Design tokens. */
 :root {
   color-scheme: light;
   --app-bg: #f5f5f6;
@@ -70,8 +83,8 @@
   --ansi-15: #8c959f;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+:root {
+  @variant theme-dark {
     color-scheme: dark;
     --app-bg: #0c0c0e;
     --surface: #121215;
@@ -282,18 +295,18 @@
   --ansi-15: #ffffff;
 }
 
-/* Leave room for the native window controls. */
-[data-platform='darwin'] .titlebar-leading {
+/* Leave room for the desktop app's window controls (a browser draws its own, elsewhere). */
+[data-window-controls='left'] .titlebar-leading {
   padding-left: 84px;
 }
-:root:not([data-platform='darwin']) .titlebar-trailing {
+[data-window-controls='right'] .titlebar-trailing {
   padding-right: 148px;
 }
 /* macOS draws its window controls at the top of the sidebar, except in full screen. */
 .traffic-lights {
   display: none;
 }
-[data-platform='darwin']:not([data-fullscreen]) .traffic-lights {
+[data-window-controls='left']:not([data-fullscreen]) .traffic-lights {
   display: block;
 }
 

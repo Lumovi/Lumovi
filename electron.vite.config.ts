@@ -21,7 +21,7 @@ const devContentSecurityPolicy: Plugin = {
       .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
       .replace("connect-src 'self'", "connect-src 'self' ws: wss:"),
 }
-const alias = { '@shared': resolve('src/shared') }
+const alias = { '@shared': resolve('src/shared'), '@backend': resolve('src/backend') }
 
 export default defineConfig({
   main: {

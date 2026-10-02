@@ -6,7 +6,7 @@ import { useOpenObject } from '@renderer/hooks/open-object'
 import { useGo } from '@renderer/hooks/go'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
-import { kindPath } from '@renderer/lib/routes'
+import { currentPath, kindPath } from '@renderer/lib/routes'
 import { useActivity, type ActivityEntry } from '@renderer/state/activity'
 import { useCluster } from '@renderer/state/cluster'
 import { menuContent } from '../shell/menu-styles'
@@ -84,7 +84,7 @@ function Entry({ entry }: { entry: ActivityEntry }) {
   const open =
     target && entry.context === context
       ? () => {
-          if (!window.location.hash.includes(kindPath(context, target.kind))) {
+          if (!currentPath().includes(kindPath(context, target.kind))) {
             go(kindPath(context, target.kind))
           }
           openObject(target.kind, target.name, target.namespace)

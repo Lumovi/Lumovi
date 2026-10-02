@@ -2,17 +2,17 @@ import { homedir } from 'node:os'
 import { app, Menu, nativeTheme, session } from 'electron'
 import { IPC } from '@shared/api'
 import icon from '../../build/icon.png?asset'
-import { HelmService } from './helm/service'
+import { HelmService } from '@backend/helm/service'
+import { KubeConfigStore } from '@backend/kube/kubeconfig'
+import { LogStreams } from '@backend/kube/logs'
+import { KubeService } from '@backend/kube/service'
+import { Forwards, Terminals } from '@backend/kube/streams'
+import { UsageHistory } from '@backend/kube/usage'
+import { viewsDirectory } from '@backend/views'
 import { registerIpc } from './ipc'
-import { KubeConfigStore } from './kube/kubeconfig'
-import { KubeService } from './kube/service'
-import { UsageHistory } from './kube/usage'
-import { LogStreams } from './kube/logs'
-import { Forwards, Terminals } from './kube/streams'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
 import { loadLoginShellPath } from './shell-env'
-import { viewsDirectory } from './views'
 import { Updates } from './updates'
 import { createMainWindow, rendererUrl } from './window'
 
@@ -41,7 +41,7 @@ if (!app.requestSingleInstanceLock()) {
     const isReadOnly = (context: string) => settings.isReadOnly(context)
     const kube = new KubeService(store, envReady, isReadOnly)
     const usage = new UsageHistory(kube, (context) => settings.metricsSource(context))
-    const helm = new HelmService(kube, envReady, isReadOnly)
+    const helm = new HelmService(kube, { envReady, isReadOnly, localCharts: true })
     // The page loads asynchronously, so the handlers below are in place before it can call them.
     const win = createMainWindow(url, settings.get().window, (window) =>
       settings.update({ window }),

@@ -1,5 +1,13 @@
 import type { NavTarget } from '@shared/navigation'
 import { builtinResource, type ResourceKind } from '@shared/resources'
+import { basename } from '@renderer/web/session'
+import { api } from './api'
+
+/** Where the app is now, as its router sees it: the hash on the desktop, the address when served. */
+export function currentPath(): string {
+  const { hash, pathname, search } = window.location
+  return api.host === 'desktop' ? hash.slice(1) || '/' : pathname.slice(basename().length) + search
+}
 
 export function clusterPath(context: string): string {
   return `/cluster/${encodeURIComponent(context)}`

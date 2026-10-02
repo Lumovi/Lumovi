@@ -79,7 +79,7 @@ export function Commands() {
     runRef.current = run
   })
 
-  useEffect(() => api.onCommand((command) => runRef.current(command)), [])
+  useEffect(() => api.desktop?.onCommand((command) => runRef.current(command)), [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
