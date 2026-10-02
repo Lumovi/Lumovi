@@ -18,4 +18,6 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/KubeStacks/KubeStacks/blob/main/docs/server.md
+      url: https://docs.kubestacks.com/server/overview
+    - name: Helm values
+      url: https://docs.kubestacks.com/server/helm-values

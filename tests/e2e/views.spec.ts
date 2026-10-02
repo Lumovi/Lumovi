@@ -368,5 +368,5 @@ test('views live in ~/.kubestacks/views unless KUBESTACKS_VIEWS_DIR says otherwi
     'mine.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View',
   ])
   await page.getByRole('button', { name: 'How to write a view' }).click()
-  await expect.poll(opened).toEqual([expect.stringMatching(/\/docs\/views\.md$/)])
+  await expect.poll(opened).toEqual(['https://docs.kubestacks.com/custom-resources/write-a-view'])
 })

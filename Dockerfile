@@ -1,4 +1,5 @@
-# KubeStacks, served from a cluster: Node.js, helm, the server and the page (docs/server.md).
+# KubeStacks, served from a cluster: Node.js, helm, the server and the page
+# (https://docs.kubestacks.com/server/overview).
 #
 #   docker build -t kubestacks .
 #

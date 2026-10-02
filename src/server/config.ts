@@ -1,6 +1,7 @@
 /**
  * The server's settings, from its environment (the Helm chart sets them; see
- * docs/server.md). One that doesn't make sense stops the server, saying why.
+ * https://docs.kubestacks.com/server/configuration). One that doesn't make
+ * sense stops the server, saying why.
  */
 import { join } from 'node:path'
 import type { MetricsSourceSetting } from '@shared/api'

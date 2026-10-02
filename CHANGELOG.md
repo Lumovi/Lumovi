@@ -6,6 +6,11 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation has moved to [docs.kubestacks.com](https://docs.kubestacks.com).
+  **How to write a view**, on the API resources page, opens it there.
+
 ## [1.2.0] - 2026-10-02
 
 ### Added

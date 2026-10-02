@@ -2,7 +2,7 @@
  * `npm run dev:server`: builds KubeStacks and serves it, as it runs in a
  * cluster, against the mock clusters the e2e tests use (their demo cluster),
  * so no real cluster is needed. KUBESTACKS_* variables set when running it
- * are passed on (KUBESTACKS_AUTH=proxy, say; see docs/server.md).
+ * are passed on (KUBESTACKS_AUTH=proxy, say; see https://docs.kubestacks.com/server/configuration).
  */
 import { execSync, spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'

@@ -17,7 +17,7 @@ in your own cluster for your whole team to open in a browser.
 [![Sponsor](https://img.shields.io/badge/sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/kotapeter)
 
 [**Download**](#desktop-app) · [**Install in a cluster**](#in-your-cluster) ·
-[**Documentation**](#documentation) · [**kubestacks.com**](https://kubestacks.com)
+[**Documentation**](https://docs.kubestacks.com) · [**kubestacks.com**](https://kubestacks.com)
 
 </div>
 
@@ -114,7 +114,8 @@ a new version downloads in the background and installs when you restart the app.
 > Windows says it protected your PC, choose **More info → Run anyway**.
 
 To build it yourself: `npm ci && npm run dist` (Node.js 24 or later) puts the installers for
-your platform in `release/`.
+your platform in `release/`. More in
+[Get started on the desktop](https://docs.kubestacks.com/get-started/desktop).
 
 ### In your cluster
 
@@ -151,19 +152,25 @@ auth:
 ```
 
 The image, `ghcr.io/kubestacks/kubestacks` (`linux/amd64` and `linux/arm64`), runs as a
-non-root user without a shell, and also runs outside Kubernetes against a kubeconfig. See
-[KubeStacks in your cluster](docs/server.md) for single sign-on and authenticating proxies,
-ingress, security and every setting.
+non-root user without a shell, and also runs
+[outside Kubernetes](https://docs.kubestacks.com/server/docker) against a kubeconfig. See
+[KubeStacks in your cluster](https://docs.kubestacks.com/server/overview) for single sign-on
+and authenticating proxies, ingress, security and every setting.
 
 ## Documentation
 
-| Guide                                        | What it covers                                                                     |
-| -------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [Using KubeStacks](docs/guide.md)            | Shortcuts, changing things safely, usage history, custom resources, Helm, settings |
-| [KubeStacks in your cluster](docs/server.md) | Installing with Helm, signing in, ingress, security and configuration              |
-| [Views](docs/views.md)                       | Teaching KubeStacks about a custom resource                                        |
-| [Development](docs/development.md)           | Building, architecture and testing                                                 |
-| [Changelog](CHANGELOG.md)                    | What changed in each version                                                       |
+The documentation is at **[docs.kubestacks.com](https://docs.kubestacks.com)**:
+
+| Guide                                                                     | What it covers                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [Get started](https://docs.kubestacks.com/get-started/desktop)            | Installing the desktop app or KubeStacks in your cluster, and a tour     |
+| [Using KubeStacks](https://docs.kubestacks.com/explore/overview)          | Finding your way, changing things safely, logs, shells, metrics and Helm |
+| [Custom resources](https://docs.kubestacks.com/custom-resources/overview) | The views KubeStacks comes with, and writing your own                    |
+| [In your cluster](https://docs.kubestacks.com/server/overview)            | Installing with Helm, signing in, security and configuration             |
+| [Reference](https://docs.kubestacks.com/reference/keyboard-shortcuts)     | Shortcuts, settings, the view format, troubleshooting and FAQ            |
+
+In this repository: [Development](docs/development.md) (building, architecture and testing),
+and the [Changelog](CHANGELOG.md).
 
 ## Security and privacy
 

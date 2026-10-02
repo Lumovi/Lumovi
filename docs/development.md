@@ -52,7 +52,7 @@ tests/
   mock-cluster/   A mock Kubernetes API server with realistic demo clusters
   mock-oidc/      A small OpenID Connect provider, for single sign-on
   integration/    The same app (and the image, with the chart) against a real kind cluster
-docs/             Guides (using KubeStacks, in a cluster, views, development), screenshots
+docs/             This guide, and the screenshots (the rest is at docs.kubestacks.com)
 scripts/          Coverage tooling, screenshots, icon rendering
 ```
 

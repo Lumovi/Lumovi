@@ -1,4 +1,5 @@
-# KubeStacks, served from your cluster. See docs/server.md for what each setting does.
+# KubeStacks, served from your cluster. What each setting does:
+# https://docs.kubestacks.com/server/helm-values
 
 image:
   repository: ghcr.io/kubestacks/kubestacks
@@ -81,7 +82,7 @@ helm:
   # Where KubeStacks searches for charts.
   artifactHubUrl: https://artifacthub.io
 
-# Views everyone sees, by file name: see docs/views.md.
+# Views everyone sees, by file name: see https://docs.kubestacks.com/server/views.
 #   views:
 #     team.yaml: |
 #       apiVersion: kubestacks.dev/v1alpha1
@@ -150,7 +151,8 @@ securityContext:
   capabilities:
     drop: [ALL]
 
-# More environment variables, as a container's env (see docs/server.md).
+# More environment variables, as a container's env (see
+# https://docs.kubestacks.com/server/configuration).
 extraEnv: []
 
 podAnnotations: {}
