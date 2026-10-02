@@ -27,15 +27,16 @@ export function stopClock(epoch: number): void {
 
 /**
  * Turns off a page's animations and transitions, so things show as they end
- * up. (One that has finished but holds its last frame, as entrances do,
- * leaves what it animated on a layer of its own, drawn a pixel off now and
- * then; the editor's cursor blinks.) A constructed style sheet, which a
- * Content Security Policy doesn't stop. For `addInitScript`.
+ * up, and hides the blinking text cursor. (An animation that has finished but
+ * holds its last frame, as entrances do, leaves what it animated on a layer
+ * of its own, drawn a pixel off now and then; the editor's cursor blinks.)
+ * A constructed style sheet, which a Content Security Policy doesn't stop.
+ * For `addInitScript`.
  */
 export function stopAnimations(): void {
   const sheet = new CSSStyleSheet()
   sheet.replaceSync(
-    '*, *::before, *::after { animation: none !important; transition: none !important; }',
+    '*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }',
   )
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
 }

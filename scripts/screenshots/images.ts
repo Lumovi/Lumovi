@@ -18,6 +18,14 @@ export const filesOf = (name: string, theme: Theme) => ({
   '1x': `${name}-${theme}-1x.webp`,
 })
 
+/** Fails unless a capture is 2× the screen's size: anything else would be kept stretched. */
+export async function sizeCheck(capture: Buffer): Promise<void> {
+  const { width, height } = await sharp(capture).metadata()
+  if (width !== WIDTH * 2 || height !== HEIGHT * 2) {
+    throw new Error(`Captured at ${width} × ${height}, not ${WIDTH * 2} × ${HEIGHT * 2}`)
+  }
+}
+
 /** An image's pixels, to compare. */
 export const pixelsOf = (image: Buffer | string) => sharp(image).removeAlpha().raw().toBuffer()
 
