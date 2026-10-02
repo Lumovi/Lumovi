@@ -64,7 +64,9 @@ test('a new version downloads in the background, then installs on restart', asyn
   const notice = page.getByRole('status', { name: 'Update' })
   await expect(notice).toContainText('KubeStacks 9.9.9 is ready')
   await notice.getByRole('button', { name: 'What’s new' }).click()
-  await expect.poll(opened).toEqual(['https://github.com/kotapeter/kubestacks/releases/tag/v9.9.9'])
+  await expect
+    .poll(opened)
+    .toEqual(['https://github.com/KubeStacks/KubeStacks/releases/tag/v9.9.9'])
   // The main process keeps it: still there after a reload.
   await page.reload()
   await expect(notice).toContainText('KubeStacks 9.9.9 is ready')
@@ -95,7 +97,7 @@ test('Check for Updates says what it found', async ({ kubestacks }) => {
   await menu(app, 'check-updates')
   await expect(notifications).toContainText('This copy of KubeStacks doesn’t update itself')
   await notifications.getByRole('button', { name: 'Download' }).click()
-  await expect.poll(opened).toEqual(['https://github.com/kotapeter/kubestacks/releases/latest'])
+  await expect.poll(opened).toEqual(['https://github.com/KubeStacks/KubeStacks/releases/latest'])
 
   // From the page, too.
   await checksResolveTo(app, {})

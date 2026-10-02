@@ -177,8 +177,8 @@ test('the native menu runs the same commands', async ({ kubestacks, clusters }) 
   await expect
     .poll(opened)
     .toEqual([
-      'https://github.com/kotapeter/kubestacks',
-      'https://github.com/kotapeter/kubestacks/issues/new/choose',
+      'https://github.com/KubeStacks/KubeStacks',
+      'https://github.com/KubeStacks/KubeStacks/issues/new/choose',
       'https://github.com/sponsors/kotapeter',
     ])
 

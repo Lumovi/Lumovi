@@ -139,7 +139,7 @@ test('the sidebar links to the project on GitHub', async ({ kubestacks }) => {
     .getByRole('complementary', { name: 'Sidebar' })
     .getByRole('button', { name: 'KubeStacks on GitHub' })
     .click()
-  await expect.poll(opened).toEqual(['https://github.com/kotapeter/kubestacks'])
+  await expect.poll(opened).toEqual(['https://github.com/KubeStacks/KubeStacks'])
 })
 
 test('refresh reloads everything on screen', async ({ page, clusters }) => {

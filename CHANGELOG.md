@@ -10,8 +10,9 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ### Changed
 
-- Nothing in the app itself: this release gives KubeStacks 1.1.0 a version to update to, to
-  check that updates download and install.
+- KubeStacks has moved to its own organization on GitHub,
+  [KubeStacks/KubeStacks](https://github.com/KubeStacks/KubeStacks). The Help menu links
+  there, and new versions come from there.
 
 ## [1.1.0] - 2026-10-01
 
@@ -102,7 +103,7 @@ All notable changes to KubeStacks are documented here. The format follows
 - Support for multiple kubeconfig files, client certificates, tokens and exec credential
   plugins, including loading the login shell's `PATH` on macOS and Linux.
 
-[Unreleased]: https://github.com/kotapeter/kubestacks/compare/v1.1.1...HEAD
-[1.1.1]: https://github.com/kotapeter/kubestacks/compare/v1.1.0...v1.1.1
-[1.1.0]: https://github.com/kotapeter/kubestacks/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/kotapeter/kubestacks/releases/tag/v1.0.0
+[Unreleased]: https://github.com/KubeStacks/KubeStacks/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/KubeStacks/KubeStacks/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/KubeStacks/KubeStacks/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/KubeStacks/KubeStacks/releases/tag/v1.0.0

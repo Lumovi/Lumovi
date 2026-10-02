@@ -4,7 +4,7 @@ Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 
 ## Before you start
 
-- **Bugs and ideas:** open an [issue](https://github.com/kotapeter/kubestacks/issues) first
+- **Bugs and ideas:** open an [issue](https://github.com/KubeStacks/KubeStacks/issues) first
   for anything bigger than a small fix, so we can agree on the approach.
 - **Scope:** KubeStacks is for looking after workloads, clusters and Helm releases. Managing
   kubeconfig files (adding contexts, signing in to cloud providers) is out of scope.
@@ -86,7 +86,8 @@ them and a `SHA256SUMS.txt` to a GitHub release, with the version's CHANGELOG se
 its notes, and publishes it with an annotated tag, `v1.2.0`, on the commit CI tested. It
 refuses a version that isn't newer than the last release, or that has no CHANGELOG section.
 Each file gets a signed build provenance attestation (`gh attestation verify <file> --repo
-kotapeter/kubestacks`), and published releases are immutable. A release that fails part of
+KubeStacks/KubeStacks`; `--owner kotapeter` for 1.1.0 and earlier, built before the project
+moved), and published releases are immutable. A release that fails part of
 the way can be run again from the workflow's page (_Run workflow_).
 
 The signing secrets are in the repository's `release` environment, which only `main` can
