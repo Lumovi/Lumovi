@@ -8,7 +8,7 @@
 
 See what's healthy, what's struggling and where your capacity goes across every cluster in your kubeconfig, and fix things safely when they need it.
 
-[![CI](https://github.com/kotapeter/kubestacks/actions/workflows/ci.yml/badge.svg)](https://github.com/kotapeter/kubestacks/actions/workflows/ci.yml)
+[![CI](https://github.com/KubeStacks/KubeStacks/actions/workflows/ci.yml/badge.svg)](https://github.com/KubeStacks/KubeStacks/actions/workflows/ci.yml)
 [![E2E coverage](https://img.shields.io/badge/e2e%20coverage-100%25-3fb950)](#testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/github/sponsors/kotapeter?label=Sponsor&logo=githubsponsors&color=ea4aaa)](https://github.com/sponsors/kotapeter)
@@ -96,7 +96,7 @@ restart, a rollback, a drain — it's a click or a keystroke away, with guard ra
 ## Install
 
 Download the installer for your platform from
-[Releases](https://github.com/kotapeter/kubestacks/releases):
+[Releases](https://github.com/KubeStacks/KubeStacks/releases):
 
 | Platform                      | Files                       |
 | ----------------------------- | --------------------------- |

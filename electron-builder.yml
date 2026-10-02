@@ -1,4 +1,6 @@
 # Packaging for macOS, Windows and Linux. See https://www.electron.build/configuration
+# From before the project moved to the KubeStacks organization. Installed copies update only
+# to an app with the same ID, so it stays.
 appId: io.github.kotapeter.kubestacks
 productName: KubeStacks
 copyright: Copyright © 2026 KubeStacks contributors
@@ -75,6 +77,6 @@ linux:
 
 publish:
   provider: github
-  owner: kotapeter
-  repo: kubestacks
+  owner: KubeStacks
+  repo: KubeStacks
   releaseType: draft

@@ -11,13 +11,13 @@
     "dashboard",
     "cluster"
   ],
-  "homepage": "https://github.com/kotapeter/kubestacks#readme",
+  "homepage": "https://github.com/KubeStacks/KubeStacks#readme",
   "bugs": {
-    "url": "https://github.com/kotapeter/kubestacks/issues"
+    "url": "https://github.com/KubeStacks/KubeStacks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kotapeter/kubestacks.git"
+    "url": "git+https://github.com/KubeStacks/KubeStacks.git"
   },
   "license": "Apache-2.0",
   "author": "KubeStacks contributors",

@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through
-[GitHub security advisories](https://github.com/kotapeter/kubestacks/security/advisories/new),
+[GitHub security advisories](https://github.com/KubeStacks/KubeStacks/security/advisories/new),
 or by email to kotapeter@gmail.com. Please don't open a public issue.
 
 Include what you found, how to reproduce it and the impact you expect. You'll get an

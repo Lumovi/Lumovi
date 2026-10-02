@@ -168,7 +168,7 @@ test('merges several kubeconfig files the way kubectl does', async ({ launch, cl
 test('links to the project on GitHub', async ({ kubestacks }) => {
   const opened = await mockOpenExternal(kubestacks.app)
   await kubestacks.page.getByRole('button', { name: 'KubeStacks on GitHub' }).click()
-  await expect.poll(opened).toEqual(['https://github.com/kotapeter/kubestacks'])
+  await expect.poll(opened).toEqual(['https://github.com/KubeStacks/KubeStacks'])
 })
 
 test('shows server addresses that are not URLs as they are', async ({ launch, clusters }) => {
