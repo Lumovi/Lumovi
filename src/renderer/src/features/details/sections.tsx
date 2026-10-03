@@ -240,18 +240,25 @@ export function ServicePorts({ service }: { service: KubeObject }) {
 }
 
 export function IngressRules({ ingress }: { ingress: KubeObject }) {
-  type Path = {
-    path?: string
-    backend: { service: { name: string; port: { number?: number; name?: string } } }
+  // A backend is a Service, or another kind's object (a storage bucket, say).
+  type Backend = {
+    service?: { name: string; port: { number?: number; name?: string } }
+    resource?: { kind: string; name: string }
   }
-  const rows = (ingress.spec.rules as { host?: string; http: { paths: Path[] } }[]).flatMap(
-    (rule) =>
-      rule.http.paths.map((p) => [
-        rule.host ?? '*',
-        p.path ?? '/',
-        `${p.backend.service.name}:${p.backend.service.port.number ?? p.backend.service.port.name}`,
-      ]),
-  )
+  type Rule = { host?: string; http?: { paths: { path?: string; backend: Backend }[] } }
+  const backend = ({ service, resource }: Backend) =>
+    service
+      ? `${service.name}:${service.port.number ?? service.port.name}`
+      : `${resource!.kind} ${resource!.name}`
+  // A rule can name a host and no paths; what no rule takes goes to the default backend.
+  const rows = [
+    ...((ingress.spec.rules ?? []) as Rule[]).flatMap((rule) =>
+      (rule.http?.paths ?? []).map((p) => [rule.host ?? '*', p.path ?? '/', backend(p.backend)]),
+    ),
+    ...(ingress.spec.defaultBackend
+      ? [['*', 'Anything else', backend(ingress.spec.defaultBackend)]]
+      : []),
+  ]
   return <SimpleTable headers={['Host', 'Path', 'Backend']} rows={rows} />
 }
 

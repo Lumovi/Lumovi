@@ -37,11 +37,25 @@ All notable changes to KubeStacks are documented here. The format follows
   scales on stay as they are, and workloads a VerticalPodAutoscaler manages are left to it.
   Each recommendation says why, charts the week against the request, the recommendation and
   the limit, and is applied once the API server has checked it, with undo.
+- A Map tab for every object: above it, what leads to it (gateways, routes, ingresses,
+  services, autoscalers, network policies and disruption budgets); below, what it owns, uses
+  and runs on (pods, ConfigMaps, Secrets, service accounts, volume claims, volumes, storage
+  classes and nodes), a few steps out. A controller's pods are one card, one per revision of a
+  Deployment, and open into each pod; what an object refers to that doesn't exist shows as
+  missing, and what nothing refers to says so. Pointing at a card traces its chain; clicking
+  one opens its own map. Custom resources are mapped by their owners and their views'
+  relations.
 
 ### Changed
 
 - The documentation has moved to [docs.kubestacks.com](https://docs.kubestacks.com).
   **How to write a view**, on the API resources page, opens it there.
+
+### Fixed
+
+- An Ingress with a default backend only, a rule without paths, or a backend that isn't a
+  Service no longer breaks the Ingresses list or its overview, which now shows the default
+  backend too.
 
 ## [1.2.0] - 2026-10-02
 

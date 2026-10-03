@@ -53,6 +53,9 @@ suits you:
 - **Right-sizing.** What each workload should request, from a week of its usage: what's
   over-provisioned, what was OOM-killed or throttled, and what requests nothing, each with
   its reasons and its week charted. Applied after the API server checks it, with undo.
+- **Map.** Every object's connections: from the gateway, ingress and service in front of it,
+  through the workload and its pods, to the ConfigMaps, Secrets and volumes they use and the
+  nodes they run on. What's missing, unwell or unused stands out.
 - **Every kind.** Workloads of every kind in one list, and pods, nodes, namespaces, events,
   services, ingresses, network policies, config maps, secrets, volumes and the rest. Custom
   resources are found through discovery, with the columns `kubectl get` shows and a status

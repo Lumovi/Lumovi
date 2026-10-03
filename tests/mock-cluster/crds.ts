@@ -61,6 +61,17 @@ const MORE_KINDS: Served[] = [
     verbs: ALL_VERBS,
   },
   {
+    kind: 'PodDisruptionBudget.policy',
+    apiKind: 'PodDisruptionBudget',
+    plural: 'poddisruptionbudgets',
+    group: 'policy',
+    version: 'v1',
+    namespaced: true,
+    label: 'PodDisruptionBudgets',
+    shortNames: ['pdb'],
+    verbs: ALL_VERBS,
+  },
+  {
     kind: 'ServiceAccount',
     apiKind: 'ServiceAccount',
     plural: 'serviceaccounts',

@@ -426,7 +426,9 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'hosts',
       header: 'Hosts',
       width: 'minmax(160px, 1.6fr)',
-      cell: (o) => mono(o.spec.rules.map((r: { host?: string }) => r.host ?? '*').join(', ')),
+      // Without rules, its default backend takes every host.
+      cell: (o) =>
+        mono((o.spec.rules ?? [{}]).map((r: { host?: string }) => r.host ?? '*').join(', ')),
     },
     {
       id: 'address',
