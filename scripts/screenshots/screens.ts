@@ -71,6 +71,19 @@ export const SCREENS: Screen[] = [
     steps: (page) => tab(page, 'Pods'),
   },
   {
+    name: 'map',
+    title: 'Map',
+    description:
+      'What leads to a deployment, from its gateway to its services, and what it uses and runs on, to the node under memory pressure.',
+    app: 'desktop',
+    path: `${cluster}/deployments?open=Deployment/shop/${DEMO.deployments.storefront}`,
+    steps: async (page) => {
+      await tab(page, 'Map')
+      await page.getByRole('button', { name: 'Expand panel' }).click()
+      await page.getByRole('group', { name: 'Map', exact: true }).waitFor()
+    },
+  },
+  {
     name: 'logs',
     title: 'Logs',
     description: 'The logs of every pod of a deployment, merged as they happened.',

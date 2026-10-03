@@ -844,6 +844,7 @@ export function demoCustomResources(b: Builder, now: number): void {
   b.simple('v1', 'ServiceAccount', 'storefront', 'shop', 70 * DAY, {
     automountServiceAccountToken: false,
   })
+  b.simple('v1', 'ServiceAccount', 'checkout', 'shop', 88 * DAY, {})
   b.simple('rbac.authorization.k8s.io/v1', 'ClusterRole', 'view', undefined, 800 * DAY, {
     rules: [{ apiGroups: [''], resources: ['pods', 'services'], verbs: ['get', 'list', 'watch'] }],
   })

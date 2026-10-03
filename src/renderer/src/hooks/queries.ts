@@ -99,6 +99,16 @@ export function useListResponses(resources: ResourceDefinition[], labelSelector?
   })
 }
 
+/** Several lists at once, each as `useList` reads it. */
+export function useLists(lists: ({ kind: ResourceKind } & ListOptions)[]) {
+  const { context, namespace } = useCluster()
+  return useQueries({
+    queries: lists.map(({ kind, ...options }) =>
+      listQuery(context, namespace, kind, options, selectItems),
+    ),
+  })
+}
+
 /** How complete a list is: loaded items, whether it was capped, and the server-side total. */
 export function useListTotals(kind: ResourceKind, options: ListOptions) {
   return useListQuery(kind, options, selectTotals).data

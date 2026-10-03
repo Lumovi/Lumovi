@@ -576,6 +576,7 @@ test('related objects: a tab each, and pods with their logs and usage', async ({
     'Settings',
     'Nodes',
     'Things',
+    'Map',
     'Events',
     'YAML',
   ])

@@ -21,6 +21,7 @@ import { ActionBar } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { EventsTab } from './EventsTab'
 import { LogsView, PodLogs } from '../logs/LogsView'
+import { MapTab } from './MapTab'
 import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
 import { RelatedTab, relatedOf } from './RelatedTab'
@@ -150,6 +151,9 @@ function Detail({
   )
 }
 
+/** Kinds that relate to everything in their scope, or to nothing: no map. */
+const MAPLESS = new Set(['Event', 'Namespace'])
+
 function DetailTabs({ object }: { object: KubeObject }) {
   const kind = kindOf(object)
   // A view's pods are the ones it relates the object to; other related kinds get a tab each.
@@ -188,6 +192,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
       : []),
     ...(metrics ? [{ value: 'metrics', label: 'Metrics' }] : []),
     ...others.map((r, i) => ({ value: `related:${i}`, label: r.name })),
+    ...(MAPLESS.has(kind) ? [] : [{ value: 'map', label: 'Map' }]),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'yaml', label: 'YAML' },
   ]
@@ -240,6 +245,11 @@ function DetailTabs({ object }: { object: KubeObject }) {
       {kind !== 'Event' && (
         <TabContent value="events" className={cn(content, 'overflow-y-auto')}>
           <EventsTab object={object} />
+        </TabContent>
+      )}
+      {!MAPLESS.has(kind) && (
+        <TabContent value="map" className={cn(content, 'flex flex-col')}>
+          <MapTab object={object} />
         </TabContent>
       )}
       <TabContent value="yaml" className={cn(content, 'flex flex-col')}>
