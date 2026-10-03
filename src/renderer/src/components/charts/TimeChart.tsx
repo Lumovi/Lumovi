@@ -72,8 +72,8 @@ export function TimeChart({
   kind: ChartKind
   references?: ChartReference[]
   height: number
-  /** Called with the window dragged across the plot. */
-  onZoom: (from: number, to: number) => void
+  /** Called with the window dragged across the plot; without it, there's no zooming. */
+  onZoom?: (from: number, to: number) => void
   /** Shown dimmed: older data, while newer loads. */
   stale: boolean
 }) {
@@ -107,7 +107,10 @@ export function TimeChart({
       : visible.flatMap((s) => s.values.filter((v): v is number => v !== null))),
   )
   // A threshold far above the data would flatten it; it's noted at the top instead.
-  const onScale = references.filter((r) => r.value <= dataPeak * 3)
+  // From the top down, labels go above and below their lines in turn, so neighbors' part ways.
+  const onScale = references
+    .filter((r) => r.value <= dataPeak * 3)
+    .sort((a, b) => b.value - a.value)
   const offScale = references.filter((r) => r.value > dataPeak * 3)
   const peak = Math.max(dataPeak, ...onScale.map((r) => r.value))
   const yTicks = niceTicks(peak, unit)
@@ -148,7 +151,7 @@ export function TimeChart({
     event.clientX - event.currentTarget.getBoundingClientRect().left
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || !onZoom) return
     event.currentTarget.setPointerCapture(event.pointerId)
     setDrag({ from: pointer(event), to: pointer(event) })
   }
@@ -162,7 +165,7 @@ export function TimeChart({
     setDrag(null)
     const [a, b] = [indexAt(Math.min(drag.from, drag.to)), indexAt(Math.max(drag.from, drag.to))]
     // A click, or a sliver, isn't a zoom.
-    if (b - a >= 2) onZoom(times[a]!, times[b]!)
+    if (b - a >= 2) onZoom!(times[a]!, times[b]!)
   }
   const onKeyDown = (event: KeyboardEvent) => {
     const moves: Record<string, (i: number) => number> = {
@@ -201,7 +204,7 @@ export function TimeChart({
         ref={box}
         tabIndex={0}
         role="group"
-        aria-label={`${label}. Arrow keys read values; drag to zoom.`}
+        aria-label={`${label}. Arrow keys read values${onZoom ? '; drag to zoom' : ''}.`}
         aria-describedby={hover !== null ? tooltipId : undefined}
         onKeyDown={onKeyDown}
         onBlur={() => setHover(null)}
@@ -214,7 +217,7 @@ export function TimeChart({
             height={height}
             role="img"
             aria-label={label}
-            className="block cursor-crosshair select-none"
+            className={cn('block select-none', onZoom && 'cursor-crosshair')}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}

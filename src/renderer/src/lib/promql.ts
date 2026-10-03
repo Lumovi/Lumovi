@@ -21,11 +21,11 @@ export type Matcher = readonly [label: string, op: '=' | '!=' | '=~' | '!~', val
 
 export const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-const selector = (matchers: readonly Matcher[]) =>
+export const selector = (matchers: readonly Matcher[]) =>
   `{${matchers.map(([label, op, value]) => `${label}${op}${JSON.stringify(value)}`).join(',')}}`
 
 // cAdvisor also reports the pod's sandbox and the pod as a whole; only real containers count.
-const CONTAINERS: Matcher[] = [
+export const CONTAINERS: Matcher[] = [
   ['container', '!=', ''],
   ['container', '!=', 'POD'],
 ]

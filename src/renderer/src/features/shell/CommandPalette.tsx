@@ -13,6 +13,7 @@ import {
   LogOut,
   Monitor,
   Moon,
+  Scale,
   Server,
   Settings2,
   ShipWheel,
@@ -42,6 +43,7 @@ import {
   formatRef,
   kindPath,
   metricsPath,
+  rightsizingPath,
   workloadsPath,
   parseRef,
 } from '@renderer/lib/routes'
@@ -188,6 +190,13 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => go(metricsPath(context)))}
           >
             Metrics
+          </Item>
+          <Item
+            icon={<Scale />}
+            value="Right-sizing requests recommendations over-provisioned savings"
+            onSelect={run(() => go(rightsizingPath(context)))}
+          >
+            Right-sizing
           </Item>
           {RESOURCES.map((resource) => {
             const Icon = KIND_ICONS[resource.kind]

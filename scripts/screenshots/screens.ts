@@ -163,6 +163,16 @@ export const SCREENS: Screen[] = [
     path: `${cluster}/metrics?range=6h`,
   },
   {
+    name: 'right-sizing',
+    title: 'Right-sizing',
+    description:
+      'What each workload should request from a week of usage, with why, and its week against the request, the recommendation and the limit.',
+    app: 'desktop',
+    path: `${cluster}/metrics/right-sizing`,
+    steps: (page) =>
+      page.getByRole('button', { name: 'Show recommendation for prometheus', exact: true }).click(),
+  },
+  {
     name: 'pod-metrics',
     title: "A pod's usage",
     description: "A pod's CPU and memory over time, against its requests and limits.",

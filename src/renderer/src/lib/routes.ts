@@ -30,6 +30,11 @@ export function metricsPath(context: string): string {
   return `${clusterPath(context)}/metrics`
 }
 
+/** What workloads should request, from their usage history: a tab of Metrics. */
+export function rightsizingPath(context: string): string {
+  return `${metricsPath(context)}/right-sizing`
+}
+
 /** The cluster's Helm releases. */
 export function helmPath(context: string): string {
   return `${clusterPath(context)}/helm`
