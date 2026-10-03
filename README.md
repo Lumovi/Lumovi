@@ -50,6 +50,9 @@ suits you:
 - **Usage over time.** KubeStacks finds your Prometheus or VictoriaMetrics and charts what
   the cluster uses, from the last 15 minutes to the last week, ranked and compared by
   namespace, workload, pod and node, and set against requests, limits and capacity.
+- **Right-sizing.** What each workload should request, from a week of its usage: what's
+  over-provisioned, what was OOM-killed or throttled, and what requests nothing, each with
+  its reasons and its week charted. Applied after the API server checks it, with undo.
 - **Every kind.** Workloads of every kind in one list, and pods, nodes, namespaces, events,
   services, ingresses, network policies, config maps, secrets, volumes and the rest. Custom
   resources are found through discovery, with the columns `kubectl get` shows and a status

@@ -29,6 +29,14 @@ All notable changes to KubeStacks are documented here. The format follows
   pipeline or a workflow again, back up a database now, approve a Kafka rebalance.
 - The detail panel's tabs, and the new tabs above lists, scroll sideways when there are more
   than fit.
+- Right-sizing, a tab of Metrics: what each Deployment, StatefulSet and DaemonSet should
+  request, from the last week of its usage in Prometheus or VictoriaMetrics. CPU requests
+  cover the 95th percentile of each container's use and memory requests its peak, with 15%
+  headroom. Containers that were OOM-killed get more memory and are never cut, CPU limits
+  that throttle are raised (limits are never lowered), requests a HorizontalPodAutoscaler
+  scales on stay as they are, and workloads a VerticalPodAutoscaler manages are left to it.
+  Each recommendation says why, charts the week against the request, the recommendation and
+  the limit, and is applied once the API server has checked it, with undo.
 
 ### Changed
 

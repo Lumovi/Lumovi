@@ -12,6 +12,7 @@ import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
 import { OverviewPage } from './features/overview/OverviewPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
+import { RightsizingPage } from './features/rightsizing/RightsizingPage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
 import { SessionGate } from './features/session/SessionGate'
 import { ClusterLayout } from './features/shell/ClusterLayout'
@@ -56,6 +57,7 @@ const routes: RouteObject[] = [
               { index: true, element: <OverviewPage /> },
               { path: 'workloads', element: <WorkloadsPage /> },
               { path: 'metrics', element: <MetricsPage /> },
+              { path: 'metrics/right-sizing', element: <RightsizingPage /> },
               ...RESOURCES.map((resource) => ({
                 path: resource.plural,
                 element: <ResourcePage key={resource.kind} resource={resource} />,

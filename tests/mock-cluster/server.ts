@@ -107,8 +107,9 @@ export interface MockCluster {
   /** Every request received, oldest first. Cleared by `reset()`. */
   requests: RecordedRequest[]
   /**
-   * Makes requests whose pathname equals `match` (or matches the RegExp)
-   * fail with `fault`. Returns a function that removes the fault.
+   * Makes requests whose pathname equals `match` (or matches the RegExp, with
+   * or without its decoded query string) fail with `fault`. Returns a
+   * function that removes the fault.
    */
   fail(match: string | RegExp, fault: Fault): () => void
   /** Adds or replaces an object (keyed by its kind and group, namespace and name). */
@@ -321,6 +322,16 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   const gitVersion = options.gitVersion ?? 'v1.34.1'
   const requests: RecordedRequest[] = []
   const faults: { match: string | RegExp; fault: Fault }[] = []
+  /** The fault for a request, if one matches its path (a RegExp: or its path and query). */
+  const faultFor = (url: URL) =>
+    faults.find(({ match }) =>
+      typeof match === 'string'
+        ? match === url.pathname
+        : match.test(url.pathname) ||
+          match.test(
+            `${url.pathname}?${decodeURIComponent(url.search.slice(1).replace(/\+/g, ' '))}`,
+          ),
+    )?.fault
   const pending = new Set<http.ServerResponse>()
   let fixture: ClusterFixture
   let store = new Map<string, KubeObject>()
@@ -1283,9 +1294,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       )
       return
     }
-    const fault = faults.find(({ match }) =>
-      typeof match === 'string' ? match === url.pathname : match.test(url.pathname),
-    )?.fault
+    const fault = faultFor(url)
     const serve = () => who.run(caller, () => answer(req, res, url, body, accept))
     if (fault && 'delayMs' in fault) {
       setTimeout(serve, fault.delayMs)
@@ -1397,9 +1406,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
           JSON.stringify(statusBody(caller.refused, reason, caller.message)),
         )
       }
-      const fault = faults.find(({ match }) =>
-        typeof match === 'string' ? match === url.pathname : match.test(url.pathname),
-      )?.fault
+      const fault = faultFor(url)
       if (fault && 'status' in fault) {
         return refuse(
           fault.status,

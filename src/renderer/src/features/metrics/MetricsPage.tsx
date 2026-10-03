@@ -40,6 +40,7 @@ import {
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { RangePicker } from './ChartCard'
+import { MetricsTabs } from './MetricsTabs'
 import { RankedTable, type Row } from './RankedTable'
 import { HistoryGate, SourceChip } from './source'
 import { sumValues } from './UsageChart'
@@ -155,88 +156,94 @@ export function MetricsPage() {
   }
 
   return (
-    <div className="@container h-full overflow-y-auto">
-      <div className="space-y-4 px-6 py-5">
-        {/* Without a source, the filters would have nothing to filter. */}
-        <HistoryGate>
-          <div className="flex flex-wrap items-center gap-2">
-            <RangePicker selection={state.selection} onChange={select} />
-            <Segmented
-              label="Metric"
-              value={state.metric}
-              options={METRICS.map((m) => ({ id: m, label: USAGE_METRICS[m].label }))}
-              onChange={(metric) =>
-                set({
-                  metric,
-                  by: metric === 'restarts' && state.group === 'node' ? 'namespace' : state.group,
-                })
-              }
-            />
-            <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1 pl-2.5 text-xs text-ink-3">
-              By
-              <select
-                aria-label="Group by"
-                value={state.group}
-                onChange={(event) => set({ by: event.target.value })}
-                className="h-6 rounded-md bg-transparent pr-1 text-xs font-medium text-ink-1 outline-none"
-              >
-                {GROUPS.filter((g) => g.id !== 'node' || state.metric !== 'restarts').map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <SearchInput
-              value={state.q}
-              onChange={(q) => set({ q: q || undefined })}
-              onArrowDown={() => undefined}
-              placeholder={`Filter ${GROUPS.find((g) => g.id === state.group)!.plural}… (a, b)`}
-              className="w-64"
-            />
-            <div className="flex-1" />
-            <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1 pl-2.5 text-xs text-ink-3">
-              Top
-              <select
-                aria-label="Series shown"
-                value={state.top}
-                onChange={(event) => set({ top: event.target.value })}
-                className="h-6 rounded-md bg-transparent pr-1 text-xs font-medium text-ink-1 outline-none"
-              >
-                {TOPS.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {state.metric !== 'restarts' && (
+    <div className="flex h-full flex-col">
+      <MetricsTabs current="usage" />
+      <div className="@container min-h-0 flex-1 overflow-y-auto">
+        <div className="space-y-4 px-6 py-5">
+          {/* Without a source, the filters would have nothing to filter. */}
+          <HistoryGate>
+            <div className="flex flex-wrap items-center gap-2">
+              <RangePicker selection={state.selection} onChange={select} />
               <Segmented
-                label="Chart"
-                value={state.view}
-                options={[
-                  { id: 'stacked', label: <ChartArea className="size-3.5" aria-label="Stacked" /> },
-                  { id: 'lines', label: <ChartLine className="size-3.5" aria-label="Lines" /> },
-                ]}
-                onChange={(view) => set({ view })}
+                label="Metric"
+                value={state.metric}
+                options={METRICS.map((m) => ({ id: m, label: USAGE_METRICS[m].label }))}
+                onChange={(metric) =>
+                  set({
+                    metric,
+                    by: metric === 'restarts' && state.group === 'node' ? 'namespace' : state.group,
+                  })
+                }
               />
-            )}
-          </div>
+              <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1 pl-2.5 text-xs text-ink-3">
+                By
+                <select
+                  aria-label="Group by"
+                  value={state.group}
+                  onChange={(event) => set({ by: event.target.value })}
+                  className="h-6 rounded-md bg-transparent pr-1 text-xs font-medium text-ink-1 outline-none"
+                >
+                  {GROUPS.filter((g) => g.id !== 'node' || state.metric !== 'restarts').map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <SearchInput
+                value={state.q}
+                onChange={(q) => set({ q: q || undefined })}
+                onArrowDown={() => undefined}
+                placeholder={`Filter ${GROUPS.find((g) => g.id === state.group)!.plural}… (a, b)`}
+                className="w-64"
+              />
+              <div className="flex-1" />
+              <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1 pl-2.5 text-xs text-ink-3">
+                Top
+                <select
+                  aria-label="Series shown"
+                  value={state.top}
+                  onChange={(event) => set({ top: event.target.value })}
+                  className="h-6 rounded-md bg-transparent pr-1 text-xs font-medium text-ink-1 outline-none"
+                >
+                  {TOPS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {state.metric !== 'restarts' && (
+                <Segmented
+                  label="Chart"
+                  value={state.view}
+                  options={[
+                    {
+                      id: 'stacked',
+                      label: <ChartArea className="size-3.5" aria-label="Stacked" />,
+                    },
+                    { id: 'lines', label: <ChartLine className="size-3.5" aria-label="Lines" /> },
+                  ]}
+                  onChange={(view) => set({ view })}
+                />
+              )}
+            </div>
 
-          {/* Each grouping colors its series afresh, by rank; switching metrics keeps them. */}
-          <SeriesColorScope key={state.group}>
-            <Explorer
-              state={state}
-              onZoom={(from, to) => select(zoomInto(state.selection, from, to))}
-            />
-          </SeriesColorScope>
-        </HistoryGate>
+            {/* Each grouping colors its series afresh, by rank; switching metrics keeps them. */}
+            <SeriesColorScope key={state.group}>
+              <Explorer
+                state={state}
+                onZoom={(from, to) => select(zoomInto(state.selection, from, to))}
+              />
+            </SeriesColorScope>
+          </HistoryGate>
+        </div>
       </div>
     </div>
   )
 }
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   label,
   value,
   options,

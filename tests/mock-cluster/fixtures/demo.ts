@@ -1098,7 +1098,18 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     owner: prometheus.replicaSet,
     labels: prometheus.podLabels,
     containers: withState(prometheusTemplate.containers, {
-      prometheus: { usage: [0.42, 2.6 * Gi] },
+      // Its memory limit killed it two days ago (right-sizing raises it).
+      prometheus: {
+        usage: [0.42, 2.6 * Gi],
+        restarts: 1,
+        state: { running: { sinceAgo: 2 * DAY } },
+        lastTerminated: {
+          exitCode: 137,
+          reason: 'OOMKilled',
+          startedAgo: 16 * DAY,
+          finishedAgo: 2 * DAY,
+        },
+      },
     }),
   })
   const grafanaTemplate: PodTemplate = {
@@ -1107,7 +1118,8 @@ export function demoCluster(now = Date.now()): ClusterFixture {
       {
         name: 'grafana',
         image: 'grafana/grafana:12.2.0',
-        cpu: ['100m', '500m'],
+        // Its limit throttles it in bursts (right-sizing raises it).
+        cpu: ['100m', '100m'],
         memory: ['256Mi', '512Mi'],
         ports: [{ name: 'http', containerPort: 3000 }],
         probe: { path: '/api/health', port: 3000 },
@@ -1135,7 +1147,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     node: 'worker-2',
     owner: grafana.replicaSet,
     labels: grafana.podLabels,
-    containers: withState(grafanaTemplate.containers, { grafana: { usage: [0.018, 180 * Mi] } }),
+    containers: withState(grafanaTemplate.containers, { grafana: { usage: [0.05, 180 * Mi] } }),
   })
   b.service({
     namespace: 'monitoring',

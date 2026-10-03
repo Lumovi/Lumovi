@@ -1,12 +1,15 @@
 /**
  * Usage against the real thing: live usage from metrics-server, and history
  * from kube-prometheus-stack's Prometheus, with real cAdvisor and
- * kube-state-metrics series. Every query the app makes has to work here.
+ * kube-state-metrics series. Every query the app makes has to work here,
+ * right-sizing's too (whose answers are checked against a week of known
+ * series by hand: a fresh cluster has minutes of history).
  */
 import type { Page } from '@playwright/test'
 import { open } from '../e2e/action-helpers.ts'
 import { goTo, panel, row } from '../e2e/fixtures.ts'
-import { expect, freshNamespace, get, inNamespace, test } from './fixtures.ts'
+import { rightsizingQueries } from '../../src/renderer/src/lib/rightsizing.ts'
+import { CONTEXT, expect, freshNamespace, get, inNamespace, test } from './fixtures.ts'
 import { crash, web } from './workloads.ts'
 
 const NS = 'it-metrics'
@@ -120,6 +123,43 @@ test('the Metrics tab of a pod, a workload and a node', async ({ page }) => {
   await expect(
     node.getByRole('region', { name: 'CPU by namespace' }).getByRole('group', { name: 'Series' }),
   ).toContainText(NS)
+})
+
+test('right-sizing asks a real Prometheus for a week, a namespace at a time', async ({ page }) => {
+  // Subqueries step every five minutes: new pods are in them from the next step.
+  test.setTimeout(8 * 60_000)
+  // Every query answers, with the new pods' CPU and memory in them. (Their first sample is
+  // looked for hour by hour, so minutes-old pods aren't in that one yet.)
+  const queries = rightsizingQueries(NS)
+  await expect
+    .poll(
+      async () => {
+        const answer = await page.evaluate(
+          ({ context, queries }) =>
+            window.kubestacks!.usage.instant({ context, queries, time: Date.now() }),
+          { context: CONTEXT, queries },
+        )
+        if (!answer.ok) return answer.error.message
+        return answer.data.results
+          .filter((r) => r.series.some((s) => s.labels.pod?.startsWith('web-')))
+          .map((r) => r.id)
+          .sort()
+      },
+      { timeout: 6 * 60_000 },
+    )
+    .toEqual(expect.arrayContaining(['cpuMax', 'cpuP95', 'memoryMax']))
+
+  await openMetrics(page)
+  await page
+    .getByRole('navigation', { name: 'Metrics views' })
+    .getByRole('link', { name: 'Right-sizing' })
+    .click()
+  await inNamespace(page, NS)
+  // A fresh cluster has minutes of history: too little to recommend anything. (Other
+  // namespaces' rows can show for a moment, until this namespace's list loads.)
+  const web = page.getByRole('row', { name: 'Deployment web', exact: true }).filter({ hasText: NS })
+  await expect(web).toContainText('Too new', { timeout: 60_000 })
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('the overview shows the last hour', async ({ page }) => {
