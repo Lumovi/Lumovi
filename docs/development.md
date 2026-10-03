@@ -56,7 +56,8 @@ tests/
   mock-oidc/      A small OpenID Connect provider, for single sign-on
   integration/    The same app (and the image, with the chart) against a real kind cluster
 docs/             This guide, and the screenshots (the rest is at docs.lumovi.dev)
-scripts/          Coverage tooling, screenshots, icon rendering
+build/            The app icons and the installers' artwork
+scripts/          Coverage tooling, screenshots
 ```
 
 - **Security.** The page runs sandboxed with context isolation and no Node.js access, under
@@ -73,7 +74,11 @@ scripts/          Coverage tooling, screenshots, icon rendering
   are plain REST calls with gzip, so any API path, including metrics and logs, works the
   same way.
 - **Design.** Status colors are reserved for health and always come with an icon and a
-  label; charts use a colorblind-validated palette in both themes.
+  label; charts use a colorblind-validated palette in both themes. The logo, the icons, the
+  installers' artwork and the color tokens come from
+  [Lumovi's design repository](https://github.com/Lumovi/Lumovi-design): change them there,
+  following its [brand guidelines](https://github.com/Lumovi/Lumovi-design/blob/main/guidelines/README.md),
+  and copy them here.
 
 ## Testing
 

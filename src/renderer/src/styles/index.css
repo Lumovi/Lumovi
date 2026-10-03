@@ -37,10 +37,10 @@
   --text-1: #0b0b0f;
   --text-2: #52525b;
   --text-3: #71717a;
-  --accent: #2a78d6;
+  --accent: #2675d3;
   --accent-strong: #1c5cab;
-  --accent-soft: rgb(42 120 214 / 0.1);
-  --accent-track: #dbe8f8;
+  --accent-soft: rgb(38 117 211 / 0.1);
+  --accent-track: #dcebfe;
   /* Categorical chart slots, in their validated order (adjacent pairs stay apart under CVD). */
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -293,6 +293,21 @@
   --ansi-0: #0c0c0e;
   --ansi-7: #f0f0f2;
   --ansi-15: #ffffff;
+}
+
+/* The logo's artwork for each theme: only the one for the theme in use shows. */
+.logo-on-dark {
+  display: none;
+}
+:root {
+  @variant theme-dark {
+    .logo-on-light {
+      display: none;
+    }
+    .logo-on-dark {
+      display: block;
+    }
+  }
 }
 
 /* Leave room for the desktop app's window controls (a browser draws its own, elsewhere). */

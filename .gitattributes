@@ -2,6 +2,7 @@
 *.png binary
 *.ico binary
 *.icns binary
+*.bmp binary
 # Fetched by `npm run crds`.
 tests/views/crds/*.json linguist-generated=true
 tests/views/crds/sources.json linguist-generated=false

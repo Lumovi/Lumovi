@@ -1,43 +1,53 @@
+// The Lumovi mark, for the app. Built by lumovi-design (npm run build): change it there.
 import { useId } from 'react'
 import { cn } from '@renderer/lib/cn'
 
-/** Three stacked layers: the Lumovi mark. */
-export function Logo({ className }: { className?: string }) {
-  const id = useId()
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden className={cn('size-7', className)}>
-      <defs>
-        <linearGradient id={`${id}-a`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#6fb1ff" />
-          <stop offset="1" stopColor="#2a6fd6" />
-        </linearGradient>
-        <linearGradient id={`${id}-b`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#4d8fe8" />
-          <stop offset="1" stopColor="#1d4f9e" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M16 19.5 4.5 13.8 16 8.1l11.5 5.7z"
-        fill={`url(#${id}-b)`}
-        opacity={0.45}
-        transform="translate(0 6)"
-      />
-      <path
-        d="M16 19.5 4.5 13.8 16 8.1l11.5 5.7z"
-        fill={`url(#${id}-b)`}
-        opacity={0.75}
-        transform="translate(0 3)"
-      />
-      <path d="M16 19.5 4.5 13.8 16 8.1l11.5 5.7z" fill={`url(#${id}-a)`} />
-    </svg>
-  )
+const css = (id: string) => `
+.${id}-l { fill: url(#${id}-l-light); }
+.${id}-orb { fill: url(#${id}-orb-light); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .${id}-l { fill: url(#${id}-l-dark); }
+  :root:not([data-theme='light']) .${id}-orb { fill: url(#${id}-orb-dark); }
 }
+:root[data-theme='dark'] .${id}-l { fill: url(#${id}-l-dark); }
+:root[data-theme='dark'] .${id}-orb { fill: url(#${id}-orb-dark); }
+`
 
-/** GitHub's mark (from Primer Octicons, MIT). */
-export function GithubMark({ className }: { className?: string }) {
+/** The Lumovi mark: an L that holds a light. It follows the app's theme. */
+export function Logo({ className }: { className?: string }) {
+  // useId() has colons, which CSS class names can't.
+  const id = `lumovi-${useId().replace(/[^a-zA-Z0-9-]/g, '')}`
   return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="currentColor" className={className}>
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    <svg viewBox="0 0 48 48" aria-hidden className={cn('size-7', className)}>
+      <defs>
+        <radialGradient id={`${id}-l-light`} cx="33" cy="15" r="38" gradientUnits="userSpaceOnUse">
+          <stop offset="0.553" stopColor="#5ea2f0" />
+          <stop offset="0.76" stopColor="#2675d3" />
+          <stop offset="1" stopColor="#1c5cab" />
+        </radialGradient>
+        <radialGradient id={`${id}-orb-light`} cx="0.36" cy="0.32" r="0.78">
+          <stop offset="0" stopColor="#bfdcff" />
+          <stop offset="0.5" stopColor="#5ea2f0" />
+          <stop offset="1" stopColor="#2675d3" />
+        </radialGradient>
+        <radialGradient id={`${id}-l-dark`} cx="33" cy="15" r="38" gradientUnits="userSpaceOnUse">
+          <stop offset="0.553" stopColor="#8cc2ff" />
+          <stop offset="0.76" stopColor="#3987e5" />
+          <stop offset="1" stopColor="#1c5cab" />
+        </radialGradient>
+        <radialGradient id={`${id}-orb-dark`} cx="0.36" cy="0.32" r="0.78">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="0.3" stopColor="#eff7ff" />
+          <stop offset="0.72" stopColor="#8cc2ff" />
+          <stop offset="1" stopColor="#3987e5" />
+        </radialGradient>
+      </defs>
+      <style>{css(id)}</style>
+      <path
+        className={`${id}-l`}
+        d="M0 15V6A6 6 0 0 1 12 6V15A21 21 0 0 0 33 36H42A6 6 0 0 1 42 48H21A21 21 0 0 1 0 27Z"
+      />
+      <circle className={`${id}-orb`} cx="33" cy="15" r="15" />
     </svg>
   )
 }

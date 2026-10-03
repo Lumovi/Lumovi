@@ -137,7 +137,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # macOS 26, for the Xcode that compiles the Liquid Glass icon (build/Lumovi.icon).
+        os: [ubuntu-latest, macos-26, windows-latest]
     runs-on: ${{ matrix.os }}
     # The signing secrets live in this environment, which only main can deploy from.
     environment: release

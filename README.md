@@ -1,8 +1,12 @@
 <div align="center">
 
-<img src="build/icon.png" width="112" alt="Lumovi icon" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="src/renderer/src/assets/lumovi-logo-on-dark.svg" />
+  <img src="src/renderer/src/assets/lumovi-logo-on-light.svg" alt="Lumovi" height="56" />
+</picture>
 
-# Lumovi
+<br />
+<br />
 
 **A beautiful, fast Kubernetes dashboard. On your desktop, or in your cluster.**
 
@@ -10,7 +14,7 @@ See what's healthy, what's struggling and where your capacity goes, and fix thin
 when they need it. Use it as a desktop app for every cluster in your kubeconfig, or host it
 in your own cluster for your whole team to open in a browser.
 
-[![Release](https://img.shields.io/github/v/release/Lumovi/Lumovi?label=release&color=2a78d6)](https://github.com/Lumovi/Lumovi/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Lumovi/Lumovi?label=release&color=2675d3)](https://github.com/Lumovi/Lumovi/releases/latest)
 [![CI](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml/badge.svg)](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml)
 [![E2E coverage](https://img.shields.io/badge/e2e%20coverage-100%25-3fb950)](docs/development.md#testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
