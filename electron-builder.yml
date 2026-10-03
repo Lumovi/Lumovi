@@ -1,12 +1,12 @@
 # Packaging for macOS, Windows and Linux. See https://www.electron.build/configuration
-# From before the project moved to the Lumovi organization. Installed copies update only
-# to an app with the same ID, so it stays.
-appId: io.github.kotapeter.lumovi
+appId: dev.lumovi.app
 productName: Lumovi
 copyright: Copyright © 2026 Lumovi contributors
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 directories:
+  # The installers' artwork is found in build/ by name: background.png (and its @2x) for the
+  # macOS disk image, installerSidebar.bmp and installerHeader.bmp for the Windows installer.
   buildResources: build
   output: release
 
@@ -42,6 +42,9 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
+  # The Liquid Glass icon, compiled by Xcode's actool (Xcode 26 or later on the Mac that
+  # builds) along with the .icns older versions of macOS show.
+  icon: build/Lumovi.icon
   hardenedRuntime: true
   entitlementsInherit: build/entitlements.mac.plist
   # Signed when CSC_LINK is set, and notarized when APPLE_API_KEY, _KEY_ID and _ISSUER are too.
@@ -50,7 +53,7 @@ dmg:
   writeUpdateInfo: false
 
 win:
-  # Edge to edge, as Windows icons are (macOS and Linux use build/icon.png).
+  # Edge to edge, as Windows icons are.
   icon: build/icon-win.png
   target:
     - target: nsis
@@ -67,7 +70,9 @@ nsis:
 linux:
   executableName: lumovi
   category: Development
-  synopsis: A beautiful, fast Kubernetes app for the desktop
+  synopsis: A beautiful, fast Kubernetes dashboard for the desktop
+  # Drawn for each size.
+  icon: build/icons
   maintainer: Peter Kota <kotapeter@gmail.com>
   target:
     - target: AppImage

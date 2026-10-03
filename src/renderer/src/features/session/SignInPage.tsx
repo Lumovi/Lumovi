@@ -4,7 +4,9 @@ import { REPO_URL } from '@shared/app'
 import type { SignInProblem } from '@shared/server'
 import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
-import { GithubMark, Logo } from '@renderer/components/Logo'
+import { GithubMark } from '@renderer/components/GithubMark'
+import { Logo } from '@renderer/components/Logo'
+import { LogoLockup } from '@renderer/components/LogoLockup'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { storedTheme, storeTheme } from '@renderer/web/preferences'
@@ -35,8 +37,11 @@ const NOTICES: Record<Notice, { text: string; problem: boolean }> = {
   },
 }
 
-/** The sign-in page's frame, as the desktop app's start screen looks. */
-function Frame({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * The sign-in page's frame, as the desktop app's start screen looks: the logo, or the mark
+ * above a title that says the name.
+ */
+function Frame({ title, children }: { title?: string; children: ReactNode }) {
   const [theme, setTheme] = useState(storedTheme)
   useEffect(() => {
     document.title = 'Sign in — Lumovi'
@@ -50,10 +55,16 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
       <main className="relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-10">
         <div className="my-auto flex w-full max-w-sm animate-rise flex-col">
           <header className="mb-7 flex flex-col items-center text-center">
-            <div className="mb-5 grid size-14 place-items-center rounded-2xl border border-line-strong bg-surface-2 shadow-panel">
-              <Logo className="size-9" />
-            </div>
-            <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-ink-1">{title}</h1>
+            {title ? (
+              <>
+                <Logo className="mb-5 size-9" />
+                <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-ink-1">{title}</h1>
+              </>
+            ) : (
+              <h1>
+                <LogoLockup className="h-9" />
+              </h1>
+            )}
           </header>
           {children}
         </div>
@@ -120,7 +131,7 @@ export function SignInPage({
       (signIn.ended && (signIn.ended === 'expired' ? 'expired-session' : 'signed-out')),
   )
   return (
-    <Frame title={signIn.auth === 'proxy' ? 'Lumovi' : 'Sign in to Lumovi'}>
+    <Frame title={signIn.auth === 'proxy' ? undefined : 'Sign in to Lumovi'}>
       {notice && <NoticeBar notice={notice} />}
       {signIn.auth === 'token' && <TokenForm />}
       {signIn.auth === 'oidc' && (
@@ -222,7 +233,7 @@ function TokenForm() {
 /** The server didn't answer (it's starting, or a proxy in front of it can't reach it). */
 export function Unavailable({ error, onRetry }: { error: Error; onRetry: () => void }) {
   return (
-    <Frame title="Lumovi">
+    <Frame>
       <div role="alert" className={cn(card, 'flex flex-col items-center text-center')}>
         <ServerOff className="mb-3 size-6 text-ink-3" />
         <h2 className="text-[14px] font-semibold text-ink-1">Can’t reach Lumovi</h2>

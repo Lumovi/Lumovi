@@ -25,7 +25,7 @@ import {
 } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { AddOnIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
-import { GithubMark } from '@renderer/components/Logo'
+import { GithubMark } from '@renderer/components/GithubMark'
 import { StatusDot } from '@renderer/components/Status'
 import { Switch } from '@renderer/components/Switch'
 import { useAddOns, type ServedAddOn } from '@renderer/hooks/add-ons'

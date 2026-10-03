@@ -6,7 +6,8 @@ import type { KubeContext } from '@shared/api'
 import { REPO_URL } from '@shared/app'
 import { Button, IconButton } from '@renderer/components/Button'
 import { Kbd } from '@renderer/components/Kbd'
-import { GithubMark, Logo } from '@renderer/components/Logo'
+import { GithubMark } from '@renderer/components/GithubMark'
+import { LogoLockup } from '@renderer/components/LogoLockup'
 import { EmptyState, Loading } from '@renderer/components/States'
 import { StatusDot } from '@renderer/components/Status'
 import { useGo } from '@renderer/hooks/go'
@@ -45,11 +46,12 @@ export function WelcomePage() {
       <main className="relative flex min-h-0 flex-1 flex-col items-center px-8 pb-6">
         <div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col">
           <header className="mt-6 mb-8 flex shrink-0 animate-rise flex-col items-center text-center [@media(max-height:800px)]:mt-0 [@media(max-height:800px)]:mb-5">
-            <div className="mb-5 grid size-16 place-items-center rounded-2xl border border-line-strong bg-surface-2 shadow-panel [@media(max-height:800px)]:mb-3 [@media(max-height:800px)]:size-12">
-              <Logo className="size-10 [@media(max-height:800px)]:size-8" />
-            </div>
-            <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-ink-1">Lumovi</h1>
-            <p className="mt-1.5 text-[14px] text-ink-2">Choose a cluster to explore.</p>
+            <h1>
+              <LogoLockup className="h-9 [@media(max-height:800px)]:h-7" />
+            </h1>
+            <p className="mt-5 text-[14px] text-ink-2 [@media(max-height:800px)]:mt-4">
+              Choose a cluster to explore.
+            </p>
           </header>
 
           {contexts.isPending ? (

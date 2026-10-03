@@ -172,7 +172,8 @@ jobs:
         include:
           - os: ubuntu-latest
             executable: release/linux-unpacked/lumovi
-          - os: macos-latest
+          # macOS 26, for the Xcode that compiles the Liquid Glass icon (build/Lumovi.icon).
+          - os: macos-26
             executable: release/mac-arm64/Lumovi.app/Contents/MacOS/Lumovi
           - os: windows-latest
             executable: release/win-unpacked/Lumovi.exe
