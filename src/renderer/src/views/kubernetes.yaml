@@ -1,5 +1,5 @@
 # Kubernetes' own kinds that have no page of their own.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: custom-resource-definitions

@@ -249,7 +249,7 @@ export class UsageHistory {
         configured: false,
         message:
           services.error.status === 403
-            ? 'Your account can’t list services, so KubeStacks can’t look for Prometheus. Choose its service instead.'
+            ? 'Your account can’t list services, so Lumovi can’t look for Prometheus. Choose its service instead.'
             : services.error.message,
       }
     }

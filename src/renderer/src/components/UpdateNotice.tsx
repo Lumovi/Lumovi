@@ -1,6 +1,6 @@
 import { CircleArrowUp, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { KubestacksApi, UpdateEvent, UpdateState } from '@shared/api'
+import type { LumoviApi, UpdateEvent, UpdateState } from '@shared/api'
 import { REPO_URL } from '@shared/app'
 import { api } from '@renderer/lib/api'
 import { toast } from '@renderer/state/toasts'
@@ -10,19 +10,19 @@ import { Button } from './Button'
 function report(state: UpdateState) {
   switch (state.status) {
     case 'up-to-date':
-      toast({ tone: 'success', title: 'KubeStacks is up to date' })
+      toast({ tone: 'success', title: 'Lumovi is up to date' })
       break
     case 'downloading':
       toast({
         tone: 'success',
-        title: `Downloading KubeStacks ${state.version}…`,
+        title: `Downloading Lumovi ${state.version}…`,
         description: 'You can restart into it once it’s downloaded.',
       })
       break
     case 'unsupported':
       toast({
         tone: 'error',
-        title: 'This copy of KubeStacks doesn’t update itself',
+        title: 'This copy of Lumovi doesn’t update itself',
         description: 'New versions are on GitHub.',
         action: {
           label: 'Download',
@@ -40,7 +40,7 @@ function report(state: UpdateState) {
  * Says when a new version of the desktop app is ready to install, and reports
  * checks the user asked for.
  */
-export function UpdateNotice({ updates }: { updates: NonNullable<KubestacksApi['updates']> }) {
+export function UpdateNotice({ updates }: { updates: NonNullable<LumoviApi['updates']> }) {
   // The version ready to install, until the notice is dismissed.
   const [ready, setReady] = useState<string>()
   useEffect(() => {
@@ -61,9 +61,7 @@ export function UpdateNotice({ updates }: { updates: NonNullable<KubestacksApi['
     >
       <CircleArrowUp className="mt-px size-[18px] shrink-0 text-accent-strong" />
       <div className="min-w-0 flex-1 py-px">
-        <p className="text-[13px] leading-snug font-medium text-ink-1">
-          KubeStacks {ready} is ready
-        </p>
+        <p className="text-[13px] leading-snug font-medium text-ink-1">Lumovi {ready} is ready</p>
         <p className="mt-0.5 text-xs leading-relaxed text-ink-2">
           It’s installed when you quit, or restart into it now.
         </p>

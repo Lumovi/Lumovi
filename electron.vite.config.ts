@@ -6,7 +6,7 @@ import type { Plugin } from 'vite'
 import { coverage } from './scripts/vite-coverage'
 import { licenses } from './scripts/vite-licenses'
 
-const withCoverage = process.env.KUBESTACKS_COVERAGE === 'true'
+const withCoverage = process.env.LUMOVI_COVERAGE === 'true'
 
 /**
  * The dev server injects an inline React Refresh preamble and talks to the page
@@ -14,7 +14,7 @@ const withCoverage = process.env.KUBESTACKS_COVERAGE === 'true'
  * only. Builds keep the strict policy from index.html.
  */
 const devContentSecurityPolicy: Plugin = {
-  name: 'kubestacks:dev-csp',
+  name: 'lumovi:dev-csp',
   apply: 'serve',
   transformIndexHtml: (html) =>
     html

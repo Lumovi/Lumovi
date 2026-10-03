@@ -14,7 +14,7 @@ const { version } = JSON.parse(
   readFileSync('node_modules/@playwright/test/package.json', 'utf8'),
 ) as { version: string }
 const node = readFileSync('.nvmrc', 'utf8').trim()
-const image = `kubestacks-test-linux:${version}-node${node}`
+const image = `lumovi-test-linux:${version}-node${node}`
 
 // Playwright's image (Chromium's libraries, Xvfb), with the Node.js the project uses.
 const dockerfile = `
@@ -64,14 +64,14 @@ const run = spawnSync(
     // Nobody's watching the container's display: draw the windows, as fully transparent
     // ones render slowly on Linux.
     '-e',
-    'KUBESTACKS_E2E_OPAQUE=1',
+    'LUMOVI_E2E_OPAQUE=1',
     // Containers run as root, which Chromium's sandbox refuses.
     '-e',
     'ELECTRON_DISABLE_SANDBOX=1',
     '-v',
     `${process.cwd()}:/src:ro`,
     '-v',
-    'kubestacks-linux:/work',
+    'lumovi-linux:/work',
     '-v',
     `${results}:/results`,
     image,

@@ -5,7 +5,7 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.ts'
 
-const PROXY = { KUBESTACKS_AUTH: 'proxy' }
+const PROXY = { LUMOVI_AUTH: 'proxy' }
 
 /** The page's heading of the app, once it's shown. */
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
@@ -35,7 +35,7 @@ test('signed in as the proxy says', async ({ page, context, serve, clusters }) =
     '+2 more',
   ])
   // Signing out is the proxy's business.
-  await expect(account).toContainText('Signed in by the proxy in front of KubeStacks.')
+  await expect(account).toContainText('Signed in by the proxy in front of Lumovi.')
   await expect(account.getByRole('button', { name: 'Sign out' })).toHaveCount(0)
   const out = await page.request.delete(`${served.url}api/session`, {
     headers: { Origin: new URL(served.url).origin },
@@ -49,9 +49,9 @@ test('a proxy with its own headers, and a place to sign out', async ({ page, con
   const served = await serve({
     env: {
       ...PROXY,
-      KUBESTACKS_PROXY_USER_HEADER: 'X-Auth-Request-Email',
-      KUBESTACKS_PROXY_GROUPS_HEADER: 'X-Auth-Request-Groups',
-      KUBESTACKS_PROXY_SIGN_OUT_URL: 'https://auth.example.com/oauth2/sign_out',
+      LUMOVI_PROXY_USER_HEADER: 'X-Auth-Request-Email',
+      LUMOVI_PROXY_GROUPS_HEADER: 'X-Auth-Request-Groups',
+      LUMOVI_PROXY_SIGN_OUT_URL: 'https://auth.example.com/oauth2/sign_out',
     },
   })
   await context.setExtraHTTPHeaders({ 'X-Auth-Request-Email': 'grace@example.com' })
@@ -72,15 +72,15 @@ test('without a proxy saying who, or saying one of Kubernetes’ own', async ({
 }) => {
   const served = await serve({ env: PROXY })
   await page.goto(served.url)
-  await expect(page.getByRole('heading', { name: 'KubeStacks', exact: true })).toBeVisible()
-  await expect(page.getByText('KubeStacks doesn’t know who you are')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Lumovi', exact: true })).toBeVisible()
+  await expect(page.getByText('Lumovi doesn’t know who you are')).toBeVisible()
 
   await context.setExtraHTTPHeaders({ 'X-Forwarded-User': 'system:kube-scheduler' })
   await page.reload()
   await expect(
     page
       .getByRole('alert')
-      .filter({ hasText: 'KubeStacks won’t act as this account: names starting with system:' }),
+      .filter({ hasText: 'Lumovi won’t act as this account: names starting with system:' }),
   ).toBeVisible()
   // Nor will its WebSocket.
   const refused = await page.evaluate(
@@ -97,12 +97,12 @@ test('without a proxy saying who, or saying one of Kubernetes’ own', async ({
 
 test('when the server’s own credentials stop working', async ({ page, context, serve }) => {
   // Its service account's token, say, rotated away.
-  const served = await serve({ env: { ...PROXY, KUBESTACKS_CONTEXT: 'expired' } })
+  const served = await serve({ env: { ...PROXY, LUMOVI_CONTEXT: 'expired' } })
   await context.setExtraHTTPHeaders({ 'X-Forwarded-User': 'heidi@example.com' })
   await page.goto(`${served.url}cluster/expired/nodes`)
   await expect(
     page.getByRole('alert').filter({ hasText: 'Your credentials were rejected' }),
-  ).toContainText('KubeStacks’ own credentials may have expired, or been revoked.')
+  ).toContainText('Lumovi’s own credentials may have expired, or been revoked.')
   // Nobody's session ends over it: there's nothing they could sign in with to fix it.
   await expect(page.getByRole('button', { name: 'Signed in as heidi@example.com' })).toBeVisible()
 })

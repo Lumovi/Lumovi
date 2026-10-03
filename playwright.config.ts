@@ -23,7 +23,7 @@ export default defineConfig({
   projects: [
     // The desktop app (Electron), driven through its window.
     { name: 'desktop', testDir: 'tests/e2e' },
-    // KubeStacks served from a cluster (out/server), in a browser.
+    // Lumovi served from a cluster (out/server), in a browser.
     {
       name: 'web',
       testDir: 'tests/web',

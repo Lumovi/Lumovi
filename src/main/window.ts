@@ -54,7 +54,7 @@ export function createMainWindow(
     minWidth: 1024,
     minHeight: 640,
     show: false,
-    title: 'KubeStacks',
+    title: 'Lumovi',
     backgroundColor: chrome().color,
     titleBarStyle: 'hidden',
     titleBarOverlay: { ...chrome(), height: TITLE_BAR_HEIGHT },

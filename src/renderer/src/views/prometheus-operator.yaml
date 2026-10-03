@@ -1,5 +1,5 @@
 # Prometheus operator (https://prometheus-operator.dev), as kube-prometheus-stack installs it.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: prometheus-operator
@@ -13,7 +13,7 @@ spec:
     - { group: monitoring.coreos.com, kind: PodMonitor }
     - { group: monitoring.coreos.com, kind: PrometheusRule }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: prometheus-operator-servers
@@ -56,7 +56,7 @@ spec:
         app.kubernetes.io/managed-by: prometheus-operator
         app.kubernetes.io/instance: '{{ .metadata.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: prometheus-operator-monitors
@@ -74,7 +74,7 @@ spec:
     - { name: Namespaces, path: '.spec.namespaceSelector.matchNames[*]', default: its own }
     - { name: Job label, path: .spec.jobLabel }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: prometheus-operator-rules

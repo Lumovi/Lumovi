@@ -81,7 +81,7 @@ test('releases as Helm stores them, with what they made', async ({ page }) => {
   await expect(row(page, 'Helm releases', 'hello-cm')).toContainText('Deployedhello 0.1.0')
 
   const release = await openRelease(page, 'hello-a')
-  await expect(release).toContainText('A small chart for KubeStacks')
+  await expect(release).toContainText('A small chart for Lumovi')
   await expect(release).toContainText('hello-a says "hi".')
   await release.getByRole('tab', { name: 'Resources' }).click()
   const made = release.getByRole('list', { name: 'Release resources' }).getByRole('listitem')
@@ -144,7 +144,7 @@ test('install a chart from this computer: checked, with its subcharts and values
   page,
 }) => {
   // A copy, so its subcharts download there: it depends on a library chart beside it.
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-chart-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-chart-'))
   const chart = join(dir, 'hello')
   cpSync(CHART, chart, { recursive: true })
   mkdirSync(join(dir, 'greeter'))

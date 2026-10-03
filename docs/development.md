@@ -1,6 +1,6 @@
 # Development
 
-How KubeStacks is built and tested. To contribute, see [CONTRIBUTING.md](../CONTRIBUTING.md)
+How Lumovi is built and tested. To contribute, see [CONTRIBUTING.md](../CONTRIBUTING.md)
 too.
 
 - [Getting started](#getting-started)
@@ -16,13 +16,13 @@ You need [Node.js](https://nodejs.org) 26 (see `.nvmrc`; 24 also works) and npm.
 npm ci
 npm run dev:mock   # the app against a built-in demo cluster, no Kubernetes needed
 npm run dev        # the app against your own kubeconfig
-npm run dev:server # KubeStacks served, as in a cluster, against the demo cluster
+npm run dev:server # Lumovi served, as in a cluster, against the demo cluster
 ```
 
 | Command                                 |                                                               |
 | --------------------------------------- | ------------------------------------------------------------- |
 | `npm run dev` / `dev:mock`              | Run with hot reload (real clusters / demo cluster)            |
-| `npm run dev:server`                    | Build and serve KubeStacks against the demo cluster           |
+| `npm run dev:server`                    | Build and serve Lumovi against the demo cluster               |
 | `npm run serve`                         | Run the built server (`out/server`), configured as in docs    |
 | `npm run verify`                        | Everything CI checks: format, lint, types, e2e with coverage  |
 | `npm run mock-cluster`                  | Start the demo clusters alone and print a kubeconfig for them |
@@ -31,7 +31,7 @@ npm run dev:server # KubeStacks served, as in a cluster, against the demo cluste
 | `npm run coverage`                      | The above, plus a coverage report in `coverage/`              |
 | `npm run coverage:check`                | Fail unless every file, line, branch and function is covered  |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
-| `npm run views:check`                   | Check KubeStacks' views against the CRDs of their tools       |
+| `npm run views:check`                   | Check Lumovi's views against the CRDs of their tools          |
 | `npm run crds`                          | Fetch those CRDs again, at the versions `sources.json` pins   |
 | `npm run package`                       | Build an unpacked app for this platform in `release/`         |
 | `npm run dist`                          | Build installers for this platform                            |
@@ -43,19 +43,19 @@ npm run dev:server # KubeStacks served, as in a cluster, against the demo cluste
 src/
   main/       Electron main process: the window, menus, updates and IPC
   backend/    Kubeconfigs, API requests, Helm, shells and logs: the desktop app's and the server's
-  server/     KubeStacks served from a cluster: sign-in, the page, a WebSocket for each page
-  preload/    The narrow, typed bridge exposed to the page as window.kubestacks
+  server/     Lumovi served from a cluster: sign-in, the page, a WebSocket for each page
+  preload/    The narrow, typed bridge exposed to the page as window.lumovi
   renderer/   React UI (Tailwind CSS, TanStack Query, Radix, cmdk), for both
   shared/     Types and the resource registry used by every side
 charts/       The Helm chart that runs the server (its image: Dockerfile)
 tests/
   e2e/            Playwright tests that drive the real Electron app
   web/            The served app in Chromium, and the server's HTTP and WebSocket
-  views/          KubeStacks' views, checked against the CRDs of their tools (crds/)
+  views/          Lumovi's views, checked against the CRDs of their tools (crds/)
   mock-cluster/   A mock Kubernetes API server with realistic demo clusters
   mock-oidc/      A small OpenID Connect provider, for single sign-on
   integration/    The same app (and the image, with the chart) against a real kind cluster
-docs/             This guide, and the screenshots (the rest is at docs.kubestacks.com)
+docs/             This guide, and the screenshots (the rest is at docs.lumovi.dev)
 scripts/          Coverage tooling, screenshots, icon rendering
 ```
 
@@ -85,7 +85,7 @@ kubeconfig entries and blocked plain HTTP.
 
 The app's windows stay invisible while the tests run, never take focus and stay out of the
 Dock, and what the tests copy stays in the app, so you can keep working. Set
-`KUBESTACKS_E2E_FOREGROUND=1` to watch them.
+`LUMOVI_E2E_FOREGROUND=1` to watch them.
 
 `npm run test:linux` runs the suite on Linux in Docker, the way CI does (Xvfb, no mouse), so
 Linux-only problems show up before you push. It takes about as long as a local run.
@@ -113,7 +113,7 @@ They change things for real and check the result with kubectl: scaling, rollouts
 rollbacks, YAML edits and conflicts, creating from YAML, cordoning and draining against a
 PodDisruptionBudget, shells, port forwards, debug containers, every usage-history query
 against Prometheus, custom resources (a CRD of their own, with validation, status and
-scaling, and the Prometheus operator's through KubeStacks' views), Helm releases (read in
+scaling, and the Prometheus operator's through Lumovi's views), Helm releases (read in
 both storage drivers, upgraded, rolled back and uninstalled with helm, and a chart installed
 from a folder), and what a view-only account is offered. They also install the image with
 the Helm chart and sign in to it, behind a proxy and with a token.

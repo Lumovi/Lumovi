@@ -1,14 +1,14 @@
-# KubeStacks in your cluster
+# Lumovi in your cluster
 
 This guide has moved to the documentation:
-**[docs.kubestacks.com/server/overview](https://docs.kubestacks.com/server/overview)**.
+**[docs.lumovi.dev/server/overview](https://docs.lumovi.dev/server/overview)**.
 
-- [Install it](https://docs.kubestacks.com/server/install), and
-  [give it an address](https://docs.kubestacks.com/server/expose)
-- Signing in: [with a token](https://docs.kubestacks.com/server/auth/tokens),
-  [single sign-on](https://docs.kubestacks.com/server/auth/single-sign-on), or
-  [behind a proxy](https://docs.kubestacks.com/server/auth/proxy)
-- [Security](https://docs.kubestacks.com/server/security)
-- [Helm values](https://docs.kubestacks.com/server/helm-values) and
-  [configuration](https://docs.kubestacks.com/server/configuration)
-- [Without Kubernetes](https://docs.kubestacks.com/server/docker)
+- [Install it](https://docs.lumovi.dev/server/install), and
+  [give it an address](https://docs.lumovi.dev/server/expose)
+- Signing in: [with a token](https://docs.lumovi.dev/server/auth/tokens),
+  [single sign-on](https://docs.lumovi.dev/server/auth/single-sign-on), or
+  [behind a proxy](https://docs.lumovi.dev/server/auth/proxy)
+- [Security](https://docs.lumovi.dev/server/security)
+- [Helm values](https://docs.lumovi.dev/server/helm-values) and
+  [configuration](https://docs.lumovi.dev/server/configuration)
+- [Without Kubernetes](https://docs.lumovi.dev/server/docker)

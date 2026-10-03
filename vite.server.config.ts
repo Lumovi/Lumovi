@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import { coverage } from './scripts/vite-coverage'
 import { licenses } from './scripts/vite-licenses'
 
-const withCoverage = process.env.KUBESTACKS_COVERAGE === 'true'
+const withCoverage = process.env.LUMOVI_COVERAGE === 'true'
 
 /**
  * The server (`node out/server/index.js`), with every package it uses bundled

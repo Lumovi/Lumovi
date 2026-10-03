@@ -1,6 +1,6 @@
 # Longhorn (https://longhorn.io): replicated volumes, their snapshots and backups, and the
 # nodes and disks they're on.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: longhorn
@@ -17,7 +17,7 @@ spec:
     - { group: longhorn.io, kind: RecurringJob }
     - { group: longhorn.io, kind: Replica }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: longhorn-volumes
@@ -88,7 +88,7 @@ spec:
           createSnapshot: true
       done: Taking a snapshot of {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: longhorn-nodes
@@ -122,7 +122,7 @@ spec:
       kind: Node
       objectName: '{{ .metadata.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: longhorn-snapshots-and-backups
@@ -161,7 +161,7 @@ spec:
       kind: Volume.longhorn.io
       objectName: '{{ .spec.volume ?? .status.volumeName }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: longhorn-backup-targets
@@ -181,7 +181,7 @@ spec:
       label: Unavailable
       detail: '{{ .status.conditions[?(@.type=="Unavailable")].message }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: longhorn-recurring-jobs
@@ -195,7 +195,7 @@ spec:
     - { name: Keeps, path: .spec.retain, type: number }
     - { name: Groups, path: '.spec.groups[*]' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: longhorn-replicas

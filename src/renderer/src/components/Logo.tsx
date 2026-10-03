@@ -1,7 +1,7 @@
 import { useId } from 'react'
 import { cn } from '@renderer/lib/cn'
 
-/** Three stacked layers: the KubeStacks mark. */
+/** Three stacked layers: the Lumovi mark. */
 export function Logo({ className }: { className?: string }) {
   const id = useId()
   return (

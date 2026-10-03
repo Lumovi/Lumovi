@@ -119,7 +119,7 @@ function ReleaseActions({
   const disabled = readOnly
     ? 'Changes are turned off for this cluster.'
     : cli && !cli.available
-      ? `KubeStacks uses helm for this, and couldn’t run ${cli.command}. Install Helm, or set KUBESTACKS_HELM to where it is.`
+      ? `Lumovi uses helm for this, and couldn’t run ${cli.command}. Install Helm, or set LUMOVI_HELM to where it is.`
       : undefined
   // Uninstalling is rarer, and dangerous: an icon, so the others fit on one line.
   const actions: { id: Dialog; label: string; icon: typeof History; danger?: boolean }[] = [

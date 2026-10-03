@@ -1,5 +1,5 @@
 /**
- * Helm through a KubeStacks server: helm runs there, with a kubeconfig of its
+ * Helm through a Lumovi server: helm runs there, with a kubeconfig of its
  * own for each person, and only fetches charts from where the server allows.
  */
 import { existsSync } from 'node:fs'
@@ -64,7 +64,7 @@ test('helm acts as whoever is signed in', async ({ page, context, serve, cluster
 
   // Behind a proxy: the server's credentials, acting as them.
   const proxied = await serve({
-    env: { KUBESTACKS_AUTH: 'proxy', KUBESTACKS_GROUPS_PREFIX: 'sso:' },
+    env: { LUMOVI_AUTH: 'proxy', LUMOVI_GROUPS_PREFIX: 'sso:' },
   })
   await context.setExtraHTTPHeaders({
     'X-Forwarded-User': 'kate@example.com',
@@ -83,7 +83,7 @@ test('helm acts as whoever is signed in', async ({ page, context, serve, cluster
     helmKubeconfigs(proxied).find((r) => r.args[0] === 'uninstall')!.kubeconfig,
   )
   expect(impersonated.users[0].user).toEqual({
-    token: 'kubestacks-demo-token',
+    token: 'lumovi-demo-token',
     as: 'kate@example.com',
     'as-groups': ['sso:sre'],
   })
@@ -94,7 +94,7 @@ test('charts come from repositories and registries the server may reach', async 
   serve,
 }) => {
   const repository = await chartRepository()
-  const served = await serve({ env: { KUBESTACKS_ALLOW_PRIVATE_CHARTS: undefined } })
+  const served = await serve({ env: { LUMOVI_ALLOW_PRIVATE_CHARTS: undefined } })
   await signIn(page, `${served.url}cluster/demo/helm`, PEOPLE.alice.token)
   await page.getByRole('button', { name: 'Install chart' }).click()
   const install = page.getByRole('dialog')
@@ -103,7 +103,7 @@ test('charts come from repositories and registries the server may reach', async 
   const versions = install.getByRole('button', { name: 'List its versions' })
   const defaults = install.getByRole('button', { name: 'Start from the chart’s defaults' })
   const refused = (host: string) =>
-    `KubeStacks doesn’t fetch charts from ${host}: it’s in a private network. An administrator can allow that with KUBESTACKS_ALLOW_PRIVATE_CHARTS.`
+    `Lumovi doesn’t fetch charts from ${host}: it’s in a private network. An administrator can allow that with LUMOVI_ALLOW_PRIVATE_CHARTS.`
 
   // Addresses inside private networks: this machine, the cluster's own, cloud metadata.
   await chart.fill('podinfo')

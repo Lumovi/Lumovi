@@ -97,9 +97,9 @@ export const CONTEXTS = {
   plainHttp: 'plain-http',
 } as const
 
-export const DEMO_TOKEN = 'kubestacks-demo-token'
+export const DEMO_TOKEN = 'lumovi-demo-token'
 
-/** People the demo cluster knows, by their tokens (signing in to a KubeStacks server). */
+/** People the demo cluster knows, by their tokens (signing in to a Lumovi server). */
 export const PEOPLE: Record<'alice' | 'bob', { token: string; user: MockUser }> = {
   alice: {
     token: 'alice-token',
@@ -107,7 +107,7 @@ export const PEOPLE: Record<'alice' | 'bob', { token: string; user: MockUser }> 
   },
   bob: { token: 'bob-token', user: { username: 'bob@example.com' } },
 }
-export const MISSING_PLUGIN = 'kubestacks-missing-credential-plugin'
+export const MISSING_PLUGIN = 'lumovi-missing-credential-plugin'
 
 export { DEMO, LARGE, SANDBOX }
 

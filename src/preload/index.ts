@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type KubestacksApi } from '@shared/api'
+import { IPC, type LumoviApi } from '@shared/api'
 
 const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args)
 
@@ -11,7 +11,7 @@ function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) 
 }
 
 // The renderer gets this narrow, typed API and nothing else from Electron or Node.
-const api: KubestacksApi = {
+const api: LumoviApi = {
   platform: process.platform,
   host: 'desktop',
   desktop: {
@@ -92,4 +92,4 @@ const api: KubestacksApi = {
   },
 }
 
-contextBridge.exposeInMainWorld('kubestacks', api)
+contextBridge.exposeInMainWorld('lumovi', api)

@@ -1,6 +1,6 @@
 /**
  * A Prometheus (or VictoriaMetrics) HTTP API for the mock clusters, answering
- * the PromQL shapes KubeStacks sends with smooth, deterministic history made
+ * the PromQL shapes Lumovi sends with smooth, deterministic history made
  * from each pod's usage in the fixture: cAdvisor CPU, memory, network and
  * CPU throttling, and kube-state-metrics restarts and why containers last
  * stopped.

@@ -1,6 +1,6 @@
 # Volume snapshots (https://kubernetes.io/docs/concepts/storage/volume-snapshots): point-in-time
 # copies of volumes, taken by CSI drivers.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: volume-snapshots
@@ -13,7 +13,7 @@ spec:
     - { group: snapshot.storage.k8s.io, kind: VolumeSnapshotContent }
     - { group: snapshot.storage.k8s.io, kind: VolumeSnapshotClass }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: volume-snapshots
@@ -60,7 +60,7 @@ spec:
       kind: VolumeSnapshotClass.snapshot.storage.k8s.io
       objectName: '{{ .spec.volumeSnapshotClassName }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: volume-snapshot-classes

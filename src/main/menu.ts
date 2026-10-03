@@ -75,9 +75,9 @@ export function buildMenu(
       submenu: [
         command('shortcuts', 'Keyboard Shortcuts', 'CmdOrCtrl+/'),
         { type: 'separator' },
-        link('github', 'KubeStacks on GitHub', REPO_URL),
+        link('github', 'Lumovi on GitHub', REPO_URL),
         link('issue', 'Report an Issue…', `${REPO_URL}/issues/new/choose`),
-        link('sponsor', 'Sponsor KubeStacks…', SPONSOR_URL),
+        link('sponsor', 'Sponsor Lumovi…', SPONSOR_URL),
         { type: 'separator' },
         {
           id: 'check-updates',

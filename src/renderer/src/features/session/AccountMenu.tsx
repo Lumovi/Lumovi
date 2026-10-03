@@ -11,7 +11,7 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 /** Groups shown by name; the rest are counted. */
 const SHOWN_GROUPS = 4
 
-/** Who is signed in to a KubeStacks server, and signing out. */
+/** Who is signed in to a Lumovi server, and signing out. */
 export function AccountMenu({ session }: { session: Session }) {
   const { user, auth, signOutUrl } = session
   const [leaving, setLeaving] = useState(false)
@@ -90,7 +90,7 @@ export function AccountMenu({ session }: { session: Session }) {
               </a>
             ) : (
               <p className="px-2.5 py-1.5 text-xs leading-relaxed text-ink-3">
-                Signed in by the proxy in front of KubeStacks.
+                Signed in by the proxy in front of Lumovi.
               </p>
             )}
           </div>

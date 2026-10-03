@@ -92,7 +92,7 @@ function write(output: string, dependencies: boolean): void {
   mkdirSync(dirname(output), { recursive: true })
   writeFileSync(
     output,
-    'KubeStacks includes the following third-party software, under the licenses below.' +
+    'Lumovi includes the following third-party software, under the licenses below.' +
       rule +
       sections.join(rule) +
       '\n',
@@ -102,7 +102,7 @@ function write(output: string, dependencies: boolean): void {
 /** For the desktop app's builds, or (`server`) the server's, which ships with the page's files. */
 export function licenses(target: 'desktop' | 'server' = 'desktop'): Plugin {
   return {
-    name: 'kubestacks:licenses',
+    name: 'lumovi:licenses',
     apply: 'build',
     generateBundle() {
       for (const id of this.getModuleIds()) {

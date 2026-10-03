@@ -1,14 +1,14 @@
 apiVersion: v2
-name: kubestacks
+name: lumovi
 description: A fast, beautiful Kubernetes dashboard, served from your cluster to everyone who signs in.
 type: application
-# Released with KubeStacks itself: the chart's version is the app's.
+# Released with Lumovi itself: the chart's version is the app's.
 version: 1.2.0
 appVersion: 1.2.0
-home: https://kubestacks.com
-icon: https://raw.githubusercontent.com/KubeStacks/KubeStacks/main/build/icon.png
+home: https://lumovi.dev
+icon: https://raw.githubusercontent.com/Lumovi/Lumovi/main/build/icon.png
 sources:
-  - https://github.com/KubeStacks/KubeStacks
+  - https://github.com/Lumovi/Lumovi
 keywords:
   - kubernetes
   - dashboard
@@ -18,6 +18,6 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/links: |
     - name: Documentation
-      url: https://docs.kubestacks.com/server/overview
+      url: https://docs.lumovi.dev/server/overview
     - name: Helm values
-      url: https://docs.kubestacks.com/server/helm-values
+      url: https://docs.lumovi.dev/server/helm-values

@@ -73,7 +73,7 @@ test.describe('large lists', () => {
 })
 
 test('lists are capped, with a way to narrow them', async ({ launch }) => {
-  const { page } = await launch({ env: { KUBESTACKS_MAX_LIST_ITEMS: '1000' } })
+  const { page } = await launch({ env: { LUMOVI_MAX_LIST_ITEMS: '1000' } })
   await openCluster(page, CONTEXTS.large)
   await goTo(page, 'Pods')
   const note = page.getByRole('note')
@@ -188,7 +188,7 @@ test('rows have a context menu', async ({ page }) => {
 })
 
 test('narrow tables drop the least important columns', async ({ launch }) => {
-  const { page } = await launch({ env: { KUBESTACKS_E2E_WINDOW: '1024x700' }, fullLayout: false })
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x700' }, fullLayout: false })
   await openCluster(page)
   await goTo(page, 'Pods')
   const headers = page.getByRole('grid', { name: 'Pods' }).getByRole('columnheader')

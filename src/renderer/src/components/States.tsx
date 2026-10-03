@@ -20,14 +20,14 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { Button } from './Button'
 
-/** Served pages reach the cluster through the KubeStacks server, as whoever signed in. */
+/** Served pages reach the cluster through the Lumovi server, as whoever signed in. */
 const served = api.host === 'server'
 
 const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: LucideIcon }> = {
   unreachable: {
     title: 'Can’t reach the cluster',
     hint: served
-      ? 'Check that the API server is running and reachable from where KubeStacks runs.'
+      ? 'Check that the API server is running and reachable from where Lumovi runs.'
       : 'Check that the API server is running and reachable from this machine — a VPN or tunnel may be required.',
     icon: WifiOff,
   },
@@ -39,7 +39,7 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   tls: {
     title: 'The cluster’s certificate couldn’t be verified',
     hint: served
-      ? 'The certificate authority KubeStacks was given doesn’t match the API server.'
+      ? 'The certificate authority Lumovi was given doesn’t match the API server.'
       : 'The certificate authority in your kubeconfig doesn’t match the API server.',
     icon: ShieldAlert,
   },
@@ -56,7 +56,7 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   unauthorized: {
     title: 'Your credentials were rejected',
     hint: served
-      ? 'KubeStacks’ own credentials may have expired, or been revoked.'
+      ? 'Lumovi’s own credentials may have expired, or been revoked.'
       : 'The token or certificate may have expired. Sign in again, then retry.',
     icon: Lock,
   },
@@ -77,7 +77,7 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   invalid: {
     title: 'Invalid request',
-    hint: 'KubeStacks sent a request the cluster couldn’t process.',
+    hint: 'Lumovi sent a request the cluster couldn’t process.',
     icon: CircleAlert,
   },
   conflict: {
@@ -87,7 +87,7 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   'read-only': {
     title: 'Changes are turned off',
-    hint: 'This cluster is read-only in KubeStacks.',
+    hint: 'This cluster is read-only in Lumovi.',
     icon: Lock,
   },
   helm: {
@@ -97,10 +97,10 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
 }
 
-/** For errors KubeStacks didn't see coming: a bug, or a failure outside the API. */
+/** For errors Lumovi didn't see coming: a bug, or a failure outside the API. */
 const UNEXPECTED = {
   title: 'Something went wrong',
-  hint: 'KubeStacks didn’t expect this. If trying again doesn’t help, please report it.',
+  hint: 'Lumovi didn’t expect this. If trying again doesn’t help, please report it.',
   icon: TriangleAlert,
 }
 

@@ -1,5 +1,5 @@
 /**
- * KubeStacks' own views and add-ons, checked against the CRDs of the
+ * Lumovi's own views and add-ons, checked against the CRDs of the
  * operators they're for (tests/views/crds, fetched by `npm run crds`): every
  * kind they name is real, and every path, template, link, related list and
  * action reads or writes fields those kinds have. A field an operator
@@ -28,7 +28,7 @@ const sources = JSON.parse(readFileSync(join(CRDS, 'sources.json'), 'utf8')) as 
   { version: string }
 >
 
-/** Every CRD kept here, by the name KubeStacks gives its kind, with where it came from. */
+/** Every CRD kept here, by the name Lumovi gives its kind, with where it came from. */
 const crds = new Map<string, { crd: Crd; from: string }>()
 for (const file of readdirSync(CRDS).filter((f) => f.endsWith('.json') && f !== 'sources.json')) {
   const name = basename(file, '.json')
@@ -164,7 +164,7 @@ function pointer(path: string): Step[] {
 const described = (steps: Step[]) =>
   steps.map((step) => ('key' in step ? `.${step.key}` : '[]')).join('')
 
-/** A kind KubeStacks can show: built in, one of Kubernetes' others, or a CRD kept here. */
+/** A kind Lumovi can show: built in, one of Kubernetes' others, or a CRD kept here. */
 function known(kind: string): boolean {
   return isBuiltinKind(kind) || !isCustomGroup(apiGroupOf(kind)) || crds.has(kind)
 }
@@ -248,7 +248,7 @@ function checkView(view: View, problems: string[]) {
 
 // ——— The checks ———
 
-test('KubeStacks’ views and add-ons are all valid', () => {
+test('Lumovi’s views and add-ons are all valid', () => {
   expect(parseProblems).toEqual([])
 })
 

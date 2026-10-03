@@ -1,5 +1,5 @@
 # Karpenter (https://karpenter.sh): node pools, and the nodes it launched for them.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: karpenter
@@ -12,7 +12,7 @@ spec:
     - { group: karpenter.k8s.aws, kind: EC2NodeClass }
     - { group: karpenter.azure.com, kind: AKSNodeClass }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: karpenter-node-pools
@@ -52,7 +52,7 @@ spec:
       kind: NodeClaim.karpenter.sh
       labels: { karpenter.sh/nodepool: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: karpenter-node-claims
@@ -106,7 +106,7 @@ spec:
       kind: '{{ .spec.nodeClassRef.kind }}.{{ .spec.nodeClassRef.group }}'
       objectName: '{{ .spec.nodeClassRef.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: karpenter-ec2-node-classes

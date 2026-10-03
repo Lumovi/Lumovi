@@ -451,7 +451,7 @@ export function clusterBuilder(now: number) {
       spec: {
         podCIDR: `10.244.${index}.0/24`,
         podCIDRs: [`10.244.${index}.0/24`],
-        providerID: `kubestacks://eu-west-1/${n.name}`,
+        providerID: `lumovi://eu-west-1/${n.name}`,
         ...(taints.length ? { taints } : {}),
         ...(n.unschedulable ? { unschedulable: true } : {}),
       },

@@ -2,7 +2,7 @@
  * Where a server may fetch charts from. People choose chart repositories and
  * registries, and the server fetches from them: from inside the cluster's
  * network, where it can reach services they can't, and cloud metadata
- * endpoints. So unless KUBESTACKS_ALLOW_PRIVATE_CHARTS allows them, it only
+ * endpoints. So unless LUMOVI_ALLOW_PRIVATE_CHARTS allows them, it only
  * fetches from public addresses.
  */
 import { lookup } from 'node:dns/promises'
@@ -40,7 +40,7 @@ export async function checkChartUrl(url: string): Promise<void> {
   if (addresses.some(({ address, family }) => PRIVATE.check(address, `ipv${family}` as 'ipv4'))) {
     throw new KubeRequestError(
       'invalid',
-      `KubeStacks doesn’t fetch charts from ${host}: it’s in a private network. An administrator can allow that with KUBESTACKS_ALLOW_PRIVATE_CHARTS.`,
+      `Lumovi doesn’t fetch charts from ${host}: it’s in a private network. An administrator can allow that with LUMOVI_ALLOW_PRIVATE_CHARTS.`,
     )
   }
 }

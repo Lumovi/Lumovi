@@ -4,7 +4,7 @@ name: Release
 # package.json version has no release yet, this builds the installers for every
 # platform (macOS signed and notarized), attaches them and their checksums to a
 # GitHub release with the version's CHANGELOG notes, and publishes it, which
-# tags the commit. The image and Helm chart for running KubeStacks in a cluster
+# tags the commit. The image and Helm chart for running Lumovi in a cluster
 # go to GitHub's container registry. To release, bump the version, add its
 # CHANGELOG section and push (see CONTRIBUTING.md).
 on:
@@ -112,9 +112,9 @@ jobs:
           their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
           that a file was built by this repository's release workflow.
 
-          **In your cluster** ([documentation](https://docs.kubestacks.com/server/install)):
-          \`helm install kubestacks oci://ghcr.io/kubestacks/charts/kubestacks --version $VERSION\`, with the
-          image \`ghcr.io/kubestacks/kubestacks:$VERSION\` for \`linux/amd64\` and \`linux/arm64\`.
+          **In your cluster** ([documentation](https://docs.lumovi.dev/server/install)):
+          \`helm install lumovi oci://ghcr.io/lumovi/charts/lumovi --version $VERSION\`, with the
+          image \`ghcr.io/lumovi/lumovi:$VERSION\` for \`linux/amd64\` and \`linux/arm64\`.
           EOF
       # Created once, here: the builds below would otherwise race to create it.
       - name: Create the draft release
@@ -128,7 +128,7 @@ jobs:
           # A draft left by an attempt that failed is started over.
           if gh release view "v$VERSION" >/dev/null 2>&1; then gh release delete "v$VERSION" --yes; fi
           gh release create "v$VERSION" --draft --target "$SHA" \
-            --title "KubeStacks $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+            --title "Lumovi $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
   build:
     name: Build (${{ matrix.os }})
@@ -219,7 +219,7 @@ jobs:
       - name: Attest the installers' provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
-          subject-path: release/KubeStacks-*
+          subject-path: release/Lumovi-*
 
   image:
     name: Image and Helm chart
@@ -234,8 +234,8 @@ jobs:
       attestations: write
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
-      IMAGE: ghcr.io/kubestacks/kubestacks
-      CHARTS: ghcr.io/kubestacks/charts
+      IMAGE: ghcr.io/lumovi/lumovi
+      CHARTS: ghcr.io/lumovi/charts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -272,14 +272,14 @@ jobs:
         env:
           TOKEN: ${{ github.token }}
         run: |
-          helm package charts/kubestacks --version "$VERSION" --app-version "$VERSION"
+          helm package charts/lumovi --version "$VERSION" --app-version "$VERSION"
           printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          helm push "kubestacks-$VERSION.tgz" "oci://$CHARTS" 2>&1 | tee push.log
+          helm push "lumovi-$VERSION.tgz" "oci://$CHARTS" 2>&1 | tee push.log
           echo "digest=$(sed -n 's/^Digest: //p' push.log)" >> "$GITHUB_OUTPUT"
       - name: Attest the chart's provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
-          subject-name: ${{ env.CHARTS }}/kubestacks
+          subject-name: ${{ env.CHARTS }}/lumovi
           subject-digest: ${{ steps.chart.outputs.digest }}
           push-to-registry: true
 
@@ -300,10 +300,10 @@ jobs:
       - name: Add SHA256SUMS.txt
         run: |
           mkdir assets && cd assets
-          gh release download "$TAG" --pattern 'KubeStacks-*'
+          gh release download "$TAG" --pattern 'Lumovi-*'
           # The installers, not the files updates use to download less.
           files=()
-          for file in KubeStacks-*; do [[ $file == *.blockmap ]] || files+=("$file"); done
+          for file in Lumovi-*; do [[ $file == *.blockmap ]] || files+=("$file"); done
           sha256sum "${files[@]}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
           gh release upload "$TAG" SHA256SUMS.txt --clobber
@@ -311,7 +311,7 @@ jobs:
       - name: Tag the commit
         run: |
           if gh api "repos/$GH_REPO/git/ref/tags/$TAG" --silent 2>/dev/null; then exit 0; fi
-          tag=$(gh api "repos/$GH_REPO/git/tags" -f tag="$TAG" -f message="KubeStacks $VERSION" \
+          tag=$(gh api "repos/$GH_REPO/git/tags" -f tag="$TAG" -f message="Lumovi $VERSION" \
             -f object="$SHA" -f type=commit --jq .sha)
           gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$tag" --silent
       - name: Publish the release

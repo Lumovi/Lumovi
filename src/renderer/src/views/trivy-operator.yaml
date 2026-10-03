@@ -1,5 +1,5 @@
 # Trivy Operator (https://aquasecurity.github.io/trivy-operator): what it found scanning the cluster.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: trivy-operator
@@ -15,7 +15,7 @@ spec:
     - { group: aquasecurity.github.io, kind: ClusterComplianceReport }
 ---
 # A report for each container image a workload runs.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: trivy-vulnerability-reports
@@ -64,7 +64,7 @@ spec:
       objectName: "{{ .metadata.labels['trivy-operator.resource.name'] }}"
 ---
 # Misconfigurations, secrets in images and risky RBAC: checks that failed, by severity.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: trivy-findings
@@ -105,7 +105,7 @@ spec:
       kind: "{{ .metadata.labels['trivy-operator.resource.kind'] }}"
       objectName: "{{ .metadata.labels['trivy-operator.resource.name'] }}"
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: trivy-compliance-reports

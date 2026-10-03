@@ -52,7 +52,7 @@ function addMissing<T extends { name: string }>(target: T[], source: T[]): void 
 }
 
 /**
- * The clusters KubeStacks can show, and how to reach each: the user's
+ * The clusters Lumovi can show, and how to reach each: the user's
  * kubeconfig on the desktop, or the server's one cluster, on behalf of
  * whoever is signed in.
  */

@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 /**
- * KubeStacks' own views, checked against the CRDs of the operators they're
+ * Lumovi's own views, checked against the CRDs of the operators they're
  * for (tests/views). Nothing to build or launch: `npm run views:check`.
  */
 export default defineConfig({

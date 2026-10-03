@@ -2,7 +2,7 @@
 
 # Screenshots
 
-Every screen of KubeStacks worth showing, light and dark, for the README, the docs and the website. They're taken of the mock clusters the tests use, so they're the same every time, and refreshing them changes only the screens that did.
+Every screen of Lumovi worth showing, light and dark, for the README, the docs and the website. They're taken of the mock clusters the tests use, so they're the same every time, and refreshing them changes only the screens that did.
 
 ## Using them
 
@@ -16,7 +16,7 @@ Each comes as WebP in two sizes:
 Names don't change, so a link keeps showing the latest screenshot. In this repository, link to the file itself. Elsewhere, link to [jsDelivr](https://www.jsdelivr.com), which serves this repository's `main` (its cache is cleared for every screenshot that changes there):
 
 ```
-https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/overview-dark.webp
+https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/overview-dark.webp
 ```
 
 To show the reader's theme, at their screen's density:
@@ -26,15 +26,15 @@ To show the reader's theme, at their screen's density:
   <source
     media="(prefers-color-scheme: dark)"
     srcset="
-      https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/overview-dark-1x.webp 1440w,
-      https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/overview-dark.webp    2880w
+      https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/overview-dark-1x.webp 1440w,
+      https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/overview-dark.webp    2880w
     "
   />
   <img
-    src="https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/overview-light-1x.webp"
+    src="https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/overview-light-1x.webp"
     srcset="
-      https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/overview-light-1x.webp 1440w,
-      https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/overview-light.webp    2880w
+      https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/overview-light-1x.webp 1440w,
+      https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/overview-light.webp    2880w
     "
     width="1440"
     height="900"
@@ -237,11 +237,11 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### A custom resource
 
-`custom-resource`: A cert-manager certificate, shown with KubeStacks' view of it.
+`custom-resource`: A cert-manager certificate, shown with Lumovi's view of it.
 
-| Light                                                                                                                          | Dark                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| [![A cert-manager certificate, shown with KubeStacks' view of it.](custom-resource-light-1x.webp)](custom-resource-light.webp) | [![A cert-manager certificate, shown with KubeStacks' view of it.](custom-resource-dark-1x.webp)](custom-resource-dark.webp) |
+| Light                                                                                                                       | Dark                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [![A cert-manager certificate, shown with Lumovi's view of it.](custom-resource-light-1x.webp)](custom-resource-light.webp) | [![A cert-manager certificate, shown with Lumovi's view of it.](custom-resource-dark-1x.webp)](custom-resource-dark.webp) |
 
 ### Helm releases
 
@@ -301,11 +301,11 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### Read-only
 
-`read-only`: A cluster made read-only: KubeStacks won't change anything in it until allowed.
+`read-only`: A cluster made read-only: Lumovi won't change anything in it until allowed.
 
-| Light                                                                                                                               | Dark                                                                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [![A cluster made read-only: KubeStacks won't change anything in it until allowed.](read-only-light-1x.webp)](read-only-light.webp) | [![A cluster made read-only: KubeStacks won't change anything in it until allowed.](read-only-dark-1x.webp)](read-only-dark.webp) |
+| Light                                                                                                                           | Dark                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [![A cluster made read-only: Lumovi won't change anything in it until allowed.](read-only-light-1x.webp)](read-only-light.webp) | [![A cluster made read-only: Lumovi won't change anything in it until allowed.](read-only-dark-1x.webp)](read-only-dark.webp) |
 
 ### An unreachable cluster
 
@@ -325,24 +325,24 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### Signing in with a token
 
-`server-sign-in`, served from a cluster: KubeStacks served from a cluster: signing in with a token.
+`server-sign-in`, served from a cluster: Lumovi served from a cluster: signing in with a token.
 
-| Light                                                                                                                    | Dark                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| [![KubeStacks served from a cluster: signing in with a token.](server-sign-in-light-1x.webp)](server-sign-in-light.webp) | [![KubeStacks served from a cluster: signing in with a token.](server-sign-in-dark-1x.webp)](server-sign-in-dark.webp) |
+| Light                                                                                                                | Dark                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| [![Lumovi served from a cluster: signing in with a token.](server-sign-in-light-1x.webp)](server-sign-in-light.webp) | [![Lumovi served from a cluster: signing in with a token.](server-sign-in-dark-1x.webp)](server-sign-in-dark.webp) |
 
 ### Single sign-on
 
-`server-single-sign-on`, served from a cluster: KubeStacks served from a cluster: signing in with single sign-on.
+`server-single-sign-on`, served from a cluster: Lumovi served from a cluster: signing in with single sign-on.
 
-| Light                                                                                                                                         | Dark                                                                                                                                        |
-| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![KubeStacks served from a cluster: signing in with single sign-on.](server-single-sign-on-light-1x.webp)](server-single-sign-on-light.webp) | [![KubeStacks served from a cluster: signing in with single sign-on.](server-single-sign-on-dark-1x.webp)](server-single-sign-on-dark.webp) |
+| Light                                                                                                                                     | Dark                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Lumovi served from a cluster: signing in with single sign-on.](server-single-sign-on-light-1x.webp)](server-single-sign-on-light.webp) | [![Lumovi served from a cluster: signing in with single sign-on.](server-single-sign-on-dark-1x.webp)](server-single-sign-on-dark.webp) |
 
 ### Signed in
 
-`server-account`, served from a cluster: KubeStacks served from a cluster: who's signed in, and their groups.
+`server-account`, served from a cluster: Lumovi served from a cluster: who's signed in, and their groups.
 
-| Light                                                                                                                              | Dark                                                                                                                             |
-| ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| [![KubeStacks served from a cluster: who's signed in, and their groups.](server-account-light-1x.webp)](server-account-light.webp) | [![KubeStacks served from a cluster: who's signed in, and their groups.](server-account-dark-1x.webp)](server-account-dark.webp) |
+| Light                                                                                                                          | Dark                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| [![Lumovi served from a cluster: who's signed in, and their groups.](server-account-light-1x.webp)](server-account-light.webp) | [![Lumovi served from a cluster: who's signed in, and their groups.](server-account-dark-1x.webp)](server-account-dark.webp) |

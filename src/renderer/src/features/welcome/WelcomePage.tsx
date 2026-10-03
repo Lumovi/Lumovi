@@ -27,7 +27,7 @@ export function WelcomePage() {
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    document.title = 'KubeStacks'
+    document.title = 'Lumovi'
   }, [])
 
   const reload = () => {
@@ -48,7 +48,7 @@ export function WelcomePage() {
             <div className="mb-5 grid size-16 place-items-center rounded-2xl border border-line-strong bg-surface-2 shadow-panel [@media(max-height:800px)]:mb-3 [@media(max-height:800px)]:size-12">
               <Logo className="size-10 [@media(max-height:800px)]:size-8" />
             </div>
-            <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-ink-1">KubeStacks</h1>
+            <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-ink-1">Lumovi</h1>
             <p className="mt-1.5 text-[14px] text-ink-2">Choose a cluster to explore.</p>
           </header>
 
@@ -63,7 +63,7 @@ export function WelcomePage() {
             </EmptyState>
           ) : contexts.data!.contexts.length === 0 ? (
             <EmptyState icon={ServerOff} title="No clusters found">
-              KubeStacks reads clusters from your kubeconfig. Set the{' '}
+              Lumovi reads clusters from your kubeconfig. Set the{' '}
               <code className="font-mono">KUBECONFIG</code> environment variable, or create{' '}
               <code className="font-mono">~/.kube/config</code>, then reload.
             </EmptyState>
@@ -91,7 +91,7 @@ export function WelcomePage() {
               <RotateCw /> Reload
             </Button>
             <ThemeMenu />
-            <IconButton label="KubeStacks on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
+            <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
               <GithubMark />
             </IconButton>
           </footer>

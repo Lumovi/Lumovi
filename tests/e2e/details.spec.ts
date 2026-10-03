@@ -90,7 +90,7 @@ test('pending and failed pods', async ({ page }) => {
 
 test('logs: container, lines, previous, follow, wrap and copy', async ({
   page,
-  kubestacks,
+  lumovi,
   clusters,
 }) => {
   const pod = DEMO.pods.checkout[0]!
@@ -131,7 +131,7 @@ test('logs: container, lines, previous, follow, wrap and copy', async ({
   await expect(log.locator('.whitespace-pre-wrap').first()).toBeVisible()
 
   await detail.getByRole('button', { name: 'Copy logs' }).click()
-  await expect.poll(() => clipboardText(kubestacks.page)).toContain('starting checkout service')
+  await expect.poll(() => clipboardText(lumovi.page)).toContain('starting checkout service')
   await expect(detail.getByRole('button', { name: 'Copied' })).toBeVisible()
   await expect(detail.getByRole('button', { name: 'Copy logs' })).toBeVisible({ timeout: 5_000 })
 })
@@ -178,7 +178,7 @@ test('events tab lists what happened to an object', async ({ page }) => {
   await expect(node.getByRole('list', { name: 'Events' })).toContainText('NodeNotReady')
 })
 
-test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
+test('secrets stay hidden until revealed', async ({ page, lumovi }) => {
   const name = DEMO.secrets.postgresCredentials
   await openObject(page, 'Secrets', name)
   const detail = panel(page, 'Secret', name)
@@ -189,7 +189,7 @@ test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
   await detail.getByRole('button', { name: 'Hide password' }).click()
   await expect(detail).not.toContainText(DEMO.postgresPassword)
   await detail.getByRole('button', { name: 'Copy password' }).click()
-  await expect.poll(() => clipboardText(kubestacks.page)).toBe(DEMO.postgresPassword)
+  await expect.poll(() => clipboardText(lumovi.page)).toBe(DEMO.postgresPassword)
 
   await detail.getByRole('tab', { name: 'YAML' }).click()
   const yaml = detail.getByRole('tabpanel', { name: 'YAML' })
@@ -205,7 +205,7 @@ test('secrets stay hidden until revealed', async ({ page, kubestacks }) => {
   await detail.getByRole('button', { name: 'Hide values' }).click()
   await expect(yaml).toContainText('password: ••••••••')
   await detail.getByRole('button', { name: 'Copy YAML' }).click()
-  await expect.poll(() => clipboardText(kubestacks.page)).toContain('kind: Secret')
+  await expect.poll(() => clipboardText(lumovi.page)).toContain('kind: Secret')
 })
 
 test('config maps show their data', async ({ page }) => {

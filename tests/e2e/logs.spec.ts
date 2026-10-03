@@ -50,10 +50,10 @@ const podLike = (name: string, labels: Record<string, string>, containers = ['ap
 }
 
 test('a workload’s logs: every pod’s, merged in the order they were written', async ({
-  kubestacks,
+  lumovi,
   clusters,
 }) => {
-  const { page, app } = kubestacks
+  const { page, app } = lumovi
   await openCluster(page)
   const detail = await workloadLogs(page)
   const log = detail.getByRole('log', { name: 'Logs for app' })
@@ -107,7 +107,7 @@ test('a workload’s logs: every pod’s, merged in the order they were written'
   await expect
     .poll(() => clipboardText(page))
     .toMatch(new RegExp(`Z ${PODS[0]}/app merge-check second`))
-  const file = join(mkdtempSync(join(tmpdir(), 'kubestacks-logs-')), 'storefront.log')
+  const file = join(mkdtempSync(join(tmpdir(), 'lumovi-logs-')), 'storefront.log')
   await saveAs(app, { canceled: false, filePath: file })
   await detail.getByRole('button', { name: 'Download' }).click()
   await expect(toasts(page)).toContainText('Saved the logs of storefront')
@@ -385,7 +385,7 @@ test('colors and styles from escape codes', async ({ page, clusters }) => {
 })
 
 test('logs over plain HTTP, and an API server too slow to answer', async ({ launch, clusters }) => {
-  const { page } = await launch({ env: { KUBESTACKS_REQUEST_TIMEOUT_MS: '1000' } })
+  const { page } = await launch({ env: { LUMOVI_REQUEST_TIMEOUT_MS: '1000' } })
   clusters.sandbox.upsert(podLike('plain', { app: 'plain' }))
   await openCluster(page, CONTEXTS.sandbox)
   await open(page, 'Pods', 'plain')

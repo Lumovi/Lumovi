@@ -96,7 +96,7 @@ test.describe('right-sizing', () => {
   })
 
   test('what each workload should request, what needs more first', async ({ page }) => {
-    await expect(page).toHaveTitle(`Metrics · ${CONTEXTS.demo} — KubeStacks`)
+    await expect(page).toHaveTitle(`Metrics · ${CONTEXTS.demo} — Lumovi`)
     await expect(
       page.getByRole('navigation', { name: 'Metrics views' }).getByRole('link', {
         name: 'Right-sizing',

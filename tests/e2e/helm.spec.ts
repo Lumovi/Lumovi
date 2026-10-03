@@ -8,16 +8,7 @@ import type { Locator, Page } from '@playwright/test'
 import { encodeRelease, HELM, releaseRecord } from '../mock-cluster/fixtures/helm.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { dialog, focusDisabled, toasts } from './action-helpers.ts'
-import {
-  CONTEXTS,
-  expect,
-  openCluster,
-  panel,
-  row,
-  rows,
-  test,
-  type KubeStacks,
-} from './fixtures.ts'
+import { CONTEXTS, expect, openCluster, panel, row, rows, test, type Lumovi } from './fixtures.ts'
 
 const releasePanel = (page: Page, name: string) =>
   page.getByRole('complementary', { name: `Helm release ${name}` })
@@ -44,8 +35,8 @@ async function pickNamespace(page: Page, namespace: string) {
 }
 
 /** How the stand-in helm was run, oldest first (without the version checks). */
-function helmCalls(kubestacks: KubeStacks): string[][] {
-  const log = join(kubestacks.helmDir!, 'calls.jsonl')
+function helmCalls(lumovi: Lumovi): string[][] {
+  const log = join(lumovi.helmDir!, 'calls.jsonl')
   if (!existsSync(log)) return []
   return readFileSync(log, 'utf8')
     .trim()
@@ -55,8 +46,8 @@ function helmCalls(kubestacks: KubeStacks): string[][] {
 }
 
 /** Makes the stand-in helm answer subcommands this way: { code, stdout, stderr }. */
-function scriptHelm(kubestacks: KubeStacks, responses: Record<string, object>) {
-  writeFileSync(join(kubestacks.helmDir!, 'responses.json'), JSON.stringify(responses))
+function scriptHelm(lumovi: Lumovi, responses: Record<string, object>) {
+  writeFileSync(join(lumovi.helmDir!, 'responses.json'), JSON.stringify(responses))
 }
 
 /** Adds a release's revision to the cluster, as Helm would store it. */
@@ -273,7 +264,7 @@ test('releases in other states, and ones Flux manages', async ({ page, clusters 
   await expect(gone).toContainText('shop has no Helm release named gone.')
 })
 
-test('roll back and uninstall, with helm', async ({ page, kubestacks }) => {
+test('roll back and uninstall, with helm', async ({ page, lumovi }) => {
   await openCluster(page)
   await openHelm(page)
   const storefront = await openRelease(page, HELM.storefront)
@@ -287,13 +278,13 @@ test('roll back and uninstall, with helm', async ({ page, kubestacks }) => {
   )
   await expect(rollback).toContainText('Going back to 1 changes 4 lines of its values')
   // helm's errors are shown as it says them.
-  scriptHelm(kubestacks, { rollback: { code: 1, stderr: 'Error: release: not found\n' } })
+  scriptHelm(lumovi, { rollback: { code: 1, stderr: 'Error: release: not found\n' } })
   await rollback.getByRole('button', { name: 'Roll back', exact: true }).click()
   await expect(rollback.getByRole('alert')).toHaveText('release: not found')
-  scriptHelm(kubestacks, {})
+  scriptHelm(lumovi, {})
   await rollback.getByRole('button', { name: 'Roll back', exact: true }).click()
   await expect(toasts(page)).toContainText('Rolled back storefront to revision 1')
-  expect(helmCalls(kubestacks).at(-1)).toEqual([
+  expect(helmCalls(lumovi).at(-1)).toEqual([
     'rollback',
     'storefront',
     '1',
@@ -320,28 +311,28 @@ test('roll back and uninstall, with helm', async ({ page, kubestacks }) => {
   await expect(uninstall).toContainText('--keep-history')
   await uninstall.getByLabel('Type storefront to confirm').fill(HELM.storefront)
   // Some helm errors are printed to stdout.
-  scriptHelm(kubestacks, { uninstall: { code: 1, stdout: 'Error: uninstall: timed out\n' } })
+  scriptHelm(lumovi, { uninstall: { code: 1, stdout: 'Error: uninstall: timed out\n' } })
   await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await expect(uninstall.getByRole('alert')).toHaveText('uninstall: timed out')
   // Or nothing at all.
-  scriptHelm(kubestacks, { uninstall: { code: 2 } })
+  scriptHelm(lumovi, { uninstall: { code: 2 } })
   await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await expect(uninstall.getByRole('alert')).toHaveText(
     'helm failed (exit code 2) without saying why.',
   )
   // Stopped (Windows has no signals: the process just exits).
-  scriptHelm(kubestacks, { uninstall: { signal: 'SIGTERM' } })
+  scriptHelm(lumovi, { uninstall: { signal: 'SIGTERM' } })
   await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await expect(uninstall.getByRole('alert')).toHaveText(
     process.platform === 'win32'
       ? /^helm failed \(exit code \d+\) without saying why\.$/
       : 'helm was stopped (SIGTERM) before it finished.',
   )
-  scriptHelm(kubestacks, {})
+  scriptHelm(lumovi, {})
   await uninstall.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await expect(toasts(page)).toContainText('Uninstalled storefront')
   await expect(releasePanel(page, HELM.storefront)).toHaveCount(0)
-  expect(helmCalls(kubestacks).at(-1)).toEqual([
+  expect(helmCalls(lumovi).at(-1)).toEqual([
     'uninstall',
     'storefront',
     '--namespace',
@@ -359,7 +350,7 @@ test('roll back and uninstall, with helm', async ({ page, kubestacks }) => {
 
 test('upgrade with the chart a release runs: change its values, review, apply', async ({
   page,
-  kubestacks,
+  lumovi,
 }) => {
   await openCluster(page)
   await openHelm(page)
@@ -393,7 +384,7 @@ test('upgrade with the chart a release runs: change its values, review, apply', 
   )
   await expect(changes).toContainText('replicaCount: 5')
   await expect(upgrade).toContainText('storefront is ready.')
-  const dryRun = helmCalls(kubestacks).at(-1)!
+  const dryRun = helmCalls(lumovi).at(-1)!
   expect(dryRun.slice(0, 2)).toEqual(['upgrade', 'storefront'])
   expect(dryRun).toContain('--dry-run=server')
   await upgrade.getByRole('button', { name: 'Back to editing' }).click()
@@ -401,10 +392,10 @@ test('upgrade with the chart a release runs: change its values, review, apply', 
   await upgrade.getByRole('button', { name: 'Review' }).click()
   await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
   await expect(toasts(page)).toContainText('Upgraded storefront')
-  expect(helmCalls(kubestacks).at(-1)).not.toContain('--dry-run=server')
+  expect(helmCalls(lumovi).at(-1)).not.toContain('--dry-run=server')
 
   // No values of its own, and an upgrade that changes nothing it makes.
-  scriptHelm(kubestacks, {
+  scriptHelm(lumovi, {
     upgrade: { stdout: JSON.stringify({ version: 2, info: { status: 'deployed' }, manifest: '' }) },
   })
   const dashboards = await openRelease(page, HELM.dashboards)
@@ -415,7 +406,7 @@ test('upgrade with the chart a release runs: change its values, review, apply', 
   await page.keyboard.press('Escape')
 
   // A stored chart without default values or templates of its own.
-  scriptHelm(kubestacks, {})
+  scriptHelm(lumovi, {})
   const grafana = await openRelease(page, HELM.grafana)
   await grafana.getByRole('button', { name: 'Upgrade…' }).click()
   await upgrade.getByRole('button', { name: 'Review' }).click()
@@ -458,8 +449,8 @@ test('upgrade from a repository, and install a chart found on Artifact Hub', asy
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const kubestacks = await launch({ env: { KUBESTACKS_ARTIFACT_HUB_URL: base } })
-  const { page } = kubestacks
+  const lumovi = await launch({ env: { LUMOVI_ARTIFACT_HUB_URL: base } })
+  const { page } = lumovi
   try {
     await openCluster(page)
     await openHelm(page)
@@ -485,7 +476,7 @@ test('upgrade from a repository, and install a chart found on Artifact Hub', asy
     await expect(upgrade.getByLabel('Manifest changes')).toContainText('size: 20Gi')
     await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
     await expect(toasts(page)).toContainText('Upgraded redis')
-    expect(helmCalls(kubestacks).at(-1)!.slice(0, 7)).toEqual([
+    expect(helmCalls(lumovi).at(-1)!.slice(0, 7)).toEqual([
       'upgrade',
       'redis',
       'redis',
@@ -561,7 +552,7 @@ test('upgrade from a repository, and install a chart found on Artifact Hub', asy
     await expect(install).toContainText('cache is ready.')
     await install.getByRole('button', { name: 'Install', exact: true }).click()
     await expect(toasts(page)).toContainText('Installed cache')
-    const installed = helmCalls(kubestacks).at(-1)!
+    const installed = helmCalls(lumovi).at(-1)!
     expect(installed.slice(0, 7)).toEqual([
       'install',
       'cache',
@@ -575,7 +566,7 @@ test('upgrade from a repository, and install a chart found on Artifact Hub', asy
     expect(installed[installed.indexOf('--namespace') + 1]).toBe('caches')
 
     // What helm says when it can't.
-    scriptHelm(kubestacks, {
+    scriptHelm(lumovi, {
       'show values': { code: 1, stderr: 'Error: chart "nope" not found in repository\n' },
       install: {
         code: 1,
@@ -609,18 +600,18 @@ test('a stored chart is only written inside its folder', async ({ page, clusters
 })
 
 test('without helm, or on a read-only cluster, releases can still be read', async ({ launch }) => {
-  const { page } = await launch({ env: { KUBESTACKS_HELM: '/nowhere/helm' } })
+  const { page } = await launch({ env: { LUMOVI_HELM: '/nowhere/helm' } })
   await openCluster(page)
   await openHelm(page)
   const storefront = await openRelease(page, HELM.storefront)
   await expect(storefront).toContainText('storefront 2.4.1')
   await focusDisabled(storefront.getByRole('button', { name: 'Upgrade…' }))
   await expect(page.getByRole('tooltip')).toContainText(
-    'KubeStacks uses helm for this, and couldn’t run /nowhere/helm.',
+    'Lumovi uses helm for this, and couldn’t run /nowhere/helm.',
   )
   const ask = () =>
     page.evaluate(() =>
-      window.kubestacks!.helm.uninstall({
+      window.lumovi!.helm.uninstall({
         context: 'demo',
         namespace: 'shop',
         name: 'storefront',
@@ -645,7 +636,7 @@ test('without helm, or on a read-only cluster, releases can still be read', asyn
 test('rejects malformed helm requests', async ({ page }) => {
   await openCluster(page)
   const results = await page.evaluate(async () => {
-    const helm = window.kubestacks!.helm
+    const helm = window.lumovi!.helm
     const loose = <T>(value: unknown) => value as T
     const outcome = (result: { ok: boolean; error?: { code: string; message: string } }) =>
       result.ok ? 'ok' : `${result.error!.code}: ${result.error!.message}`
@@ -699,10 +690,7 @@ test('rejects malformed helm requests', async ({ page }) => {
   // A .cmd wrapper (the stand-in, on Windows) runs through the shell, so it's only given plain
   // words: no spaces, and no %VARIABLES% for cmd.exe to expand.
   for (const chart of ['a b', 'x%PATH%']) {
-    const answer = await page.evaluate(
-      (chart) => window.kubestacks!.helm.defaults({ chart }),
-      chart,
-    )
+    const answer = await page.evaluate((chart) => window.lumovi!.helm.defaults({ chart }), chart)
     if (process.platform === 'win32') {
       expect(answer).toMatchObject({
         ok: false,
@@ -767,7 +755,7 @@ function writeChart(root: string, name: string, files: Record<string, string>): 
 
 test('upgrade and install from a chart on this computer', async ({ launch }) => {
   // A home of its own, where ~ leads.
-  const home = mkdtempSync(join(tmpdir(), 'kubestacks-home-'))
+  const home = mkdtempSync(join(tmpdir(), 'lumovi-home-'))
   const web = writeChart(home, 'web', {
     'Chart.yaml':
       'apiVersion: v2\nname: storefront\nversion: 2.5.0\nappVersion: 3.10.0\ndescription: The storefront, being worked on.\n',
@@ -796,8 +784,8 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   // Relative paths: Git for Windows' tar reads `C:` as a remote host.
   execFileSync('tar', ['-czf', 'storefront-2.5.0.tgz', 'web'], { cwd: home })
 
-  const kubestacks = await launch({ env: { HOME: home, USERPROFILE: home } })
-  const { page, app } = kubestacks
+  const lumovi = await launch({ env: { HOME: home, USERPROFILE: home } })
+  const { page, app } = lumovi
   const answer = (chosen: { canceled: boolean; filePaths: string[] }) =>
     app.evaluate(({ dialog }, chosen) => {
       dialog.showOpenDialog = (async () => chosen) as unknown as typeof dialog.showOpenDialog
@@ -859,7 +847,7 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   await expect(upgrade).toContainText('helm lint found no problems')
   await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
   await expect(toasts(page)).toContainText('Upgraded storefront')
-  expect(helmCalls(kubestacks).at(-1)!.slice(0, 3)).toEqual(['upgrade', 'storefront', web])
+  expect(helmCalls(lumovi).at(-1)!.slice(0, 3)).toEqual(['upgrade', 'storefront', web])
 
   // Next time, it's where this release came from.
   await storefront.getByRole('button', { name: 'Upgrade…' }).click()
@@ -883,10 +871,10 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   await path.fill('~/deps')
   await path.press('Enter')
   await expect(upgrade).toContainText('Its charts/ folder is missing common 2.0.0.')
-  scriptHelm(kubestacks, { 'dependency update': { code: 1, stderr: 'Error: no network\n' } })
+  scriptHelm(lumovi, { 'dependency update': { code: 1, stderr: 'Error: no network\n' } })
   await upgrade.getByRole('button', { name: 'Download dependencies' }).click()
   await expect(upgrade.getByRole('alert')).toHaveText('no network')
-  scriptHelm(kubestacks, {})
+  scriptHelm(lumovi, {})
   await upgrade.getByRole('button', { name: 'Download dependencies' }).click()
   await expect(upgrade).not.toContainText('Its charts/ folder is missing')
   expect(existsSync(join(home, 'deps', 'charts', 'common-2.0.0.tgz'))).toBe(true)
@@ -946,12 +934,12 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   await upgrade.getByRole('button', { name: 'Review' }).click()
   await upgrade.getByRole('button', { name: 'Install', exact: true }).click()
   await expect(toasts(page)).toContainText('Installed storefront-next')
-  expect(helmCalls(kubestacks).at(-1)!.slice(0, 3)).toEqual(['install', 'storefront-next', web])
+  expect(helmCalls(lumovi).at(-1)!.slice(0, 3)).toEqual(['install', 'storefront-next', web])
 
   // What the main process won't do.
   const refused = await page.evaluate(
     async ({ web, packaged }) => {
-      const charts = window.kubestacks!.localCharts!
+      const charts = window.lumovi!.localCharts!
       const loose = <T>(value: unknown) => value as T
       const outcome = (result: { ok: boolean; error?: { code: string; message: string } }) =>
         result.ok ? 'ok' : `${result.error!.code}: ${result.error!.message}`
@@ -971,9 +959,9 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
     'invalid: A packaged chart has its dependencies already; this updates chart folders',
   ])
   // helm failing to lint at all.
-  scriptHelm(kubestacks, { lint: { code: 1, stderr: 'Error: helm broke\n' } })
+  scriptHelm(lumovi, { lint: { code: 1, stderr: 'Error: helm broke\n' } })
   expect(
-    await page.evaluate((web) => window.kubestacks!.localCharts!.lint(web, ''), web),
+    await page.evaluate((web) => window.lumovi!.localCharts!.lint(web, ''), web),
   ).toMatchObject({
     ok: false,
     error: { message: 'helm broke' },

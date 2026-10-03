@@ -20,7 +20,7 @@ export function useSetTheme() {
 
 /**
  * Whether changes to the current cluster are turned off. `locked` means
- * KUBESTACKS_READ_ONLY turned them off everywhere, so they can't be turned on.
+ * LUMOVI_READ_ONLY turned them off everywhere, so they can't be turned on.
  */
 export function useReadOnly() {
   const { context } = useCluster()

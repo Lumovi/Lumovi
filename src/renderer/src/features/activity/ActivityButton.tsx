@@ -17,7 +17,7 @@ const STATUS = {
   failed: { icon: CircleX, label: 'Failed', className: 'text-critical-text' },
 }
 
-/** The changes made from KubeStacks in this session, with the kubectl command for each. */
+/** The changes made from Lumovi in this session, with the kubectl command for each. */
 export function ActivityButton() {
   const entries = useActivity((state) => state.entries)
   const unseen = useActivity((state) => state.unseen)
@@ -59,7 +59,7 @@ export function ActivityButton() {
           </header>
           {entries.length === 0 ? (
             <p className="px-4 py-8 text-center text-[13px] leading-relaxed text-ink-3">
-              Changes you make from KubeStacks show up here, with the kubectl command for each.
+              Changes you make from Lumovi show up here, with the kubectl command for each.
             </p>
           ) : (
             <ol className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">

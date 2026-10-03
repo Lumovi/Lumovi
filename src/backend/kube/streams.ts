@@ -108,7 +108,7 @@ export class Terminals {
       if (this.deps.isReadOnly(r.context)) {
         throw new KubeRequestError(
           'read-only',
-          `${r.context} is read-only in KubeStacks, so shells, which can change containers, are turned off.`,
+          `${r.context} is read-only in Lumovi, so shells, which can change containers, are turned off.`,
         )
       }
       const kc = this.deps.store.forContext(r.context)

@@ -34,7 +34,7 @@ export const CLUSTERS = {
 
 if (import.meta.main) {
   stopClock(EPOCH)
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-screenshots-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-'))
   const clusters = await startTestClusters(dir, { jitter: true, ports: PORTS }).catch(
     (error: Error) => {
       throw new Error(

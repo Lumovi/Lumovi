@@ -27,7 +27,7 @@ interface ActivityState {
 
 let nextId = 1
 
-/** Every change made from KubeStacks in this session, newest first. */
+/** Every change made from Lumovi in this session, newest first. */
 export const useActivity = create<ActivityState>((set) => ({
   entries: [],
   unseen: 0,

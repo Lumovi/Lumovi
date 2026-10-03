@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to KubeStacks are documented here. The format follows
+All notable changes to Lumovi are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
@@ -9,19 +9,19 @@ All notable changes to KubeStacks are documented here. The format follows
 ### Added
 
 - Add-ons: every tool a cluster runs gets an entry in the sidebar, leading to everything of
-  its kinds in one list (what's failing first) with a tab for each kind. KubeStacks has
+  its kinds in one list (what's failing first) with a tab for each kind. Lumovi has
   add-ons for Argo CD, Argo Rollouts, Argo Workflows, cert-manager, Cilium, CloudNativePG,
   Cluster API, Crossplane, Elastic (ECK), External Secrets, Flux, Gatekeeper, Gateway API,
   Istio, Karpenter, KEDA, Knative Serving, KubeVirt, Kyverno, Linkerd, Longhorn, the
   Prometheus operator, Rook Ceph, Sealed Secrets, Strimzi, Tekton, Traefik, Trivy, Velero,
   VictoriaMetrics, the Vertical Pod Autoscaler and volume snapshots; you can write your own,
-  or replace KubeStacks'. A view or an add-on can name every kind of an API group, like the
+  or replace Lumovi's. A view or an add-on can name every kind of an API group, like the
   constraints Gatekeeper makes from its templates.
 - Karpenter's add-on opens on an overview: its node pools against their limits, the nodes
   they launched and the ones launching, the mix of instance types, capacity types and zones,
   what's being disrupted and why, and the pods waiting for a node.
 - Views can relate objects to the ones that belong to them, a tab each in the detail panel;
-  related pods come with their logs and usage history. KubeStacks' views relate Kyverno's
+  related pods come with their logs and usage history. Lumovi's views relate Kyverno's
   reports, workflow and pipeline runs to their pods, Kafka clusters to their topics, node
   pools to their nodes, and more.
 - View actions can ask for values first (text, a number or a choice), and can create objects
@@ -48,7 +48,7 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ### Changed
 
-- The documentation has moved to [docs.kubestacks.com](https://docs.kubestacks.com).
+- The documentation has moved to [docs.lumovi.dev](https://docs.lumovi.dev).
   **How to write a view**, on the API resources page, opens it there.
 
 ### Fixed
@@ -61,11 +61,11 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ### Added
 
-- KubeStacks in your cluster: a container image (`ghcr.io/kubestacks/kubestacks`) and a Helm
-  chart (`oci://ghcr.io/kubestacks/charts/kubestacks`) serve the same app as a dashboard for
+- Lumovi in your cluster: a container image (`ghcr.io/lumovi/lumovi`) and a Helm
+  chart (`oci://ghcr.io/lumovi/charts/lumovi`) serve the same app as a dashboard for
   the cluster, opened in a browser. People sign in with a token the cluster accepts, with
   single sign-on (OpenID Connect), or through an authenticating proxy, and see and change
-  what their own RBAC allows. With single sign-on, KubeStacks impersonates people, or, when
+  what their own RBAC allows. With single sign-on, Lumovi impersonates people, or, when
   the API server trusts the provider itself, passes their own tokens on (and renews them).
   Pages have addresses that can be shared. See [docs/server.md](docs/server.md).
 
@@ -73,18 +73,18 @@ All notable changes to KubeStacks are documented here. The format follows
 
 ### Changed
 
-- KubeStacks has moved to its own organization on GitHub,
-  [KubeStacks/KubeStacks](https://github.com/KubeStacks/KubeStacks). The Help menu links
+- Lumovi has moved to its own organization on GitHub,
+  [Lumovi/Lumovi](https://github.com/Lumovi/Lumovi). The Help menu links
   there, and new versions come from there.
 
 ## [1.1.0] - 2026-10-01
 
 ### Added
 
-- KubeStacks updates itself: new versions download in the background and install when you
+- Lumovi updates itself: new versions download in the background and install when you
   restart or quit, with a notice when one is ready. **Help → Check for Updates…** looks right
   away, and **Help → Check for Updates Automatically** turns the background checks off.
-- **Help → Sponsor KubeStacks…** opens the project's GitHub Sponsors page.
+- **Help → Sponsor Lumovi…** opens the project's GitHub Sponsors page.
 
 ## [1.0.0] - 2026-10-01
 
@@ -107,7 +107,7 @@ All notable changes to KubeStacks are documented here. The format follows
 - Views: a kind's columns, status, details, links and actions described as data. Views
   for cert-manager, Argo CD and Rollouts, Flux, Gateway API, Karpenter, KEDA, External
   Secrets, the Prometheus operator, CloudNativePG, Istio, Velero and Crossplane are
-  included, and your own in `~/.kubestacks/views` replace them (see docs/views.md).
+  included, and your own in `~/.lumovi/views` replace them (see docs/views.md).
 - Workloads: every Deployment, StatefulSet, DaemonSet, Job, CronJob and unmanaged pod in
   one list, with status, ready pods, autoscaler ranges and usage per workload, filters by
   health and labels, and bulk actions across kinds. Each
@@ -142,14 +142,14 @@ All notable changes to KubeStacks are documented here. The format follows
 - Guard rails for changes: permission checks before acting, the equivalent `kubectl` command
   in every dialog, typed confirmation for risky deletes and production-looking clusters,
   undo from notifications, an activity log, and a read-only switch per cluster
-  (`KUBESTACKS_READ_ONLY` for all of them).
+  (`LUMOVI_READ_ONLY` for all of them).
 - Cluster picker with the connection status of every kubeconfig context.
 - Overview with node, pod, workload and warning health, CPU and memory usage against
   capacity (with requests, limits and live trends), per-node usage, and lists of the objects
   that need attention, recent warnings and the busiest pods.
 - Tables for 19 resource kinds with health status, sorting, filtering, label selectors,
   pagination and virtual scrolling. Lists load in chunks and are capped (5,000 objects by
-  default, `KUBESTACKS_MAX_LIST_ITEMS`) so huge clusters stay fast. Filters, sorting and
+  default, `LUMOVI_MAX_LIST_ITEMS`) so huge clusters stay fast. Filters, sorting and
   the page live in the URL, so Back and Forward restore them.
 - Resizable detail panel next to the list, with kind-specific details, containers,
   conditions, labels, related pods, events, searchable logs and YAML. Secret values stay
@@ -166,8 +166,8 @@ All notable changes to KubeStacks are documented here. The format follows
 - Support for multiple kubeconfig files, client certificates, tokens and exec credential
   plugins, including loading the login shell's `PATH` on macOS and Linux.
 
-[Unreleased]: https://github.com/KubeStacks/KubeStacks/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/KubeStacks/KubeStacks/compare/v1.1.1...v1.2.0
-[1.1.1]: https://github.com/KubeStacks/KubeStacks/compare/v1.1.0...v1.1.1
-[1.1.0]: https://github.com/KubeStacks/KubeStacks/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/KubeStacks/KubeStacks/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Lumovi/Lumovi/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/Lumovi/Lumovi/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/Lumovi/Lumovi/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/Lumovi/Lumovi/releases/tag/v1.0.0

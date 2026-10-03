@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib'
 import type { HelmRelease, HelmReleaseDetail, HelmRevision, KubeObject } from '@shared/api'
 import { KubeRequestError } from '../kube/errors'
 
-/** What KubeStacks reads of Helm's release record. */
+/** What Lumovi reads of Helm's release record. */
 export interface StoredRelease {
   name: string
   namespace: string

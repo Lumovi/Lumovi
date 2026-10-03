@@ -163,7 +163,7 @@ test('lists an add-on couldn’t read, couldn’t refresh, or couldn’t load wh
   }
   // HelmReleases can't be listed from the start: they're left out, and it says so.
   const helm = clusters.demo.fail(lists.helmReleases, { status: 403 })
-  const { page } = await launch({ env: { KUBESTACKS_MAX_LIST_ITEMS: '2' } })
+  const { page } = await launch({ env: { LUMOVI_MAX_LIST_ITEMS: '2' } })
   await openCluster(page)
   await sidebar(page).getByRole('link', { name: 'Flux', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Couldn’t list' })).toContainText(

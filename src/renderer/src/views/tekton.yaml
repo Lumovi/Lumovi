@@ -1,5 +1,5 @@
 # Tekton (https://tekton.dev): pipelines and tasks, and their runs.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: tekton
@@ -13,7 +13,7 @@ spec:
     - { group: tekton.dev, kind: Task }
 ---
 # Runs report how they're doing in their Succeeded condition.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: tekton-pipeline-runs
@@ -99,7 +99,7 @@ spec:
           timeouts: '{{ .spec.timeouts }}'
       done: Ran {{ .spec.pipelineRef.name ?? .metadata.name }} again
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: tekton-task-runs
@@ -159,7 +159,7 @@ spec:
       patch: { spec: { status: TaskRunCancelled } }
       done: Cancelled {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: tekton-pipelines
@@ -193,7 +193,7 @@ spec:
           pipelineRef: { name: '{{ .metadata.name }}' }
       done: Started a run of {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: tekton-tasks

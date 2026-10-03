@@ -1,5 +1,5 @@
 # Argo CD (https://argo-cd.readthedocs.io) and Argo Rollouts (https://argoproj.github.io/rollouts).
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: argo-cd
@@ -11,7 +11,7 @@ spec:
     - { group: argoproj.io, kind: ApplicationSet }
     - { group: argoproj.io, kind: AppProject }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: argo-rollouts
@@ -25,7 +25,7 @@ spec:
     - { group: argoproj.io, kind: ClusterAnalysisTemplate }
     - { group: argoproj.io, kind: Experiment }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: argo-cd-applications
@@ -82,7 +82,7 @@ spec:
       when: { path: .operation, exists: false }
       patch:
         operation:
-          initiatedBy: { username: kubestacks }
+          initiatedBy: { username: lumovi }
           sync: { syncStrategy: { hook: {} } }
       done: Started syncing {{ .metadata.name }}
     - name: Refresh
@@ -92,7 +92,7 @@ spec:
           annotations: { argocd.argoproj.io/refresh: normal }
       done: Asked Argo CD to compare {{ .metadata.name }} with its repository
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: argo-rollouts

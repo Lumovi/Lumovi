@@ -1,5 +1,5 @@
 /**
- * The page's WebSocket to the KubeStacks server: calls and their answers,
+ * The page's WebSocket to the Lumovi server: calls and their answers,
  * events, and connecting again when the connection drops (the server
  * restarting, a laptop waking up). Calls made meanwhile wait for it.
  */
@@ -30,7 +30,7 @@ const RETRY_MS = [250, 1000, 2000, 5000]
 /** How long a call waits for the connection before it fails. */
 const WAIT_MS = 30_000
 
-export const LOST = 'Lost the connection to KubeStacks.'
+export const LOST = 'Lost the connection to Lumovi.'
 
 interface Pending {
   resolve: (value: unknown) => void

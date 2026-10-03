@@ -23,7 +23,7 @@ interface TokenResponse {
   refresh_token?: unknown
 }
 
-/** The person's own token, when KubeStacks passes it on to the API server. */
+/** The person's own token, when Lumovi passes it on to the API server. */
 export interface Forwarded {
   token?: string
   /** When it expires (ms since the epoch). */
@@ -118,7 +118,7 @@ export class OidcClient {
     )
   }
 
-  /** The token requests carry, if KubeStacks passes one on: the one forwardToken names. */
+  /** The token requests carry, if Lumovi passes one on: the one forwardToken names. */
   #forwarded(tokens: TokenResponse): Forwarded {
     const which = this.config.forwardToken
     if (!which) return {}

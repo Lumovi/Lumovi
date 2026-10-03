@@ -5,10 +5,10 @@
  * the recorded locations map 1:1 onto the files in `src/` without source-map
  * remapping. Counters live on `globalThis.__coverage__` in every process:
  *
- * - main:     flushed to `$KUBESTACKS_COVERAGE_DIR` when the process exits
+ * - main:     flushed to `$LUMOVI_COVERAGE_DIR` when the process exits
  * - server:   the same, and when the tests ask (over IPC: Windows can't
  *             signal a process to exit gracefully)
- * - preload:  exposed to the page as `window.__kubestacksCoverage__()`
+ * - preload:  exposed to the page as `window.__lumoviCoverage__()`
  * - renderer: read straight from `window.__coverage__`, and sent to the main
  *             process (or, in a browser, the tests) to be written before the
  *             page reloads
@@ -25,9 +25,9 @@ import type { Plugin } from 'vite'
 type Target = 'main' | 'server' | 'preload' | 'renderer'
 
 const MAIN_FLUSH = `
-import { app as __kubestacksApp, ipcMain as __kubestacksIpc } from 'electron';
+import { app as __lumoviApp, ipcMain as __lumoviIpc } from 'electron';
 ;(() => {
-  const dir = process.env.KUBESTACKS_COVERAGE_DIR
+  const dir = process.env.LUMOVI_COVERAGE_DIR
   const write = (name, data) => {
     if (!dir || !data) return
     const fs = process.getBuiltinModule('node:fs')
@@ -41,11 +41,11 @@ import { app as __kubestacksApp, ipcMain as __kubestacksIpc } from 'electron';
   const file = 'main-' + unique()
   const flush = () => write(file, globalThis.__coverage__)
   process.once('exit', flush)
-  __kubestacksApp.once('will-quit', flush)
+  __lumoviApp.once('will-quit', flush)
   // A second instance quits before it is ready, without emitting will-quit.
-  if (!__kubestacksApp.hasSingleInstanceLock()) flush()
+  if (!__lumoviApp.hasSingleInstanceLock()) flush()
   // Renderer counters would otherwise be lost when the page reloads.
-  __kubestacksIpc.on('kubestacks:coverage', (event, data) => {
+  __lumoviIpc.on('lumovi:coverage', (event, data) => {
     write('renderer-' + unique(), data)
     event.returnValue = null
   })
@@ -55,7 +55,7 @@ import { app as __kubestacksApp, ipcMain as __kubestacksIpc } from 'electron';
 // Before the server's own code, so a server that fails to start still reports what ran.
 const SERVER_FLUSH = `
 ;(() => {
-  const dir = process.env.KUBESTACKS_COVERAGE_DIR
+  const dir = process.env.LUMOVI_COVERAGE_DIR
   if (!dir) return
   const fs = process.getBuiltinModule('node:fs')
   const path = process.getBuiltinModule('node:path')
@@ -66,9 +66,9 @@ const SERVER_FLUSH = `
   }
   process.once('exit', flush)
   process.on('message', (message) => {
-    if (message !== 'kubestacks:coverage') return
+    if (message !== 'lumovi:coverage') return
     flush()
-    process.send('kubestacks:coverage-saved')
+    process.send('lumovi:coverage-saved')
   })
 })();
 `
@@ -76,8 +76,8 @@ const SERVER_FLUSH = `
 const PRELOAD_EXPOSE = `
 ;(() => {
   const { contextBridge, ipcRenderer } = require('electron');
-  contextBridge.exposeInMainWorld('__kubestacksCoverage__', () => globalThis.__coverage__);
-  contextBridge.exposeInMainWorld('__kubestacksSaveCoverage__', (data) => ipcRenderer.sendSync('kubestacks:coverage', data));
+  contextBridge.exposeInMainWorld('__lumoviCoverage__', () => globalThis.__coverage__);
+  contextBridge.exposeInMainWorld('__lumoviSaveCoverage__', (data) => ipcRenderer.sendSync('lumovi:coverage', data));
 })();
 `
 
@@ -87,8 +87,8 @@ const PRELOAD_EXPOSE = `
 const RENDERER_SAVE = `
 ;addEventListener('pagehide', () => {
   const coverage = globalThis.__coverage__
-  if (globalThis.__kubestacksSaveCoverage__) return globalThis.__kubestacksSaveCoverage__(coverage)
-  const key = 'kubestacks:coverage'
+  if (globalThis.__lumoviSaveCoverage__) return globalThis.__lumoviSaveCoverage__(coverage)
+  const key = 'lumovi:coverage'
   const kept = JSON.parse(localStorage.getItem(key) || '{}')
   for (const [path, file] of Object.entries(coverage)) {
     const counts = (kept[path] = kept[path] || { s: {}, f: {}, b: {} })
@@ -119,7 +119,7 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
 
   return [
     {
-      name: 'kubestacks:coverage-instrument',
+      name: 'lumovi:coverage-instrument',
       enforce: 'pre',
       transform(code, id) {
         const file = id.split('?')[0] ?? id
@@ -132,7 +132,7 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
       },
     },
     {
-      name: 'kubestacks:coverage-collect',
+      name: 'lumovi:coverage-collect',
       renderChunk(code, chunk) {
         if (!chunk.isEntry) return null
         if (target === 'main') return code + MAIN_FLUSH

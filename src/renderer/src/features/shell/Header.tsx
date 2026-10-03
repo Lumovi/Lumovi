@@ -64,7 +64,7 @@ export function Header() {
 
   useEffect(() => {
     // Shown in the Dock, the task switcher and Mission Control.
-    document.title = `${title} · ${context} — KubeStacks`
+    document.title = `${title} · ${context} — Lumovi`
   }, [title, context])
 
   const refresh = async () => {

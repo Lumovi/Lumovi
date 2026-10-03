@@ -182,7 +182,7 @@ export function hasHealth(kind: ResourceKind): boolean {
 }
 
 /**
- * An object's status: from KubeStacks' rules for built-in kinds, a view's
+ * An object's status: from Lumovi's rules for built-in kinds, a view's
  * rules, or the conventions most controllers follow. Null when its kind
  * says nothing about health.
  */

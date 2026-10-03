@@ -1,6 +1,6 @@
 # Knative Serving (https://knative.dev/docs/serving): services that scale with requests,
 # their revisions, and the routes that split traffic between them.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: knative-serving
@@ -15,7 +15,7 @@ spec:
     - { group: serving.knative.dev, kind: DomainMapping }
 ---
 # Knative reports on everything in a Ready condition.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: knative-services
@@ -60,7 +60,7 @@ spec:
       kind: Revision.serving.knative.dev
       labels: { serving.knative.dev/service: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: knative-revisions

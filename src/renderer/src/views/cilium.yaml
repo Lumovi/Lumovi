@@ -1,5 +1,5 @@
 # Cilium (https://cilium.io): network policies, endpoints and nodes of the cluster's network.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: cilium
@@ -15,7 +15,7 @@ spec:
     - { group: cilium.io, kind: CiliumLoadBalancerIPPool }
     - { group: cilium.io, kind: CiliumEgressGatewayPolicy }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cilium-network-policies
@@ -45,7 +45,7 @@ spec:
     - { name: Default deny, path: .spec.enableDefaultDeny }
 ---
 # An endpoint for each pod Cilium manages, named after it.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cilium-endpoints
@@ -81,7 +81,7 @@ spec:
       kind: Pod
       objectName: '{{ .metadata.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cilium-nodes
@@ -104,7 +104,7 @@ spec:
       kind: Node
       objectName: '{{ .metadata.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cilium-load-balancer-pools
@@ -132,7 +132,7 @@ spec:
     - { name: First IP, path: '.spec.blocks[*].start' }
     - { name: Last IP, path: '.spec.blocks[*].stop' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cilium-egress-gateway-policies

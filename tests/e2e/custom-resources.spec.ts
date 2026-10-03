@@ -235,7 +235,7 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(kubernetes).toContainText('ServiceAccounts')
   await expect(kubernetes).toContainText('rbac.authorization.k8s.io/v1')
   await expect(kubernetes).toContainText('Pods')
-  await expect(page.getByText(/\d+ views from KubeStacks/)).toBeVisible()
+  await expect(page.getByText(/\d+ views from Lumovi/)).toBeVisible()
 
   const filter = page.getByPlaceholder('Filter kinds')
   await filter.fill('ks')
@@ -421,7 +421,7 @@ test('view actions: reconcile, suspend and resume, sync, abort', async ({ page, 
       '/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/payments',
     ).at(-1)!.body,
   ).toEqual({
-    operation: { initiatedBy: { username: 'kubestacks' }, sync: { syncStrategy: { hook: {} } } },
+    operation: { initiatedBy: { username: 'lumovi' }, sync: { syncStrategy: { hook: {} } } },
   })
 
   // Sources were fetched a while ago.

@@ -1,5 +1,5 @@
 # Istio (https://istio.io): traffic routing and security.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: istio
@@ -14,7 +14,7 @@ spec:
     - { group: security.istio.io, kind: PeerAuthentication }
     - { group: security.istio.io, kind: AuthorizationPolicy }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: istio-routing
@@ -26,7 +26,7 @@ spec:
     - { name: Hosts, path: '.spec.hosts[*]' }
     - { name: Gateways, path: '.spec.gateways[*]', default: mesh }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: istio-destination-rules
@@ -39,7 +39,7 @@ spec:
     - { name: Subsets, path: '.spec.subsets[*].name' }
     - { name: TLS, path: .spec.trafficPolicy.tls.mode }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: istio-gateways
@@ -53,7 +53,7 @@ spec:
   details:
     - { name: Selector, path: .spec.selector }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: istio-service-entries
@@ -66,7 +66,7 @@ spec:
     - { name: Location, path: .spec.location }
     - { name: Resolution, path: .spec.resolution }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: istio-security

@@ -5,7 +5,7 @@ import { expect, freshNamespace, get, kubectl, test } from './fixtures.ts'
 import { web, webBudget } from './workloads.ts'
 
 const NS = 'it-nodes'
-const NODE = 'kubestacks-worker2'
+const NODE = 'lumovi-worker2'
 const node = () => get('node', NODE)
 
 test.beforeAll(() => freshNamespace(NS, [web(2), webBudget()]))

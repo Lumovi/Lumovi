@@ -231,7 +231,7 @@ function WorkloadCharts({ object, selection, zoom }: ChartsProps) {
 
 /**
  * The pods a custom object has now, by name: unlike a workload's, their
- * names follow no pattern KubeStacks knows.
+ * names follow no pattern Lumovi knows.
  */
 function OwnPodCharts({ object, pods: own, selection, zoom }: ChartsProps & { pods: OwnPods }) {
   const pods = useList('Pod', { namespace: own.namespace, ...own.query })

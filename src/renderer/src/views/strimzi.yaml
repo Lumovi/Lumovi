@@ -1,5 +1,5 @@
 # Strimzi (https://strimzi.io): Kafka clusters, their topics and users, and Kafka Connect.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: strimzi
@@ -18,7 +18,7 @@ spec:
     - { group: kafka.strimzi.io, kind: KafkaRebalance }
 ---
 # Strimzi reports on everything in a Ready condition, and adds Warning ones for what it fixed or ignored.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: strimzi-kafkas
@@ -69,7 +69,7 @@ spec:
       kind: KafkaUser.kafka.strimzi.io
       labels: { strimzi.io/cluster: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: strimzi-node-pools
@@ -99,7 +99,7 @@ spec:
         strimzi.io/pool-name: '{{ .metadata.name }}'
 ---
 # Topics and users: kept in sync with Kafka by the entity operator.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: strimzi-topics-and-users
@@ -135,7 +135,7 @@ spec:
       kind: Secret
       objectName: '{{ .status.secret }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: strimzi-connect
@@ -166,7 +166,7 @@ spec:
       kind: Pod
       labels: { strimzi.io/cluster: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: strimzi-connectors
@@ -218,7 +218,7 @@ spec:
       done: Restarting {{ .metadata.name }}
 ---
 # Cruise Control's plans to even out partitions over the brokers: proposed, then approved.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: strimzi-rebalances

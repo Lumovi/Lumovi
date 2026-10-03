@@ -55,7 +55,7 @@ test.describe('the metrics page', () => {
   test('shows what the cluster uses, by namespace, against what it can allocate', async ({
     page,
   }) => {
-    await expect(page).toHaveTitle(`Metrics · ${CONTEXTS.demo} — KubeStacks`)
+    await expect(page).toHaveTitle(`Metrics · ${CONTEXTS.demo} — Lumovi`)
     await expect(
       page.getByRole('button', { name: /^Prometheus 3\.5\.0 monitoring\/prometheus$/ }),
     ).toBeVisible()
@@ -527,7 +527,7 @@ test.describe('where history comes from', () => {
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByRole('button', { name: /monitoring\/prometheus$/ })).toBeVisible()
     expect(
-      await page.evaluate(() => window.kubestacks!.app.settings().then((s) => s.metricsSource)),
+      await page.evaluate(() => window.lumovi!.app.settings().then((s) => s.metricsSource)),
     ).toEqual({})
   })
 
@@ -871,7 +871,7 @@ test('the main process checks what it is asked', async ({ page }) => {
   const now = Date.now()
   const bad = await page.evaluate(
     async ([now]) => {
-      const { usage, app } = window.kubestacks!
+      const { usage, app } = window.lumovi!
       const query = { id: 'q', expr: 'up' }
       const results = await Promise.all([
         usage.source(''),
@@ -943,7 +943,7 @@ test('the main process checks what it is asked', async ({ page }) => {
   // A query Prometheus can't parse says why.
   const parse = await page.evaluate(
     (now) =>
-      window.kubestacks!.usage.instant({
+      window.lumovi!.usage.instant({
         context: 'demo',
         queries: [{ id: 'q', expr: 'nonsense(' }],
         time: now,

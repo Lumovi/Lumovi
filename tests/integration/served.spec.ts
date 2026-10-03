@@ -1,5 +1,5 @@
 /**
- * KubeStacks served from the cluster, as people install it: the image (built
+ * Lumovi served from the cluster, as people install it: the image (built
  * by cluster.ts) with the Helm chart, reached through a port forward. Its
  * service account's RBAC (impersonation), the in-cluster configuration and
  * the WebSocket through the API server's proxy all get checked for real.
@@ -12,7 +12,7 @@ import { expect, freshNamespace, kubectl } from './fixtures.ts'
 import { web } from './workloads.ts'
 
 const NS = 'it-served'
-const RELEASE = 'kubestacks'
+const RELEASE = 'lumovi'
 const [repository, tag] = SERVED_IMAGE.split(':')
 
 const test = base
@@ -30,7 +30,7 @@ function install(values: Record<string, string>) {
       'upgrade',
       '--install',
       RELEASE,
-      resolve('charts/kubestacks'),
+      resolve('charts/lumovi'),
       '--namespace',
       NS,
       '--set',

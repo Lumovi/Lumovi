@@ -48,11 +48,11 @@ const COPY: Record<
   missing: {
     title: 'No Prometheus found',
     body: (context) =>
-      `KubeStacks looked for Prometheus and VictoriaMetrics among the services of ${context} and found neither. If yours runs in the cluster under another name, choose its service.`,
+      `Lumovi looked for Prometheus and VictoriaMetrics among the services of ${context} and found neither. If yours runs in the cluster under another name, choose its service.`,
   },
   off: {
     title: 'Usage history is off',
-    body: (context) => `KubeStacks shows only live usage for ${context}, from the metrics API.`,
+    body: (context) => `Lumovi shows only live usage for ${context}, from the metrics API.`,
   },
   error: {
     title: 'Can’t read usage history',

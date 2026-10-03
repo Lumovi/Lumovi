@@ -2,7 +2,7 @@
 # so drains and placement are real.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: kubestacks
+name: lumovi
 nodes:
   - role: control-plane
   - role: worker

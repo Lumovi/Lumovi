@@ -205,7 +205,7 @@ export function Sidebar() {
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
         <ThemeMenu />
         {session && <AccountMenu session={session} />}
-        <IconButton label="KubeStacks on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
+        <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />
         </IconButton>
         <span className="ml-auto pr-1 text-2xs text-ink-3 tabular-nums">
@@ -217,7 +217,7 @@ export function Sidebar() {
 }
 
 /**
- * The cluster, and whether KubeStacks may change it; in the desktop app, also
+ * The cluster, and whether Lumovi may change it; in the desktop app, also
  * the other clusters to switch to (a server shows one).
  */
 function ClusterSwitcher() {
@@ -303,9 +303,9 @@ function ClusterSwitcher() {
               <span className="block text-xs leading-snug text-ink-3">
                 {readOnly.locked
                   ? switching
-                    ? 'Set by KUBESTACKS_READ_ONLY'
+                    ? 'Set by LUMOVI_READ_ONLY'
                     : 'For everyone, on this server'
-                  : `KubeStacks won’t change ${context}`}
+                  : `Lumovi won’t change ${context}`}
               </span>
             </span>
             <Switch

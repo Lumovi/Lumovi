@@ -1,5 +1,5 @@
 # Kyverno (https://kyverno.io): policies, and what they found in the cluster's resources.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: kyverno
@@ -17,7 +17,7 @@ spec:
     - { group: kyverno.io, kind: CleanupPolicy }
 ---
 # A report for each resource: how it did against every policy that applies to it.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: kyverno-policy-reports
@@ -71,7 +71,7 @@ spec:
       objectName: '{{ .scope.name }}'
       namespace: '{{ .scope.namespace }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: kyverno-policies
@@ -101,7 +101,7 @@ spec:
     - { name: On failure, path: .spec.validationFailureAction, default: Audit }
     - { name: Webhook timeout, path: .spec.webhookTimeoutSeconds, default: 10s }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: kyverno-validating-policies
@@ -127,7 +127,7 @@ spec:
     - { name: In background, path: .spec.evaluation.background.enabled, type: boolean }
     - { name: At admission, path: .spec.evaluation.admission.enabled, type: boolean }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: kyverno-exceptions
@@ -139,7 +139,7 @@ spec:
     - { name: Policies, path: '.spec.exceptions[*].policyName' }
     - { name: Rules, path: '.spec.exceptions[*].ruleNames[*]' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: kyverno-cleanup-policies

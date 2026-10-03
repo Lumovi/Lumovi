@@ -1,12 +1,12 @@
 /**
- * The KubestacksApi of a page a KubeStacks server serves: the calls the
+ * The LumoviApi of a page a Lumovi server serves: the calls the
  * desktop app's preload script makes over IPC, over the page's WebSocket.
  * What only a desktop app can do (files, port forwards, updates) isn't there.
  */
 import {
   IPC,
   type KubeError,
-  type KubestacksApi,
+  type LumoviApi,
   type Result,
   type Settings,
   type ShellExit,
@@ -23,7 +23,7 @@ import {
 import { serverUrl, stillSignedIn } from './session'
 
 /** Dispatched when another tab changes the preferences, for this page to read them again. */
-export const SETTINGS_CHANGED = 'kubestacks:settings-changed'
+export const SETTINGS_CHANGED = 'lumovi:settings-changed'
 
 /** The computer's operating system, as Node.js names it (for its keyboard shortcuts). */
 function platform(): string {
@@ -47,7 +47,7 @@ function download(name: string, text: string): void {
   link.click()
 }
 
-export function createWebApi(): KubestacksApi {
+export function createWebApi(): LumoviApi {
   // Shells and log streams this page has open: they stop when the connection drops.
   const shells = new Set<string>()
   const streams = new Set<string>()

@@ -4,7 +4,7 @@ import { useConnection } from '@renderer/web/connection'
 /** After this many failed attempts, the banner says what may be wrong. */
 const PERSISTENT = 3
 
-/** Says when the page lost its connection to the KubeStacks server, while it reconnects. */
+/** Says when the page lost its connection to the Lumovi server, while it reconnects. */
 export function ServerBanner() {
   const { state, failures } = useConnection()
   if (state !== 'reconnecting') return null
@@ -15,7 +15,7 @@ export function ServerBanner() {
     >
       <LoaderCircle className="size-4 shrink-0 animate-spin text-warn-text" />
       <span className="min-w-0 flex-1 truncate text-ink-1">
-        <span className="font-medium">Reconnecting to KubeStacks…</span>{' '}
+        <span className="font-medium">Reconnecting to Lumovi…</span>{' '}
         <span className="text-ink-2">
           {failures < PERSISTENT
             ? 'What’s shown may be out of date.'

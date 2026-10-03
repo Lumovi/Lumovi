@@ -1,6 +1,6 @@
 # OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper): constraint templates, the
 # constraints made from them (a kind for each template), and mutations.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: gatekeeper
@@ -18,7 +18,7 @@ spec:
     - { group: config.gatekeeper.sh, kind: Config }
 ---
 # Every constraint, whatever template made its kind: what the last audit found.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: gatekeeper-constraints
@@ -50,7 +50,7 @@ spec:
     - { name: Violating, path: '.status.violations[*].name' }
     - { name: Audited, path: .status.auditTimestamp, type: date }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: gatekeeper-constraint-templates
@@ -74,7 +74,7 @@ spec:
     - { name: Constraint kind, path: .spec.crd.spec.names.kind }
     - { name: Engines, path: '.spec.targets[*].code[*].engine' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: gatekeeper-mutations

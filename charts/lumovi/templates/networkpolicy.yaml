@@ -1,15 +1,15 @@
 {{- if .Values.networkPolicy.enabled }}
-# Only what `from` allows reaches KubeStacks (with auth.mode proxy: the proxy alone).
+# Only what `from` allows reaches Lumovi (with auth.mode proxy: the proxy alone).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "kubestacks.fullname" . }}
+  name: {{ include "lumovi.fullname" . }}
   labels:
-    {{- include "kubestacks.labels" . | nindent 4 }}
+    {{- include "lumovi.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "kubestacks.selectorLabels" . | nindent 6 }}
+      {{- include "lumovi.selectorLabels" . | nindent 6 }}
   policyTypes: [Ingress]
   ingress:
     - ports:

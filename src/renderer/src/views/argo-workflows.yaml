@@ -1,5 +1,5 @@
 # Argo Workflows (https://argoproj.github.io/workflows): workflows, their templates and schedules.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: argo-workflows
@@ -12,7 +12,7 @@ spec:
     - { group: argoproj.io, kind: WorkflowTemplate }
     - { group: argoproj.io, kind: ClusterWorkflowTemplate }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: argo-workflows
@@ -109,7 +109,7 @@ spec:
         spec: '{{ .spec }}'
       done: Resubmitted {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: argo-cron-workflows
@@ -169,7 +169,7 @@ spec:
       undo: { spec: { suspend: true } }
       done: Resumed {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: argo-workflow-templates
@@ -202,7 +202,7 @@ spec:
           workflowTemplateRef: { name: '{{ .metadata.name }}' }
       done: Submitted {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: argo-cluster-workflow-templates

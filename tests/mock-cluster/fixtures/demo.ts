@@ -137,7 +137,7 @@ function kubeRootCa(
     {
       data: {
         'ca.crt':
-          '-----BEGIN CERTIFICATE-----\nMIIDBTCCAe2gAwIBAgIIKubeStacksDemoCAwDQYJKoZIhvcNAQELBQAwFTETMBEG\nA1UEAxMKa3ViZXJuZXRlczAeFw0yNTA1MjgwOTAwMDBaFw0zNTA1MjYwOTA1MDBa\n-----END CERTIFICATE-----\n',
+          '-----BEGIN CERTIFICATE-----\nMIIDBTCCAe2gAwIBAgIILumoviDemoCAwDQYJKoZIhvcNAQELBQAwFTETMBEG\nA1UEAxMKa3ViZXJuZXRlczAeFw0yNTA1MjgwOTAwMDBaFw0zNTA1MjYwOTA1MDBa\n-----END CERTIFICATE-----\n',
       },
     },
     {
@@ -852,10 +852,10 @@ export function demoCluster(now = Date.now()): ClusterFixture {
       type: 'kubernetes.io/tls',
       data: {
         'tls.crt': base64(
-          '-----BEGIN CERTIFICATE-----\nMIIFakeStorefrontCertificateForKubeStacksDemo\n-----END CERTIFICATE-----\n',
+          '-----BEGIN CERTIFICATE-----\nMIIFakeStorefrontCertificateForLumoviDemo\n-----END CERTIFICATE-----\n',
         ),
         'tls.key': base64(
-          '-----BEGIN PRIVATE KEY-----\nMIIFakeStorefrontKeyForKubeStacksDemo\n-----END PRIVATE KEY-----\n',
+          '-----BEGIN PRIVATE KEY-----\nMIIFakeStorefrontKeyForLumoviDemo\n-----END PRIVATE KEY-----\n',
         ),
       },
     },

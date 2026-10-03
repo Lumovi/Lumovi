@@ -1,5 +1,5 @@
 {
-  "url": "https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/",
+  "url": "https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/",
   "width": 1440,
   "height": 900,
   "screenshots": [
@@ -182,7 +182,7 @@
     {
       "name": "custom-resource",
       "title": "A custom resource",
-      "description": "A cert-manager certificate, shown with KubeStacks' view of it.",
+      "description": "A cert-manager certificate, shown with Lumovi's view of it.",
       "app": "desktop",
       "light": { "2x": "custom-resource-light.webp", "1x": "custom-resource-light-1x.webp" },
       "dark": { "2x": "custom-resource-dark.webp", "1x": "custom-resource-dark-1x.webp" }
@@ -246,7 +246,7 @@
     {
       "name": "read-only",
       "title": "Read-only",
-      "description": "A cluster made read-only: KubeStacks won't change anything in it until allowed.",
+      "description": "A cluster made read-only: Lumovi won't change anything in it until allowed.",
       "app": "desktop",
       "light": { "2x": "read-only-light.webp", "1x": "read-only-light-1x.webp" },
       "dark": { "2x": "read-only-dark.webp", "1x": "read-only-dark-1x.webp" }
@@ -270,7 +270,7 @@
     {
       "name": "server-sign-in",
       "title": "Signing in with a token",
-      "description": "KubeStacks served from a cluster: signing in with a token.",
+      "description": "Lumovi served from a cluster: signing in with a token.",
       "app": "server",
       "light": { "2x": "server-sign-in-light.webp", "1x": "server-sign-in-light-1x.webp" },
       "dark": { "2x": "server-sign-in-dark.webp", "1x": "server-sign-in-dark-1x.webp" }
@@ -278,7 +278,7 @@
     {
       "name": "server-single-sign-on",
       "title": "Single sign-on",
-      "description": "KubeStacks served from a cluster: signing in with single sign-on.",
+      "description": "Lumovi served from a cluster: signing in with single sign-on.",
       "app": "server",
       "light": {
         "2x": "server-single-sign-on-light.webp",
@@ -292,7 +292,7 @@
     {
       "name": "server-account",
       "title": "Signed in",
-      "description": "KubeStacks served from a cluster: who's signed in, and their groups.",
+      "description": "Lumovi served from a cluster: who's signed in, and their groups.",
       "app": "server",
       "light": { "2x": "server-account-light.webp", "1x": "server-account-light-1x.webp" },
       "dark": { "2x": "server-account-dark.webp", "1x": "server-account-dark-1x.webp" }

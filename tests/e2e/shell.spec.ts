@@ -129,17 +129,17 @@ test('switches clusters from the sidebar', async ({ page }) => {
   await all.hover()
   await expect(all).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await all.click()
-  await expect(page.getByRole('heading', { name: 'KubeStacks' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Lumovi' })).toBeVisible()
 })
 
-test('the sidebar links to the project on GitHub', async ({ kubestacks }) => {
-  const opened = await mockOpenExternal(kubestacks.app)
-  await openCluster(kubestacks.page)
-  await kubestacks.page
+test('the sidebar links to the project on GitHub', async ({ lumovi }) => {
+  const opened = await mockOpenExternal(lumovi.app)
+  await openCluster(lumovi.page)
+  await lumovi.page
     .getByRole('complementary', { name: 'Sidebar' })
-    .getByRole('button', { name: 'KubeStacks on GitHub' })
+    .getByRole('button', { name: 'Lumovi on GitHub' })
     .click()
-  await expect.poll(opened).toEqual(['https://github.com/KubeStacks/KubeStacks'])
+  await expect.poll(opened).toEqual(['https://github.com/Lumovi/Lumovi'])
 })
 
 test('refresh reloads everything on screen', async ({ page, clusters }) => {

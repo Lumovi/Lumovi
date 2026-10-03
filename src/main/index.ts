@@ -17,7 +17,7 @@ import { Updates } from './updates'
 import { createMainWindow, rendererUrl } from './window'
 
 if (!app.requestSingleInstanceLock()) {
-  // Another KubeStacks window is already open; it will be focused instead.
+  // Another Lumovi window is already open; it will be focused instead.
   app.quit()
 } else {
   const envReady = loadLoginShellPath()

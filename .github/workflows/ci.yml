@@ -31,24 +31,24 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      # KubeStacks' views against the CRDs of the operators they're for (tests/views).
+      # Lumovi's views against the CRDs of the operators they're for (tests/views).
       - run: npm run views:check
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Helm chart
         run: |
           node scripts/chart-version.ts --check
-          helm lint charts/kubestacks --strict
+          helm lint charts/lumovi --strict
           # Every way of signing in, with everything turned on.
           for mode in token oidc proxy; do
-            helm template kubestacks charts/kubestacks --set auth.mode="$mode" \
-              --set url=https://kubestacks.example.com \
-              --set auth.oidc.issuer=https://dex.example.com --set auth.oidc.clientId=kubestacks \
+            helm template lumovi charts/lumovi --set auth.mode="$mode" \
+              --set url=https://lumovi.example.com \
+              --set auth.oidc.issuer=https://dex.example.com --set auth.oidc.clientId=lumovi \
               --set ingress.enabled=true --set networkPolicy.enabled=true >/dev/null
           done
           # Single sign-on with people's own tokens: no impersonation, so no ClusterRole.
-          ! helm template kubestacks charts/kubestacks --set auth.mode=oidc \
-            --set url=https://kubestacks.example.com --set auth.oidc.issuer=https://dex.example.com \
-            --set auth.oidc.clientId=kubestacks --set auth.oidc.forwardToken=id \
+          ! helm template lumovi charts/lumovi --set auth.mode=oidc \
+            --set url=https://lumovi.example.com --set auth.oidc.issuer=https://dex.example.com \
+            --set auth.oidc.clientId=lumovi --set auth.oidc.forwardToken=id \
             | grep -q 'kind: ClusterRole$'
 
   e2e:
@@ -75,7 +75,7 @@ jobs:
             ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      # For KubeStacks served from a cluster, in a browser (tests/web).
+      # For Lumovi served from a cluster, in a browser (tests/web).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
@@ -102,7 +102,7 @@ jobs:
         env:
           # Nobody's watching: draw the windows, as transparent ones render slowly on Linux and
           # Windows (on macOS, transparent ones are the faster).
-          KUBESTACKS_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
+          LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
           SHARD: ${{ matrix.shard }}/2
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -171,11 +171,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            executable: release/linux-unpacked/kubestacks
+            executable: release/linux-unpacked/lumovi
           - os: macos-latest
-            executable: release/mac-arm64/KubeStacks.app/Contents/MacOS/KubeStacks
+            executable: release/mac-arm64/Lumovi.app/Contents/MacOS/Lumovi
           - os: windows-latest
-            executable: release/win-unpacked/KubeStacks.exe
+            executable: release/win-unpacked/Lumovi.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -202,7 +202,7 @@ jobs:
       - name: Smoke test the packaged app
         shell: bash
         env:
-          KUBESTACKS_E2E_EXECUTABLE: ${{ github.workspace }}/${{ matrix.executable }}
+          LUMOVI_E2E_EXECUTABLE: ${{ github.workspace }}/${{ matrix.executable }}
         run: |
           specs=(tests/e2e/welcome.spec.ts tests/e2e/overview.spec.ts)
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -239,9 +239,9 @@ jobs:
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      # The image, as released, for KubeStacks served from the cluster (cluster.ts installs it).
+      # The image, as released, for Lumovi served from the cluster (cluster.ts installs it).
       - name: Build the image
-        run: docker build --tag kubestacks:integration .
+        run: docker build --tag lumovi:integration .
       - name: Start the kind cluster, with metrics-server and Prometheus
         run: node tests/integration/cluster.ts up
       - name: Run the integration tests

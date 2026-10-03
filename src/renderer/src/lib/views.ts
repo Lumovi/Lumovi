@@ -1,15 +1,15 @@
 /**
- * Views: how KubeStacks shows a kind it has no page of its own for (its
+ * Views: how Lumovi shows a kind it has no page of its own for (its
  * columns, status, details, related objects and actions), written as data.
  * Add-ons gather the kinds of one tool (Flux, cert-manager…) under one entry
  * in the sidebar.
  *
- * KubeStacks ships views and add-ons for popular operators
- * (src/renderer/src/views) and reads the user's own from ~/.kubestacks/views;
+ * Lumovi ships views and add-ons for popular operators
+ * (src/renderer/src/views) and reads the user's own from ~/.lumovi/views;
  * a user's view of a kind replaces the shipped one, and their add-on one of
  * the same name. Views can't run code: they read fields with JSONPath and
  * change objects only with the patches they spell out.
- * The format: https://docs.kubestacks.com/reference/view-format.
+ * The format: https://docs.lumovi.dev/reference/view-format.
  */
 import { parseAllDocuments } from 'yaml'
 import { checkPath, jsonPath } from '@shared/jsonpath'
@@ -22,7 +22,7 @@ import {
 } from '@shared/resources'
 import type { Health, Status } from './health'
 
-export const VIEW_API_VERSION = 'kubestacks.dev/v1alpha1'
+export const VIEW_API_VERSION = 'lumovi.dev/v1alpha1'
 
 /** Icons a view can pick, by their Lucide names. */
 export const VIEW_ICON_NAMES = [
@@ -164,7 +164,7 @@ export interface ViewAction {
 
 export interface View {
   name: string
-  /** Where it came from: "KubeStacks", or the user's file. */
+  /** Where it came from: "Lumovi", or the user's file. */
   source: string
   kinds: ResourceKind[]
   icon?: ViewIconName
@@ -182,7 +182,7 @@ export const ADD_ON_CATEGORIES = ['cluster', 'network', 'config', 'storage'] as 
 /** A tool's kinds, under one entry in the sidebar that leads to a page with a tab for each. */
 export interface AddOn {
   name: string
-  /** Where it came from: "KubeStacks", or the user's file. */
+  /** Where it came from: "Lumovi", or the user's file. */
   source: string
   label: string
   icon?: ViewIconName
@@ -215,7 +215,7 @@ type Shape =
 
 const HEALTHS = ['healthy', 'progressing', 'warning', 'critical', 'neutral'] as const
 
-/** A view's kinds as KubeStacks names them: "Certificate.cert-manager.io", "Secret". */
+/** A view's kinds as Lumovi names them: "Certificate.cert-manager.io", "Secret". */
 const kindId = ({ group, kind }: { group?: string; kind: string }) =>
   kindFor(group ? `${group}/v1` : 'v1', kind)
 
@@ -561,15 +561,14 @@ function byKind(views: View[]): Map<ResourceKind, View> {
 
 const byName = (addOns: AddOn[]) => new Map(addOns.map((addOn) => [addOn.name, addOn]))
 
-/** KubeStacks' own views and add-ons, and anything wrong with them (there should be nothing). */
+/** Lumovi's own views and add-ons, and anything wrong with them (there should be nothing). */
 export function loadShippedViews(files: Record<string, string>): string[] {
   const problems: string[] = []
   for (const [path, text] of Object.entries(files)) {
     const parsed = parseViews(text, path.slice(path.lastIndexOf('/') + 1))
-    const views = parsed.views.map((view) => ({ ...view, source: 'KubeStacks' }))
+    const views = parsed.views.map((view) => ({ ...view, source: 'Lumovi' }))
     for (const [kind, view] of byKind(views)) shipped.set(kind, view)
-    for (const addOn of parsed.addOns)
-      shippedAddOns.set(addOn.name, { ...addOn, source: 'KubeStacks' })
+    for (const addOn of parsed.addOns) shippedAddOns.set(addOn.name, { ...addOn, source: 'Lumovi' })
     problems.push(...parsed.problems)
   }
   return problems
@@ -581,14 +580,14 @@ export function setLocalViews(views: View[], addOns: AddOn[]): void {
   localAddOns = byName(addOns)
 }
 
-/** The view for a kind: the user's if they have one, else KubeStacks'. */
+/** The view for a kind: the user's if they have one, else Lumovi's. */
 /** `*.constraints.gatekeeper.sh`: how a view or an add-on names every kind of a group. */
 export function everyKindOf(kind: ResourceKind): ResourceKind {
   return `*.${apiGroupOf(kind)}`
 }
 
 /**
- * The view for a kind: the user's if they have one, else KubeStacks'; one
+ * The view for a kind: the user's if they have one, else Lumovi'; one
  * for the kind itself before one for every kind of its group.
  */
 export function viewFor(kind: ResourceKind): View | undefined {
@@ -600,7 +599,7 @@ export function shippedViews(): View[] {
   return [...new Set(shipped.values())]
 }
 
-/** Every add-on: the user's, and KubeStacks' that none of theirs replaces. */
+/** Every add-on: the user's, and Lumovi's that none of theirs replaces. */
 export function allAddOns(): AddOn[] {
   return [
     ...localAddOns.values(),

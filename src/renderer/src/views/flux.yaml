@@ -1,5 +1,5 @@
 # Flux (https://fluxcd.io): what it applies, and where it fetches it from.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: flux
@@ -15,7 +15,7 @@ spec:
     - { group: source.toolkit.fluxcd.io, kind: HelmChart }
     - { group: source.toolkit.fluxcd.io, kind: Bucket }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: flux-kustomizations
@@ -82,7 +82,7 @@ spec:
       undo: { spec: { suspend: true } }
       done: Resumed {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: flux-helm-releases
@@ -150,7 +150,7 @@ spec:
       undo: { spec: { suspend: true } }
       done: Resumed {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: flux-sources

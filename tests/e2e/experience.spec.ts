@@ -119,8 +119,8 @@ test.describe('keyboard shortcuts', () => {
   })
 })
 
-test('keys typed while a view opens reach it', async ({ kubestacks }) => {
-  const { page, app } = kubestacks
+test('keys typed while a view opens reach it', async ({ lumovi }) => {
+  const { page, app } = lumovi
   await openCluster(page)
   // Both commands arrive before the next view has rendered.
   await app.evaluate(({ Menu }) => {
@@ -143,8 +143,8 @@ test('keys typed while a view opens reach it', async ({ kubestacks }) => {
   await expect(page.locator('input:focus')).toHaveCount(0)
 })
 
-test('the native menu runs the same commands', async ({ kubestacks, clusters }) => {
-  const { page, app } = kubestacks
+test('the native menu runs the same commands', async ({ lumovi, clusters }) => {
+  const { page, app } = lumovi
   const opened = await mockOpenExternal(app)
   await openCluster(page)
 
@@ -177,8 +177,8 @@ test('the native menu runs the same commands', async ({ kubestacks, clusters }) 
   await expect
     .poll(opened)
     .toEqual([
-      'https://github.com/KubeStacks/KubeStacks',
-      'https://github.com/KubeStacks/KubeStacks/issues/new/choose',
+      'https://github.com/Lumovi/Lumovi',
+      'https://github.com/Lumovi/Lumovi/issues/new/choose',
       'https://github.com/sponsors/kotapeter',
     ])
 
@@ -200,12 +200,12 @@ test('the header navigates back and forward', async ({ page }) => {
   await expect(heading(page)).toHaveText('Workloads')
   await page.getByRole('button', { name: /^Forward/ }).click()
   await expect(heading(page)).toHaveText('Jobs')
-  await expect(page).toHaveTitle(`Jobs · ${CONTEXTS.demo} — KubeStacks`)
+  await expect(page).toHaveTitle(`Jobs · ${CONTEXTS.demo} — Lumovi`)
 })
 
 test.describe('when things go wrong', () => {
-  test('a page that fails to render shows a way out', async ({ kubestacks, clusters }) => {
-    const { page, app } = kubestacks
+  test('a page that fails to render shows a way out', async ({ lumovi, clusters }) => {
+    const { page, app } = lumovi
     const opened = await mockOpenExternal(app)
     const broken = demoCluster().objects.find((o) => o.kind === 'Deployment')!
     clusters.demo.upsert({ ...broken, spec: { ...broken.spec, template: undefined } })
@@ -273,8 +273,8 @@ test.describe('when things go wrong', () => {
     await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
   })
 
-  test('the window recovers when its page crashes', async ({ kubestacks }) => {
-    const { app, page } = kubestacks
+  test('the window recovers when its page crashes', async ({ lumovi }) => {
+    const { app, page } = lumovi
     await openCluster(page)
     const contents = () =>
       app.evaluate(({ BrowserWindow }) =>
@@ -295,7 +295,7 @@ test.describe('when things go wrong', () => {
 
   test('failing credential plugins are explained', async ({ launch, clusters }) => {
     test.skip(process.platform === 'win32', 'Needs a POSIX shell script as the plugin')
-    const dir = mkdtempSync(join(tmpdir(), 'kubestacks-plugin-'))
+    const dir = mkdtempSync(join(tmpdir(), 'lumovi-plugin-'))
     const plugin = join(dir, 'failing-plugin')
     writeFileSync(plugin, '#!/bin/sh\necho "token expired, run login" >&2\nexit 1\n')
     chmodSync(plugin, 0o755)
@@ -368,8 +368,8 @@ test('an object that cannot be loaded explains why', async ({ page, clusters }) 
   await expect(detail.getByRole('alert')).toBeVisible()
 })
 
-test('errors KubeStacks didn’t expect still explain themselves', async ({ kubestacks }) => {
-  const { page, app } = kubestacks
+test('errors Lumovi didn’t expect still explain themselves', async ({ lumovi }) => {
+  const { page, app } = lumovi
   await openCluster(page)
   // A failure outside the API, as a bug in the app would be.
   await app.evaluate(({ ipcMain }) => {
@@ -576,9 +576,9 @@ test('the cluster switcher filters clusters', async ({ page }) => {
 })
 
 test('the sidebar leaves room for macOS’s window controls, except in full screen', async ({
-  kubestacks,
+  lumovi,
 }) => {
-  const { app, page } = kubestacks
+  const { app, page } = lumovi
   await openCluster(page)
   const room = page.getByRole('complementary', { name: 'Sidebar' }).locator('.traffic-lights')
   // Windows and Linux draw theirs on the right, over the header.
@@ -606,7 +606,7 @@ test('the sidebar leaves room for macOS’s window controls, except in full scre
 test('the window remembers its size and position', async ({ launch }) => {
   // Keep the size the app chose, and pick one that fits 1024x768 CI screens
   // (Windows shrinks new windows to the screen).
-  const env = { KUBESTACKS_E2E_WINDOW: undefined }
+  const env = { LUMOVI_E2E_WINDOW: undefined }
   const size = { width: 1024, height: 660 }
   const first = await launch({ env })
   await first.app.evaluate(({ BrowserWindow }, size) => {
@@ -686,9 +686,9 @@ test('lists fall back to their defaults', async ({ page }) => {
 })
 
 test('the palette opens shortcuts and all clusters, even while clusters load', async ({
-  kubestacks,
+  lumovi,
 }) => {
-  const { page, app } = kubestacks
+  const { page, app } = lumovi
   await openCluster(page)
   const palette = page.getByRole('dialog', { name: 'Command palette' })
   const input = page.getByPlaceholder('Jump to a view, object, namespace or cluster…')

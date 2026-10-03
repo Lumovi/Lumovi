@@ -174,7 +174,7 @@ export class HostedCluster {
   refuses(user: SessionUser): string | undefined {
     const name = `${this.prefixes.user}${user.name}`
     if (name.startsWith('system:')) {
-      return `KubeStacks doesn’t act as ${name}: names starting with system: are Kubernetes’ own.`
+      return `Lumovi doesn’t act as ${name}: names starting with system: are Kubernetes’ own.`
     }
     return undefined
   }
@@ -192,17 +192,17 @@ export class HostedCluster {
 }
 
 interface Found {
-  /** What the cluster is called unless KUBESTACKS_CLUSTER_NAME says. */
+  /** What the cluster is called unless LUMOVI_CLUSTER_NAME says. */
   name: string
   source: string
   cluster: Cluster
   account: User
 }
 
-/** A kubeconfig's context: KUBESTACKS_CONTEXT, or its current one. */
+/** A kubeconfig's context: LUMOVI_CONTEXT, or its current one. */
 function fromKubeconfig(env: NodeJS.ProcessEnv): Found {
   const kc = loadKubeConfig(kubeconfigPaths(env))
-  const context = env.KUBESTACKS_CONTEXT || kc.getCurrentContext()
+  const context = env.LUMOVI_CONTEXT || kc.getCurrentContext()
   const found = kc.getContextObject(context)
   const cluster = found && kc.getCluster(found.cluster)
   if (!found || !cluster) {
@@ -221,13 +221,13 @@ function inCluster(env: NodeJS.ProcessEnv): Found {
   const host = env.KUBERNETES_SERVICE_HOST
   if (!host) {
     throw new ConfigError(
-      'KubeStacks isn’t running in a cluster (KUBERNETES_SERVICE_HOST isn’t set). Set KUBECONFIG to show a cluster from a kubeconfig.',
+      'Lumovi isn’t running in a cluster (KUBERNETES_SERVICE_HOST isn’t set). Set KUBECONFIG to show a cluster from a kubeconfig.',
     )
   }
-  const dir = env.KUBESTACKS_SERVICE_ACCOUNT_DIR || SERVICE_ACCOUNT
+  const dir = env.LUMOVI_SERVICE_ACCOUNT_DIR || SERVICE_ACCOUNT
   if (!existsSync(join(dir, 'token'))) {
     throw new ConfigError(
-      `No service account token in ${dir}: KubeStacks needs its pod’s (automountServiceAccountToken).`,
+      `No service account token in ${dir}: Lumovi needs its pod’s (automountServiceAccountToken).`,
     )
   }
   return {
@@ -241,7 +241,7 @@ function inCluster(env: NodeJS.ProcessEnv): Found {
     },
     // Read again from time to time: Kubernetes rotates projected tokens.
     account: {
-      name: 'kubestacks',
+      name: 'lumovi',
       authProvider: { name: 'tokenFile', config: { tokenFile: join(dir, 'token') } },
     },
   }

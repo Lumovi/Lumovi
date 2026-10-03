@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CONTEXTS, DEMO_TOKEN, startTestClusters } from './kubeconfig.ts'
 
-const dir = mkdtempSync(join(tmpdir(), 'kubestacks-mock-'))
+const dir = mkdtempSync(join(tmpdir(), 'lumovi-mock-'))
 const clusters = await startTestClusters(dir, { jitter: true })
 
 console.log(`Mock clusters are running.

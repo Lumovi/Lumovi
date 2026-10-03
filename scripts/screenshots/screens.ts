@@ -12,7 +12,7 @@ export interface Screen {
   title: string
   /** What it shows, in a sentence: its alt text. */
   description: string
-  /** The desktop app, or KubeStacks served from a cluster (signed in as `server` says). */
+  /** The desktop app, or Lumovi served from a cluster (signed in as `server` says). */
   app: 'desktop' | 'server'
   server?: 'token' | 'sso' | 'proxy'
   /** Where it starts: a path in the app. */
@@ -253,7 +253,7 @@ export const SCREENS: Screen[] = [
   {
     name: 'custom-resource',
     title: 'A custom resource',
-    description: "A cert-manager certificate, shown with KubeStacks' view of it.",
+    description: "A cert-manager certificate, shown with Lumovi's view of it.",
     app: 'desktop',
     path: `${cluster}/api-resources`,
     async steps(page) {
@@ -355,7 +355,7 @@ export const SCREENS: Screen[] = [
   {
     name: 'read-only',
     title: 'Read-only',
-    description: "A cluster made read-only: KubeStacks won't change anything in it until allowed.",
+    description: "A cluster made read-only: Lumovi won't change anything in it until allowed.",
     app: 'desktop',
     path: `${cluster}/deployments?open=Deployment/shop/${DEMO.deployments.storefront}`,
     async steps(page) {
@@ -384,7 +384,7 @@ export const SCREENS: Screen[] = [
   {
     name: 'server-sign-in',
     title: 'Signing in with a token',
-    description: 'KubeStacks served from a cluster: signing in with a token.',
+    description: 'Lumovi served from a cluster: signing in with a token.',
     app: 'server',
     server: 'token',
     path: '/',
@@ -392,7 +392,7 @@ export const SCREENS: Screen[] = [
   {
     name: 'server-single-sign-on',
     title: 'Single sign-on',
-    description: 'KubeStacks served from a cluster: signing in with single sign-on.',
+    description: 'Lumovi served from a cluster: signing in with single sign-on.',
     app: 'server',
     server: 'sso',
     path: '/',
@@ -400,7 +400,7 @@ export const SCREENS: Screen[] = [
   {
     name: 'server-account',
     title: 'Signed in',
-    description: "KubeStacks served from a cluster: who's signed in, and their groups.",
+    description: "Lumovi served from a cluster: who's signed in, and their groups.",
     app: 'server',
     server: 'proxy',
     path: cluster,

@@ -4,7 +4,7 @@ import { api } from '@renderer/lib/api'
 export const MOD_KEY = api.platform === 'darwin' ? '⌘' : 'Ctrl'
 
 /**
- * Whether ⌘N and ⌘1…6 are KubeStacks' shortcuts: a browser keeps them for
+ * Whether ⌘N and ⌘1…6 are Lumovi's shortcuts: a browser keeps them for
  * itself (a new window, its tabs), so a served page goes without.
  */
 export const WINDOW_SHORTCUTS = api.host === 'desktop'

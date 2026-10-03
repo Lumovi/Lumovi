@@ -1,5 +1,5 @@
 # Traefik (https://traefik.io): its routes, and what they pass requests through.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: traefik
@@ -17,7 +17,7 @@ spec:
     - { group: traefik.io, kind: TLSOption }
     - { group: traefik.io, kind: ServersTransport }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: traefik-routes
@@ -47,7 +47,7 @@ spec:
       kind: Service
       objectName: '{{ .spec.routes[0].services[0].name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: traefik-middlewares

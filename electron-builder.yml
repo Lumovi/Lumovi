@@ -1,9 +1,9 @@
 # Packaging for macOS, Windows and Linux. See https://www.electron.build/configuration
-# From before the project moved to the KubeStacks organization. Installed copies update only
+# From before the project moved to the Lumovi organization. Installed copies update only
 # to an app with the same ID, so it stays.
-appId: io.github.kotapeter.kubestacks
-productName: KubeStacks
-copyright: Copyright © 2026 KubeStacks contributors
+appId: io.github.kotapeter.lumovi
+productName: Lumovi
+copyright: Copyright © 2026 Lumovi contributors
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 directories:
@@ -14,7 +14,7 @@ files:
   - out/**/*
   - '!out/**/*.map'
   - '!out/THIRD_PARTY_NOTICES.txt'
-  # The server, for running KubeStacks in a cluster (see Dockerfile), isn't the app's.
+  # The server, for running Lumovi in a cluster (see Dockerfile), isn't the app's.
   - '!out/server/**'
   - package.json
 
@@ -65,7 +65,7 @@ nsis:
   createDesktopShortcut: true
 
 linux:
-  executableName: kubestacks
+  executableName: lumovi
   category: Development
   synopsis: A beautiful, fast Kubernetes app for the desktop
   maintainer: Peter Kota <kotapeter@gmail.com>
@@ -79,6 +79,6 @@ linux:
 
 publish:
   provider: github
-  owner: KubeStacks
-  repo: KubeStacks
+  owner: Lumovi
+  repo: Lumovi
   releaseType: draft

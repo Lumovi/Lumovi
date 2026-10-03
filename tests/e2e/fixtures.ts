@@ -1,6 +1,6 @@
 /**
  * Test fixtures: every worker gets its own mock clusters and kubeconfig, every
- * test gets a fresh KubeStacks window with an isolated user-data directory.
+ * test gets a fresh Lumovi window with an isolated user-data directory.
  * When the build is instrumented, coverage from the main, preload and
  * renderer processes is written to `.nyc_output/` for `nyc report`.
  */
@@ -43,7 +43,7 @@ export interface LaunchOptions {
 /** The app's default content size; tests are written against this layout. */
 const REFERENCE_SIZE = { width: 1440, height: 920 }
 
-export interface KubeStacks {
+export interface Lumovi {
   app: ElectronApplication
   page: Page
   userDataDir: string
@@ -64,9 +64,9 @@ async function collectCoverage(app: ElectronApplication): Promise<void> {
       const coverage = await window.evaluate(() => {
         const w = window as unknown as {
           __coverage__?: object
-          __kubestacksCoverage__?: () => object | undefined
+          __lumoviCoverage__?: () => object | undefined
         }
-        return [w.__coverage__, w.__kubestacksCoverage__?.()]
+        return [w.__coverage__, w.__lumoviCoverage__?.()]
       })
       for (const data of coverage.filter(Boolean)) {
         mkdirSync(COVERAGE_DIR, { recursive: true })
@@ -82,8 +82,8 @@ export async function launchApp(
   /** The kubeconfig the app sees: the mock clusters', or a test cluster's. */
   kubeconfig: string,
   options: LaunchOptions = {},
-): Promise<KubeStacks> {
-  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
+): Promise<Lumovi> {
+  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   if (options.theme) {
     mkdirSync(userDataDir, { recursive: true })
     writeFileSync(join(userDataDir, 'settings.json'), JSON.stringify({ theme: options.theme }))
@@ -92,9 +92,9 @@ export async function launchApp(
   const merged = {
     ...process.env,
     KUBECONFIG: kubeconfig,
-    KUBESTACKS_COVERAGE_DIR: COVERAGE_DIR,
+    LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
     // Never the developer's own views.
-    KUBESTACKS_VIEWS_DIR: join(userDataDir, 'views'),
+    LUMOVI_VIEWS_DIR: join(userDataDir, 'views'),
     // Keep tests independent of the developer's login shell.
     SHELL: undefined,
     ELECTRON_RENDERER_URL: undefined,
@@ -103,8 +103,8 @@ export async function launchApp(
   for (const [key, value] of Object.entries(merged)) {
     if (value !== undefined) env[key] = value
   }
-  // KUBESTACKS_E2E_EXECUTABLE runs the suite against a packaged app instead of the build in out/.
-  const executablePath = process.env.KUBESTACKS_E2E_EXECUTABLE
+  // LUMOVI_E2E_EXECUTABLE runs the suite against a packaged app instead of the build in out/.
+  const executablePath = process.env.LUMOVI_E2E_EXECUTABLE
   const app = await electron.launch({
     ...(executablePath ? { executablePath } : {}),
     args: [
@@ -132,11 +132,11 @@ export async function launchApp(
   })
   // Transitions are shortened under reduced motion, which keeps the tests quick and stable.
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  // Reproduce a smaller screen (e.g. KUBESTACKS_E2E_WINDOW=1024x768, like CI runners).
+  // Reproduce a smaller screen (e.g. LUMOVI_E2E_WINDOW=1024x768, like CI runners).
   const size = (
-    'KUBESTACKS_E2E_WINDOW' in (options.env ?? {})
-      ? options.env!.KUBESTACKS_E2E_WINDOW
-      : process.env.KUBESTACKS_E2E_WINDOW
+    'LUMOVI_E2E_WINDOW' in (options.env ?? {})
+      ? options.env!.LUMOVI_E2E_WINDOW
+      : process.env.LUMOVI_E2E_WINDOW
   )
     ?.split('x')
     .map(Number)
@@ -179,8 +179,8 @@ export async function launchApp(
 
 interface Fixtures {
   clusters: TestClusters
-  launch: (options?: LaunchOptions) => Promise<KubeStacks>
-  kubestacks: KubeStacks
+  launch: (options?: LaunchOptions) => Promise<Lumovi>
+  lumovi: Lumovi
   page: Page
 }
 
@@ -188,14 +188,14 @@ interface Fixtures {
  * Starts CPU profiles of the app's main process and page; the returned
  * function saves them next to the test's other output.
  */
-async function profile({ app, page }: KubeStacks, testInfo: TestInfo, i: number) {
+async function profile({ app, page }: Lumovi, testInfo: TestInfo, i: number) {
   await app.evaluate(() => {
     const { Session } = process.getBuiltinModule('node:inspector')
     const session = new Session()
     session.connect()
     session.post('Profiler.enable')
     session.post('Profiler.start')
-    Object.assign(globalThis, { __kubestacksProfiler__: session })
+    Object.assign(globalThis, { __lumoviProfiler__: session })
   })
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Profiler.enable')
@@ -204,8 +204,8 @@ async function profile({ app, page }: KubeStacks, testInfo: TestInfo, i: number)
     const main = await app.evaluate(
       () =>
         new Promise<string>((resolve) => {
-          const { __kubestacksProfiler__: session } = globalThis as unknown as {
-            __kubestacksProfiler__: import('node:inspector').Session
+          const { __lumoviProfiler__: session } = globalThis as unknown as {
+            __lumoviProfiler__: import('node:inspector').Session
           }
           session.post('Profiler.stop', (_error, result) => resolve(JSON.stringify(result.profile)))
         }),
@@ -220,7 +220,7 @@ async function profile({ app, page }: KubeStacks, testInfo: TestInfo, i: number)
  * Writes what a failed CI test left behind: the windows' state and the mock
  * clusters' last requests with their timing, to tell a slow cluster from a stuck app.
  */
-async function diagnose(path: string, clusters: TestClusters, launched: KubeStacks[]) {
+async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]) {
   const within = <T>(promise: Promise<T>) =>
     Promise.race([
       promise,
@@ -292,7 +292,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
   workerClusters: [
     // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
-      const dir = mkdtempSync(join(tmpdir(), 'kubestacks-clusters-'))
+      const dir = mkdtempSync(join(tmpdir(), 'lumovi-clusters-'))
       const clusters = await startTestClusters(dir)
       await use(clusters)
       await clusters.close()
@@ -308,15 +308,15 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     workerClusters.large.reset()
   },
   launch: async ({ clusters }, use, testInfo) => {
-    const launched: KubeStacks[] = []
+    const launched: Lumovi[] = []
     // On CI, failures keep a trace (DOM snapshots, actions, console) to see what happened.
     const trace = Boolean(process.env.CI)
     const profiles: (() => Promise<void>)[] = []
     await use(async (options = {}) => {
-      const helmDir = mkdtempSync(join(tmpdir(), 'kubestacks-helm-'))
+      const helmDir = mkdtempSync(join(tmpdir(), 'lumovi-helm-'))
       const instance = await launchApp(clusters.kubeconfigPath, {
         ...options,
-        env: { KUBESTACKS_HELM: FAKE_HELM, FAKE_HELM_DIR: helmDir, ...options.env },
+        env: { LUMOVI_HELM: FAKE_HELM, FAKE_HELM_DIR: helmDir, ...options.env },
       })
       instance.helmDir = helmDir
       if (trace) {
@@ -343,11 +343,11 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       await instance.close()
     }
   },
-  kubestacks: async ({ launch }, use) => {
+  lumovi: async ({ launch }, use) => {
     await use(await launch())
   },
-  page: async ({ kubestacks }, use) => {
-    await use(kubestacks.page)
+  page: async ({ lumovi }, use) => {
+    await use(lumovi.page)
   },
 })
 

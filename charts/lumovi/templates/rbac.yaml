@@ -1,0 +1,28 @@
+{{- if and .Values.rbac.create (include "lumovi.impersonates" .) }}
+# Lumovi acts as whoever signs in: the API server then applies their RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "lumovi.fullname" . }}-impersonate
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [users, groups]
+    verbs: [impersonate]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "lumovi.fullname" . }}-impersonate
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "lumovi.fullname" . }}-impersonate
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
