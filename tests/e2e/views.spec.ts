@@ -20,7 +20,7 @@ async function openKind(page: Page, group: string, label: string) {
 
 /** A view of widgets that reads fields every way a path can. */
 const WIDGETS = String.raw`
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: my-widgets
@@ -109,9 +109,9 @@ spec:
           annotations: { example.com/stamped: '{{ now }}' }
 `
 
-/** Replaces KubeStacks' own view of certificates. */
+/** Replaces Lumovi's own view of certificates. */
 const CERTIFICATES = `
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: plain-certificates
@@ -122,7 +122,7 @@ spec:
     - { name: Common name, path: .spec.commonName, default: none }
 ---
 # A kind in the core group: no group to name.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: service-accounts
@@ -138,19 +138,19 @@ const BROKEN = `
 apiVersion: v1
 kind: ConfigMap
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata: {}
 ---
 spec: [unclosed
 ---
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata: { name: not-a-map }
 spec: [1]
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata: { name: everything-wrong }
 spec:
@@ -187,7 +187,7 @@ spec:
     - { name: Do2, type: json, patch: { spec: {} } }
     - { name: Do3, patch: { a: 1 }, undo: [{ op: add }] }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata: { name: wrong-relations }
 spec:
@@ -216,14 +216,14 @@ spec:
         - { name: t, label: T, options: [a] }
         - { name: d, label: D, type: choice, options: [a], from: .x }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata: { name: pods-too }
 spec:
   label: Pods too
   kinds: [{ kind: Pod }]
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata: { name: messy }
 spec:
@@ -233,11 +233,11 @@ spec:
   kinds: []
 `
 
-test('your own views: they replace KubeStacks’, and what’s wrong with them is shown', async ({
-  kubestacks,
+test('your own views: they replace Lumovi’s, and what’s wrong with them is shown', async ({
+  lumovi,
   clusters,
 }) => {
-  const { page, userDataDir } = kubestacks
+  const { page, userDataDir } = lumovi
   const views = join(userDataDir, 'views')
   mkdirSync(join(views, 'a-folder.yaml'), { recursive: true })
   writeFileSync(join(views, 'widgets.yaml'), WIDGETS)
@@ -250,7 +250,7 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   const problems = page.getByRole('list', { name: 'View problems' })
   for (const problem of [
-    'broken.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View or AddOn',
+    'broken.yaml: should start with apiVersion: lumovi.dev/v1alpha1 and kind: View or AddOn',
     'broken.yaml (document 2): needs metadata.name',
     'broken.yaml (document 3): ',
     'broken.yaml (document 5): not-a-map: spec: should be a map of fields, not a list',
@@ -308,9 +308,9 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
   ]) {
     await expect(problems).toContainText(problem)
   }
-  await expect(page.getByText(/views from KubeStacks, 3 of yours/)).toBeVisible()
+  await expect(page.getByText(/views from Lumovi, 3 of yours/)).toBeVisible()
   // (Where temporary folders are in the home folder, as on Windows, it's shown from ~.)
-  await expect(page.getByText(/kubestacks-user-\w+[\\/]views/)).toBeVisible()
+  await expect(page.getByText(/lumovi-user-\w+[\\/]views/)).toBeVisible()
   const custom = page.getByRole('region', { name: 'Custom resources' })
   await expect(custom.getByRole('row').filter({ hasText: 'Widgets' })).toContainText('widgets.yaml')
   await expect(custom.getByRole('row').filter({ hasText: 'Certificates' })).toContainText(
@@ -323,7 +323,7 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
       .filter({ hasText: 'ServiceAccounts' }),
   ).toContainText('certificates.yml')
 
-  // A view of one's own replaces KubeStacks'.
+  // A view of one's own replaces Lumovi's.
   await openKind(page, 'cert-manager.io', 'Certificates')
   await expect(page.getByRole('columnheader', { name: 'Common name' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Hosts' })).toHaveCount(0)
@@ -412,32 +412,30 @@ test('your own views: they replace KubeStacks’, and what’s wrong with them i
   await expect(detail.locator('header')).toContainText('warning')
 })
 
-test('views live in ~/.kubestacks/views unless KUBESTACKS_VIEWS_DIR says otherwise', async ({
-  launch,
-}) => {
-  const home = mkdtempSync(join(tmpdir(), 'kubestacks-home-'))
-  mkdirSync(join(home, '.kubestacks', 'views'), { recursive: true })
-  writeFileSync(join(home, '.kubestacks', 'views', 'mine.yaml'), 'apiVersion: v1\nkind: Pod\n')
+test('views live in ~/.lumovi/views unless LUMOVI_VIEWS_DIR says otherwise', async ({ launch }) => {
+  const home = mkdtempSync(join(tmpdir(), 'lumovi-home-'))
+  mkdirSync(join(home, '.lumovi', 'views'), { recursive: true })
+  writeFileSync(join(home, '.lumovi', 'views', 'mine.yaml'), 'apiVersion: v1\nkind: Pod\n')
   const { app, page } = await launch({
-    env: { KUBESTACKS_VIEWS_DIR: undefined, HOME: home, USERPROFILE: home },
+    env: { LUMOVI_VIEWS_DIR: undefined, HOME: home, USERPROFILE: home },
   })
   const opened = await mockOpenExternal(app)
   await openCluster(page)
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   // Shown from the home folder, as ~.
-  await expect(page.getByText(join('~', '.kubestacks', 'views'))).toBeVisible()
-  // Only the user's view has something wrong with it, not KubeStacks' own.
+  await expect(page.getByText(join('~', '.lumovi', 'views'))).toBeVisible()
+  // Only the user's view has something wrong with it, not Lumovi's own.
   await expect(page.getByRole('alert')).toContainText('A view couldn’t be used')
   await expect(page.getByRole('list', { name: 'View problems' }).getByRole('listitem')).toHaveText([
-    'mine.yaml: should start with apiVersion: kubestacks.dev/v1alpha1 and kind: View or AddOn',
+    'mine.yaml: should start with apiVersion: lumovi.dev/v1alpha1 and kind: View or AddOn',
   ])
   await page.getByRole('button', { name: 'How to write a view' }).click()
-  await expect.poll(opened).toEqual(['https://docs.kubestacks.com/custom-resources/write-a-view'])
+  await expect.poll(opened).toEqual(['https://docs.lumovi.dev/custom-resources/write-a-view'])
 })
 
 /** Widgets related to what they need, and actions that ask first or make something new. */
 const WORKSHOP = String.raw`
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: widget-workshop
@@ -527,7 +525,7 @@ spec:
       create: { apiVersion: example.com/v1, kind: Thing, metadata: { name: thing } }
 ---
 # Cluster-wide issuers, related to pods in every namespace.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: issuers-and-pods
@@ -547,10 +545,10 @@ async function writeViews(userDataDir: string, files: Record<string, string>) {
 }
 
 test('related objects: a tab each, and pods with their logs and usage', async ({
-  kubestacks,
+  lumovi,
   clusters,
 }) => {
-  const { page, userDataDir } = kubestacks
+  const { page, userDataDir } = lumovi
   await writeViews(userDataDir, { 'workshop.yaml': WORKSHOP })
   // More settings than a page shows.
   for (let i = 0; i < 55; i++) {
@@ -644,10 +642,10 @@ test('related objects: a tab each, and pods with their logs and usage', async ({
 })
 
 test('view actions that ask for values, and ones that create objects', async ({
-  kubestacks,
+  lumovi,
   clusters,
 }) => {
-  const { page, userDataDir } = kubestacks
+  const { page, userDataDir } = lumovi
   await writeViews(userDataDir, { 'workshop.yaml': WORKSHOP })
   await openCluster(page)
   await openKind(page, 'example.com', 'Widgets')
@@ -749,11 +747,11 @@ test('view actions that ask for values, and ones that create objects', async ({
   await expect(form.getByRole('alert')).toBeVisible()
 })
 
-test('add-ons of your own, and ones that replace KubeStacks’', async ({ kubestacks }) => {
-  const { page, userDataDir } = kubestacks
+test('add-ons of your own, and ones that replace Lumovi’s', async ({ lumovi }) => {
+  const { page, userDataDir } = lumovi
   await writeViews(userDataDir, {
     'add-ons.yaml': `
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata: { name: flux }
 spec:
@@ -762,7 +760,7 @@ spec:
   kinds:
     - { group: kustomize.toolkit.fluxcd.io, kind: Kustomization }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata: { name: toys }
 spec:
@@ -774,7 +772,7 @@ spec:
 `,
     // A view for every kind of a group.
     'example.yaml': `
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata: { name: everything-example }
 spec:

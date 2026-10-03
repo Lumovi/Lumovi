@@ -26,11 +26,11 @@ const NOTICES: Record<Notice, { text: string; problem: boolean }> = {
     problem: true,
   },
   failed: {
-    text: 'Signing in didn’t work. The KubeStacks server’s log says why.',
+    text: 'Signing in didn’t work. The Lumovi server’s log says why.',
     problem: true,
   },
   refused: {
-    text: 'KubeStacks won’t act as this account: names starting with system: are Kubernetes’ own.',
+    text: 'Lumovi won’t act as this account: names starting with system: are Kubernetes’ own.',
     problem: true,
   },
 }
@@ -39,7 +39,7 @@ const NOTICES: Record<Notice, { text: string; problem: boolean }> = {
 function Frame({ title, children }: { title: string; children: ReactNode }) {
   const [theme, setTheme] = useState(storedTheme)
   useEffect(() => {
-    document.title = 'Sign in — KubeStacks'
+    document.title = 'Sign in — Lumovi'
   }, [])
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -66,7 +66,7 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
             setTheme(next)
           }}
         />
-        <IconButton label="KubeStacks on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
+        <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />
         </IconButton>
       </footer>
@@ -120,7 +120,7 @@ export function SignInPage({
       (signIn.ended && (signIn.ended === 'expired' ? 'expired-session' : 'signed-out')),
   )
   return (
-    <Frame title={signIn.auth === 'proxy' ? 'KubeStacks' : 'Sign in to KubeStacks'}>
+    <Frame title={signIn.auth === 'proxy' ? 'Lumovi' : 'Sign in to Lumovi'}>
       {notice && <NoticeBar notice={notice} />}
       {signIn.auth === 'token' && <TokenForm />}
       {signIn.auth === 'oidc' && (
@@ -141,12 +141,10 @@ export function SignInPage({
       {signIn.auth === 'proxy' && (
         <div className={cn(card, 'flex flex-col items-center text-center')}>
           <UserX className="mb-3 size-6 text-ink-3" />
-          <h2 className="text-[14px] font-semibold text-ink-1">
-            KubeStacks doesn’t know who you are
-          </h2>
+          <h2 className="text-[14px] font-semibold text-ink-1">Lumovi doesn’t know who you are</h2>
           <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
             It runs behind a proxy that signs people in and says who they are, and it didn’t say.
-            Ask whoever runs KubeStacks to check the proxy.
+            Ask whoever runs Lumovi to check the proxy.
           </p>
         </div>
       )}
@@ -224,10 +222,10 @@ function TokenForm() {
 /** The server didn't answer (it's starting, or a proxy in front of it can't reach it). */
 export function Unavailable({ error, onRetry }: { error: Error; onRetry: () => void }) {
   return (
-    <Frame title="KubeStacks">
+    <Frame title="Lumovi">
       <div role="alert" className={cn(card, 'flex flex-col items-center text-center')}>
         <ServerOff className="mb-3 size-6 text-ink-3" />
-        <h2 className="text-[14px] font-semibold text-ink-1">Can’t reach KubeStacks</h2>
+        <h2 className="text-[14px] font-semibold text-ink-1">Can’t reach Lumovi</h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
           It may be starting. Try again in a moment.
         </p>

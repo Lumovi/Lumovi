@@ -72,9 +72,7 @@ test('finds Prometheus, and every metric charts, grouped every way', async ({ pa
   // Nodes are named by cAdvisor's node label; workloads by their pods' owners.
   await metric.getByRole('button', { name: 'CPU' }).click()
   await by.selectOption('node')
-  await expect(page.getByRole('region', { name: 'Ranked nodes' })).toContainText(
-    'kubestacks-worker',
-  )
+  await expect(page.getByRole('region', { name: 'Ranked nodes' })).toContainText('lumovi-worker')
   await inNamespace(page, NS)
   await by.selectOption('workload')
   const workloads = page.getByRole('region', { name: 'Ranked workloads' })
@@ -116,8 +114,8 @@ test('the Metrics tab of a pod, a workload and a node', async ({ page }) => {
     timeout: 120_000,
   })
 
-  await open(page, 'Nodes', 'kubestacks-worker')
-  const node = panel(page, 'Node', 'kubestacks-worker')
+  await open(page, 'Nodes', 'lumovi-worker')
+  const node = panel(page, 'Node', 'lumovi-worker')
   await node.getByRole('tab', { name: 'Metrics' }).click()
   await expect(node.getByRole('region', { name: 'CPU by namespace' })).toContainText('Allocatable')
   await expect(
@@ -136,7 +134,7 @@ test('right-sizing asks a real Prometheus for a week, a namespace at a time', as
       async () => {
         const answer = await page.evaluate(
           ({ context, queries }) =>
-            window.kubestacks!.usage.instant({ context, queries, time: Date.now() }),
+            window.lumovi!.usage.instant({ context, queries, time: Date.now() }),
           { context: CONTEXT, queries },
         )
         if (!answer.ok) return answer.error.message

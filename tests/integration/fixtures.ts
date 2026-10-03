@@ -5,7 +5,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { test as base, expect, type Page } from '@playwright/test'
-import { launchApp, openCluster, type KubeStacks, type LaunchOptions } from '../e2e/fixtures.ts'
+import { launchApp, openCluster, type Lumovi, type LaunchOptions } from '../e2e/fixtures.ts'
 import { CONTEXT, KUBECONFIG } from './cluster.ts'
 
 export { CONTEXT, expect, KUBECONFIG }
@@ -46,7 +46,7 @@ export function freshNamespace(namespace: string, objects: object[], skip: strin
 }
 
 interface Fixtures {
-  launch: (options?: LaunchOptions & { kubeconfig?: string }) => Promise<KubeStacks>
+  launch: (options?: LaunchOptions & { kubeconfig?: string }) => Promise<Lumovi>
   /** The app, opened on the kind cluster. */
   page: Page
 }
@@ -54,7 +54,7 @@ interface Fixtures {
 export const test = base.extend<Fixtures>({
   // eslint-disable-next-line no-empty-pattern
   launch: async ({}, use) => {
-    const launched: KubeStacks[] = []
+    const launched: Lumovi[] = []
     await use(async (options = {}) => {
       const instance = await launchApp(options.kubeconfig ?? KUBECONFIG, options)
       launched.push(instance)

@@ -11,7 +11,7 @@ const detail = (page: Page) => page.getByRole('complementary', { name: `Pod ${PO
 const screen = (page: Page) =>
   page.getByRole('region', { name: 'Shell in app' }).locator('.xterm-rows')
 const banner = (page: Page) =>
-  page.getByRole('status').filter({ hasText: 'Reconnecting to KubeStacks…' })
+  page.getByRole('status').filter({ hasText: 'Reconnecting to Lumovi…' })
 
 test('logs and shells, as in the desktop app', async ({ page, serve, clusters }) => {
   const served = await serve()
@@ -67,7 +67,7 @@ test('the connection drops: streams stop, calls wait, and it comes back', async 
   clusters,
 }) => {
   // Behind a proxy, nobody's signed in by the server: the next one knows who it is too.
-  const proxy = { KUBESTACKS_AUTH: 'proxy' }
+  const proxy = { LUMOVI_AUTH: 'proxy' }
   await context.setExtraHTTPHeaders({ 'X-Forwarded-User': 'ivan@example.com' })
   const served = await serve({ env: proxy })
   await page.goto(`${served.url}cluster/demo/pods?open=Pod/shop/${POD}`)
@@ -85,7 +85,7 @@ test('the connection drops: streams stop, calls wait, and it comes back', async 
 
   await served.stop()
   await expect(banner(page)).toContainText('What’s shown may be out of date.')
-  await expect(other.getByRole('alert')).toContainText('Lost the connection to KubeStacks.')
+  await expect(other.getByRole('alert')).toContainText('Lost the connection to Lumovi.')
   // It keeps trying, and after a while says what may be wrong.
   await expect(banner(page)).toContainText('a proxy in front of it may not pass WebSockets', {
     timeout: 15_000,
@@ -106,7 +106,7 @@ test('a restarted server has no sessions: people sign in again', async ({ page, 
   await served.stop()
   // The shell ended with the connection; what's typed meanwhile goes nowhere.
   await expect(
-    detail(page).getByRole('status').filter({ hasText: 'Lost the connection to KubeStacks.' }),
+    detail(page).getByRole('status').filter({ hasText: 'Lost the connection to Lumovi.' }),
   ).toBeVisible()
   // Closing it then says nothing to the server either.
   await detail(page).getByRole('button', { name: 'Close (Esc)' }).click()
@@ -121,7 +121,7 @@ test('a restarted server has no sessions: people sign in again', async ({ page, 
 
 test('calls give up waiting for a server that doesn’t come back', async ({ page, serve }) => {
   await page.clock.install()
-  const served = await serve({ env: { KUBESTACKS_AUTH: 'proxy' } })
+  const served = await serve({ env: { LUMOVI_AUTH: 'proxy' } })
   await page.context().setExtraHTTPHeaders({ 'X-Forwarded-User': 'judy@example.com' })
   await page.goto(`${served.url}cluster/demo/nodes`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
@@ -130,5 +130,5 @@ test('calls give up waiting for a server that doesn’t come back', async ({ pag
   // A call made now waits for the connection: half a minute, then it fails.
   await page.getByRole('button', { name: /^Refresh/ }).click()
   await page.clock.fastForward('00:31')
-  await expect(page.getByText('Lost the connection to KubeStacks.').first()).toBeVisible()
+  await expect(page.getByText('Lost the connection to Lumovi.').first()).toBeVisible()
 })

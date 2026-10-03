@@ -1072,7 +1072,7 @@ function karpenter(b: Builder, now: number): void {
         },
         status: {
           ...(node.name
-            ? { nodeName: node.name, providerID: `kubestacks://eu-west-1/${node.name}` }
+            ? { nodeName: node.name, providerID: `lumovi://eu-west-1/${node.name}` }
             : { providerID: 'aws:///eu-west-1b/i-0c2f7a91d3e5b8604' }),
           imageID: 'ami-0e4b2cfa1d78e3f05',
           capacity: { cpu: '8', memory: '32Gi', pods: '110' },

@@ -1,7 +1,7 @@
 # VictoriaMetrics operator (https://docs.victoriametrics.com/operator): VictoriaMetrics and
 # VictoriaLogs, what they scrape, and their alerting rules. The operator reports on all of
 # them in status.updateStatus.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: victoriametrics-operator
@@ -21,7 +21,7 @@ spec:
     - { group: operator.victoriametrics.com, kind: VLSingle }
     - { group: operator.victoriametrics.com, kind: VLCluster }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: victoriametrics-servers
@@ -62,7 +62,7 @@ spec:
       kind: Pod
       labels: { app.kubernetes.io/instance: '{{ .metadata.name }}', managed-by: vm-operator }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: victoriametrics-scrapes-and-rules

@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-export const NAME = 'kubestacks'
+export const NAME = 'lumovi'
 export const CONTEXT = `kind-${NAME}`
 export const KUBECONFIG = resolve(HERE, '../../.kind/kubeconfig')
 
@@ -25,8 +25,8 @@ export const IMAGES = {
   noShell: 'registry.k8s.io/pause:3.10',
 }
 
-/** KubeStacks served from the cluster (served.spec.ts): the image as it's released. */
-export const SERVED_IMAGE = 'kubestacks:integration'
+/** Lumovi served from the cluster (served.spec.ts): the image as it's released. */
+export const SERVED_IMAGE = 'lumovi:integration'
 
 const CHARTS = {
   metricsServer: { repo: 'https://kubernetes-sigs.github.io/metrics-server/', version: '3.14.0' },
@@ -111,8 +111,8 @@ function up() {
     '--timeout',
     '5m',
   ])
-  // Built here unless it was already (CI builds it first). After changing KubeStacks,
-  // `docker build --tag kubestacks:integration .` and run this again.
+  // Built here unless it was already (CI builds it first). After changing Lumovi,
+  // `docker build --tag lumovi:integration .` and run this again.
   if (spawnSync('docker', ['image', 'inspect', SERVED_IMAGE], { stdio: 'ignore' }).status !== 0) {
     run('docker', ['build', '--tag', SERVED_IMAGE, resolve(HERE, '../..')])
   }

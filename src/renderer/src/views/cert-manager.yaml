@@ -1,5 +1,5 @@
 # cert-manager (https://cert-manager.io): certificates, their requests, and issuers.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: cert-manager
@@ -14,7 +14,7 @@ spec:
     - { group: acme.cert-manager.io, kind: Order }
     - { group: acme.cert-manager.io, kind: Challenge }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cert-manager-certificates
@@ -54,7 +54,7 @@ spec:
       kind: '{{ .spec.issuerRef.kind ?? "Issuer" }}.cert-manager.io'
       objectName: '{{ .spec.issuerRef.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cert-manager-certificate-requests
@@ -87,7 +87,7 @@ spec:
       kind: Certificate.cert-manager.io
       objectName: "{{ .metadata.annotations['cert-manager.io/certificate-name'] }}"
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cert-manager-issuers

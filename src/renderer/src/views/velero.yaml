@@ -1,5 +1,5 @@
 # Velero (https://velero.io): backups of cluster resources and volumes.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: velero
@@ -12,7 +12,7 @@ spec:
     - { group: velero.io, kind: Schedule }
     - { group: velero.io, kind: BackupStorageLocation }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: velero-backups
@@ -49,7 +49,7 @@ spec:
     - { name: Backup, path: .spec.backupName }
     - { name: Items, path: .status.progress.itemsBackedUp, type: number }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: velero-schedules

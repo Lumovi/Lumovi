@@ -1,6 +1,6 @@
 /**
- * How pages talk to a KubeStacks server: who is signed in, over HTTP, and the
- * calls and events of the KubestacksApi over one WebSocket per page.
+ * How pages talk to a Lumovi server: who is signed in, over HTTP, and the
+ * calls and events of the LumoviApi over one WebSocket per page.
  */
 import type { MetricsSourceSetting } from './api'
 
@@ -74,4 +74,4 @@ export const SESSION_ENDED = 4401
 export type SessionEnd = 'expired' | 'signed-out'
 
 /** The cookie that keeps the theme a browser chose, so pages start in it. */
-export const THEME_COOKIE = 'kubestacks-theme'
+export const THEME_COOKIE = 'lumovi-theme'

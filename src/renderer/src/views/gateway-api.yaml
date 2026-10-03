@@ -1,5 +1,5 @@
 # Gateway API (https://gateway-api.sigs.k8s.io): gateways and the routes attached to them.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: gateway-api
@@ -17,7 +17,7 @@ spec:
     - { group: gateway.networking.k8s.io, kind: GatewayClass }
     - { group: gateway.networking.k8s.io, kind: ReferenceGrant }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: gateway-api-gateways
@@ -53,7 +53,7 @@ spec:
       kind: GatewayClass.gateway.networking.k8s.io
       objectName: '{{ .spec.gatewayClassName }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: gateway-api-routes
@@ -93,7 +93,7 @@ spec:
       kind: Service
       objectName: '{{ .spec.rules[0].backendRefs[0].name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: gateway-api-classes

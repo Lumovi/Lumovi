@@ -1,6 +1,6 @@
 /**
- * The user's own views: YAML files in ~/.kubestacks/views (or the folder in
- * KUBESTACKS_VIEWS_DIR). They are read whenever the page asks, so changes show
+ * The user's own views: YAML files in ~/.lumovi/views (or the folder in
+ * LUMOVI_VIEWS_DIR). They are read whenever the page asks, so changes show
  * up on the next refresh; the page checks and applies them.
  */
 import type { Dirent } from 'node:fs'
@@ -16,7 +16,7 @@ export function viewsDirectory(
   home: string,
   env: NodeJS.ProcessEnv = process.env,
 ): { path: string; shown: string } {
-  const path = env.KUBESTACKS_VIEWS_DIR || join(home, '.kubestacks', 'views')
+  const path = env.LUMOVI_VIEWS_DIR || join(home, '.lumovi', 'views')
   return { path, shown: path.startsWith(home + sep) ? join('~', relative(home, path)) : path }
 }
 

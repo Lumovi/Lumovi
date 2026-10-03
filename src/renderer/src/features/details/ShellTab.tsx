@@ -75,7 +75,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   if (readOnly) {
     body = (
       <EmptyState icon={SquareTerminal} title="Shells are off">
-        {context} is read-only in KubeStacks, and a shell can change a container.
+        {context} is read-only in Lumovi, and a shell can change a container.
       </EmptyState>
     )
   } else if (allowed === false) {

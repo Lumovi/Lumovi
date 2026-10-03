@@ -226,7 +226,7 @@ test.describe('read-only clusters', () => {
     await open(page, 'Deployments', DEMO.deployments.storefront)
     const detail = panel(page, 'Deployment', DEMO.deployments.storefront)
     await page.getByRole('button', { name: 'Switch cluster' }).click()
-    await expect(page.getByText('KubeStacks won’t change demo')).toBeVisible()
+    await expect(page.getByText('Lumovi won’t change demo')).toBeVisible()
     await page.getByRole('switch', { name: 'Read-only' }).click()
     await page.keyboard.press('Escape')
     await expect(
@@ -245,7 +245,7 @@ test.describe('read-only clusters', () => {
 
     // The main process refuses too, whatever the page asks for.
     const refused = await page.evaluate(() =>
-      window.kubestacks!.kube.change({
+      window.lumovi!.kube.change({
         context: 'demo',
         kind: 'Deployment',
         namespace: 'shop',
@@ -259,7 +259,7 @@ test.describe('read-only clusters', () => {
     await page.reload()
     await detail.getByRole('button', { name: 'Read-only' }).click()
     await expect(page.getByRole('dialog')).toContainText(
-      'KubeStacks won’t change anything in this cluster until you allow it.',
+      'Lumovi won’t change anything in this cluster until you allow it.',
     )
     await page.getByRole('button', { name: 'Allow changes' }).click()
     await expect(detail.getByRole('button', { name: 'Scale' })).toBeEnabled()
@@ -273,18 +273,18 @@ test.describe('read-only clusters', () => {
     await expect(detail.getByRole('button', { name: 'Read-only' })).toHaveCount(0)
   })
 
-  test('KUBESTACKS_READ_ONLY turns changes off everywhere', async ({ launch }) => {
-    const { page } = await launch({ env: { KUBESTACKS_READ_ONLY: '1' } })
+  test('LUMOVI_READ_ONLY turns changes off everywhere', async ({ launch }) => {
+    const { page } = await launch({ env: { LUMOVI_READ_ONLY: '1' } })
     await openCluster(page)
     await open(page, 'Deployments', DEMO.deployments.storefront)
     const detail = panel(page, 'Deployment', DEMO.deployments.storefront)
     await detail.getByRole('button', { name: 'Read-only' }).click()
-    await expect(page.getByRole('dialog')).toContainText('KUBESTACKS_READ_ONLY is set')
+    await expect(page.getByRole('dialog')).toContainText('LUMOVI_READ_ONLY is set')
     await expect(page.getByRole('button', { name: 'Allow changes' })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Switch cluster' }).click()
     await expect(page.getByRole('switch', { name: 'Read-only' })).toBeDisabled()
-    await expect(page.getByText('Set by KUBESTACKS_READ_ONLY')).toBeVisible()
+    await expect(page.getByText('Set by LUMOVI_READ_ONLY')).toBeVisible()
     await page.keyboard.press('Escape')
     await page.keyboard.press('ControlOrMeta+k')
     await page.getByPlaceholder(/Jump to/).fill('read-only')
@@ -296,7 +296,7 @@ test('production-looking clusters ask for the name before risky changes', async 
   launch,
   clusters,
 }) => {
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-prod-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-prod-'))
   const kubeconfig = writeKubeconfig(dir, {
     clusters: [{ name: 'demo', server: clusters.demo.url, caPem: clusters.demo.caPem }],
     users: [{ name: 'u', token: DEMO_TOKEN }],
@@ -323,7 +323,7 @@ test.describe('activity and feedback', () => {
     const activity = page.getByRole('button', { name: 'Activity' })
     await activity.click()
     await expect(page.getByRole('dialog', { name: 'Activity' })).toContainText(
-      'Changes you make from KubeStacks show up here',
+      'Changes you make from Lumovi show up here',
     )
     await page.keyboard.press('Escape')
 
@@ -370,7 +370,7 @@ test.describe('activity and feedback', () => {
     await expect(log.getByRole('listitem').last()).toContainText('· demo')
     await expect(log.getByRole('button', { name: `Cordoned ${DEMO.nodes.worker1}` })).toHaveCount(0)
     await log.getByRole('button', { name: 'Clear' }).click()
-    await expect(log).toContainText('Changes you make from KubeStacks show up here')
+    await expect(log).toContainText('Changes you make from Lumovi show up here')
   })
 
   test('toasts pause on hover, can be dismissed, and report failures', async ({

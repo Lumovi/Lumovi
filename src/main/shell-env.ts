@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
-const MARKER = '__KUBESTACKS_PATH__'
+const MARKER = '__LUMOVI_PATH__'
 
 /**
  * Apps launched from the macOS Dock or a Linux desktop launcher don't inherit

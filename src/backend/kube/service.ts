@@ -108,11 +108,11 @@ interface PodMetric {
 }
 
 /**
- * Access to the clusters KubeStacks shows. Every public method resolves to a
+ * Access to the clusters Lumovi shows. Every public method resolves to a
  * `Result` and never rejects.
  */
 export class KubeService {
-  /** How long the API server has to answer (KUBESTACKS_REQUEST_TIMEOUT_MS). */
+  /** How long the API server has to answer (LUMOVI_REQUEST_TIMEOUT_MS). */
   readonly timeoutMs: number
   readonly #maxListItems: number
   readonly #checks = new Limiter(CONCURRENT_CHECKS)
@@ -129,8 +129,8 @@ export class KubeService {
     private readonly isReadOnly: (context: string) => boolean,
     env: NodeJS.ProcessEnv = process.env,
   ) {
-    this.timeoutMs = Number(env.KUBESTACKS_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
-    this.#maxListItems = Number(env.KUBESTACKS_MAX_LIST_ITEMS) || DEFAULT_MAX_LIST_ITEMS
+    this.timeoutMs = Number(env.LUMOVI_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
+    this.#maxListItems = Number(env.LUMOVI_MAX_LIST_ITEMS) || DEFAULT_MAX_LIST_ITEMS
   }
 
   contexts(): ContextsResult {
@@ -340,7 +340,7 @@ export class KubeService {
       if (this.isReadOnly(r.context)) {
         throw new KubeRequestError(
           'read-only',
-          `${r.context} is read-only in KubeStacks. Allow changes to it to continue.`,
+          `${r.context} is read-only in Lumovi. Allow changes to it to continue.`,
         )
       }
       const dryRun = r.dryRun === true ? '?dryRun=All' : ''

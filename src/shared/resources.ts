@@ -1,5 +1,5 @@
 /**
- * The Kubernetes resource kinds KubeStacks knows how to show.
+ * The Kubernetes resource kinds Lumovi knows how to show.
  *
  * Built-in kinds are described here once, for the main process (to build API
  * paths) and the renderer (navigation and table columns). Every other
@@ -33,7 +33,7 @@ export const BUILTIN_KINDS = [
 export type BuiltinKind = (typeof BUILTIN_KINDS)[number]
 
 /**
- * What KubeStacks calls a resource. Built-in kinds go by their kind ("Pod");
+ * What Lumovi calls a resource. Built-in kinds go by their kind ("Pod");
  * others by kind and API group ("Certificate.cert-manager.io"), which is what
  * object references (apiVersion and kind) identify, or by kind alone in the
  * core group ("ServiceAccount").

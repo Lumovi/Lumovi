@@ -9,7 +9,7 @@ const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {}, a
 export class SettingsStore implements SettingsAccess {
   readonly #file: string
   #settings: Settings
-  /** KUBESTACKS_READ_ONLY makes every context read-only, whatever was stored. */
+  /** LUMOVI_READ_ONLY makes every context read-only, whatever was stored. */
   readonly #readOnlyAll: boolean
 
   constructor(
@@ -18,7 +18,7 @@ export class SettingsStore implements SettingsAccess {
   ) {
     this.#file = join(dir, 'settings.json')
     this.#settings = this.#read()
-    this.#readOnlyAll = ['1', 'true'].includes(env.KUBESTACKS_READ_ONLY ?? '')
+    this.#readOnlyAll = ['1', 'true'].includes(env.LUMOVI_READ_ONLY ?? '')
   }
 
   get(): Settings {

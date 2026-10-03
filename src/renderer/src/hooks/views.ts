@@ -2,13 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@renderer/lib/api'
 import { loadShippedViews, parseViews, setLocalViews, shippedViews } from '@renderer/lib/views'
 
-// KubeStacks' own views and add-ons, bundled with the app.
+// Lumovi's own views and add-ons, bundled with the app.
 const SHIPPED_PROBLEMS = loadShippedViews(
   import.meta.glob<string>('../views/*.yaml', { query: '?raw', import: 'default', eager: true }),
 )
 
 /**
- * The views and add-ons in use: KubeStacks' and the user's own, read again
+ * The views and add-ons in use: Lumovi's and the user's own, read again
  * on refresh (⌘R) so edits to them show up. Subscribing re-renders when
  * they change.
  */

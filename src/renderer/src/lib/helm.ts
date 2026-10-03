@@ -2,7 +2,7 @@ import { parseAllDocuments } from 'yaml'
 import { kindFor, type ResourceKind } from '@shared/resources'
 import type { Status } from './health'
 
-/** A release's status, in KubeStacks' health vocabulary. */
+/** A release's status, in Lumovi's health vocabulary. */
 export function releaseStatus(status: string): Status {
   switch (status) {
     case 'deployed':

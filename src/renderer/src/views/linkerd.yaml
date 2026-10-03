@@ -1,6 +1,6 @@
 # Linkerd (https://linkerd.io): the mesh's policy (servers, routes and who may reach them) and
 # service profiles.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: linkerd
@@ -18,7 +18,7 @@ spec:
     - { group: linkerd.io, kind: ServiceProfile }
     - { group: policy.linkerd.io, kind: ServerAuthorization }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: linkerd-servers
@@ -37,7 +37,7 @@ spec:
     - { name: Workloads, path: .spec.externalWorkloadSelector.matchLabels }
     - { name: Access, path: .spec.accessPolicy, default: the default policy }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: linkerd-authorization-policies
@@ -54,7 +54,7 @@ spec:
       kind: '{{ .spec.targetRef.kind }}.{{ .spec.targetRef.group ?? "policy.linkerd.io" }}'
       objectName: '{{ .spec.targetRef.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: linkerd-authentications
@@ -68,7 +68,7 @@ spec:
     - { name: Service accounts, path: '.spec.identityRefs[*].name' }
     - { name: Networks, path: '.spec.networks[*].cidr' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: linkerd-routes
@@ -92,7 +92,7 @@ spec:
       health: healthy
       label: Accepted
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: linkerd-service-profiles

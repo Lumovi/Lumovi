@@ -1,12 +1,12 @@
 /**
- * What a browser keeps for itself when KubeStacks is served: its theme (in a
+ * What a browser keeps for itself when Lumovi is served: its theme (in a
  * cookie, so pages start in it), and which clusters are read-only and where
  * their metrics come from (which its pages give the server).
  */
 import type { Settings, ThemePreference } from '@shared/api'
 import { THEME_COOKIE, type PageSettings } from '@shared/server'
 
-const KEY = 'kubestacks:settings'
+const KEY = 'lumovi:settings'
 const YEAR = 365 * 24 * 3600
 
 export function storedSettings(): PageSettings {

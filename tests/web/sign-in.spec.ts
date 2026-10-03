@@ -1,4 +1,4 @@
-/** Signing in to a KubeStacks server with a token, and the session that follows. */
+/** Signing in to a Lumovi server with a token, and the session that follows. */
 import type { Page } from '@playwright/test'
 import { expect, PEOPLE, signIn, test } from './fixtures.ts'
 
@@ -15,8 +15,8 @@ test('sign in with a token, at the address that was opened', async ({
 }) => {
   const served = await serve()
   await page.goto(`${served.url}cluster/demo/pods`)
-  await expect(page.getByRole('heading', { name: 'Sign in to KubeStacks' })).toBeVisible()
-  await expect(page).toHaveTitle('Sign in — KubeStacks')
+  await expect(page.getByRole('heading', { name: 'Sign in to Lumovi' })).toBeVisible()
+  await expect(page).toHaveTitle('Sign in — Lumovi')
   const token = page.getByPlaceholder('Paste a token')
   const submit = page.getByRole('button', { name: 'Sign in', exact: true })
   await expect(token).toBeFocused()
@@ -38,7 +38,7 @@ test('sign in with a token, at the address that was opened', async ({
   await submit.click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
   await expect(page).toHaveURL(`${served.url}cluster/demo/pods`)
-  await expect(page).toHaveTitle('Pods · demo — KubeStacks')
+  await expect(page).toHaveTitle('Pods · demo — Lumovi')
   // The cluster sees Alice, with her token.
   await expect.poll(() => clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
   expect(served.log()).toContain('alice@example.com signed in with a token')
@@ -78,7 +78,7 @@ test('a session ends: it expires, or its person signs out in another tab', async
   serve,
 }) => {
   // About three seconds.
-  const served = await serve({ env: { KUBESTACKS_SESSION_HOURS: '0.0008' } })
+  const served = await serve({ env: { LUMOVI_SESSION_HOURS: '0.0008' } })
   await signIn(page, served.url, PEOPLE.bob.token)
   await expect(notice(page, ENDED)).toBeVisible({ timeout: 15_000 })
 
@@ -111,7 +111,7 @@ test('signing in when the cluster can’t say whose a token is, and signing out 
   page,
   serve,
 }) => {
-  const offline = await serve({ env: { KUBESTACKS_CONTEXT: 'offline' } })
+  const offline = await serve({ env: { LUMOVI_CONTEXT: 'offline' } })
   await page.goto(offline.url)
   await page.getByPlaceholder('Paste a token').fill('any-token')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()

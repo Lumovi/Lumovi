@@ -5,7 +5,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 
-const CHART = 'charts/kubestacks/Chart.yaml'
+const CHART = 'charts/lumovi/Chart.yaml'
 const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
 const chart = readFileSync(CHART, 'utf8')
 const synced = chart

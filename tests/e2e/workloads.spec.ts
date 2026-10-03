@@ -242,7 +242,7 @@ test('runs, autoscalers and jobs of other shapes', async ({ page, clusters }) =>
 })
 
 test('a cluster without metrics, and lists too long to load whole', async ({ launch }) => {
-  const { page } = await launch({ env: { KUBESTACKS_MAX_LIST_ITEMS: '1000' } })
+  const { page } = await launch({ env: { LUMOVI_MAX_LIST_ITEMS: '1000' } })
   await openCluster(page, CONTEXTS.sandbox)
   await openWorkloads(page)
   await expect(page.getByText('Live usage needs metrics-server')).toBeVisible()

@@ -1,6 +1,6 @@
 name: Screenshots
 
-# Takes KubeStacks' screenshots again (docs/screenshots), and proposes the ones that changed:
+# Takes Lumovi's screenshots again (docs/screenshots), and proposes the ones that changed:
 # Actions → Screenshots → Run workflow.
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
           path: ~/Library/Caches/electron
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      # For KubeStacks served from a cluster, in a browser.
+      # For Lumovi served from a cluster, in a browser.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/Library/Caches/ms-playwright

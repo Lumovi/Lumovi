@@ -1,7 +1,7 @@
 /**
  * Helm releases: read from the cluster, and changed with the user's own helm
  * so changes behave exactly as Helm's do (hooks, three-way merges, its record
- * of revisions). KUBESTACKS_HELM names the helm to run; otherwise it's helm on
+ * of revisions). LUMOVI_HELM names the helm to run; otherwise it's helm on
  * the login shell's PATH (or, on the server, the one in its image).
  */
 import { spawn } from 'node:child_process'
@@ -47,8 +47,8 @@ const CHART_NAME = /^[\w.-]+$/
 const PLAIN = /^[\w@+=:,./\\~-]+$/
 /** What the environment can change. */
 const DEFAULTS = {
-  KUBESTACKS_HELM: 'helm',
-  KUBESTACKS_ARTIFACT_HUB_URL: 'https://artifacthub.io',
+  LUMOVI_HELM: 'helm',
+  LUMOVI_ARTIFACT_HUB_URL: 'https://artifacthub.io',
 }
 
 /** How helm reaches a cluster: what to add to its command line and environment. */
@@ -97,7 +97,7 @@ export class HelmService {
   }
 
   get #command(): string {
-    return this.#setting('KUBESTACKS_HELM')
+    return this.#setting('LUMOVI_HELM')
   }
 
   #setting(name: keyof typeof DEFAULTS): string {
@@ -178,7 +178,7 @@ export class HelmService {
       // No values at all is fine: the chart's defaults apply.
       if (typeof r.values !== 'string') throw invalid('values must be a string')
       if (r.values.length > MAX_VALUES) throw invalid('The values are too large')
-      const directory = await mkdtemp(join(tmpdir(), 'kubestacks-helm-'))
+      const directory = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
       try {
         const values = join(directory, 'values.yaml')
         await writeFile(values, r.values)
@@ -249,11 +249,11 @@ export class HelmService {
     })
   }
 
-  /** Helm charts on Artifact Hub (or the one in KUBESTACKS_ARTIFACT_HUB_URL). */
+  /** Helm charts on Artifact Hub (or the one in LUMOVI_ARTIFACT_HUB_URL). */
   search(query: unknown): Promise<Result<ChartSearchResult[]>> {
     return this.#result(async () => {
       assertString(query, 'query')
-      const hub = this.#setting('KUBESTACKS_ARTIFACT_HUB_URL')
+      const hub = this.#setting('LUMOVI_ARTIFACT_HUB_URL')
       const params = new URLSearchParams({ ts_query_web: query, kind: '0', limit: '20' })
       const { packages } = JSON.parse(
         await fetchText(`${hub}/api/v1/packages/search?${params}`),
@@ -308,7 +308,7 @@ export class HelmService {
     return this.#result(async () => {
       const at = await chartPath(path)
       if (typeof values !== 'string') throw invalid('values must be a string')
-      const directory = await mkdtemp(join(tmpdir(), 'kubestacks-lint-'))
+      const directory = await mkdtemp(join(tmpdir(), 'lumovi-lint-'))
       try {
         await writeFile(join(directory, 'values.yaml'), values)
         const run = await this.#run(['lint', at, '--values', join(directory, 'values.yaml')])
@@ -395,7 +395,7 @@ export class HelmService {
     if (this.isReadOnly(r.context)) {
       throw new KubeRequestError(
         'read-only',
-        `${r.context} is read-only in KubeStacks. Allow changes to it to continue.`,
+        `${r.context} is read-only in Lumovi. Allow changes to it to continue.`,
       )
     }
   }
@@ -435,7 +435,7 @@ export class HelmService {
         fail(
           new KubeRequestError(
             'helm',
-            `KubeStacks uses helm for this, and couldn’t run ${command}. Install Helm (https://helm.sh), or set KUBESTACKS_HELM to where it is.`,
+            `Lumovi uses helm for this, and couldn’t run ${command}. Install Helm (https://helm.sh), or set LUMOVI_HELM to where it is.`,
           ),
         ),
       )

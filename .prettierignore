@@ -9,7 +9,7 @@ playwright-report
 blob-report
 package-lock.json
 tests/integration/charts/
-charts/kubestacks/templates/
+charts/lumovi/templates/
 # Fetched by `npm run crds`, one CRD a line.
 tests/views/crds/*.json
 !tests/views/crds/sources.json

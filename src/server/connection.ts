@@ -27,7 +27,7 @@ import type { HostedCluster, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { checkChartUrl } from './network'
 
-/** A page's preferences: its browser's, over the server's defaults and KUBESTACKS_READ_ONLY. */
+/** A page's preferences: its browser's, over the server's defaults and LUMOVI_READ_ONLY. */
 class PagePreferences implements SettingsAccess {
   #readOnly: string[] = []
   #metricsSource: Record<string, MetricsSourceSetting> = {}
@@ -127,7 +127,7 @@ export class PageConnection {
     this.#rejected = identity.token ? rejected : () => undefined
     const configs = cluster.configsFor(identity)
     const preferences = new PagePreferences(
-      ['1', 'true'].includes(env.KUBESTACKS_READ_ONLY ?? ''),
+      ['1', 'true'].includes(env.LUMOVI_READ_ONLY ?? ''),
       config.metricsSource,
     )
     const isReadOnly = (context: string) => preferences.isReadOnly(context)
@@ -141,7 +141,7 @@ export class PageConnection {
       // A kubeconfig of its own for each run, acting as this person, removed after.
       target: async (context) => {
         configs.forContext(context)
-        const dir = await mkdtemp(join(tmpdir(), 'kubestacks-helm-'))
+        const dir = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
         const kubeconfig = join(dir, 'kubeconfig')
         await writeFile(kubeconfig, JSON.stringify(cluster.helmKubeconfig(identity)), {
           mode: 0o600,
@@ -175,7 +175,7 @@ export class PageConnection {
       viewsDirectory: { path: config.viewsDir, shown: config.viewsDir },
     })
     const info: AppInfo = {
-      name: 'KubeStacks',
+      name: 'Lumovi',
       version,
       platform: process.platform,
       node: process.versions.node,
@@ -198,7 +198,7 @@ export class PageConnection {
       message = undefined
     }
     if (!isMessage(message)) {
-      this.socket.close(1008, 'Not a KubeStacks message')
+      this.socket.close(1008, 'Not a Lumovi message')
       return
     }
     if (message.type === 'settings') {

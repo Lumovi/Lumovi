@@ -22,8 +22,8 @@ import {
 
 const posixOnly = process.platform === 'win32'
 
-test('a second launch focuses the running window instead', async ({ kubestacks, clusters }) => {
-  const { app } = kubestacks
+test('a second launch focuses the running window instead', async ({ lumovi, clusters }) => {
+  const { app } = lumovi
   // The window is revealed on ready-to-show; minimizing before that would be undone.
   await expect
     .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isVisible()))
@@ -37,15 +37,15 @@ test('a second launch focuses the running window instead', async ({ kubestacks, 
       )
       .toBe(true)
   }
-  const packaged = process.env.KUBESTACKS_E2E_EXECUTABLE
+  const packaged = process.env.LUMOVI_E2E_EXECUTABLE
   const second = spawn(
     packaged ?? (electronPath as unknown as string),
-    [...(packaged ? [] : ['.']), `--user-data-dir=${kubestacks.userDataDir}`],
+    [...(packaged ? [] : ['.']), `--user-data-dir=${lumovi.userDataDir}`],
     {
       env: {
         ...process.env,
         KUBECONFIG: clusters.kubeconfigPath,
-        KUBESTACKS_COVERAGE_DIR: COVERAGE_DIR,
+        LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
       },
       stdio: 'ignore',
     },
@@ -82,14 +82,14 @@ test('a second launch focuses the running window instead', async ({ kubestacks, 
   ).toBe(false)
 })
 
-test('closing the window quits the app', async ({ kubestacks }) => {
-  const exited = new Promise((done) => kubestacks.app.process().once('exit', done))
-  await kubestacks.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
+test('closing the window quits the app', async ({ lumovi }) => {
+  const exited = new Promise((done) => lumovi.app.process().once('exit', done))
+  await lumovi.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
   await exited
 })
 
-test('never navigates away or opens pop-ups', async ({ kubestacks }) => {
-  const { page, app } = kubestacks
+test('never navigates away or opens pop-ups', async ({ lumovi }) => {
+  const { page, app } = lumovi
   const url = page.url()
   expect(await page.evaluate(() => window.open('https://example.com'))).toBeNull()
   await page.evaluate(() => {
@@ -109,13 +109,13 @@ test('the page gets none of the browser’s permissions', async ({ page }) => {
   ).toBe('denied')
 })
 
-test('only hands https links to the operating system', async ({ kubestacks }) => {
-  const opened = await mockOpenExternal(kubestacks.app)
-  const results = await kubestacks.page.evaluate(() =>
+test('only hands https links to the operating system', async ({ lumovi }) => {
+  const opened = await mockOpenExternal(lumovi.app)
+  const results = await lumovi.page.evaluate(() =>
     Promise.all([
-      window.kubestacks!.app.openExternal('file:///etc/passwd'),
-      window.kubestacks!.app.openExternal(42 as unknown as string),
-      window.kubestacks!.app.openExternal('https://kubernetes.io/docs/'),
+      window.lumovi!.app.openExternal('file:///etc/passwd'),
+      window.lumovi!.app.openExternal(42 as unknown as string),
+      window.lumovi!.app.openExternal('https://kubernetes.io/docs/'),
     ]),
   )
   expect(results).toEqual([false, false, true])
@@ -124,7 +124,7 @@ test('only hands https links to the operating system', async ({ kubestacks }) =>
 
 test('rejects malformed requests from the renderer', async ({ page }) => {
   const errors = await page.evaluate(async () => {
-    const kube = window.kubestacks!.kube
+    const kube = window.lumovi!.kube
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = async (promise: Promise<any>) => {
       const result = await promise
@@ -149,7 +149,7 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
         { id: 'stream-0004', container: '' },
       ].map(({ id, ...request }) =>
         call(
-          window.kubestacks!.logs.start(
+          window.lumovi!.logs.start(
             id,
             loose({
               context: 'demo',
@@ -163,10 +163,10 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
           ),
         ),
       ),
-      call(window.kubestacks!.app.saveFile(loose(5), 'text')),
-      call(window.kubestacks!.app.saveFile('logs.log', loose(5))),
+      call(window.lumovi!.app.saveFile(loose(5), 'text')),
+      call(window.lumovi!.app.saveFile('logs.log', loose(5))),
       call(kube.version('no-such-context')),
-      window.kubestacks!.app.setTheme(loose('neon')).then(
+      window.lumovi!.app.setTheme(loose('neon')).then(
         () => 'ok',
         (error: Error) => error.message,
       ),
@@ -194,17 +194,17 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
   ])
 })
 
-test('ignores calls from frames that are not the app', async ({ kubestacks }) => {
-  const outcome = await kubestacks.app.evaluate(async ({ BrowserWindow }, preload) => {
+test('ignores calls from frames that are not the app', async ({ lumovi }) => {
+  const outcome = await lumovi.app.evaluate(async ({ BrowserWindow }, preload) => {
     const win = new BrowserWindow({
       show: false,
       webPreferences: { preload, sandbox: true, contextIsolation: true },
     })
     await win.loadURL('data:text/html,<p>untrusted</p>')
     // One-way messages from it are dropped silently.
-    await win.webContents.executeJavaScript('window.kubestacks.terminal.close("anything")')
+    await win.webContents.executeJavaScript('window.lumovi.terminal.close("anything")')
     const result: string = await win.webContents.executeJavaScript(
-      'window.kubestacks.app.info().then(() => "allowed", (error) => error.message)',
+      'window.lumovi.app.info().then(() => "allowed", (error) => error.message)',
     )
     win.destroy()
     return result
@@ -213,10 +213,10 @@ test('ignores calls from frames that are not the app', async ({ kubestacks }) =>
 })
 
 test('reports app and runtime versions', async ({ page }) => {
-  const info = await page.evaluate(() => window.kubestacks!.app.info())
+  const info = await page.evaluate(() => window.lumovi!.app.info())
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
   expect(info).toMatchObject({
-    name: 'KubeStacks',
+    name: 'Lumovi',
     version: pkg.version,
     platform: process.platform,
   })
@@ -255,17 +255,17 @@ test('window chrome follows the theme', async ({ launch }) => {
 })
 
 test('recovers from unreadable settings', async ({ launch }) => {
-  const corrupt = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
+  const corrupt = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   writeFileSync(join(corrupt, 'settings.json'), '{ not json')
   const first = await launch({ userDataDir: corrupt })
-  expect(await first.page.evaluate(() => window.kubestacks!.app.settings())).toEqual({
+  expect(await first.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
     theme: 'system',
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,
   })
 
-  const unknown = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
+  const unknown = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   writeFileSync(
     join(unknown, 'settings.json'),
     JSON.stringify({
@@ -287,21 +287,21 @@ test('recovers from unreadable settings', async ({ launch }) => {
     }),
   )
   const second = await launch({ userDataDir: unknown })
-  expect(await second.page.evaluate(() => window.kubestacks!.app.settings())).toEqual({
+  expect(await second.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
     theme: 'system',
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
     autoUpdate: false,
   })
 
-  const odd = mkdtempSync(join(tmpdir(), 'kubestacks-user-'))
+  const odd = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   writeFileSync(
     join(odd, 'settings.json'),
     // Only false turns update checks off.
     JSON.stringify({ theme: 'dark', readOnly: 'all', metricsSource: 'none', autoUpdate: 'no' }),
   )
   const third = await launch({ userDataDir: odd })
-  expect(await third.page.evaluate(() => window.kubestacks!.app.settings())).toEqual({
+  expect(await third.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
     theme: 'dark',
     readOnly: [],
     metricsSource: {},
@@ -311,7 +311,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
 
 test('gives up on API servers that stop answering', async ({ launch, clusters }) => {
   clusters.demo.fail('/version', { hang: true })
-  const { page } = await launch({ env: { KUBESTACKS_REQUEST_TIMEOUT_MS: '500' } })
+  const { page } = await launch({ env: { LUMOVI_REQUEST_TIMEOUT_MS: '500' } })
   const demo = clusterOption(page, CONTEXTS.demo)
   await expect(demo).toContainText('Timed out')
 })
@@ -373,10 +373,10 @@ test.describe('login shell PATH', () => {
     launch,
     clusters,
   }) => {
-    const dir = mkdtempSync(join(tmpdir(), 'kubestacks-shell-'))
+    const dir = mkdtempSync(join(tmpdir(), 'lumovi-shell-'))
     const bin = join(dir, 'bin')
     mkdirSync(bin)
-    const plugin = join(bin, 'kubestacks-test-credential')
+    const plugin = join(bin, 'lumovi-test-credential')
     const credential = {
       apiVersion: 'client.authentication.k8s.io/v1',
       kind: 'ExecCredential',
@@ -386,17 +386,17 @@ test.describe('login shell PATH', () => {
     chmodSync(plugin, 0o755)
     const kubeconfig = writeKubeconfig(dir, {
       clusters: [{ name: 'demo', server: clusters.demo.url, caPem: clusters.demo.caPem }],
-      users: [{ name: 'plugin-user', exec: { command: 'kubestacks-test-credential' } }],
+      users: [{ name: 'plugin-user', exec: { command: 'lumovi-test-credential' } }],
       contexts: [{ name: 'via-plugin', cluster: 'demo', user: 'plugin-user' }],
     })
-    const shell = fakeShell(dir, `printf '__KUBESTACKS_PATH__%s__KUBESTACKS_PATH__' "${bin}:$PATH"`)
+    const shell = fakeShell(dir, `printf '__LUMOVI_PATH__%s__LUMOVI_PATH__' "${bin}:$PATH"`)
     const { page, app } = await launch({ env: { SHELL: shell, KUBECONFIG: kubeconfig } })
     await expect(clusterOption(page, 'via-plugin')).toContainText(DEMO.gitVersion)
     expect(await app.evaluate(() => process.env.PATH)).toContain(bin)
   })
 
   test('keeps the inherited PATH when the shell prints nothing or fails', async ({ launch }) => {
-    const dir = mkdtempSync(join(tmpdir(), 'kubestacks-shell-'))
+    const dir = mkdtempSync(join(tmpdir(), 'lumovi-shell-'))
     for (const body of ['exit 0', 'exit 3']) {
       const { app, page, close } = await launch({ env: { SHELL: fakeShell(dir, body) } })
       // Cluster requests wait for the shell, so a connected cluster means it has answered.
@@ -415,7 +415,7 @@ test('connects to plain HTTP clusters only when allowed', async ({ page }) => {
 
 test('rejects malformed changes from the renderer', async ({ page, clusters }) => {
   const errors = await page.evaluate(async () => {
-    const kube = window.kubestacks!.kube
+    const kube = window.lumovi!.kube
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = async (promise: Promise<any>) => {
       const result = await promise
@@ -483,7 +483,7 @@ test('rejects malformed changes from the renderer', async ({ page, clusters }) =
       call(kube.history(loose({ context: 'demo', kind: 'Pod', namespace: 'default', name: 'x' }))),
       call(kube.history(loose({ context: 'demo', kind: 'Deployment', name: 'x' }))),
       call(kube.history(loose({ context: 'demo', kind: 'Deployment', namespace: 'shop' }))),
-      window.kubestacks!.app.setReadOnly(loose(''), loose('yes')).then(
+      window.lumovi!.app.setReadOnly(loose(''), loose('yes')).then(
         () => 'ok',
         (error: Error) => error.message,
       ),
@@ -548,7 +548,7 @@ test('actions stay available when the cluster can’t answer access checks', asy
 
 test('rejects malformed shell and port-forward requests', async ({ page }) => {
   const results = await page.evaluate(async () => {
-    const { terminal, forwards: maybeForwards, kube } = window.kubestacks!
+    const { terminal, forwards: maybeForwards, kube } = window.lumovi!
     const forwards = maybeForwards!
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = async (promise: Promise<any>) => {
@@ -639,14 +639,14 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
   })
   // Without a local port, a free one is picked.
   const picked = await page.evaluate(async () => {
-    const result = await window.kubestacks!.forwards!.start({
+    const result = await window.lumovi!.forwards!.start({
       context: 'demo',
       namespace: 'shop',
       kind: 'Service',
       name: 'storefront',
       port: 80,
     })
-    if (result.ok) await window.kubestacks!.forwards!.stop(result.data.id)
+    if (result.ok) await window.lumovi!.forwards!.stop(result.data.id)
     return result.ok && result.data.localPort
   })
   expect(picked).toBeGreaterThan(1024)
@@ -668,18 +668,16 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
   ])
 })
 
-test('opens local forwarded ports in the browser, but no other plain HTTP', async ({
-  kubestacks,
-}) => {
-  const opened = await mockOpenExternal(kubestacks.app)
-  const results = await kubestacks.page.evaluate(() =>
+test('opens local forwarded ports in the browser, but no other plain HTTP', async ({ lumovi }) => {
+  const opened = await mockOpenExternal(lumovi.app)
+  const results = await lumovi.page.evaluate(() =>
     Promise.all(
       [
         'http://localhost:8080/app',
         'http://localhost:3000',
         'http://localhost.example.com:80',
         'http://example.com',
-      ].map((url) => window.kubestacks!.app.openExternal(url)),
+      ].map((url) => window.lumovi!.app.openExternal(url)),
     ),
   )
   expect(results).toEqual([true, true, false, false])

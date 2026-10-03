@@ -1,10 +1,10 @@
-# KubeStacks, served from a cluster: Node.js, helm, the server and the page
-# (https://docs.kubestacks.com/server/overview).
+# Lumovi, served from a cluster: Node.js, helm, the server and the page
+# (https://docs.lumovi.dev/server/overview).
 #
-#   docker build -t kubestacks .
+#   docker build -t lumovi .
 #
 # The image runs as a non-root user, with nothing but Node.js (no shell), and writes only
-# to /tmp. Its Helm chart is in charts/kubestacks.
+# to /tmp. Its Helm chart is in charts/lumovi.
 
 # The build makes JavaScript, the same for every platform: it runs on the builder's.
 FROM --platform=$BUILDPLATFORM node:26-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS build
@@ -29,10 +29,10 @@ RUN apk add --no-cache curl \
 
 FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:2ee7b2c54a3e37dfc248af81c9f6bcdcaa50abe4af44aa47a3388431031b9283
 ARG VERSION=dev
-LABEL org.opencontainers.image.title="KubeStacks" \
+LABEL org.opencontainers.image.title="Lumovi" \
       org.opencontainers.image.description="A beautiful, fast Kubernetes dashboard, served from your cluster." \
-      org.opencontainers.image.source="https://github.com/KubeStacks/KubeStacks" \
-      org.opencontainers.image.url="https://kubestacks.com" \
+      org.opencontainers.image.source="https://github.com/Lumovi/Lumovi" \
+      org.opencontainers.image.url="https://lumovi.dev" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}"
 WORKDIR /app
@@ -44,7 +44,7 @@ COPY --from=build /src/out/server/THIRD_PARTY_NOTICES.txt /app/licenses/SERVER_T
 COPY --from=build /src/out/server/index.js /app/out/server/index.js
 COPY --from=build /src/out/renderer /app/out/renderer
 ENV NODE_ENV=production \
-    KUBESTACKS_HELM=/usr/local/bin/helm \
+    LUMOVI_HELM=/usr/local/bin/helm \
     HELM_CACHE_HOME=/tmp/helm/cache \
     HELM_CONFIG_HOME=/tmp/helm/config \
     HELM_DATA_HOME=/tmp/helm/data

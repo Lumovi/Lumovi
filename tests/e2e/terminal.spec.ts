@@ -70,7 +70,7 @@ test('a shell in a container', async ({ page, clusters }) => {
   const lines = (await screen(page).innerText()).split('\n').length
   await page.evaluate(
     (pod) =>
-      window.kubestacks!.terminal.open('someone-else', {
+      window.lumovi!.terminal.open('someone-else', {
         context: 'demo',
         namespace: 'shop',
         pod,
@@ -200,11 +200,11 @@ test('shells need exec access and a writable cluster', async ({ page, clusters }
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByRole('option', { name: 'Make demo read-only' }).click()
   await expect(detail).toContainText(
-    'demo is read-only in KubeStacks, and a shell can change a container.',
+    'demo is read-only in Lumovi, and a shell can change a container.',
   )
   const refused = await page.evaluate(
     (pod) =>
-      window.kubestacks!.terminal.open('refused-session', {
+      window.lumovi!.terminal.open('refused-session', {
         context: 'demo',
         namespace: 'shop',
         pod,
@@ -269,8 +269,8 @@ test('debug a pod with a temporary container', async ({ page, clusters }) => {
   )
 })
 
-test('forward a port to a pod', async ({ page, kubestacks, clusters }) => {
-  const opened = await mockOpenExternal(kubestacks.app)
+test('forward a port to a pod', async ({ page, lumovi, clusters }) => {
+  const opened = await mockOpenExternal(lumovi.app)
   const local = await freePort()
   await open(page, 'Pods', POD)
   await menuAction(page, 'Pod', POD, 'Forward a port…')

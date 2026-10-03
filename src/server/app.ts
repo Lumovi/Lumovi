@@ -1,5 +1,5 @@
 /**
- * The KubeStacks server: the page and its files, signing in and out, and a
+ * The Lumovi server: the page and its files, signing in and out, and a
  * WebSocket for each page, all below the configured base path.
  */
 import http, { type IncomingMessage, type ServerResponse } from 'node:http'
@@ -54,7 +54,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * path (undefined when the request isn't for the server).
    */
   const address = (req: IncomingMessage) => {
-    const url = URL.parse(req.url!, 'http://kubestacks')
+    const url = URL.parse(req.url!, 'http://lumovi')
     const path = url?.pathname.startsWith(base) ? url.pathname.slice(base.length) : undefined
     return { url, path }
   }
@@ -64,7 +64,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === undefined) {
       // The base path without its trailing slash, as people type it.
       if (`${url?.pathname}/` === base) redirect(res, base)
-      else sendJson(res, 404, { error: `KubeStacks is at ${base}` })
+      else sendJson(res, 404, { error: `Lumovi is at ${base}` })
       return
     }
     const route = `${req.method} ${path}`

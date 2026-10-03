@@ -29,7 +29,7 @@ test.beforeAll(() => {
   // The same cluster, as the view-only account.
   const admin = JSON.parse(kubectl(['config', 'view', '--raw', '--minify', '-o', 'json']))
   const cluster = admin.clusters[0]
-  kubeconfig = join(mkdtempSync(join(tmpdir(), 'kubestacks-viewer-')), 'config')
+  kubeconfig = join(mkdtempSync(join(tmpdir(), 'lumovi-viewer-')), 'config')
   writeFileSync(
     kubeconfig,
     JSON.stringify({

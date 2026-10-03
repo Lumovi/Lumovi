@@ -153,7 +153,7 @@ function fromResourceList(list: ResourceList): Found[] {
     }))
 }
 
-/** What KubeStacks can browse: kinds that can be listed, described like the built-in ones. */
+/** What Lumovi can browse: kinds that can be listed, described like the built-in ones. */
 function definitions(found: Found[]): ResourceDefinition[] {
   const resources = new Map<string, ResourceDefinition>()
   for (const f of found) {

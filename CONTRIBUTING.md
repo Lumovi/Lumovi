@@ -1,12 +1,12 @@
-# Contributing to KubeStacks
+# Contributing to Lumovi
 
 Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 
 ## Before you start
 
-- **Bugs and ideas:** open an [issue](https://github.com/KubeStacks/KubeStacks/issues) first
+- **Bugs and ideas:** open an [issue](https://github.com/Lumovi/Lumovi/issues) first
   for anything bigger than a small fix, so we can agree on the approach.
-- **Scope:** KubeStacks is for looking after workloads, clusters and Helm releases. Managing
+- **Scope:** Lumovi is for looking after workloads, clusters and Helm releases. Managing
   kubeconfig files (adding contexts, signing in to cloud providers) is out of scope.
 - **Security issues:** please don't open a public issue. See [SECURITY.md](SECURITY.md).
 
@@ -18,17 +18,17 @@ npm ci
 npm run dev:mock # runs the app against the built-in demo clusters
 ```
 
-`npm run dev` uses your own kubeconfig instead, and `npm run dev:server` serves KubeStacks
+`npm run dev` uses your own kubeconfig instead, and `npm run dev:server` serves Lumovi
 as it runs in a cluster, against the demo clusters. The app can change clusters, so try your
 work against the demo clusters or a local [kind](https://kind.sigs.k8s.io) cluster, not
-production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
+production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 
 ## Making a change
 
 1. Create a branch from `main`.
 2. Keep the change focused, and match the style of the code around it.
 3. Add or update end-to-end tests in `tests/e2e/` for what you changed (and in `tests/web/`
-   for what's different when KubeStacks is served). Tests drive the real app through the UI,
+   for what's different when Lumovi is served). Tests drive the real app through the UI,
    like a user would. If you need a new cluster state, add it to the demo
    fixture in `tests/mock-cluster/fixtures/` (when it's realistic) or create it in the test
    with `clusters.demo.upsert(...)`.
@@ -44,19 +44,19 @@ production. `KUBESTACKS_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    (`npm run screenshots -- overview pods` takes those two, light and dark, into
    `docs/screenshots`; see [Screenshots](#screenshots)).
 
-Changes to how KubeStacks talks to clusters are also worth checking against a real one:
+Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
 integration tests (see [docs/development.md](docs/development.md#integration-tests)).
 
 ## Adding a tool
 
-KubeStacks shows what popular operators run through _views_ and _add-ons_, written as data
+Lumovi shows what popular operators run through _views_ and _add-ons_, written as data
 in `src/renderer/src/views/<tool>.yaml` (the format:
-[docs.kubestacks.com/reference/view-format](https://docs.kubestacks.com/reference/view-format)).
+[docs.lumovi.dev/reference/view-format](https://docs.lumovi.dev/reference/view-format)).
 An add-on gives a tool its entry in the sidebar and lists its kinds; views say how each kind
 is shown: its columns, status, details, related objects, links and actions. Adding a tool
 needs no code, and is a good first contribution. To ask for one instead, open a
-[_Support a tool_](https://github.com/KubeStacks/KubeStacks/issues/new?template=tool_request.yml)
+[_Support a tool_](https://github.com/Lumovi/Lumovi/issues/new?template=tool_request.yml)
 issue.
 
 1. Pin the tool's CRDs: add its release to `tests/views/crds/sources.json`, under the
@@ -72,7 +72,7 @@ issue.
    action against the CRDs you pinned, so a misremembered field fails here rather than
    showing nothing. Labels and annotations aren't in schemas, so check those against the
    tool's documentation, or a real cluster.
-4. Look at it: put the file in `~/.kubestacks/views` (or the folder `KUBESTACKS_VIEWS_DIR`
+4. Look at it: put the file in `~/.lumovi/views` (or the folder `LUMOVI_VIEWS_DIR`
    names) while running `npm run dev` against a cluster with the tool installed. Views are
    read again on refresh (⌘R / Ctrl+R).
 
@@ -133,13 +133,13 @@ suffix, like `1.3.0-beta.1`, is published as a pre-release.
 
 When CI passes on that commit, the _Release_ workflow sees a version without a release, and
 builds the installers for every platform (signing and notarizing the macOS app), and the
-image (`ghcr.io/kubestacks/kubestacks`) and Helm chart (`oci://ghcr.io/kubestacks/charts`),
+image (`ghcr.io/lumovi/lumovi`) and Helm chart (`oci://ghcr.io/lumovi/charts`),
 which it pushes to GitHub's container registry with provenance attestations. It attaches
 them and a `SHA256SUMS.txt` to a GitHub release, with the version's CHANGELOG section as
 its notes, and publishes it with an annotated tag, `v1.2.0`, on the commit CI tested. It
 refuses a version that isn't newer than the last release, or that has no CHANGELOG section.
 Each file gets a signed build provenance attestation (`gh attestation verify <file> --repo
-KubeStacks/KubeStacks`; `--owner kotapeter` for 1.1.0 and earlier, built before the project
+Lumovi/Lumovi`; `--owner kotapeter` for 1.1.0 and earlier, built before the project
 moved), and published releases are immutable. A release that fails part of
 the way can be run again from the workflow's page (_Run workflow_).
 

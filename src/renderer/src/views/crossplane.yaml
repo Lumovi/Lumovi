@@ -1,5 +1,5 @@
 # Crossplane (https://crossplane.io): the packages that extend it.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: crossplane
@@ -13,7 +13,7 @@ spec:
     - { group: apiextensions.crossplane.io, kind: CompositeResourceDefinition }
     - { group: apiextensions.crossplane.io, kind: Composition }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: crossplane-packages

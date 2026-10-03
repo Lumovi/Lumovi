@@ -1,5 +1,5 @@
 /**
- * Fetches the CRDs of the operators KubeStacks ships views for, at the
+ * Fetches the CRDs of the operators Lumovi ships views for, at the
  * versions in tests/views/crds/sources.json, and keeps what the views check
  * (tests/views) needs of them: their kinds, versions and the shape of their
  * schemas, without descriptions or validations.

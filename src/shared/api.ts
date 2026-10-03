@@ -33,9 +33,9 @@ export interface Settings {
   theme: ThemePreference
   /** Where the window was when it last closed. */
   window?: WindowState
-  /** Contexts the user has made read-only: KubeStacks refuses to change them. */
+  /** Contexts the user has made read-only: Lumovi refuses to change them. */
   readOnly?: string[]
-  /** Every context is read-only (KUBESTACKS_READ_ONLY is set); not stored. */
+  /** Every context is read-only (LUMOVI_READ_ONLY is set); not stored. */
   readOnlyAll?: boolean
   /** Where each context's metrics history comes from, when not detected automatically. */
   metricsSource?: Record<string, MetricsSourceSetting>
@@ -43,7 +43,7 @@ export interface Settings {
   autoUpdate?: boolean
 }
 
-/** Where updating KubeStacks to a new version is at. */
+/** Where updating Lumovi to a new version is at. */
 export type UpdateState =
   /** Nothing to tell: no check yet. */
   | { status: 'idle' }
@@ -205,7 +205,7 @@ export interface KubeObject {
 
 export interface KubeList {
   items: KubeObject[]
-  /** True when the collection has more objects than were loaded (see KUBESTACKS_MAX_LIST_ITEMS). */
+  /** True when the collection has more objects than were loaded (see LUMOVI_MAX_LIST_ITEMS). */
   truncated: boolean
   /** How many objects match on the server, when the API reports it. */
   total?: number
@@ -227,7 +227,7 @@ export interface TableColumn {
   priority: number
 }
 
-/** The part of a kind's OpenAPI schema KubeStacks uses to explain its fields. */
+/** The part of a kind's OpenAPI schema Lumovi uses to explain its fields. */
 export interface FieldSchema {
   type?: string
   description?: string
@@ -298,7 +298,7 @@ export interface ChartSource {
 /** The user's helm, which makes the changes. */
 export interface HelmCli {
   available: boolean
-  /** What runs: KUBESTACKS_HELM, or helm on the PATH. */
+  /** What runs: LUMOVI_HELM, or helm on the PATH. */
   command: string
   version?: string
 }
@@ -370,8 +370,8 @@ export interface LintResult {
 }
 
 /**
- * View files the user keeps next to KubeStacks' own (the format:
- * https://docs.kubestacks.com/reference/view-format).
+ * View files the user keeps next to Lumovi's own (the format:
+ * https://docs.lumovi.dev/reference/view-format).
  */
 export interface LocalViews {
   directory: string
@@ -558,10 +558,10 @@ export interface AccessCheck {
   subresource?: string
 }
 
-/** Where KubeStacks runs: the desktop app, or a server in a cluster that pages connect to. */
+/** Where Lumovi runs: the desktop app, or a server in a cluster that pages connect to. */
 export type Host = 'desktop' | 'server'
 
-export interface KubestacksApi {
+export interface LumoviApi {
   /** The operating system the page runs on, as Node.js names it (darwin, win32, linux). */
   platform: string
   host: Host

@@ -5,7 +5,7 @@ import { resourceFor, useResources } from '@renderer/hooks/resources'
 /**
  * Another object (an owner, an event's subject, a view's link), opened in the
  * detail panel. References name an apiVersion and kind, which identify any
- * kind; without an apiVersion, `kind` is how KubeStacks names the kind
+ * kind; without an apiVersion, `kind` is how Lumovi names the kind
  * ("Secret", "ClusterIssuer.cert-manager.io"). Only kinds the cluster serves open.
  */
 export function ObjectLink({

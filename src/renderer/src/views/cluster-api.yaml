@@ -1,6 +1,6 @@
 # Cluster API (https://cluster-api.sigs.k8s.io): the clusters this one manages, and their machines.
 # Status rules read both API versions: v1beta2 says Available where v1beta1 says Ready.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: cluster-api
@@ -17,7 +17,7 @@ spec:
     - { group: cluster.x-k8s.io, kind: MachineHealthCheck }
     - { group: cluster.x-k8s.io, kind: ClusterClass }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cluster-api-clusters
@@ -89,7 +89,7 @@ spec:
       done: Resumed {{ .metadata.name }}
 ---
 # Groups of machines, scaled like Deployments (their scale subresource).
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cluster-api-machine-groups
@@ -140,7 +140,7 @@ spec:
       kind: Machine.cluster.x-k8s.io
       labels: { cluster.x-k8s.io/deployment-name: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cluster-api-control-planes
@@ -186,7 +186,7 @@ spec:
       kind: Machine.cluster.x-k8s.io
       labels: { cluster.x-k8s.io/control-plane-name: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cluster-api-machines
@@ -221,7 +221,7 @@ spec:
       kind: Cluster.cluster.x-k8s.io
       objectName: '{{ .spec.clusterName }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cluster-api-health-checks
@@ -243,7 +243,7 @@ spec:
       kind: Cluster.cluster.x-k8s.io
       objectName: '{{ .spec.clusterName }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cluster-api-cluster-classes

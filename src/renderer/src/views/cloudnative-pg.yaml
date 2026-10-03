@@ -1,5 +1,5 @@
 # CloudNativePG (https://cloudnative-pg.io): PostgreSQL clusters and their backups.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: cloudnative-pg
@@ -13,7 +13,7 @@ spec:
     - { group: postgresql.cnpg.io, kind: ScheduledBackup }
     - { group: postgresql.cnpg.io, kind: Database }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cloudnative-pg-clusters
@@ -97,7 +97,7 @@ spec:
           annotations: { kubectl.kubernetes.io/restartedAt: '{{ now }}' }
       done: Restarted {{ .metadata.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cloudnative-pg-backups
@@ -124,7 +124,7 @@ spec:
       kind: Cluster.postgresql.cnpg.io
       objectName: '{{ .spec.cluster.name }}'
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: cloudnative-pg-scheduled-backups

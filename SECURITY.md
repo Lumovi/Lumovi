@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through
-[GitHub security advisories](https://github.com/KubeStacks/KubeStacks/security/advisories/new),
+[GitHub security advisories](https://github.com/Lumovi/Lumovi/security/advisories/new),
 or by email to kotapeter@gmail.com. Please don't open a public issue.
 
 Include what you found, how to reproduce it and the impact you expect. You'll get an
@@ -15,7 +15,7 @@ Security fixes go into the latest release.
 
 ## Security model
 
-KubeStacks handles cluster credentials, so it's built to keep them contained:
+Lumovi handles cluster credentials, so it's built to keep them contained:
 
 - Kubeconfig credentials, including tokens, client keys and credential-plugin output, stay in
   the main process. The page never sees them.
@@ -24,7 +24,7 @@ KubeStacks handles cluster credentials, so it's built to keep them contained:
 - The main process only answers IPC calls from the app's own page, and validates every
   argument.
 - Changes to clusters go through a small set of validated operations, refused for contexts
-  the user made read-only (or all of them, with `KUBESTACKS_READ_ONLY`).
+  the user made read-only (or all of them, with `LUMOVI_READ_ONLY`).
 - Only `https://` links, and `http://localhost:<port>` for your own port forwards, are handed
   to the operating system.
 - Updates come from this repository's GitHub releases over HTTPS. Each download is checked

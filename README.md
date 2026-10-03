@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="build/icon.png" width="112" alt="KubeStacks icon" />
+<img src="build/icon.png" width="112" alt="Lumovi icon" />
 
-# KubeStacks
+# Lumovi
 
 **A beautiful, fast Kubernetes dashboard. On your desktop, or in your cluster.**
 
@@ -10,25 +10,25 @@ See what's healthy, what's struggling and where your capacity goes, and fix thin
 when they need it. Use it as a desktop app for every cluster in your kubeconfig, or host it
 in your own cluster for your whole team to open in a browser.
 
-[![Release](https://img.shields.io/github/v/release/KubeStacks/KubeStacks?label=release&color=2a78d6)](https://github.com/KubeStacks/KubeStacks/releases/latest)
-[![CI](https://github.com/KubeStacks/KubeStacks/actions/workflows/ci.yml/badge.svg)](https://github.com/KubeStacks/KubeStacks/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Lumovi/Lumovi?label=release&color=2a78d6)](https://github.com/Lumovi/Lumovi/releases/latest)
+[![CI](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml/badge.svg)](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml)
 [![E2E coverage](https://img.shields.io/badge/e2e%20coverage-100%25-3fb950)](docs/development.md#testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/kotapeter)
 
 [**Download**](#desktop-app) · [**Install in a cluster**](#in-your-cluster) ·
-[**Documentation**](https://docs.kubestacks.com) · [**kubestacks.com**](https://kubestacks.com)
+[**Documentation**](https://docs.lumovi.dev) · [**lumovi.dev**](https://lumovi.dev)
 
 </div>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp" />
-  <img src="docs/screenshots/overview-light.webp" alt="KubeStacks' overview of a cluster" />
+  <img src="docs/screenshots/overview-light.webp" alt="Lumovi's overview of a cluster" />
 </picture>
 
 ## Two ways to run it
 
-KubeStacks is one app, built from one codebase and released as one version. Run it where it
+Lumovi is one app, built from one codebase and released as one version. Run it where it
 suits you:
 
 |                | Desktop app                                     | In your cluster                                                                                  |
@@ -47,7 +47,7 @@ suits you:
   attention and the most recent warnings.
 - **Resource consumption.** Live CPU and memory from metrics-server against allocatable
   capacity, with requests and limits, per-node meters, usage trends and the busiest pods.
-- **Usage over time.** KubeStacks finds your Prometheus or VictoriaMetrics and charts what
+- **Usage over time.** Lumovi finds your Prometheus or VictoriaMetrics and charts what
   the cluster uses, from the last 15 minutes to the last week, ranked and compared by
   namespace, workload, pod and node, and set against requests, limits and capacity.
 - **Right-sizing.** What each workload should request, from a week of its usage: what's
@@ -108,7 +108,7 @@ More, light and dark: [docs/screenshots](docs/screenshots).
 ### Desktop app
 
 Download the installer for your platform from the
-[latest release](https://github.com/KubeStacks/KubeStacks/releases/latest):
+[latest release](https://github.com/Lumovi/Lumovi/releases/latest):
 
 | Platform                      | Files                       |
 | ----------------------------- | --------------------------- |
@@ -116,7 +116,7 @@ Download the installer for your platform from the
 | Windows (x64 & arm64)         | `.exe` installer            |
 | Linux (x64 & arm64)           | `.AppImage`, `.deb`, `.rpm` |
 
-Open it and pick a cluster: KubeStacks reads them from the same place `kubectl` does
+Open it and pick a cluster: Lumovi reads them from the same place `kubectl` does
 (`KUBECONFIG`, or `~/.kube/config`), credential plugins included. It keeps itself up to date:
 a new version downloads in the background and installs when you restart the app.
 
@@ -125,19 +125,19 @@ a new version downloads in the background and installs when you restart the app.
 
 To build it yourself: `npm ci && npm run dist` (Node.js 24 or later) puts the installers for
 your platform in `release/`. More in
-[Get started on the desktop](https://docs.kubestacks.com/get-started/desktop).
+[Get started on the desktop](https://docs.lumovi.dev/get-started/desktop).
 
 ### In your cluster
 
-Install the Helm chart, then open KubeStacks through a port forward:
+Install the Helm chart, then open Lumovi through a port forward:
 
 ```sh
-helm install kubestacks oci://ghcr.io/kubestacks/charts/kubestacks \
-  --namespace kubestacks --create-namespace
-kubectl port-forward --namespace kubestacks service/kubestacks 8080:80
+helm install lumovi oci://ghcr.io/lumovi/charts/lumovi \
+  --namespace lumovi --create-namespace
+kubectl port-forward --namespace lumovi service/lumovi 8080:80
 ```
 
-Open <http://localhost:8080> and sign in with a token the cluster accepts. KubeStacks sends
+Open <http://localhost:8080> and sign in with a token the cluster accepts. Lumovi sends
 your requests with it, so its permissions apply: a service account's, for example, valid for
 an hour:
 
@@ -149,57 +149,57 @@ For your team, give it an address of its own with the chart's ingress, and sign 
 with your identity provider:
 
 ```yaml
-url: https://kubestacks.example.com
+url: https://lumovi.example.com
 ingress:
   enabled: true
-  hosts: [kubestacks.example.com]
+  hosts: [lumovi.example.com]
 auth:
   mode: oidc
   oidc:
     issuer: https://login.example.com
-    clientId: kubestacks
-    existingSecret: kubestacks-oidc # the client's secret, under client-secret
+    clientId: lumovi
+    existingSecret: lumovi-oidc # the client's secret, under client-secret
 ```
 
-The image, `ghcr.io/kubestacks/kubestacks` (`linux/amd64` and `linux/arm64`), runs as a
+The image, `ghcr.io/lumovi/lumovi` (`linux/amd64` and `linux/arm64`), runs as a
 non-root user without a shell, and also runs
-[outside Kubernetes](https://docs.kubestacks.com/server/docker) against a kubeconfig. See
-[KubeStacks in your cluster](https://docs.kubestacks.com/server/overview) for single sign-on
+[outside Kubernetes](https://docs.lumovi.dev/server/docker) against a kubeconfig. See
+[Lumovi in your cluster](https://docs.lumovi.dev/server/overview) for single sign-on
 and authenticating proxies, ingress, security and every setting.
 
 ## Documentation
 
-The documentation is at **[docs.kubestacks.com](https://docs.kubestacks.com)**:
+The documentation is at **[docs.lumovi.dev](https://docs.lumovi.dev)**:
 
-| Guide                                                                     | What it covers                                                           |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [Get started](https://docs.kubestacks.com/get-started/desktop)            | Installing the desktop app or KubeStacks in your cluster, and a tour     |
-| [Using KubeStacks](https://docs.kubestacks.com/explore/overview)          | Finding your way, changing things safely, logs, shells, metrics and Helm |
-| [Custom resources](https://docs.kubestacks.com/custom-resources/overview) | The views KubeStacks comes with, and writing your own                    |
-| [In your cluster](https://docs.kubestacks.com/server/overview)            | Installing with Helm, signing in, security and configuration             |
-| [Reference](https://docs.kubestacks.com/reference/keyboard-shortcuts)     | Shortcuts, settings, the view format, troubleshooting and FAQ            |
+| Guide                                                                 | What it covers                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [Get started](https://docs.lumovi.dev/get-started/desktop)            | Installing the desktop app or Lumovi in your cluster, and a tour         |
+| [Using Lumovi](https://docs.lumovi.dev/explore/overview)              | Finding your way, changing things safely, logs, shells, metrics and Helm |
+| [Custom resources](https://docs.lumovi.dev/custom-resources/overview) | The views Lumovi comes with, and writing your own                        |
+| [In your cluster](https://docs.lumovi.dev/server/overview)            | Installing with Helm, signing in, security and configuration             |
+| [Reference](https://docs.lumovi.dev/reference/keyboard-shortcuts)     | Shortcuts, settings, the view format, troubleshooting and FAQ            |
 
 In this repository: [Development](docs/development.md) (building, architecture and testing),
 and the [Changelog](CHANGELOG.md).
 
 ## Security and privacy
 
-- **Your permissions, nothing more.** KubeStacks asks the cluster what you may do before
+- **Your permissions, nothing more.** Lumovi asks the cluster what you may do before
   offering it. In a cluster, everyone signs in and works with their own RBAC, the browser
-  keeps nothing but a session cookie, and KubeStacks never acts as Kubernetes' own users or
+  keeps nothing but a session cookie, and Lumovi never acts as Kubernetes' own users or
   groups.
 - **No telemetry, no accounts.** The desktop app connects only to your clusters (and through
   them to Prometheus), to [Artifact Hub](https://artifacthub.io) when you search it for
   charts, and to GitHub to look for new versions, which you can turn off.
 - **Verifiable releases.** Every installer, the image and the chart carry a signed build
-  provenance attestation (`gh attestation verify <file> --repo KubeStacks/KubeStacks`), and
+  provenance attestation (`gh attestation verify <file> --repo Lumovi/Lumovi`), and
   each release lists its installers' SHA-256 checksums.
 - **Reporting a vulnerability.** See [SECURITY.md](SECURITY.md).
 
 ## Requirements
 
 - **Kubernetes** 1.25 or later. Fields are explained from the cluster's OpenAPI schema from
-  1.27, and signing in to KubeStacks in a cluster with a token needs 1.28.
+  1.27, and signing in to Lumovi in a cluster with a token needs 1.28.
 - **Desktop:** macOS 12 or later, Windows 10 or later, or a recent 64-bit Linux. `kubectl`
   isn't needed, and [Helm](https://helm.sh) is only needed to change Helm releases.
 - **In a cluster:** Helm 3.8 or later to install the chart, on `linux/amd64` or
@@ -208,7 +208,7 @@ and the [Changelog](CHANGELOG.md).
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first, and
-[docs/development.md](docs/development.md) to build and test KubeStacks.
+[docs/development.md](docs/development.md) to build and test Lumovi.
 
 A good first contribution is support for a tool you run: an add-on and views, written as YAML
 and checked against the tool's CRDs, with no code to write. See
@@ -216,7 +216,7 @@ and checked against the tool's CRDs, with no code to write. See
 
 ## Sponsoring
 
-KubeStacks is free and open source, made in spare time. If it saves you time, you can
+Lumovi is free and open source, made in spare time. If it saves you time, you can
 [sponsor its development](https://github.com/sponsors/kotapeter) on GitHub; the app has a
 link in its **Help** menu too.
 

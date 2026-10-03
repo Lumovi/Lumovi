@@ -63,7 +63,7 @@ async function socket(served: Served, cookie: string, options: WebSocket.ClientO
 }
 
 test('what the server answers over HTTP', async ({ serve }) => {
-  const served = await serve({ env: { KUBESTACKS_URL: 'https://kubestacks.example.com' } })
+  const served = await serve({ env: { LUMOVI_URL: 'https://lumovi.example.com' } })
   const api = await http.newContext()
   const url = (path: string) => `${served.url}${path}`
 
@@ -141,7 +141,7 @@ test('what the server answers over HTTP', async ({ serve }) => {
 })
 
 test('signing in and out over HTTP: only from the server’s own pages', async ({ serve }) => {
-  const served = await serve({ env: { KUBESTACKS_URL: 'https://kubestacks.example.com' } })
+  const served = await serve({ env: { LUMOVI_URL: 'https://lumovi.example.com' } })
   const api = await http.newContext()
   const session = `${served.url}api/session`
   const origin = new URL(served.url).origin
@@ -154,7 +154,7 @@ test('signing in and out over HTTP: only from the server’s own pages', async (
   for (const headers of strangers) {
     const refused = await api.post(session, { headers, data: { token: DEMO_TOKEN } })
     expect(refused.status()).toBe(403)
-    expect(await refused.json()).toEqual({ error: 'Sign in from KubeStacks’ own page.' })
+    expect(await refused.json()).toEqual({ error: 'Sign in from Lumovi’s own page.' })
     expect((await api.delete(session, { headers })).status()).toBe(403)
   }
   // Malformed: not JSON, too large, no token, a token with spaces in it.
@@ -176,17 +176,17 @@ test('signing in and out over HTTP: only from the server’s own pages', async (
   // The public address counts as the server's own, whatever the proxy calls it; with HTTPS
   // there (or at the proxy), the cookie is only ever sent over HTTPS.
   const signedIn = await api.post(session, {
-    headers: { Origin: 'https://kubestacks.example.com' },
+    headers: { Origin: 'https://lumovi.example.com' },
     data: { token: DEMO_TOKEN },
   })
   expect(signedIn.status()).toBe(200)
   expect(await signedIn.json()).toEqual({
-    user: { name: 'kubestacks-demo', groups: ['system:masters', 'system:authenticated'] },
+    user: { name: 'lumovi-demo', groups: ['system:masters', 'system:authenticated'] },
     auth: 'token',
     cluster: 'demo',
   })
   expect(signedIn.headers()['set-cookie']).toMatch(
-    /^kubestacks-session=[\w-]{43}; Path=\/; Max-Age=43200; SameSite=Lax; HttpOnly; Secure$/,
+    /^lumovi-session=[\w-]{43}; Path=\/; Max-Age=43200; SameSite=Lax; HttpOnly; Secure$/,
   )
   const plain = await serve()
   const proxied = await api.post(`${plain.url}api/session`, {
@@ -201,7 +201,7 @@ test('signing in and out over HTTP: only from the server’s own pages', async (
   expect(unencrypted.headers()['set-cookie']).not.toContain('Secure')
   // Cookies it doesn't know are no session; signing out without one is fine.
   const stranger = await api.get(`${plain.url}api/session`, {
-    headers: { Cookie: 'theme; =x; kubestacks-session=made-up; other=%E0%A4%A' },
+    headers: { Cookie: 'theme; =x; lumovi-session=made-up; other=%E0%A4%A' },
   })
   expect(stranger.status()).toBe(401)
   const out = await api.delete(`${plain.url}api/session`, {
@@ -213,7 +213,7 @@ test('signing in and out over HTTP: only from the server’s own pages', async (
 })
 
 test('the WebSocket only takes the server’s own pages’ messages', async ({ serve, clusters }) => {
-  const served = await serve({ env: { KUBESTACKS_HEARTBEAT_SECONDS: '0.25' } })
+  const served = await serve({ env: { LUMOVI_HEARTBEAT_SECONDS: '0.25' } })
   const cookie = await sessionCookie(served)
   const page = await socket(served, cookie)
 
@@ -224,7 +224,7 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   expect(await page.call(3, IPC.setReadOnly, 'demo', 'yes')).toMatchObject({
     error: 'Expected a context name and whether it is read-only',
   })
-  expect((await page.call(4, IPC.appInfo)).value).toMatchObject({ name: 'KubeStacks' })
+  expect((await page.call(4, IPC.appInfo)).value).toMatchObject({ name: 'Lumovi' })
   // The one cluster it shows.
   expect((await page.call(8, IPC.version, 'elsewhere')).value).toEqual({
     ok: false,
@@ -258,7 +258,7 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   const large = await socket(served, cookie)
   large.ws.send('x'.repeat(9 * 1024 * 1024))
   expect((await large.closed).code).toBe(1009)
-  expect((await page.call(9, IPC.appInfo)).value).toMatchObject({ name: 'KubeStacks' })
+  expect((await page.call(9, IPC.appInfo)).value).toMatchObject({ name: 'Lumovi' })
   // Pings keep it open while it answers them.
   await new Promise((resolve) => setTimeout(resolve, 1000))
   expect(page.ws.readyState).toBe(WebSocket.OPEN)
@@ -280,7 +280,7 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   ]) {
     const other = await socket(served, cookie)
     other.ws.send(message)
-    expect(await other.closed).toEqual({ code: 1008, reason: 'Not a KubeStacks message' })
+    expect(await other.closed).toEqual({ code: 1008, reason: 'Not a Lumovi message' })
   }
 
   // Only the server's own pages, signed in, at its address.
@@ -289,7 +289,7 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
     ['api/socket', { Cookie: cookie }],
     ['api/socket', { Cookie: cookie, Origin: 'https://evil.example' }],
     ['api/socket', { Origin: origin }],
-    ['api/socket', { Cookie: 'kubestacks-session=%', Origin: origin }],
+    ['api/socket', { Cookie: 'lumovi-session=%', Origin: origin }],
     ['api/elsewhere', { Cookie: cookie, Origin: origin }],
   ] as const) {
     const refused = new WebSocket(`${served.url.replace('http', 'ws')}${path}`, { headers })
@@ -316,83 +316,80 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
 test('the server says what’s wrong with its configuration, and stops', async ({ clusters }) => {
   const cases: [Record<string, string | undefined>, string][] = [
     [
-      { KUBESTACKS_AUTH: 'magic' },
-      'KUBESTACKS_AUTH must be token, oidc, proxy or unset (token), not "magic".',
+      { LUMOVI_AUTH: 'magic' },
+      'LUMOVI_AUTH must be token, oidc, proxy or unset (token), not "magic".',
     ],
-    [{ KUBESTACKS_AUTH: 'oidc' }, 'KUBESTACKS_OIDC_ISSUER must be set for single sign-on.'],
+    [{ LUMOVI_AUTH: 'oidc' }, 'LUMOVI_OIDC_ISSUER must be set for single sign-on.'],
     [
-      { KUBESTACKS_AUTH: 'oidc', KUBESTACKS_OIDC_ISSUER: 'auth.example.com' },
-      'KUBESTACKS_OIDC_ISSUER must be an http or https URL, not "auth.example.com".',
-    ],
-    [
-      { KUBESTACKS_AUTH: 'oidc', KUBESTACKS_OIDC_ISSUER: 'https://auth.example.com' },
-      'KUBESTACKS_URL must be set for single sign-on: the provider sends people back there.',
+      { LUMOVI_AUTH: 'oidc', LUMOVI_OIDC_ISSUER: 'auth.example.com' },
+      'LUMOVI_OIDC_ISSUER must be an http or https URL, not "auth.example.com".',
     ],
     [
-      {
-        KUBESTACKS_AUTH: 'oidc',
-        KUBESTACKS_OIDC_ISSUER: 'https://auth.example.com',
-        KUBESTACKS_URL: 'https://kubestacks.example.com',
-      },
-      'KUBESTACKS_OIDC_CLIENT_ID must be set for single sign-on.',
-    ],
-    [
-      { KUBESTACKS_URL: 'https://' },
-      'KUBESTACKS_URL must be an http or https URL, not "https://".',
+      { LUMOVI_AUTH: 'oidc', LUMOVI_OIDC_ISSUER: 'https://auth.example.com' },
+      'LUMOVI_URL must be set for single sign-on: the provider sends people back there.',
     ],
     [
       {
-        KUBESTACKS_AUTH: 'oidc',
-        KUBESTACKS_OIDC_ISSUER: 'https://auth.example.com',
-        KUBESTACKS_URL: 'https://kubestacks.example.com',
-        KUBESTACKS_OIDC_CLIENT_ID: 'kubestacks',
-        KUBESTACKS_OIDC_FORWARD_TOKEN: 'both',
+        LUMOVI_AUTH: 'oidc',
+        LUMOVI_OIDC_ISSUER: 'https://auth.example.com',
+        LUMOVI_URL: 'https://lumovi.example.com',
       },
-      'KUBESTACKS_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "both".',
+      'LUMOVI_OIDC_CLIENT_ID must be set for single sign-on.',
+    ],
+    [{ LUMOVI_URL: 'https://' }, 'LUMOVI_URL must be an http or https URL, not "https://".'],
+    [
+      {
+        LUMOVI_AUTH: 'oidc',
+        LUMOVI_OIDC_ISSUER: 'https://auth.example.com',
+        LUMOVI_URL: 'https://lumovi.example.com',
+        LUMOVI_OIDC_CLIENT_ID: 'lumovi',
+        LUMOVI_OIDC_FORWARD_TOKEN: 'both',
+      },
+      'LUMOVI_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "both".',
     ],
     [
-      { KUBESTACKS_AUTH: 'proxy', KUBESTACKS_PROXY_SIGN_OUT_URL: 'javascript:alert(1)' },
-      'KUBESTACKS_PROXY_SIGN_OUT_URL must be an http or https URL, not "javascript:alert(1)".',
+      { LUMOVI_AUTH: 'proxy', LUMOVI_PROXY_SIGN_OUT_URL: 'javascript:alert(1)' },
+      'LUMOVI_PROXY_SIGN_OUT_URL must be an http or https URL, not "javascript:alert(1)".',
     ],
     [
-      { KUBESTACKS_BASE_PATH: '/kube stacks' },
-      'KUBESTACKS_BASE_PATH must be a path like /kubestacks, not "/kube stacks".',
+      { LUMOVI_BASE_PATH: '/lumovi app' },
+      'LUMOVI_BASE_PATH must be a path like /lumovi, not "/lumovi app".',
     ],
-    [{ KUBESTACKS_PORT: 'http' }, 'KUBESTACKS_PORT must be a port number, not "http".'],
+    [{ LUMOVI_PORT: 'http' }, 'LUMOVI_PORT must be a port number, not "http".'],
     [
-      { KUBESTACKS_SESSION_HOURS: '0' },
-      'KUBESTACKS_SESSION_HOURS must be a number from 1 to 168, not "0".',
-    ],
-    [
-      { KUBESTACKS_HEARTBEAT_SECONDS: 'often' },
-      'KUBESTACKS_HEARTBEAT_SECONDS must be a number from 1 to 3600, not "often".',
+      { LUMOVI_SESSION_HOURS: '0' },
+      'LUMOVI_SESSION_HOURS must be a number from 1 to 168, not "0".',
     ],
     [
-      { KUBESTACKS_METRICS_SOURCE: 'prometheus' },
-      'KUBESTACKS_METRICS_SOURCE must be auto, off, or a service like monitoring/prometheus:9090, not "prometheus".',
+      { LUMOVI_HEARTBEAT_SECONDS: 'often' },
+      'LUMOVI_HEARTBEAT_SECONDS must be a number from 1 to 3600, not "often".',
     ],
     [
-      { KUBESTACKS_CONTEXT: 'nowhere' },
+      { LUMOVI_METRICS_SOURCE: 'prometheus' },
+      'LUMOVI_METRICS_SOURCE must be auto, off, or a service like monitoring/prometheus:9090, not "prometheus".',
+    ],
+    [
+      { LUMOVI_CONTEXT: 'nowhere' },
       'The kubeconfig in KUBECONFIG has no context "nowhere" to show.',
     ],
     [
-      { KUBESTACKS_CONTEXT: 'broken-ref' },
+      { LUMOVI_CONTEXT: 'broken-ref' },
       'The kubeconfig in KUBECONFIG has no context "broken-ref" to show.',
     ],
     [
       { KUBECONFIG: undefined, KUBERNETES_SERVICE_HOST: undefined },
-      'KubeStacks isn’t running in a cluster (KUBERNETES_SERVICE_HOST isn’t set).',
+      'Lumovi isn’t running in a cluster (KUBERNETES_SERVICE_HOST isn’t set).',
     ],
     [
       {
         KUBECONFIG: undefined,
         KUBERNETES_SERVICE_HOST: '127.0.0.1',
-        KUBESTACKS_SERVICE_ACCOUNT_DIR: tmpdir(),
+        LUMOVI_SERVICE_ACCOUNT_DIR: tmpdir(),
       },
       `No service account token in ${tmpdir()}`,
     ],
     [
-      { KUBECONFIG: undefined, KUBERNETES_SERVICE_HOST: '127.0.0.1', KUBESTACKS_PORT: undefined },
+      { KUBECONFIG: undefined, KUBERNETES_SERVICE_HOST: '127.0.0.1', LUMOVI_PORT: undefined },
       'No service account token in /var/run/secrets/kubernetes.io/serviceaccount',
     ],
   ]
@@ -401,39 +398,37 @@ test('the server says what’s wrong with its configuration, and stops', async (
   }
   // Its port taken.
   const first = await startServer(clusters)
-  expect(await refusedConfig(clusters, { KUBESTACKS_PORT: String(first.port) })).toContain(
-    'EADDRINUSE',
-  )
+  expect(await refusedConfig(clusters, { LUMOVI_PORT: String(first.port) })).toContain('EADDRINUSE')
   await first.stop()
 })
 
 test('in a cluster, with its service account', async ({ page, context, serve, clusters }) => {
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-serviceaccount-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-serviceaccount-'))
   writeFileSync(join(dir, 'token'), DEMO_TOKEN)
   writeFileSync(join(dir, 'ca.crt'), clusters.demo.caPem!)
   const served = await serve({
     env: {
       KUBECONFIG: undefined,
-      KUBESTACKS_CONTEXT: undefined,
+      LUMOVI_CONTEXT: undefined,
       KUBERNETES_SERVICE_HOST: '127.0.0.1',
       KUBERNETES_SERVICE_PORT: String(clusters.demo.port),
-      KUBESTACKS_SERVICE_ACCOUNT_DIR: dir,
-      KUBESTACKS_AUTH: 'proxy',
-      KUBESTACKS_METRICS_SOURCE: 'monitoring/prometheus:web/api/v1/../x',
+      LUMOVI_SERVICE_ACCOUNT_DIR: dir,
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_METRICS_SOURCE: 'monitoring/prometheus:web/api/v1/../x',
     },
   }).catch((error: Error) => error)
   // A path that climbs out of the service isn't one.
-  expect(String(served)).toContain('KUBESTACKS_METRICS_SOURCE must be auto, off, or a service')
+  expect(String(served)).toContain('LUMOVI_METRICS_SOURCE must be auto, off, or a service')
 
   const inCluster = await serve({
     env: {
       KUBECONFIG: undefined,
-      KUBESTACKS_CONTEXT: undefined,
+      LUMOVI_CONTEXT: undefined,
       KUBERNETES_SERVICE_HOST: '127.0.0.1',
       KUBERNETES_SERVICE_PORT: String(clusters.demo.port),
-      KUBESTACKS_SERVICE_ACCOUNT_DIR: dir,
-      KUBESTACKS_AUTH: 'proxy',
-      KUBESTACKS_METRICS_SOURCE: 'monitoring/prometheus:web',
+      LUMOVI_SERVICE_ACCOUNT_DIR: dir,
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_METRICS_SOURCE: 'monitoring/prometheus:web',
     },
   })
   expect(inCluster.log()).toContain(`shows in-cluster (https://127.0.0.1:${clusters.demo.port})`)
@@ -482,7 +477,7 @@ test('signing in to a server that isn’t answering', async ({ page, serve }) =>
     route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad Gateway</h1>' }),
   )
   await page.goto(served.url)
-  await expect(page.getByRole('alert')).toContainText('Can’t reach KubeStacks')
+  await expect(page.getByRole('alert')).toContainText('Can’t reach Lumovi')
   await expect(page.getByRole('alert')).toContainText('The server answered 502')
   await page.unroute('**/api/session')
   await page.getByRole('button', { name: 'Try again' }).click()

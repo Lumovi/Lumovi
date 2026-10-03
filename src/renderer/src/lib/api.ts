@@ -1,12 +1,12 @@
-import type { KubeErrorCode, KubestacksApi, Result } from '@shared/api'
+import type { KubeErrorCode, LumoviApi, Result } from '@shared/api'
 import { createWebApi } from '@renderer/web/api'
 
 /**
  * What runs the page: the desktop app (through its preload script), or a
- * KubeStacks server. Either way it's window.kubestacks, as a page's scripts
+ * Lumovi server. Either way it's window.lumovi, as a page's scripts
  * (and the tests) find it.
  */
-export const api: KubestacksApi = (window.kubestacks ??= createWebApi())
+export const api: LumoviApi = (window.lumovi ??= createWebApi())
 
 /** A failed cluster request, with the reason the main process reported. */
 export class KubeApiError extends Error {

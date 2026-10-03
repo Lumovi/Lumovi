@@ -65,6 +65,6 @@ export const usePrefs = create<Prefs>()(
       setLocalChart: (release, path) =>
         set((prefs) => ({ localCharts: { ...prefs.localCharts, [release]: path } })),
     }),
-    { name: 'kubestacks:prefs' },
+    { name: 'lumovi:prefs' },
   ),
 )

@@ -1,5 +1,5 @@
 # Rook (https://rook.io): Ceph clusters, and the pools, filesystems and object stores on them.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: rook-ceph
@@ -17,7 +17,7 @@ spec:
     - { group: objectbucket.io, kind: ObjectBucketClaim }
 ---
 # Ceph's own health: HEALTH_OK, HEALTH_WARN or HEALTH_ERR, and the checks behind it.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: rook-ceph-clusters
@@ -63,7 +63,7 @@ spec:
       kind: Pod
       labels: { rook_cluster: '{{ .metadata.namespace }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: rook-ceph-storage
@@ -97,7 +97,7 @@ spec:
     - { name: Secure endpoints, path: '.status.endpoints.secure[*]' }
     - { name: Store, path: .spec.store }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: rook-object-bucket-claims

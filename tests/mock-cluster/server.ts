@@ -75,7 +75,7 @@ export interface AccessRule {
 export interface MockUser {
   username: string
   groups?: string[]
-  /** May act as others (Impersonate-User), as a KubeStacks server's service account may. */
+  /** May act as others (Impersonate-User), as a Lumovi server's service account may. */
   impersonate?: boolean
 }
 
@@ -152,7 +152,7 @@ let certificate: Promise<{ key: string; cert: string }> | undefined
 
 /** One self-signed certificate for 127.0.0.1/localhost, shared by all TLS mock servers. */
 function serverCertificate(): Promise<{ key: string; cert: string }> {
-  certificate ??= generate([{ name: 'commonName', value: 'kubestacks-mock-apiserver' }], {
+  certificate ??= generate([{ name: 'commonName', value: 'lumovi-mock-apiserver' }], {
     keyType: 'ec',
     algorithm: 'sha256',
     notAfterDate: new Date(Date.now() + 365 * 24 * 3600 * 1000),
@@ -392,7 +392,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   load()
 
   const ADMIN: MockUser = {
-    username: 'kubestacks-demo',
+    username: 'lumovi-demo',
     groups: ['system:masters'],
     impersonate: true,
   }

@@ -19,17 +19,17 @@ async function withProvider(
   options: Partial<MockOidcOptions> = {},
   env: Record<string, string | undefined> = {},
 ): Promise<{ oidc: MockOidc; served: Served }> {
-  const oidc = await startMockOidc({ clientId: 'kubestacks', clientSecret: 's3cret', ...options })
+  const oidc = await startMockOidc({ clientId: 'lumovi', clientSecret: 's3cret', ...options })
   oidc.person = ALICE
   const port = await freePort()
   const served = await serve({
     port,
     env: {
-      KUBESTACKS_AUTH: 'oidc',
-      KUBESTACKS_URL: `http://127.0.0.1:${port}`,
-      KUBESTACKS_OIDC_ISSUER: `${oidc.issuer}/`,
-      KUBESTACKS_OIDC_CLIENT_ID: 'kubestacks',
-      KUBESTACKS_OIDC_CLIENT_SECRET:
+      LUMOVI_AUTH: 'oidc',
+      LUMOVI_URL: `http://127.0.0.1:${port}`,
+      LUMOVI_OIDC_ISSUER: `${oidc.issuer}/`,
+      LUMOVI_OIDC_CLIENT_ID: 'lumovi',
+      LUMOVI_OIDC_CLIENT_SECRET:
         options.clientSecret === undefined && 'clientSecret' in options ? undefined : 's3cret',
       ...env,
     },
@@ -39,7 +39,7 @@ async function withProvider(
 
 const notice = (page: Page, text: string) =>
   page.getByRole('status').or(page.getByRole('alert')).filter({ hasText: text })
-const FAILED = 'Signing in didn’t work. The KubeStacks server’s log says why.'
+const FAILED = 'Signing in didn’t work. The Lumovi server’s log says why.'
 
 test('sign in with single sign-on, as whoever the provider says', async ({
   page,
@@ -50,13 +50,13 @@ test('sign in with single sign-on, as whoever the provider says', async ({
     serve,
     {},
     {
-      KUBESTACKS_OIDC_PROVIDER_NAME: 'Dex',
-      KUBESTACKS_USERNAME_PREFIX: 'oidc:',
-      KUBESTACKS_GROUPS_PREFIX: 'oidc:',
+      LUMOVI_OIDC_PROVIDER_NAME: 'Dex',
+      LUMOVI_USERNAME_PREFIX: 'oidc:',
+      LUMOVI_GROUPS_PREFIX: 'oidc:',
     },
   )
   await page.goto(`${served.url}cluster/demo/nodes`)
-  await expect(page.getByRole('heading', { name: 'Sign in to KubeStacks' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sign in to Lumovi' })).toBeVisible()
   const signIn = page.getByRole('button', { name: 'Sign in with Dex' })
   await expect(signIn).toBeFocused()
   await signIn.click()
@@ -71,7 +71,7 @@ test('sign in with single sign-on, as whoever the provider says', async ({
   // The server's own credentials, acting as Alice: prefixed, so no group of hers is Kubernetes' own.
   await expect.poll(() => clusters.demo.requests.some((r) => r.path === '/api/v1/nodes')).toBe(true)
   const asked = clusters.demo.requests.findLast((r) => r.path === '/api/v1/nodes')!
-  expect(asked.headers.authorization).toBe('Bearer kubestacks-demo-token')
+  expect(asked.headers.authorization).toBe('Bearer lumovi-demo-token')
   expect(asked.headers['impersonate-user']).toBe('oidc:alice@example.com')
   expect(asked.user).toBe('oidc:alice@example.com')
   expect(asked.headers['impersonate-group']).toBe(
@@ -175,12 +175,10 @@ test('a sign-in only finishes where it started, and only goes to the app', async
   await expect(notice(page, 'That sign-in took too long')).toBeVisible()
   await elsewhere.dispose()
 
-  // A sign-in cookie KubeStacks didn't sign.
+  // A sign-in cookie Lumovi didn't sign.
   await page
     .context()
-    .addCookies([
-      { name: 'kubestacks-sign-in', value: 'eyJzdGF0ZSI6IngifQ.forged', url: served.url },
-    ])
+    .addCookies([{ name: 'lumovi-sign-in', value: 'eyJzdGF0ZSI6IngifQ.forged', url: served.url }])
   await page.goto(`${served.url}auth/callback?state=x&code=y`)
   await expect(notice(page, 'That sign-in took too long')).toBeVisible()
   // This browser's sign-in, but back with another state, or without a code.
@@ -221,7 +219,7 @@ test('providers differ: secrets in the body, public clients, EC keys, groups as 
   const open = await withProvider(
     serve,
     { clientSecret: undefined, algorithm: 'ES256' },
-    { KUBESTACKS_OIDC_USERNAME_CLAIM: 'preferred_username', KUBESTACKS_OIDC_GROUPS_CLAIM: 'roles' },
+    { LUMOVI_OIDC_USERNAME_CLAIM: 'preferred_username', LUMOVI_OIDC_GROUPS_CLAIM: 'roles' },
   )
   open.oidc.person = { sub: 'u-2', preferred_username: 'carol', roles: 'admins' }
   await page.context().clearCookies()
@@ -246,10 +244,10 @@ test('a provider that can’t be reached', async ({ page, serve }) => {
   const served = await serve({
     port,
     env: {
-      KUBESTACKS_AUTH: 'oidc',
-      KUBESTACKS_URL: `http://127.0.0.1:${port}`,
-      KUBESTACKS_OIDC_ISSUER: 'http://127.0.0.1:1',
-      KUBESTACKS_OIDC_CLIENT_ID: 'kubestacks',
+      LUMOVI_AUTH: 'oidc',
+      LUMOVI_URL: `http://127.0.0.1:${port}`,
+      LUMOVI_OIDC_ISSUER: 'http://127.0.0.1:1',
+      LUMOVI_OIDC_CLIENT_ID: 'lumovi',
     },
   })
   await page.goto(served.url)
@@ -285,7 +283,7 @@ test('with a cluster that trusts the provider: people’s own tokens, renewed be
   const { oidc, served } = await withProvider(
     serve,
     { lifetime: 62 },
-    { KUBESTACKS_OIDC_FORWARD_TOKEN: 'id', KUBESTACKS_OIDC_SCOPES: 'openid email offline_access' },
+    { LUMOVI_OIDC_FORWARD_TOKEN: 'id', LUMOVI_OIDC_SCOPES: 'openid email offline_access' },
   )
   const issued = trust(oidc, clusters.demo)
   await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
@@ -338,7 +336,7 @@ test('access tokens, refresh tokens that don’t change, and tokens a cluster co
   const { oidc, served } = await withProvider(
     serve,
     { lifetime: 62, refreshTokens: 'keep' },
-    { KUBESTACKS_OIDC_FORWARD_TOKEN: 'access' },
+    { LUMOVI_OIDC_FORWARD_TOKEN: 'access' },
   )
   const issued = trust(oidc, clusters.demo)
   await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
@@ -381,7 +379,7 @@ test('the server won’t act as Kubernetes’ own users, nor put anyone in their
   serve,
   clusters,
 }) => {
-  const { oidc, served } = await withProvider(serve, {}, { KUBESTACKS_OIDC_USERNAME_CLAIM: 'sub' })
+  const { oidc, served } = await withProvider(serve, {}, { LUMOVI_OIDC_USERNAME_CLAIM: 'sub' })
   oidc.person = { sub: 'eve', groups: ['system:masters', 'ops'] }
   await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
@@ -397,9 +395,9 @@ test('the server won’t act as Kubernetes’ own users, nor put anyone in their
   await expect(
     notice(
       page,
-      'KubeStacks won’t act as this account: names starting with system: are Kubernetes’ own.',
+      'Lumovi won’t act as this account: names starting with system: are Kubernetes’ own.',
     ),
   ).toBeVisible()
-  expect(served.log()).toContain('KubeStacks doesn’t act as system:admin')
+  expect(served.log()).toContain('Lumovi doesn’t act as system:admin')
   await oidc.close()
 })

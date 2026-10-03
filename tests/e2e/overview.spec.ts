@@ -16,7 +16,7 @@ test.describe('demo cluster', () => {
 
   test('summarises cluster health', async ({ page }) => {
     await expect(page.getByText(`· Kubernetes ${DEMO.gitVersion}`)).toContainText('127.0.0.1:')
-    await expect(page).toHaveTitle(`Overview · ${CONTEXTS.demo} — KubeStacks`)
+    await expect(page).toHaveTitle(`Overview · ${CONTEXTS.demo} — Lumovi`)
     const nodes = page.getByRole('region', { name: 'Nodes ready' })
     await expect(nodes).toContainText('3/4')
     await expect(nodes).toContainText('1 not ready')
@@ -53,7 +53,7 @@ test.describe('demo cluster', () => {
 
   test('without history, the trend is what this session saw', async ({ launch }) => {
     const { page } = await launch()
-    await page.evaluate(() => window.kubestacks!.app.setMetricsSource('demo', { mode: 'off' }))
+    await page.evaluate(() => window.lumovi!.app.setMetricsSource('demo', { mode: 'off' }))
     await openCluster(page)
     const cpu = page.getByRole('region', { name: 'CPU', exact: true })
     await expect(cpu).toContainText('Collecting usage…')

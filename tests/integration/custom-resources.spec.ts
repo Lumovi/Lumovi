@@ -1,7 +1,7 @@
 /**
  * Custom resources on a real API server: discovery, Table output with a
  * CRD's printer columns, OpenAPI v3 schemas, validation, the status and scale
- * subresources, and the views KubeStacks ships, against what
+ * subresources, and the views Lumovi ships, against what
  * kube-prometheus-stack installed.
  */
 import type { Page } from '@playwright/test'
@@ -10,7 +10,7 @@ import { panel, row } from '../e2e/fixtures.ts'
 import { expect, freshNamespace, get, inNamespace, kubectl, test } from './fixtures.ts'
 
 const NS = 'it-custom'
-const GROUP = 'integration.kubestacks.dev'
+const GROUP = 'integration.lumovi.dev'
 const CRD = `gadgets.${GROUP}`
 
 /** A CRD of our own, with what CRDs can have: columns, validation, status and scale. */
@@ -181,7 +181,7 @@ test('a CRD of one’s own, end to end', async ({ page }) => {
   expect(kubectl(['get', 'crd', '-o', 'name'])).not.toContain(CRD)
 })
 
-test('the Prometheus operator’s kinds, through KubeStacks’ views of them', async ({ page }) => {
+test('the Prometheus operator’s kinds, through Lumovi’s views of them', async ({ page }) => {
   await openKind(page, 'monitoring.coreos.com', 'Prometheuses')
   const prometheus = row(page, 'Prometheuses', 'kps-kube-prometheus-stack-prometheus')
   await expect(prometheus).toContainText('Available')

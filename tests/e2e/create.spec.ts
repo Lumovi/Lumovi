@@ -230,8 +230,8 @@ test('explains YAML that can’t be created', async ({ page }) => {
   }
 })
 
-test('create from the header, the palette and the File menu', async ({ page, kubestacks }) => {
-  const { app } = kubestacks
+test('create from the header, the palette and the File menu', async ({ page, lumovi }) => {
+  const { app } = lumovi
   // Not before a cluster is open.
   await menu(app, 'create')
   await expect(dialog(page)).toHaveCount(0)
@@ -253,7 +253,7 @@ test('create from the header, the palette and the File menu', async ({ page, kub
 })
 
 test('creating is off on read-only clusters', async ({ launch }) => {
-  const { page } = await launch({ env: { KUBESTACKS_READ_ONLY: '1' } })
+  const { page } = await launch({ env: { LUMOVI_READ_ONLY: '1' } })
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+n')
   await expect(dialog(page)).toContainText('Changes are turned off for this cluster.')

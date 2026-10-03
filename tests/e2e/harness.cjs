@@ -6,8 +6,8 @@
 // - Windows are shown without taking focus, invisible and click-through, and
 //   on macOS the app stays out of the Dock and ⌘-Tab. Playwright drives pages
 //   over the DevTools protocol, so that changes nothing the tests see.
-//   KUBESTACKS_E2E_FOREGROUND=1 shows them as usual. Where nobody's watching
-//   (CI, npm run test:linux), KUBESTACKS_E2E_OPAQUE=1 draws them, still
+//   LUMOVI_E2E_FOREGROUND=1 shows them as usual. Where nobody's watching
+//   (CI, npm run test:linux), LUMOVI_E2E_OPAQUE=1 draws them, still
 //   click-through: Linux and Windows treat a fully transparent window as not
 //   drawn, and render it slowly (macOS renders transparent ones faster).
 // - electron-updater is a stand-in the tests drive (globalThis.__updater):
@@ -49,9 +49,9 @@ app.on('web-contents-created', (_event, contents) => {
   contents.on('dom-ready', () => void contents.executeJavaScript(CLIPBOARD))
 })
 
-if (!process.env.KUBESTACKS_E2E_FOREGROUND) {
+if (!process.env.LUMOVI_E2E_FOREGROUND) {
   BrowserWindow.prototype.show = function show() {
-    if (!process.env.KUBESTACKS_E2E_OPAQUE) this.setOpacity(0)
+    if (!process.env.LUMOVI_E2E_OPAQUE) this.setOpacity(0)
     this.setIgnoreMouseEvents(true)
     this.showInactive()
   }

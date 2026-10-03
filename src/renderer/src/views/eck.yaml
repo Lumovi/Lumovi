@@ -1,7 +1,7 @@
 # Elastic Cloud on Kubernetes (https://www.elastic.co/guide/en/cloud-on-k8s/current):
 # Elasticsearch, Kibana and the rest of the Elastic Stack. Each reports its health as
 # green, yellow or red.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: eck
@@ -17,7 +17,7 @@ spec:
     - { group: logstash.k8s.elastic.co, kind: Logstash }
     - { group: maps.k8s.elastic.co, kind: ElasticMapsServer }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: eck-elasticsearch
@@ -61,7 +61,7 @@ spec:
       kind: Pod
       labels: { elasticsearch.k8s.elastic.co/cluster-name: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: eck-kibana
@@ -91,7 +91,7 @@ spec:
       kind: Pod
       labels: { kibana.k8s.elastic.co/name: '{{ .metadata.name }}' }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: eck-stack

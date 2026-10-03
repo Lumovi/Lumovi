@@ -1,5 +1,5 @@
 /**
- * Takes KubeStacks' screenshots, light and dark, into docs/screenshots, and
+ * Takes Lumovi's screenshots, light and dark, into docs/screenshots, and
  * writes their catalog there (README.md, screenshots.json):
  *
  *   npm run screenshots                    all of them (after building the app)
@@ -111,7 +111,7 @@ async function startArtifactHub() {
 
 /** The desktop app in a theme, against the mock clusters, in a home and profile of its own. */
 async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<string, string>) {
-  const home = mkdtempSync(join(tmpdir(), 'kubestacks-screenshots-home-'))
+  const home = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-home-'))
   writeFileSync(join(home, 'settings.json'), JSON.stringify({ theme }))
   // Started where the kubeconfig's .kube folder is, and pointed at it from there: the clusters
   // page shows the path, the same wherever that is.
@@ -138,10 +138,10 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
       USERPROFILE: home,
       TZ: 'UTC',
       SHELL: '',
-      // Only KubeStacks' own views.
-      KUBESTACKS_VIEWS_DIR: '',
+      // Only Lumovi's own views.
+      LUMOVI_VIEWS_DIR: '',
       // The e2e tests' stand-in, so no real helm runs against the mock cluster.
-      KUBESTACKS_HELM: resolve('tests/e2e/helm/helm'),
+      LUMOVI_HELM: resolve('tests/e2e/helm/helm'),
     } as Record<string, string>,
     colorScheme: null,
   })
@@ -194,34 +194,34 @@ const freePort = async () => {
   return port
 }
 
-/** KubeStacks served from the production cluster, people signing in as `mode` says. */
+/** Lumovi served from the production cluster, people signing in as `mode` says. */
 async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: string) {
   const port = await freePort()
   const url = `http://127.0.0.1:${port}/`
   let oidc: MockOidc | undefined
   const auth: Record<string, string> = {}
   if (mode === 'sso') {
-    oidc = await startMockOidc({ clientId: 'kubestacks' })
+    oidc = await startMockOidc({ clientId: 'lumovi' })
     Object.assign(auth, {
-      KUBESTACKS_AUTH: 'oidc',
-      KUBESTACKS_URL: url,
-      KUBESTACKS_OIDC_ISSUER: oidc.issuer,
-      KUBESTACKS_OIDC_CLIENT_ID: 'kubestacks',
+      LUMOVI_AUTH: 'oidc',
+      LUMOVI_URL: url,
+      LUMOVI_OIDC_ISSUER: oidc.issuer,
+      LUMOVI_OIDC_CLIENT_ID: 'lumovi',
     })
   } else if (mode === 'proxy') {
-    auth.KUBESTACKS_AUTH = 'proxy'
+    auth.LUMOVI_AUTH = 'proxy'
   }
   const child: ChildProcess = spawn(process.execPath, [resolve('out/server/index.js')], {
     env: {
       ...process.env,
       ...auth,
       KUBECONFIG: kubeconfig,
-      KUBESTACKS_CONTEXT: CLUSTERS.production,
-      KUBESTACKS_CLUSTER_NAME: CLUSTERS.production,
-      KUBESTACKS_ADDRESS: '127.0.0.1',
-      KUBESTACKS_PORT: String(port),
-      KUBESTACKS_VIEWS_DIR: '',
-      KUBESTACKS_HELM: resolve('tests/e2e/helm/helm'),
+      LUMOVI_CONTEXT: CLUSTERS.production,
+      LUMOVI_CLUSTER_NAME: CLUSTERS.production,
+      LUMOVI_ADDRESS: '127.0.0.1',
+      LUMOVI_PORT: String(port),
+      LUMOVI_VIEWS_DIR: '',
+      LUMOVI_HELM: resolve('tests/e2e/helm/helm'),
     },
     stdio: 'ignore',
   })
@@ -231,7 +231,7 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
       () => false,
     )
     if (up) break
-    if (tries === 100) throw new Error(`KubeStacks' server didn't start (${mode})`)
+    if (tries === 100) throw new Error(`Lumovi's server didn't start (${mode})`)
     await new Promise((done) => setTimeout(done, 100))
   }
   return {
@@ -300,7 +300,7 @@ async function shoot(
     // What it was waiting for, and how the screen looked then.
     const [what, ...log] = (error as Error).message.split('\n')
     const waiting = log.find((line) => line.includes('waiting for'))?.trim()
-    const file = join(tmpdir(), `kubestacks-screenshot-${screen.name}.png`)
+    const file = join(tmpdir(), `lumovi-screenshot-${screen.name}.png`)
     await page.screenshot({ path: file }).catch(() => undefined)
     throw new Error(`${what}${waiting ? ` (${waiting.replace(/^- /, '')})` : ''}; see ${file}`, {
       cause: error,
@@ -352,7 +352,7 @@ try {
   const desktop = screens.filter((screen) => screen.app === 'desktop')
   for (const theme of desktop.length > 0 ? THEMES : []) {
     const app = await launchDesktop(theme, clusters.kubeconfig, {
-      KUBESTACKS_ARTIFACT_HUB_URL: hub.url,
+      LUMOVI_ARTIFACT_HUB_URL: hub.url,
     })
     try {
       for (const screen of desktop) {

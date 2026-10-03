@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cable, CircleAlert, ExternalLink, Square } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useEffect } from 'react'
-import type { KubestacksApi, PortForward } from '@shared/api'
+import type { LumoviApi, PortForward } from '@shared/api'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { api } from '@renderer/lib/api'
@@ -10,11 +10,7 @@ import { cn } from '@renderer/lib/cn'
 import { menuContent } from '../shell/menu-styles'
 
 /** Ports forwarded to pods (by the desktop app), in every cluster; shown while there are any. */
-export function ForwardsButton({
-  api: forwarding,
-}: {
-  api: NonNullable<KubestacksApi['forwards']>
-}) {
+export function ForwardsButton({ api: forwarding }: { api: NonNullable<LumoviApi['forwards']> }) {
   const queryClient = useQueryClient()
   const forwards = useQuery({ queryKey: ['forwards'], queryFn: () => forwarding.list() }).data
   useEffect(

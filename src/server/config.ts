@@ -1,6 +1,6 @@
 /**
  * The server's settings, from its environment (the Helm chart sets them; see
- * https://docs.kubestacks.com/server/configuration). One that doesn't make
+ * https://docs.lumovi.dev/server/configuration). One that doesn't make
  * sense stops the server, saying why.
  */
 import { join } from 'node:path'
@@ -40,7 +40,7 @@ export interface ServerConfig {
   port: number
   /** The address to listen on; every interface unless set. */
   address?: string
-  /** Where the server is below its origin: `/`, or e.g. `/kubestacks/`. */
+  /** Where the server is below its origin: `/`, or e.g. `/lumovi/`. */
   basePath: string
   /** The address people open (single sign-on returns there). */
   publicUrl?: URL
@@ -91,76 +91,74 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     return setting
   }
 
-  const mode = (value('KUBESTACKS_AUTH') ?? 'token') as AuthMode
+  const mode = (value('LUMOVI_AUTH') ?? 'token') as AuthMode
   if (!AUTH_MODES.includes(mode)) {
     throw new ConfigError(
-      `KUBESTACKS_AUTH must be ${AUTH_MODES.join(', ')} or unset (token), not "${mode}".`,
+      `LUMOVI_AUTH must be ${AUTH_MODES.join(', ')} or unset (token), not "${mode}".`,
     )
   }
-  const publicSetting = value('KUBESTACKS_URL')
-  const publicUrl = publicSetting ? url('KUBESTACKS_URL', publicSetting) : undefined
+  const publicSetting = value('LUMOVI_URL')
+  const publicUrl = publicSetting ? url('LUMOVI_URL', publicSetting) : undefined
   let auth: AuthConfig = { mode: 'token' }
   if (mode === 'oidc') {
-    const issuer = required('KUBESTACKS_OIDC_ISSUER', 'for single sign-on')
-    url('KUBESTACKS_OIDC_ISSUER', issuer)
+    const issuer = required('LUMOVI_OIDC_ISSUER', 'for single sign-on')
+    url('LUMOVI_OIDC_ISSUER', issuer)
     if (!publicUrl) {
       throw new ConfigError(
-        'KUBESTACKS_URL must be set for single sign-on: the provider sends people back there.',
+        'LUMOVI_URL must be set for single sign-on: the provider sends people back there.',
       )
     }
     auth = {
       mode,
       issuer: issuer.replace(/\/+$/, ''),
-      clientId: required('KUBESTACKS_OIDC_CLIENT_ID', 'for single sign-on'),
-      clientSecret: value('KUBESTACKS_OIDC_CLIENT_SECRET'),
-      scopes: value('KUBESTACKS_OIDC_SCOPES') ?? 'openid email profile',
-      usernameClaim: value('KUBESTACKS_OIDC_USERNAME_CLAIM') ?? 'email',
-      groupsClaim: value('KUBESTACKS_OIDC_GROUPS_CLAIM') ?? 'groups',
-      provider: value('KUBESTACKS_OIDC_PROVIDER_NAME') ?? 'single sign-on',
-      forwardToken: forwardToken(value('KUBESTACKS_OIDC_FORWARD_TOKEN')),
+      clientId: required('LUMOVI_OIDC_CLIENT_ID', 'for single sign-on'),
+      clientSecret: value('LUMOVI_OIDC_CLIENT_SECRET'),
+      scopes: value('LUMOVI_OIDC_SCOPES') ?? 'openid email profile',
+      usernameClaim: value('LUMOVI_OIDC_USERNAME_CLAIM') ?? 'email',
+      groupsClaim: value('LUMOVI_OIDC_GROUPS_CLAIM') ?? 'groups',
+      provider: value('LUMOVI_OIDC_PROVIDER_NAME') ?? 'single sign-on',
+      forwardToken: forwardToken(value('LUMOVI_OIDC_FORWARD_TOKEN')),
     }
   } else if (mode === 'proxy') {
-    const signOut = value('KUBESTACKS_PROXY_SIGN_OUT_URL')
+    const signOut = value('LUMOVI_PROXY_SIGN_OUT_URL')
     auth = {
       mode,
-      userHeader: (value('KUBESTACKS_PROXY_USER_HEADER') ?? 'X-Forwarded-User').toLowerCase(),
-      groupsHeader: (value('KUBESTACKS_PROXY_GROUPS_HEADER') ?? 'X-Forwarded-Groups').toLowerCase(),
-      signOutUrl: signOut && url('KUBESTACKS_PROXY_SIGN_OUT_URL', signOut).href,
+      userHeader: (value('LUMOVI_PROXY_USER_HEADER') ?? 'X-Forwarded-User').toLowerCase(),
+      groupsHeader: (value('LUMOVI_PROXY_GROUPS_HEADER') ?? 'X-Forwarded-Groups').toLowerCase(),
+      signOutUrl: signOut && url('LUMOVI_PROXY_SIGN_OUT_URL', signOut).href,
     }
   }
 
-  const basePath = `/${(value('KUBESTACKS_BASE_PATH') ?? '').replace(/^\/+|\/+$/g, '')}/`.replace(
+  const basePath = `/${(value('LUMOVI_BASE_PATH') ?? '').replace(/^\/+|\/+$/g, '')}/`.replace(
     '//',
     '/',
   )
   if (!/^\/([\w.~-]+\/)*$/.test(basePath)) {
     throw new ConfigError(
-      `KUBESTACKS_BASE_PATH must be a path like /kubestacks, not "${value('KUBESTACKS_BASE_PATH')}".`,
+      `LUMOVI_BASE_PATH must be a path like /lumovi, not "${value('LUMOVI_BASE_PATH')}".`,
     )
   }
 
-  const port = Number(value('KUBESTACKS_PORT') ?? 8080)
+  const port = Number(value('LUMOVI_PORT') ?? 8080)
   // 0: any free port (the log says which).
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-    throw new ConfigError(
-      `KUBESTACKS_PORT must be a port number, not "${value('KUBESTACKS_PORT')}".`,
-    )
+    throw new ConfigError(`LUMOVI_PORT must be a port number, not "${value('LUMOVI_PORT')}".`)
   }
 
   return {
     port,
-    address: value('KUBESTACKS_ADDRESS'),
+    address: value('LUMOVI_ADDRESS'),
     basePath,
     publicUrl,
-    clusterName: value('KUBESTACKS_CLUSTER_NAME'),
+    clusterName: value('LUMOVI_CLUSTER_NAME'),
     auth,
-    usernamePrefix: value('KUBESTACKS_USERNAME_PREFIX') ?? '',
-    groupsPrefix: value('KUBESTACKS_GROUPS_PREFIX') ?? '',
-    sessionHours: number('KUBESTACKS_SESSION_HOURS', 12, MAX_SESSION_HOURS),
-    heartbeatSeconds: number('KUBESTACKS_HEARTBEAT_SECONDS', 30, 3600),
-    metricsSource: metricsSource(value('KUBESTACKS_METRICS_SOURCE')),
-    allowPrivateCharts: ['1', 'true'].includes(value('KUBESTACKS_ALLOW_PRIVATE_CHARTS') ?? ''),
-    viewsDir: value('KUBESTACKS_VIEWS_DIR') ?? '/etc/kubestacks/views',
+    usernamePrefix: value('LUMOVI_USERNAME_PREFIX') ?? '',
+    groupsPrefix: value('LUMOVI_GROUPS_PREFIX') ?? '',
+    sessionHours: number('LUMOVI_SESSION_HOURS', 12, MAX_SESSION_HOURS),
+    heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
+    metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
+    allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
+    viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
   }
 }
@@ -169,7 +167,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
 function forwardToken(setting: string | undefined): 'id' | 'access' | undefined {
   if (setting === undefined || setting === 'id' || setting === 'access') return setting
   throw new ConfigError(
-    `KUBESTACKS_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "${setting}".`,
+    `LUMOVI_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "${setting}".`,
   )
 }
 
@@ -180,7 +178,7 @@ function metricsSource(setting = 'auto'): MetricsSourceSetting {
   const source = { mode: 'service', service: { namespace, service, port, path } }
   if (!isMetricsSourceSetting(source)) {
     throw new ConfigError(
-      `KUBESTACKS_METRICS_SOURCE must be auto, off, or a service like monitoring/prometheus:9090, not "${setting}".`,
+      `LUMOVI_METRICS_SOURCE must be auto, off, or a service like monitoring/prometheus:9090, not "${setting}".`,
     )
   }
   return source

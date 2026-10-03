@@ -29,7 +29,7 @@ test('lists every context with its connection status', async ({ page, clusters }
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('Misconfigured')
   await expect(clusterRow(page, CONTEXTS.plainHttp)).toContainText('Plain HTTP blocked')
   await expect(page.getByTitle(clusters.kubeconfigPath)).toContainText(clusters.kubeconfigPath)
-  await expect(page).toHaveTitle('KubeStacks')
+  await expect(page).toHaveTitle('Lumovi')
 })
 
 test('the cluster search is focused and driven by the keyboard', async ({ page }) => {
@@ -61,7 +61,7 @@ test('recently opened clusters come first', async ({ page }) => {
 })
 
 test('reload picks up kubeconfig changes', async ({ launch, clusters }) => {
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-kc-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-kc-'))
   const path = join(dir, 'config')
   writeFileSync(path, readFileSync(clusters.kubeconfigPath))
   const { page } = await launch({ env: { KUBECONFIG: path } })
@@ -79,20 +79,20 @@ test('reload picks up kubeconfig changes', async ({ launch, clusters }) => {
 
 test('explains how to add clusters when there is no kubeconfig', async ({ launch }) => {
   const { page } = await launch({
-    env: { KUBECONFIG: join(tmpdir(), 'kubestacks-does-not-exist', 'config') },
+    env: { KUBECONFIG: join(tmpdir(), 'lumovi-does-not-exist', 'config') },
   })
   await expect(page.getByRole('heading', { name: 'No clusters found' })).toBeVisible()
 })
 
 test('treats an empty kubeconfig file as having no clusters', async ({ launch }) => {
-  const path = join(mkdtempSync(join(tmpdir(), 'kubestacks-kc-')), 'config')
+  const path = join(mkdtempSync(join(tmpdir(), 'lumovi-kc-')), 'config')
   writeFileSync(path, '\n')
   const { page } = await launch({ env: { KUBECONFIG: path } })
   await expect(page.getByRole('heading', { name: 'No clusters found' })).toBeVisible()
 })
 
 test('reports a kubeconfig that cannot be parsed', async ({ launch }) => {
-  const path = join(mkdtempSync(join(tmpdir(), 'kubestacks-kc-')), 'config')
+  const path = join(mkdtempSync(join(tmpdir(), 'lumovi-kc-')), 'config')
   writeFileSync(path, 'clusters: [unterminated\n')
   const { page } = await launch({ env: { KUBECONFIG: path } })
   await expect(
@@ -103,7 +103,7 @@ test('reports a kubeconfig that cannot be parsed', async ({ launch }) => {
 })
 
 test('falls back to ~/.kube/config when KUBECONFIG is not set', async ({ launch, clusters }) => {
-  const home = mkdtempSync(join(tmpdir(), 'kubestacks-home-'))
+  const home = mkdtempSync(join(tmpdir(), 'lumovi-home-'))
   mkdirSync(join(home, '.kube'))
   writeFileSync(join(home, '.kube', 'config'), readFileSync(clusters.kubeconfigPath))
   const { page } = await launch({ env: { KUBECONFIG: undefined, HOME: home, USERPROFILE: home } })
@@ -112,7 +112,7 @@ test('falls back to ~/.kube/config when KUBECONFIG is not set', async ({ launch,
 })
 
 test('merges several kubeconfig files the way kubectl does', async ({ launch, clusters }) => {
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-kc-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-kc-'))
   const first = writeKubeconfig(
     dir,
     {
@@ -165,14 +165,14 @@ test('merges several kubeconfig files the way kubectl does', async ({ launch, cl
   await expect(clusterRow(page, 'second')).toContainText('current')
 })
 
-test('links to the project on GitHub', async ({ kubestacks }) => {
-  const opened = await mockOpenExternal(kubestacks.app)
-  await kubestacks.page.getByRole('button', { name: 'KubeStacks on GitHub' }).click()
-  await expect.poll(opened).toEqual(['https://github.com/KubeStacks/KubeStacks'])
+test('links to the project on GitHub', async ({ lumovi }) => {
+  const opened = await mockOpenExternal(lumovi.app)
+  await lumovi.page.getByRole('button', { name: 'Lumovi on GitHub' }).click()
+  await expect.poll(opened).toEqual(['https://github.com/Lumovi/Lumovi'])
 })
 
 test('shows server addresses that are not URLs as they are', async ({ launch, clusters }) => {
-  const dir = mkdtempSync(join(tmpdir(), 'kubestacks-kc-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-kc-'))
   const path = writeKubeconfig(dir, {
     clusters: [{ name: 'odd', server: 'not a url' }],
     users: [{ name: 'u', token: DEMO_TOKEN }],

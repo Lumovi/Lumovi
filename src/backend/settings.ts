@@ -27,7 +27,7 @@ export function isMetricsSourceSetting(value: unknown): value is MetricsSourceSe
 }
 
 /**
- * The preferences the page reads and changes wherever KubeStacks runs: kept
+ * The preferences the page reads and changes wherever Lumovi runs: kept
  * in a file on the desktop, and for each page by the server.
  */
 export interface SettingsAccess {

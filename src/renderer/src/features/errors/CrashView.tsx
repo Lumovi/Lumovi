@@ -38,7 +38,7 @@ export function CrashView({
       </div>
       <h2 className="text-[17px] font-semibold text-ink-1">{title}</h2>
       <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
-        KubeStacks ran into an unexpected problem. Your clusters were not changed.
+        Lumovi ran into an unexpected problem. Your clusters were not changed.
       </p>
       <pre className="mt-4 max-h-40 w-full overflow-auto rounded-lg border border-line bg-surface-3 px-3 py-2 text-left font-mono text-xs whitespace-pre-wrap text-ink-2 selectable">
         {error.message}

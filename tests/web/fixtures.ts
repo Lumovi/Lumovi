@@ -1,5 +1,5 @@
 /**
- * Fixtures for KubeStacks served from a cluster: every worker gets its own
+ * Fixtures for Lumovi served from a cluster: every worker gets its own
  * mock clusters, every test the servers it starts (`serve`, as `node
  * out/server/index.js` runs in its image) and a browser page. With an
  * instrumented build, the server's and the page's coverage go to .nyc_output/.
@@ -21,7 +21,7 @@ const SERVER = resolve('out/server/index.js')
 /** Only an instrumented build answers when asked for its coverage. */
 const INSTRUMENTED = (() => {
   try {
-    return readFileSync(SERVER, 'utf8').includes('kubestacks:coverage')
+    return readFileSync(SERVER, 'utf8').includes('lumovi:coverage')
   } catch {
     return false
   }
@@ -63,20 +63,20 @@ export function startServer(
   clusters: TestClusters,
   options: ServeOptions = {},
 ): Promise<Served & { process: ChildProcess }> {
-  const helmDir = mkdtempSync(join(tmpdir(), 'kubestacks-helm-'))
+  const helmDir = mkdtempSync(join(tmpdir(), 'lumovi-helm-'))
   const merged: Record<string, string | undefined> = {
     ...process.env,
     KUBECONFIG: clusters.kubeconfigPath,
-    KUBESTACKS_CONTEXT: 'demo',
-    KUBESTACKS_ADDRESS: '127.0.0.1',
-    KUBESTACKS_PORT: String(options.port ?? 0),
-    KUBESTACKS_COVERAGE_DIR: COVERAGE_DIR,
-    KUBESTACKS_HELM: FAKE_HELM,
+    LUMOVI_CONTEXT: 'demo',
+    LUMOVI_ADDRESS: '127.0.0.1',
+    LUMOVI_PORT: String(options.port ?? 0),
+    LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
+    LUMOVI_HELM: FAKE_HELM,
     FAKE_HELM_DIR: helmDir,
     // Never anyone's own: an empty folder unless a test makes one.
-    KUBESTACKS_VIEWS_DIR: join(helmDir, 'views'),
+    LUMOVI_VIEWS_DIR: join(helmDir, 'views'),
     // The mock repositories and registries run here.
-    KUBESTACKS_ALLOW_PRIVATE_CHARTS: 'true',
+    LUMOVI_ALLOW_PRIVATE_CHARTS: 'true',
     ...options.env,
   }
   const env = Object.fromEntries(
@@ -112,7 +112,7 @@ export function startServer(
               // Windows can't stop a process gracefully: its coverage is asked for first.
               await new Promise<void>((saved) => {
                 child.once('message', () => saved())
-                child.send('kubestacks:coverage')
+                child.send('lumovi:coverage')
               })
             }
             child.kill('SIGTERM')
@@ -181,7 +181,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
   workerClusters: [
     // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
-      const dir = mkdtempSync(join(tmpdir(), 'kubestacks-clusters-'))
+      const dir = mkdtempSync(join(tmpdir(), 'lumovi-clusters-'))
       const clusters = await startTestClusters(dir)
       await use(clusters)
       await clusters.close()
@@ -223,7 +223,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       saveCoverage(coverage)
     }
     for (const { localStorage } of (await context.storageState()).origins) {
-      const kept = localStorage.find((item) => item.name === 'kubestacks:coverage')
+      const kept = localStorage.find((item) => item.name === 'lumovi:coverage')
       if (!kept || !maps) continue
       const counts = JSON.parse(kept.value) as Coverage
       saveCoverage(

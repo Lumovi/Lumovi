@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        KubeStacks shows a tool's custom resources through an **add-on** (its entry in the sidebar) and **views** (how each kind is shown). They're YAML, with no code to write: see [Adding a tool](https://github.com/KubeStacks/KubeStacks/blob/main/CONTRIBUTING.md#adding-a-tool).
+        Lumovi shows a tool's custom resources through an **add-on** (its entry in the sidebar) and **views** (how each kind is shown). They're YAML, with no code to write: see [Adding a tool](https://github.com/Lumovi/Lumovi/blob/main/CONTRIBUTING.md#adding-a-tool).
   - type: input
     id: tool
     attributes:

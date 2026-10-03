@@ -9,7 +9,7 @@ import { filesOf, HEIGHT, WIDTH } from './images.ts'
 import type { Screen } from './screens.ts'
 
 /** Where the website and docs load them from: jsDelivr, serving this repository's main. */
-export const CDN = 'https://cdn.jsdelivr.net/gh/KubeStacks/KubeStacks@main/docs/screenshots/'
+export const CDN = 'https://cdn.jsdelivr.net/gh/Lumovi/Lumovi@main/docs/screenshots/'
 
 const both = (name: string) => ({ light: filesOf(name, 'light'), dark: filesOf(name, 'dark') })
 
@@ -32,7 +32,7 @@ function readme(screens: Screen[]): string {
 
 # Screenshots
 
-Every screen of KubeStacks worth showing, light and dark, for the README, the docs and the website. They're taken of the mock clusters the tests use, so they're the same every time, and refreshing them changes only the screens that did.
+Every screen of Lumovi worth showing, light and dark, for the README, the docs and the website. They're taken of the mock clusters the tests use, so they're the same every time, and refreshing them changes only the screens that did.
 
 ## Using them
 

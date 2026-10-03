@@ -1,5 +1,5 @@
 /**
- * The PromQL KubeStacks asks Prometheus (or VictoriaMetrics) for: usage from
+ * The PromQL Lumovi asks Prometheus (or VictoriaMetrics) for: usage from
  * cAdvisor and restarts from kube-state-metrics, summed over the pods or
  * containers a view is about.
  */

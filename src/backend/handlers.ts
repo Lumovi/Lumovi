@@ -1,5 +1,5 @@
 /**
- * What the page can ask for wherever KubeStacks runs, by channel: the desktop
+ * What the page can ask for wherever Lumovi runs, by channel: the desktop
  * app answers these over IPC, the server over each page's WebSocket. Each adds
  * its own on top (windows, files and updates on the desktop; who is signed in
  * on the server).

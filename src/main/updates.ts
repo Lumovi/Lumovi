@@ -1,5 +1,5 @@
 /**
- * New versions of KubeStacks, from its GitHub releases (electron-updater, with
+ * New versions of Lumovi, from its GitHub releases (electron-updater, with
  * the publish settings electron-builder writes into the app). A new version
  * downloads in the background and installs when the app restarts or quits.
  */

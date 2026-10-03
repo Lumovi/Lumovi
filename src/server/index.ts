@@ -1,6 +1,6 @@
 /**
- * `node out/server/index.js`: KubeStacks as a server, showing the cluster it
- * runs in to everyone who signs in (see https://docs.kubestacks.com/server/overview).
+ * `node out/server/index.js`: Lumovi as a server, showing the cluster it
+ * runs in to everyone who signs in (see https://docs.lumovi.dev/server/overview).
  */
 import { version } from '../../package.json'
 import { startServer } from './app'
@@ -19,7 +19,7 @@ try {
   })
   const server = await startServer({ config, cluster, env: process.env, version })
   log(
-    `KubeStacks ${version} shows ${cluster.name} (${cluster.server}) at ${server.url}; people sign in with ${SIGN_IN[config.auth.mode]}`,
+    `Lumovi ${version} shows ${cluster.name} (${cluster.server}) at ${server.url}; people sign in with ${SIGN_IN[config.auth.mode]}`,
   )
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.once(signal, () => void server.close().then(() => process.exit(0)))

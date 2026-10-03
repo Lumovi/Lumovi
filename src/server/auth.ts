@@ -15,12 +15,12 @@ import { log } from './log'
 import type { Forwarded, OidcClient, PendingSignIn, SignedIn } from './oidc'
 import type { Sessions, StoredSession } from './sessions'
 
-export const SESSION_COOKIE = 'kubestacks-session'
+export const SESSION_COOKIE = 'lumovi-session'
 /**
  * A sign-in that went to the provider, kept by the browser that started it:
  * its state, PKCE verifier and nonce, signed so it can't be changed.
  */
-const SIGN_IN_COOKIE = 'kubestacks-sign-in'
+const SIGN_IN_COOKIE = 'lumovi-sign-in'
 const SIGN_IN_MINUTES = 10
 /** Signs sign-ins in progress; they don't outlive the server. */
 const KEY = randomBytes(32)
@@ -77,7 +77,7 @@ export class Auth {
   /** `POST api/session`: signs in with a token, once the cluster says whose it is. */
   async signInWithToken(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req, this.config.publicUrl)) {
-      sendJson(res, 403, { error: 'Sign in from KubeStacks’ own page.' })
+      sendJson(res, 403, { error: 'Sign in from Lumovi’s own page.' })
       return
     }
     const token = ((await readJson(req)) as { token?: unknown } | undefined)?.token
@@ -103,7 +103,7 @@ export class Auth {
   /** `DELETE api/session`: ends the session, and every page of it. */
   signOut(req: IncomingMessage, res: ServerResponse): void {
     if (!sameOrigin(req, this.config.publicUrl)) {
-      sendJson(res, 403, { error: 'Sign out from KubeStacks’ own page.' })
+      sendJson(res, 403, { error: 'Sign out from Lumovi’s own page.' })
       return
     }
     const caller = this.identify(req)
@@ -138,7 +138,7 @@ export class Auth {
 
   /** `GET auth/callback`: back from the provider, signed in (or not). */
   async finishSignIn(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    // Started in another browser, or long ago (its cookie is gone), or not by KubeStacks.
+    // Started in another browser, or long ago (its cookie is gone), or not by Lumovi.
     const sealed = cookies(req)[SIGN_IN_COOKIE] ?? ''
     const body = sealed.slice(0, sealed.lastIndexOf('.'))
     const signed = sealed.slice(sealed.lastIndexOf('.') + 1)

@@ -1,5 +1,5 @@
 /**
- * Signing in and out of a KubeStacks server, over plain HTTP: the WebSocket
+ * Signing in and out of a Lumovi server, over plain HTTP: the WebSocket
  * that carries everything else needs a session to connect.
  */
 import { PATHS, type Session, type SessionEnd, type SignIn } from '@shared/server'
@@ -7,11 +7,11 @@ import { PATHS, type Session, type SessionEnd, type SignIn } from '@shared/serve
 /** Where the server is: everything is below its base path, which the page's `<base>` names. */
 export const serverUrl = (path: string) => new URL(path, document.baseURI)
 
-/** The router's base path: '' at the root, or e.g. /kubestacks. */
+/** The router's base path: '' at the root, or e.g. /lumovi. */
 export const basename = () => serverUrl('.').pathname.slice(0, -1)
 
 /** Set before a page reloads because its session ended, so the sign-in page can say so. */
-const ENDED = 'kubestacks:session-ended'
+const ENDED = 'lumovi:session-ended'
 
 export type SessionState = { session: Session } | { signIn: SignIn & { ended?: SessionEnd } }
 

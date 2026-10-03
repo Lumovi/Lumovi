@@ -198,8 +198,8 @@ export function ReadOnlyBadge() {
           <p className="text-[13px] font-medium text-ink-1">Changes are off for {context}</p>
           <p className="mt-1 text-xs leading-relaxed text-ink-2">
             {locked
-              ? 'KUBESTACKS_READ_ONLY is set, so KubeStacks can’t change any cluster.'
-              : 'KubeStacks won’t change anything in this cluster until you allow it.'}
+              ? 'LUMOVI_READ_ONLY is set, so Lumovi can’t change any cluster.'
+              : 'Lumovi won’t change anything in this cluster until you allow it.'}
           </p>
           {!locked && (
             <Button

@@ -1,5 +1,5 @@
 # KEDA (https://keda.sh): event-driven autoscaling of workloads and jobs.
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: AddOn
 metadata:
   name: keda
@@ -12,7 +12,7 @@ spec:
     - { group: keda.sh, kind: TriggerAuthentication }
     - { group: keda.sh, kind: ClusterTriggerAuthentication }
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: keda-scaled-objects
@@ -91,7 +91,7 @@ spec:
             { autoscaling.keda.sh/paused: null, autoscaling.keda.sh/paused-replicas: null }
       done: Resumed autoscaling of {{ .spec.scaleTargetRef.name }}
 ---
-apiVersion: kubestacks.dev/v1alpha1
+apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
   name: keda-scaled-jobs

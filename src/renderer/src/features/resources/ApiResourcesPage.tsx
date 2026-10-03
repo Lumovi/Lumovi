@@ -97,7 +97,7 @@ export function ApiResourcesPage() {
         <footer className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-5 py-2.5 text-xs text-ink-3">
           {/* A server's own views are its administrator's, from its Helm values. */}
           <span>
-            {views.shipped.length} views from KubeStacks
+            {views.shipped.length} views from Lumovi
             {views.local.length > 0 &&
               (api.host === 'desktop'
                 ? `, ${views.local.length} of yours`

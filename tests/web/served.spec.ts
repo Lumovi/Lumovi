@@ -1,4 +1,4 @@
-/** The app as a KubeStacks server serves it: one cluster, at addresses that can be shared. */
+/** The app as a Lumovi server serves it: one cluster, at addresses that can be shared. */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -12,12 +12,12 @@ test('one cluster, at addresses below the base path that can be shared', async (
   serve,
 }) => {
   const served = await serve({
-    env: { KUBESTACKS_BASE_PATH: '/kubestacks/', KUBESTACKS_CLUSTER_NAME: 'production' },
+    env: { LUMOVI_BASE_PATH: '/lumovi/', LUMOVI_CLUSTER_NAME: 'production' },
   })
-  expect(served.url).toMatch(/\/kubestacks\/$/)
-  const origin = served.url.replace('/kubestacks/', '')
+  expect(served.url).toMatch(/\/lumovi\/$/)
+  const origin = served.url.replace('/lumovi/', '')
   // The base path as people type it.
-  await page.goto(`${origin}/kubestacks`)
+  await page.goto(`${origin}/lumovi`)
   await page.getByPlaceholder('Paste a token').fill(DEMO_TOKEN)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   // The start is the cluster's overview.
@@ -43,10 +43,10 @@ test('one cluster, at addresses below the base path that can be shared', async (
   await page.goto(`${served.url}cluster/demo/services`)
   await expect(page).toHaveURL(`${served.url}cluster/production`)
   await expect(heading(page)).toHaveText('Overview')
-  // Outside the base path, nothing is KubeStacks'.
+  // Outside the base path, nothing is Lumovi's.
   const outside = await page.request.get(`${origin}/elsewhere`)
   expect(outside.status()).toBe(404)
-  expect(await outside.json()).toEqual({ error: 'KubeStacks is at /kubestacks/' })
+  expect(await outside.json()).toEqual({ error: 'Lumovi is at /lumovi/' })
 })
 
 test('what only the desktop app does isn’t there', async ({ page, serve }) => {
@@ -171,7 +171,7 @@ test('read-only, as each browser chooses, and for everyone', async ({
   // What the server is asked is checked there.
   expect(
     await page.evaluate(() =>
-      window.kubestacks!.app.setReadOnly('', true).then(
+      window.lumovi!.app.setReadOnly('', true).then(
         () => 'changed',
         (error: Error) => error.message,
       ),
@@ -182,7 +182,7 @@ test('read-only, as each browser chooses, and for everyone', async ({
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.keyboard.press('Escape')
-  await page.evaluate(() => localStorage.setItem('kubestacks:settings', '{'))
+  await page.evaluate(() => localStorage.setItem('lumovi:settings', '{'))
   await page.reload()
   await expect(heading(page)).toHaveText('Workloads')
   await expect(
@@ -190,7 +190,7 @@ test('read-only, as each browser chooses, and for everyone', async ({
   ).toHaveCount(0)
 
   // For everyone, when the server says so.
-  const locked = await serve({ env: { KUBESTACKS_READ_ONLY: '1' } })
+  const locked = await serve({ env: { LUMOVI_READ_ONLY: '1' } })
   await signIn(page, `${locked.url}cluster/demo`, DEMO_TOKEN)
   await page.getByRole('button', { name: 'Cluster', exact: true }).click()
   await expect(page.getByRole('switch', { name: 'Read-only' })).toBeDisabled()
@@ -203,7 +203,7 @@ test('views this server has, and where its metrics come from', async ({ page, se
   writeFileSync(
     join(views.helmDir, 'views', 'team.yaml'),
     [
-      'apiVersion: kubestacks.dev/v1alpha1',
+      'apiVersion: lumovi.dev/v1alpha1',
       'kind: View',
       'metadata: { name: team-certificates }',
       'spec:',
@@ -213,7 +213,7 @@ test('views this server has, and where its metrics come from', async ({ page, se
   )
   await signIn(page, `${views.url}cluster/demo/api-resources`, DEMO_TOKEN)
   await expect(
-    page.getByText(/views from KubeStacks, 1 from this server\. This server’s are in/),
+    page.getByText(/views from Lumovi, 1 from this server\. This server’s are in/),
   ).toBeVisible()
 
   // Each browser can choose for itself, and keeps its choice.
@@ -227,35 +227,35 @@ test('views this server has, and where its metrics come from', async ({ page, se
   await page.reload()
   await expect(page.getByText(/history is off/i).first()).toBeVisible()
 
-  const off = await serve({ env: { KUBESTACKS_METRICS_SOURCE: 'off' } })
+  const off = await serve({ env: { LUMOVI_METRICS_SOURCE: 'off' } })
   await signIn(page, `${off.url}cluster/demo/metrics`, DEMO_TOKEN)
   await expect(page.getByText(/history is off/i).first()).toBeVisible()
 
   const chosen = await serve({
     env: {
-      KUBESTACKS_METRICS_SOURCE: 'data/prometheus-archive:9090',
-      KUBESTACKS_VIEWS_DIR: undefined,
+      LUMOVI_METRICS_SOURCE: 'data/prometheus-archive:9090',
+      LUMOVI_VIEWS_DIR: undefined,
     },
   })
   await signIn(page, `${chosen.url}cluster/demo/metrics`, DEMO_TOKEN)
   await expect(page.getByText(/prometheus-archive/).first()).toBeVisible()
   await page.goto(`${chosen.url}cluster/demo/api-resources`)
-  await expect(page.getByText(/This server’s are in \/etc\/kubestacks\/views/)).toBeVisible()
+  await expect(page.getByText(/This server’s are in \/etc\/lumovi\/views/)).toBeVisible()
 })
 
 test('links open in a tab of their own', async ({ page, context, serve }) => {
   // On every interface, showing the kubeconfig's current context.
   const served = await serve({
-    env: { KUBESTACKS_ADDRESS: undefined, KUBESTACKS_CONTEXT: undefined },
+    env: { LUMOVI_ADDRESS: undefined, LUMOVI_CONTEXT: undefined },
   })
   expect(served.url).toMatch(/^http:\/\/localhost:\d+\/$/)
   await context.route('https://github.com/**', (route) => route.fulfill({ body: 'GitHub' }))
   await page.goto(served.url)
   const fromSignIn = context.waitForEvent('page')
-  await page.getByRole('button', { name: 'KubeStacks on GitHub' }).click()
-  expect((await fromSignIn).url()).toBe('https://github.com/KubeStacks/KubeStacks')
+  await page.getByRole('button', { name: 'Lumovi on GitHub' }).click()
+  expect((await fromSignIn).url()).toBe('https://github.com/Lumovi/Lumovi')
   await signIn(page, served.url, DEMO_TOKEN)
   const opened = context.waitForEvent('page')
-  await page.getByRole('button', { name: 'KubeStacks on GitHub' }).click()
-  expect((await opened).url()).toBe('https://github.com/KubeStacks/KubeStacks')
+  await page.getByRole('button', { name: 'Lumovi on GitHub' }).click()
+  expect((await opened).url()).toBe('https://github.com/Lumovi/Lumovi')
 })
