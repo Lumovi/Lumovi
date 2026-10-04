@@ -13,7 +13,7 @@ import { StatusDot } from '@renderer/components/Status'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { api, type KubeApiError } from '@renderer/lib/api'
-import { hostOf } from '@renderer/lib/format'
+import { ERROR_LABELS, hostOf } from '@renderer/lib/format'
 import { matchWords } from '@renderer/lib/match'
 import { clusterPath } from '@renderer/lib/routes'
 import { usePrefs } from '@renderer/state/prefs'
@@ -225,20 +225,4 @@ function ContextItem({ context, isCurrent }: { context: KubeContext; isCurrent: 
       </span>
     </Command.Item>
   )
-}
-
-const ERROR_LABELS: Record<KubeApiError['code'], string> = {
-  unreachable: 'Unreachable',
-  timeout: 'Timed out',
-  tls: 'Certificate error',
-  insecure: 'Plain HTTP blocked',
-  auth: 'Credentials failed',
-  unauthorized: 'Unauthorized',
-  forbidden: 'Forbidden',
-  'not-found': 'Not found',
-  server: 'Server error',
-  invalid: 'Misconfigured',
-  conflict: 'Conflict',
-  'read-only': 'Read-only',
-  helm: 'Helm failed',
 }

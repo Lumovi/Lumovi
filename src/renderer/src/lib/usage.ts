@@ -1,12 +1,7 @@
-import type { KubeObject, MetricsSnapshot } from '@shared/api'
+import type { Capacity, KubeObject, MetricsSnapshot } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
 
-export interface Capacity {
-  /** Live usage from metrics-server, when available. */
-  used: number
-  /** What the scheduler can hand out across all nodes. */
-  total: number
-}
+export type { Capacity } from '@shared/api'
 
 export interface NodeUsage {
   metricsAvailable: boolean
