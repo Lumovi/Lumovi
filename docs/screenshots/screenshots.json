@@ -36,6 +36,14 @@
       "dark": { "2x": "deployment-dark.webp", "1x": "deployment-dark-1x.webp" }
     },
     {
+      "name": "map",
+      "title": "Map",
+      "description": "What leads to a deployment, from its gateway to its services, and what it uses and runs on, to the node under memory pressure.",
+      "app": "desktop",
+      "light": { "2x": "map-light.webp", "1x": "map-light-1x.webp" },
+      "dark": { "2x": "map-dark.webp", "1x": "map-dark-1x.webp" }
+    },
+    {
       "name": "logs",
       "title": "Logs",
       "description": "The logs of every pod of a deployment, merged as they happened.",
@@ -106,6 +114,14 @@
       "app": "desktop",
       "light": { "2x": "metrics-light.webp", "1x": "metrics-light-1x.webp" },
       "dark": { "2x": "metrics-dark.webp", "1x": "metrics-dark-1x.webp" }
+    },
+    {
+      "name": "right-sizing",
+      "title": "Right-sizing",
+      "description": "What each workload should request from a week of usage, with why, and its week against the request, the recommendation and the limit.",
+      "app": "desktop",
+      "light": { "2x": "right-sizing-light.webp", "1x": "right-sizing-light-1x.webp" },
+      "dark": { "2x": "right-sizing-dark.webp", "1x": "right-sizing-dark-1x.webp" }
     },
     {
       "name": "pod-metrics",
@@ -186,6 +202,22 @@
       "app": "desktop",
       "light": { "2x": "custom-resource-light.webp", "1x": "custom-resource-light-1x.webp" },
       "dark": { "2x": "custom-resource-dark.webp", "1x": "custom-resource-dark-1x.webp" }
+    },
+    {
+      "name": "add-on",
+      "title": "An add-on",
+      "description": "Flux's add-on: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.",
+      "app": "desktop",
+      "light": { "2x": "add-on-light.webp", "1x": "add-on-light-1x.webp" },
+      "dark": { "2x": "add-on-dark.webp", "1x": "add-on-dark-1x.webp" }
+    },
+    {
+      "name": "karpenter",
+      "title": "Karpenter",
+      "description": "Karpenter's node pools against their limits, the nodes they launched, and what's being replaced or waiting for a node.",
+      "app": "desktop",
+      "light": { "2x": "karpenter-light.webp", "1x": "karpenter-light-1x.webp" },
+      "dark": { "2x": "karpenter-dark.webp", "1x": "karpenter-dark-1x.webp" }
     },
     {
       "name": "helm-releases",
