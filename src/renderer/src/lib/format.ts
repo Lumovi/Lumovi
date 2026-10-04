@@ -1,3 +1,5 @@
+import type { KubeErrorCode } from '@shared/api'
+
 const BYTE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
 
 /** Durations the way kubectl prints them: 42s, 5m3s, 47m, 3h12m, 20h, 2d4h, 88d, 2y70d. */
@@ -58,4 +60,21 @@ export function hostOf(server: string | undefined): string | undefined {
   } catch {
     return server
   }
+}
+
+/** What a cluster that didn't answer says, in a word or two: "Unreachable", "Timed out". */
+export const ERROR_LABELS: Record<KubeErrorCode, string> = {
+  unreachable: 'Unreachable',
+  timeout: 'Timed out',
+  tls: 'Certificate error',
+  insecure: 'Plain HTTP blocked',
+  auth: 'Credentials failed',
+  unauthorized: 'Unauthorized',
+  forbidden: 'Forbidden',
+  'not-found': 'Not found',
+  server: 'Server error',
+  invalid: 'Misconfigured',
+  conflict: 'Conflict',
+  'read-only': 'Read-only',
+  helm: 'Helm failed',
 }

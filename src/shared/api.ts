@@ -430,6 +430,14 @@ export interface MetricsSnapshot {
   items: UsageSample[]
 }
 
+/** What's in use of what can be handed out: CPU in cores, memory in bytes. */
+export interface Capacity {
+  /** Live usage from metrics-server, when available. */
+  used: number
+  /** What the scheduler can hand out across all nodes. */
+  total: number
+}
+
 /** A container's logs to stream (`kubectl logs`), and where to start. */
 export interface LogStreamRequest {
   context: string
