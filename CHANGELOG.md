@@ -10,6 +10,8 @@ All notable changes to Lumovi are documented here. The format follows
 
 - Views from the Helm chart's `views` value are used: Kubernetes mounts them as links, which
   were left out. A view file that can't be read is listed as a problem, and the rest load.
+- The Map no longer says "Not found" for a Gateway or a Service in another namespace that a
+  route refers to, as shared gateways are: it shows them, and they open.
 
 ## [1.0.0] - 2026-10-04
 

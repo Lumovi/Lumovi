@@ -50,7 +50,7 @@ export interface MapNode {
   namespace?: string
   /** Undefined when it's referred to but isn't there (or can't be read). */
   object?: KubeObject
-  /** Referred to, and its kind was listed, but it isn't there. */
+  /** Referred to, and its kind was listed where it is, but it isn't there. */
   missing?: boolean
   /** Pods shown as one: a controller's, or one revision's. */
   pods?: KubeObject[]
@@ -245,7 +245,9 @@ const UP_FROM: Partial<Record<ResourceKind, number>> = { Node: 2 }
 /**
  * The map of `focus`: its neighbourhood among `pool`, with pods grouped by
  * controller except those `expanded`. `listed` are the kinds whose lists
- * loaded: a reference to one of those that isn't in `pool` is missing.
+ * loaded, and where: in a namespace, or everywhere (null). A reference to one
+ * of those, where it was listed, that isn't in `pool` is missing; elsewhere
+ * (a route's gateway in another namespace) it's only unknown.
  * `related` are a view's relations of the focus (custom kinds).
  */
 export function buildMap({
@@ -256,7 +258,7 @@ export function buildMap({
   related,
 }: {
   pool: KubeObject[]
-  listed: ReadonlySet<ResourceKind>
+  listed: ReadonlyMap<ResourceKind, string | null>
   focus: KubeObject
   expanded: ReadonlySet<string>
   related: KubeObject[]
@@ -269,7 +271,9 @@ export function buildMap({
     let found = nodes.get(id)
     if (!found) {
       const object = byId.get(id)
-      found = { id, kind, name, namespace, object, missing: !object && listed.has(kind) }
+      const where = listed.get(kind)
+      const missing = !object && listed.has(kind) && (where === null || where === namespace)
+      found = { id, kind, name, namespace, object, missing }
       nodes.set(id, found)
     }
     return found
