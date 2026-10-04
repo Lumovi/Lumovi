@@ -318,8 +318,22 @@ function kitchenSink(cluster: MockCluster) {
     metadata: meta('lab'),
     status: {},
     spec: {
-      parentRefs: [{ name: 'public' }, { kind: 'Service', name: 'mesh' }],
-      rules: [{ backendRefs: [{ name: 'lab' }, { kind: 'ServiceImport', name: 'elsewhere' }] }, {}],
+      parentRefs: [
+        { name: 'public' },
+        { kind: 'Service', name: 'mesh' },
+        // A gateway shared from a namespace of its own, as Gateway API setups often have.
+        { name: 'shared', namespace: 'infra' },
+      ],
+      rules: [
+        {
+          backendRefs: [
+            { name: 'lab' },
+            { kind: 'ServiceImport', name: 'elsewhere' },
+            { name: 'lab-elsewhere', namespace: 'staging' },
+          ],
+        },
+        {},
+      ],
     },
   })
   cluster.upsert({
@@ -507,6 +521,13 @@ test('missing references, odd ones, and what refers to nothing', async ({ page, 
   await expect(card(lab, 'Network policy lab')).toContainText('Ingress')
   await expect(card(lab, 'Ingress lab')).toBeVisible()
   await expect(card(lab, 'HTTPRoute lab, Pending')).toBeVisible()
+  // What it refers to in namespaces the map didn't list is there, unknown, rather than missing.
+  await card(lab, 'HTTPRoute lab, Pending').click()
+  const route = panel(page, 'HTTPRoute', 'lab')
+  await openAll(route)
+  await expect(card(route, 'Gateway shared')).toBeVisible()
+  await expect(card(route, 'Service lab-elsewhere')).toBeVisible()
+  await expect(card(route, /^Service lab, /)).toBeVisible()
   await page.keyboard.press('Escape')
 
   // An ingress with a default backend only takes every host; one with rules lists its

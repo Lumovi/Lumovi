@@ -78,7 +78,9 @@ function useMapData(object: KubeObject) {
   return {
     settled,
     pool: lists.slice(0, own).flatMap((l) => l.data ?? []),
-    listed: new Set(requests.filter((_, i) => i < own && lists[i]!.data).map((r) => r.kind)),
+    listed: new Map(
+      requests.flatMap((r, i) => (i < own && lists[i]!.data ? [[r.kind, r.namespace]] : [])),
+    ),
     related: lists.slice(own).flatMap((l) => l.data ?? []),
     stamp: lists.map((l) => l.dataUpdatedAt).join(),
   }
