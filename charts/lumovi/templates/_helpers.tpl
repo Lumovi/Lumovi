@@ -33,10 +33,29 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 {{- end }}
 
+{{/* Labels as LUMOVI_CLUSTER_LABELS takes them: env=production,region=eu */}}
+{{- define "lumovi.labelList" -}}
+{{- $pairs := list }}
+{{- range $key, $value := . }}{{ $pairs = append $pairs (printf "%s=%s" $key $value) }}{{ end }}
+{{- join "," $pairs }}
+{{- end }}
+
 {{/* The base path, with a slash at each end. */}}
 {{- define "lumovi.basePath" -}}
 {{- $path := trimAll "/" .Values.basePath }}
 {{- if $path }}/{{ $path }}/{{ else }}/{{ end }}
+{{- end }}
+
+{{/* Whether this release is Lumovi itself (rather than a fleet's member or agent). */}}
+{{- define "lumovi.dashboard" -}}
+{{- if eq .Values.mode "dashboard" }}true{{ end }}
+{{- end }}
+
+{{/* Whether the dashboard shows a fleet: clusters from a kubeconfig, Secrets or agents. */}}
+{{- define "lumovi.fleet" -}}
+{{- with .Values.fleet }}
+{{- if or .kubeconfigSecret .secrets .agentsSecret }}true{{ end }}
+{{- end }}
 {{- end }}
 
 {{/*

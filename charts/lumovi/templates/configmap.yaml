@@ -1,4 +1,4 @@
-{{- if .Values.views }}
+{{- if and (include "lumovi.dashboard" .) (.Values.views) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

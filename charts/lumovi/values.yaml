@@ -1,6 +1,14 @@
 # Lumovi, served from your cluster. What each setting does:
 # https://docs.lumovi.dev/server/helm-values
 
+# What this release is:
+# - dashboard: Lumovi, showing this cluster to whoever signs in, or a fleet of clusters
+#   (see fleet).
+# - member: what a fleet's Lumovi needs here to reach this cluster: a service account that
+#   may only impersonate, and its token. The notes after installing say how to add it.
+# - agent: a fleet's agent, for a cluster its Lumovi can't reach. It dials Lumovi (see agent).
+mode: dashboard
+
 image:
   repository: ghcr.io/lumovi/lumovi
   # The chart's appVersion unless set.
@@ -11,8 +19,45 @@ imagePullSecrets: []
 nameOverride: ''
 fullnameOverride: ''
 
-# What Lumovi calls the cluster: in its pages, their addresses and titles.
+# What Lumovi calls the cluster: in its pages, their addresses and titles. An agent's name
+# at its fleet's Lumovi, too.
 clusterName: in-cluster
+
+# Many clusters, rather than this one: see https://docs.lumovi.dev/server/fleet. People
+# sign in with auth.mode oidc or proxy, and see each cluster as their RBAC there allows.
+fleet:
+  # A Secret with a kubeconfig under `kubeconfig`, each context of which is a cluster. Its
+  # users may only impersonate (a member's token), and a context's lumovi.dev extension
+  # gives it labels, the groups who see it, and whether people's own tokens are passed on.
+  # Lumovi reads it again as it changes.
+  kubeconfigSecret: ''
+  # Secrets that describe clusters, read again every 30 seconds: lumovi (labelled
+  # lumovi.dev/cluster, with a kubeconfig under kubeconfig), cluster-api (each cluster's
+  # <name>-kubeconfig) and argocd (Argo CD's cluster Secrets).
+  secrets: []
+  # Where those Secrets are (Lumovi may list Secrets there); this release's namespace unless
+  # set.
+  secretNamespaces: []
+  # A Secret with the agents that may connect under `agents.yaml`: a list of
+  # { name, tokenSha256, labels, groups }.
+  agentsSecret: ''
+  # Whether this cluster is one of the fleet's (as clusterName).
+  includeThisCluster: true
+  # This cluster's labels in the fleet, like { env: production, region: eu-west }.
+  labels: {}
+
+# A fleet's agent (mode agent).
+agent:
+  # The fleet's Lumovi, like https://lumovi.example.com
+  hubUrl: ''
+  # A Secret with the agent's token under `token` (the hub knows its SHA-256).
+  tokenSecret: ''
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
 
 # The address people open Lumovi at, like https://lumovi.example.com. Single sign-on
 # needs it (the provider sends people back there); it also makes cookies HTTPS-only.

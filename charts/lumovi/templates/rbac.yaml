@@ -1,5 +1,9 @@
-{{- if and .Values.rbac.create (include "lumovi.impersonates" .) }}
-# Lumovi acts as whoever signs in: the API server then applies their RBAC.
+{{- $fleet := include "lumovi.fleet" . }}
+{{- /* A member or an agent impersonates for its hub; a fleet, in its own cluster; one cluster, unless people's tokens are passed on. */}}
+{{- $impersonates := or (not (include "lumovi.dashboard" .)) (and $fleet .Values.fleet.includeThisCluster) (and (not $fleet) (include "lumovi.impersonates" .)) }}
+{{- if and .Values.rbac.create $impersonates }}
+# Lumovi acts as whoever signs in: the API server then applies their RBAC. (A fleet's member
+# or agent may do nothing else: the hub acts through it.)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -25,4 +29,37 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "lumovi.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if and .Values.rbac.create $fleet .Values.fleet.secrets }}
+{{- range (.Values.fleet.secretNamespaces | default (list $.Release.Namespace)) }}
+---
+# The fleet's clusters, as the Secrets here describe them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "lumovi.fullname" $ }}-fleet
+  namespace: {{ . }}
+  labels:
+    {{- include "lumovi.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "lumovi.fullname" $ }}-fleet
+  namespace: {{ . }}
+  labels:
+    {{- include "lumovi.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "lumovi.fullname" $ }}-fleet
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}
