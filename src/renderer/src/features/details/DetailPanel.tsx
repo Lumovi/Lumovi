@@ -76,23 +76,6 @@ function Detail({
   const involved = object.data?.involvedObject as { kind: string; name: string } | undefined
   const gone = (object.error as KubeApiError | null)?.code === 'not-found'
 
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      // Let open menus and dialogs handle Escape first; closing one marks the event handled.
-      if (
-        event.key === 'Escape' &&
-        !event.defaultPrevented &&
-        !document.querySelector(
-          '[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]',
-        )
-      ) {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
-
   return (
     <>
       <header className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">

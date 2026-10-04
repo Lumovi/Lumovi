@@ -226,7 +226,12 @@ test('releases in other states, and ones Flux manages', async ({ page, clusters 
   await expect(yaml(grafana, 'Values')).not.toContainText('sidecar')
   await grafana.getByRole('button', { name: 'Roll back…' }).click()
   await expect(dialog(page)).toContainText('Going back to 1 changes 1 line of its values')
+  // Escape closes the dialog first, and then the panel, as its close button says.
   await page.keyboard.press('Escape')
+  await expect(dialog(page)).toHaveCount(0)
+  await expect(grafana).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(grafana).toHaveCount(0)
 
   const dashboards = await openRelease(page, HELM.dashboards)
   await dashboards.getByRole('tab', { name: 'Resources' }).click()
