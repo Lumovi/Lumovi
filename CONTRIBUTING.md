@@ -122,14 +122,14 @@ its name (keep it once published), what it shows, where it starts, and what to d
 ## Releasing (maintainers)
 
 Releases are automatic: a version is released once it reaches `main` and CI passes. Versions
-follow [semantic versioning](https://semver.org): a fix is a patch release (1.2.1), anything
-new a minor one (1.3.0), and a change that breaks how people use the app (dropping a
+follow [semantic versioning](https://semver.org): a fix is a patch release (1.0.1), anything
+new a minor one (1.1.0), and a change that breaks how people use the app (dropping a
 platform or a Kubernetes version, removing a feature) a major one (2.0.0). A version with a
-suffix, like `1.3.0-beta.1`, is published as a pre-release.
+suffix, like `1.1.0-beta.1`, is published as a pre-release.
 
-1. Set the version: `npm version 1.2.0 --no-git-tag-version` (which sets the Helm chart's
+1. Set the version: `npm version 1.1.0 --no-git-tag-version` (which sets the Helm chart's
    too).
-2. In `CHANGELOG.md`, move what's under _Unreleased_ into a `## [1.2.0] - <date>` section,
+2. In `CHANGELOG.md`, move what's under _Unreleased_ into a `## [1.1.0] - <date>` section,
    and update the links at the bottom.
 3. Commit and push to `main`.
 
@@ -138,11 +138,10 @@ builds the installers for every platform (signing and notarizing the macOS app),
 image (`ghcr.io/lumovi/lumovi`) and Helm chart (`oci://ghcr.io/lumovi/charts`),
 which it pushes to GitHub's container registry with provenance attestations. It attaches
 them and a `SHA256SUMS.txt` to a GitHub release, with the version's CHANGELOG section as
-its notes, and publishes it with an annotated tag, `v1.2.0`, on the commit CI tested. It
+its notes, and publishes it with an annotated tag, `v1.1.0`, on the commit CI tested. It
 refuses a version that isn't newer than the last release, or that has no CHANGELOG section.
 Each file gets a signed build provenance attestation (`gh attestation verify <file> --repo
-Lumovi/Lumovi`; `--owner kotapeter` for 1.1.0 and earlier, built before the project
-moved), and published releases are immutable. A release that fails part of
+Lumovi/Lumovi`), and published releases are immutable. A release that fails part of
 the way can be run again from the workflow's page (_Run workflow_).
 
 The signing secrets are in the repository's `release` environment, which only `main` can
