@@ -12,3 +12,5 @@ This guide has moved to the documentation:
 - [Helm values](https://docs.lumovi.dev/server/helm-values) and
   [configuration](https://docs.lumovi.dev/server/configuration)
 - [Without Kubernetes](https://docs.lumovi.dev/server/docker)
+- [A fleet of clusters](https://docs.lumovi.dev/server/fleet), with
+  [agents](https://docs.lumovi.dev/server/fleet/agents) for private ones
