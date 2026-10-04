@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Views from the Helm chart's `views` value are used: Kubernetes mounts them as links, which
+  were left out. A view file that can't be read is listed as a problem, and the rest load.
+
 ## [1.0.0] - 2026-10-04
 
 The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks.
