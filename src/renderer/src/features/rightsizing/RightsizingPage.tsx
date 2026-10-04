@@ -103,7 +103,7 @@ export function RightsizingPage() {
 
 function Rightsizing() {
   const { namespace } = useCluster()
-  const { advised, capacity, error, failed, progress, retry } = useRightsizing()
+  const { advised, capacity, error, failed, progress, retry, vpaError } = useRightsizing()
   const [params] = useSearchParams()
   const update = useUpdateParams()
   const show = (FILTERS.find((f) => f.id === params.get('show'))?.id ?? 'all') as Show
@@ -177,6 +177,21 @@ function Rightsizing() {
           <p className="min-w-0 flex-1">
             Prometheus couldn’t answer for {failed.map((f) => f.namespace).join(', ')}: no
             recommendations there. <span className="text-ink-2">{failed[0]!.error.message}</span>
+          </p>
+          <Button variant="ghost" onClick={retry} className="h-7 shrink-0 px-2 text-xs">
+            Try again
+          </Button>
+        </div>
+      )}
+      {vpaError && (
+        <div
+          role="alert"
+          className="flex items-center gap-2.5 rounded-lg border border-warn/25 bg-warn/10 px-3 py-2 text-[13px] text-warn-text"
+        >
+          <TriangleAlert className="size-4 shrink-0" />
+          <p className="min-w-0 flex-1">
+            VerticalPodAutoscalers couldn’t be listed, so workloads they manage aren’t recognized,
+            and get recommendations too. <span className="text-ink-2">{vpaError.message}</span>
           </p>
           <Button variant="ghost" onClick={retry} className="h-7 shrink-0 px-2 text-xs">
             Try again

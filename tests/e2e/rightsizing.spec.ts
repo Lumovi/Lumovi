@@ -75,6 +75,35 @@ function setResources(
 }
 
 /** Says a pod's container was last stopped by an OOM kill, `ago` ms ago. */
+/** The VerticalPodAutoscaler's CRD, as installing the VPA adds it. */
+function installVpa(cluster: MockCluster) {
+  cluster.upsert({
+    apiVersion: 'apiextensions.k8s.io/v1',
+    kind: 'CustomResourceDefinition',
+    metadata: { name: 'verticalpodautoscalers.autoscaling.k8s.io' },
+    spec: {
+      group: 'autoscaling.k8s.io',
+      names: {
+        kind: 'VerticalPodAutoscaler',
+        plural: 'verticalpodautoscalers',
+        singular: 'verticalpodautoscaler',
+        listKind: 'VerticalPodAutoscalerList',
+      },
+      scope: 'Namespaced',
+      versions: [
+        {
+          name: 'v1',
+          served: true,
+          storage: true,
+          schema: {
+            openAPIV3Schema: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
+          },
+        },
+      ],
+    },
+  })
+}
+
 function oomKilled(cluster: MockCluster, namespace: string, name: string, ago: number) {
   const pod = stored(cluster, 'Pod', namespace, name)
   pod.status.containerStatuses[0].restartCount = ago < 7 * 24 * 60 * MINUTE ? 1 : 0
@@ -476,31 +505,7 @@ test('workloads it can’t say much about yet', async ({ page, clusters }) => {
     clusters.demo.upsert(pod)
   }
   // A VerticalPodAutoscaler sets Grafana's requests; another only recommends cart's.
-  clusters.demo.upsert({
-    apiVersion: 'apiextensions.k8s.io/v1',
-    kind: 'CustomResourceDefinition',
-    metadata: { name: 'verticalpodautoscalers.autoscaling.k8s.io' },
-    spec: {
-      group: 'autoscaling.k8s.io',
-      names: {
-        kind: 'VerticalPodAutoscaler',
-        plural: 'verticalpodautoscalers',
-        singular: 'verticalpodautoscaler',
-        listKind: 'VerticalPodAutoscalerList',
-      },
-      scope: 'Namespaced',
-      versions: [
-        {
-          name: 'v1',
-          served: true,
-          storage: true,
-          schema: {
-            openAPIV3Schema: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
-          },
-        },
-      ],
-    },
-  })
+  installVpa(clusters.demo)
   const vpa = (namespace: string, name: string, spec: object) =>
     clusters.demo.upsert({
       apiVersion: 'autoscaling.k8s.io/v1',
@@ -561,6 +566,40 @@ test('workloads it can’t say much about yet', async ({ page, clusters }) => {
   await expect.poll(() => order(page)).toEqual(['DaemonSet agent', 'Deployment worker'])
   await expect(workload(page, 'Deployment', 'worker')).toContainText('1 pod')
   await expect(workload(page, 'DaemonSet', 'agent')).toContainText('0 pods')
+})
+
+test('without VerticalPodAutoscalers or nodes it may list', async ({ page, clusters }) => {
+  const forbidden = (resource: string) => ({
+    status: 403,
+    body: JSON.stringify({
+      kind: 'Status',
+      status: 'Failure',
+      reason: 'Forbidden',
+      code: 403,
+      message: `${resource} is forbidden: User "developer" cannot list resource "${resource}"`,
+    }),
+  })
+  // The VPA is installed, but this account can't list its autoscalers, nor the cluster's nodes.
+  installVpa(clusters.demo)
+  const vpas = clusters.demo.fail(
+    '/apis/autoscaling.k8s.io/v1/verticalpodautoscalers',
+    forbidden('verticalpodautoscalers.autoscaling.k8s.io'),
+  )
+  clusters.demo.fail('/api/v1/nodes', forbidden('nodes'))
+  await openCluster(page)
+  await openRightsizing(page)
+
+  // Recommendations all the same, with what they can't know said.
+  await expect(table(page)).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Show' })).toContainText('All12')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText(
+    'VerticalPodAutoscalers couldn’t be listed, so workloads they manage aren’t recognized',
+  )
+  await expect(alert).toContainText('cannot list resource "verticalpodautoscalers')
+  vpas()
+  await alert.getByRole('button', { name: 'Try again' }).click()
+  await expect(alert).toHaveCount(0)
 })
 
 test('limits that hold workloads back, and requests autoscalers scale on', async ({
