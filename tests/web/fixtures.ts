@@ -18,6 +18,7 @@ export { DEMO, DEMO_TOKEN, PEOPLE } from '../mock-cluster/kubeconfig.ts'
 
 const COVERAGE_DIR = resolve('.nyc_output')
 const SERVER = resolve('out/server/index.js')
+const AGENT = resolve('out/agent/agent.js')
 /** Only an instrumented build answers when asked for its coverage. */
 const INSTRUMENTED = (() => {
   try {
@@ -126,6 +127,81 @@ export function startServer(
     child.stdout!.on('data', listening)
     void exited.then((code) => reject(new Error(`The server exited (${code}):\n${output}`)))
   })
+}
+
+export interface Agent {
+  /** What it wrote to stdout and stderr so far. */
+  log(): string
+  /** Resolves with its exit code, once it exits (it stops by itself when refused). */
+  exited: Promise<number | null>
+  /** Stops it, as Kubernetes does (SIGTERM), keeping its coverage. */
+  stop(): Promise<void>
+}
+
+/**
+ * A fleet's agent (`node out/agent/agent.js`, as its image runs it), relaying to
+ * the demo cluster as if it ran there, with the service account `serviceAccount`
+ * says (see inCluster), unless `env` says otherwise.
+ */
+export function startAgent(env: Record<string, string | undefined>): Agent {
+  const merged = {
+    ...process.env,
+    LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
+    LUMOVI_AGENT_HEALTH_PORT: '0',
+    ...env,
+  }
+  const child = spawn(process.execPath, [AGENT], {
+    env: Object.fromEntries(
+      Object.entries(merged).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    ),
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  })
+  let output = ''
+  child.stdout!.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+  const exited = new Promise<number | null>((done) => child.once('exit', (code) => done(code)))
+  let stopping: Promise<void> | undefined
+  return {
+    log: () => output,
+    exited,
+    stop() {
+      stopping ??= (async () => {
+        if (child.exitCode !== null) return
+        if (INSTRUMENTED) {
+          await new Promise<void>((saved) => {
+            child.once('message', () => saved())
+            child.send('lumovi:coverage')
+          })
+        }
+        child.kill('SIGTERM')
+        await exited
+      })()
+      return stopping
+    },
+  }
+}
+
+/**
+ * What a process running in the demo cluster has (its service account's token,
+ * CA and namespace, and where the API server is), as LUMOVI_SERVICE_ACCOUNT_DIR
+ * and KUBERNETES_SERVICE_* let a test say.
+ */
+export function inCluster(
+  clusters: TestClusters,
+  { token = 'lumovi-demo-token', namespace = 'lumovi' } = {},
+): { env: Record<string, string>; dir: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-serviceaccount-'))
+  writeFileSync(join(dir, 'token'), token)
+  writeFileSync(join(dir, 'ca.crt'), clusters.demo.caPem!)
+  writeFileSync(join(dir, 'namespace'), namespace)
+  return {
+    dir,
+    env: {
+      KUBERNETES_SERVICE_HOST: '127.0.0.1',
+      KUBERNETES_SERVICE_PORT: String(clusters.demo.port),
+      LUMOVI_SERVICE_ACCOUNT_DIR: dir,
+    },
+  }
 }
 
 /** A port nothing listens on now (for a server whose address must be known before it starts). */

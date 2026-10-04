@@ -20,10 +20,11 @@ import { handlers, type Handler } from '@backend/handlers'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
 import { KubeService } from '@backend/kube/service'
+import { clusterSummary } from '@backend/kube/summary'
 import { Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { isMetricsSourceSetting, type SettingsAccess } from '@backend/settings'
-import type { HostedCluster, Identity } from './cluster'
+import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { checkChartUrl } from './network'
 
@@ -80,12 +81,15 @@ class PagePreferences implements SettingsAccess {
 }
 
 export interface ConnectionOptions {
-  cluster: HostedCluster
+  hosted: Hosted
   config: ServerConfig
   identity: Identity
   version: string
   env: NodeJS.ProcessEnv
-  /** Called when the cluster refuses the person's own token: it expired, or was revoked. */
+  /**
+   * Called when the cluster refuses the person's own token: it expired, or was revoked. (In a
+   * fleet, one cluster refusing it is that cluster's error.)
+   */
   rejected: () => void
 }
 
@@ -121,11 +125,11 @@ export class PageConnection {
 
   constructor(
     private readonly socket: WebSocket,
-    { cluster, config, identity, version, env, rejected }: ConnectionOptions,
+    { hosted, config, identity, version, env, rejected }: ConnectionOptions,
   ) {
     // Only a token of the person's own can be refused for them: the server's are its problem.
-    this.#rejected = identity.token ? rejected : () => undefined
-    const configs = cluster.configsFor(identity)
+    this.#rejected = identity.token && !hosted.fleet ? rejected : () => undefined
+    const configs = hosted.configsFor(identity)
     const preferences = new PagePreferences(
       ['1', 'true'].includes(env.LUMOVI_READ_ONLY ?? ''),
       config.metricsSource,
@@ -141,15 +145,17 @@ export class PageConnection {
       // A kubeconfig of its own for each run, acting as this person, removed after.
       target: async (context) => {
         configs.forContext(context)
+        const target = await hosted.helmTarget(identity, context)
         const dir = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
         const kubeconfig = join(dir, 'kubeconfig')
-        await writeFile(kubeconfig, JSON.stringify(cluster.helmKubeconfig(identity)), {
-          mode: 0o600,
-        })
+        await writeFile(kubeconfig, JSON.stringify(target.kubeconfig), { mode: 0o600 })
         return {
-          args: ['--kube-context', cluster.name],
+          args: ['--kube-context', context],
           env: { KUBECONFIG: kubeconfig },
-          done: () => rm(dir, { recursive: true, force: true }),
+          done: async () => {
+            target.done()
+            await rm(dir, { recursive: true, force: true })
+          },
         }
       },
     })
@@ -180,7 +186,14 @@ export class PageConnection {
       platform: process.platform,
       node: process.versions.node,
     }
-    this.#invoke = { ...shared.invoke, [IPC.appInfo]: () => info }
+    this.#invoke = {
+      ...shared.invoke,
+      [IPC.appInfo]: () => info,
+      // A fleet's page sums each cluster up.
+      ...(hosted.fleet
+        ? { [IPC.fleetSummary]: (context: unknown) => clusterSummary(kube, context as string) }
+        : {}),
+    }
     this.#send = shared.send
     this.#preferences = preferences
     socket.on('message', (data) => void this.#receive(data))

@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Session, SessionUser, SignIn, SignInProblem } from '@shared/server'
 import { kubeRequest } from '@backend/kube/client'
 import { toKubeError } from '@backend/kube/errors'
-import type { HostedCluster, Identity } from './cluster'
+import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { cookie, cookies, readJson, redirect, sameOrigin, secure, sendJson } from './http'
 import { log } from './log'
@@ -38,7 +38,7 @@ export type Caller = { identity: Identity; session?: string } | { refused: true 
 export class Auth {
   constructor(
     private readonly config: ServerConfig,
-    private readonly cluster: HostedCluster,
+    private readonly hosted: Hosted,
     private readonly sessions: Sessions,
     private readonly oidc?: OidcClient,
   ) {}
@@ -53,7 +53,7 @@ export class Auth {
         .map((group) => group.trim())
         .filter(Boolean)
       const user = { name, groups }
-      return this.cluster.refuses(user) ? { refused: true } : { identity: { user } }
+      return this.hosted.refuses(user) ? { refused: true } : { identity: { user } }
     }
     const session = this.sessions.get(cookies(req)[SESSION_COOKIE])
     return session && { identity: session.identity, session: session.id }
@@ -162,7 +162,7 @@ export class Auth {
       return
     }
     const { user, token } = signedIn
-    const refused = this.cluster.refuses(user)
+    const refused = this.hosted.refuses(user)
     if (refused) {
       this.#problem(res, 'refused', new Error(refused))
       return
@@ -210,9 +210,9 @@ export class Auth {
 
   /** Who a token is, as the cluster says (a SelfSubjectReview, Kubernetes 1.28 and later). */
   async #review(token: string): Promise<SessionUser> {
-    const kc = this.cluster
+    const kc = this.hosted
       .configsFor({ user: { name: '', groups: [] }, token })
-      .forContext(this.cluster.name)
+      .forContext(this.hosted.name!)
     const review = JSON.parse(
       await kubeRequest(kc, REVIEWS, {
         method: 'POST',
@@ -230,7 +230,7 @@ export class Auth {
     return {
       user,
       auth: auth.mode,
-      cluster: this.cluster.name,
+      ...(this.hosted.fleet ? { fleet: true } : { cluster: this.hosted.name }),
       signOutUrl: auth.mode === 'proxy' ? auth.signOutUrl : undefined,
     }
   }

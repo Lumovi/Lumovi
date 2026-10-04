@@ -3,6 +3,7 @@
 // $FAKE_HELM_DIR/calls.jsonl) and answers like helm does, or as
 // $FAKE_HELM_DIR/responses.json says ({ "<subcommand>": { code, stdout, stderr, signal } }).
 import fs from 'node:fs'
+import https from 'node:https'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { parse } from 'yaml'
@@ -17,6 +18,30 @@ const kubeconfig = process.env.KUBECONFIG
 if (dir && kubeconfig && fs.existsSync(kubeconfig)) {
   const record = { args, kubeconfig: fs.readFileSync(kubeconfig, 'utf8') }
   fs.appendFileSync(path.join(dir, 'kubeconfigs.jsonl'), `${JSON.stringify(record)}\n`)
+}
+// Like helm, it can reach the cluster first ($FAKE_HELM_REACH): its version, as the kubeconfig
+// says, recorded with the answer's status (or why there was none).
+if (dir && kubeconfig && process.env.FAKE_HELM_REACH) {
+  const { clusters, users } = parse(fs.readFileSync(kubeconfig, 'utf8'))
+  const { cluster } = clusters[0]
+  const { user } = users[0]
+  const status = await new Promise((resolve) => {
+    https
+      .get(
+        `${cluster.server}/version`,
+        {
+          ca: Buffer.from(cluster['certificate-authority-data'], 'base64'),
+          servername: cluster['tls-server-name'],
+          headers: { Authorization: `Bearer ${user.token}`, 'Impersonate-User': user.as },
+        },
+        (res) => {
+          res.resume()
+          resolve(res.statusCode)
+        },
+      )
+      .on('error', (error) => resolve(error.message))
+  })
+  fs.appendFileSync(path.join(dir, 'reached.jsonl'), `${JSON.stringify({ args, status })}\n`)
 }
 
 const responses = (() => {

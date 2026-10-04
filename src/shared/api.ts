@@ -134,6 +134,8 @@ export interface KubeContext {
   user: string
   namespace?: string
   server?: string
+  /** A fleet's: what the cluster is labelled with (env, region…), to filter and group by. */
+  labels?: Record<string, string>
 }
 
 export interface ContextsResult {
@@ -438,6 +440,27 @@ export interface Capacity {
   total: number
 }
 
+/**
+ * A cluster summed up for a fleet, as its overview's tiles do, as whoever is
+ * signed in sees it. Each part is what was counted, or why it couldn't be (a
+ * person may list deployments but not nodes). Without a version, the cluster
+ * didn't answer, and nothing else was asked.
+ */
+export interface ClusterSummary {
+  /** When it was taken. */
+  at: number
+  version: Result<ClusterVersion>
+  nodes?: Result<{ ready: number; total: number }>
+  /** Pods in every namespace: running, and those failing or waiting too long. */
+  pods?: Result<{ running: number; unhealthy: number; total: number; truncated: boolean }>
+  /** Deployments, StatefulSets and DaemonSets: healthy (or scaled to zero), of all. */
+  workloads?: Result<{ healthy: number; total: number }>
+  /** Warning events in the last hour. */
+  warnings?: Result<{ lastHour: number }>
+  /** CPU (cores) and memory (bytes) in use, of what the nodes can allocate; absent without metrics-server. */
+  usage?: Result<{ cpu: Capacity; memory: Capacity } | null>
+}
+
 /** A container's logs to stream (`kubectl logs`), and where to start. */
 export interface LogStreamRequest {
   context: string
@@ -679,6 +702,10 @@ export interface LumoviApi {
     stop(id: string): Promise<void>
     onChange(listener: (forwards: PortForward[]) => void): () => void
   }
+  /** A fleet's: each cluster summed up, for the page of every cluster (a server with a fleet). */
+  fleet?: {
+    summary(context: string): Promise<ClusterSummary>
+  }
   /** New versions of the desktop app, from its GitHub releases. */
   updates?: {
     state(): Promise<UpdateEvent>
@@ -711,6 +738,7 @@ export const IPC = {
   change: 'kube:change',
   can: 'kube:can',
   history: 'kube:history',
+  fleetSummary: 'fleet:summary',
   helmReleases: 'helm:releases',
   helmRelease: 'helm:release',
   helmCli: 'helm:cli',

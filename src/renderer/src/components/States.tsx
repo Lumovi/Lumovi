@@ -98,6 +98,12 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
 }
 
 /** For errors Lumovi didn't see coming: a bug, or a failure outside the API. */
+/** The icon for an error of `code`, as ErrorState shows it. */
+export function ErrorIcon({ code, className }: { code: KubeErrorCode; className?: string }) {
+  const Icon = ERROR_COPY[code].icon
+  return <Icon className={className} aria-hidden />
+}
+
 const UNEXPECTED = {
   title: 'Something went wrong',
   hint: 'Lumovi didn’t expect this. If trying again doesn’t help, please report it.',
