@@ -6,6 +6,33 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Fleet: one Lumovi for many clusters, in a browser. Each person sees every cluster as their
+  own RBAC there allows: Lumovi impersonates them, or passes their own token on to clusters
+  that trust the identity provider. Signing in is with single sign-on or a proxy. Its home
+  page sums up each cluster as its overview would (nodes, pods, workloads, warnings, CPU and
+  memory, its version and how fast it answers), puts what needs attention first, and says
+  why a cluster can't be reached. It filters by status and labels, groups by a label, and
+  finds a workload by name in every cluster. The switcher and `⌘K` / `Ctrl+K` move between
+  clusters, and back to all of them. See [Fleet](https://docs.lumovi.dev/server/fleet).
+- A fleet's clusters come from a kubeconfig (`LUMOVI_FLEET_KUBECONFIG`, as YAML or base64 on
+  one line, or files read again as they change), from Secrets in the cluster Lumovi runs in
+  (its own, Cluster API's and Argo CD's), and from that cluster itself. A context's
+  `lumovi.dev` extension, or a Secret's annotations, give a cluster labels, the groups who
+  see it, and whether people's own tokens are passed on.
+- Agents for clusters Lumovi can't reach: an agent in the cluster dials out to Lumovi over a
+  WebSocket, and relays its connections to the API server. TLS runs from Lumovi to the API
+  server through it, so the agent passes on only what it can't read. It reconnects on its
+  own, and passes on its service account's token again when Kubernetes rotates it.
+- The Helm chart installs a fleet (`fleet`), what a cluster needs to join one (`mode: member`:
+  a service account that may only impersonate, and its token, with the kubeconfig entry
+  printed after installing), or an agent (`mode: agent`).
+- Lumovi runs without Kubernetes on platforms that set `PORT`, like Sevalla: it listens on
+  `PORT` unless `LUMOVI_PORT` is set, and takes every setting from the environment.
+- `npm run dev:server -- --fleet` serves a fleet of the mock clusters, signed in to with a
+  mock single sign-on.
+
 ### Fixed
 
 - Views from the Helm chart's `views` value are used: Kubernetes mounts them as links, which

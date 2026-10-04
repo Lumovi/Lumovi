@@ -328,6 +328,22 @@
       "app": "server",
       "light": { "2x": "server-account-light.webp", "1x": "server-account-light-1x.webp" },
       "dark": { "2x": "server-account-dark.webp", "1x": "server-account-dark-1x.webp" }
+    },
+    {
+      "name": "fleet",
+      "title": "A fleet of clusters",
+      "description": "Lumovi showing a fleet: every cluster summed up, what needs attention first.",
+      "app": "server",
+      "light": { "2x": "fleet-light.webp", "1x": "fleet-light-1x.webp" },
+      "dark": { "2x": "fleet-dark.webp", "1x": "fleet-dark-1x.webp" }
+    },
+    {
+      "name": "fleet-search",
+      "title": "Finding a workload in every cluster",
+      "description": "Workloads found by name or namespace in every cluster of a fleet.",
+      "app": "server",
+      "light": { "2x": "fleet-search-light.webp", "1x": "fleet-search-light-1x.webp" },
+      "dark": { "2x": "fleet-search-dark.webp", "1x": "fleet-search-dark-1x.webp" }
     }
   ]
 }
