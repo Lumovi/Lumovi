@@ -174,7 +174,7 @@ export function SetImageDialog({ object, onClose }: ActionProps) {
                 <span className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-2xs text-ink-3">
                   <span className="truncate line-through decoration-ink-3/60">{c.image}</span>
                   <ArrowRight className="size-3 shrink-0" />
-                  <span className="truncate text-accent-strong">{next(c) || '—'}</span>
+                  <span className="truncate text-ink-1">{next(c) || '—'}</span>
                 </span>
               )}
             </label>

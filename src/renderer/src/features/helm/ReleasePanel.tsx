@@ -227,8 +227,8 @@ function ReleaseOverview({ release }: { release: HelmReleaseDetail }) {
   return (
     <div className="divide-y divide-line pb-6">
       {managed && (
-        <div className="flex items-start gap-2.5 bg-accent-soft px-5 py-3 text-[13px] text-ink-2">
-          <ShipWheel className="mt-0.5 size-4 shrink-0 text-accent-strong" />
+        <div className="flex items-start gap-2.5 bg-surface-2 px-5 py-3 text-[13px] text-ink-2">
+          <ShipWheel className="mt-0.5 size-4 shrink-0 text-ink-3" />
           <span className="flex-1">
             Flux manages this release, and puts back changes made to it any other way.{' '}
             <button

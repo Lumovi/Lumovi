@@ -530,7 +530,7 @@ export function LogsView({ pods, name }: { pods: KubeObject[]; name: string }) {
       {sources.length > MAX_STREAMS && (
         <p
           role="note"
-          className="shrink-0 border-b border-line bg-accent-soft px-5 py-1.5 text-xs text-ink-2"
+          className="shrink-0 border-b border-line bg-surface-2 px-5 py-1.5 text-xs text-ink-2"
         >
           Streaming the first {MAX_STREAMS} of {sources.length} containers. Pick a container, or
           open a pod, to see the rest.

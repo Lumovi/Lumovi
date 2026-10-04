@@ -1,39 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <radialGradient id="lumovi-icon-mark-l" cx="33" cy="15" r="38" gradientUnits="userSpaceOnUse">
-      <stop offset="0.553" stop-color="#8cc2ff"/>
-      <stop offset="0.76" stop-color="#3987e5"/>
-      <stop offset="1" stop-color="#1c5cab"/>
-    </radialGradient>
-    <radialGradient id="lumovi-icon-mark-orb" cx="0.36" cy="0.32" r="0.78">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.3" stop-color="#eff7ff"/>
-      <stop offset="0.72" stop-color="#8cc2ff"/>
-      <stop offset="1" stop-color="#3987e5"/>
-    </radialGradient>
     <linearGradient id="lumovi-icon-plate" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1d2b4f"/>
-      <stop offset="1" stop-color="#0a0f1f"/>
+      <stop offset="0" stop-color="#404040"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
     </linearGradient>
     <clipPath id="lumovi-icon-clip">
       <path d="M655.36 0c129.036 0 193.554 0 242.839 25.112a230.4 230.4 0 0 1 100.688 100.688c25.112 49.285 25.112 113.803 25.112 242.839L1024 655.36c0 129.036 0 193.554 -25.112 242.839a230.4 230.4 0 0 1 -100.688 100.688c-49.285 25.112 -113.803 25.112 -242.839 25.112L368.64 1024c-129.036 0 -193.554 0 -242.839 -25.112a230.4 230.4 0 0 1 -100.688 -100.688c-25.112 -49.285 -25.112 -113.803 -25.112 -242.839L0 368.64c0 -129.036 0 -193.554 25.112 -242.839a230.4 230.4 0 0 1 100.688 -100.688c49.285 -25.112 113.803 -25.112 242.839 -25.112Z"/>
     </clipPath>
-    <radialGradient id="lumovi-icon-halo" cx="620" cy="404" r="612" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5ea2f0" stop-opacity="0.5"/>
-      <stop offset="0.38" stop-color="#3987e5" stop-opacity="0.2"/>
-      <stop offset="1" stop-color="#3987e5" stop-opacity="0"/>
+    <radialGradient id="lumovi-icon-halo" cx="380" cy="644" r="552" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.17"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <filter id="lumovi-icon-bloom" x="-1" y="-1" width="3" height="3">
-      <feGaussianBlur stdDeviation="6.3"/>
+    <radialGradient id="lumovi-icon-mark-light" cx="0" cy="48" r="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#efefef"/>
+    </radialGradient>
+    <radialGradient id="lumovi-icon-mark-shade" cx="0" cy="48" r="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0.529" stop-color="#ffffff" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.13"/>
+    </radialGradient>
+    <filter id="lumovi-icon-mark-bloom" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.4"/>
     </filter>
+    <clipPath id="lumovi-icon-mark-square">
+      <path d="M12 0H36A12 12 0 0 1 48 12V36A12 12 0 0 1 36 48H12A12 12 0 0 1 0 36V12A12 12 0 0 1 12 0Z"/>
+    </clipPath>
   </defs>
   <path d="M655.36 0c129.036 0 193.554 0 242.839 25.112a230.4 230.4 0 0 1 100.688 100.688c25.112 49.285 25.112 113.803 25.112 242.839L1024 655.36c0 129.036 0 193.554 -25.112 242.839a230.4 230.4 0 0 1 -100.688 100.688c-49.285 25.112 -113.803 25.112 -242.839 25.112L368.64 1024c-129.036 0 -193.554 0 -242.839 -25.112a230.4 230.4 0 0 1 -100.688 -100.688c-25.112 -49.285 -25.112 -113.803 -25.112 -242.839L0 368.64c0 -129.036 0 -193.554 25.112 -242.839a230.4 230.4 0 0 1 100.688 -100.688c49.285 -25.112 113.803 -25.112 242.839 -25.112Z" fill="url(#lumovi-icon-plate)"/>
   <g clip-path="url(#lumovi-icon-clip)">
-    <circle cx="620" cy="404" r="612" fill="url(#lumovi-icon-halo)"/>
+    <circle cx="380" cy="644" r="552" fill="url(#lumovi-icon-halo)"/>
     <g transform="translate(224 224) scale(12)">
-      <path d="M0 15V6A6 6 0 0 1 12 6V15A21 21 0 0 0 33 36H42A6 6 0 0 1 42 48H21A21 21 0 0 1 0 27Z" fill="url(#lumovi-icon-mark-l)"/>
-      <circle cx="33" cy="15" r="15" fill="#8cc2ff" fill-opacity="0.85" filter="url(#lumovi-icon-bloom)"/>
-      <circle cx="33" cy="15" r="15" fill="url(#lumovi-icon-mark-orb)"/>
+      <path d="M0 12A12 12 0 0 1 12 0H36A12 12 0 0 1 48 12V36A12 12 0 0 1 36 48A36 36 0 0 0 0 12Z" fill="url(#lumovi-icon-mark-shade)"/>
+      <g clip-path="url(#lumovi-icon-mark-square)">
+        <path d="M0 18V36A12 12 0 0 0 12 48H30A30 30 0 0 0 0 18Z" fill="#ffffff" fill-opacity="0.6" filter="url(#lumovi-icon-mark-bloom)"/>
+      </g>
+      <path d="M0 18V36A12 12 0 0 0 12 48H30A30 30 0 0 0 0 18Z" fill="url(#lumovi-icon-mark-light)"/>
     </g>
   </g>
   <path d="M656.384 1.707c128.08 0 192.12 0 241.041 24.926a228.693 228.693 0 0 1 99.943 99.943c24.926 48.92 24.926 112.96 24.926 241.041L1022.293 656.384c0 128.08 0 192.12 -24.926 241.041a228.693 228.693 0 0 1 -99.943 99.943c-48.92 24.926 -112.96 24.926 -241.041 24.926L367.616 1022.293c-128.08 0 -192.12 0 -241.041 -24.926a228.693 228.693 0 0 1 -99.943 -99.943c-24.926 -48.92 -24.926 -112.96 -24.926 -241.041L1.707 367.616c0 -128.08 0 -192.12 24.926 -241.041a228.693 228.693 0 0 1 99.943 -99.943c48.92 -24.926 112.96 -24.926 241.041 -24.926Z" stroke="#ffffff" stroke-opacity="0.12" stroke-width="3.413" fill="none"/>

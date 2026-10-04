@@ -28,15 +28,15 @@
 /* Design tokens. */
 :root {
   color-scheme: light;
-  --app-bg: #f5f5f6;
+  --app-bg: #f5f5f5;
   --surface: #ffffff;
-  --surface-2: #fafafb;
-  --surface-3: #f0f0f2;
-  --line: rgb(12 12 20 / 0.08);
-  --line-strong: rgb(12 12 20 / 0.14);
-  --text-1: #0b0b0f;
-  --text-2: #52525b;
-  --text-3: #71717a;
+  --surface-2: #fafafa;
+  --surface-3: #efefef;
+  --line: rgb(0 0 0 / 0.08);
+  --line-strong: rgb(0 0 0 / 0.14);
+  --text-1: #0a0a0a;
+  --text-2: #525252;
+  --text-3: #737373;
   --accent: #2675d3;
   --accent-strong: #1c5cab;
   --accent-soft: rgb(38 117 211 / 0.1);
@@ -51,8 +51,8 @@
   --series-7: #4a3aa7;
   --series-8: #e34948;
   --series-other: #a3a29d;
-  --shadow-panel: 0 1px 2px rgb(12 12 20 / 0.04), 0 8px 24px -12px rgb(12 12 20 / 0.12);
-  --shadow-pop: 0 12px 40px -8px rgb(12 12 20 / 0.25), 0 0 0 1px rgb(12 12 20 / 0.06);
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.12);
+  --shadow-pop: 0 12px 40px -8px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(0 0 0 / 0.06);
 
   /* Status marks are mode-invariant; status text gets a readable step per mode. */
   --good: #0ca30c;
@@ -86,15 +86,15 @@
 :root {
   @variant theme-dark {
     color-scheme: dark;
-    --app-bg: #0c0c0e;
-    --surface: #121215;
-    --surface-2: #18181c;
-    --surface-3: #212126;
+    --app-bg: #0a0a0a;
+    --surface: #121212;
+    --surface-2: #181818;
+    --surface-3: #212121;
     --line: rgb(255 255 255 / 0.07);
     --line-strong: rgb(255 255 255 / 0.12);
-    --text-1: #f2f2f4;
-    --text-2: #a1a1aa;
-    --text-3: #8b8b94;
+    --text-1: #ededed;
+    --text-2: #a3a3a3;
+    --text-3: #8f8f8f;
     --accent: #3987e5;
     --accent-strong: #5ea2f0;
     --accent-soft: rgb(57 135 229 / 0.16);
@@ -150,6 +150,7 @@
   --color-accent-strong: var(--accent-strong);
   --color-accent-soft: var(--accent-soft);
   --color-accent-track: var(--accent-track);
+  --color-series-1: var(--series-1);
   --color-series-2: var(--series-2);
   --color-good: var(--good);
   --color-warn: var(--warn);
@@ -284,14 +285,20 @@
 @utility selectable {
   user-select: text;
 }
+/* A headline, as the brand sets them: Inter's display cut, semibold and tracked tight. */
+@utility headline {
+  font-weight: 600;
+  font-variation-settings: 'opsz' 32;
+  letter-spacing: -0.045em;
+}
 
 /*
  * On a background of their own (a test runner's PASS badge), black and white
  * text are black and white, not the steps that stay readable on the log's.
  */
 .ansi-bg {
-  --ansi-0: #0c0c0e;
-  --ansi-7: #f0f0f2;
+  --ansi-0: #0a0a0a;
+  --ansi-7: #efefef;
   --ansi-15: #ffffff;
 }
 

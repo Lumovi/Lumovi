@@ -38,10 +38,6 @@ export function WelcomePage() {
 
   return (
     <div className="vt-page relative flex h-full flex-col overflow-hidden">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-40 h-[480px] bg-[radial-gradient(closest-side,var(--accent-soft),transparent)]"
-      />
       <div className="titlebar-leading titlebar-trailing h-[52px] shrink-0 drag" />
       <main className="relative flex min-h-0 flex-1 flex-col items-center px-8 pb-6">
         <div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col">
@@ -201,7 +197,7 @@ function ContextItem({ context, isCurrent }: { context: KubeContext; isCurrent: 
         <span className="flex items-center gap-2">
           <span className="truncate text-[13.5px] font-medium text-ink-1">{context.name}</span>
           {isCurrent && (
-            <span className="rounded-full bg-accent-soft px-1.5 py-px text-2xs font-medium text-accent-strong">
+            <span className="rounded-full bg-surface-3 px-1.5 py-px text-2xs font-medium text-ink-2">
               current
             </span>
           )}

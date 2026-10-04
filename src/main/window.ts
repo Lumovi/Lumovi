@@ -6,8 +6,8 @@ import icon from '../../build/icon.png?asset'
 
 /** Keep in sync with the `--app-bg`/`--text-2` tokens in the renderer's theme. */
 const CHROME = {
-  dark: { color: '#0c0c0e', symbolColor: '#a1a1aa' },
-  light: { color: '#f5f5f6', symbolColor: '#52525b' },
+  dark: { color: '#0a0a0a', symbolColor: '#a3a3a3' },
+  light: { color: '#f5f5f5', symbolColor: '#525252' },
 }
 const TITLE_BAR_HEIGHT = 52
 

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="lumovi-light" cx="0" cy="48" r="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#efefef"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(238.602 238.602) scale(11.39159)">
+    <path d="M0 18V36A12 12 0 0 0 12 48H30A30 30 0 0 0 0 18Z" fill="url(#lumovi-light)"/>
+  </g>
+</svg>

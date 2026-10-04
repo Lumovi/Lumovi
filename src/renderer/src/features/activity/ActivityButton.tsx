@@ -12,7 +12,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { menuContent } from '../shell/menu-styles'
 
 const STATUS = {
-  running: { icon: LoaderCircle, label: 'In progress', className: 'animate-spin text-accent' },
+  running: { icon: LoaderCircle, label: 'In progress', className: 'animate-spin text-ink-3' },
   done: { icon: CircleCheck, label: 'Done', className: 'text-good-text' },
   failed: { icon: CircleX, label: 'Failed', className: 'text-critical-text' },
 }
@@ -31,7 +31,7 @@ export function ActivityButton() {
           {unseen > 0 && (
             <span
               aria-label={`${unseen} new`}
-              className="absolute top-0.5 right-0.5 grid h-3.5 min-w-3.5 animate-pop-in place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white tabular-nums"
+              className="absolute top-0.5 right-0.5 grid h-3.5 min-w-3.5 animate-pop-in place-items-center rounded-full bg-ink-1 px-1 text-[9px] font-semibold text-surface tabular-nums"
             >
               {unseen}
             </span>

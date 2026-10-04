@@ -59,7 +59,7 @@ export function UpdateNotice({ updates }: { updates: NonNullable<LumoviApi['upda
       aria-label="Update"
       className="fixed bottom-4 left-4 z-[60] flex w-[340px] max-w-[calc(100vw-32px)] animate-toast-in items-start gap-3 rounded-xl border border-line-strong bg-surface-2 py-3 pr-2 pl-3.5 shadow-pop"
     >
-      <CircleArrowUp className="mt-px size-[18px] shrink-0 text-accent-strong" />
+      <CircleArrowUp className="mt-px size-[18px] shrink-0 text-ink-2" />
       <div className="min-w-0 flex-1 py-px">
         <p className="text-[13px] leading-snug font-medium text-ink-1">Lumovi {ready} is ready</p>
         <p className="mt-0.5 text-xs leading-relaxed text-ink-2">

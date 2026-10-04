@@ -40,7 +40,7 @@ export function Sparkline({
         aria-label={`${label} trend, now ${percent(values[last]!)}`}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
-        className="h-12 w-full overflow-visible text-accent"
+        className="h-12 w-full overflow-visible text-series-1"
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
       >
@@ -74,7 +74,7 @@ export function Sparkline({
       </svg>
       <span
         aria-hidden
-        className="pointer-events-none absolute size-2.5 -translate-1/2 rounded-full bg-accent ring-2 ring-surface-2"
+        className="pointer-events-none absolute size-2.5 -translate-1/2 rounded-full bg-series-1 ring-2 ring-surface-2"
         style={{
           left: `${(x(hover ?? last) / WIDTH) * 100}%`,
           top: `${(y(values[hover ?? last]!) / HEIGHT) * 100}%`,

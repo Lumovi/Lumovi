@@ -34,7 +34,7 @@ export function AccountMenu({ session }: { session: Session }) {
         <IconButton label={`Signed in as ${user.name}`}>
           <span
             aria-hidden
-            className="grid size-6 place-items-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent-strong"
+            className="grid size-6 place-items-center rounded-full bg-surface-3 text-[10px] font-semibold text-ink-2"
           >
             {initials}
           </span>

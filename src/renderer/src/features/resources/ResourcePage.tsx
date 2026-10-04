@@ -260,9 +260,9 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
       {totals?.truncated && (
         <p
           role="note"
-          className="flex shrink-0 items-center gap-2 border-b border-line bg-accent-soft px-5 py-2 text-xs text-ink-2"
+          className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-5 py-2 text-xs text-ink-2"
         >
-          <Info className="size-3.5 shrink-0 text-accent-strong" />
+          <Info className="size-3.5 shrink-0 text-ink-3" />
           <span className="flex-1">
             Showing the first {number.format(totals.loaded)}
             {totals.total ? ` of ${number.format(totals.total)}` : ''} {noun}. Choose a namespace or

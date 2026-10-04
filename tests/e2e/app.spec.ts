@@ -238,7 +238,7 @@ test('window chrome follows the theme', async ({ launch }) => {
     await light.app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.getBackgroundColor(),
     ),
-  ).toBe('#F5F5F6')
+  ).toBe('#F5F5F5')
   await light.page.getByRole('button', { name: 'Theme' }).click()
   await light.page.getByRole('menuitemradio', { name: 'Dark' }).click()
   await expect
@@ -251,7 +251,7 @@ test('window chrome follows the theme', async ({ launch }) => {
     await dark.app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.getBackgroundColor(),
     ),
-  ).toBe('#0C0C0E')
+  ).toBe('#0A0A0A')
 })
 
 test('recovers from unreadable settings', async ({ launch }) => {

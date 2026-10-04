@@ -224,7 +224,7 @@ export function DrainDialog({ object, onClose }: ActionProps) {
                     {status?.state === 'evicting' ? (
                       <LoaderCircle
                         aria-label="Evicting"
-                        className="size-4 animate-spin text-accent"
+                        className="size-4 animate-spin text-ink-3"
                       />
                     ) : status?.state === 'evicted' ? (
                       <CircleCheck aria-label="Evicted" className="size-4 text-good-text" />

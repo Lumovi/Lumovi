@@ -96,7 +96,7 @@ test('what the server answers over HTTP', async ({ serve }) => {
     expect(file.headers()['content-type']).toBe('text/javascript; charset=utf-8')
   }
   // Fonts come compressed already.
-  const font = /url\(\.\/(inter-latin-wght-normal-[^)]+\.woff2)\)/.exec(
+  const font = /url\(\.\/(inter-latin-opsz-normal-[^)]+\.woff2)\)/.exec(
     await (
       await api.get(url(/href="\.\/(assets\/[^"]+\.css)"/.exec(await page.text())![1]!))
     ).text(),

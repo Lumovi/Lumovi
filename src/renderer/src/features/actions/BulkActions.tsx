@@ -355,7 +355,7 @@ function BulkDialog({
             <li key={key(object)} className="flex items-center gap-3 px-3 py-2">
               <span className="grid size-4 shrink-0 place-items-center">
                 {state === 'running' ? (
-                  <LoaderCircle aria-label="Working" className="size-4 animate-spin text-accent" />
+                  <LoaderCircle aria-label="Working" className="size-4 animate-spin text-ink-3" />
                 ) : state === 'done' ? (
                   <CircleCheck aria-label="Done" className="size-4 text-good-text" />
                 ) : state ? (

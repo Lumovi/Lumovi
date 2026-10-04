@@ -533,9 +533,9 @@ function NodeMix({ nodes }: { nodes: KubeObject[] }) {
                 <span className={cn('truncate', mono ? 'font-mono text-xs' : 'text-[13px]')}>
                   {value}
                 </span>
-                <span className="h-1.5 rounded-full bg-accent-track">
+                <span className="h-1.5 rounded-full bg-series-1/20">
                   <span
-                    className="block h-full rounded-full bg-accent"
+                    className="block h-full rounded-full bg-series-1"
                     style={{ width: `${(count / nodes.length) * 100}%` }}
                   />
                 </span>
