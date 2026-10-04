@@ -72,12 +72,15 @@ export function useRightsizing() {
   const daemonSets = useList('DaemonSet')
   const pods = useList('Pod')
   const hpas = useList('HorizontalPodAutoscaler')
-  // What the cluster can allocate, to weigh CPU and memory changes against each other.
+  // What the cluster can allocate, to weigh CPU and memory changes against each other. Listing
+  // nodes takes access to the whole cluster: without it, changes are ranked by their size alone.
   const nodes = useList('Node', { namespace: null })
   // VerticalPodAutoscalers are a custom resource, there only when the VPA is installed.
   const vpaKind = useResource(VPA)
   const vpas = useList(VPA, { enabled: vpaKind.resource !== undefined })
-  const lists = [deployments, statefulSets, daemonSets, pods, hpas, nodes]
+  const lists = [deployments, statefulSets, daemonSets, pods, hpas]
+  /** VerticalPodAutoscalers that couldn't be listed: the workloads they manage aren't known. */
+  const vpaError = vpas.data === undefined ? vpas.error : null
 
   const workloads = useMemo(
     () =>
@@ -108,9 +111,9 @@ export function useRightsizing() {
     workloads !== undefined &&
     pods.data !== undefined &&
     hpas.data !== undefined &&
-    nodes.data !== undefined &&
+    (nodes.data !== undefined || nodes.error !== null) &&
     !vpaKind.pending &&
-    (vpaKind.resource === undefined || vpas.data !== undefined) &&
+    (vpaKind.resource === undefined || vpas.data !== undefined || vpaError !== null) &&
     usage.settled === namespaces.length
   const computed = useMemo(() => {
     if (!loaded) return undefined
@@ -125,7 +128,7 @@ export function useRightsizing() {
     const autoscalers = { hpas: hpas.data!, vpas: vpas.data ?? [] }
     const batches = namespacesOf(workloads)
     const capacity = { cpu: 0, memory: 0 }
-    for (const node of nodes.data!) {
+    for (const node of nodes.data ?? []) {
       capacity.cpu += allocatable(node).cpu
       capacity.memory += allocatable(node).memory
     }
@@ -159,10 +162,11 @@ export function useRightsizing() {
     /** Namespaces Prometheus couldn't answer for, when others it could. */
     failed: failed.length < namespaces.length ? failed : [],
     capacity: computed?.capacity,
+    vpaError,
     progress: { settled: usage.settled, total: namespaces.length },
     /** Loads what failed again: lists, and the namespaces Prometheus didn't answer for. */
     retry: () => {
-      for (const q of lists) if (q.error) void q.refetch()
+      for (const q of [...lists, nodes, vpas]) if (q.error) void q.refetch()
       void queryClient.refetchQueries({
         queryKey: ['usage', context, 'rightsizing'],
         predicate: (query) => query.state.status === 'error',

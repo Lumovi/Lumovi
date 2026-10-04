@@ -12,6 +12,8 @@ All notable changes to Lumovi are documented here. The format follows
   were left out. A view file that can't be read is listed as a problem, and the rest load.
 - The Map no longer says "Not found" for a Gateway or a Service in another namespace that a
   route refers to, as shared gateways are: it shows them, and they open.
+- Right-sizing loads when the VerticalPodAutoscaler is installed but its autoscalers can't be
+  listed (it says what that means), and for accounts that can't list nodes.
 
 ## [1.0.0] - 2026-10-04
 
