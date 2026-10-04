@@ -2,82 +2,233 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "mode": {
+      "enum": ["dashboard", "member", "agent"]
+    },
     "image": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
-        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
       }
     },
-    "clusterName": { "type": "string", "pattern": "^[^/\\s]+$" },
-    "url": { "type": "string", "pattern": "^(https?://\\S+)?$" },
-    "basePath": { "type": "string", "pattern": "^/?([\\w.~-]+/?)*$" },
+    "clusterName": {
+      "type": "string",
+      "pattern": "^[^/\\s]+$"
+    },
+    "fleet": {
+      "type": "object",
+      "properties": {
+        "kubeconfigSecret": {
+          "type": "string"
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "enum": ["lumovi", "cluster-api", "argocd"]
+          },
+          "uniqueItems": true
+        },
+        "secretNamespaces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "agentsSecret": {
+          "type": "string"
+        },
+        "includeThisCluster": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "hubUrl": {
+          "type": "string",
+          "pattern": "^(https?://\\S+)?$"
+        },
+        "tokenSecret": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^(https?://\\S+)?$"
+    },
+    "basePath": {
+      "type": "string",
+      "pattern": "^/?([\\w.~-]+/?)*$"
+    },
     "auth": {
       "type": "object",
       "properties": {
-        "mode": { "enum": ["token", "oidc", "proxy"] },
+        "mode": {
+          "enum": ["token", "oidc", "proxy"]
+        },
         "oidc": {
           "type": "object",
           "properties": {
-            "issuer": { "type": "string", "pattern": "^(https?://\\S+)?$" },
-            "clientId": { "type": "string" },
-            "clientSecret": { "type": "string" },
-            "existingSecret": { "type": "string" },
-            "scopes": { "type": "string", "minLength": 1 },
-            "usernameClaim": { "type": "string", "minLength": 1 },
-            "groupsClaim": { "type": "string", "minLength": 1 },
-            "providerName": { "type": "string" },
-            "forwardToken": { "enum": ["", "id", "access"] }
+            "issuer": {
+              "type": "string",
+              "pattern": "^(https?://\\S+)?$"
+            },
+            "clientId": {
+              "type": "string"
+            },
+            "clientSecret": {
+              "type": "string"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "string",
+              "minLength": 1
+            },
+            "usernameClaim": {
+              "type": "string",
+              "minLength": 1
+            },
+            "groupsClaim": {
+              "type": "string",
+              "minLength": 1
+            },
+            "providerName": {
+              "type": "string"
+            },
+            "forwardToken": {
+              "enum": ["", "id", "access"]
+            }
           }
         },
         "proxy": {
           "type": "object",
           "properties": {
-            "userHeader": { "type": "string", "minLength": 1 },
-            "groupsHeader": { "type": "string", "minLength": 1 },
-            "signOutUrl": { "type": "string", "pattern": "^(https?://\\S+)?$" }
+            "userHeader": {
+              "type": "string",
+              "minLength": 1
+            },
+            "groupsHeader": {
+              "type": "string",
+              "minLength": 1
+            },
+            "signOutUrl": {
+              "type": "string",
+              "pattern": "^(https?://\\S+)?$"
+            }
           }
         },
-        "usernamePrefix": { "type": "string" },
-        "groupsPrefix": { "type": "string" },
-        "sessionHours": { "type": "number", "exclusiveMinimum": 0, "maximum": 168 }
+        "usernamePrefix": {
+          "type": "string"
+        },
+        "groupsPrefix": {
+          "type": "string"
+        },
+        "sessionHours": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 168
+        }
       }
     },
-    "readOnly": { "type": "boolean" },
+    "readOnly": {
+      "type": "boolean"
+    },
     "metrics": {
       "type": "object",
       "properties": {
-        "source": { "type": "string", "pattern": "^(auto|off|[^/:]+/[^/:]+:[^/]+(/.*)?)$" }
+        "source": {
+          "type": "string",
+          "pattern": "^(auto|off|[^/:]+/[^/:]+:[^/]+(/.*)?)$"
+        }
       }
     },
     "helm": {
       "type": "object",
       "properties": {
-        "allowPrivateCharts": { "type": "boolean" },
-        "artifactHubUrl": { "type": "string", "pattern": "^https?://\\S+$" }
+        "allowPrivateCharts": {
+          "type": "boolean"
+        },
+        "artifactHubUrl": {
+          "type": "string",
+          "pattern": "^https?://\\S+$"
+        }
       }
     },
-    "views": { "type": "object", "additionalProperties": { "type": "string" } },
-    "replicaCount": { "type": "integer", "minimum": 0 },
+    "views": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 0
+    },
     "service": {
       "type": "object",
       "properties": {
-        "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "type": {
+          "enum": ["ClusterIP", "NodePort", "LoadBalancer"]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
       }
     },
     "ingress": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "hosts": { "type": "array", "items": { "type": "string" } }
+        "enabled": {
+          "type": "boolean"
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "networkPolicy": {
       "type": "object",
-      "properties": { "enabled": { "type": "boolean" }, "from": { "type": "array" } }
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "from": {
+          "type": "array"
+        }
+      }
     },
-    "extraEnv": { "type": "array" }
+    "extraEnv": {
+      "type": "array"
+    }
   }
 }

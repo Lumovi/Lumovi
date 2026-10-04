@@ -1,6 +1,11 @@
+{{- if include "lumovi.dashboard" . }}
 {{- $basePath := include "lumovi.basePath" . }}
+{{- $fleet := include "lumovi.fleet" . }}
 {{- if and (eq .Values.auth.mode "oidc") (not .Values.url) }}
 {{- fail "url must be set for single sign-on (auth.mode oidc): the provider sends people back there" }}
+{{- end }}
+{{- if and $fleet (eq .Values.auth.mode "token") }}
+{{- fail "A fleet needs single sign-on or a proxy (auth.mode oidc or proxy): a pasted token only says who someone is to one cluster" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -16,7 +21,8 @@ spec:
   template:
     metadata:
       annotations:
-        # A change to the views rolls out a new pod, which reads them.
+        # A change to the views rolls out a new pod, which reads them. (A fleet's kubeconfig is
+        # read again as it changes.)
         checksum/views: {{ toJson .Values.views | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -120,6 +126,35 @@ spec:
               value: {{ .Values.helm.artifactHubUrl | quote }}
             - name: LUMOVI_VIEWS_DIR
               value: /etc/lumovi/views
+            {{- if $fleet }}
+            {{- with .Values.fleet }}
+            {{- if .kubeconfigSecret }}
+            - name: LUMOVI_FLEET_KUBECONFIG_FILE
+              value: /etc/lumovi/fleet/kubeconfig
+            {{- end }}
+            {{- with .secrets }}
+            - name: LUMOVI_FLEET_SECRETS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .secretNamespaces }}
+            - name: LUMOVI_FLEET_SECRETS_NAMESPACES
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .agentsSecret }}
+            - name: LUMOVI_FLEET_AGENTS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: agents.yaml
+            {{- end }}
+            - name: LUMOVI_FLEET_LOCAL
+              value: {{ .includeThisCluster | quote }}
+            {{- end }}
+            {{- with .Values.fleet.labels }}
+            - name: LUMOVI_CLUSTER_LABELS
+              value: {{ include "lumovi.labelList" . | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -145,6 +180,11 @@ spec:
               mountPath: /etc/lumovi/views
               readOnly: true
             {{- end }}
+            {{- if and $fleet .Values.fleet.kubeconfigSecret }}
+            - name: fleet
+              mountPath: /etc/lumovi/fleet
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -152,6 +192,14 @@ spec:
         - name: views
           configMap:
             name: {{ include "lumovi.fullname" . }}-views
+        {{- end }}
+        {{- if and $fleet .Values.fleet.kubeconfigSecret }}
+        - name: fleet
+          secret:
+            secretName: {{ .Values.fleet.kubeconfigSecret }}
+            items:
+              - key: kubeconfig
+                path: kubeconfig
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -165,3 +213,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

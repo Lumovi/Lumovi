@@ -1,4 +1,4 @@
-{{- if .Values.networkPolicy.enabled }}
+{{- if and (include "lumovi.dashboard" .) .Values.networkPolicy.enabled }}
 # Only what `from` allows reaches Lumovi (with auth.mode proxy: the proxy alone).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
