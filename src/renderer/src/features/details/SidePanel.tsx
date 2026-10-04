@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type ComponentType,
@@ -28,8 +29,8 @@ export interface PanelFrame {
 
 /**
  * What a search param names (an object, a Helm release), in a resizable pane
- * next to the list. It animates in and out, can cover the list, and returns
- * focus to where it was when it closes.
+ * next to the list. It animates in and out, can cover the list, closes with
+ * Escape, and returns focus to where it was when it closes.
  */
 export function SidePanel({
   param,
@@ -60,13 +61,29 @@ export function SidePanel({
     if (value) returnFocus.current ??= document.activeElement
   }, [value])
 
-  if (!shown) return null
-
   const close = () => {
     updateParams((current) => current.delete(param))
     ;(returnFocus.current as HTMLElement | null)?.focus()
     returnFocus.current = null
   }
+
+  const onEscape = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    // Open menus and dialogs have it first; closing one marks the event handled.
+    if (
+      event.key === 'Escape' &&
+      !event.defaultPrevented &&
+      !document.querySelector('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]')
+    ) {
+      close()
+    }
+  })
+  useEffect(() => {
+    if (!value) return
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
+  }, [value])
+
+  if (!shown) return null
 
   const resizeTo = (next: number) => {
     const clamped = Math.round(Math.max(MIN_WIDTH, next))
