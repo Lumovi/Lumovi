@@ -14,7 +14,7 @@ export interface Screen {
   description: string
   /** The desktop app, or Lumovi served from a cluster (signed in as `server` says). */
   app: 'desktop' | 'server'
-  server?: 'token' | 'sso' | 'proxy'
+  server?: 'token' | 'sso' | 'proxy' | 'fleet'
   /** Where it starts: a path in the app. */
   path: string
   /** What to do there before the screenshot, if anything. */
@@ -32,6 +32,26 @@ const moreActions = async (page: Page, action: string) => {
   await page.getByRole('button', { name: 'More actions' }).click()
   await page.getByRole('menuitem', { name: action }).click()
 }
+/** How long each cluster takes to answer, as the desktop's screenshots show it (see harness.cjs). */
+const LATENCY_MS: Record<string, number> = { production: 18, staging: 9, 'load-test': 24 }
+
+/**
+ * A fleet's page once every cluster is summed up, each answering in a steady
+ * time: how long they took is measured, so it'd differ from one screenshot to
+ * the next.
+ */
+const settledFleet = async (page: Page) => {
+  await page.locator('[data-cluster-card]').first().waitFor()
+  await page.waitForFunction(() => !document.querySelector('.animate-shimmer'))
+  await page.evaluate((latency) => {
+    for (const card of document.querySelectorAll('[data-cluster-card]')) {
+      const name = card.getAttribute('aria-label')!.split(', ')[0]!
+      const shown = [...card.querySelectorAll('span')].find((s) => /^\d+ ms$/.test(s.textContent))
+      if (shown) shown.textContent = `${latency[name] ?? 12} ms`
+    }
+  }, LATENCY_MS)
+}
+
 /** Turns the production cluster's read-only switch over. */
 const toggleReadOnly = async (page: Page) => {
   await page.getByRole('button', { name: 'Switch cluster' }).click()
@@ -405,5 +425,28 @@ export const SCREENS: Screen[] = [
     server: 'proxy',
     path: cluster,
     steps: (page) => page.getByRole('button', { name: /^Signed in as/ }).click(),
+  },
+  {
+    name: 'fleet',
+    title: 'A fleet of clusters',
+    description: 'Lumovi showing a fleet: every cluster summed up, what needs attention first.',
+    app: 'server',
+    server: 'fleet',
+    path: '/',
+    steps: settledFleet,
+  },
+  {
+    name: 'fleet-search',
+    title: 'Finding a workload in every cluster',
+    description: 'Workloads found by name or namespace in every cluster of a fleet.',
+    app: 'server',
+    server: 'fleet',
+    path: '/?group=region',
+    steps: async (page) => {
+      await settledFleet(page)
+      await page.getByRole('button', { name: 'Find a workload' }).click()
+      await page.keyboard.type('shop')
+      await page.getByRole('listbox', { name: 'Workloads found' }).waitFor()
+    },
   },
 ]

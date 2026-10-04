@@ -11,13 +11,14 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { _electron as electron, chromium, type Browser, type Page } from '@playwright/test'
+import { parse, stringify } from 'yaml'
 import { startMockOidc, type MockOidc } from '../../tests/mock-oidc/server.ts'
 import { writeCatalog } from './catalog.ts'
 import { EPOCH, stopAnimations, stopClock } from './still.ts'
@@ -194,13 +195,47 @@ const freePort = async () => {
   return port
 }
 
-/** Lumovi served from the production cluster, people signing in as `mode` says. */
+/** What each cluster of the fleet is labelled with. */
+const FLEET_LABELS: Record<string, Record<string, string>> = {
+  [CLUSTERS.production]: { env: 'production', region: 'eu-west' },
+  [CLUSTERS.staging]: { env: 'staging', region: 'eu-west' },
+  [CLUSTERS.loadTest]: { env: 'test', region: 'us-east' },
+  [CLUSTERS.edge]: { env: 'production', region: 'ap-south' },
+}
+
+/**
+ * The mock clusters as a fleet's kubeconfig, beside theirs (its paths are
+ * relative to it): each context labelled, and with the administrator's token
+ * (the other clusters take any).
+ */
+function fleetKubeconfig(kubeconfig: string): string {
+  const config = parse(readFileSync(kubeconfig, 'utf8')) as {
+    contexts: { name: string; context: Record<string, unknown> }[]
+  }
+  for (const { name, context } of config.contexts) {
+    context.user = 'admin'
+    context.extensions = [{ name: 'lumovi.dev', extension: { labels: FLEET_LABELS[name] } }]
+  }
+  const file = join(dirname(kubeconfig), 'fleet')
+  writeFileSync(file, stringify(config))
+  return file
+}
+
+/** Lumovi served from the production cluster (or a fleet), people signing in as `mode` says. */
 async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: string) {
   const port = await freePort()
   const url = `http://127.0.0.1:${port}/`
   let oidc: MockOidc | undefined
   const auth: Record<string, string> = {}
-  if (mode === 'sso') {
+  let shows: Record<string, string> = {
+    KUBECONFIG: kubeconfig,
+    LUMOVI_CONTEXT: CLUSTERS.production,
+    LUMOVI_CLUSTER_NAME: CLUSTERS.production,
+  }
+  if (mode === 'fleet') {
+    auth.LUMOVI_AUTH = 'proxy'
+    shows = { LUMOVI_FLEET_KUBECONFIG_FILE: fleetKubeconfig(kubeconfig) }
+  } else if (mode === 'sso') {
     oidc = await startMockOidc({ clientId: 'lumovi' })
     Object.assign(auth, {
       LUMOVI_AUTH: 'oidc',
@@ -215,9 +250,7 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
     env: {
       ...process.env,
       ...auth,
-      KUBECONFIG: kubeconfig,
-      LUMOVI_CONTEXT: CLUSTERS.production,
-      LUMOVI_CLUSTER_NAME: CLUSTERS.production,
+      ...shows,
       LUMOVI_ADDRESS: '127.0.0.1',
       LUMOVI_PORT: String(port),
       LUMOVI_VIEWS_DIR: '',
@@ -381,7 +414,7 @@ try {
           reducedMotion: 'reduce',
           locale: 'en-US',
           timezoneId: 'UTC',
-          extraHTTPHeaders: mode === 'proxy' ? PROXY_HEADERS : undefined,
+          extraHTTPHeaders: mode === 'proxy' || mode === 'fleet' ? PROXY_HEADERS : undefined,
         })
         try {
           await context.addInitScript(stopClock, EPOCH)

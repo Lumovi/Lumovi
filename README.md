@@ -38,7 +38,7 @@ suits you:
 |                | Desktop app                                     | In your cluster                                                                                  |
 | -------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | **For**        | You, on your own computer                       | Your team, in a browser                                                                          |
-| **Clusters**   | Every cluster in your kubeconfig                | The cluster it's installed in                                                                    |
+| **Clusters**   | Every cluster in your kubeconfig                | The cluster it's installed in, or a fleet of clusters                                            |
 | **Signing in** | Your kubeconfig's credentials                   | A token, single sign-on (OpenID Connect) or an authenticating proxy, with each person's own RBAC |
 | **Install**    | Installers for macOS, Windows and Linux         | A Helm chart, or the container image                                                             |
 | **Updates**    | Updates itself                                  | `helm upgrade`                                                                                   |
@@ -92,6 +92,11 @@ suits you:
   object, namespace or cluster.
 - **Calm when things go wrong.** A lost connection shows a banner and keeps the last data on
   screen, and an unexpected error says what happened instead of leaving a blank page.
+- **A fleet of clusters.** One Lumovi in a browser for many clusters, each person seeing each
+  one as their own RBAC there allows. Every cluster is summed up on one page, what needs
+  attention first, with labels to filter and group by and a search for workloads across all
+  of them. It runs in a cluster, on a VM or on a platform like Sevalla, and reaches private
+  clusters through an agent that dials out.
 - **Light and dark.** Follows your system, or pick one.
 
 |                                                                            |                                                                                |
@@ -170,6 +175,11 @@ non-root user without a shell, and also runs
 [outside Kubernetes](https://docs.lumovi.dev/server/docker) against a kubeconfig. See
 [Lumovi in your cluster](https://docs.lumovi.dev/server/overview) for single sign-on
 and authenticating proxies, ingress, security and every setting.
+
+For many clusters, run one Lumovi as a [fleet](https://docs.lumovi.dev/server/fleet): in a
+cluster, on a VM, or on a platform like Sevalla, with no Kubernetes of its own. Each cluster
+joins it with a service account that may only impersonate (the chart's `mode: member`), or
+through an agent that dials out (`mode: agent`) when Lumovi can't reach it.
 
 ## Documentation
 

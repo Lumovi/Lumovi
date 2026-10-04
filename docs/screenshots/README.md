@@ -378,3 +378,19 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | Light                                                                                                                          | Dark                                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | [![Lumovi served from a cluster: who's signed in, and their groups.](server-account-light-1x.webp)](server-account-light.webp) | [![Lumovi served from a cluster: who's signed in, and their groups.](server-account-dark-1x.webp)](server-account-dark.webp) |
+
+### A fleet of clusters
+
+`fleet`, served from a cluster: Lumovi showing a fleet: every cluster summed up, what needs attention first.
+
+| Light                                                                                                                    | Dark                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| [![Lumovi showing a fleet: every cluster summed up, what needs attention first.](fleet-light-1x.webp)](fleet-light.webp) | [![Lumovi showing a fleet: every cluster summed up, what needs attention first.](fleet-dark-1x.webp)](fleet-dark.webp) |
+
+### Finding a workload in every cluster
+
+`fleet-search`, served from a cluster: Workloads found by name or namespace in every cluster of a fleet.
+
+| Light                                                                                                                       | Dark                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [![Workloads found by name or namespace in every cluster of a fleet.](fleet-search-light-1x.webp)](fleet-search-light.webp) | [![Workloads found by name or namespace in every cluster of a fleet.](fleet-search-dark-1x.webp)](fleet-search-dark.webp) |

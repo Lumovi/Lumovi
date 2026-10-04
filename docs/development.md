@@ -17,12 +17,14 @@ npm ci
 npm run dev:mock   # the app against a built-in demo cluster, no Kubernetes needed
 npm run dev        # the app against your own kubeconfig
 npm run dev:server # Lumovi served, as in a cluster, against the demo cluster
+npm run dev:server -- --fleet # a fleet of the demo clusters, signed in to as Alice
 ```
 
 | Command                                 |                                                               |
 | --------------------------------------- | ------------------------------------------------------------- |
 | `npm run dev` / `dev:mock`              | Run with hot reload (real clusters / demo cluster)            |
 | `npm run dev:server`                    | Build and serve Lumovi against the demo cluster               |
+| `npm run dev:server -- --fleet`         | The same, as a fleet of the demo clusters                     |
 | `npm run serve`                         | Run the built server (`out/server`), configured as in docs    |
 | `npm run verify`                        | Everything CI checks: format, lint, types, e2e with coverage  |
 | `npm run mock-cluster`                  | Start the demo clusters alone and print a kubeconfig for them |

@@ -19,7 +19,8 @@ npm run dev:mock # runs the app against the built-in demo clusters
 ```
 
 `npm run dev` uses your own kubeconfig instead, and `npm run dev:server` serves Lumovi
-as it runs in a cluster, against the demo clusters. The app can change clusters, so try your
+as it runs in a cluster, against the demo clusters (`npm run dev:server -- --fleet`: as a
+fleet of them). The app can change clusters, so try your
 work against the demo clusters or a local [kind](https://kind.sigs.k8s.io) cluster, not
 production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 
