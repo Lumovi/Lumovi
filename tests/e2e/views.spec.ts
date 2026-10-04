@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -431,6 +431,28 @@ test('views live in ~/.lumovi/views unless LUMOVI_VIEWS_DIR says otherwise', asy
   ])
   await page.getByRole('button', { name: 'How to write a view' }).click()
   await expect.poll(opened).toEqual(['https://docs.lumovi.dev/custom-resources/write-a-view'])
+})
+
+test('views a ConfigMap mounts, as links into a folder of its own', async ({ lumovi }) => {
+  test.skip(process.platform === 'win32', 'Making links on Windows takes a privilege')
+  const { page, userDataDir } = lumovi
+  const views = join(userDataDir, 'views')
+  // As Kubernetes mounts a ConfigMap: each file is a link into ..data, a link to the latest copy.
+  const copy = '..2026_10_04_12_00_00.000000001'
+  mkdirSync(join(views, copy), { recursive: true })
+  writeFileSync(join(views, copy, 'widgets.yaml'), WIDGETS)
+  symlinkSync(copy, join(views, '..data'))
+  symlinkSync(join('..data', 'widgets.yaml'), join(views, 'widgets.yaml'))
+  // A link to nothing is a problem of its own; the others still load.
+  symlinkSync('nowhere.yaml', join(views, 'gone.yaml'))
+  await openCluster(page)
+
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
+  await expect(page.getByRole('list', { name: 'View problems' }).getByRole('listitem')).toHaveText([
+    /^gone\.yaml: It couldn’t be read: ENOENT/,
+  ])
+  const custom = page.getByRole('region', { name: 'Custom resources' })
+  await expect(custom.getByRole('row').filter({ hasText: 'Widgets' })).toContainText('widgets.yaml')
 })
 
 /** Widgets related to what they need, and actions that ask first or make something new. */
