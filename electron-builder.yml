@@ -16,6 +16,8 @@ files:
   - '!out/THIRD_PARTY_NOTICES.txt'
   # The server, for running Lumovi in a cluster (see Dockerfile), isn't the app's.
   - '!out/server/**'
+  # Nor is a fleet's agent.
+  - '!out/agent/**'
   - package.json
 
 # Next to the app, where people (and package tools) can find them.

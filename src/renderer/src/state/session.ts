@@ -7,3 +7,9 @@ export const SessionContext = createContext<Session | null>(null)
 export function useSession(): Session | null {
   return useContext(SessionContext)
 }
+
+/** Whether there are clusters to switch between: the desktop app's, or a server's fleet. */
+export function useSwitching(): boolean {
+  const session = useSession()
+  return session ? session.fleet === true : true
+}

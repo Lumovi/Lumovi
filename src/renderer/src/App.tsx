@@ -16,6 +16,7 @@ import { RightsizingPage } from './features/rightsizing/RightsizingPage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
 import { SessionGate } from './features/session/SessionGate'
 import { ClusterLayout } from './features/shell/ClusterLayout'
+import { FleetPage } from './features/fleet/FleetPage'
 import { WelcomePage } from './features/welcome/WelcomePage'
 import { WorkloadsPage } from './features/workloads/WorkloadsPage'
 import { api } from './lib/api'
@@ -38,7 +39,8 @@ const queryClient = new QueryClient({
 /** The start: the desktop app's clusters to choose from, or the one a server shows. */
 function Home() {
   const session = useSession()
-  return session ? <Navigate replace to={clusterPath(session.cluster)} /> : <WelcomePage />
+  if (session?.fleet) return <FleetPage />
+  return session ? <Navigate replace to={clusterPath(session.cluster!)} /> : <WelcomePage />
 }
 
 const routes: RouteObject[] = [

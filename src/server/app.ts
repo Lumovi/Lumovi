@@ -7,10 +7,11 @@ import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { Auth } from './auth'
-import type { HostedCluster } from './cluster'
+import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
 import { PageConnection } from './connection'
 import { cookies, redirect, sameOrigin, SECURITY_HEADERS, sendJson } from './http'
+import { log } from './log'
 import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
@@ -24,7 +25,7 @@ export interface RunningServer {
 
 export interface ServerOptions {
   config: ServerConfig
-  cluster: HostedCluster
+  hosted: Hosted
   env: NodeJS.ProcessEnv
   version: string
 }
@@ -33,7 +34,7 @@ export interface ServerOptions {
 const MAX_MESSAGE = 8 * 1024 * 1024
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
-  const { config, cluster } = options
+  const { config, hosted } = options
   const base = config.basePath
   const pages = new Pages(config.rendererDir, base)
   /** Each page's socket, with its session, so its pages can be told when it ends. */
@@ -47,7 +48,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     config.auth.mode === 'oidc'
       ? new OidcClient(config.auth, new URL(`${base}${PATHS.callback}`, config.publicUrl).href)
       : undefined
-  const auth = new Auth(config, cluster, sessions, oidc)
+  const auth = new Auth(config, hosted, sessions, oidc)
 
   /**
    * A request's address (null when it isn't one), and its path below the base
@@ -129,7 +130,27 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // Lists of thousands of objects compress well.
     perMessageDeflate: { threshold: 4096, zlibDeflateOptions: { level: 3 } },
   })
+  // A fleet's agents: each signs in with its name and token (which no browser page can send).
+  const agentSockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
+    if (address(req).path === PATHS.agent && hosted.agents) {
+      const name = String(req.headers['lumovi-agent'] ?? '')
+      const token = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
+      const agent = hosted.agents.admit(name, token)
+      if (!agent) {
+        log(`An agent was refused: “${name}”, with a token that doesn’t match`)
+        socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+        return
+      }
+      agentSockets.handleUpgrade(req, socket, head, (ws) => {
+        sockets.set(ws, { alive: true })
+        ws.on('error', () => ws.terminate())
+        ws.on('pong', () => (sockets.get(ws)!.alive = true))
+        ws.on('close', () => sockets.delete(ws))
+        hosted.agents!.attach(agent, ws)
+      })
+      return
+    }
     const caller =
       address(req).path === PATHS.socket && sameOrigin(req, config.publicUrl)
         ? auth.identify(req)
@@ -174,6 +195,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://${config.address ?? 'localhost'}:${port}${base}`,
     async close() {
       clearInterval(heartbeat)
+      hosted.close()
       // Pages reconnect, to whichever server is next.
       const closed = [...sockets.keys()].map(
         (socket) =>

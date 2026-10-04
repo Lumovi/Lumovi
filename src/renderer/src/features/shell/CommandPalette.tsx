@@ -33,7 +33,6 @@ import { useContexts, useList, useObject } from '@renderer/hooks/queries'
 import { useAddOns } from '@renderer/hooks/add-ons'
 import { useResources } from '@renderer/hooks/resources'
 import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
-import { api } from '@renderer/lib/api'
 import { matchWords } from '@renderer/lib/match'
 import {
   addOnPath,
@@ -49,6 +48,7 @@ import {
 } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
+import { useSwitching } from '@renderer/state/session'
 import { useUi } from '@renderer/state/ui'
 import { useObjectActions, useRunAction } from '../actions/use-actions'
 import { CATEGORY_LABELS } from './Sidebar'
@@ -112,6 +112,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const objects = useCachedObjects(context)
   const open = useSearchParams()[0].get('open')
   const readOnly = useReadOnly()
+  const switching = useSwitching()
   const needle = search.trim().toLowerCase()
   const matches =
     needle.length < MIN_OBJECT_QUERY
@@ -282,8 +283,8 @@ function Palette({ onDone }: { onDone: () => void }) {
             </Item>
           ))}
         </Command.Group>
-        {/* A server shows one cluster. */}
-        {api.host === 'desktop' && (
+        {/* A server shows one cluster, unless it has a fleet. */}
+        {switching && (
           <Command.Group heading="Clusters">
             {contexts.map(({ name }) => (
               <Item

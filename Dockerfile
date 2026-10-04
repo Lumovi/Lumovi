@@ -1,5 +1,6 @@
 # Lumovi, served from a cluster: Node.js, helm, the server and the page
-# (https://docs.lumovi.dev/server/overview).
+# (https://docs.lumovi.dev/server/overview), and a fleet's agent (out/agent/agent.js),
+# for clusters the server can't reach.
 #
 #   docker build -t lumovi .
 #
@@ -42,6 +43,7 @@ COPY LICENSE /app/LICENSE
 COPY --from=build /src/out/THIRD_PARTY_NOTICES.txt /app/licenses/THIRD_PARTY_NOTICES.txt
 COPY --from=build /src/out/server/THIRD_PARTY_NOTICES.txt /app/licenses/SERVER_THIRD_PARTY_NOTICES.txt
 COPY --from=build /src/out/server/index.js /app/out/server/index.js
+COPY --from=build /src/out/agent/agent.js /app/out/agent/agent.js
 COPY --from=build /src/out/renderer /app/out/renderer
 ENV NODE_ENV=production \
     LUMOVI_HELM=/usr/local/bin/helm \
