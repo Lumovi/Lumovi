@@ -1,0 +1,99 @@
+{{- if eq .Values.mode "agent" }}
+{{- with .Values.agent }}
+{{- if not .hubUrl }}
+{{- fail "agent.hubUrl must be set: the address of the fleet's Lumovi, like https://lumovi.example.com" }}
+{{- end }}
+{{- if not .tokenSecret }}
+{{- fail "agent.tokenSecret must name a Secret with the agent's token under token" }}
+{{- end }}
+{{- end }}
+# A fleet's agent: it dials the hub (only outward: nothing here listens for it) and relays
+# the hub's connections to this cluster's API server, which TLS keeps private from it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lumovi.fullname" . }}-agent
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+spec:
+  # One connection per cluster: a second agent would take over from the first.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "lumovi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "lumovi.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "lumovi.serviceAccountName" . }}
+      # Its token, which may only impersonate, is what the hub acts with here.
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [/app/out/agent/agent.js]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: health
+              containerPort: 8081
+          env:
+            - name: LUMOVI_HUB_URL
+              value: {{ .Values.agent.hubUrl | quote }}
+            - name: LUMOVI_AGENT_NAME
+              value: {{ .Values.clusterName | quote }}
+            - name: LUMOVI_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.tokenSecret }}
+                  key: token
+            - name: LUMOVI_AGENT_HEALTH_PORT
+              value: "8081"
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Ready while it's connected to the hub; alive while it answers at all.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: health
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

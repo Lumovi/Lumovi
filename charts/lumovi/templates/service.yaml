@@ -1,3 +1,4 @@
+{{- if include "lumovi.dashboard" . }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,3 +17,4 @@ spec:
       targetPort: http
   selector:
     {{- include "lumovi.selectorLabels" . | nindent 4 }}
+{{- end }}

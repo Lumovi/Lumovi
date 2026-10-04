@@ -1,0 +1,13 @@
+{{- if eq .Values.mode "member" }}
+# A fleet's member: a long-lived token of a service account that may only impersonate, for
+# the hub to reach this cluster with (NOTES say how to add it there).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "lumovi.fullname" . }}-token
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/service-account.name: {{ include "lumovi.serviceAccountName" . }}
+type: kubernetes.io/service-account-token
+{{- end }}
