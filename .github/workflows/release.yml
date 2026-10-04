@@ -85,7 +85,7 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          # 1.2.0-beta.1 and the like are pre-releases, never the latest release.
+          # 1.1.0-beta.1 and the like are pre-releases, never the latest release.
           if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
       - name: Its CHANGELOG section, for the release notes
