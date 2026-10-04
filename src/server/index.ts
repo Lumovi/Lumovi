@@ -1,25 +1,29 @@
 /**
  * `node out/server/index.js`: Lumovi as a server, showing the cluster it
- * runs in to everyone who signs in (see https://docs.lumovi.dev/server/overview).
+ * runs in, or a fleet of clusters, to everyone who signs in (see
+ * https://docs.lumovi.dev/server/overview).
  */
 import { version } from '../../package.json'
 import { startServer } from './app'
-import { HostedCluster } from './cluster'
+import { HostedCluster, type Hosted } from './cluster'
 import { readConfig, RENDERER_DIR } from './config'
+import { HostedFleet } from './fleet/fleet'
 import { log } from './log'
 
 const SIGN_IN = { token: 'a token', oidc: 'single sign-on', proxy: 'the proxy in front of it' }
 
 try {
   const config = readConfig(process.env, RENDERER_DIR)
-  const cluster = HostedCluster.fromEnvironment(process.env, {
-    name: config.clusterName,
-    usernamePrefix: config.usernamePrefix,
-    groupsPrefix: config.groupsPrefix,
-  })
-  const server = await startServer({ config, cluster, env: process.env, version })
+  const hosted: Hosted = config.fleet
+    ? await HostedFleet.start(config.fleet, process.env, config)
+    : HostedCluster.fromEnvironment(process.env, {
+        name: config.clusterName,
+        usernamePrefix: config.usernamePrefix,
+        groupsPrefix: config.groupsPrefix,
+      })
+  const server = await startServer({ config, hosted, env: process.env, version })
   log(
-    `Lumovi ${version} shows ${cluster.name} (${cluster.server}) at ${server.url}; people sign in with ${SIGN_IN[config.auth.mode]}`,
+    `Lumovi ${version} shows ${hosted.describe()} at ${server.url}; people sign in with ${SIGN_IN[config.auth.mode]}`,
   )
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.once(signal, () => void server.close().then(() => process.exit(0)))

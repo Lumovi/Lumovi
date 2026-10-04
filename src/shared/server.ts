@@ -19,8 +19,10 @@ export interface SessionUser {
 export interface Session {
   user: SessionUser
   auth: AuthMode
-  /** The one cluster the server shows, by the name its pages use for it. */
-  cluster: string
+  /** The one cluster the server shows, by the name its pages use for it; none with a fleet. */
+  cluster?: string
+  /** Whether the server shows a fleet: many clusters, each as its own. */
+  fleet?: boolean
   /** Where signing out of the authenticating proxy is, when it's set. */
   signOutUrl?: string
 }
@@ -62,6 +64,8 @@ export type ServerMessage =
 export const PATHS = {
   session: 'api/session',
   socket: 'api/socket',
+  /** Where a fleet's agents connect. */
+  agent: 'api/agent',
   signIn: 'auth/sign-in',
   callback: 'auth/callback',
   health: 'healthz',

@@ -150,7 +150,11 @@ const GZIP_THRESHOLD = 1024
 
 let certificate: Promise<{ key: string; cert: string }> | undefined
 
-/** One self-signed certificate for 127.0.0.1/localhost, shared by all TLS mock servers. */
+/**
+ * One self-signed certificate for 127.0.0.1/localhost, shared by all TLS mock servers, and
+ * for kubernetes.default.svc, as a real API server's is (a fleet's hub checks that name
+ * when it reaches a cluster through its agent).
+ */
 function serverCertificate(): Promise<{ key: string; cert: string }> {
   certificate ??= generate([{ name: 'commonName', value: 'lumovi-mock-apiserver' }], {
     keyType: 'ec',
@@ -164,6 +168,7 @@ function serverCertificate(): Promise<{ key: string; cert: string }> {
         name: 'subjectAltName',
         altNames: [
           { type: 2, value: 'localhost' },
+          { type: 2, value: 'kubernetes.default.svc' },
           { type: 7, ip: '127.0.0.1' },
           { type: 7, ip: '::1' },
         ],

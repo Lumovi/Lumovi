@@ -48,7 +48,7 @@ import {
 } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
-import { useSession } from '@renderer/state/session'
+import { useSession, useSwitching } from '@renderer/state/session'
 import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
@@ -221,7 +221,7 @@ export function Sidebar() {
  * the other clusters to switch to (a server shows one).
  */
 function ClusterSwitcher() {
-  const switching = api.host === 'desktop'
+  const switching = useSwitching()
   const { context } = useCluster()
   const navigateTo = useGo()
   const [open, setOpen] = useState(false)
@@ -302,7 +302,7 @@ function ClusterSwitcher() {
               <span className="block text-[13px] text-ink-1">Read-only</span>
               <span className="block text-xs leading-snug text-ink-3">
                 {readOnly.locked
-                  ? switching
+                  ? api.host === 'desktop'
                     ? 'Set by LUMOVI_READ_ONLY'
                     : 'For everyone, on this server'
                   : `Lumovi won’t change ${context}`}

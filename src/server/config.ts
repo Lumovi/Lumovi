@@ -3,7 +3,9 @@
  * https://docs.lumovi.dev/server/configuration). One that doesn't make
  * sense stops the server, saying why.
  */
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { delimiter, join } from 'node:path'
+import { parse } from 'yaml'
 import type { MetricsSourceSetting } from '@shared/api'
 import type { AuthMode } from '@shared/server'
 import { isMetricsSourceSetting } from '@backend/settings'
@@ -36,6 +38,39 @@ export type AuthConfig =
       signOutUrl?: string
     }
 
+/** Secrets that describe clusters: Lumovi's own, Cluster API's, Argo CD's. */
+export type SecretSource = 'lumovi' | 'cluster-api' | 'argocd'
+const SECRET_SOURCES: readonly SecretSource[] = ['lumovi', 'cluster-api', 'argocd']
+
+/** A cluster whose agent connects to the server, from inside a network the server can't reach. */
+export interface AgentConfig {
+  name: string
+  /** The SHA-256 of the token it signs in with, in hex. */
+  tokenSha256: string
+  labels: Record<string, string>
+  /** Only people in these groups see it; everyone unless set. */
+  groups?: string[]
+  /** Requests carry each person's own token, rather than impersonating them. */
+  forwardToken: boolean
+}
+
+/** Where a fleet's clusters come from. */
+export interface FleetConfig {
+  /** A kubeconfig, every context of which is a cluster (LUMOVI_FLEET_KUBECONFIG). */
+  kubeconfig?: string
+  /** Kubeconfig files likewise, read again every refresh. */
+  kubeconfigFiles: string[]
+  /** In Kubernetes: Secrets that describe clusters, read again every refresh. */
+  secrets: SecretSource[]
+  /** Where those Secrets are; the server's own namespace unless set. */
+  secretNamespaces?: string[]
+  agents: AgentConfig[]
+  /** Whether the cluster the server runs in is one of them. */
+  local: boolean
+  /** How often files and Secrets are read again. */
+  refreshSeconds: number
+}
+
 export interface ServerConfig {
   port: number
   /** The address to listen on; every interface unless set. */
@@ -46,6 +81,10 @@ export interface ServerConfig {
   publicUrl?: URL
   /** The name pages use for the cluster, as for a kubeconfig context. */
   clusterName?: string
+  /** What the cluster the server runs in is labelled with, in a fleet. */
+  clusterLabels: Record<string, string>
+  /** Many clusters, rather than one; unset, the server shows one. */
+  fleet?: FleetConfig
   auth: AuthConfig
   /** Prefixed to the names of impersonated users and groups, as the API server's own OIDC flags do. */
   usernamePrefix: string
@@ -139,10 +178,19 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     )
   }
 
-  const port = Number(value('LUMOVI_PORT') ?? 8080)
+  // PORT is what hosts like Sevalla set for the process that answers the web.
+  const portName = value('LUMOVI_PORT') !== undefined || !value('PORT') ? 'LUMOVI_PORT' : 'PORT'
+  const port = Number(value(portName) ?? 8080)
   // 0: any free port (the log says which).
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-    throw new ConfigError(`LUMOVI_PORT must be a port number, not "${value('LUMOVI_PORT')}".`)
+    throw new ConfigError(`${portName} must be a port number, not "${value(portName)}".`)
+  }
+
+  const fleet = fleetConfig(env, value)
+  if (fleet && auth.mode === 'token') {
+    throw new ConfigError(
+      'A fleet needs single sign-on or a proxy (LUMOVI_AUTH=oidc or proxy): a pasted token only says who someone is to one cluster.',
+    )
   }
 
   return {
@@ -151,6 +199,8 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     basePath,
     publicUrl,
     clusterName: value('LUMOVI_CLUSTER_NAME'),
+    clusterLabels: labels('LUMOVI_CLUSTER_LABELS', value('LUMOVI_CLUSTER_LABELS')),
+    fleet,
     auth,
     usernamePrefix: value('LUMOVI_USERNAME_PREFIX') ?? '',
     groupsPrefix: value('LUMOVI_GROUPS_PREFIX') ?? '',
@@ -161,6 +211,166 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
   }
+}
+
+/** A fleet's sources, when any is set. */
+function fleetConfig(
+  env: NodeJS.ProcessEnv,
+  value: (name: string) => string | undefined,
+): FleetConfig | undefined {
+  const kubeconfig = value('LUMOVI_FLEET_KUBECONFIG')
+  const files = (value('LUMOVI_FLEET_KUBECONFIG_FILE') ?? '').split(delimiter).filter(Boolean)
+  const secrets = list(value('LUMOVI_FLEET_SECRETS'))
+  for (const source of secrets) {
+    if (!SECRET_SOURCES.includes(source as SecretSource)) {
+      throw new ConfigError(
+        `LUMOVI_FLEET_SECRETS takes ${SECRET_SOURCES.join(', ')}, not "${source}".`,
+      )
+    }
+  }
+  const agents = agentsConfig(value('LUMOVI_FLEET_AGENTS'))
+  const inKubernetes = Boolean(env.KUBERNETES_SERVICE_HOST)
+  const localSetting = value('LUMOVI_FLEET_LOCAL')
+  if (localSetting !== undefined && !['true', 'false'].includes(localSetting)) {
+    throw new ConfigError(`LUMOVI_FLEET_LOCAL must be true or false, not "${localSetting}".`)
+  }
+  if (localSetting === 'true' && !inKubernetes) {
+    throw new ConfigError(
+      'LUMOVI_FLEET_LOCAL is true, but Lumovi isn’t running in a cluster (KUBERNETES_SERVICE_HOST isn’t set).',
+    )
+  }
+  if (secrets.length > 0 && !inKubernetes) {
+    throw new ConfigError(
+      'LUMOVI_FLEET_SECRETS reads Secrets of the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
+    )
+  }
+  if (!kubeconfig && files.length === 0 && secrets.length === 0 && agents.length === 0) {
+    return localSetting === 'true' ? fleetOf({ local: true }) : undefined
+  }
+  const refreshSeconds = Number(value('LUMOVI_FLEET_REFRESH_SECONDS') ?? 30)
+  if (!(refreshSeconds >= 1 && refreshSeconds <= 3600)) {
+    throw new ConfigError(
+      `LUMOVI_FLEET_REFRESH_SECONDS must be a number from 1 to 3600, not "${value('LUMOVI_FLEET_REFRESH_SECONDS')}".`,
+    )
+  }
+  return fleetOf({
+    kubeconfig: kubeconfig && document('LUMOVI_FLEET_KUBECONFIG', kubeconfig),
+    kubeconfigFiles: files,
+    secrets: secrets as SecretSource[],
+    secretNamespaces: value('LUMOVI_FLEET_SECRETS_NAMESPACES')
+      ? list(value('LUMOVI_FLEET_SECRETS_NAMESPACES'))
+      : undefined,
+    agents,
+    local: localSetting === undefined ? inKubernetes : localSetting === 'true',
+    refreshSeconds,
+  })
+}
+
+const fleetOf = (settings: Partial<FleetConfig>): FleetConfig => ({
+  kubeconfigFiles: [],
+  secrets: [],
+  agents: [],
+  local: false,
+  refreshSeconds: 30,
+  ...settings,
+})
+
+/** A comma-separated setting's entries. */
+const list = (setting = '') =>
+  setting
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+/** `env=production,region=eu`: labels, as a cluster's. */
+export function labels(name: string, setting: string | undefined): Record<string, string> {
+  const pairs = list(setting).map((entry) => entry.split('='))
+  for (const pair of pairs) {
+    if (pair.length !== 2 || !pair[0] || !pair[1]) {
+      throw new ConfigError(
+        `${name} must be labels like env=production,region=eu, not "${setting}".`,
+      )
+    }
+  }
+  return Object.fromEntries(pairs)
+}
+
+/**
+ * A setting that holds a document: its YAML (or JSON), or that base64-encoded,
+ * on one line, for hosts whose settings take one (Sevalla's).
+ */
+export function document(name: string, setting: string): string {
+  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(setting)) return setting
+  const text = Buffer.from(setting, 'base64').toString('utf8')
+  if (!text.trim() || text.includes('\uFFFD')) {
+    throw new ConfigError(`${name} must be YAML, or YAML encoded in base64.`)
+  }
+  return text
+}
+
+/** The agents allowed to connect: a list of { name, token or tokenSha256, labels, groups, forwardToken }. */
+function agentsConfig(setting: string | undefined): AgentConfig[] {
+  if (!setting) return []
+  const name = 'LUMOVI_FLEET_AGENTS'
+  let entries: unknown
+  try {
+    entries = parse(document(name, setting))
+  } catch (error) {
+    if (error instanceof ConfigError) throw error
+    throw new ConfigError(`${name} isn’t YAML: ${(error as Error).message.split('\n')[0]}`)
+  }
+  if (!Array.isArray(entries)) {
+    throw new ConfigError(`${name} must be a list of agents, each with a name and a token.`)
+  }
+  const seen = new Set<string>()
+  return entries.map((entry: Record<string, unknown>, i) => {
+    const at = `${name}[${i}]`
+    if (typeof entry !== 'object' || entry === null || typeof entry.name !== 'string') {
+      throw new ConfigError(`${at} needs a name.`)
+    }
+    if (seen.has(entry.name))
+      throw new ConfigError(`${at}: there are two agents called ${entry.name}.`)
+    seen.add(entry.name)
+    let tokenSha256: string
+    if (typeof entry.tokenSha256 === 'string' && /^[0-9a-f]{64}$/i.test(entry.tokenSha256)) {
+      tokenSha256 = entry.tokenSha256.toLowerCase()
+    } else if (typeof entry.token === 'string' && entry.token.length >= 32) {
+      tokenSha256 = createHash('sha256').update(entry.token).digest('hex')
+    } else {
+      throw new ConfigError(
+        `${at} (${entry.name}) needs a token of at least 32 characters, or its tokenSha256.`,
+      )
+    }
+    return {
+      name: entry.name,
+      tokenSha256,
+      labels: stringMap(`${at}.labels`, entry.labels),
+      groups: entry.groups === undefined ? undefined : strings(`${at}.groups`, entry.groups),
+      forwardToken: entry.forwardToken === true,
+    }
+  })
+}
+
+/** A map of text, as labels are; empty unless set. */
+export function stringMap(at: string, value: unknown): Record<string, string> {
+  if (value === undefined) return {}
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.values(value).some((v) => typeof v !== 'string')
+  ) {
+    throw new ConfigError(`${at} must be a map of text, like { env: production }.`)
+  }
+  return value as Record<string, string>
+}
+
+/** A list of text, as groups are. */
+export function strings(at: string, value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+    throw new ConfigError(`${at} must be a list of text, like [platform, sre].`)
+  }
+  return value as string[]
 }
 
 /** Which token requests carry: the ID token, the access token, or (unset) none. */

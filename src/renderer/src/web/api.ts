@@ -136,6 +136,8 @@ export function createWebApi(): LumoviApi {
       can: invoke(IPC.can),
       history: invoke(IPC.history),
     },
+    // Answered by servers with a fleet: the page asks only when its session says it has one.
+    fleet: { summary: invoke(IPC.fleetSummary) },
     helm: {
       releases: invoke(IPC.helmReleases),
       release: invoke(IPC.helmRelease),

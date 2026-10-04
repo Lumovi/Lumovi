@@ -31,7 +31,7 @@
     "dev": "electron-vite dev",
     "dev:mock": "node scripts/dev-mock.ts",
     "mock-cluster": "node tests/mock-cluster/cli.ts",
-    "build": "electron-vite build && vite build -c vite.server.config.ts",
+    "build": "electron-vite build && vite build -c vite.server.config.ts && vite build -c vite.agent.config.ts",
     "build:coverage": "cross-env LUMOVI_COVERAGE=true npm run build",
     "start": "electron-vite preview",
     "serve": "node out/server/index.js",

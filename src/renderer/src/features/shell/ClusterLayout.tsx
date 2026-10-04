@@ -8,7 +8,7 @@ import { api } from '@renderer/lib/api'
 import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
-import { useSession } from '@renderer/state/session'
+import { useSession, useSwitching } from '@renderer/state/session'
 import { ServerBanner } from '../session/ServerBanner'
 import { ActionHost } from '../actions/ActionSurfaces'
 import { CreateDialog } from '../actions/CreateDialog'
@@ -37,9 +37,10 @@ export function ClusterLayout() {
 
   useEffect(() => touchRecent(context), [context, touchRecent])
 
-  // A server shows one cluster: an address with another (a link from before it was renamed) goes there.
-  if (session && context !== session.cluster) {
-    return <Navigate replace to={clusterPath(session.cluster)} />
+  // A server shows one cluster (unless it has a fleet): an address with another (a link from
+  // before it was renamed) goes there.
+  if (session && !session.fleet && context !== session.cluster) {
+    return <Navigate replace to={clusterPath(session.cluster!)} />
   }
   return (
     <ClusterContext.Provider
@@ -87,6 +88,7 @@ export function ClusterLayout() {
 /** Keeps checking the connection and says so when the cluster stops answering. */
 function ConnectionBanner() {
   const { context } = useCluster()
+  const switching = useSwitching()
   const go = useGo()
   const version = useVersion(context, HEALTH_CHECK_INTERVAL)
   if (!version.isError) return null
@@ -103,7 +105,7 @@ function ConnectionBanner() {
       <Button variant="ghost" onClick={() => void version.refetch()}>
         Retry now
       </Button>
-      {api.host === 'desktop' && (
+      {switching && (
         <Button variant="ghost" onClick={() => go('/')}>
           All clusters
         </Button>
