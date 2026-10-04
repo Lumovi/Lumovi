@@ -179,9 +179,9 @@ export function RankedTable({
                 })}
                 <td className="py-1.5 pl-2">
                   <span className="flex items-center justify-end gap-2">
-                    <span className="h-1.5 w-12 overflow-hidden rounded-full bg-accent-track">
+                    <span className="h-1.5 w-12 overflow-hidden rounded-full bg-series-1/20">
                       <span
-                        className="block h-full rounded-full bg-accent"
+                        className="block h-full rounded-full bg-series-1"
                         style={{ width: `${share * 100}%` }}
                       />
                     </span>

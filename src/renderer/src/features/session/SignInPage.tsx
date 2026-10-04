@@ -48,17 +48,13 @@ function Frame({ title, children }: { title?: string; children: ReactNode }) {
   }, [])
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-40 h-[480px] bg-[radial-gradient(closest-side,var(--accent-soft),transparent)]"
-      />
       <main className="relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-10">
         <div className="my-auto flex w-full max-w-sm animate-rise flex-col">
           <header className="mb-7 flex flex-col items-center text-center">
             {title ? (
               <>
                 <Logo className="mb-5 size-9" />
-                <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-ink-1">{title}</h1>
+                <h1 className="text-[22px] headline text-ink-1">{title}</h1>
               </>
             ) : (
               <h1>

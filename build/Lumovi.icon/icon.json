@@ -1,8 +1,8 @@
 {
   "fill": {
     "linear-gradient": [
-      "extended-srgb:0.11373,0.16863,0.30980,1.00000",
-      "extended-srgb:0.03922,0.05882,0.12157,1.00000"
+      "extended-srgb:0.25098,0.25098,0.25098,1.00000",
+      "extended-srgb:0.03922,0.03922,0.03922,1.00000"
     ],
     "orientation": {
       "start": {
@@ -19,8 +19,8 @@
     {
       "layers": [
         {
-          "image-name": "orb.svg",
-          "name": "Orb",
+          "image-name": "light.svg",
+          "name": "Light",
           "glass": true
         }
       ],
@@ -36,8 +36,8 @@
     {
       "layers": [
         {
-          "image-name": "l.svg",
-          "name": "L",
+          "image-name": "shade.svg",
+          "name": "Shade",
           "glass": true
         }
       ],

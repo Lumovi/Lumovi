@@ -197,7 +197,7 @@ export function Loading({ label, className }: { label: string; className?: strin
       role="status"
       className={cn('flex items-center justify-center gap-2.5 py-16 text-ink-3', className)}
     >
-      <span className="size-4 animate-spin rounded-full border-2 border-line-strong border-t-accent" />
+      <span className="size-4 animate-spin rounded-full border-2 border-line-strong border-t-ink-2" />
       {label}
     </div>
   )

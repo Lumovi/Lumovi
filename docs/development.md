@@ -73,8 +73,9 @@ scripts/          Coverage tooling, screenshots
   [`@kubernetes/client-node`](https://github.com/kubernetes-client/javascript); requests
   are plain REST calls with gzip, so any API path, including metrics and logs, works the
   same way.
-- **Design.** Status colors are reserved for health and always come with an icon and a
-  label; charts use a colorblind-validated palette in both themes. The logo, the icons, the
+- **Design.** Neutral grays, with the accent (blue) only for what you can act on: links,
+  buttons, focus and selection. Status colors are reserved for health and always come with
+  an icon and a label; charts use a colorblind-validated palette in both themes. The logo, the icons, the
   installers' artwork and the color tokens come from
   [Lumovi's design repository](https://github.com/Lumovi/Lumovi-design): change them there,
   following its [brand guidelines](https://github.com/Lumovi/Lumovi-design/blob/main/guidelines/README.md),

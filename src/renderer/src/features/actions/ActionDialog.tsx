@@ -96,7 +96,7 @@ export function ActionDialog({
                   'grid size-9 shrink-0 place-items-center rounded-xl',
                   tone === 'danger'
                     ? 'bg-critical/10 text-critical-text'
-                    : 'bg-accent-soft text-accent-strong',
+                    : 'bg-surface-3 text-ink-2',
                 )}
               >
                 <Icon className="size-[18px]" />

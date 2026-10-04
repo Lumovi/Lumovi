@@ -534,8 +534,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'default',
       header: 'Default',
       width: '76px',
-      cell: (o) =>
-        isDefaultStorageClass(o) ? <span className="text-accent-strong">Default</span> : none,
+      cell: (o) => (isDefaultStorageClass(o) ? <span className="text-ink-1">Default</span> : none),
     },
     {
       id: 'provisioner',

@@ -406,7 +406,7 @@ function CapacityCard({
             </>
           ) : (
             <div className="flex h-12 flex-col justify-end gap-1.5 pb-1">
-              <span className="block h-0.5 animate-shimmer rounded-full bg-accent-track" />
+              <span className="block h-0.5 animate-shimmer rounded-full bg-surface-3" />
               <span className="text-right text-2xs text-ink-3">
                 {live ? 'Collecting usage…' : 'No live usage'}
               </span>
@@ -724,9 +724,9 @@ function TopPods({
                 <span className="block truncate font-medium">{sample.name}</span>
                 <span className="block truncate text-xs text-ink-3">{sample.namespace}</span>
               </span>
-              <span className="h-1.5 rounded-full bg-accent-track">
+              <span className="h-1.5 rounded-full bg-series-1/20">
                 <span
-                  className="block h-full rounded-full bg-accent"
+                  className="block h-full rounded-full bg-series-1"
                   style={{ width: `${(value(sample) / max) * 100}%` }}
                 />
               </span>

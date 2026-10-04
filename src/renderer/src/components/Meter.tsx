@@ -4,13 +4,13 @@ import { percent } from '@renderer/lib/format'
 type Severity = 'normal' | 'good' | 'warn' | 'critical'
 
 const FILL: Record<Severity, string> = {
-  normal: 'bg-accent',
+  normal: 'bg-series-1',
   good: 'bg-good',
   warn: 'bg-warn',
   critical: 'bg-critical',
 }
 const TRACK: Record<Severity, string> = {
-  normal: 'bg-accent-track',
+  normal: 'bg-series-1/20',
   good: 'bg-good/20',
   warn: 'bg-warn/20',
   critical: 'bg-critical/20',

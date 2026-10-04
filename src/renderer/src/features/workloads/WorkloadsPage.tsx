@@ -215,9 +215,9 @@ export function WorkloadsPage() {
       {truncated && (
         <p
           role="note"
-          className="flex shrink-0 items-center gap-2 border-b border-line bg-accent-soft px-5 py-2 text-xs text-ink-2"
+          className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-5 py-2 text-xs text-ink-2"
         >
-          <Info className="size-3.5 shrink-0 text-accent-strong" />
+          <Info className="size-3.5 shrink-0 text-ink-3" />
           <span className="flex-1">
             Some lists are too long to load whole, so some workloads may be missing. Choose a
             namespace or use a label selector to see them all.

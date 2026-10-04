@@ -1,4 +1,5 @@
-import '@fontsource-variable/inter'
+// With its optical sizes: larger text gets Inter's display cut, as the brand's headlines do.
+import '@fontsource-variable/inter/opsz.css'
 import '@fontsource-variable/jetbrains-mono'
 import './styles/index.css'
 import { StrictMode } from 'react'

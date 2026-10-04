@@ -130,7 +130,7 @@ export function RollbackDialog({ object, onClose }: ActionProps) {
                           <span
                             className={cn(
                               'truncate',
-                              differs ? 'font-medium text-accent-strong' : 'text-ink-2',
+                              differs ? 'font-medium text-ink-1' : 'text-ink-3',
                             )}
                           >
                             {image}

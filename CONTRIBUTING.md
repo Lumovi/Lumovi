@@ -97,8 +97,10 @@ cluster and a test that shows it.
 
 - TypeScript everywhere, `strict` mode. Prettier and ESLint are enforced in CI
   (`npm run format` fixes formatting).
-- UI: Tailwind CSS with the design tokens in `src/renderer/src/styles/index.css`. Use the
-  status colors only for health, and always pair them with an icon and a label.
+- UI: Tailwind CSS with the design tokens in `src/renderer/src/styles/index.css`. The app
+  is neutral gray; the accent (blue) is only for what you can act on: links, buttons, focus
+  and selection. Use the status colors only for health, and always pair them with an icon
+  and a label; charts use the `--series-*` colors.
 - Main process and server: everything that crosses IPC, or the network, is untrusted input
   and must be validated.
 
