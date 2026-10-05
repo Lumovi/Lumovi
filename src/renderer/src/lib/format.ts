@@ -49,7 +49,12 @@ export function formatDateTime(timestamp: string): string {
 }
 
 export function pluralize(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
+  return `${count} ${nounFor(count, noun)}`
+}
+
+/** A noun as `count` of it reads: "pod", "pods". */
+export function nounFor(count: number, noun: string): string {
+  return `${noun}${count === 1 ? '' : 's'}`
 }
 
 /** The host of an API server URL, for display; the raw value if it isn't a URL. */

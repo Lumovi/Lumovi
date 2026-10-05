@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { nounFor, pluralize } from '@renderer/lib/format'
 import type { Unit } from '@renderer/lib/promql'
 import { formatValue, niceTicks } from './scale'
 
@@ -27,7 +28,7 @@ export function Histogram({
   label: string
   values: number[]
   unit: Unit
-  /** What is counted, plural: "pods". */
+  /** What is counted, one of it: "pod". */
   noun: string
   selected?: Bin
   onSelect: (bin: Bin | undefined) => void
@@ -62,7 +63,7 @@ export function Histogram({
   const y = (count: number) => plotBottom - (count / yMax) * (plotBottom - TOP)
   const isSelected = (bin: Bin) => selected?.from === bin.from && selected.to === bin.to
   const describe = (bin: (typeof bins)[number]) =>
-    `${bin.count} ${noun} from ${formatValue(bin.from, unit)} to ${formatValue(bin.to, unit)}`
+    `${pluralize(bin.count, noun)} from ${formatValue(bin.from, unit)} to ${formatValue(bin.to, unit)}`
 
   return (
     <div ref={box} role="group" aria-label={label} className="relative" style={{ height }}>
@@ -145,7 +146,8 @@ export function Histogram({
         >
           <span className="font-semibold text-ink-1 tabular-nums">{bins[hover]!.count}</span>{' '}
           <span className="text-ink-2">
-            {noun} · {formatValue(bins[hover]!.from, unit)}–{formatValue(bins[hover]!.to, unit)}
+            {nounFor(bins[hover]!.count, noun)} · {formatValue(bins[hover]!.from, unit)}–
+            {formatValue(bins[hover]!.to, unit)}
           </span>
         </div>
       )}

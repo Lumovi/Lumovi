@@ -47,11 +47,11 @@ import { sumValues } from './UsageChart'
 
 export type Group = 'namespace' | 'workload' | 'pod' | 'node'
 
-const GROUPS: { id: Group; label: string; plural: string }[] = [
-  { id: 'namespace', label: 'Namespace', plural: 'namespaces' },
-  { id: 'workload', label: 'Workload', plural: 'workloads' },
-  { id: 'pod', label: 'Pod', plural: 'pods' },
-  { id: 'node', label: 'Node', plural: 'nodes' },
+const GROUPS: { id: Group; label: string; noun: string; plural: string }[] = [
+  { id: 'namespace', label: 'Namespace', noun: 'namespace', plural: 'namespaces' },
+  { id: 'workload', label: 'Workload', noun: 'workload', plural: 'workloads' },
+  { id: 'pod', label: 'Pod', noun: 'pod', plural: 'pods' },
+  { id: 'node', label: 'Node', noun: 'node', plural: 'nodes' },
 ]
 const METRICS = Object.keys(USAGE_METRICS) as UsageMetric[]
 const TOPS = [3, 5, 7]
@@ -501,7 +501,7 @@ function Explorer({
             label={`How ${plural} spread by ${USAGE_METRICS[metric].noun}`}
             values={rows.map((r) => r.avg)}
             unit={unit}
-            noun={plural}
+            noun={GROUPS.find((g) => g.id === group)!.noun}
             selected={bin}
             onSelect={setBin}
           />
