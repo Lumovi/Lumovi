@@ -188,6 +188,10 @@ test('read-only, as each browser chooses, and for everyone', async ({
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.keyboard.press('Escape')
+  // (Once that's kept: kept after, it'd be read again.)
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('lumovi:settings')))
+    .toContain('"readOnly":["demo"]')
   await page.evaluate(() => localStorage.setItem('lumovi:settings', '{'))
   await page.reload()
   await expect(heading(page)).toHaveText('Workloads')
