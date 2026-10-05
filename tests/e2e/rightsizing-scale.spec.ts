@@ -74,6 +74,18 @@ test('right-sizing many namespaces', async ({ launch }) => {
     await expect(page.locator('tbody tr')).toHaveCount(50)
     await pages.getByRole('button', { name: 'Next page' }).click()
     await expect(pages).toContainText(`51–100 of ${NAMESPACES.toLocaleString('en')}`)
+
+    // A batch Prometheus can't answer for: a few of its namespaces by name, and how many more.
+    cluster.fail(new RegExp(`/proxy/api/v1/query\\?.*\\b${name(0)}\\b`), {
+      status: 503,
+      body: 'overloaded',
+    })
+    await page.reload()
+    await expect(page.getByRole('alert')).toContainText(
+      new RegExp(
+        `Prometheus couldn’t answer for ${name(0)}, ${name(1)}, ${name(2)} and \\d+ more namespaces`,
+      ),
+    )
   } finally {
     await cluster.close()
   }
