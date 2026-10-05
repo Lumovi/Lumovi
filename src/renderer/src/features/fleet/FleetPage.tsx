@@ -22,7 +22,7 @@ import { Kbd } from '@renderer/components/Kbd'
 import { LogoLockup } from '@renderer/components/LogoLockup'
 import { Meter } from '@renderer/components/Meter'
 import { SearchInput } from '@renderer/components/SearchInput'
-import { EmptyState, ErrorIcon, Loading } from '@renderer/components/States'
+import { EmptyState, ErrorIcon, ErrorState, Loading } from '@renderer/components/States'
 import { HEALTH_STYLE, StatusDot } from '@renderer/components/Status'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import { api } from '@renderer/lib/api'
@@ -42,6 +42,7 @@ import { matchWords } from '@renderer/lib/match'
 import { clusterPath, formatRef, workloadsPath } from '@renderer/lib/routes'
 import { useSession } from '@renderer/state/session'
 import { AccountMenu } from '../session/AccountMenu'
+import { ServerBanner } from '../session/ServerBanner'
 import { Commands } from '../shell/Commands'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
@@ -139,10 +140,18 @@ export function FleetPage() {
           <GithubMark />
         </IconButton>
       </header>
+      <ServerBanner />
       <main id="content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 pt-8 pb-12">
           {contexts.isPending ? (
             <Loading label="Reading this server’s clusters…" className="py-24" />
+          ) : !contexts.data ? (
+            // (Once it has them, it keeps showing them while it can't read them again.)
+            <ErrorState
+              error={contexts.error!}
+              onRetry={() => void contexts.refetch()}
+              className="py-24"
+            />
           ) : all.length === 0 ? (
             <EmptyState icon={ServerOff} title="No clusters for you here" className="py-24">
               This Lumovi shows a fleet of clusters, but none of them is shared with you. Ask
