@@ -16,6 +16,7 @@
     "src/shared/**/*",
     "electron.vite.config.ts",
     "scripts/vite-*.ts",
-    "vite.server.config.ts"
+    "vite.server.config.ts",
+    "vite.mcp-stdio.config.ts"
   ]
 }

@@ -138,10 +138,26 @@ if (stdio) {
         app.dock?.bounce('informational')
       },
       open: (url) => shell.openExternal(url),
-      stdio: {
-        command: process.execPath,
-        args: [...process.argv.slice(1), `${STDIO}${app.getPath('userData')}`],
-      },
+      // Windows' main process can't read stdin: there, Lumovi runs its bridge as Node.
+      stdio:
+        process.platform === 'win32'
+          ? {
+              command: process.execPath,
+              args: [
+                join(
+                  app.getAppPath().replace(/app\.asar$/, 'app.asar.unpacked'),
+                  'out',
+                  'mcp-stdio',
+                  'bridge.cjs',
+                ),
+                app.getPath('userData'),
+              ],
+              env: { ELECTRON_RUN_AS_NODE: '1' },
+            }
+          : {
+              command: process.execPath,
+              args: [...process.argv.slice(1), `${STDIO}${app.getPath('userData')}`],
+            },
       claudeDesktopConfig: process.env.LUMOVI_CLAUDE_DESKTOP_CONFIG ?? claudeDesktopConfig(),
     })
     void assistants.start()

@@ -1,9 +1,9 @@
 /**
- * `Lumovi --mcp-stdio=<settings folder>`: Lumovi's MCP server for assistants
- * that start one as a command and talk to it over stdin and stdout (Claude
- * Desktop). It opens no window: it passes their messages on to the desktop
- * app's server, which it finds (and its token) in Lumovi's settings, and starts
- * Lumovi when it isn't running.
+ * Lumovi's MCP server for assistants that start one as a command and talk to
+ * it over stdin and stdout (Claude Desktop): `Lumovi --mcp-stdio=<settings
+ * folder>`, or on Windows, run as Node (mcp-node.ts). It opens no window: it
+ * passes their messages on to the desktop app's server, which it finds (and
+ * its token) in Lumovi's settings, and starts Lumovi when it isn't running.
  */
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -76,7 +76,9 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     // Lumovi says how it was started when it starts: one that never has, can't be.
     if (!launch) throw new Error('Lumovi isn’t running: open it, and try again.')
     const [command, ...args] = launch
-    spawn(command!, args, { detached: true, stdio: 'ignore' })
+    // As the app, not as Node (as the bridge may be running).
+    const { ELECTRON_RUN_AS_NODE: _asNode, ...env } = process.env
+    spawn(command!, args, { detached: true, stdio: 'ignore', env })
       // Not there (moved, say): it doesn't start, which the wait below says.
       .on('error', () => {})
       .unref()
