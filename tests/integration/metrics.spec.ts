@@ -128,7 +128,7 @@ test('right-sizing asks a real Prometheus for a week, a namespace at a time', as
   test.setTimeout(8 * 60_000)
   // Every query answers, with the new pods' CPU and memory in them. (Their first sample is
   // looked for hour by hour, so minutes-old pods aren't in that one yet.)
-  const queries = rightsizingQueries(NS)
+  const queries = rightsizingQueries([NS])
   await expect
     .poll(
       async () => {

@@ -44,6 +44,7 @@ import {
 } from '@renderer/lib/rightsizing'
 import { useCluster } from '@renderer/state/cluster'
 import { MetricsTabs } from '../metrics/MetricsTabs'
+import { Pagination } from '../resources/Pagination'
 import { HistoryGate, SourceChip } from '../metrics/source'
 import { Tile } from '../overview/OverviewPage'
 import { menuContent } from '../shell/menu-styles'
@@ -99,6 +100,17 @@ export function RightsizingPage() {
       </div>
     </div>
   )
+}
+
+const number = new Intl.NumberFormat()
+/** Workloads a page: as many as access is asked about at once, a kind in a namespace each. */
+const PAGE_SIZE = 50
+
+/** A few namespaces by name: "data, shop", or "a, b, c and 12 more namespaces". */
+function someNamespaces(names: string[]): string {
+  return names.length <= 3
+    ? names.join(', ')
+    : `${names.slice(0, 3).join(', ')} and ${number.format(names.length - 3)} more namespaces`
 }
 
 function Rightsizing() {
@@ -175,7 +187,7 @@ function Rightsizing() {
         >
           <TriangleAlert className="size-4 shrink-0" />
           <p className="min-w-0 flex-1">
-            Prometheus couldn’t answer for {failed.map((f) => f.namespace).join(', ')}: no
+            Prometheus couldn’t answer for {someNamespaces(failed.map((f) => f.namespace))}: no
             recommendations there. <span className="text-ink-2">{failed[0]!.error.message}</span>
           </p>
           <Button variant="ghost" onClick={retry} className="h-7 shrink-0 px-2 text-xs">
@@ -196,6 +208,25 @@ function Rightsizing() {
           <Button variant="ghost" onClick={retry} className="h-7 shrink-0 px-2 text-xs">
             Try again
           </Button>
+        </div>
+      )}
+      {progress.settled < progress.total && (
+        <div
+          role="status"
+          aria-label="Measuring"
+          className="flex items-center gap-2.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-ink-2"
+        >
+          <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-ink-2" />
+          <p className="min-w-0 flex-1">
+            Measured {number.format(progress.settled)} of {number.format(progress.total)} namespaces
+            so far: the rest join the list as they’re measured.
+          </p>
+          <span aria-hidden className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-line">
+            <span
+              className="block h-full rounded-full bg-accent transition-[width]"
+              style={{ width: `${(100 * progress.settled) / progress.total}%` }}
+            />
+          </span>
         </div>
       )}
       <Summary advised={advised} />
@@ -249,6 +280,8 @@ function Rightsizing() {
           </p>
         ) : (
           <AdviceTable
+            // Another order or filter starts at the first page.
+            key={`${show} ${sort} ${q}`}
             rows={rows}
             sort={sort}
             onSort={(next) => set('sort', next === 'impact' ? undefined : next)}
@@ -383,11 +416,16 @@ function AdviceTable({
 }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [applying, setApplying] = useState<Advised>()
+  const [page, setPage] = useState(1)
   const { readOnly } = useReadOnly()
-  // Whether each kind can be changed in each namespace: one review each, not one a row.
+  // A page at a time: a big cluster has thousands of workloads.
+  const current = Math.min(page, Math.max(1, Math.ceil(rows.length / PAGE_SIZE)))
+  const shown = rows.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE)
+  // Whether each kind can be changed in each namespace, on this page: one review each, not one
+  // a row (and no more than are asked at once).
   const checks = [
     ...new Map(
-      rows
+      shown
         .filter((r) => changedContainers(r.advice).length > 0)
         .map(({ workload: w }) => [
           `${w.kind}/${w.metadata.namespace}`,
@@ -451,7 +489,7 @@ function AdviceTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {shown.map((row) => (
             <AdviceRow
               key={row.key}
               row={row}
@@ -463,6 +501,9 @@ function AdviceTable({
           ))}
         </tbody>
       </table>
+      {rows.length > PAGE_SIZE && (
+        <Pagination page={current} size={PAGE_SIZE} count={rows.length} onPage={setPage} />
+      )}
       {applying && (
         <ApplyDialog
           workload={applying.workload}
