@@ -13,7 +13,7 @@ import { ActionDialog, useSubmit } from './ActionDialog'
 import { kindOf, subjectOf, target, type ActionProps } from './common'
 
 /** Kinds whose deletion is hard to recover from: the name must be typed to confirm. */
-const TYPE_TO_DELETE: readonly ResourceKind[] = [
+export const TYPE_TO_DELETE: readonly ResourceKind[] = [
   'Namespace',
   'Node',
   'PersistentVolume',

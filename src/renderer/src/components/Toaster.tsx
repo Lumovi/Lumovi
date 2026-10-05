@@ -1,10 +1,16 @@
-import { CircleAlert, CircleCheck, X } from 'lucide-react'
+import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cn } from '@renderer/lib/cn'
 import { useToasts, type Toast } from '@renderer/state/toasts'
 
 /** How long a toast stays; longer for errors, which take a moment to read. */
-const DURATION = { success: 6_000, error: 10_000 }
+const DURATION = { success: 6_000, info: 8_000, error: 10_000 }
+
+const ICONS = {
+  success: [CircleCheck, 'text-good-text'],
+  info: [Info, 'text-ink-2'],
+  error: [CircleAlert, 'text-critical-text'],
+} as const
 
 /** Outcomes of changes, stacked in the bottom-right corner. */
 export function Toaster() {
@@ -35,7 +41,7 @@ function ToastCard({ toast }: { toast: Toast }) {
     return () => clearTimeout(timer)
   }, [paused, toast.tone])
 
-  const Icon = toast.tone === 'success' ? CircleCheck : CircleAlert
+  const [Icon, color] = ICONS[toast.tone]
   return (
     <div
       role={toast.tone === 'error' ? 'alert' : 'status'}
@@ -54,12 +60,7 @@ function ToastCard({ toast }: { toast: Toast }) {
         leaving ? 'animate-toast-out' : 'animate-toast-in',
       )}
     >
-      <Icon
-        className={cn(
-          'mt-px size-[18px] shrink-0 animate-spin-once',
-          toast.tone === 'success' ? 'text-good-text' : 'text-critical-text',
-        )}
-      />
+      <Icon className={cn('mt-px size-[18px] shrink-0 animate-spin-once', color)} />
       <div className="min-w-0 flex-1 py-px">
         <p className="text-[13px] leading-snug font-medium text-ink-1">{toast.title}</p>
         {toast.description && (

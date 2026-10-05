@@ -6,6 +6,26 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- AI assistants, in the desktop app: Claude Code, Claude Desktop, Cursor, VS Code and other
+  assistants that speak MCP read your clusters through Lumovi, and ask you before they change
+  anything. They list and read objects (a Secret's keys, never its values), events and logs,
+  and find what's wrong, with Lumovi's own reasons. The changes they ask for (applying a
+  manifest, scaling, restarting, deleting) are checked by the cluster first, then wait in
+  Lumovi with the diff they make, the assistant's reason, whose fields they'd take over (Helm's,
+  Argo CD's…) and the `kubectl` command that does the same, for you to approve, or reject with
+  a note the assistant reads; a notification says when one's waiting. A change is made only if
+  it still does what you saw, and a deletion asks for the name where Lumovi's own Delete does.
+  Unanswered, changes expire after five minutes. Each cluster says whether its assistants'
+  changes are asked about, made without asking (deletions, and changes that take fields over
+  from others, still ask), or never made; read-only clusters and your own RBAC always apply.
+  The activity log shows each change, and whose it was. AI Assistants (the sidebar, the command
+  palette or View) turns it on and sets assistants up: with a click for Claude Desktop, Cursor
+  and VS Code, a command to paste for Claude Code. Lumovi listens on this computer only, for
+  assistants with its token (kept in settings only you can read), and Claude Desktop starts
+  Lumovi when it isn't running.
+
 ### Changed
 
 - Right-sizing works on clusters of thousands of namespaces. It asks Prometheus about many

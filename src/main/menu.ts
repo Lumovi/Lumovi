@@ -50,6 +50,8 @@ export function buildMenu(
         command('terminal', 'Terminal', 'Ctrl+`'),
         command('new-terminal', 'New Terminal', 'Ctrl+Shift+`'),
         { type: 'separator' },
+        command('assistants', 'AI Assistants…'),
+        { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
         { role: 'zoomOut' },

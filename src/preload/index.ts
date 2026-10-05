@@ -80,6 +80,18 @@ const api: LumoviApi = {
     stop: (id) => invoke(IPC.forwardStop, id),
     onChange: (listener) => subscribe(IPC.forwardsChanged, listener),
   },
+  assistants: {
+    status: () => invoke(IPC.assistantsStatus),
+    configure: (setting) => invoke(IPC.assistantsConfigure, setting),
+    resetToken: () => invoke(IPC.assistantsResetToken),
+    install: (client) => invoke(IPC.assistantsInstall, client),
+    setChanges: (context, changes) => invoke(IPC.assistantsSetChanges, context, changes),
+    decide: (id, decision) => invoke(IPC.assistantsDecide, id, decision),
+    pending: () => invoke(IPC.assistantsPending),
+    onStatus: (listener) => subscribe(IPC.assistantsStatusChanged, listener),
+    onProposal: (listener) => subscribe(IPC.assistantsProposal, listener),
+    onOutcome: (listener) => subscribe(IPC.assistantsOutcome, listener),
+  },
   updates: {
     state: () => invoke(IPC.updateState),
     check: () => invoke(IPC.updateCheck),

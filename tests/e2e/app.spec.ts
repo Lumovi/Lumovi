@@ -265,6 +265,9 @@ test('recovers from unreadable settings', async ({ launch }) => {
     autoUpdate: true,
     nodeShell: {},
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
+    // How the app was started, for Claude Desktop's bridge to start it again.
+    assistants: { enabled: false, port: 47830, launch: expect.any(Array) },
+    aiChanges: {},
   })
 
   const unknown = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
@@ -292,6 +295,9 @@ test('recovers from unreadable settings', async ({ launch }) => {
         large: null,
       },
       autoUpdate: false,
+      // AI assistants' too: their port and token, and what they may change.
+      assistants: { enabled: 'yes', port: 80, token: 'short', launch: [1] },
+      aiChanges: { demo: 'allow', sandbox: 'sometimes', large: 'never' },
     }),
   )
   const second = await launch({ userDataDir: unknown })
@@ -302,13 +308,22 @@ test('recovers from unreadable settings', async ({ launch }) => {
     autoUpdate: false,
     nodeShell: { demo: { namespace: 'ops', image: 'alpine:3.22' } },
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
+    assistants: { enabled: false, port: 47830, launch: expect.any(Array) },
+    aiChanges: { demo: 'allow', large: 'never' },
   })
 
   const odd = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const token = 'a-stored-token-for-ai-assistants-to-send'
   writeFileSync(
     join(odd, 'settings.json'),
     // Only false turns update checks off.
-    JSON.stringify({ theme: 'dark', readOnly: 'all', metricsSource: 'none', autoUpdate: 'no' }),
+    JSON.stringify({
+      theme: 'dark',
+      readOnly: 'all',
+      metricsSource: 'none',
+      autoUpdate: 'no',
+      assistants: { enabled: false, port: 47999, token, launch: ['/Applications/Lumovi.app'] },
+    }),
   )
   const third = await launch({ userDataDir: odd })
   expect(await third.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
@@ -318,6 +333,8 @@ test('recovers from unreadable settings', async ({ launch }) => {
     autoUpdate: true,
     nodeShell: {},
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
+    assistants: { enabled: false, port: 47999, token, launch: expect.any(Array) },
+    aiChanges: {},
   })
 })
 
