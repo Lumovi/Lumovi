@@ -18,6 +18,10 @@ import {
 } from './fixtures.ts'
 import { as, card } from './fleet.ts'
 
+/** The agent's version, as it says it: the app's. */
+const { version: VERSION } = JSON.parse(readFileSync('package.json', 'utf8')) as {
+  version: string
+}
 const NAME = 'private-eu'
 const TOKEN = 'the-private-eu-agent-token-0123456789'
 
@@ -31,8 +35,9 @@ const HUB = {
       // Only the SRE team sees this one; it never connects.
       `- name: vault\n  tokenSha256: ${'A1'.repeat(32)}\n  groups: [sre]\n`,
   ).toString('base64'),
-  // Agents are pinged, as pages are.
-  LUMOVI_HEARTBEAT_SECONDS: '1',
+  // Agents are pinged, as pages are: often enough to see it here, not so often that a busy
+  // machine misses a beat (a page or an agent that misses one is dropped).
+  LUMOVI_HEARTBEAT_SECONDS: '5',
   FAKE_HELM_REACH: '1',
 }
 
@@ -74,7 +79,7 @@ test('a cluster behind its agent', async ({ page, context, serve, clusters, requ
     LUMOVI_AGENT_TOKEN_CHECK_SECONDS: '1',
   })
   await expect.poll(() => agent.log()).toContain('Connecting again in 1 s: it couldn’t connect')
-  expect(agent.log()).toContain(`Lumovi 1.0.0’s agent for ${NAME}, relaying to 127.0.0.1:`)
+  expect(agent.log()).toContain(`Lumovi ${VERSION}’s agent for ${NAME}, relaying to 127.0.0.1:`)
   expect(agent.log()).toContain(
     `Can’t reach the hub at http://127.0.0.1:${port}: connect ECONNREFUSED`,
   )
@@ -86,7 +91,9 @@ test('a cluster behind its agent', async ({ page, context, serve, clusters, requ
 
   const served = await serve({ port, env: HUB })
   expect(served.log()).toContain('shows a fleet of 2 clusters (private-eu, vault)')
-  await expect.poll(() => served.log()).toContain(`The agent of ${NAME} connected (Lumovi 1.0.0)`)
+  await expect
+    .poll(() => served.log())
+    .toContain(`The agent of ${NAME} connected (Lumovi ${VERSION})`)
   await expect.poll(() => agent.log()).toContain(`Connected to http://127.0.0.1:${port} as ${NAME}`)
   await expect.poll(async () => (await request.get(healthz)).status()).toBe(200)
 
@@ -314,7 +321,7 @@ test('what the hub makes of what an agent says', async ({ page, context, serve, 
     JSON.stringify({ type: 'hello', version: '1', ca: 'x' }),
   ]) {
     const agent = (await connect(served, headers)) as FakeAgent
-    expect(await agent.welcome).toEqual({ type: 'welcome', cluster: NAME, heartbeatSeconds: 1 })
+    expect(await agent.welcome).toEqual({ type: 'welcome', cluster: NAME, heartbeatSeconds: 5 })
     agent.ws.send(said)
     expect(await agent.closed).toBe(1008)
   }
