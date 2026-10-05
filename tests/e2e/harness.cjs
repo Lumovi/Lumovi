@@ -61,3 +61,12 @@ if (!process.env.LUMOVI_E2E_FOREGROUND) {
     app.dock?.hide()
   }
 }
+
+// System notifications (a change an AI assistant asks for, while the window isn't focused) are
+// kept for the tests (globalThis.__notifications), never shown.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { Notification } = require('electron')
+globalThis.__notifications = []
+Notification.prototype.show = function show() {
+  globalThis.__notifications.push(this)
+}

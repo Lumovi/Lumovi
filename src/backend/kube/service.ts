@@ -13,6 +13,7 @@ import type {
   ListQuery,
   MetricsQuery,
   MetricsSnapshot,
+  PodLogsQuery,
   Result,
   Revision,
   RolloutKind,
@@ -126,7 +127,7 @@ export class KubeService {
     /** Resolves once the environment (login shell PATH) is ready for credential plugins. */
     private readonly envReady: Promise<void>,
     /** Whether the user made a context read-only; changes to it are refused. */
-    private readonly isReadOnly: (context: string) => boolean,
+    readonly isReadOnly: (context: string) => boolean,
     env: NodeJS.ProcessEnv = process.env,
   ) {
     this.timeoutMs = Number(env.LUMOVI_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
@@ -386,6 +387,7 @@ export class KubeService {
           if (change.gracePeriodSeconds !== undefined) {
             assertIntegerInRange(change.gracePeriodSeconds, 'gracePeriodSeconds', 0, 86_400)
           }
+          optionalString(change.uid, 'uid')
           await this.#request(r.context, `${path}${dryRun}`, {
             method: 'DELETE',
             body: {
@@ -393,6 +395,7 @@ export class KubeService {
               kind: 'DeleteOptions',
               propagationPolicy: change.propagation,
               gracePeriodSeconds: change.gracePeriodSeconds,
+              ...(change.uid ? { preconditions: { uid: change.uid } } : {}),
             },
           })
           return null
@@ -408,6 +411,23 @@ export class KubeService {
             },
           })
           return null
+        }
+        case 'apply': {
+          assertObject(change.object, 'object')
+          assertString(change.fieldManager, 'fieldManager')
+          if (change.object.metadata?.name !== r.name) {
+            throw invalid('The object’s name doesn’t match the one being applied')
+          }
+          const at = resourcePath(atVersion(resource, change.object), r.namespace, r.name)
+          const params = new URLSearchParams({ fieldManager: change.fieldManager })
+          if (change.force === true) params.set('force', 'true')
+          if (r.dryRun === true) params.set('dryRun', 'All')
+          // JSON is YAML too: the API server takes it as an apply configuration.
+          return send(`${at}?${params}`, {
+            method: 'PATCH',
+            body: change.object,
+            contentType: 'application/apply-patch+yaml',
+          })
         }
         case 'debug': {
           if (r.kind !== 'Pod') throw invalid('Only pods can be debugged')
@@ -561,6 +581,21 @@ export class KubeService {
    */
   async listRaw(context: string, path: string, labelSelector: string): Promise<KubeObject[]> {
     return (await this.#listChunks(context, path, new URLSearchParams({ labelSelector }))).items
+  }
+
+  /** A container's logs as they are, as `kubectl logs` shows them (for MCP's tools, which check it). */
+  podLogs(q: PodLogsQuery): Promise<Result<string>> {
+    return this.#run(() => {
+      const params = new URLSearchParams({
+        tailLines: String(q.tailLines),
+        limitBytes: String(q.limitBytes),
+      })
+      if (q.container) params.set('container', q.container)
+      if (q.previous) params.set('previous', 'true')
+      if (q.sinceSeconds) params.set('sinceSeconds', String(q.sinceSeconds))
+      const path = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/pods/${encodeURIComponent(q.pod)}/log`
+      return this.#request(q.context, `${path}?${params}`, {})
+    })
   }
 
   /** GETs any path on the cluster as text, for the usage history's service proxy calls. */

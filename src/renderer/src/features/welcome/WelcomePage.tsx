@@ -19,6 +19,7 @@ import { clusterPath } from '@renderer/lib/routes'
 import { usePrefs } from '@renderer/state/prefs'
 import { Commands } from '../shell/Commands'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
+import { AssistantsButton } from '../assistants/AssistantsDialog'
 import { ThemeMenu } from '../shell/ThemeMenu'
 
 export { REPO_URL } from '@shared/app'
@@ -89,6 +90,7 @@ export function WelcomePage() {
               <RotateCw /> Reload
             </Button>
             <ThemeMenu />
+            {api.assistants && <AssistantsButton assistants={api.assistants} />}
             <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
               <GithubMark />
             </IconButton>

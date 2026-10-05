@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   NODE_SHELL_DEFAULTS,
@@ -6,6 +6,7 @@ import {
   type NodeShellSetting,
   type Settings,
 } from '@shared/api'
+import { DEFAULT_ASSISTANTS_PORT, isAiChanges, isPort, type AiChanges } from '@shared/assistants'
 import {
   isMetricsSourceSetting,
   isNodeShellSetting,
@@ -19,7 +20,12 @@ const DEFAULTS: Settings = {
   metricsSource: {},
   nodeShell: {},
   autoUpdate: true,
+  assistants: { enabled: false, port: DEFAULT_ASSISTANTS_PORT },
+  aiChanges: {},
 }
+
+/** What a token looks like (a random one, URL-safe). */
+const TOKEN = /^[\w-]{32,}$/
 
 /** Persists user preferences as JSON in the app's userData directory. */
 export class SettingsStore implements SettingsAccess {
@@ -74,10 +80,24 @@ export class SettingsStore implements SettingsAccess {
     return this.update({ nodeShell: setting ? { ...others, [context]: setting } : others })
   }
 
+  /** Whether AI assistants' changes to `context` are asked about (unless set otherwise). */
+  aiChanges(context: string): AiChanges {
+    return this.#settings.aiChanges![context] ?? 'ask'
+  }
+
+  setAiChanges(context: string, changes: AiChanges): Settings {
+    const { [context]: _previous, ...others } = this.#settings.aiChanges!
+    return this.update({
+      aiChanges: changes === 'ask' ? others : { ...others, [context]: changes },
+    })
+  }
+
   update(patch: Partial<Omit<Settings, 'readOnlyAll' | 'nodeShellDefault'>>): Settings {
     this.#settings = { ...this.#settings, ...patch }
     mkdirSync(this.dir, { recursive: true })
-    writeFileSync(this.#file, JSON.stringify(this.#settings, null, 2))
+    // Yours alone: it holds the token AI assistants connect with.
+    writeFileSync(this.#file, JSON.stringify(this.#settings, null, 2), { mode: 0o600 })
+    chmodSync(this.#file, 0o600)
     return this.get()
   }
 
@@ -104,6 +124,20 @@ export class SettingsStore implements SettingsAccess {
         ),
         // On unless turned off.
         autoUpdate: stored.autoUpdate !== false,
+        assistants: {
+          enabled: stored.assistants?.enabled === true,
+          port: isPort(stored.assistants?.port) ? stored.assistants.port : DEFAULT_ASSISTANTS_PORT,
+          ...(TOKEN.test(String(stored.assistants?.token))
+            ? { token: stored.assistants!.token }
+            : {}),
+          ...(Array.isArray(stored.assistants?.launch) &&
+          stored.assistants.launch.every((arg) => typeof arg === 'string')
+            ? { launch: stored.assistants.launch }
+            : {}),
+        },
+        aiChanges: Object.fromEntries(
+          Object.entries(stored.aiChanges ?? {}).filter(([, changes]) => isAiChanges(changes)),
+        ),
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.

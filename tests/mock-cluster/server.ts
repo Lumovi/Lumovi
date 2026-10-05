@@ -859,7 +859,21 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         `${target} is forbidden: User "${username()}" cannot ${verb} resource "${def.plural}${subresource ? `/${subresource}` : ''}" in API group "${def.group}"${namespace ? ` in the namespace "${namespace}"` : ''}`,
       )
     }
-    const existing = name ? get(def, namespace, name) : undefined
+    // Server-side apply creates what isn't there; other writes need it to be.
+    const applying = method === 'PATCH' && contentType === 'application/apply-patch+yaml'
+    const existing = !name
+      ? undefined
+      : applying
+        ? store$.get(def.kind, namespace, name)
+        : get(def, namespace, name)
+    // A deletion of the object with a uid fails once that's gone (made again since, say).
+    const uid: string | undefined = method === 'DELETE' ? body?.preconditions?.uid : undefined
+    if (uid && existing && uid !== existing.metadata.uid) {
+      throw new HttpError(
+        409,
+        `Precondition failed: UID in precondition: ${uid}, UID in object meta: ${existing.metadata.uid}`,
+      )
+    }
 
     if (def.custom && subresource === 'status' && (method === 'PATCH' || method === 'PUT')) {
       // The status subresource changes the status, and nothing else.
@@ -1013,6 +1027,32 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         )
       }
       return { status: 200, body: save(prepare(def, body, existing, namespace), dryRun) }
+    }
+    if (applying) {
+      // Server-side apply: the fields given are set (taken over from other managers when forced),
+      // or the object is created. (Lumovi sends JSON, which is YAML too.)
+      if (!query.get('fieldManager')) {
+        throw new HttpError(422, 'PATCH: fieldManager is required for apply requests')
+      }
+      if (body?.metadata?.name !== name) {
+        throw new HttpError(
+          400,
+          `the name of the object (${body?.metadata?.name}) does not match the name on the URL (${name})`,
+        )
+      }
+      if (!existing) {
+        return write(
+          'POST',
+          pathname.slice(0, pathname.lastIndexOf('/')),
+          query,
+          body,
+          'application/json',
+        )
+      }
+      return {
+        status: 200,
+        body: save(prepare(def, strategicMergePatch(existing, body), existing, namespace), dryRun),
+      }
     }
     if (method === 'PATCH' && existing) {
       const apply = patchFormat(contentType)

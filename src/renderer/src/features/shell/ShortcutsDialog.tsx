@@ -15,7 +15,12 @@ const SECTIONS: {
       { keys: [MOD_KEY, 'K'], label: 'Command palette' },
       { keys: ['/'], label: 'Filter the list' },
       { keys: [MOD_KEY, 'R'], label: 'Refresh' },
-      ...(WINDOW_SHORTCUTS ? [{ keys: [MOD_KEY, 'N'], label: 'Create from YAML' }] : []),
+      ...(WINDOW_SHORTCUTS
+        ? [
+            { keys: [MOD_KEY, 'N'], label: 'Create from YAML' },
+            { keys: [MOD_KEY, '↵'], label: 'Approve an AI assistant’s change' },
+          ]
+        : []),
       { keys: [MOD_KEY, '['], label: 'Back' },
       { keys: [MOD_KEY, ']'], label: 'Forward' },
       { keys: ['?'], label: 'Keyboard shortcuts' },

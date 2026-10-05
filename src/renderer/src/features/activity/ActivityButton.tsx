@@ -1,4 +1,4 @@
-import { CircleCheck, CircleX, History, LoaderCircle } from 'lucide-react'
+import { Ban, CircleCheck, CircleX, History, LoaderCircle } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
@@ -15,6 +15,7 @@ const STATUS = {
   running: { icon: LoaderCircle, label: 'In progress', className: 'animate-spin text-ink-3' },
   done: { icon: CircleCheck, label: 'Done', className: 'text-good-text' },
   failed: { icon: CircleX, label: 'Failed', className: 'text-critical-text' },
+  rejected: { icon: Ban, label: 'Rejected', className: 'text-ink-3' },
 }
 
 /** The changes made from Lumovi in this session, with the kubectl command for each. */
@@ -113,7 +114,19 @@ function Entry({ entry }: { entry: ActivityEntry }) {
         <p className="mt-0.5 text-xs text-ink-3">
           {age(new Date(entry.at).toISOString())} ago
           {entry.context !== context && ` · ${entry.context}`}
+          {entry.via && (
+            <>
+              {' · '}
+              {entry.status === 'rejected' ? 'rejected, asked by ' : 'via '}
+              <span className="font-medium text-ink-2">{entry.via}</span>
+            </>
+          )}
         </p>
+        {entry.note && (
+          <p className="mt-1 text-xs leading-relaxed break-words text-ink-2 italic selectable">
+            “{entry.note}”
+          </p>
+        )}
         {entry.error && (
           <p className="mt-1 text-xs leading-relaxed break-words text-critical-text selectable">
             {entry.error}
