@@ -35,7 +35,7 @@ import {
   WIDTH,
   type Theme,
 } from './images.ts'
-import { SCREENS, type Screen } from './screens.ts'
+import { ASSISTANTS_TOKEN, SCREENS, type Screen } from './screens.ts'
 
 const DIR = resolve('docs/screenshots')
 const THEMES: Theme[] = ['light', 'dark']
@@ -113,7 +113,11 @@ async function startArtifactHub() {
 /** The desktop app in a theme, against the mock clusters, in a home and profile of its own. */
 async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<string, string>) {
   const home = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-home-'))
-  writeFileSync(join(home, 'settings.json'), JSON.stringify({ theme }))
+  // AI assistants' token, the same each time (shown in part).
+  writeFileSync(
+    join(home, 'settings.json'),
+    JSON.stringify({ theme, assistants: { enabled: false, port: 47830, token: ASSISTANTS_TOKEN } }),
+  )
   // Terminals' shells (zsh on macOS, bash elsewhere) with a prompt that's the same everywhere,
   // not one that names the computer: its folder icon one of the Nerd Font's.
   writeFileSync(join(home, '.zshrc'), "PROMPT=$'%F{blue}\\uf07c ~%f %F{green}❯%f '\n")
@@ -150,6 +154,8 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
       LUMOVI_VIEWS_DIR: '',
       // The e2e tests' stand-in, so no real helm runs against the mock cluster.
       LUMOVI_HELM: resolve('tests/e2e/helm/helm'),
+      // The page's stopped clock, for the time left to approve AI assistants' changes.
+      LUMOVI_SCREENSHOT_EPOCH: String(EPOCH),
     } as Record<string, string>,
     colorScheme: null,
   })
