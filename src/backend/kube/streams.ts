@@ -6,6 +6,8 @@ import { Exec, PortForward as Forwarder, type KubeConfig } from '@kubernetes/cli
 import type {
   ForwardKind,
   KubeObject,
+  NodeShellRequest,
+  NodeShellSetting,
   PortForward,
   PortForwardRequest,
   Result,
@@ -15,6 +17,7 @@ import type {
 import { authorize, kubeRequest, serverUrl } from './client'
 import { KubeRequestError, toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
+import { createNodeShell, deleteNodeShell, nodeShellCommand, waitForNodeShell } from './node-shell'
 import { assertIntegerInRange, assertOneOf, assertQuery, assertString, invalid } from './validate'
 
 /** Starts bash when the container has it, and sh otherwise, like `kubectl debug` users do by hand. */
@@ -63,6 +66,16 @@ interface Session {
   close(): void
 }
 
+/** What a shell runs in: a container of a pod. */
+interface ExecTarget {
+  namespace: string
+  pod: string
+  container: string
+}
+
+/** A line of the terminal's own, before the shell's: dim, like a comment. */
+const note = (text: string) => `\x1b[2m› ${text}\x1b[0m\r\n`
+
 /** How an exec status reads: an exit code, or why the command couldn't run. */
 function exitOf(status: {
   status?: string
@@ -75,15 +88,24 @@ function exitOf(status: {
   return code === undefined ? { message: status.message } : { code: Number(code) }
 }
 
-/** Interactive shells in containers, streamed to the page (`kubectl exec -it`). */
+/**
+ * Interactive shells streamed to the page: in containers (`kubectl exec -it`),
+ * and on nodes, through a pod that's deleted when the shell ends.
+ */
 export class Terminals {
   readonly #sessions = new Map<string, Session>()
   /** Sessions closed while they were still connecting. */
   readonly #abandoned = new Set<string>()
   readonly #connecting = new Set<string>()
+  /** Node shells' pods being deleted. */
+  readonly #cleaning = new Set<Promise<unknown>>()
 
   constructor(
-    private readonly deps: Dependencies,
+    private readonly deps: Dependencies & {
+      /** Where `context`'s node shells run, or null where they're turned off. */
+      nodeShell: (context: string) => NodeShellSetting | null
+      timeoutMs: number
+    },
     private readonly emit: {
       data: (id: string, data: string) => void
       exit: (id: string, exit: ShellExit) => void
@@ -102,19 +124,36 @@ export class Terminals {
       }
       const r = assertQuery<ShellRequest>(request)
       assertString(r.context, 'context')
-      assertString(r.namespace, 'namespace')
-      assertString(r.pod, 'pod')
-      assertString(r.container, 'container')
+      if (r.target === 'container') {
+        assertString(r.namespace, 'namespace')
+        assertString(r.pod, 'pod')
+        assertString(r.container, 'container')
+      } else if (r.target === 'node') {
+        assertString(r.node, 'node')
+        assertOneOf(r.mode, 'mode', ['node', 'pod'] as const)
+      } else {
+        throw invalid('A shell here is in a container or on a node')
+      }
       if (this.deps.isReadOnly(r.context)) {
         throw new KubeRequestError(
           'read-only',
-          `${r.context} is read-only in Lumovi, so shells, which can change containers, are turned off.`,
+          `${r.context} is read-only in Lumovi, so shells, which can change ${r.target === 'node' ? 'nodes' : 'containers'}, are turned off.`,
+        )
+      }
+      const setting = this.deps.nodeShell(r.context)
+      if (r.target === 'node' && !setting) {
+        throw new KubeRequestError(
+          'forbidden',
+          'Node shells are turned off on this Lumovi server (LUMOVI_NODE_SHELL=off).',
         )
       }
       const kc = this.deps.store.forContext(r.context)
       this.#connecting.add(id)
       try {
-        await this.#connect(id, kc, r)
+        await this.deps.envReady
+        await prepare(kc)
+        if (r.target === 'node') await this.#node(id, kc, r, setting!)
+        else await this.#exec(id, kc, r, SHELL)
       } finally {
         this.#connecting.delete(id)
         this.#abandoned.delete(id)
@@ -125,33 +164,106 @@ export class Terminals {
     }
   }
 
-  async #connect(id: string, kc: KubeConfig, r: ShellRequest): Promise<void> {
-    await this.deps.envReady
-    await prepare(kc)
+  /**
+   * A shell on a node: its pod is created, started, and, however the shell
+   * ends, deleted. What happens meanwhile shows in the terminal.
+   */
+  async #node(
+    id: string,
+    kc: KubeConfig,
+    r: NodeShellRequest,
+    setting: NodeShellSetting,
+  ): Promise<void> {
+    const say = (text: string) => this.emit.data(id, note(text))
+    const { timeoutMs } = this.deps
+    say(`Starting a pod on ${r.node} from ${setting.image}, in ${setting.namespace}…`)
+    const name = await createNodeShell(kc, r.node, setting, timeoutMs)
+    const remove = () => deleteNodeShell(kc, setting.namespace, name, timeoutMs)
+    const started = await waitForNodeShell(
+      kc,
+      { node: r.node, namespace: setting.namespace, name, image: setting.image },
+      // Pulling an image takes longer than answering a request.
+      {
+        timeoutMs: timeoutMs * 6,
+        requestTimeoutMs: timeoutMs,
+        stop: () => this.#abandoned.has(id),
+      },
+    ).catch(async (error: unknown) => {
+      await remove()
+      throw error
+    })
+    if (!started) {
+      await remove()
+      return
+    }
+    say(
+      r.mode === 'node'
+        ? `You’re root on ${r.node}. ${setting.namespace}/${name} is deleted when this shell ends.`
+        : `You’re in ${setting.namespace}/${name}, with ${r.node}’s files under /host. It’s deleted when this shell ends.`,
+    )
+    await this.#exec(
+      id,
+      kc,
+      { namespace: setting.namespace, pod: name, container: 'shell' },
+      nodeShellCommand(r.mode),
+      remove,
+    )
+  }
+
+  async #exec(
+    id: string,
+    kc: KubeConfig,
+    where: ExecTarget,
+    command: string[],
+    /** What to do once the shell ended: delete a node shell's pod. */
+    /** After the shell: resolves with what to say if it didn't go as it should. */
+    cleanup?: () => Promise<string | undefined>,
+  ): Promise<void> {
     const input = new PassThrough()
     const output = new TerminalOutput((text) => this.emit.data(id, text))
+    // Once, whichever ends it first: the shell, its connection, or the page.
+    let cleaned: Promise<string | undefined> | undefined
+    const clean = () => {
+      if (!cleanup) return Promise.resolve(undefined)
+      if (!cleaned) {
+        const cleaning = cleanup().finally(() => this.#cleaning.delete(cleaning))
+        this.#cleaning.add(cleaning)
+        cleaned = cleaning
+      }
+      return cleaned
+    }
     let ended = false
     const end = (exit: ShellExit) => {
       if (ended) return
       ended = true
       this.#sessions.delete(id)
-      this.emit.exit(id, exit)
+      // Said once it's cleaned up (a node shell's pod deleted), or said that it couldn't be.
+      void clean().then((left) => this.emit.exit(id, left ? { ...exit, left } : exit))
     }
-    const socket = await new Exec(kc).exec(
-      r.namespace,
-      r.pod,
-      r.container,
-      SHELL,
-      output,
-      output,
-      input,
-      true,
-      (status) => end(exitOf(status)),
-    )
+    const socket = await new Exec(kc)
+      .exec(
+        where.namespace,
+        where.pod,
+        where.container,
+        command,
+        output,
+        output,
+        input,
+        true,
+        (status) => end(exitOf(status)),
+      )
+      .catch(async (error: unknown) => {
+        void clean()
+        throw error
+      })
     socket.on('close', () => end({ message: 'The connection to the container closed.' }))
+    const close = () => {
+      socket.close()
+      void clean()
+    }
     // Nobody is waiting for it any more: don't leave a shell running in the container.
-    if (this.#abandoned.has(id)) socket.close()
-    else this.#sessions.set(id, { input, output, close: () => socket.close() })
+    if (this.#abandoned.has(id)) close()
+    else this.#sessions.set(id, { input, output, close })
   }
 
   write(id: unknown, data: unknown): void {
@@ -170,8 +282,15 @@ export class Terminals {
     this.#sessions.get(key)?.close()
   }
 
-  closeAll(): void {
+  /** Ends every shell; resolves once the node shells' pods are deleted. */
+  async closeAll(): Promise<void> {
     for (const session of this.#sessions.values()) session.close()
+    await Promise.all(this.#cleaning)
+  }
+
+  /** Whether node shells' pods are still being deleted (quitting waits for them). */
+  get cleaning(): boolean {
+    return this.#cleaning.size > 0
   }
 }
 

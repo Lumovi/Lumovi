@@ -52,4 +52,8 @@ export type AppCommand =
   | 'forward'
   | 'clusters'
   | 'create'
+  | 'terminal'
+  | 'new-terminal'
+  | 'close-terminal'
+  | 'clear-terminal'
   | `go:${NavTarget}`

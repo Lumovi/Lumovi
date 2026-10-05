@@ -120,6 +120,17 @@ metrics:
   # vmselect: vm/vmselect:8481/select/0/prometheus). Each person can choose another.
   source: auto
 
+# Shells on nodes (a node's Shell tab): Lumovi starts a privileged pod on the node, as
+# whoever asks, so their RBAC and the namespace's Pod Security decide, and deletes it when the
+# shell ends. Each person can choose another namespace and image for themselves.
+nodeShell:
+  enabled: true
+  # Where the pods are created: its Pod Security must allow privileged pods.
+  namespace: kube-system
+  # With a shell, and nsenter for shells on the node itself: a copy in your own registry where
+  # nodes can't pull from Docker Hub.
+  image: alpine:3.22
+
 helm:
   # Lumovi fetches charts only from public addresses unless this allows private ones
   # (a ChartMuseum or Harbor in your network).

@@ -1,4 +1,4 @@
-import type { MetricsSourceSetting, Settings, ThemePreference } from '@shared/api'
+import type { MetricsSourceSetting, NodeShellSetting, Settings, ThemePreference } from '@shared/api'
 import { PROXY_PATH } from './kube/usage'
 
 const THEMES: readonly ThemePreference[] = ['system', 'light', 'dark']
@@ -26,6 +26,8 @@ export function isMetricsSourceSetting(value: unknown): value is MetricsSourceSe
   )
 }
 
+export { isNodeShellSetting } from '@shared/node-shell'
+
 /**
  * The preferences the page reads and changes wherever Lumovi runs: kept
  * in a file on the desktop, and for each page by the server.
@@ -37,4 +39,8 @@ export interface SettingsAccess {
   /** Where `context`'s metrics history comes from; detected unless set otherwise. */
   metricsSource(context: string): MetricsSourceSetting
   setMetricsSource(context: string, setting: MetricsSourceSetting): Settings
+  /** Where `context`'s node shells run, or null where they're turned off. */
+  nodeShell(context: string): NodeShellSetting | null
+  /** Sets where they run; null goes back to the default. */
+  setNodeShell(context: string, setting: NodeShellSetting | null): Settings
 }

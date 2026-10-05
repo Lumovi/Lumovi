@@ -126,6 +126,12 @@ spec:
               value: {{ .Values.helm.artifactHubUrl | quote }}
             - name: LUMOVI_VIEWS_DIR
               value: /etc/lumovi/views
+            - name: LUMOVI_NODE_SHELL
+              value: {{ ternary "on" "off" .Values.nodeShell.enabled | quote }}
+            - name: LUMOVI_NODE_SHELL_NAMESPACE
+              value: {{ .Values.nodeShell.namespace | quote }}
+            - name: LUMOVI_NODE_SHELL_IMAGE
+              value: {{ .Values.nodeShell.image | quote }}
             {{- if $fleet }}
             {{- with .Values.fleet }}
             {{- if .kubeconfigSecret }}

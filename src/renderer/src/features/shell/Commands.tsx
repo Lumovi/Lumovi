@@ -5,7 +5,9 @@ import { GO_KEYS, QUICK_NAV, type AppCommand, type NavTarget } from '@shared/nav
 import { useGo } from '@renderer/hooks/go'
 import { api } from '@renderer/lib/api'
 import { targetPath } from '@renderer/lib/routes'
+import { usePrefs } from '@renderer/state/prefs'
 import { useUi } from '@renderer/state/ui'
+import { useDock } from '../terminal/dock'
 
 /** How long `g` waits for the second key of a "go to" shortcut. */
 const SEQUENCE_TIMEOUT = 1200
@@ -69,6 +71,23 @@ export function Commands() {
       clusters: () => goTo('/'),
       // Objects are created in a cluster, so not from the start screen.
       create: () => setCreate(Boolean(context)),
+      // A terminal on this computer, pointed at the cluster that's open (the desktop app's).
+      terminal: () => {
+        if (api.host === 'desktop' && context) {
+          useDock.getState().toggle(context, usePrefs.getState().namespaces[context] ?? undefined)
+        }
+      },
+      'new-terminal': () => {
+        if (api.host === 'desktop' && context) {
+          useDock.getState().add(context, usePrefs.getState().namespaces[context] ?? undefined)
+        }
+      },
+      // Asked only while a terminal has focus (its ⌘W and ⌘K, on macOS).
+      'close-terminal': () => useDock.getState().close(useDock.getState().active!),
+      'clear-terminal': () => {
+        const { tabs, active } = useDock.getState()
+        tabs.find((tab) => tab.session.id === active)!.session.term.clear()
+      },
     }
     actions[command]!()
   }
@@ -83,6 +102,13 @@ export function Commands() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // ⌃` on every platform, as editors have it (by the key's place, whatever the layout);
+      // with ⇧, a new terminal.
+      if (event.ctrlKey && !event.metaKey && event.code === 'Backquote') {
+        event.preventDefault()
+        runRef.current(event.shiftKey ? 'new-terminal' : 'terminal')
+        return
+      }
       const command =
         event.metaKey || event.ctrlKey
           ? MOD_KEYS[event.key.toLowerCase()]

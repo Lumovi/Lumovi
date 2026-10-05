@@ -29,13 +29,46 @@ const failure = (message: string, reason = 'InternalError', details?: Json) => (
 /** Images that ship without a shell, like distroless ones. */
 const SHELLLESS = /distroless|metrics-server/
 
-/** A shell good enough to type into: echo, a prompt, a few commands, `exit`. */
-function shell(socket: WebSocket, pod: KubeObject, container: string) {
+/** What a shell is like where it runs: its prompt, host name, folder and files. */
+interface Place {
+  prompt: string
+  hostname: string
+  pwd: string
+  ls: string
+}
+
+/** The node's files, as a node shell sees them. */
+const NODE_FILES =
+  'bin  boot  dev  etc  home  lib  opt  proc  root  run  sbin  srv  sys  tmp  usr  var'
+
+/**
+ * Where a shell runs: in the container, or, in a node shell's pod (command
+ * ['env', …, 'nsenter', …] or [… 'cd /host' …]), on its node or in the pod.
+ */
+function placeOf(pod: KubeObject, command: string[]): Place {
+  const node = pod.spec.nodeName as string
+  if (command.includes('nsenter')) {
+    return { prompt: `root@${node}:~# `, hostname: node, pwd: '/root', ls: NODE_FILES }
+  }
+  if (command.some((arg) => arg.includes('cd /host'))) {
+    return { prompt: '/host # ', hostname: node, pwd: '/host', ls: NODE_FILES }
+  }
   const name = pod.metadata.name
+  return {
+    prompt: `root@${name}:/# `,
+    hostname: name,
+    pwd: '/',
+    ls: 'app  bin  dev  etc  home  proc  root  sys  tmp  usr  var',
+  }
+}
+
+/** A shell good enough to type into: echo, a prompt, a few commands, `exit`. */
+function shell(socket: WebSocket, pod: KubeObject, container: string, place: Place) {
+  const name = place.hostname
   const size = { columns: 80, rows: 24 }
   let line = ''
   const write = (text: string) => socket.send(frame(STDOUT, text))
-  const prompt = () => write(`root@${name}:/# `)
+  const prompt = () => write(place.prompt)
   const exit = (code: number) => {
     socket.send(
       frame(
@@ -63,8 +96,8 @@ function shell(socket: WebSocket, pod: KubeObject, container: string) {
       '': () => '',
       hostname: () => name,
       whoami: () => 'root',
-      pwd: () => '/',
-      ls: () => 'app  bin  dev  etc  home  proc  root  sys  tmp  usr  var',
+      pwd: () => place.pwd,
+      ls: () => place.ls,
       echo: () => args.join(' '),
       env: () =>
         [
@@ -75,6 +108,8 @@ function shell(socket: WebSocket, pod: KubeObject, container: string) {
       stty: () => (args[0] === 'size' ? `${size.rows} ${size.columns}` : ''),
     }
     if (command === 'exit') return exit(Number(args[0] ?? 0))
+    // The container's own process gone (as when its pod is deleted): the stream closes, unsaid.
+    if (command === 'kill' && args.at(-1) === '1') return socket.close()
     const result = output[command]?.() ?? `sh: ${command}: not found`
     if (result) write(`${result}\r\n`)
     prompt()
@@ -140,6 +175,8 @@ function forward(socket: WebSocket, pod: KubeObject, port: number) {
 export interface StreamContext {
   /** The stored pod, if there is one. */
   pod(namespace: string, name: string): KubeObject | undefined
+  /** The stored node. */
+  node(name: string): KubeObject | undefined
   /**
    * Whether the request may go on: false after the context has answered it (401, 403, a
    * fault…), or a delay in milliseconds before it goes on.
@@ -245,9 +282,29 @@ export function streamingEndpoints(context: StreamContext) {
         ws.close()
         return
       }
+      const command = url.searchParams.getAll('command')
+      // A node without a shell of its own (Talos): nsenter finds none there.
+      const osImage: string = context.node(pod.spec.nodeName)?.status?.nodeInfo?.osImage ?? ''
+      if (command.includes('nsenter') && /Talos/.test(osImage)) {
+        ws.send(frame(STDOUT, "nsenter: can't execute 'sh': No such file or directory\r\n"))
+        ws.send(
+          frame(
+            ERROR,
+            JSON.stringify(
+              failure(
+                'command terminated with non-zero exit code: error executing command [env TERM=xterm-256color nsenter], exit code 127',
+                'NonZeroExitCode',
+                { causes: [{ reason: 'ExitCode', message: '127' }] },
+              ),
+            ),
+          ),
+        )
+        ws.close()
+        return
+      }
       shells.add(ws)
       ws.on('close', () => shells.delete(ws))
-      const session = shell(ws, pod, container)
+      const session = shell(ws, pod, container, placeOf(pod, command))
       ws.on('message', (data: Buffer) => {
         if (data[0] === 0) session.input(data.subarray(1).toString())
         if (data[0] === RESIZE) {

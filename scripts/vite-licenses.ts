@@ -27,6 +27,8 @@ const OUTPUT = join(ROOT, 'out', 'THIRD_PARTY_NOTICES.txt')
 const SERVER_OUTPUT = join(ROOT, 'out', 'server', 'THIRD_PARTY_NOTICES.txt')
 /** Used from CSS rather than imported, so they're not in the module graph. */
 const FROM_CSS = ['tailwindcss']
+/** What the page ships that isn't a package, by the notice kept beside it. */
+const VENDORED = ['src/renderer/src/assets/fonts/terminal-symbols.NOTICE.txt']
 const LEGAL_FILE = /^(licen[sc]e|copying|notice)/i
 
 const bundled = new Set<string>()
@@ -87,7 +89,10 @@ function write(output: string, dependencies: boolean): void {
     const { name, version } = read(dir)
     byName.set(`${name}@${version}`, dir)
   }
-  const sections = [...byName.keys()].sort().map((key) => notice(byName.get(key)!))
+  const sections = [
+    ...[...byName.keys()].sort().map((key) => notice(byName.get(key)!)),
+    ...VENDORED.map((file) => readFileSync(join(ROOT, file), 'utf8').trim()),
+  ]
   const rule = '\n\n' + '='.repeat(80) + '\n\n'
   mkdirSync(dirname(output), { recursive: true })
   writeFileSync(

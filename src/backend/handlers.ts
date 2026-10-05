@@ -10,7 +10,7 @@ import type { LogStreams } from './kube/logs'
 import type { KubeService } from './kube/service'
 import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
-import { isMetricsSourceSetting, type SettingsAccess } from './settings'
+import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from './settings'
 import { readViews } from './views'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
@@ -59,6 +59,18 @@ export function handlers({
         const updated = settings.setMetricsSource(context, setting)
         usage.forget(context)
         return updated
+      },
+      [IPC.setNodeShell]: (context, setting) => {
+        // None, back to the defaults: null, or from a page (whose nulls arrive as undefined).
+        const reset = setting === null || setting === undefined
+        if (
+          typeof context !== 'string' ||
+          context === '' ||
+          (!reset && !isNodeShellSetting(setting))
+        ) {
+          throw new Error('Expected a context name and where its node shells run')
+        }
+        return settings.setNodeShell(context, reset ? null : setting)
       },
       [IPC.views]: () => readViews(viewsDirectory),
 

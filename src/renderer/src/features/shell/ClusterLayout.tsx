@@ -10,6 +10,7 @@ import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { useSession, useSwitching } from '@renderer/state/session'
 import { ServerBanner } from '../session/ServerBanner'
+import { TerminalDock } from '../terminal/TerminalDock'
 import { ActionHost } from '../actions/ActionSurfaces'
 import { CreateDialog } from '../actions/CreateDialog'
 import { SourceDialog } from '../metrics/SourceDialog'
@@ -71,6 +72,7 @@ export function ClusterLayout() {
               <DetailPanel />
               <ReleasePanel />
             </div>
+            {api.host === 'desktop' && <TerminalDock />}
           </div>
         </main>
       </div>

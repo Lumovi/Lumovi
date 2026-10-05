@@ -16,14 +16,17 @@ const { version } = JSON.parse(
 const node = readFileSync('.nvmrc', 'utf8').trim()
 const image = `lumovi-test-linux:${version}-node${node}`
 
-// Playwright's image (Chromium's libraries, Xvfb), with the Node.js the project uses.
+// Playwright's image (Chromium's libraries, Xvfb), with the Node.js the project uses, and
+// what builds node-pty (terminals on this computer), which has no Linux binaries of its own.
 const dockerfile = `
 FROM node:${node}-bookworm-slim AS node
 FROM mcr.microsoft.com/playwright:v${version}-noble
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
- && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+ && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && apt-get update && apt-get install -y --no-install-recommends make g++ python3 \
+ && rm -rf /var/lib/apt/lists/*
 `
 const built = spawnSync('docker', ['build', '--quiet', '-t', image, '-'], {
   input: dockerfile,

@@ -240,19 +240,28 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
       settings: {
         readOnly: ['demo', 7],
         metricsSource: { demo: { mode: 'magic' }, other: { mode: 'off' } },
+        nodeShell: {
+          demo: { namespace: 'Not A Namespace', image: 'alpine' },
+          other: { namespace: 'ops', image: 'alpine:3.22' },
+        },
       },
     }),
   )
+  const defaults = { namespace: 'kube-system', image: 'alpine:3.22' }
   expect((await page.call(5, IPC.settings)).value).toEqual({
     theme: 'system',
     readOnly: ['demo'],
     metricsSource: { other: { mode: 'off' } },
+    nodeShell: { other: { namespace: 'ops', image: 'alpine:3.22' } },
+    nodeShellDefault: defaults,
   })
   page.ws.send(JSON.stringify({ type: 'settings', settings: { readOnly: 'demo' } }))
   expect((await page.call(6, IPC.settings)).value).toEqual({
     theme: 'system',
     readOnly: [],
     metricsSource: {},
+    nodeShell: {},
+    nodeShellDefault: defaults,
   })
   // A message too large to take ends the connection, and nothing else.
   const large = await socket(served, cookie)
@@ -337,6 +346,11 @@ test('the server says what’s wrong with its configuration, and stops', async (
       'LUMOVI_OIDC_CLIENT_ID must be set for single sign-on.',
     ],
     [{ LUMOVI_URL: 'https://' }, 'LUMOVI_URL must be an http or https URL, not "https://".'],
+    [{ LUMOVI_NODE_SHELL: 'maybe' }, 'LUMOVI_NODE_SHELL must be on or off, not "maybe".'],
+    [
+      { LUMOVI_NODE_SHELL_IMAGE: 'has space' },
+      'LUMOVI_NODE_SHELL_NAMESPACE must be a namespace\'s name and LUMOVI_NODE_SHELL_IMAGE an image, not "kube-system" and "has space".',
+    ],
     [
       {
         LUMOVI_AUTH: 'oidc',

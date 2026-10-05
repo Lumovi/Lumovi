@@ -19,6 +19,17 @@ files:
   # Nor is a fleet's agent.
   - '!out/agent/**'
   - package.json
+  # node-pty's sources: only its binaries (and its JavaScript) run.
+  - '!node_modules/node-pty/{src,deps,scripts,third_party}/**'
+  - '!node_modules/node-pty/{binding.gyp,*.md}'
+
+# node-pty, for terminals on this computer: its binaries run outside the archive (one is a
+# program of its own). They're N-API, so they need no rebuilding for Electron, and each
+# platform's are its own: prebuilt for macOS and Windows (both architectures), built for Linux
+# when it's installed (on the architecture it's for).
+npmRebuild: false
+asarUnpack:
+  - node_modules/node-pty/**
 
 # Next to the app, where people (and package tools) can find them.
 extraResources:
@@ -49,6 +60,8 @@ mac:
   icon: build/Lumovi.icon
   hardenedRuntime: true
   entitlementsInherit: build/entitlements.mac.plist
+  files:
+    - '!node_modules/node-pty/prebuilds/win32-*/**'
   # Signed when CSC_LINK is set, and notarized when APPLE_API_KEY, _KEY_ID and _ISSUER are too.
 
 dmg:
@@ -57,6 +70,8 @@ dmg:
 win:
   # Edge to edge, as Windows icons are.
   icon: build/icon-win.png
+  files:
+    - '!node_modules/node-pty/prebuilds/darwin-*/**'
   target:
     - target: nsis
       arch: [x64, arm64]
@@ -76,6 +91,9 @@ linux:
   # Drawn for each size.
   icon: build/icons
   maintainer: Peter Kota <kotapeter@gmail.com>
+  # node-pty as built here, for this architecture (each is built on its own: see release.yml).
+  files:
+    - '!node_modules/node-pty/prebuilds/**'
   target:
     - target: AppImage
       arch: [x64, arm64]

@@ -2,7 +2,8 @@
  * A few of Kubernetes' controllers, simulated just enough that changes made in
  * the app play out like on a real cluster: scaled workloads gain or lose pods,
  * restarts and new images roll out new pods, deleted pods are replaced, jobs
- * run and finish, and volume claims grow.
+ * run and finish, volume claims grow, and pods placed on a node by name (as
+ * node shells are) start there, as its kubelet would start them.
  */
 import { randomUUID } from 'node:crypto'
 import { sha, suffix } from './builders.ts'
@@ -112,7 +113,61 @@ export class Controllers {
       else if (kind === 'DaemonSet') this.#daemonSet(current)
       else if (kind === 'Job') this.#job(current)
       else if (kind === 'PersistentVolumeClaim') this.#volumeClaim(current)
+      else if (kind === 'Pod' && !current.status?.phase && current.spec.nodeName) {
+        this.#kubelet(current)
+      }
     })
+  }
+
+  /**
+   * A node's kubelet starting a pod placed there: its container is created,
+   * then runs, unless its image can't be pulled (`…does-not-exist…`), the node
+   * is full (annotated lumovi.test/full), or isn't ready (it never starts).
+   */
+  #kubelet(pod: KubeObject): void {
+    const node = this.store.get('Node', undefined, pod.spec.nodeName)
+    const ready = (node?.status?.conditions ?? []).some(
+      (c: Json) => c.type === 'Ready' && c.status === 'True',
+    )
+    if (!ready) return
+    const { namespace, name } = pod.metadata
+    const [container] = pod.spec.containers as Json[]
+    const save = (status: Json) => {
+      const current = this.store.get('Pod', namespace, name)
+      if (current) this.store.put({ ...current, status })
+    }
+    if (node!.metadata.annotations?.['lumovi.test/full']) {
+      save({
+        phase: 'Failed',
+        reason: 'OutOfpods',
+        message: 'Node didn’t have enough resource: pods, requested: 1, used: 110, capacity: 110',
+      })
+      return
+    }
+    const statusOf = (state: Json, ready: boolean) => ({
+      phase: state.running ? 'Running' : 'Pending',
+      hostIP: node!.status.addresses[0].address,
+      startTime: timestamp(),
+      containerStatuses: [
+        { name: container!.name, image: container!.image, ready, restartCount: 0, state },
+      ],
+    })
+    save(statusOf({ waiting: { reason: 'ContainerCreating' } }, false))
+    this.#later(() => {
+      save(
+        /does-not-exist/.test(container!.image)
+          ? statusOf(
+              {
+                waiting: {
+                  reason: 'ErrImagePull',
+                  message: `failed to pull and unpack image "docker.io/library/${container!.image}": not found`,
+                },
+              },
+              false,
+            )
+          : statusOf({ running: { startedAt: timestamp() } }, true),
+      )
+    }, 800)
   }
 
   /** Called after an object was deleted through the API. */

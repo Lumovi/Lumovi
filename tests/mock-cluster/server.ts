@@ -1388,6 +1388,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
 
   const streams = streamingEndpoints({
     pod: (namespace, name) => store$.get('Pod', namespace, name),
+    node: (name) => store$.get('Node', undefined, name),
     admit(req, socket, subresource) {
       const url = new URL(req.url ?? '/', 'http://mock')
       requests.push({

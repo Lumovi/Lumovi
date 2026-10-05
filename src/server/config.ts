@@ -6,9 +6,9 @@
 import { createHash } from 'node:crypto'
 import { delimiter, join } from 'node:path'
 import { parse } from 'yaml'
-import type { MetricsSourceSetting } from '@shared/api'
+import { NODE_SHELL_DEFAULTS, type MetricsSourceSetting, type NodeShellSetting } from '@shared/api'
 import type { AuthMode } from '@shared/server'
-import { isMetricsSourceSetting } from '@backend/settings'
+import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { MAX_SESSION_HOURS } from './sessions'
 
 export type AuthConfig =
@@ -94,6 +94,8 @@ export interface ServerConfig {
   heartbeatSeconds: number
   /** The metrics source pages start with. */
   metricsSource: MetricsSourceSetting
+  /** Where node shells run unless a page says otherwise, and whether they're turned off. */
+  nodeShell: { setting: NodeShellSetting; off: boolean }
   /** Whether charts may come from addresses inside private networks. */
   allowPrivateCharts: boolean
   /** Where the views everyone shares are (a ConfigMap's, say). */
@@ -207,6 +209,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     sessionHours: number('LUMOVI_SESSION_HOURS', 12, MAX_SESSION_HOURS),
     heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
+    nodeShell: nodeShell(value),
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
@@ -379,6 +382,23 @@ function forwardToken(setting: string | undefined): 'id' | 'access' | undefined 
   throw new ConfigError(
     `LUMOVI_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "${setting}".`,
   )
+}
+
+/** Node shells: on unless LUMOVI_NODE_SHELL is off, and where their pods run. */
+function nodeShell(value: (name: string) => string | undefined): ServerConfig['nodeShell'] {
+  const namespace = value('LUMOVI_NODE_SHELL_NAMESPACE') ?? NODE_SHELL_DEFAULTS.namespace
+  const image = value('LUMOVI_NODE_SHELL_IMAGE') ?? NODE_SHELL_DEFAULTS.image
+  const setting = { namespace, image }
+  if (!isNodeShellSetting(setting)) {
+    throw new ConfigError(
+      `LUMOVI_NODE_SHELL_NAMESPACE must be a namespace's name and LUMOVI_NODE_SHELL_IMAGE an image, not "${namespace}" and "${image}".`,
+    )
+  }
+  const switched = value('LUMOVI_NODE_SHELL') ?? 'on'
+  if (!['on', 'off'].includes(switched)) {
+    throw new ConfigError(`LUMOVI_NODE_SHELL must be on or off, not "${switched}".`)
+  }
+  return { setting, off: switched === 'off' }
 }
 
 /** `auto` (detected), `off`, or the service to use. */

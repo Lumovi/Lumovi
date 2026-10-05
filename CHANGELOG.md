@@ -6,6 +6,29 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Shells on nodes: a node's Shell tab starts a privileged pod on it and opens a shell on the
+  node itself, in its own namespaces (root on the node), or in the pod, with the node's files
+  under /host; the pod is deleted when the shell ends. It says what it will do before it
+  starts, shows each step as it happens, and says what went wrong in words that say what to
+  do: an image the node can't pull, a namespace whose Pod Security doesn't allow privileged
+  pods, a node with no shell of its own (Talos, Bottlerocket). As with `kubectl debug node`,
+  each person's RBAC decides. Where the pods run and their image are settings, for each
+  cluster; on a server, `LUMOVI_NODE_SHELL`, `LUMOVI_NODE_SHELL_NAMESPACE` and
+  `LUMOVI_NODE_SHELL_IMAGE` (the chart's `nodeShell` values) set them, or turn node shells
+  off.
+- Terminals on this computer, in the desktop app: a bar along the bottom of a cluster's
+  pages, always there, opens into a dock of them (or `` ⌃` ``, View → Terminal, the command
+  palette). Each tab is your own shell with kubectl, helm and the rest pointed at a cluster
+  and namespace, in that terminal only. Its kubeconfig comes first in `KUBECONFIG`, so
+  credentials stay in your files. Tabs can be renamed, and their keys are a terminal's: on
+  macOS, `⌘T` (or `⌘N`) opens another, `⌘W` closes one, `⌘K` clears it and `⌘⇧[` and `⌘⇧]`
+  move between them; on Windows and Linux, `Ctrl+Shift+T`, `Ctrl+Shift+W` and
+  `Ctrl+PageUp`/`Ctrl+PageDown`. Prompts show their icons (Nerd Fonts', which Lumovi brings)
+  without a font to install. Every command Lumovi shows can be pasted into one, to read,
+  change and run.
+
 ## [1.1.0] - 2026-10-05
 
 Fleet: one Lumovi for many clusters, private ones too, running in a cluster, on a VM or on a

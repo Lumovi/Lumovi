@@ -162,6 +162,16 @@ export const ACTIONS: readonly Action[] = [
     tab: 'shell',
   },
   {
+    // On the node itself, through a pod Lumovi starts there: the tab says what it takes.
+    id: 'node-shell',
+    label: 'Shell',
+    icon: SquareTerminal,
+    kinds: ['Node'],
+    access: can('get'),
+    primary: true,
+    tab: 'shell',
+  },
+  {
     id: 'restart-pod',
     label: 'Restart',
     icon: RotateCw,

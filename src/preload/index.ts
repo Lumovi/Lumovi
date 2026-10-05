@@ -17,6 +17,7 @@ const api: LumoviApi = {
   desktop: {
     onCommand: (listener) => subscribe(IPC.command, listener),
     onFullScreen: (listener) => subscribe(IPC.fullScreen, listener),
+    setTerminalFocus: (focused) => ipcRenderer.send(IPC.terminalFocus, focused),
   },
   app: {
     info: () => invoke(IPC.appInfo),
@@ -24,6 +25,7 @@ const api: LumoviApi = {
     setTheme: (theme) => invoke(IPC.setTheme, theme),
     setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
     setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
+    setNodeShell: (context, setting) => invoke(IPC.setNodeShell, context, setting),
     openExternal: (url) => invoke(IPC.openExternal, url),
     saveFile: (name, text) => invoke(IPC.saveFile, name, text),
     views: () => invoke(IPC.views),

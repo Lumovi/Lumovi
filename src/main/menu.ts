@@ -47,6 +47,8 @@ export function buildMenu(
         command('refresh', 'Refresh', 'CmdOrCtrl+R'),
         command('palette', 'Command Palette…', 'CmdOrCtrl+K'),
         command('filter', 'Filter List'),
+        command('terminal', 'Terminal', 'Ctrl+`'),
+        command('new-terminal', 'New Terminal', 'Ctrl+Shift+`'),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },

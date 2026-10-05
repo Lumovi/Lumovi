@@ -263,6 +263,8 @@ test('recovers from unreadable settings', async ({ launch }) => {
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,
+    nodeShell: {},
+    nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
   })
 
   const unknown = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
@@ -283,6 +285,12 @@ test('recovers from unreadable settings', async ({ launch }) => {
         expired: null,
         other: { mode: 'sometimes' },
       },
+      // So do node shells' settings.
+      nodeShell: {
+        demo: { namespace: 'ops', image: 'alpine:3.22' },
+        sandbox: { namespace: 'Not A Namespace', image: 'alpine' },
+        large: null,
+      },
       autoUpdate: false,
     }),
   )
@@ -292,6 +300,8 @@ test('recovers from unreadable settings', async ({ launch }) => {
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
     autoUpdate: false,
+    nodeShell: { demo: { namespace: 'ops', image: 'alpine:3.22' } },
+    nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
   })
 
   const odd = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
@@ -306,6 +316,8 @@ test('recovers from unreadable settings', async ({ launch }) => {
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,
+    nodeShell: {},
+    nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
   })
 })
 
@@ -564,7 +576,13 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
     terminal.resize('no-such-session', loose('wide'), 24)
     terminal.close('no-such-session')
     await forwards.stop('no-such-forward')
-    const shell = { context: 'demo', namespace: 'shop', pod: 'x', container: 'app' }
+    const shell = {
+      target: 'container' as const,
+      context: 'demo',
+      namespace: 'shop',
+      pod: 'x',
+      container: 'app',
+    }
     const forward = {
       context: 'demo',
       namespace: 'shop',
@@ -577,6 +595,16 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
       call(terminal.open('session-1234', loose(null))),
       call(terminal.open('session-1235', loose({ ...shell, container: undefined }))),
       call(terminal.open('session-1236', { ...shell, context: 'no-such-context' })),
+      call(
+        terminal.open(
+          'session-1237',
+          loose({ target: 'node', context: 'demo', node: 'x', mode: 'nowhere' }),
+        ),
+      ),
+      call(terminal.open('session-1238', loose({ target: 'elsewhere', context: 'demo' }))),
+      call(terminal.open('not a valid id!', { target: 'local', context: 'demo' })),
+      call(terminal.open('local-12345', loose({ target: 'local', context: 'demo', namespace: 5 }))),
+      call(terminal.open('local-12346', { target: 'local', context: 'no-such-context' })),
       call(forwards.start(loose({ ...forward, kind: 'Deployment' }))),
       call(forwards.start({ ...forward, port: 0 })),
       call(forwards.start({ ...forward, localPort: 70_000 })),
@@ -650,11 +678,35 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
     return result.ok && result.data.localPort
   })
   expect(picked).toBeGreaterThan(1024)
+  // Node shell settings that don't make sense.
+  const settings = await page.evaluate(() => {
+    const { app } = window.lumovi!
+    const refused = (promise: Promise<unknown>) =>
+      promise.then(
+        () => 'saved',
+        (error: Error) => error.message,
+      )
+    return Promise.all([
+      refused(app.setNodeShell('demo', { namespace: 'Not_A_Namespace', image: 'alpine' })),
+      refused(app.setNodeShell('demo', { namespace: 'ops', image: 'has space' })),
+      // (Not "undefined", for what's left out.)
+      refused(app.setNodeShell('demo', { namespace: 'ops' } as never)),
+      refused(app.setNodeShell('', null)),
+    ])
+  })
+  for (const message of settings) {
+    expect(message).toContain('Expected a context name and where its node shells run')
+  }
   expect(results).toEqual([
     'invalid: A new session needs a new id',
     'invalid: Expected a query object',
     'invalid: container must be a non-empty string',
     'invalid: Unknown context "no-such-context"',
+    'invalid: mode must be one of node, pod',
+    'invalid: A shell here is in a container or on a node',
+    'invalid: A new terminal needs a new id',
+    'invalid: namespace must be a non-empty string',
+    'invalid: Your kubeconfig has no context called “no-such-context”.',
     'invalid: kind must be one of Pod, Service',
     'invalid: port must be an integer between 1 and 65535',
     'invalid: localPort must be an integer between 1 and 65535',
