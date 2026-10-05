@@ -48,6 +48,8 @@ platform like Sevalla.
 - Right-sizing loads when the VerticalPodAutoscaler is installed but its autoscalers can't be
   listed (it says what that means), and for accounts that can't list nodes.
 - Escape closes a Helm release's panel, as its close button says.
+- The Metrics page's histogram counts in the singular when it should: "1 namespace", not
+  "1 namespaces".
 
 ## [1.0.0] - 2026-10-04
 
