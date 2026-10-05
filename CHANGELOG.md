@@ -24,14 +24,14 @@ Hands on: shells on nodes, and terminals on this computer with kubectl pointed a
   off.
 - Terminals on this computer, in the desktop app: a bar along the bottom of a cluster's
   pages, always there, opens into a dock of them (or `` ⌃` ``, View → Terminal, the command
-  palette). Each tab is your own shell with kubectl, helm and the rest pointed at a cluster
-  and namespace, in that terminal only. Its kubeconfig comes first in `KUBECONFIG`, so
-  credentials stay in your files. Tabs can be renamed, and their keys are a terminal's: on
-  macOS, `⌘T` (or `⌘N`) opens another, `⌘W` closes one, `⌘K` clears it and `⌘⇧[` and `⌘⇧]`
-  move between them; on Windows and Linux, `Ctrl+Shift+T`, `Ctrl+Shift+W` and
-  `Ctrl+PageUp`/`Ctrl+PageDown`. Prompts show their icons (Nerd Fonts', which Lumovi brings)
-  without a font to install. Every command Lumovi shows can be pasted into one, to read,
-  change and run.
+  palette; `` ⌃⇧` `` opens another). Each tab is your own shell with kubectl, helm and the
+  rest pointed at a cluster and namespace, in that terminal only. Its kubeconfig comes first
+  in `KUBECONFIG`, so credentials stay in your files. Tabs can be renamed, and in a terminal
+  the keys are a terminal's: on macOS, `⌘T` (or `⌘N`) opens another, `⌘W` closes one, `⌘K`
+  clears it and `⌘⇧[` and `⌘⇧]` move between them; on Windows and Linux, `Ctrl+Shift+T`,
+  `Ctrl+Shift+W` and `Ctrl+PageUp`/`Ctrl+PageDown`. Prompts show their icons (Nerd Fonts',
+  which Lumovi brings) without a font to install. Every action's equivalent command can be
+  pasted into one, on one line, to read, change and run with Enter.
 
 ## [1.1.0] - 2026-10-05
 

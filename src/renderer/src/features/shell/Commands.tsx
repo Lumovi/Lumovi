@@ -5,7 +5,6 @@ import { GO_KEYS, QUICK_NAV, type AppCommand, type NavTarget } from '@shared/nav
 import { useGo } from '@renderer/hooks/go'
 import { api } from '@renderer/lib/api'
 import { targetPath } from '@renderer/lib/routes'
-import { usePrefs } from '@renderer/state/prefs'
 import { useUi } from '@renderer/state/ui'
 import { useDock } from '../terminal/dock'
 
@@ -71,16 +70,15 @@ export function Commands() {
       clusters: () => goTo('/'),
       // Objects are created in a cluster, so not from the start screen.
       create: () => setCreate(Boolean(context)),
-      // A terminal on this computer, pointed at the cluster that's open (the desktop app's).
+      // A terminal on this computer, pointed at the cluster that's open (the desktop app's dock
+      // says which, and its namespace; on the start screen, there's none).
       terminal: () => {
-        if (api.host === 'desktop' && context) {
-          useDock.getState().toggle(context, usePrefs.getState().namespaces[context] ?? undefined)
-        }
+        const { here, toggle } = useDock.getState()
+        if (here) toggle(here.context, here.namespace)
       },
       'new-terminal': () => {
-        if (api.host === 'desktop' && context) {
-          useDock.getState().add(context, usePrefs.getState().namespaces[context] ?? undefined)
-        }
+        const { here, add } = useDock.getState()
+        if (here) add(here.context, here.namespace)
       },
       // Asked only while a terminal has focus (its ⌘W and ⌘K, on macOS).
       'close-terminal': () => useDock.getState().close(useDock.getState().active!),

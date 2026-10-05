@@ -29,6 +29,11 @@ interface Dock {
   maximized: boolean
   /** Asks the dock to focus the shown terminal (a counter: each ask is new). */
   focus: number
+  /**
+   * Where a new terminal points: the cluster whose pages are shown, and their
+   * namespace (the one picked, else its context's). None on the start screen.
+   */
+  here?: { context: string; namespace?: string }
   /** A new terminal for `context`, shown at once. */
   add(context: string, namespace?: string): TerminalTab
   /** Ends a terminal; the dock hides once the last one is gone. */

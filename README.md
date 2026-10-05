@@ -82,7 +82,7 @@ suits you:
 - **Hands-on when you need it.** A shell in any container or on any node, debug containers
   with tools for running pods (distroless ones too), and port forwarding to pods and
   services. On the desktop, terminals with kubectl already pointed at the cluster you're
-  looking at, and every command Lumovi shows a click away from running there.
+  looking at, and every action's equivalent command a click away from running there.
 - **Safe changes.** Scale, restart, roll back, change images, run CronJobs, cordon and drain
   nodes, edit labels or any object's YAML, create objects from YAML, one object or many at
   once. Every change checks your permissions first, shows the equivalent `kubectl` command,

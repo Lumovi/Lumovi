@@ -10,7 +10,10 @@ too.
 
 ## Getting started
 
-You need [Node.js](https://nodejs.org) 26 (see `.nvmrc`; 24 also works) and npm.
+You need [Node.js](https://nodejs.org) 26 (see `.nvmrc`; 24 also works) and npm. On Linux,
+`npm ci` also builds node-pty (the desktop app's terminals) from source, with Python 3, make
+and a C++ compiler (`apt install python3 make g++` on Debian and Ubuntu); macOS and Windows
+get it prebuilt.
 
 ```sh
 npm ci
