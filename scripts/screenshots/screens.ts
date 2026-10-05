@@ -52,6 +52,14 @@ const settledFleet = async (page: Page) => {
   }, LATENCY_MS)
 }
 
+/** Waits for a terminal (by its region's name) to show `text`. */
+const terminalText = (page: Page, terminal: string | RegExp, text: string) =>
+  page
+    .getByRole('region', { name: terminal, exact: true })
+    .locator('.xterm-rows')
+    .filter({ hasText: text })
+    .waitFor()
+
 /** Turns the production cluster's read-only switch over. */
 const toggleReadOnly = async (page: Page) => {
   await page.getByRole('button', { name: 'Switch cluster' }).click()
@@ -139,6 +147,40 @@ export const SCREENS: Screen[] = [
         await page.keyboard.press('Enter')
         await page.waitForTimeout(250)
       }
+    },
+  },
+  {
+    name: 'node-shell',
+    title: 'Node shell',
+    description:
+      'A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.',
+    app: 'desktop',
+    path: `${cluster}/nodes?open=Node//${DEMO.nodes.worker1}`,
+    async steps(page) {
+      await tab(page, 'Shell')
+      await page.getByRole('button', { name: 'Start shell' }).click()
+      await terminalText(page, `Shell on ${DEMO.nodes.worker1}`, '# ')
+      for (const command of ['hostname', 'whoami', 'pwd']) {
+        await page.keyboard.type(command)
+        await page.keyboard.press('Enter')
+        await page.waitForTimeout(250)
+      }
+    },
+  },
+  {
+    name: 'terminal',
+    title: 'Terminal',
+    description:
+      'A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.',
+    app: 'desktop',
+    path: `${cluster}/deployments`,
+    async steps(page) {
+      await page.keyboard.press('Control+Backquote')
+      await terminalText(page, /^Terminal production/, '❯')
+      await page.keyboard.type('kubectl get deployments -n shop')
+      await page.keyboard.press('Enter')
+      await terminalText(page, /^Terminal production/, 'UP-TO-DATE')
+      await page.waitForTimeout(250)
     },
   },
   {
