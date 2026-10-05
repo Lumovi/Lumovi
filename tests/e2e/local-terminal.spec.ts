@@ -217,8 +217,11 @@ test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
   await expect(bar).toHaveAttribute('aria-expanded', 'true')
   await ready(page)
 
-  // Renamed: F2 on its tab, Enter keeps it.
+  // Renamed: F2 on its tab, Enter keeps it. (Its other keys are a button's: Enter shows it.)
   const tab = tabs.getByRole('tab').first()
+  await tab.focus()
+  await page.keyboard.press('Enter')
+  await focused(page)
   await tab.focus()
   await page.keyboard.press('F2')
   const name = tabs.getByRole('textbox', { name: 'Terminal name' })
