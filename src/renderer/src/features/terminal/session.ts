@@ -30,6 +30,22 @@ function theme() {
   }
 }
 
+/** How long a shell's output is quiet once its prompt is drawn; and how long one that says nothing takes. */
+const SETTLE_MS = 250
+const QUIET_START_MS = 2_000
+
+/**
+ * Commands, one per line, as one line that runs them in turn, each if the one
+ * before succeeded (Windows PowerShell 5.1 has no &&: there, each in turn).
+ */
+export function oneLine(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  return lines.join(api.platform === 'win32' ? '; ' : ' && ')
+}
+
 /** The icons prompts draw, which the app's mono font doesn't have (see terminal.css). */
 const SYMBOLS = 'Lumovi Terminal Symbols'
 // Fetched now, before a terminal measures its characters: an icon is as wide as a cell then.
@@ -81,8 +97,11 @@ export class TerminalSession {
   #started = false
   #shown = false
   #disposed = false
-  /** Typed (pasted) before the shell was ready. */
+  /** Typed (pasted) before the shell was ready: its prompt drawn. */
   #pending = ''
+  #ready = false
+  #typed = false
+  #settling: ReturnType<typeof setTimeout> | undefined
   #ending: ReturnType<typeof setTimeout> | undefined
 
   /** Nothing starts yet: React may make one and throw it away. */
@@ -107,6 +126,11 @@ export class TerminalSession {
     return this.#phase
   }
 
+  /** Whether anything was typed (or pasted) into the shell: how it ended was the person's, then. */
+  get typed(): boolean {
+    return this.#typed
+  }
+
   readonly getPhase = (): Phase => this.#phase
 
   readonly subscribe = (listener: () => void): (() => void) => {
@@ -123,14 +147,19 @@ export class TerminalSession {
     const { id } = this
     this.#cleanup.push(
       api.terminal.onData((session, data) => {
-        if (session === id) this.term.write(data)
+        if (session !== id) return
+        this.term.write(data)
+        // Ready once it's quiet: the shell has drawn its prompt.
+        if (this.#phase.state === 'open' && !this.#ready) this.#settle(SETTLE_MS)
       }),
       api.terminal.onExit((session, exit) => {
         if (session === id) this.#set({ state: 'ended', exit })
       }),
     )
     const input = this.term.onData((data) => {
-      if (this.#phase.state === 'open') api.terminal.write(id, data)
+      if (this.#phase.state !== 'open') return
+      this.#typed = true
+      api.terminal.write(id, data)
     })
     this.#cleanup.push(() => input.dispose())
     void api.terminal.open(id, this.request).then((result) => {
@@ -142,9 +171,18 @@ export class TerminalSession {
       }
       this.#set({ state: 'open' })
       this.#resize()
+      // (A shell that says nothing at first is ready a little later anyway.)
+      this.#settle(QUIET_START_MS)
+    })
+  }
+
+  #settle(ms: number): void {
+    clearTimeout(this.#settling)
+    this.#settling = setTimeout(() => {
+      this.#ready = true
       if (this.#pending) this.term.paste(this.#pending)
       this.#pending = ''
-    })
+    }, ms)
   }
 
   /** Shows the terminal in `host`, fitted to it, until the returned function takes it out. */
@@ -164,10 +202,15 @@ export class TerminalSession {
     }
   }
 
-  /** Types `text` (as a paste: run only once the person presses Enter), once the shell is ready. */
+  /**
+   * Types a command for the person to run, once the shell is ready: on one
+   * line, so that nothing runs until they press Enter (a shell runs each line
+   * that's typed, unless it brackets what's pasted, and not all do).
+   */
   paste(text: string): void {
-    if (this.#phase.state === 'open') this.term.paste(text)
-    else this.#pending += text
+    const line = oneLine(text)
+    if (this.#ready) this.term.paste(line)
+    else this.#pending += line
   }
 
   focus(): void {
@@ -189,6 +232,7 @@ export class TerminalSession {
   /** Ends the shell and forgets the terminal. */
   dispose(): void {
     this.#disposed = true
+    clearTimeout(this.#settling)
     live.delete(this)
     for (const off of this.#cleanup) off()
     api.terminal.close(this.id)

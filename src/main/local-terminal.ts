@@ -9,9 +9,9 @@
  * from your files. Tokens that credential plugins refresh land in your files,
  * and `kubectl config use-context` there changes this terminal only.
  */
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { spawn, type IPty } from 'node-pty'
 import type { LocalShellRequest, Result, ShellExit } from '@shared/api'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
@@ -41,6 +41,30 @@ export function localShell(env: NodeJS.ProcessEnv): { file: string; args: string
 /** A line of the terminal's own, before the shell's: dim, like a comment. */
 const note = (text: string) => `\x1b[2m› ${text}\x1b[0m\r\n`
 
+/** Each terminal's kubeconfig is in a folder of its own: lumovi-terminal-<the app's pid>-…. */
+const PREFIX = 'lumovi-terminal-'
+
+/**
+ * Deletes the kubeconfigs of terminals whose app is gone without deleting
+ * them (it crashed, say): those of another Lumovi that runs stay.
+ */
+function sweep(): void {
+  for (const name of readdirSync(tmpdir())) {
+    const pid = Number(new RegExp(`^${PREFIX}(\\d+)-`).exec(name)?.[1])
+    if (pid && !running(pid)) rmSync(join(tmpdir(), name), { recursive: true, force: true })
+  }
+}
+
+/** Whether a process runs (one of another user's can't be signalled, but runs). */
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
 export class LocalTerminals {
   readonly #sessions = new Map<string, Session>()
 
@@ -57,7 +81,9 @@ export class LocalTerminals {
       data: (id: string, data: string) => void
       exit: (id: string, exit: ShellExit) => void
     },
-  ) {}
+  ) {
+    sweep()
+  }
 
   /** Whether a request is for a terminal here, rather than in the cluster. */
   static handles(request: unknown): boolean {
@@ -89,7 +115,7 @@ export class LocalTerminals {
         )
       }
       const namespace = r.namespace ?? context.namespace
-      const dir = mkdtempSync(join(tmpdir(), 'lumovi-terminal-'))
+      const dir = mkdtempSync(join(tmpdir(), `${PREFIX}${process.pid}-`))
       const kubeconfig = join(dir, 'kubeconfig')
       writeFileSync(
         kubeconfig,
@@ -113,11 +139,17 @@ export class LocalTerminals {
         cols: 80,
         rows: 24,
         cwd: homedir(),
+        // Windows' console host starts from where the cursor is (it asks the terminal), rather
+        // than clearing the screen, and the line Lumovi writes first, below, stays.
+        conptyInheritCursor: true,
         env: {
           // Apps opened from the Dock have no LANG, which shells and kubectl need for UTF-8.
           LANG: 'en_US.UTF-8',
           ...Object.fromEntries(inherited),
-          KUBECONFIG: [kubeconfig, ...kubeconfigPaths(env)].join(delimiter),
+          // Yours as Lumovi read them: a relative one from where it started, not the shell.
+          KUBECONFIG: [kubeconfig, ...kubeconfigPaths(env).map((path) => resolve(path))].join(
+            delimiter,
+          ),
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           TERM_PROGRAM: 'Lumovi',

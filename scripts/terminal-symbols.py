@@ -32,6 +32,9 @@ FAMILY = 'Lumovi Terminal Symbols'
 # Powerline's separators, which fill their cell (not its branch, line and lock icons, U+E0A0–E0A3,
 # nor the wider flames, pixels and waves, which keep their shape).
 SEPARATORS = set(range(0xE0B0, 0xE0C0)) | {0xE0D2, 0xE0D4}
+# The heavy angle brackets (❬❭❮❯❰❱), which prompts write as text (Starship's ❯): drawn as letters
+# are, already narrower than a cell, so they keep their size.
+TEXT = set(range(0x276C, 0x2772))
 # How far past the cell's edges a separator reaches, of its width (or height).
 OVERLAP = 0.02
 # Unicode's Private Use Areas, where Nerd Fonts' icons are.
@@ -55,6 +58,7 @@ def main(source: str) -> None:
 
     glyf, hmtx = font['glyf'], font['hmtx']
     separators = {name for code, name in font.getBestCmap().items() if code in SEPARATORS}
+    text = {name for code, name in font.getBestCmap().items() if code in TEXT}
     for name in font.getGlyphOrder():
         glyph = glyf[name]
         if glyph.numberOfContours <= 0:
@@ -69,6 +73,12 @@ def main(source: str) -> None:
             sy = (high - low) / (glyph.yMax - glyph.yMin)
             glyph.coordinates.transform(((sx, 0), (0, sy)))
             glyph.coordinates.translate((left - glyph.xMin * sx, low - glyph.yMin * sy))
+            glyph.coordinates.toInt()
+        elif name in text:
+            # As big as it was (the em grew), centred in the cell, on the baseline.
+            grow = em / units
+            glyph.coordinates.transform(((grow, 0), (0, grow)))
+            glyph.coordinates.translate((width / 2 - (glyph.xMin + glyph.xMax) / 2 * grow, 0))
             glyph.coordinates.toInt()
         else:
             # Centred on the line.

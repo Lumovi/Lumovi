@@ -9,9 +9,15 @@ import { api } from '@renderer/lib/api'
 const MAC = api.platform === 'darwin'
 
 export const TERMINAL_KEYS = {
+  /** Anywhere in a cluster's pages. */
   toggle: [CTRL_KEY, '`'],
-  add: MAC ? [MOD_KEY, 'T'] : [CTRL_KEY, '⇧', 'T'],
+  add: [CTRL_KEY, '⇧', '`'],
+  /** In a terminal. */
+  addHere: MAC ? [MOD_KEY, 'T'] : [CTRL_KEY, '⇧', 'T'],
+  addHereToo: MAC ? [MOD_KEY, 'N'] : undefined,
   close: MAC ? [MOD_KEY, 'W'] : [CTRL_KEY, '⇧', 'W'],
+  /** In a terminal, on macOS. */
+  clear: MAC ? [MOD_KEY, 'K'] : undefined,
   next: MAC ? [MOD_KEY, '⇧', ']'] : [CTRL_KEY, 'PgDn'],
   previous: MAC ? [MOD_KEY, '⇧', '['] : [CTRL_KEY, 'PgUp'],
 }

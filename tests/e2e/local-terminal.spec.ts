@@ -3,11 +3,12 @@
  * shell with kubectl pointed at a cluster (in that terminal only), and the
  * commands Lumovi shows pasted in to run.
  */
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, relative, resolve } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { dialog, open } from './action-helpers.ts'
-import { CONTEXTS, DEMO, expect, openCluster, panel, test } from './fixtures.ts'
+import { dialog, open, writes } from './action-helpers.ts'
+import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
 
 const WINDOWS = process.platform === 'win32'
 const MAC = process.platform === 'darwin'
@@ -84,7 +85,7 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
   await ready(page)
   await report(page)
   await expect(screen(page)).toContainText(
-    'kubectl: context=demo namespace=- then=1 file(s) term=Lumovi',
+    'kubectl: context=demo namespace=- then=1 file(s) found=1 term=Lumovi',
   )
   const text = await screen(page).innerText()
   const kubeconfig = /kubeconfig: \[(.+?)\]/.exec(text.replace(/\s*\n\s*/g, ''))?.[1]
@@ -253,6 +254,13 @@ test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
   await name.fill('tail')
   await name.press('Enter')
   await expect(tabs.getByRole('tab')).toHaveText(['logs', 'tail'])
+  // One that isn't shown is, once it's renamed; its name keeps focus meanwhile.
+  await tabs.getByRole('tab', { name: 'logs' }).focus()
+  await page.keyboard.press('F2')
+  await page.waitForTimeout(100)
+  await expect(name).toBeFocused()
+  await name.press('Escape')
+  await expect(tabs.getByRole('tab', { name: 'logs' })).toHaveAttribute('aria-selected', 'true')
   await tabs.getByRole('tab', { name: 'logs' }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Close the others' }).click()
   await expect(tabs.getByRole('tab')).toHaveText(['logs'])
@@ -336,7 +344,7 @@ test('the dock’s size, and terminals for every cluster', async ({ launch }) =>
   await expect(bar).toHaveAttribute('aria-expanded', 'true')
 })
 
-test('a command Lumovi shows, pasted in to run', async ({ launch }) => {
+test('a command Lumovi shows, pasted in to run', async ({ launch, clusters }) => {
   const { page } = await launch({ env: SHELL })
   await openCluster(page)
   await open(page, 'Deployments', DEMO.deployments.storefront)
@@ -357,6 +365,24 @@ test('a command Lumovi shows, pasted in to run', async ({ launch }) => {
   await dialog(page).getByRole('button', { name: 'Paste in terminal' }).click()
   await expect(dock(page).getByRole('tab')).toHaveCount(1)
   await expect.poll(() => inputLine(page)).toContain('kubectl scale deployment/storefront')
+  await page.keyboard.press('Control+c')
+
+  // Commands on several lines (one per namespace) come as one: none runs until Enter.
+  await goTo(page, 'Pods')
+  for (const pod of [DEMO.pods.checkout[0]!, 'redis-1']) {
+    await row(page, 'Pods', pod).first().getByRole('checkbox').click()
+  }
+  await page
+    .getByRole('toolbar', { name: 'Selected rows' })
+    .getByRole('button', { name: 'Delete' })
+    .click()
+  await dialog(page).getByRole('button', { name: 'Paste in terminal' }).click()
+  await expect
+    .poll(() => inputLine(page))
+    .toMatch(/kubectl delete pod\/\S+ -n \S+ --context demo && kubectl delete pod\/\S+ -n \S+/)
+  await page.waitForTimeout(500)
+  expect(writes(clusters.demo, 'DELETE', /\/pods\//)).toHaveLength(0)
+  await page.keyboard.press('Control+c')
 
   // Lumovi's read-only switch is Lumovi's: a terminal says so. (Out of the terminal, whose
   // shell takes Ctrl+K.)
@@ -381,6 +407,29 @@ test('a shell that isn’t there, and terminals that end with the app', async ({
     'Your shell, /nowhere/sh, isn’t there: set SHELL to one that is.',
   )
   await expect(dock(page).getByRole('tab', { name: /exited/ })).toBeVisible()
+})
+
+test('a KUBECONFIG relative to where Lumovi started', async ({ launch, clusters }) => {
+  // The shell starts in your home folder: it's given the same files, wherever that is.
+  const { page } = await launch({
+    env: { ...SHELL, KUBECONFIG: relative(process.cwd(), clusters.kubeconfigPath) },
+  })
+  await openCluster(page)
+  await page.keyboard.press('Control+Backquote')
+  await ready(page)
+  await report(page)
+  await expect(screen(page)).toContainText('then=1 file(s) found=1')
+})
+
+test('kubeconfigs a Lumovi that’s gone left behind are swept on start', async ({ launch }) => {
+  // One of a Lumovi that crashed, and one of a Lumovi that runs (this test's own process).
+  const gone = mkdtempSync(join(tmpdir(), 'lumovi-terminal-2147483646-'))
+  const running = mkdtempSync(join(tmpdir(), `lumovi-terminal-${process.pid}-`))
+  writeFileSync(join(gone, 'kubeconfig'), '{}')
+  await launch({ env: SHELL })
+  await expect.poll(() => existsSync(gone)).toBe(false)
+  expect(existsSync(running)).toBe(true)
+  rmSync(running, { recursive: true })
 })
 
 test('without SHELL, the system’s own shell', async ({ launch }) => {

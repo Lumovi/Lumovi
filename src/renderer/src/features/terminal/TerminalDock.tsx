@@ -52,15 +52,21 @@ export function TerminalDock() {
   const stored = usePrefs((prefs) => prefs.terminalHeight)
   const setStored = usePrefs((prefs) => prefs.setTerminalHeight)
   const section = useRef<HTMLElement>(null)
-  // For the cluster (and namespace) that's open.
+  // For the cluster (and namespace) that's open: from here, and from ⌃`, the menu and the palette.
   const add = () => dock.add(context, namespace ?? undefined)
   const toggle = () => dock.toggle(context, namespace ?? undefined)
+  useEffect(() => {
+    useDock.setState({ here: { context, namespace: namespace ?? undefined } })
+    return () => useDock.setState({ here: undefined })
+  }, [context, namespace])
 
   // What's asked to be focused (a new tab, a pasted command…), once it's shown: after a dialog
   // or the palette that asked has given focus back to what opened it.
   useEffect(() => {
     if (!open) return
     const timer = setTimeout(() => {
+      // Not from a tab's name being edited (double-clicked, its first click shows the tab).
+      if (document.activeElement instanceof HTMLInputElement) return
       useDock
         .getState()
         .tabs.find((tab) => tab.session.id === active)
@@ -234,6 +240,11 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
   const [renaming, setRenaming] = useState(false)
   const ended = phase.state === 'ended' || phase.state === 'failed'
   const id = tab.session.id
+  // Renamed, it's shown (its name is edited where it's selected).
+  const rename = () => {
+    if (!selected) dock.select(id)
+    setRenaming(true)
+  }
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -256,9 +267,9 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
               aria-selected={selected}
               aria-controls={`terminal-${id}`}
               onClick={() => dock.select(id)}
-              onDoubleClick={() => setRenaming(true)}
+              onDoubleClick={rename}
               onKeyDown={(event) => {
-                if (event.key === 'F2') setRenaming(true)
+                if (event.key === 'F2') rename()
               }}
               className="flex h-full items-center gap-1.5 rounded-md pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
@@ -287,7 +298,7 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
           className={menuContent}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          <ContextMenu.Item className={menuItem} onSelect={() => setRenaming(true)}>
+          <ContextMenu.Item className={menuItem} onSelect={rename}>
             <Pencil className="size-4 text-ink-3" />
             <span className="flex-1">Rename…</span>
             <Keys keys={['F2']} />

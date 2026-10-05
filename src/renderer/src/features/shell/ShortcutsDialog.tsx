@@ -49,8 +49,20 @@ const SECTIONS: {
           shortcuts: [
             { keys: TERMINAL_KEYS.toggle, label: 'Show or hide the terminal' },
             { keys: TERMINAL_KEYS.add, label: 'New terminal' },
-            { keys: TERMINAL_KEYS.close, label: 'Close the terminal' },
-            { keys: TERMINAL_KEYS.next, label: 'Next terminal', alt: TERMINAL_KEYS.previous },
+            {
+              keys: TERMINAL_KEYS.addHere,
+              label: 'New terminal, in one',
+              alt: TERMINAL_KEYS.addHereToo,
+            },
+            { keys: TERMINAL_KEYS.close, label: 'Close it, in one' },
+            ...(TERMINAL_KEYS.clear
+              ? [{ keys: TERMINAL_KEYS.clear, label: 'Clear it, in one' }]
+              : []),
+            {
+              keys: TERMINAL_KEYS.next,
+              label: 'Previous or next terminal',
+              alt: TERMINAL_KEYS.previous,
+            },
             { keys: ['F2'], label: 'Rename the terminal (on its tab)' },
           ],
         },
