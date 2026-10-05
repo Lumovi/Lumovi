@@ -24,17 +24,33 @@ interface Session {
   dir: string
 }
 
-/** The shell to start: yours (a login shell on macOS, as Terminal starts it), or PowerShell. */
-export function localShell(env: NodeJS.ProcessEnv): { file: string; args: string[] } {
+/**
+ * The shell to start: yours (a login shell on macOS, as Terminal starts it),
+ * or PowerShell. PowerShell says the terminal's first line itself (`says`):
+ * Windows' console host clears what's written before the shell starts.
+ */
+export function localShell(
+  env: NodeJS.ProcessEnv,
+  first: string,
+): { file: string; args: string[]; says: boolean } {
   if (process.platform === 'win32') {
+    // Encoded, so that nothing in it (a context's name) is read as PowerShell.
+    const script = `Write-Host ('› ' + '${first.replaceAll("'", "''")}') -ForegroundColor DarkGray`
     return {
       file: join(env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      args: ['-NoLogo'],
+      args: [
+        '-NoLogo',
+        '-NoExit',
+        '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64'),
+      ],
+      says: true,
     }
   }
   return {
     file: env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash'),
     args: process.platform === 'darwin' ? ['-l'] : [],
+    says: false,
   }
 }
 
@@ -107,14 +123,15 @@ export class LocalTerminals {
           `Your kubeconfig has no context called “${r.context}”.`,
         )
       }
-      const shell = localShell(env)
+      const namespace = r.namespace ?? context.namespace
+      const first = `kubectl points at ${context.name}${namespace ? `, namespace ${namespace},` : ''} in this terminal.${this.deps.isReadOnly(context.name) ? ' Lumovi’s read-only switch doesn’t apply to what you run here.' : ''}`
+      const shell = localShell(env, first)
       if (!existsSync(shell.file)) {
         throw new KubeRequestError(
           'invalid',
           `Your shell, ${shell.file}, isn’t there: set SHELL to one that is.`,
         )
       }
-      const namespace = r.namespace ?? context.namespace
       const dir = mkdtempSync(join(tmpdir(), `${PREFIX}${process.pid}-`))
       const kubeconfig = join(dir, 'kubeconfig')
       writeFileSync(
@@ -139,9 +156,6 @@ export class LocalTerminals {
         cols: 80,
         rows: 24,
         cwd: homedir(),
-        // Windows' console host starts from where the cursor is (it asks the terminal), rather
-        // than clearing the screen, and the line Lumovi writes first, below, stays.
-        conptyInheritCursor: true,
         env: {
           // Apps opened from the Dock have no LANG, which shells and kubectl need for UTF-8.
           LANG: 'en_US.UTF-8',
@@ -157,12 +171,7 @@ export class LocalTerminals {
         },
       })
       this.#sessions.set(id, { pty, dir })
-      this.emit.data(
-        id,
-        note(
-          `kubectl points at ${context.name}${namespace ? `, namespace ${namespace},` : ''} in this terminal.${this.deps.isReadOnly(context.name) ? ' Lumovi’s read-only switch doesn’t apply to what you run here.' : ''}`,
-        ),
-      )
+      if (!shell.says) this.emit.data(id, note(first))
       pty.onData((data) => this.emit.data(id, data))
       pty.onExit(({ exitCode }) => {
         if (!this.#end(id)) return
