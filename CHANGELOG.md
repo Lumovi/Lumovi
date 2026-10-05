@@ -6,6 +6,10 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-05
+
+Hands on: shells on nodes, and terminals on this computer with kubectl pointed at the cluster.
+
 ### Added
 
 - Shells on nodes: a node's Shell tab starts a privileged pod on it and opens a shell on the
@@ -188,6 +192,7 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Lumovi/Lumovi/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Lumovi/Lumovi/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Lumovi/Lumovi/releases/tag/v1.0.0
