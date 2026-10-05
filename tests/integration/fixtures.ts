@@ -69,9 +69,13 @@ export const test = base.extend<Fixtures>({
   },
 })
 
+/** The header's namespace menu (other buttons, like a table's column, may be called that too). */
+export const namespaceMenu = (page: Page) =>
+  page.locator('header').getByRole('button', { name: 'Namespace', exact: true })
+
 /** Picks a namespace in the header, as a user narrowing down to their app would. */
 export async function inNamespace(page: Page, namespace: string) {
-  await page.getByRole('button', { name: 'Namespace' }).click()
+  await namespaceMenu(page).click()
   await page.getByRole('option', { name: namespace, exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Namespace' })).toHaveText(namespace)
+  await expect(namespaceMenu(page)).toHaveText(namespace)
 }

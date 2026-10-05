@@ -1,5 +1,5 @@
 import { goTo, row } from '../e2e/fixtures.ts'
-import { expect, test } from './fixtures.ts'
+import { expect, namespaceMenu, test } from './fixtures.ts'
 
 test('browses a real cluster', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('All ready', {
@@ -9,7 +9,7 @@ test('browses a real cluster', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Pods running' })).not.toContainText('—')
 
   await goTo(page, 'Pods')
-  await page.getByRole('button', { name: 'Namespace' }).click()
+  await namespaceMenu(page).click()
   await page.getByRole('option', { name: 'kube-system' }).click()
   const coredns = row(page, 'Pods', /coredns-/).first()
   await expect(coredns).toContainText('Running')
