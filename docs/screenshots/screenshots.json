@@ -124,6 +124,30 @@
       "dark": { "2x": "create-dark.webp", "1x": "create-dark-1x.webp" }
     },
     {
+      "name": "assistants",
+      "title": "AI assistants",
+      "description": "AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.",
+      "app": "desktop",
+      "light": { "2x": "assistants-light.webp", "1x": "assistants-light-1x.webp" },
+      "dark": { "2x": "assistants-dark.webp", "1x": "assistants-dark-1x.webp" }
+    },
+    {
+      "name": "assistant-approval",
+      "title": "An AI assistant’s change",
+      "description": "A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.",
+      "app": "desktop",
+      "light": { "2x": "assistant-approval-light.webp", "1x": "assistant-approval-light-1x.webp" },
+      "dark": { "2x": "assistant-approval-dark.webp", "1x": "assistant-approval-dark-1x.webp" }
+    },
+    {
+      "name": "assistant-activity",
+      "title": "AI assistants’ changes",
+      "description": "The activity log: a change Claude Code asked for and was approved, and one rejected with a note for it.",
+      "app": "desktop",
+      "light": { "2x": "assistant-activity-light.webp", "1x": "assistant-activity-light-1x.webp" },
+      "dark": { "2x": "assistant-activity-dark.webp", "1x": "assistant-activity-dark-1x.webp" }
+    },
+    {
       "name": "metrics",
       "title": "Metrics",
       "description": "Usage over the last six hours from Prometheus, by namespace.",
