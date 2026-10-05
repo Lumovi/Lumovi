@@ -9,10 +9,15 @@ export interface ActivityEntry {
   title: string
   /** The kubectl command that does the same. */
   command: string
-  status: 'running' | 'done' | 'failed'
+  /** Rejected: an AI assistant asked for it, and the person said no. */
+  status: 'running' | 'done' | 'failed' | 'rejected'
   error?: string
   /** The object the change was about, to open it from the log. */
   target?: { kind: ResourceKind; name: string; namespace?: string }
+  /** The AI assistant that asked for it: "Claude Code". */
+  via?: string
+  /** What the person told it, rejecting it. */
+  note?: string
 }
 
 interface ActivityState {
@@ -21,6 +26,8 @@ interface ActivityState {
   unseen: number
   start(entry: Omit<ActivityEntry, 'id' | 'at' | 'status'>): number
   finish(id: number, status: 'done' | 'failed', error?: string): void
+  /** One that's over already (an AI assistant's, made or not). */
+  record(entry: Omit<ActivityEntry, 'id' | 'at'>): void
   markSeen(): void
   clear(): void
 }
@@ -38,6 +45,12 @@ export const useActivity = create<ActivityState>((set) => ({
       unseen: state.unseen + 1,
     }))
     return id
+  },
+  record(entry) {
+    set((state) => ({
+      entries: [{ ...entry, id: nextId++, at: Date.now() }, ...state.entries],
+      unseen: state.unseen + 1,
+    }))
   },
   finish(id, status, error) {
     set((state) => ({

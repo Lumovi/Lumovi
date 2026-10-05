@@ -6,6 +6,8 @@ import { Toaster } from './components/Toaster'
 import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
 import { AddOnPage } from './features/add-ons/AddOnPage'
+import { ApprovalCenter } from './features/assistants/ApprovalCenter'
+import { AssistantsDialog } from './features/assistants/AssistantsDialog'
 import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
@@ -101,6 +103,12 @@ export function App() {
           </SessionGate>
         ) : (
           <RouterProvider router={router} />
+        )}
+        {api.assistants && (
+          <>
+            <AssistantsDialog assistants={api.assistants} />
+            <ApprovalCenter assistants={api.assistants} />
+          </>
         )}
         <Toaster />
         {api.updates && <UpdateNotice updates={api.updates} />}

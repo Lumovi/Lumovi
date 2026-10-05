@@ -15,12 +15,15 @@ import { toKubeError } from '@backend/kube/errors'
 import type { Forwards } from '@backend/kube/streams'
 import { assertString, invalid } from '@backend/kube/validate'
 import { isTheme } from '@backend/settings'
+import { isAiChanges, isPort } from '@shared/assistants'
+import type { Assistants } from './assistants'
 import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
 import type { Updates } from './updates'
 
 interface Dependencies extends Backend {
+  assistants: Assistants
   settings: SettingsStore
   local: LocalTerminals
   terminalKeys: TerminalKeys
@@ -31,7 +34,17 @@ interface Dependencies extends Backend {
 }
 
 export function registerIpc(deps: Dependencies): void {
-  const { helm, settings, terminals, local, terminalKeys, forwards, updates, rendererUrl } = deps
+  const {
+    assistants,
+    helm,
+    settings,
+    terminals,
+    local,
+    terminalKeys,
+    forwards,
+    updates,
+    rendererUrl,
+  } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame?.url.startsWith(rendererUrl) === true
   const handle = (channel: string, handler: Handler) => {
@@ -106,6 +119,49 @@ export function registerIpc(deps: Dependencies): void {
     // Terminals on this computer, besides the cluster's shells (each ignores the other's).
     [IPC.terminalOpen]: (id, request) =>
       LocalTerminals.handles(request) ? local.open(id, request) : terminals.open(id, request),
+    // AI assistants over MCP: whether and where they connect, and the changes they ask for.
+    [IPC.assistantsStatus]: () => assistants.status(),
+    [IPC.assistantsConfigure]: (change) => {
+      const { enabled, port } = Object(change) as { enabled?: unknown; port?: unknown }
+      if (
+        (enabled !== undefined && typeof enabled !== 'boolean') ||
+        (port !== undefined && !isPort(port))
+      ) {
+        throw new Error('Expected whether assistants may connect, and a port from 1024 to 65535')
+      }
+      return assistants.configure({
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(port !== undefined ? { port } : {}),
+      })
+    },
+    [IPC.assistantsResetToken]: () => assistants.resetToken(),
+    [IPC.assistantsInstall]: (client) => {
+      if (client !== 'claude-desktop' && client !== 'cursor' && client !== 'vscode') {
+        throw new Error(`Lumovi can’t set ${String(client)} up itself`)
+      }
+      return assistants.install(client)
+    },
+    [IPC.assistantsSetChanges]: (context, changes) => {
+      if (typeof context !== 'string' || context === '' || !isAiChanges(changes)) {
+        throw new Error('Expected a context name, and ask, allow or never')
+      }
+      return settings.setAiChanges(context, changes)
+    },
+    [IPC.assistantsDecide]: (id, decision) => {
+      const { approved, note } = Object(decision) as { approved?: unknown; note?: unknown }
+      if (
+        typeof id !== 'string' ||
+        typeof approved !== 'boolean' ||
+        (note !== undefined && (typeof note !== 'string' || note.length > 2_000))
+      ) {
+        throw new Error('Expected a change’s id, whether it’s approved, and a note')
+      }
+      assistants.approvals.decide(
+        id,
+        approved ? { approved } : { approved, ...(note ? { note } : {}) },
+      )
+    },
+    [IPC.assistantsPending]: () => assistants.approvals.pending(),
     [IPC.forwardStart]: (request) => forwards.start(request),
     [IPC.forwardList]: () => forwards.list(),
     [IPC.forwardStop]: (id) => forwards.stop(id),

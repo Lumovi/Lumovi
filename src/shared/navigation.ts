@@ -56,4 +56,5 @@ export type AppCommand =
   | 'new-terminal'
   | 'close-terminal'
   | 'clear-terminal'
+  | 'assistants'
   | `go:${NavTarget}`

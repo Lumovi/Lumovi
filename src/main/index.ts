@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
-import { app, Menu, nativeTheme, session } from 'electron'
+import { join } from 'node:path'
+import { app, Menu, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC, type ShellExit } from '@shared/api'
 import icon from '../../build/icon.png?asset'
 import { HelmService } from '@backend/helm/service'
@@ -9,7 +10,9 @@ import { KubeService } from '@backend/kube/service'
 import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { viewsDirectory } from '@backend/views'
+import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
+import { runStdio, STDIO } from './mcp-stdio'
 import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
 import { buildMenu } from './menu'
@@ -18,7 +21,20 @@ import { loadLoginShellPath } from './shell-env'
 import { Updates } from './updates'
 import { createMainWindow, rendererUrl } from './window'
 
-if (!app.requestSingleInstanceLock()) {
+// Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
+// single instance, which the app's (if it's running) is.
+const stdio = process.argv.find((arg) => arg.startsWith(STDIO))
+if (stdio) {
+  // Storage of its own: the app's is the app's.
+  app.setPath('userData', join(app.getPath('temp'), 'lumovi-mcp-stdio'))
+  app.dock?.hide()
+  void runStdio({
+    settings: stdio.slice(STDIO.length),
+    waitMs: Number(process.env.LUMOVI_MCP_WAIT_MS) || 30_000,
+    input: process.stdin,
+    output: process.stdout,
+  }).finally(() => app.quit())
+} else if (!app.requestSingleInstanceLock()) {
   // Another Lumovi window is already open; it will be focused instead.
   app.quit()
 } else {
@@ -89,7 +105,52 @@ if (!app.requestSingleInstanceLock()) {
     win.on('leave-full-screen', () => send(IPC.fullScreen, false))
     // A page that (re)loads learns how the window is now.
     win.webContents.on('did-finish-load', () => send(IPC.fullScreen, win.isFullScreen()))
+    // AI assistants on this computer, over MCP. How the app is started again, should
+    // Claude Desktop's bridge find it isn't running: as it was this time.
+    settings.update({ assistants: { ...settings.get().assistants!, launch: process.argv } })
+    const reveal = () => {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+    // Notifications of changes waiting, kept (one let go can't be clicked) until the person
+    // comes to Lumovi, when they've done their job.
+    const notices = new Set<Notification>()
+    win.on('focus', () => {
+      for (const notice of notices) notice.close()
+      notices.clear()
+    })
+    const assistants = new Assistants({
+      settings,
+      kube,
+      version: app.getVersion(),
+      send,
+      // A change waiting for an answer, while the person is elsewhere (in their assistant).
+      attention: (proposal) => {
+        if (win.isFocused()) return
+        const notice = new Notification({
+          title: `${proposal.client} asks to change ${proposal.context}`,
+          body: `${proposal.title}. Review it in Lumovi.`,
+        })
+        notice.on('click', reveal)
+        notices.add(notice)
+        notice.show()
+        app.dock?.bounce('informational')
+      },
+      open: (url) => shell.openExternal(url),
+      stdio: {
+        command: process.execPath,
+        args: [...process.argv.slice(1), `${STDIO}${app.getPath('userData')}`],
+      },
+      claudeDesktopConfig:
+        process.env.LUMOVI_CLAUDE_DESKTOP_CONFIG ??
+        (process.platform === 'linux'
+          ? undefined
+          : join(app.getPath('appData'), 'Claude', 'claude_desktop_config.json')),
+    })
+    void assistants.start()
     registerIpc({
+      assistants,
       kube,
       helm,
       usage,
@@ -118,6 +179,7 @@ if (!app.requestSingleInstanceLock()) {
     let waited = false
     app.on('will-quit', (event) => {
       closeStreams()
+      void assistants.stop()
       if (waited || !terminals.cleaning) return
       waited = true
       event.preventDefault()
@@ -127,9 +189,6 @@ if (!app.requestSingleInstanceLock()) {
       ]).then(() => app.quit())
     })
     Menu.setApplicationMenu(buildMenu(win, { updates, settings }))
-    app.on('second-instance', () => {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    })
+    app.on('second-instance', reveal)
   })
 }

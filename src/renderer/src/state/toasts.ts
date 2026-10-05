@@ -2,7 +2,8 @@ import { create } from 'zustand'
 
 export interface Toast {
   id: number
-  tone: 'success' | 'error'
+  /** Info: something that happened without the person (an AI assistant gave up waiting, say). */
+  tone: 'success' | 'error' | 'info'
   title: string
   description?: string
   action?: { label: string; run: () => void }

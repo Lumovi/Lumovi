@@ -6,6 +6,15 @@
  * throwing, because errors that cross IPC or the network are flattened into
  * plain strings and we want the page to know *why* a request failed.
  */
+import type {
+  AiChanges,
+  AssistantClient,
+  AssistantsSetting,
+  AssistantsStatus,
+  ChangeProposal,
+  ProposalDecision,
+  ProposalOutcome,
+} from './assistants'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
 
@@ -47,6 +56,10 @@ export interface Settings {
   nodeShellsOff?: boolean
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
   autoUpdate?: boolean
+  /** The desktop app's MCP server, for AI assistants. */
+  assistants?: AssistantsSetting
+  /** Whether AI assistants' changes to each context are asked about (the default), or not. */
+  aiChanges?: Record<string, AiChanges>
 }
 
 /** Where updating Lumovi to a new version is at. */
@@ -499,12 +512,41 @@ export type Change =
       subresource?: 'status' | 'scale'
     }
   | { action: 'replace'; object: KubeObject }
-  | { action: 'delete'; propagation?: DeletePropagation; gracePeriodSeconds?: number }
+  | {
+      action: 'delete'
+      propagation?: DeletePropagation
+      gracePeriodSeconds?: number
+      /** Only the object with this uid: not one made again since, under its name. */
+      uid?: string
+    }
   | { action: 'create'; object: KubeObject }
   /** Evicts a pod through the Eviction API, which respects PodDisruptionBudgets. */
   | { action: 'evict' }
   /** Adds an ephemeral debug container to a pod, like `kubectl debug`. */
   | { action: 'debug'; container: string; image: string; target?: string }
+  /**
+   * Server-side apply (`kubectl apply --server-side`): creates the object, or
+   * sets the fields `object` has, as `fieldManager`; `force` takes them over
+   * from other managers instead of failing on their conflicts
+   * (`--force-conflicts`).
+   */
+  | { action: 'apply'; object: KubeObject; fieldManager: string; force: boolean }
+
+/** A container's logs as they are (not followed): `kubectl logs`. */
+export interface PodLogsQuery {
+  context: string
+  namespace: string
+  pod: string
+  /** The pod's only container unless named. */
+  container?: string
+  /** The last so many lines. */
+  tailLines: number
+  /** Its run before the last restart. */
+  previous?: boolean
+  sinceSeconds?: number
+  /** At most so many bytes, from the start of the lines asked for. */
+  limitBytes: number
+}
 
 export interface ChangeRequest {
   context: string
@@ -764,6 +806,23 @@ export interface LumoviApi {
   fleet?: {
     summary(context: string): Promise<ClusterSummary>
   }
+  /** AI assistants that use Lumovi through MCP (the desktop app's). */
+  assistants?: {
+    status(): Promise<AssistantsStatus>
+    /** Turns it on or off, or moves it to another port. */
+    configure(setting: { enabled?: boolean; port?: number }): Promise<AssistantsStatus>
+    /** A new token: assistants set up with the old one are set up again. */
+    resetToken(): Promise<AssistantsStatus>
+    /** Sets an assistant up: Claude Desktop's settings, or Cursor's or VS Code's install link. */
+    install(client: AssistantClient): Promise<Result<string>>
+    setChanges(context: string, changes: AiChanges): Promise<Settings>
+    decide(id: string, decision: ProposalDecision): Promise<void>
+    /** Changes waiting for approval now, for a page that has just loaded. */
+    pending(): Promise<ChangeProposal[]>
+    onStatus(listener: (status: AssistantsStatus) => void): () => void
+    onProposal(listener: (proposal: ChangeProposal) => void): () => void
+    onOutcome(listener: (outcome: ProposalOutcome) => void): () => void
+  }
   /** New versions of the desktop app, from its GitHub releases. */
   updates?: {
     state(): Promise<UpdateEvent>
@@ -836,4 +895,14 @@ export const IPC = {
   updateCheck: 'update:check',
   updateInstall: 'update:install',
   updateChanged: 'update:changed',
+  assistantsStatus: 'assistants:status',
+  assistantsConfigure: 'assistants:configure',
+  assistantsResetToken: 'assistants:reset-token',
+  assistantsInstall: 'assistants:install',
+  assistantsSetChanges: 'assistants:set-changes',
+  assistantsDecide: 'assistants:decide',
+  assistantsPending: 'assistants:pending',
+  assistantsStatusChanged: 'assistants:status-changed',
+  assistantsProposal: 'assistants:proposal',
+  assistantsOutcome: 'assistants:outcome',
 } as const

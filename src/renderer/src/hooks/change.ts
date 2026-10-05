@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { ChangeRequest, KubeObject, Result } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { useActivity } from '@renderer/state/activity'
@@ -9,6 +9,20 @@ import { toast } from '@renderer/state/toasts'
 const SETTLE_DELAY = 1_500
 
 export type ClusterChange = Omit<ChangeRequest, 'context'>
+
+/** Looks at a cluster again after a change, and once more when its controllers have acted. */
+export function refreshAfterChange(queryClient: QueryClient, context: string, kind: string): void {
+  const refresh = () => {
+    // A new or removed CRD changes the kinds the cluster serves.
+    const keys = ['list', 'object', 'metrics', 'history']
+    if (kind === 'CustomResourceDefinition.apiextensions.k8s.io') keys.push('resources')
+    for (const key of keys) {
+      void queryClient.invalidateQueries({ queryKey: [key, context] })
+    }
+  }
+  refresh()
+  setTimeout(refresh, SETTLE_DELAY)
+}
 
 export interface ChangeMeta {
   /** What happened, in the past tense: "Scaled storefront to 5 replicas". */
@@ -33,15 +47,6 @@ export function useChange() {
   const queryClient = useQueryClient()
   const { start, finish } = useActivity()
 
-  const refresh = (request: ClusterChange) => {
-    // A new or removed CRD changes the kinds the cluster serves.
-    const keys = ['list', 'object', 'metrics', 'history']
-    if (request.kind === 'CustomResourceDefinition.apiextensions.k8s.io') keys.push('resources')
-    for (const key of keys) {
-      void queryClient.invalidateQueries({ queryKey: [key, context] })
-    }
-  }
-
   const change = async (
     request: ClusterChange,
     meta: ChangeMeta,
@@ -60,8 +65,7 @@ export function useChange() {
       return result
     }
     finish(id, 'done')
-    refresh(request)
-    setTimeout(() => refresh(request), SETTLE_DELAY)
+    refreshAfterChange(queryClient, context, request.kind)
     if (!meta.silent) {
       const { undo } = meta
       toast({
