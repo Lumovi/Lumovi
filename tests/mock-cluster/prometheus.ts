@@ -344,7 +344,13 @@ function evaluate(
   return groups
 }
 
-const format = (value: number) => String(Number(value.toPrecision(6)))
+/**
+ * A value as the API writes it: to six significant digits, which charts need
+ * no more than; but a time (a series' first sample) in full, which six digits
+ * would move by hours.
+ */
+const format = (value: number, query: Query) =>
+  query.fn === 'first' ? String(value) : String(Number(value.toPrecision(6)))
 
 /**
  * Answers the Prometheus HTTP API at `path`. VictoriaMetrics differs in two
@@ -421,7 +427,7 @@ export function prometheusApi(
         resultType: 'vector',
         result: [...groups.values()].map(({ labels, value }) => ({
           metric: labels,
-          value: [time, format(value)],
+          value: [time, format(value, query)],
         })),
       },
     })
@@ -438,7 +444,7 @@ export function prometheusApi(
   for (let t = start; t <= end + 1e-9; t += step) {
     for (const [key, { labels, value }] of evaluate(query, series, t)) {
       const entry = result.get(key) ?? { metric: labels, values: [] }
-      entry.values.push([t, format(value)])
+      entry.values.push([t, format(value, query)])
       result.set(key, entry)
     }
   }
