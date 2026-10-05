@@ -347,6 +347,73 @@ const NAME_COLUMN = {
  * a custom resource's printer columns, computed like the API server does, or
  * a name and an age for everything else.
  */
+/** What the API server prints for some built-in kinds, before their age (as `kubectl get` shows). */
+const BUILT_IN_COLUMNS: Record<string, (PrinterColumn & { value: (object: Json) => Json })[]> = {
+  Pod: [
+    {
+      name: 'Ready',
+      type: 'string',
+      jsonPath: '',
+      description: 'The aggregate readiness state of this pod for accepting traffic.',
+      value: (pod) =>
+        `${(pod.status?.containerStatuses ?? []).filter((s: Json) => s.ready).length}/${pod.spec.containers.length}`,
+    },
+    {
+      name: 'Status',
+      type: 'string',
+      jsonPath: '',
+      description: 'The aggregate status of the containers in this pod.',
+      value: (pod) => {
+        if (pod.metadata.deletionTimestamp) return 'Terminating'
+        const statuses: Json[] = pod.status?.containerStatuses ?? []
+        const state = statuses.find((s) => s.state?.waiting?.reason || s.state?.terminated?.reason)
+        return (
+          state?.state.waiting?.reason ?? state?.state.terminated?.reason ?? pod.status?.phase ?? ''
+        )
+      },
+    },
+    {
+      name: 'Restarts',
+      type: 'string',
+      jsonPath: '',
+      description:
+        'The number of times the containers in this pod have been restarted and when the last container in this pod has restarted.',
+      value: (pod) =>
+        String(
+          (pod.status?.containerStatuses ?? []).reduce(
+            (sum: number, s: Json) => sum + (s.restartCount ?? 0),
+            0,
+          ),
+        ),
+    },
+  ],
+  Deployment: [
+    {
+      name: 'Ready',
+      type: 'string',
+      jsonPath: '',
+      description: 'Number of the pod with ready state',
+      value: (d) => `${d.status?.readyReplicas ?? 0}/${d.spec.replicas ?? 1}`,
+    },
+    {
+      name: 'Up-to-date',
+      type: 'string',
+      jsonPath: '',
+      description:
+        'Total number of non-terminated pods targeted by this deployment that have the desired template spec.',
+      value: (d) => d.status?.updatedReplicas ?? 0,
+    },
+    {
+      name: 'Available',
+      type: 'string',
+      jsonPath: '',
+      description:
+        'Total number of available pods (ready for at least minReadySeconds) targeted by this deployment.',
+      value: (d) => d.status?.availableReplicas ?? 0,
+    },
+  ],
+}
+
 export function asTable(
   served: Served,
   list: Json,
@@ -366,6 +433,7 @@ export function asTable(
           },
         ]
     : [
+        ...(BUILT_IN_COLUMNS[served.apiKind] ?? []),
         {
           name: 'Age',
           type: 'string',
@@ -391,7 +459,14 @@ export function asTable(
     rows: (list.items as Json[]).map((item) => {
       const object = { apiVersion: groupVersion(served), kind: served.apiKind, ...item }
       return {
-        cells: [item.metadata.name, ...columns.map((c) => cell(c, object, now, !served.custom))],
+        cells: [
+          item.metadata.name,
+          ...columns.map((c) =>
+            'value' in c
+              ? (c.value as (object: Json) => Json)(object)
+              : cell(c, object, now, !served.custom),
+          ),
+        ],
         object:
           includeObject === 'Object'
             ? object

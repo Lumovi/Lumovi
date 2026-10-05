@@ -377,6 +377,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
   }
   const controllers = new Controllers(store$)
+  /** Names made from a generateName so far: the next one's suffix comes from the count. */
+  let generatedNames = 0
 
   function load(): void {
     fixture = options.fixture()
@@ -926,9 +928,13 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     if (subresource !== undefined) throw notFoundPath()
 
     if (method === 'POST' && name === undefined) {
-      const generated = body?.metadata?.generateName
-        ? `${body.metadata.generateName}${suffix(crypto.randomUUID())}`
-        : undefined
+      // Random-looking, as the API server's are, but the same from one run to the next (for
+      // screenshots); one that's taken is passed over.
+      const prefix: string | undefined = body?.metadata?.generateName
+      let generated: string | undefined
+      while (prefix && (!generated || store$.get(def.kind, namespace, generated))) {
+        generated = `${prefix}${suffix(`${prefix}${++generatedNames}`)}`
+      }
       const objectName: string | undefined = body?.metadata?.name ?? generated
       if (!objectName) {
         throw new HttpError(
