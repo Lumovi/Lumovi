@@ -377,9 +377,14 @@ test('a command Lumovi shows, pasted in to run', async ({ launch, clusters }) =>
     .getByRole('button', { name: 'Delete' })
     .click()
   await dialog(page).getByRole('button', { name: 'Paste in terminal' }).click()
-  await expect
-    .poll(() => inputLine(page))
-    .toMatch(/kubectl delete pod\/\S+ -n \S+ --context demo && kubectl delete pod\/\S+ -n \S+/)
+  // (Joined as the shell runs them in turn: Windows PowerShell 5.1 has no &&. A long line wraps
+  // on the screen, whose rows run together here.)
+  const joined = WINDOWS ? '; ' : ' && '
+  await expect(screen(page)).toContainText(
+    new RegExp(
+      `kubectl delete pod/\\S+ -n \\S+ --context demo${joined}kubectl delete pod/\\S+ -n \\S+ --context demo`,
+    ),
+  )
   await page.waitForTimeout(500)
   expect(writes(clusters.demo, 'DELETE', /\/pods\//)).toHaveLength(0)
   await page.keyboard.press('Control+c')
