@@ -36,21 +36,30 @@ const json = (status: number, body: unknown): Response => ({
 })
 const badData = (error: string) => json(400, { status: 'error', errorType: 'bad_data', error })
 
-function hash(seed: string): number {
-  let h = 2166136261
-  for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
-  return (h >>> 0) / 2 ** 32
+/** FNV-1a over `text`, from `state` (where hashing what came before it left off). */
+function fnv(text: string, state = 2166136261): number {
+  for (const ch of text) state = Math.imul(state ^ ch.charCodeAt(0), 16777619)
+  return state
 }
+
+/**
+ * Each seed's hash state, kept: a week's samples hash it again and again,
+ * with the minute after it, and need only go on from there.
+ */
+const seeds = new Map<string, number>()
 
 /** Daily, three-hourly and quarter-hourly swings, plus a little minute-to-minute noise. */
 function wave(seed: string, t: number): number {
-  const h = hash(seed) * Math.PI * 2
+  let state = seeds.get(seed)
+  if (state === undefined) seeds.set(seed, (state = fnv(seed)))
+  const h = ((state >>> 0) / 2 ** 32) * Math.PI * 2
   return (
     1 +
     0.28 * Math.sin((2 * Math.PI * t) / 86_400 + h) +
     0.16 * Math.sin((2 * Math.PI * t) / 10_800 + h * 2) +
     0.12 * Math.sin((2 * Math.PI * t) / 1_020 + h * 3) +
-    0.1 * (hash(`${seed}/${Math.floor(t / 60)}`) - 0.5)
+    // The same as hashing `${seed}/${minute}`, without building that string.
+    0.1 * ((fnv(`/${Math.floor(t / 60)}`, state) >>> 0) / 2 ** 32 - 0.5)
   )
 }
 
