@@ -371,6 +371,30 @@ test('nothing shared with someone, and all well for another', async ({
   expect((await opened).url()).toBe('https://github.com/Lumovi/Lumovi')
 })
 
+test('when the page can’t reach the server', async ({ page, context, serve, clusters }) => {
+  await page.clock.install()
+  await as(context, 'alice@example.com')
+  const served = await serve({ env: fleetEnv(clusters) })
+  // Its connection doesn't open, until it does.
+  let reachable = false
+  await page.routeWebSocket(/api\/socket$/, (ws) => {
+    if (reachable) ws.connectToServer()
+    else ws.close()
+  })
+  await page.goto(served.url)
+  const reconnecting = page.getByRole('status').filter({ hasText: 'Reconnecting to Lumovi…' })
+  await expect(reconnecting).toBeVisible()
+  // The clusters it couldn't read: it says so, rather than that there are none.
+  await page.clock.fastForward('00:31')
+  const failed = page.getByRole('alert')
+  await expect(failed).toContainText('Lost the connection to Lumovi.')
+  await expect(page.getByText('No clusters for you here')).toHaveCount(0)
+  reachable = true
+  await failed.getByRole('button', { name: 'Try again' }).click()
+  await expect(card(page, FLEET.prodEu)).toBeVisible()
+  await expect(reconnecting).toBeHidden()
+})
+
 test('a cluster too large to count whole', async ({ page, context, serve, clusters }) => {
   await as(context, 'alice@example.com')
   await openFleet(page, serve, { ...fleetEnv(clusters), LUMOVI_MAX_LIST_ITEMS: '1000' })
