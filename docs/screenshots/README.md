@@ -179,6 +179,30 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | [![Creating resources from YAML, checked as it's typed.](create-light-1x.webp)](create-light.webp) | [![Creating resources from YAML, checked as it's typed.](create-dark-1x.webp)](create-dark.webp) |
 
+### AI assistants
+
+`assistants`: AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.
+
+| Light                                                                                                                                                                    | Dark                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.](assistants-light-1x.webp)](assistants-light.webp) | [![AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.](assistants-dark-1x.webp)](assistants-dark.webp) |
+
+### An AI assistant’s change
+
+`assistant-approval`: A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.
+
+| Light                                                                                                                                                                                          | Dark                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.](assistant-approval-light-1x.webp)](assistant-approval-light.webp) | [![A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.](assistant-approval-dark-1x.webp)](assistant-approval-dark.webp) |
+
+### AI assistants’ changes
+
+`assistant-activity`: The activity log: a change Claude Code asked for and was approved, and one rejected with a note for it.
+
+| Light                                                                                                                                                                         | Dark                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![The activity log: a change Claude Code asked for and was approved, and one rejected with a note for it.](assistant-activity-light-1x.webp)](assistant-activity-light.webp) | [![The activity log: a change Claude Code asked for and was approved, and one rejected with a note for it.](assistant-activity-dark-1x.webp)](assistant-activity-dark.webp) |
+
 ### Metrics
 
 `metrics`: Usage over the last six hours from Prometheus, by namespace.

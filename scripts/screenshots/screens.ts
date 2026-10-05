@@ -4,8 +4,13 @@
  * and website link to them: keep names once published.
  */
 import type { Page } from '@playwright/test'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { DEMO } from '../../tests/mock-cluster/kubeconfig.ts'
 import { CLUSTERS } from './clusters.ts'
+
+/** What AI assistants send to connect, in the screenshots (index.ts sets it). */
+export const ASSISTANTS_TOKEN = 'lumovi-screenshots-assistants-token'
 
 export interface Screen {
   name: string
@@ -59,6 +64,36 @@ const terminalText = (page: Page, terminal: string | RegExp, text: string) =>
     .locator('.xterm-rows')
     .filter({ hasText: text })
     .waitFor()
+
+/** Claude Code, as far as Lumovi can tell, connected while a screen needs it. */
+let assistant: Client | undefined
+
+const assistantConnects = async (page: Page) => {
+  const status = await page.evaluate(() => window.lumovi!.assistants!.configure({ enabled: true }))
+  assistant = new Client({ name: 'claude-code', version: '2.0.0' })
+  await assistant.connect(
+    new StreamableHTTPClientTransport(new URL(status.url!), {
+      requestInit: { headers: { Authorization: `Bearer ${status.token}` } },
+    }),
+  )
+}
+
+/** A change the assistant asks for (it waits for an answer: that's not waited for). */
+const assistantAsks = (name: string, args: Record<string, unknown>) => {
+  void assistant!
+    .callTool({ name, arguments: { cluster: CLUSTERS.production, ...args } })
+    .catch(() => undefined)
+}
+
+/** It leaves: what it asked for that's still waiting is withdrawn. */
+const assistantLeaves = async (page: Page) => {
+  await (assistant!.transport as StreamableHTTPClientTransport).terminateSession()
+  await assistant!.close()
+  await page.evaluate(() => window.lumovi!.assistants!.configure({ enabled: false }))
+  while ((await page.evaluate(() => window.lumovi!.assistants!.pending())).length > 0) {
+    await page.waitForTimeout(100)
+  }
+}
 
 /** Turns the production cluster's read-only switch over. */
 const toggleReadOnly = async (page: Page) => {
@@ -229,6 +264,104 @@ export const SCREENS: Screen[] = [
     app: 'desktop',
     path: `${cluster}/pods`,
     steps: (page) => page.keyboard.press('ControlOrMeta+n'),
+  },
+  {
+    name: 'assistants',
+    title: 'AI assistants',
+    description:
+      'AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.',
+    app: 'desktop',
+    path: cluster,
+    async steps(page) {
+      await assistantConnects(page)
+      await page.getByRole('button', { name: /^AI assistants/ }).click()
+      await page.getByRole('region', { name: 'Connected now' }).getByText('Claude Code').waitFor()
+      // Staging's assistants change it without asking.
+      const staging = page.getByRole('radiogroup', { name: `Changes to ${CLUSTERS.staging}` })
+      await staging.getByRole('radio', { name: 'Allow' }).click()
+      await staging.getByRole('radio', { name: 'Allow', checked: true }).waitFor()
+    },
+    async after(page) {
+      await page.evaluate(
+        (staging) => window.lumovi!.assistants!.setChanges(staging, 'ask'),
+        CLUSTERS.staging,
+      )
+      await assistantLeaves(page)
+    },
+  },
+  {
+    name: 'assistant-approval',
+    title: 'An AI assistant’s change',
+    description:
+      'A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.',
+    app: 'desktop',
+    path: `${cluster}/deployments`,
+    async steps(page) {
+      await assistantConnects(page)
+      assistantAsks('scale', {
+        kind: 'deployment',
+        namespace: 'shop',
+        name: DEMO.deployments.storefront,
+        replicas: 5,
+        reason:
+          'Checkout latency has doubled since 14:00 and storefront’s pods are at 95% CPU: two more replicas spread the load.',
+      })
+      await page
+        .getByRole('dialog', { name: 'Scale Deployment storefront to 5 replicas' })
+        .waitFor()
+    },
+    after: assistantLeaves,
+  },
+  {
+    name: 'assistant-activity',
+    title: 'AI assistants’ changes',
+    description:
+      'The activity log: a change Claude Code asked for and was approved, and one rejected with a note for it.',
+    app: 'desktop',
+    path: `${cluster}/deployments`,
+    async steps(page) {
+      await assistantConnects(page)
+      assistantAsks('restart', {
+        kind: 'statefulset',
+        namespace: 'data',
+        name: 'postgres',
+        reason: 'Its memory has grown steadily for three days.',
+      })
+      const restart = page.getByRole('dialog', { name: 'Restart StatefulSet postgres' })
+      await restart.getByRole('button', { name: 'Reject…' }).click()
+      await restart
+        .getByRole('textbox', { name: 'Note' })
+        .fill('Not during the sale: tonight, after 22:00.')
+      await page.keyboard.press('ControlOrMeta+Enter')
+      await restart.waitFor({ state: 'hidden' })
+      assistantAsks('scale', {
+        kind: 'deployment',
+        namespace: 'shop',
+        name: DEMO.deployments.cart,
+        replicas: 4,
+        reason: 'Carts take twice as long to load since 14:00.',
+      })
+      const scale = page.getByRole('dialog', { name: 'Scale Deployment cart to 4 replicas' })
+      await scale.getByRole('button', { name: /^Approve/ }).click()
+      await scale.waitFor({ state: 'hidden' })
+      await page.getByRole('button', { name: 'Activity' }).click()
+      await page.getByRole('dialog', { name: 'Activity' }).getByText('via Claude Code').waitFor()
+    },
+    async after(page) {
+      await assistantLeaves(page)
+      // As it was, for the screenshots after it.
+      await page.evaluate(
+        ({ context, name }) =>
+          window.lumovi!.kube.change({
+            context,
+            kind: 'Deployment',
+            namespace: 'shop',
+            name,
+            change: { action: 'patch', patchType: 'merge', patch: { spec: { replicas: 2 } } },
+          }),
+        { context: CLUSTERS.production, name: DEMO.deployments.cart },
+      )
+    },
   },
   {
     name: 'metrics',
