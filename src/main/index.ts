@@ -142,11 +142,7 @@ if (stdio) {
         command: process.execPath,
         args: [...process.argv.slice(1), `${STDIO}${app.getPath('userData')}`],
       },
-      claudeDesktopConfig:
-        process.env.LUMOVI_CLAUDE_DESKTOP_CONFIG ??
-        (process.platform === 'linux'
-          ? undefined
-          : join(app.getPath('appData'), 'Claude', 'claude_desktop_config.json')),
+      claudeDesktopConfig: process.env.LUMOVI_CLAUDE_DESKTOP_CONFIG ?? claudeDesktopConfig(),
     })
     void assistants.start()
     registerIpc({
@@ -191,4 +187,19 @@ if (stdio) {
     Menu.setApplicationMenu(buildMenu(win, { updates, settings }))
     app.on('second-instance', reveal)
   })
+}
+
+/**
+ * Where Claude Desktop keeps its settings, on macOS and Windows (it isn't made
+ * for Linux). Not app.getPath('appData'): on Windows it fails, stopping the
+ * app as it starts, when the folder it names (from the user's profile) isn't
+ * there.
+ */
+function claudeDesktopConfig(): string | undefined {
+  const folders: Partial<Record<NodeJS.Platform, string | undefined>> = {
+    darwin: join(homedir(), 'Library', 'Application Support'),
+    win32: process.env.APPDATA,
+  }
+  const folder = folders[process.platform]
+  return folder && join(folder, 'Claude', 'claude_desktop_config.json')
 }
