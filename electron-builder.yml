@@ -30,6 +30,8 @@ files:
 npmRebuild: false
 asarUnpack:
   - node_modules/node-pty/**
+  # The stdio bridge AI assistants start on Windows, run as Node (see scripts/after-pack.mjs).
+  - out/mcp-stdio/**
 
 # Next to the app, where people (and package tools) can find them.
 extraResources:
@@ -37,9 +39,10 @@ extraResources:
   - from: out/THIRD_PARTY_NOTICES.txt
     to: THIRD_PARTY_NOTICES.txt
 
-# Turn off what only a debugger or another program would use to run code as the app.
+# Turn off what only a debugger or another program would use to run code as the app. Running it
+# as Node is each platform's own (scripts/after-pack.mjs): off, except on Windows.
+afterPack: scripts/after-pack.mjs
 electronFuses:
-  runAsNode: false
   enableNodeOptionsEnvironmentVariable: false
   enableNodeCliInspectArguments: false
   enableEmbeddedAsarIntegrityValidation: true
