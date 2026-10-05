@@ -82,6 +82,7 @@ test('a server stopped (a rollout) deletes the node shells’ pods first', async
   serve,
   clusters,
 }) => {
+  test.skip(process.platform === 'win32', 'On Windows, SIGTERM ends a process at once')
   const served = await serve({ env: PROXY })
   await as(context, 'frank@example.com')
   const detail = await shellTab(page, served.url)
