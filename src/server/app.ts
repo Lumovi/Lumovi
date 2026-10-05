@@ -16,6 +16,9 @@ import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
 
+/** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
+const CLEANUP_MS = 10_000
+
 export interface RunningServer {
   /** Where it listens, e.g. http://127.0.0.1:8080/. */
   url: string
@@ -39,6 +42,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const pages = new Pages(config.rendererDir, base)
   /** Each page's socket, with its session, so its pages can be told when it ends. */
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
+  /** The pages' connections, until what they started is cleaned up. */
+  const connections = new Set<PageConnection>()
   const sessions = new Sessions(config.sessionHours, (ended, how) => {
     for (const [socket, { session }] of sockets) {
       if (session === ended) socket.close(SESSION_ENDED, how)
@@ -166,11 +171,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ws.on('error', () => ws.terminate())
       ws.on('pong', () => (sockets.get(ws)!.alive = true))
       ws.on('close', () => sockets.delete(ws))
-      new PageConnection(ws, {
+      const connection = new PageConnection(ws, {
         ...options,
         identity: caller.identity,
         rejected: () => sessions.end(caller.session!, 'expired'),
       })
+      connections.add(connection)
+      void connection.ended.then(() => connections.delete(connection))
     })
   })
 
@@ -195,6 +202,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://${config.address ?? 'localhost'}:${port}${base}`,
     async close() {
       clearInterval(heartbeat)
+      const ending = [...connections]
       hosted.close()
       // Pages reconnect, to whichever server is next.
       const closed = [...sockets.keys()].map(
@@ -209,6 +217,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       await Promise.race([
         Promise.all(closed),
         new Promise((resolve) => setTimeout(resolve, 2000).unref()),
+      ])
+      // What their pages started that runs in a cluster (node shells' pods) is deleted, before
+      // Kubernetes stops the pod this runs in, or soon after.
+      await Promise.race([
+        Promise.all(ending.map((connection) => connection.ended)),
+        new Promise((resolve) => setTimeout(resolve, CLEANUP_MS).unref()),
       ])
     },
   }

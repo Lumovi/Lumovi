@@ -283,6 +283,23 @@ export function streamingEndpoints(context: StreamContext) {
         return
       }
       const command = url.searchParams.getAll('command')
+      // An image without nsenter: the command's check says so.
+      if (command.includes('nsenter') && /no-nsenter/.test(image)) {
+        ws.send(
+          frame(
+            ERROR,
+            JSON.stringify(
+              failure(
+                'command terminated with non-zero exit code: error executing command [env TERM=xterm-256color sh -c command -v nsenter], exit code 125',
+                'NonZeroExitCode',
+                { causes: [{ reason: 'ExitCode', message: '125' }] },
+              ),
+            ),
+          ),
+        )
+        ws.close()
+        return
+      }
       // A node without a shell of its own (Talos): nsenter finds none there.
       const osImage: string = context.node(pod.spec.nodeName)?.status?.nodeInfo?.osImage ?? ''
       if (command.includes('nsenter') && /Talos/.test(osImage)) {

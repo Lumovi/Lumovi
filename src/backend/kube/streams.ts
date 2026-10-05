@@ -189,8 +189,11 @@ export class Terminals {
         stop: () => this.#abandoned.has(id),
       },
     ).catch(async (error: unknown) => {
-      await remove()
-      throw error
+      // What went wrong, and its pod if it's left.
+      const left = await remove()
+      if (!left) throw error
+      const kubeError = toKubeError(error)
+      throw new KubeRequestError(kubeError.code, `${kubeError.message} ${left}`, kubeError.status)
     })
     if (!started) {
       await remove()

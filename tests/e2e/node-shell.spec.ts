@@ -93,9 +93,14 @@ test('a shell on a node, through a pod that’s gone when it ends', async ({ pag
   })
   const exec = clusters.demo.requests.findLast((r) => r.path.endsWith(`/pods/${pod}/exec`))!
   expect(exec.search).toContain('container=shell')
-  expect(new URLSearchParams(exec.search).getAll('command').slice(0, 4)).toEqual([
+  // nsenter from the image (or it says it has none), into the node's namespaces.
+  expect(new URLSearchParams(exec.search).getAll('command').slice(0, 8)).toEqual([
     'env',
     'TERM=xterm-256color',
+    'sh',
+    '-c',
+    'command -v nsenter >/dev/null 2>&1 || exit 125; exec "$@"',
+    'sh',
     'nsenter',
     '--target',
   ])
@@ -152,7 +157,8 @@ test('where node shells run, and what stops them', async ({ page, clusters }) =>
   await detail.getByRole('button', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Node shells' })
   await expect(settings).toContainText(
-    `kubectl debug node/${NODE} -it --image alpine:3.22 --profile sysadmin -- nsenter --target 1 --mount --uts --ipc --net --pid -- sh -l -n kube-system --context demo`,
+    // Its own flags first: after `--` is what the pod runs.
+    `kubectl debug node/${NODE} -it --image alpine:3.22 --profile sysadmin -n kube-system --context demo -- nsenter --target 1 --mount --uts --ipc --net --pid -- sh -l`,
   )
   const namespace = settings.getByRole('textbox', { name: 'Namespace' })
   const image = settings.getByRole('textbox', { name: 'Image' })
@@ -181,6 +187,12 @@ test('where node shells run, and what stops them', async ({ page, clusters }) =>
       ),
     )
     .toBe(true)
+  // And when its pod can't be deleted either, that it's left.
+  clusters.demo.deny({ verb: 'delete', resource: 'pods', namespace: 'data' })
+  await notice.getByRole('button', { name: 'Try again' }).click()
+  await expect(notice).toContainText(
+    /settings\. Lumovi couldn’t delete its pod, data\/lumovi-node-shell-\w+: .+\. It stops by itself within 12 hours\./,
+  )
   // Back to the defaults, from the notice's Settings.
   await notice.getByRole('button', { name: 'Settings' }).click()
   await settings.getByRole('button', { name: 'Use the defaults: kube-system, alpine:3.22' }).click()
@@ -298,11 +310,43 @@ test('nodes without a shell, and nodes that can’t have one', async ({ page, cl
   await expect(windowsNode).toContainText('Node shells need a Linux node')
 })
 
+test('what a shell on a node lacks, and what the person did', async ({ page }) => {
+  const detail = await shellTab(page)
+  // Ended by whoever typed in it: its code is theirs, not a node without a shell.
+  await detail.getByRole('button', { name: 'Start shell' }).click()
+  await expect(screen(page)).toContainText(`root@${NODE}:~#`)
+  await page.keyboard.type('exit 127')
+  await page.keyboard.press('Enter')
+  const exited = detail.getByRole('status').filter({ hasText: 'exited' })
+  await expect(exited).toContainText('The shell exited with code 127.Its pod was deleted.')
+
+  // An image without nsenter: a shell on the node needs it; its settings choose another.
+  await detail.getByRole('button', { name: 'Settings' }).click()
+  const settings = page.getByRole('dialog', { name: 'Node shells' })
+  await settings.getByRole('textbox', { name: 'Image' }).fill('example.com/busybox-no-nsenter:1')
+  await settings.getByRole('button', { name: 'Save' }).click()
+  await exited.getByRole('button', { name: 'Start again' }).click()
+  const lacking = detail.getByRole('status').filter({ hasText: 'has no nsenter' })
+  await expect(lacking).toContainText(
+    'example.com/busybox-no-nsenter:1 has no nsenter.A shell on the node itself runs the image’s nsenter: alpine has it. (A shell in the pod doesn’t need it.) Its pod was deleted.',
+  )
+  await expect(lacking.getByRole('button', { name: 'Settings' })).toBeVisible()
+  await expect(lacking.getByRole('button', { name: 'Try again' })).toBeVisible()
+})
+
 test('who may open node shells', async ({ page, clusters }) => {
   clusters.demo.deny({ verb: 'delete', resource: 'pods', namespace: 'kube-system' })
   const detail = await shellTab(page)
   await expect(detail).toContainText(
     'Your account can’t delete pods in kube-system: the pod stays until its 12-hour deadline.',
+  )
+  // Pods it can't read: it couldn't tell when its pod runs. (A reload asks again.)
+  clusters.demo.deny({ verb: 'get', resource: 'pods', namespace: 'kube-system' })
+  await page.reload()
+  const denied = await shellTab(page)
+  await expect(denied).toContainText('No node shell access')
+  await expect(denied).toContainText(
+    'Your account can’t create pods in kube-system, read them, or open shells in them. A node shell needs all three',
   )
   clusters.demo.deny({
     verb: 'create',
@@ -310,13 +354,9 @@ test('who may open node shells', async ({ page, clusters }) => {
     subresource: 'exec',
     namespace: 'kube-system',
   })
-  // (A reload asks again.)
   await page.reload()
-  const denied = await shellTab(page)
+  await shellTab(page)
   await expect(denied).toContainText('No node shell access')
-  await expect(denied).toContainText(
-    'Your account can’t create pods in kube-system, or open shells in them.',
-  )
   clusters.demo.deny({ verb: 'create', resource: 'pods', namespace: 'kube-system' })
   await page.reload()
   await shellTab(page)

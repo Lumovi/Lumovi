@@ -180,7 +180,8 @@
         },
         "image": {
           "type": "string",
-          "pattern": "^\\S+$"
+          "pattern": "^\\S+$",
+          "maxLength": 255
         }
       },
       "additionalProperties": false

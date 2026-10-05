@@ -76,6 +76,11 @@ export function nodeShellCommand(mode: NodeShellRequest['mode']): string[] {
   const shell =
     mode === 'node'
       ? [
+          // An image without nsenter says so (125), unlike a node without a shell (127).
+          'sh',
+          '-c',
+          'command -v nsenter >/dev/null 2>&1 || exit 125; exec "$@"',
+          'sh',
           'nsenter',
           '--target',
           '1',
