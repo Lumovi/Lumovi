@@ -163,8 +163,9 @@ export class TerminalSession {
     })
     this.#cleanup.push(() => input.dispose())
     void api.terminal.open(id, this.request).then((result) => {
-      // Closed while connecting: the other side ends the shell.
-      if (this.#disposed) return
+      // Closed while connecting: the other side ends the shell. Or it ended already (a
+      // container without a shell can say so before the answer comes): it stays ended.
+      if (this.#disposed || this.#phase.state === 'ended') return
       if (!result.ok) {
         this.#set({ state: 'failed', error: result.error.message, code: result.error.code })
         return
