@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-05
+
+Fleet: one Lumovi for many clusters, private ones too, running in a cluster, on a VM or on a
+platform like Sevalla.
+
 ### Added
 
 - Fleet: one Lumovi for many clusters, in a browser. Each person sees every cluster as their
@@ -14,7 +19,7 @@ All notable changes to Lumovi are documented here. The format follows
   page sums up each cluster as its overview would (nodes, pods, workloads, warnings, CPU and
   memory, its version and how fast it answers), puts what needs attention first, and says
   why a cluster can't be reached. It filters by status and labels, groups by a label, and
-  finds a workload by name in every cluster. The switcher and `⌘K` / `Ctrl+K` move between
+  finds a workload by name or namespace in every cluster. The switcher and `⌘K` / `Ctrl+K` move between
   clusters, and back to all of them. See [Fleet](https://docs.lumovi.dev/server/fleet).
 - A fleet's clusters come from a kubeconfig (`LUMOVI_FLEET_KUBECONFIG`, as YAML or base64 on
   one line, or files read again as they change), from Secrets in the cluster Lumovi runs in
@@ -24,7 +29,8 @@ All notable changes to Lumovi are documented here. The format follows
 - Agents for clusters Lumovi can't reach: an agent in the cluster dials out to Lumovi over a
   WebSocket, and relays its connections to the API server. TLS runs from Lumovi to the API
   server through it, so the agent passes on only what it can't read. It reconnects on its
-  own, and passes on its service account's token again when Kubernetes rotates it.
+  own, also when its connection goes quiet, and passes on its service account's token again
+  when Kubernetes rotates it.
 - The Helm chart installs a fleet (`fleet`), what a cluster needs to join one (`mode: member`:
   a service account that may only impersonate, and its token, with the kubeconfig entry
   printed after installing), or an agent (`mode: agent`).
@@ -157,5 +163,6 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Lumovi/Lumovi/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Lumovi/Lumovi/releases/tag/v1.0.0

@@ -1,7 +1,7 @@
 {
   "name": "lumovi",
   "productName": "Lumovi",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A beautiful, fast Kubernetes dashboard, on your desktop or in your cluster.",
   "keywords": [
     "kubernetes",
