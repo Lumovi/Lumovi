@@ -34,8 +34,10 @@ export function localShell(
   first: string,
 ): { file: string; args: string[]; says: boolean } {
   if (process.platform === 'win32') {
-    // Encoded, so that nothing in it (a context's name) is read as PowerShell.
-    const script = `Write-Host ('› ' + '${first.replaceAll("'", "''")}') -ForegroundColor DarkGray`
+    // Encoded, so that nothing in it (a context's name) is read as PowerShell; in its quotes,
+    // each of PowerShell's single quotes (’ and ‘ are, too) doubled.
+    const quoted = first.replace(/['\u2018\u2019\u201A\u201B]/g, (quote) => quote + quote)
+    const script = `Write-Host ('› ' + '${quoted}') -ForegroundColor DarkGray`
     return {
       file: join(env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       args: [
