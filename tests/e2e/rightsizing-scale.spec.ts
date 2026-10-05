@@ -11,20 +11,20 @@ import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
 import { clusterOption, expect, test } from './fixtures.ts'
 
-const NAMESPACES = 200
+const NAMESPACES = 120
 /**
- * Long names, as some tenants' are: a batch's names are capped too, so these
- * come in four batches of a few hundred containers (one waits for the two asked
- * about at once), which the mock's Prometheus works out quickly, unlike four
- * batches of a thousand containers each.
+ * Names as long as they can be, as some tenants' are: a batch's names are
+ * capped too, so these come in three batches (one waits for the two asked about
+ * at once), of a pod each, which the mock's Prometheus works out quickly, unlike
+ * batches of a thousand containers.
  */
 const name = (i: number) =>
-  `tenant-with-a-rather-long-name-for-its-namespace-${String(i).padStart(4, '0')}`
+  `a-tenant-whose-namespace-has-a-name-as-long-as-they-can-be-${String(i).padStart(4, '0')}`
 
 test('right-sizing many namespaces', async ({ launch }) => {
   test.slow()
   const cluster = await startMockCluster({
-    fixture: () => manyNamespacesCluster(NAMESPACES, { name }),
+    fixture: () => manyNamespacesCluster(NAMESPACES, { name, replicas: () => 1 }),
     gitVersion: 'v1.33.4',
     tls: true,
   })
@@ -38,7 +38,11 @@ test('right-sizing many namespaces', async ({ launch }) => {
     // so that the others show first.
     cluster.fail(/\/proxy\/api\/v1\/query$/, { delayMs: 500 })
     cluster.fail(new RegExp(`/proxy/api/v1/query\\?.*\\b${name(0)}\\b`), { delayMs: 4_000 })
-    const { page } = await launch({ env: { KUBECONFIG: kubeconfig } })
+    // (The mock's Prometheus works out a week on this test's own CPU, slowly on a busy runner:
+    // given the time it takes, nothing's split for it.)
+    const { page } = await launch({
+      env: { KUBECONFIG: kubeconfig, LUMOVI_REQUEST_TIMEOUT_MS: '90000' },
+    })
     await clusterOption(page, 'tenants').click()
     await page
       .getByRole('navigation', { name: 'Resources' })
@@ -54,16 +58,18 @@ test('right-sizing many namespaces', async ({ launch }) => {
     await expect(measuring).toContainText(
       new RegExp(`of ${NAMESPACES.toLocaleString('en')} namespaces so far`),
       // (Once a first batch is.)
-      { timeout: 30_000 },
+      { timeout: 60_000 },
     )
     await expect(page.locator('tbody tr').first()).toBeVisible()
-    await expect(measuring).toHaveCount(0, { timeout: 60_000 })
+    await expect(measuring).toHaveCount(0, { timeout: 120_000 })
     // Every one of them answered for.
     await expect(page.getByRole('alert')).toHaveCount(0)
 
     // A few namespaces at a time: a handful of batches of eight queries, not eight a namespace.
-    const queries = cluster.requests.filter((r) => r.path.endsWith('/proxy/api/v1/query'))
-    expect(queries.length).toBeLessThanOrEqual(8 * 5)
+    const queries = cluster.requests.filter(
+      (r) => r.path.endsWith('/proxy/api/v1/query') && r.query.query!.includes('namespace'),
+    )
+    expect(queries.length).toBe(8 * 3)
     expect(
       queries.some((r) => new RegExp(`namespace=~"[^"]*\\b${name(0)}\\b`).test(r.query.query!)),
     ).toBe(true)

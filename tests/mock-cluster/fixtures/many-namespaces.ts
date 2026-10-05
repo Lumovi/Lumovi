@@ -11,7 +11,16 @@ export const tenant = (i: number) => `team-${String(i).padStart(4, '0')}`
 
 export function manyNamespacesCluster(
   count: number,
-  { name = tenant, now = Date.now() }: { name?: (i: number) => string; now?: number } = {},
+  {
+    name = tenant,
+    replicas = (i) => 1 + (i % 3),
+    now = Date.now(),
+  }: {
+    name?: (i: number) => string
+    /** Each namespace's Deployment's pods: some busy, most idle, as tenants are. */
+    replicas?: (i: number) => number
+    now?: number
+  } = {},
 ): ClusterFixture {
   const b = clusterBuilder(now)
   for (let n = 0; n < 4; n++) {
@@ -44,17 +53,16 @@ export function manyNamespacesCluster(
   for (let i = 0; i < count; i++) {
     const namespace = name(i)
     b.namespace(namespace, 30 * DAY)
-    // Some busy, most idle, as tenants are.
-    const replicas = 1 + (i % 3)
+    const pods = replicas(i)
     const api = b.deployment({
       namespace,
       name: 'api',
       age: 30 * DAY,
-      replicas,
-      ready: replicas,
+      replicas: pods,
+      ready: pods,
       template,
     })
-    for (let r = 0; r < replicas; r++) {
+    for (let r = 0; r < pods; r++) {
       b.pod({
         ...template,
         namespace,
