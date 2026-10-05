@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { eventCount, lastSeen } from '@shared/events'
 import type { KubeObject, TableColumn, UsageSample } from '@shared/api'
 import type { BuiltinKind, ResourceKind } from '@shared/resources'
 import { Meter } from '@renderer/components/Meter'
@@ -45,10 +46,8 @@ const mono = (text: ReactNode) => (
 )
 const none = muted('—')
 
-/** When the object was last active; events are ordered by when they last happened. */
-export function lastSeen(object: KubeObject): string {
-  return (object.lastTimestamp ?? object.eventTime ?? object.metadata.creationTimestamp) as string
-}
+// Events are ordered by when they last happened.
+export { lastSeen }
 
 // ——— Columns shared by every kind ———
 
@@ -604,8 +603,8 @@ const eventColumns: Column[] = [
     header: 'Count',
     width: '64px',
     align: 'right',
-    cell: (o) => <span className="tabular-nums">{(o.count as number | undefined) ?? 1}</span>,
-    sort: (o) => (o.count as number | undefined) ?? 1,
+    cell: (o) => <span className="tabular-nums">{eventCount(o)}</span>,
+    sort: eventCount,
   },
   {
     id: 'lastSeen',
