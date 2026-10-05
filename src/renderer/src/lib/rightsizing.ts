@@ -171,10 +171,12 @@ export function rightsizingQueries(namespaces: readonly string[]): { id: string;
  */
 export const BATCH_CONTAINERS = 1_000
 /**
- * And its namespaces' names, together, at most: they're in each query's URL,
- * which stays under the 8 KB proxies in front of Prometheus allow.
+ * And its namespaces' names, together, at most: they're in each query, which
+ * Lumovi takes up to 4,000 characters of (the longest is some 200 more than
+ * the names), and in its URL, which stays well under the 8 KB proxies in
+ * front of Prometheus allow.
  */
-const BATCH_NAMES = 4_000
+const BATCH_NAMES = 3_500
 
 /**
  * Namespaces in batches to ask Prometheus about together, by the containers

@@ -11,7 +11,8 @@ import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
 import { clusterOption, expect, test } from './fixtures.ts'
 
-const NAMESPACES = 600
+// Three batches, so that one waits for the two asked about at once.
+const NAMESPACES = 900
 
 test('right-sizing more than a thousand namespaces', async ({ launch }) => {
   test.slow()
@@ -48,9 +49,13 @@ test('right-sizing more than a thousand namespaces', async ({ launch }) => {
     const measuring = page.getByRole('status', { name: 'Measuring' })
     await expect(measuring).toContainText(
       new RegExp(`of ${NAMESPACES.toLocaleString('en')} namespaces so far`),
+      // (After a first batch, which the mock's Prometheus takes its time over.)
+      { timeout: 60_000 },
     )
     await expect(page.locator('tbody tr').first()).toBeVisible()
     await expect(measuring).toHaveCount(0, { timeout: 150_000 })
+    // Every one of them answered for.
+    await expect(page.getByRole('alert')).toHaveCount(0)
 
     // A few namespaces at a time: a handful of batches of eight queries, not eight a namespace.
     const queries = cluster.requests.filter((r) => r.path.endsWith('/proxy/api/v1/query'))
