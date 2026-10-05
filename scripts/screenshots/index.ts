@@ -114,6 +114,13 @@ async function startArtifactHub() {
 async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<string, string>) {
   const home = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-home-'))
   writeFileSync(join(home, 'settings.json'), JSON.stringify({ theme }))
+  // Terminals' shells (zsh on macOS, bash elsewhere) with a prompt that's the same everywhere,
+  // not one that names the computer: its folder icon one of the Nerd Font's.
+  writeFileSync(join(home, '.zshrc'), "PROMPT=$'%F{blue}\\uf07c ~%f %F{green}❯%f '\n")
+  writeFileSync(
+    join(home, '.bashrc'),
+    "PS1='\\[\\e[34m\\]\uf07c ~\\[\\e[0m\\] \\[\\e[32m\\]❯\\[\\e[0m\\] '\n",
+  )
   // Started where the kubeconfig's .kube folder is, and pointed at it from there: the clusters
   // page shows the path, the same wherever that is.
   const cwd = dirname(dirname(kubeconfig))

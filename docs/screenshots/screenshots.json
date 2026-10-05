@@ -76,6 +76,22 @@
       "dark": { "2x": "shell-dark.webp", "1x": "shell-dark-1x.webp" }
     },
     {
+      "name": "node-shell",
+      "title": "Node shell",
+      "description": "A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.",
+      "app": "desktop",
+      "light": { "2x": "node-shell-light.webp", "1x": "node-shell-light-1x.webp" },
+      "dark": { "2x": "node-shell-dark.webp", "1x": "node-shell-dark-1x.webp" }
+    },
+    {
+      "name": "terminal",
+      "title": "Terminal",
+      "description": "A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.",
+      "app": "desktop",
+      "light": { "2x": "terminal-light.webp", "1x": "terminal-light-1x.webp" },
+      "dark": { "2x": "terminal-dark.webp", "1x": "terminal-dark-1x.webp" }
+    },
+    {
       "name": "yaml",
       "title": "Editing YAML",
       "description": "A change to a ConfigMap's YAML, checked by the cluster and shown before it's saved.",

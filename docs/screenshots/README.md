@@ -131,6 +131,22 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | [![A shell in a running container.](shell-light-1x.webp)](shell-light.webp) | [![A shell in a running container.](shell-dark-1x.webp)](shell-dark.webp) |
 
+### Node shell
+
+`node-shell`: A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.
+
+| Light                                                                                                                                                       | Dark                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.](node-shell-light-1x.webp)](node-shell-light.webp) | [![A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.](node-shell-dark-1x.webp)](node-shell-dark.webp) |
+
+### Terminal
+
+`terminal`: A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.
+
+| Light                                                                                                                                         | Dark                                                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.](terminal-light-1x.webp)](terminal-light.webp) | [![A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.](terminal-dark-1x.webp)](terminal-dark.webp) |
+
 ### Editing YAML
 
 `yaml`: A change to a ConfigMap's YAML, checked by the cluster and shown before it's saved.
