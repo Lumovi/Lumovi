@@ -200,8 +200,10 @@ test('pods come and go, and streams pick up where they left off', async ({ page,
   await search.fill('back after the drop')
   await expect(log.locator('[data-level]')).toHaveCount(1)
 
-  // Without following, a stream that ends stays ended.
+  // Without following, a stream that ends stays ended. (Following, it shows the newest line
+  // once the search is cleared; then it stays there.)
   await search.fill('')
+  await expect(log).toContainText('back after the drop')
   await detail.getByRole('button', { name: 'Follow' }).click()
   await expect(log).toContainText('back after the drop')
   clusters.demo.endLogs('shop', PODS[0]!)
