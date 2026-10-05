@@ -26,6 +26,7 @@ import { OverviewTab } from './OverviewTab'
 import { PodsTab, podQuery } from './PodsTab'
 import { RelatedTab, relatedOf } from './RelatedTab'
 import { hasMetrics, MetricsTab } from '../metrics/MetricsTab'
+import { NodeShellTab } from './NodeShellTab'
 import { ShellTab } from './ShellTab'
 import { SidePanel, type PanelFrame } from './SidePanel'
 import { YamlTab } from './YamlTab'
@@ -167,6 +168,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
     { value: 'overview', label: 'Overview' },
     ...(pods ? [{ value: 'pods', label: ownPods?.name ?? 'Pods' }] : []),
     ...(podLogs ? [{ value: 'logs', label: 'Logs' }] : []),
+    ...(kind === 'Node' ? [{ value: 'shell', label: 'Shell' }] : []),
     ...(kind === 'Pod'
       ? [
           { value: 'logs', label: 'Logs' },
@@ -210,6 +212,11 @@ function DetailTabs({ object }: { object: KubeObject }) {
       {kind === 'Pod' && (
         <TabContent value="shell" className={cn(content, 'flex flex-col')}>
           <ShellTab pod={object} />
+        </TabContent>
+      )}
+      {kind === 'Node' && (
+        <TabContent value="shell" className={cn(content, 'flex flex-col')}>
+          <NodeShellTab node={object} />
         </TabContent>
       )}
       {metrics && (

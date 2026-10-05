@@ -12,6 +12,7 @@ import {
   type AppInfo,
   type KubeError,
   type MetricsSourceSetting,
+  type NodeShellSetting,
   type Result,
   type Settings,
 } from '@shared/api'
@@ -23,29 +24,37 @@ import { KubeService } from '@backend/kube/service'
 import { clusterSummary } from '@backend/kube/summary'
 import { Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
-import { isMetricsSourceSetting, type SettingsAccess } from '@backend/settings'
+import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from '@backend/settings'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { checkChartUrl } from './network'
 
-/** A page's preferences: its browser's, over the server's defaults and LUMOVI_READ_ONLY. */
+/**
+ * A page's preferences: its browser's, over the server's defaults,
+ * LUMOVI_READ_ONLY and LUMOVI_NODE_SHELL.
+ */
 class PagePreferences implements SettingsAccess {
   #readOnly: string[] = []
   #metricsSource: Record<string, MetricsSourceSetting> = {}
+  #nodeShell: Record<string, NodeShellSetting> = {}
 
   constructor(
     private readonly readOnlyAll: boolean,
     private readonly defaultSource: MetricsSourceSetting,
+    private readonly nodeShells: ServerConfig['nodeShell'],
   ) {}
 
   /** The browser's, as it sent them; anything that doesn't make sense is left out. */
   replace(settings: PageSettings): void {
-    const { readOnly, metricsSource } = settings
+    const { readOnly, metricsSource, nodeShell } = settings
     this.#readOnly = Array.isArray(readOnly)
       ? readOnly.filter((name) => typeof name === 'string')
       : []
     this.#metricsSource = Object.fromEntries(
       Object.entries(metricsSource ?? {}).filter(([, setting]) => isMetricsSourceSetting(setting)),
+    )
+    this.#nodeShell = Object.fromEntries(
+      Object.entries(nodeShell ?? {}).filter(([, setting]) => isNodeShellSetting(setting)),
     )
   }
 
@@ -55,8 +64,21 @@ class PagePreferences implements SettingsAccess {
       theme: 'system',
       readOnly: this.#readOnly,
       metricsSource: this.#metricsSource,
+      nodeShell: this.#nodeShell,
+      nodeShellDefault: this.nodeShells.setting,
       ...(this.readOnlyAll ? { readOnlyAll: true } : {}),
+      ...(this.nodeShells.off ? { nodeShellsOff: true } : {}),
     }
+  }
+
+  nodeShell(context: string): NodeShellSetting | null {
+    return this.nodeShells.off ? null : (this.#nodeShell[context] ?? this.nodeShells.setting)
+  }
+
+  setNodeShell(context: string, setting: NodeShellSetting | null): Settings {
+    const { [context]: _previous, ...others } = this.#nodeShell
+    this.#nodeShell = setting ? { ...others, [context]: setting } : others
+    return this.get()
   }
 
   isReadOnly(context: string): boolean {
@@ -133,6 +155,7 @@ export class PageConnection {
     const preferences = new PagePreferences(
       ['1', 'true'].includes(env.LUMOVI_READ_ONLY ?? ''),
       config.metricsSource,
+      config.nodeShell,
     )
     const isReadOnly = (context: string) => preferences.isReadOnly(context)
     const ready = Promise.resolve()
@@ -160,10 +183,17 @@ export class PageConnection {
       },
     })
     const deps = { store: configs, envReady: ready, isReadOnly }
-    const terminals = new Terminals(deps, {
-      data: (id, data) => this.#emit(IPC.terminalData, id, data),
-      exit: (id, exit) => this.#emit(IPC.terminalExit, id, exit),
-    })
+    const terminals = new Terminals(
+      {
+        ...deps,
+        nodeShell: (context) => preferences.nodeShell(context),
+        timeoutMs: kube.timeoutMs,
+      },
+      {
+        data: (id, data) => this.#emit(IPC.terminalData, id, data),
+        exit: (id, exit) => this.#emit(IPC.terminalExit, id, exit),
+      },
+    )
     const logs = new LogStreams(
       { ...deps, timeoutMs: kube.timeoutMs },
       {
@@ -198,7 +228,7 @@ export class PageConnection {
     this.#preferences = preferences
     socket.on('message', (data) => void this.#receive(data))
     socket.on('close', () => {
-      terminals.closeAll()
+      void terminals.closeAll()
       logs.stopAll()
     })
   }

@@ -1,9 +1,25 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { MetricsSourceSetting, Settings } from '@shared/api'
-import { isMetricsSourceSetting, isTheme, type SettingsAccess } from '@backend/settings'
+import {
+  NODE_SHELL_DEFAULTS,
+  type MetricsSourceSetting,
+  type NodeShellSetting,
+  type Settings,
+} from '@shared/api'
+import {
+  isMetricsSourceSetting,
+  isNodeShellSetting,
+  isTheme,
+  type SettingsAccess,
+} from '@backend/settings'
 
-const DEFAULTS: Settings = { theme: 'system', readOnly: [], metricsSource: {}, autoUpdate: true }
+const DEFAULTS: Settings = {
+  theme: 'system',
+  readOnly: [],
+  metricsSource: {},
+  nodeShell: {},
+  autoUpdate: true,
+}
 
 /** Persists user preferences as JSON in the app's userData directory. */
 export class SettingsStore implements SettingsAccess {
@@ -22,7 +38,11 @@ export class SettingsStore implements SettingsAccess {
   }
 
   get(): Settings {
-    return { ...this.#settings, ...(this.#readOnlyAll ? { readOnlyAll: true } : {}) }
+    return {
+      ...this.#settings,
+      nodeShellDefault: NODE_SHELL_DEFAULTS,
+      ...(this.#readOnlyAll ? { readOnlyAll: true } : {}),
+    }
   }
 
   isReadOnly(context: string): boolean {
@@ -45,7 +65,16 @@ export class SettingsStore implements SettingsAccess {
     })
   }
 
-  update(patch: Partial<Omit<Settings, 'readOnlyAll'>>): Settings {
+  nodeShell(context: string): NodeShellSetting {
+    return this.#settings.nodeShell![context] ?? NODE_SHELL_DEFAULTS
+  }
+
+  setNodeShell(context: string, setting: NodeShellSetting | null): Settings {
+    const { [context]: _previous, ...others } = this.#settings.nodeShell!
+    return this.update({ nodeShell: setting ? { ...others, [context]: setting } : others })
+  }
+
+  update(patch: Partial<Omit<Settings, 'readOnlyAll' | 'nodeShellDefault'>>): Settings {
     this.#settings = { ...this.#settings, ...patch }
     mkdirSync(this.dir, { recursive: true })
     writeFileSync(this.#file, JSON.stringify(this.#settings, null, 2))
@@ -66,6 +95,11 @@ export class SettingsStore implements SettingsAccess {
         metricsSource: Object.fromEntries(
           Object.entries(stored.metricsSource ?? {}).filter(([, setting]) =>
             isMetricsSourceSetting(setting),
+          ),
+        ),
+        nodeShell: Object.fromEntries(
+          Object.entries(stored.nodeShell ?? {}).filter(([, setting]) =>
+            isNodeShellSetting(setting),
           ),
         ),
         // On unless turned off.

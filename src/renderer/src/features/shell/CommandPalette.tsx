@@ -19,6 +19,7 @@ import {
   ShipWheel,
   Sun,
   Boxes,
+  SquareTerminal,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
@@ -46,11 +47,14 @@ import {
   workloadsPath,
   parseRef,
 } from '@renderer/lib/routes'
+import { api } from '@renderer/lib/api'
 import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { useSwitching } from '@renderer/state/session'
 import { useUi } from '@renderer/state/ui'
 import { useObjectActions, useRunAction } from '../actions/use-actions'
+import { useDock } from '../terminal/dock'
+import { TERMINAL_KEYS } from '../terminal/keys'
 import { CATEGORY_LABELS } from './Sidebar'
 
 const THEMES = [
@@ -98,7 +102,7 @@ export function CommandPalette() {
 }
 
 function Palette({ onDone }: { onDone: () => void }) {
-  const { context, setNamespace } = useCluster()
+  const { context, namespace, setNamespace } = useCluster()
   const [search, setSearch] = useState('')
   const contexts = useContexts().data?.contexts ?? []
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
@@ -310,6 +314,16 @@ function Palette({ onDone }: { onDone: () => void }) {
           >
             Create from YAML
           </Item>
+          {api.host === 'desktop' && (
+            <Item
+              icon={<SquareTerminal />}
+              value="New terminal kubectl shell this computer"
+              hint={<Keys keys={TERMINAL_KEYS.add} />}
+              onSelect={run(() => useDock.getState().add(context, namespace ?? undefined))}
+            >
+              New terminal
+            </Item>
+          )}
           <Item
             icon={<Settings2 />}
             value="Metrics source Prometheus VictoriaMetrics settings"

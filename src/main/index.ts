@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { app, Menu, nativeTheme, session } from 'electron'
-import { IPC } from '@shared/api'
+import { IPC, type ShellExit } from '@shared/api'
 import icon from '../../build/icon.png?asset'
 import { HelmService } from '@backend/helm/service'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
@@ -10,6 +10,8 @@ import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { viewsDirectory } from '@backend/views'
 import { registerIpc } from './ipc'
+import { LocalTerminals } from './local-terminal'
+import { TerminalKeys } from './terminal-keys'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
 import { loadLoginShellPath } from './shell-env'
@@ -51,10 +53,18 @@ if (!app.requestSingleInstanceLock()) {
       if (!win.isDestroyed()) win.webContents.send(channel, ...args)
     }
     const deps = { store, envReady, isReadOnly }
-    const terminals = new Terminals(deps, {
-      data: (id, data) => send(IPC.terminalData, id, data),
-      exit: (id, exit) => send(IPC.terminalExit, id, exit),
-    })
+    const shellEvents = {
+      data: (id: string, data: string) => send(IPC.terminalData, id, data),
+      exit: (id: string, exit: ShellExit) => send(IPC.terminalExit, id, exit),
+    }
+    const terminals = new Terminals(
+      { ...deps, nodeShell: (context) => settings.nodeShell(context), timeoutMs: kube.timeoutMs },
+      shellEvents,
+    )
+    const local = new LocalTerminals(
+      { store, envReady, env: process.env, isReadOnly, version: app.getVersion() },
+      shellEvents,
+    )
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
     const logs = new LogStreams(
       { ...deps, timeoutMs: kube.timeoutMs },
@@ -67,6 +77,14 @@ if (!app.requestSingleInstanceLock()) {
       (event) => send(IPC.updateChanged, event),
       settings.get().autoUpdate!,
     )
+    // A focused terminal's ⌘ keys are its own, before the menu's.
+    const terminalKeys = new TerminalKeys()
+    win.webContents.on('before-input-event', (event, input) => {
+      const command = terminalKeys.command(input)
+      if (!command) return
+      event.preventDefault()
+      send(IPC.command, command)
+    })
     win.on('enter-full-screen', () => send(IPC.fullScreen, true))
     win.on('leave-full-screen', () => send(IPC.fullScreen, false))
     // A page that (re)loads learns how the window is now.
@@ -77,6 +95,8 @@ if (!app.requestSingleInstanceLock()) {
       usage,
       settings,
       terminals,
+      local,
+      terminalKeys,
       forwards,
       logs,
       updates,
@@ -85,14 +105,27 @@ if (!app.requestSingleInstanceLock()) {
     })
     // Shells, forwards and log streams belong to the page that started them.
     const closeStreams = () => {
-      terminals.closeAll()
+      void terminals.closeAll()
+      local.closeAll()
       forwards.stopAll()
       logs.stopAll()
     }
     win.webContents.on('did-start-navigation', (details) => {
       if (!details.isSameDocument) closeStreams()
     })
-    app.on('will-quit', closeStreams)
+    // Node shells' pods are deleted as their shells end: quitting waits for that (a few
+    // seconds at most; their deadline ends any that are left).
+    let waited = false
+    app.on('will-quit', (event) => {
+      closeStreams()
+      if (waited || !terminals.cleaning) return
+      waited = true
+      event.preventDefault()
+      void Promise.race([
+        terminals.closeAll(),
+        new Promise((resolve) => setTimeout(resolve, 3_000)),
+      ]).then(() => app.quit())
+    })
     Menu.setApplicationMenu(buildMenu(win, { updates, settings }))
     app.on('second-instance', () => {
       if (win.isMinimized()) win.restore()

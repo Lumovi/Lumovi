@@ -39,6 +39,12 @@ export interface Settings {
   readOnlyAll?: boolean
   /** Where each context's metrics history comes from, when not detected automatically. */
   metricsSource?: Record<string, MetricsSourceSetting>
+  /** Where each context's node shells run, when not where they do by default. */
+  nodeShell?: Record<string, NodeShellSetting>
+  /** Where node shells run unless set for a context (a server's may differ); not stored. */
+  nodeShellDefault?: NodeShellSetting
+  /** Node shells are turned off (on a server, LUMOVI_NODE_SHELL=off); not stored. */
+  nodeShellsOff?: boolean
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
   autoUpdate?: boolean
 }
@@ -534,17 +540,59 @@ export interface Revision {
   current: boolean
 }
 
-export interface ShellRequest {
+/** A shell in one of a pod's containers (`kubectl exec -it`). */
+export interface ContainerShellRequest {
+  target: 'container'
   context: string
   namespace: string
   pod: string
   container: string
 }
 
+/**
+ * A shell on a node, through a short-lived privileged pod there (as
+ * `kubectl debug node` makes): in the node's own namespaces, as root on the
+ * node, or in the pod itself, with the node's files under /host (for nodes
+ * without a shell of their own).
+ */
+export interface NodeShellRequest {
+  target: 'node'
+  context: string
+  node: string
+  mode: 'node' | 'pod'
+}
+
+/** A shell on this computer, with kubectl pointed at `context` (the desktop app's). */
+export interface LocalShellRequest {
+  target: 'local'
+  context: string
+  /** The namespace kubectl uses there; the context's own unless set. */
+  namespace?: string
+}
+
+export type ShellRequest = ContainerShellRequest | NodeShellRequest | LocalShellRequest
+
+/** Where a context's node shells run: the namespace of their pods, and its image. */
+export interface NodeShellSetting {
+  namespace: string
+  image: string
+}
+
+/**
+ * Unless set otherwise: kube-system, where privileged pods are usually allowed,
+ * and an image with nsenter (as the kubectl node-shell plugin uses).
+ */
+export const NODE_SHELL_DEFAULTS: NodeShellSetting = {
+  namespace: 'kube-system',
+  image: 'alpine:3.22',
+}
+
 /** How a shell session ended: the exit code, or why it couldn't run. */
 export interface ShellExit {
   code?: number
   message?: string
+  /** What's left that Lumovi couldn't clean up, and why (a node shell's pod). */
+  left?: string
 }
 
 export type ForwardKind = 'Pod' | 'Service'
@@ -602,6 +650,11 @@ export interface LumoviApi {
     onCommand(listener: (command: AppCommand) => void): () => void
     /** Called when the window enters or leaves full screen (where macOS hides its window controls). */
     onFullScreen(listener: (fullScreen: boolean) => void): () => void
+    /**
+     * Says whether a terminal on this computer has focus: its ⌘ keys are then its own
+     * (⌘T, ⌘W…), not the menu's.
+     */
+    setTerminalFocus(focused: boolean): void
   }
   app: {
     info(): Promise<AppInfo>
@@ -609,6 +662,8 @@ export interface LumoviApi {
     setTheme(theme: ThemePreference): Promise<Settings>
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
+    /** Where `context`'s node shells run; NODE_SHELL_DEFAULTS (or the server's) to reset. */
+    setNodeShell(context: string, setting: NodeShellSetting | null): Promise<Settings>
     /** Opens a web page in the browser. */
     openExternal(url: string): Promise<boolean>
     /** Saves `text` as a file named `name` (asking where, on the desktop); false if the user cancels. */
@@ -672,7 +727,10 @@ export interface LumoviApi {
     /** Downloads a local chart's subcharts into its charts/ folder (`helm dependency update`). */
     updateDependencies(path: string): Promise<Result<null>>
   }
-  /** Interactive shells in containers (`kubectl exec -it`). */
+  /**
+   * Interactive shells: in containers (`kubectl exec -it`), on nodes, and, in
+   * the desktop app, on this computer.
+   */
   terminal: {
     /**
      * Starts a shell. The page picks the session's id, so it can listen for
@@ -720,11 +778,13 @@ export interface LumoviApi {
 /** Channel names, shared so the page and what answers it cannot drift apart. */
 export const IPC = {
   command: 'app:command',
+  terminalFocus: 'terminal:focus',
   appInfo: 'app:info',
   settings: 'app:settings',
   setTheme: 'app:set-theme',
   setReadOnly: 'app:set-read-only',
   setMetricsSource: 'app:set-metrics-source',
+  setNodeShell: 'app:set-node-shell',
   openExternal: 'app:open-external',
   saveFile: 'app:save-file',
   views: 'app:views',

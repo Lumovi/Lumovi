@@ -77,6 +77,11 @@ test('what only the desktop app does isn’t there', async ({ page, serve }) => 
   await expect(page.getByRole('menuitem', { name: 'Forward a port…' })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Port forwards' })).toHaveCount(0)
+  // Nor terminals on this computer: no button, no dock, and ⌃` does nothing.
+  await expect(page.getByRole('button', { name: /terminal/i })).toHaveCount(0)
+  await page.keyboard.press('Control+Backquote')
+  await page.keyboard.press('Control+Shift+Backquote')
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
 
   // Browsers keep ⌘N and ⌘1…6 for themselves.
   await expect(page.getByRole('button', { name: 'Create from YAML', exact: true })).toBeVisible()
@@ -85,6 +90,7 @@ test('what only the desktop app does isn’t there', async ({ page, serve }) => 
   const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(shortcuts).toContainText('Command palette')
   await expect(shortcuts).not.toContainText('Create from YAML')
+  await expect(shortcuts).not.toContainText('New terminal')
   await page.keyboard.press('Escape')
   await page.keyboard.press('ControlOrMeta+k')
   const palette = page.getByRole('dialog').filter({ has: page.getByRole('combobox') })

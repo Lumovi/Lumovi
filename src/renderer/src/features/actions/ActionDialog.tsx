@@ -1,11 +1,19 @@
-import { CircleAlert, LoaderCircle, TriangleAlert, type LucideIcon } from 'lucide-react'
+import {
+  CircleAlert,
+  LoaderCircle,
+  SquareTerminal,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Button } from '@renderer/components/Button'
+import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
+import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { looksLikeProduction } from '@renderer/lib/production'
 import { useCluster } from '@renderer/state/cluster'
+import { useDock } from '../terminal/dock'
 
 export interface ActionDialogProps {
   icon: LucideIcon
@@ -150,7 +158,20 @@ export function ActionDialog({
                 <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
                   {command}
                 </code>
-                <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                <span className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  {api.host === 'desktop' && (
+                    <IconButton
+                      label="Paste in terminal"
+                      className="size-7"
+                      onClick={() => {
+                        // Typed, not run: Enter in the terminal runs it.
+                        useDock.getState().paste(context, command)
+                        onClose()
+                      }}
+                    >
+                      <SquareTerminal />
+                    </IconButton>
+                  )}
                   <CopyButton text={command} label="Copy command" />
                 </span>
               </div>

@@ -182,7 +182,12 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            only: --x64
             executable: release/linux-unpacked/lumovi
+          # Built on the architecture it's for: terminals' node-pty is native.
+          - os: ubuntu-24.04-arm
+            only: --arm64
+            executable: release/linux-arm64-unpacked/lumovi
           # macOS 26, for the Xcode that compiles the Liquid Glass icon (build/Lumovi.icon).
           - os: macos-26
             executable: release/mac-arm64/Lumovi.app/Contents/MacOS/Lumovi
@@ -207,16 +212,20 @@ jobs:
       - run: npm run build
       # Playwright drives the app through the Node.js inspector, which release builds turn off.
       # (In bash: PowerShell would split the -c.… argument.)
-      - run: npx electron-builder --dir -c.electronFuses.enableNodeCliInspectArguments=true
+      - run: npx electron-builder --dir ${{ matrix.only }} -c.electronFuses.enableNodeCliInspectArguments=true
         shell: bash
       - if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The ARM image has fewer of the libraries a browser needs, and no virtual display.
+      - if: matrix.os == 'ubuntu-24.04-arm'
+        run: sudo npx playwright install-deps chromium
       - name: Smoke test the packaged app
         shell: bash
         env:
           LUMOVI_E2E_EXECUTABLE: ${{ github.workspace }}/${{ matrix.executable }}
         run: |
-          specs=(tests/e2e/welcome.spec.ts tests/e2e/overview.spec.ts)
+          # (Terminals too: node-pty, unpacked from the archive, signed where that's done.)
+          specs=(tests/e2e/welcome.spec.ts tests/e2e/overview.spec.ts tests/e2e/local-terminal.spec.ts)
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run --auto-servernum npx playwright test "${specs[@]}"
           else

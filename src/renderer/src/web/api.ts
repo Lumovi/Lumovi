@@ -107,6 +107,8 @@ export function createWebApi(): LumoviApi {
         settings(connection.invoke(IPC.setReadOnly, context, readOnly)),
       setMetricsSource: (context, setting) =>
         settings(connection.invoke(IPC.setMetricsSource, context, setting)),
+      setNodeShell: (context, setting) =>
+        settings(connection.invoke(IPC.setNodeShell, context, setting)),
       openExternal: async (url) => {
         // In a tab of its own, which can't reach back into this page.
         window.open(url, '_blank', 'noopener,noreferrer')

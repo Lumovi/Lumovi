@@ -15,11 +15,15 @@ import { toKubeError } from '@backend/kube/errors'
 import type { Forwards } from '@backend/kube/streams'
 import { assertString, invalid } from '@backend/kube/validate'
 import { isTheme } from '@backend/settings'
+import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
+import type { TerminalKeys } from './terminal-keys'
 import type { Updates } from './updates'
 
 interface Dependencies extends Backend {
   settings: SettingsStore
+  local: LocalTerminals
+  terminalKeys: TerminalKeys
   forwards: Forwards
   updates: Updates
   /** Only frames showing this URL may call into the main process. */
@@ -27,7 +31,7 @@ interface Dependencies extends Backend {
 }
 
 export function registerIpc(deps: Dependencies): void {
-  const { helm, settings, forwards, updates, rendererUrl } = deps
+  const { helm, settings, terminals, local, terminalKeys, forwards, updates, rendererUrl } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame?.url.startsWith(rendererUrl) === true
   const handle = (channel: string, handler: Handler) => {
@@ -99,6 +103,9 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.updateState]: () => updates.state(),
     [IPC.updateCheck]: () => updates.check(true),
     [IPC.updateInstall]: () => updates.install(),
+    // Terminals on this computer, besides the cluster's shells (each ignores the other's).
+    [IPC.terminalOpen]: (id, request) =>
+      LocalTerminals.handles(request) ? local.open(id, request) : terminals.open(id, request),
     [IPC.forwardStart]: (request) => forwards.start(request),
     [IPC.forwardList]: () => forwards.list(),
     [IPC.forwardStop]: (id) => forwards.stop(id),
@@ -107,5 +114,22 @@ export function registerIpc(deps: Dependencies): void {
   for (const [channel, handler] of Object.entries({ ...shared.invoke, ...desktop })) {
     handle(channel, handler)
   }
-  for (const [channel, handler] of Object.entries(shared.send)) on(channel, handler)
+  const desktopSend: Record<string, Handler> = {
+    [IPC.terminalInput]: (id, data) => {
+      terminals.write(id, data)
+      local.write(id, data)
+    },
+    [IPC.terminalResize]: (id, columns, rows) => {
+      terminals.resize(id, columns, rows)
+      local.resize(id, columns, rows)
+    },
+    [IPC.terminalClose]: (id) => {
+      terminals.close(id)
+      local.close(id)
+    },
+    [IPC.terminalFocus]: (focused) => terminalKeys.focus(focused),
+  }
+  for (const [channel, handler] of Object.entries({ ...shared.send, ...desktopSend })) {
+    on(channel, handler)
+  }
 }

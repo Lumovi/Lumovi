@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { GO_KEYS, navLabel, QUICK_NAV } from '@shared/navigation'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useUi } from '@renderer/state/ui'
+import { TERMINAL_KEYS } from '../terminal/keys'
 
 const SECTIONS: {
   title: string
@@ -40,6 +41,21 @@ const SECTIONS: {
       { keys: [MOD_KEY, 'S'], label: 'Review a YAML edit' },
     ],
   },
+  // On this computer, in the desktop app.
+  ...(WINDOW_SHORTCUTS
+    ? [
+        {
+          title: 'Terminal',
+          shortcuts: [
+            { keys: TERMINAL_KEYS.toggle, label: 'Show or hide the terminal' },
+            { keys: TERMINAL_KEYS.add, label: 'New terminal' },
+            { keys: TERMINAL_KEYS.close, label: 'Close the terminal' },
+            { keys: TERMINAL_KEYS.next, label: 'Next terminal', alt: TERMINAL_KEYS.previous },
+            { keys: ['F2'], label: 'Rename the terminal (on its tab)' },
+          ],
+        },
+      ]
+    : []),
   {
     title: 'Go to',
     shortcuts: GO_KEYS.map(({ key, target }) => {

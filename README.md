@@ -35,14 +35,14 @@ in your own cluster for your whole team to open in a browser.
 Lumovi is one app, built from one codebase and released as one version. Run it where it
 suits you:
 
-|                | Desktop app                                     | In your cluster                                                                                  |
-| -------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **For**        | You, on your own computer                       | Your team, in a browser                                                                          |
-| **Clusters**   | Every cluster in your kubeconfig                | The cluster it's installed in, or a fleet of clusters                                            |
-| **Signing in** | Your kubeconfig's credentials                   | A token, single sign-on (OpenID Connect) or an authenticating proxy, with each person's own RBAC |
-| **Install**    | Installers for macOS, Windows and Linux         | A Helm chart, or the container image                                                             |
-| **Updates**    | Updates itself                                  | `helm upgrade`                                                                                   |
-| **Only here**  | Port forwarding, Helm charts from your computer | Links to any page that the whole team can open, and nothing to install                           |
+|                | Desktop app                                   | In your cluster                                                                                  |
+| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **For**        | You, on your own computer                     | Your team, in a browser                                                                          |
+| **Clusters**   | Every cluster in your kubeconfig              | The cluster it's installed in, or a fleet of clusters                                            |
+| **Signing in** | Your kubeconfig's credentials                 | A token, single sign-on (OpenID Connect) or an authenticating proxy, with each person's own RBAC |
+| **Install**    | Installers for macOS, Windows and Linux       | A Helm chart, or the container image                                                             |
+| **Updates**    | Updates itself                                | `helm upgrade`                                                                                   |
+| **Only here**  | Port forwarding, terminals, local Helm charts | Links to any page that the whole team can open, and nothing to install                           |
 
 ## Features
 
@@ -79,8 +79,10 @@ suits you:
 - **Logs as they're written.** One pod's logs, or every pod of a workload merged in the order
   they were written. Search, keep only errors or warnings, read a crashed container's
   previous run, and copy or download what you see.
-- **Hands-on when you need it.** A shell in any container, debug containers with tools for
-  running pods (distroless ones too), and port forwarding to pods and services.
+- **Hands-on when you need it.** A shell in any container or on any node, debug containers
+  with tools for running pods (distroless ones too), and port forwarding to pods and
+  services. On the desktop, terminals with kubectl already pointed at the cluster you're
+  looking at, and every command Lumovi shows a click away from running there.
 - **Safe changes.** Scale, restart, roll back, change images, run CronJobs, cordon and drain
   nodes, edit labels or any object's YAML, create objects from YAML, one object or many at
   once. Every change checks your permissions first, shows the equivalent `kubectl` command,

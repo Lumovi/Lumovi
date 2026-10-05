@@ -16,6 +16,9 @@ interface Prefs {
   /** Width of the detail panel in pixels, when the user has resized it. */
   panelWidth?: number
   setPanelWidth: (width: number) => void
+  /** Height of the terminal dock in pixels, when the user has resized it. */
+  terminalHeight?: number
+  setTerminalHeight: (height: number) => void
   /** The time range metrics charts open with. */
   metricsRange: RangeId
   setMetricsRange: (range: RangeId) => void
@@ -45,6 +48,7 @@ export const usePrefs = create<Prefs>()(
           recent: [context, ...prefs.recent.filter((c) => c !== context)].slice(0, MAX_RECENT),
         })),
       setPanelWidth: (panelWidth) => set({ panelWidth }),
+      setTerminalHeight: (terminalHeight) => set({ terminalHeight }),
       metricsRange: '1h',
       setMetricsRange: (metricsRange) => set({ metricsRange }),
       pinned: [],

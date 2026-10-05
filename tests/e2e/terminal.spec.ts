@@ -71,6 +71,7 @@ test('a shell in a container', async ({ page, clusters }) => {
   await page.evaluate(
     (pod) =>
       window.lumovi!.terminal.open('someone-else', {
+        target: 'container',
         context: 'demo',
         namespace: 'shop',
         pod,
@@ -205,6 +206,7 @@ test('shells need exec access and a writable cluster', async ({ page, clusters }
   const refused = await page.evaluate(
     (pod) =>
       window.lumovi!.terminal.open('refused-session', {
+        target: 'container',
         context: 'demo',
         namespace: 'shop',
         pod,

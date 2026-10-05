@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { api } from '@renderer/lib/api'
 
 export const MOD_KEY = api.platform === 'darwin' ? '⌘' : 'Ctrl'
+/** The Control key itself, for shortcuts that use it on every platform (⌃` for the terminal). */
+export const CTRL_KEY = api.platform === 'darwin' ? '⌃' : 'Ctrl'
 
 /**
  * Whether ⌘N and ⌘1…6 are Lumovi's shortcuts: a browser keeps them for
