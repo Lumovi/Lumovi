@@ -123,14 +123,19 @@ export interface ContainerUsage {
 const BY = 'namespace, pod, container'
 
 /**
- * What right-sizing asks Prometheus, for every container in `namespace`: its
+ * What right-sizing asks Prometheus, for every container in `namespaces`: its
  * CPU's 95th percentile and peak, its memory's peak, when it was first seen,
  * how often its CPU was throttled, and its OOM kills (from kube-state-metrics,
- * when it's there). A namespace at a time, so a big cluster's week stays
- * within what Prometheus loads for one query, and answers in time.
+ * when it's there). A few namespaces at a time (see batchNamespaces), so a big
+ * cluster's week stays within what Prometheus loads for one query, and answers
+ * in time.
  */
-export function rightsizingQueries(namespace: string): { id: string; expr: string }[] {
-  const scope: Matcher[] = [['namespace', '=', namespace]]
+export function rightsizingQueries(namespaces: readonly string[]): { id: string; expr: string }[] {
+  const scope: Matcher[] = [
+    namespaces.length === 1
+      ? ['namespace', '=', namespaces[0]!]
+      : ['namespace', '=~', namespaces.map(escapeRegex).join('|')],
+  ]
   const containers = selector([...CONTAINERS, ...scope])
   const window = `${WINDOW}s`
   const cpu = `sum by (${BY}) (rate(container_cpu_usage_seconds_total${containers}[300s]))`
@@ -156,6 +161,49 @@ export function rightsizingQueries(namespace: string): { id: string; expr: strin
     { id: 'restarts', expr: increase('kube_pod_container_status_restarts_total', scope) },
   ]
 }
+
+/**
+ * Containers that one batch of right-sizing's queries is about, at most:
+ * enough that a big cluster takes dozens of batches rather than one per
+ * namespace, few enough that a week of them stays well within what Prometheus
+ * loads for a query (50 million samples, by default). A namespace with more
+ * is a batch of its own.
+ */
+export const BATCH_CONTAINERS = 1_000
+/**
+ * And its namespaces' names, together, at most: they're in each query's URL,
+ * which stays under the 8 KB proxies in front of Prometheus allow.
+ */
+const BATCH_NAMES = 4_000
+
+/**
+ * Namespaces in batches to ask Prometheus about together, by the containers
+ * in each (its pods' now: gone ones' weigh too, but aren't known): the biggest
+ * first, as their workloads matter most, and small ones together.
+ */
+export function batchNamespaces(
+  containers: ReadonlyMap<string, number>,
+  limit = BATCH_CONTAINERS,
+): string[][] {
+  const batches: { namespaces: string[]; containers: number; names: number }[] = []
+  const biggest = [...containers].sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+  for (const [namespace, count] of biggest) {
+    const batch = batches.find(
+      (b) => b.containers + count <= limit && b.names + namespace.length + 1 <= BATCH_NAMES,
+    )
+    if (batch) {
+      batch.namespaces.push(namespace)
+      batch.containers += count
+      batch.names += namespace.length + 1
+    } else {
+      batches.push({ namespaces: [namespace], containers: count, names: namespace.length })
+    }
+  }
+  return batches.map((b) => b.namespaces)
+}
+
+/** The ids of right-sizing's queries' results. */
+export const RIGHTSIZING_RESULTS = rightsizingQueries(['']).map((q) => q.id)
 
 export const workloadKey = (kind: string, namespace: string, name: string) =>
   `${kind}/${namespace}/${name}`

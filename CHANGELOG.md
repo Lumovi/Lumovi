@@ -6,6 +6,15 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Right-sizing works on clusters of thousands of namespaces. It asks Prometheus about many
+  namespaces at once, up to a thousand containers' worth, instead of one namespace at a time,
+  biggest first: a cluster of 3,000 namespaces takes dozens of queries rather than 24,000. When
+  Prometheus says a batch is too big (too many samples, or too slow), it's asked about in
+  halves. What's measured shows while the rest is, with how far it's got, and the workloads
+  come fifty a page.
+
 ## [1.2.0] - 2026-10-05
 
 Hands on: shells on nodes, and terminals on this computer with kubectl pointed at the cluster.

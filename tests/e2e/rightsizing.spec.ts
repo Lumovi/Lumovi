@@ -447,7 +447,16 @@ test.describe('right-sizing', () => {
   })
 
   test('when Prometheus or the cluster fail', async ({ page, clusters }) => {
-    // One namespace's answers fail: the others' are there.
+    // Namespaces asked about together are too many for Prometheus: they're asked about apart.
+    // And one namespace's answers fail: the others' are there.
+    const together = clusters.demo.fail(new RegExp(`${PROMETHEUS}/api/v1/query\\?.*namespace=~`), {
+      status: 422,
+      body: JSON.stringify({
+        status: 'error',
+        errorType: 'execution',
+        error: 'query processing would load too many samples into memory in query execution',
+      }),
+    })
     const one = clusters.demo.fail(new RegExp(`${PROMETHEUS}/api/v1/query\\?.*namespace="data"`), {
       status: 503,
       body: 'overloaded',
@@ -461,9 +470,11 @@ test.describe('right-sizing', () => {
     await page.getByRole('alert').getByRole('button', { name: 'Try again' }).click()
     await expect(page.getByRole('alert')).toHaveCount(0)
     await expect(workload(page, 'StatefulSet', 'redis')).toContainText('Over-provisioned')
+    together()
 
-    // All of them (but not the check that Prometheus is there).
-    const all = clusters.demo.fail(new RegExp(`${PROMETHEUS}/api/v1/query\\?.*namespace="`), {
+    // All of them (but not the check that Prometheus is there): not for being too big, so they
+    // aren't asked about apart.
+    const all = clusters.demo.fail(new RegExp(`${PROMETHEUS}/api/v1/query\\?.*namespace=~?"`), {
       status: 503,
       body: 'down',
     })
