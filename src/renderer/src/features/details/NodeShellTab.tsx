@@ -47,7 +47,8 @@ function debugCommand(context: string, node: string, setting: NodeShellSetting, 
           '-l',
         ]
       : ['sh', '-l']
-  return kubectl(
+  // Its own flags before `--`: what comes after it is the command the pod runs.
+  return `${kubectl(
     context,
     setting.namespace,
     'debug',
@@ -57,9 +58,7 @@ function debugCommand(context: string, node: string, setting: NodeShellSetting, 
     setting.image,
     '--profile',
     'sysadmin',
-    '--',
-    ...shell,
-  )
+  )} -- ${shell.join(' ')}`
 }
 
 /**
@@ -78,8 +77,10 @@ export function NodeShellTab({ node }: { node: KubeObject }) {
   const [attempt, setAttempt] = useState<{ n: number; mode: Mode; image: string } | null>(null)
   // Its settings, from the toolbar, or from a shell that failed (which, saved, starts over).
   const [editing, setEditing] = useState<'toolbar' | 'failure' | null>(null)
-  const [create, exec, remove] = useAccess([
+  // Its pod created, watched until it runs, a shell opened in it, and deleted.
+  const [create, read, exec, remove] = useAccess([
     { verb: 'create', kind: 'Pod', namespace: setting.namespace },
+    { verb: 'get', kind: 'Pod', namespace: setting.namespace },
     { verb: 'create', kind: 'Pod', namespace: setting.namespace, subresource: 'exec' },
     { verb: 'delete', kind: 'Pod', namespace: setting.namespace },
   ])
@@ -109,11 +110,11 @@ export function NodeShellTab({ node }: { node: KubeObject }) {
         needs.
       </EmptyState>
     )
-  } else if (create === false || exec === false) {
+  } else if (create === false || read === false || exec === false) {
     body = (
       <EmptyState icon={SquareTerminal} title="No node shell access">
-        Your account can’t create pods in {setting.namespace}, or open shells in them. A node shell
-        needs both: ask for them, or choose another namespace in its settings.
+        Your account can’t create pods in {setting.namespace}, read them, or open shells in them. A
+        node shell needs all three: ask for them, or choose another namespace in its settings.
       </EmptyState>
     )
   } else if (!attempt) {
@@ -256,13 +257,18 @@ function Session({
 }) {
   const [session] = useState(() => new TerminalSession(request))
   const phase = usePhase(session)
-  // Nodes without a shell of their own (Talos, Bottlerocket): there's the pod's.
-  const noShell = phase.state === 'ended' && request.mode === 'node' && phase.exit.code === 127
+  // Before anything's typed (after, it's the last command's), how a shell on the node ends says
+  // what it lacks. Nodes without a shell of their own (Talos, Bottlerocket): there's the pod's.
+  const lacks = (code: number) =>
+    phase.state === 'ended' && request.mode === 'node' && phase.exit.code === code && !session.typed
+  const noShell = lacks(127)
+  // An image without nsenter, which a shell on the node itself needs: another image has.
+  const noNsenter = lacks(125)
   // An image without one (distroless, say): another image has.
   const noImageShell =
     phase.state === 'ended' && /executable file not found/.test(phase.exit.message ?? '')
   // What went wrong, for which settings may be the answer.
-  const fixable = phase.state === 'failed' || noImageShell
+  const fixable = phase.state === 'failed' || noImageShell || noNsenter
   // Under it, once ended: why, and what became of its pod.
   const exit = phase.state === 'ended' ? phase.exit : undefined
   const detail =
@@ -272,7 +278,9 @@ function Session({
         ? 'Talos and Bottlerocket nodes, say, have none. The pod’s shell has the node’s files under /host.'
         : noImageShell
           ? 'A node shell’s image needs sh, and nsenter for shells on the node itself: alpine has both.'
-          : undefined,
+          : noNsenter
+            ? 'A shell on the node itself runs the image’s nsenter: alpine has it. (A shell in the pod doesn’t need it.)'
+            : undefined,
       exit.left ?? (noShell ? undefined : 'Its pod was deleted.'),
     ]
       .filter(Boolean)
@@ -285,9 +293,11 @@ function Session({
           ? `${request.node} has no shell of its own.`
           : noImageShell
             ? `${image} has no shell.`
-            : phase.exit.code === undefined
-              ? phase.exit.message!
-              : `The shell exited with code ${phase.exit.code}.`
+            : noNsenter
+              ? `${image} has no nsenter.`
+              : phase.exit.code === undefined
+                ? phase.exit.message!
+                : `The shell exited with code ${phase.exit.code}.`
         : undefined
 
   return (

@@ -76,6 +76,30 @@ test('a node shell as whoever is signed in', async ({ page, context, serve, clus
     .toBe(1)
 })
 
+test('a server stopped (a rollout) deletes the node shells’ pods first', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const served = await serve({ env: PROXY })
+  await as(context, 'frank@example.com')
+  const detail = await shellTab(page, served.url)
+  await detail.getByRole('button', { name: 'Start shell' }).click()
+  const screen = page.getByRole('region', { name: `Shell on ${NODE}` }).locator('.xterm-rows')
+  await expect(screen).toContainText(`root@${NODE}:~#`)
+  const deletes = () => clusters.demo.requests.filter((r) => r.method === 'DELETE').length
+  expect(deletes()).toBe(0)
+  // Stopped as Kubernetes stops it, it waits for the pod to be deleted (which takes a while).
+  clusters.demo.fail(/^\/api\/v1\/namespaces\/kube-system\/pods\/lumovi-node-shell-\w+$/, {
+    delayMs: 1500,
+  })
+  const stopping = Date.now()
+  await served.stop()
+  expect(Date.now() - stopping).toBeGreaterThanOrEqual(1400)
+  expect(deletes()).toBe(1)
+})
+
 test('a server that turned node shells off', async ({ page, context, serve }) => {
   const served = await serve({ env: { ...PROXY, LUMOVI_NODE_SHELL: 'off' } })
   await as(context, 'frank@example.com')

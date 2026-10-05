@@ -140,6 +140,8 @@ function isMessage(value: unknown): value is ClientMessage {
 }
 
 export class PageConnection {
+  /** Once its page has gone and what it started is cleaned up (node shells' pods deleted). */
+  readonly ended: Promise<void>
   readonly #invoke: Record<string, Handler>
   readonly #send: Record<string, Handler>
   readonly #preferences: PagePreferences
@@ -227,9 +229,11 @@ export class PageConnection {
     this.#send = shared.send
     this.#preferences = preferences
     socket.on('message', (data) => void this.#receive(data))
-    socket.on('close', () => {
-      void terminals.closeAll()
-      logs.stopAll()
+    this.ended = new Promise((resolve) => {
+      socket.on('close', () => {
+        logs.stopAll()
+        void terminals.closeAll().then(resolve)
+      })
     })
   }
 
