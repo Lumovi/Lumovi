@@ -1061,13 +1061,26 @@ test('Lumovi sets Claude Desktop, Cursor and VS Code up', async ({ launch }) => 
   expect(written).toEqual({
     mcpServers: {
       github: { command: 'gh-mcp' },
-      lumovi: {
-        command: expect.any(String),
-        // Its settings folder: the app's (as the system names it: /private/var for /var, say).
-        args: expect.arrayContaining([
-          expect.stringMatching(new RegExp(`^--mcp-stdio=.+${basename(lumovi.userDataDir)}$`)),
-        ]),
-      },
+      // Its settings folder: the app's (as the system names it: /private/var for /var, say). On
+      // Windows, the bridge runs as Node.
+      lumovi:
+        process.platform === 'win32'
+          ? {
+              command: expect.any(String),
+              args: [
+                expect.stringMatching(/[\\/]out[\\/]mcp-stdio[\\/]bridge\.cjs$/),
+                expect.stringMatching(new RegExp(`${basename(lumovi.userDataDir)}$`)),
+              ],
+              env: { ELECTRON_RUN_AS_NODE: '1' },
+            }
+          : {
+              command: expect.any(String),
+              args: expect.arrayContaining([
+                expect.stringMatching(
+                  new RegExp(`^--mcp-stdio=.+${basename(lumovi.userDataDir)}$`),
+                ),
+              ]),
+            },
     },
     theme: 'dark',
   })
@@ -1103,16 +1116,25 @@ test('Lumovi sets Claude Desktop, Cursor and VS Code up', async ({ launch }) => 
 /** How Claude Desktop starts Lumovi, as Lumovi set it up; the stdio bridge for another settings folder. */
 async function bridgeCommand(page: Page, config: string, settings?: string) {
   await page.evaluate(() => window.lumovi!.assistants!.install('claude-desktop'))
-  const { command, args } = JSON.parse(readFileSync(config, 'utf8')).mcpServers.lumovi as {
+  const {
+    command,
+    args,
+    env = {},
+  } = JSON.parse(readFileSync(config, 'utf8')).mcpServers.lumovi as {
     command: string
     args: string[]
+    env?: Record<string, string>
   }
-  return {
-    command,
-    args: settings
-      ? args.map((arg) => (arg.startsWith('--mcp-stdio=') ? `--mcp-stdio=${settings}` : arg))
-      : args,
-  }
+  // The settings folder is the bridge's last argument, as Node; or its --mcp-stdio.
+  const elsewhere = (arg: string, i: number) =>
+    env.ELECTRON_RUN_AS_NODE
+      ? i === args.length - 1
+        ? settings!
+        : arg
+      : arg.startsWith('--mcp-stdio=')
+        ? `--mcp-stdio=${settings}`
+        : arg
+  return { command, env, args: settings ? args.map(elsewhere) : args }
 }
 
 /** The bridge's environment: the test's, with coverage. */
@@ -1124,11 +1146,11 @@ const bridgeEnv = (extra: Record<string, string> = {}) => ({
 
 /** Lines to the bridge, and the lines it answers with, until it ends. */
 function talk(
-  bridge: { command: string; args: string[] },
+  bridge: { command: string; args: string[]; env: Record<string, string> },
   lines: string[],
   env: Record<string, string> = {},
 ): Promise<Record<string, unknown>[]> {
-  const child = spawn(bridge.command, bridge.args, { env: bridgeEnv(env) })
+  const child = spawn(bridge.command, bridge.args, { env: bridgeEnv({ ...bridge.env, ...env }) })
   let out = ''
   child.stdout.on('data', (chunk) => (out += chunk))
   child.stdin.end(lines.map((line) => `${line}\n`).join(''))
@@ -1158,7 +1180,9 @@ test('Claude Desktop talks to Lumovi through a bridge, which starts Lumovi when 
 
   // As Claude Desktop does: Lumovi, started with stdin and stdout to talk over.
   const client = new Client({ name: 'claude-ai', version: '0.14.0' })
-  await client.connect(new StdioClientTransport({ ...bridge, env: bridgeEnv(), stderr: 'ignore' }))
+  await client.connect(
+    new StdioClientTransport({ ...bridge, env: bridgeEnv(bridge.env), stderr: 'ignore' }),
+  )
   await expect
     .poll(() => page.evaluate(() => window.lumovi!.assistants!.status().then((s) => s.clients)))
     .toEqual([expect.objectContaining({ name: 'Claude' })])
@@ -1206,11 +1230,12 @@ test('Claude Desktop talks to Lumovi through a bridge, which starts Lumovi when 
       },
     }),
   )
+  const starting = await bridgeCommand(page, config, settings)
   const away = new Client({ name: 'claude-ai', version: '0.14.0' })
   await away.connect(
     new StdioClientTransport({
-      ...(await bridgeCommand(page, config, settings)),
-      env: bridgeEnv(),
+      ...starting,
+      env: bridgeEnv(starting.env),
       stderr: 'ignore',
     }),
   )

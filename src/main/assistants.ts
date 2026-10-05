@@ -44,8 +44,8 @@ export interface AssistantsDeps {
   attention(proposal: ChangeProposal): void
   /** Opens an install link in the assistant it's for. */
   open(url: string): Promise<void>
-  /** How Claude Desktop starts Lumovi to talk to it (`Lumovi --mcp-stdio`). */
-  stdio: { command: string; args: string[] }
+  /** How Claude Desktop starts Lumovi to talk to it (`Lumovi --mcp-stdio`, or run as Node). */
+  stdio: { command: string; args: string[]; env?: Record<string, string> }
   /** Claude Desktop's settings file, where it's installed (macOS and Windows). */
   claudeDesktopConfig?: string
 }
