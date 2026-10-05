@@ -9,7 +9,10 @@ import type { ClusterFixture } from '../types.ts'
 /** Its namespaces' names: team-0000, team-0001… */
 export const tenant = (i: number) => `team-${String(i).padStart(4, '0')}`
 
-export function manyNamespacesCluster(count: number, now = Date.now()): ClusterFixture {
+export function manyNamespacesCluster(
+  count: number,
+  { name = tenant, now = Date.now() }: { name?: (i: number) => string; now?: number } = {},
+): ClusterFixture {
   const b = clusterBuilder(now)
   for (let n = 0; n < 4; n++) {
     b.node({
@@ -39,7 +42,7 @@ export function manyNamespacesCluster(count: number, now = Date.now()): ClusterF
     ],
   }
   for (let i = 0; i < count; i++) {
-    const namespace = tenant(i)
+    const namespace = name(i)
     b.namespace(namespace, 30 * DAY)
     // Some busy, most idle, as tenants are.
     const replicas = 1 + (i % 3)

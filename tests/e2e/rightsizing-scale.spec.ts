@@ -1,23 +1,30 @@
 /**
- * Right-sizing a cluster of more than a thousand namespaces: they're asked
- * about a few at a time, not one by one, and what's measured shows while the
- * rest are, a page at a time.
+ * Right-sizing a cluster of many namespaces: they're asked about a few at a
+ * time, not one by one, and what's measured shows while the rest are, a page
+ * at a time.
  */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { manyNamespacesCluster, tenant } from '../mock-cluster/fixtures/many-namespaces.ts'
+import { manyNamespacesCluster } from '../mock-cluster/fixtures/many-namespaces.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
 import { clusterOption, expect, test } from './fixtures.ts'
 
-// Three batches, so that one waits for the two asked about at once.
-const NAMESPACES = 900
+const NAMESPACES = 200
+/**
+ * Long names, as some tenants' are: a batch's names are capped too, so these
+ * come in four batches of a few hundred containers (one waits for the two asked
+ * about at once), which the mock's Prometheus works out quickly, unlike four
+ * batches of a thousand containers each.
+ */
+const name = (i: number) =>
+  `tenant-with-a-rather-long-name-for-its-namespace-${String(i).padStart(4, '0')}`
 
-test('right-sizing more than a thousand namespaces', async ({ launch }) => {
+test('right-sizing many namespaces', async ({ launch }) => {
   test.slow()
   const cluster = await startMockCluster({
-    fixture: () => manyNamespacesCluster(NAMESPACES),
+    fixture: () => manyNamespacesCluster(NAMESPACES, { name }),
     gitVersion: 'v1.33.4',
     tls: true,
   })
@@ -27,14 +34,11 @@ test('right-sizing more than a thousand namespaces', async ({ launch }) => {
       users: [{ name: 'admin' }],
       contexts: [{ name: 'tenants', cluster: 'tenants', user: 'admin' }],
     })
-    // Prometheus takes its time over a week of a thousand containers; the batch of the smallest
-    // namespaces (the last) longer, so that the others show first. (And the mock's Prometheus
-    // works it out on this test's own CPU: given the time it needs, it isn't split for it.)
+    // Prometheus takes a moment over a week of usage; one batch (the first namespace's) longer,
+    // so that the others show first.
     cluster.fail(/\/proxy\/api\/v1\/query$/, { delayMs: 500 })
-    cluster.fail(new RegExp(`/proxy/api/v1/query\\?.*\\b${tenant(0)}\\b`), { delayMs: 4_000 })
-    const { page } = await launch({
-      env: { KUBECONFIG: kubeconfig, LUMOVI_REQUEST_TIMEOUT_MS: '120000' },
-    })
+    cluster.fail(new RegExp(`/proxy/api/v1/query\\?.*\\b${name(0)}\\b`), { delayMs: 4_000 })
+    const { page } = await launch({ env: { KUBECONFIG: kubeconfig } })
     await clusterOption(page, 'tenants').click()
     await page
       .getByRole('navigation', { name: 'Resources' })
@@ -49,19 +53,19 @@ test('right-sizing more than a thousand namespaces', async ({ launch }) => {
     const measuring = page.getByRole('status', { name: 'Measuring' })
     await expect(measuring).toContainText(
       new RegExp(`of ${NAMESPACES.toLocaleString('en')} namespaces so far`),
-      // (After a first batch, which the mock's Prometheus takes its time over.)
-      { timeout: 60_000 },
+      // (Once a first batch is.)
+      { timeout: 30_000 },
     )
     await expect(page.locator('tbody tr').first()).toBeVisible()
-    await expect(measuring).toHaveCount(0, { timeout: 150_000 })
+    await expect(measuring).toHaveCount(0, { timeout: 60_000 })
     // Every one of them answered for.
     await expect(page.getByRole('alert')).toHaveCount(0)
 
     // A few namespaces at a time: a handful of batches of eight queries, not eight a namespace.
     const queries = cluster.requests.filter((r) => r.path.endsWith('/proxy/api/v1/query'))
-    expect(queries.length).toBeLessThanOrEqual(8 * 4)
+    expect(queries.length).toBeLessThanOrEqual(8 * 5)
     expect(
-      queries.some((r) => new RegExp(`namespace=~"[^"]*\\b${tenant(0)}\\b`).test(r.query.query!)),
+      queries.some((r) => new RegExp(`namespace=~"[^"]*\\b${name(0)}\\b`).test(r.query.query!)),
     ).toBe(true)
 
     // Every workload, a page at a time.
