@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { manyNamespacesCluster } from '../mock-cluster/fixtures/many-namespaces.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
-import { clusterOption, expect, test } from './fixtures.ts'
+import { expect, openCluster, test } from './fixtures.ts'
 
 const NAMESPACES = 120
 /**
@@ -43,15 +43,9 @@ test('right-sizing many namespaces', async ({ launch }) => {
     const { page } = await launch({
       env: { KUBECONFIG: kubeconfig, LUMOVI_REQUEST_TIMEOUT_MS: '90000' },
     })
-    await clusterOption(page, 'tenants').click()
-    await page
-      .getByRole('navigation', { name: 'Resources' })
-      .getByRole('link', { name: 'Metrics' })
-      .click()
-    await page
-      .getByRole('navigation', { name: 'Metrics views' })
-      .getByRole('link', { name: 'Right-sizing' })
-      .click()
+    await openCluster(page, 'tenants')
+    // Straight there: the usage page on the way would ask Prometheus too.
+    await page.evaluate(() => (location.hash = '#/cluster/tenants/metrics/right-sizing'))
 
     // What's measured shows while the rest is.
     const measuring = page.getByRole('status', { name: 'Measuring' })
@@ -67,7 +61,7 @@ test('right-sizing many namespaces', async ({ launch }) => {
 
     // A few namespaces at a time: a handful of batches of eight queries, not eight a namespace.
     const queries = cluster.requests.filter(
-      (r) => r.path.endsWith('/proxy/api/v1/query') && r.query.query!.includes('namespace'),
+      (r) => r.path.endsWith('/proxy/api/v1/query') && r.query.query!.includes('namespace=~"'),
     )
     expect(queries.length).toBe(8 * 3)
     expect(
