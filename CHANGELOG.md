@@ -14,9 +14,10 @@ All notable changes to Lumovi are documented here. The format follows
   all but sensitive ones, or none); and whether they read logs. Rules say otherwise for some
   clusters and namespaces, by name, pattern (`tenant-*`) or label (`team=payments`), or leave
   one out (`!kube-system`), so one rule covers thousands; where rules overlap, the strictest
-  wins. A namespace a rule hides isn't there for assistants; a cluster's own objects follow
-  the rules that name no namespaces, and deleting a custom resource definition (which deletes
-  its objects everywhere) is refused unless assistants may change every namespace. The tab counts what assistants
+  wins. A namespace a rule hides isn't there for assistants. A change to a cluster's own
+  objects (nodes, custom resource definitions, cluster roles, webhooks…) can reach every
+  namespace, so it's decided as the strictest of them all: not made where one is hidden,
+  refused or hides its Secrets. The tab counts what assistants
   see, change and read over every namespace, checks any one (and which rule decided), and
   shows what assistants are told as they start, and the tools keep to it all.
 - On a server, each person's are kept in a ConfigMap the Helm chart makes (or a file under
