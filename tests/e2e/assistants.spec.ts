@@ -714,8 +714,16 @@ test('Manifests are applied as kubectl apply --server-side does', async ({ page,
     await call(client, 'apply_manifest', { cluster: 'demo', manifest: 'kind: [ConfigMap', reason }),
   ).toEqual({
     error: true,
-    text: expect.stringMatching(/^The manifest isn’t valid YAML: /),
+    text: expect.stringMatching(/^The manifest isn’t valid YAML \(line 1, column \d+\): /),
   })
+  // Where it's wrong, never what's there: a Secret's value, it may be.
+  const broken = await call(client, 'apply_manifest', {
+    cluster: 'demo',
+    manifest: 'kind: Secret\nstringData:\n  password: hunter2: oops',
+    reason,
+  })
+  expect(broken.text).toMatch(/^The manifest isn’t valid YAML \(line 3, column \d+\): /)
+  expect(broken.text).not.toContain('hunter2')
   expect(
     await call(client, 'apply_manifest', {
       cluster: 'demo',

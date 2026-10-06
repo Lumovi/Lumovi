@@ -25,13 +25,23 @@ export const isRefusal = (code: KubeErrorCode) =>
   code === 'forbidden' || code === 'unauthorized' || code === 'read-only' || code === 'not-allowed'
 
 /** How a result came out: refused where the cluster, or Lumovi, doesn't allow it. */
-export function outcomeOf(result: Result<unknown>): { outcome: AuditOutcome; error?: string } {
+export function outcomeOf(
+  result: Result<unknown>,
+  kind?: string,
+): { outcome: AuditOutcome; error?: string } {
   if (result.ok) return { outcome: 'success' }
   return {
     outcome: isRefusal(result.error.code) ? 'refused' : 'failure',
-    error: result.error.message,
+    error: errorAbout(kind, result.error.message),
   }
 }
+
+/**
+ * What went wrong, as it's recorded: about a Secret, without what it quotes (what the cluster,
+ * or an admission webhook, quotes of one may be a value).
+ */
+export const errorAbout = (kind: string | undefined, message: string) =>
+  kind === 'Secret' ? message.replace(/"(?:[^"\\]|\\.)*"/g, '"…"') : message
 
 /**
  * Whether Lumovi turned it down as it came (it isn't one at all, or misses what it needs):
@@ -183,7 +193,7 @@ export function describeChange(r: ChangeRequest, result: Result<KubeObject | nul
   }
   return {
     action,
-    ...outcomeOf(result),
+    ...outcomeOf(result, r.kind),
     cluster: r.context,
     target: {
       kind: r.kind,
