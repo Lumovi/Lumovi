@@ -219,6 +219,46 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.](audit-checked-light-1x.webp)](audit-checked-light.webp) | [![The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.](audit-checked-dark-1x.webp)](audit-checked-dark.webp) |
 
+### Access, for admins
+
+`access`, served from a cluster: Who may do what through Lumovi: Lumovi’s groups, each the identity provider’s groups and people by name, with who’s in them as they last signed in, and the provider’s groups seen at sign-in.
+
+| Light                                                                                                                                                                                                                                        | Dark                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [![Who may do what through Lumovi: Lumovi’s groups, each the identity provider’s groups and people by name, with who’s in them as they last signed in, and the provider’s groups seen at sign-in.](access-light-1x.webp)](access-light.webp) | [![Who may do what through Lumovi: Lumovi’s groups, each the identity provider’s groups and people by name, with who’s in them as they last signed in, and the provider’s groups seen at sign-in.](access-dark-1x.webp)](access-dark.webp) |
+
+### Access profiles
+
+`access-profiles`, served from a cluster: Profiles side by side: what everyone signed in gets, and what developers, operators and auditors get where grants give it, with what shows Secret values or runs code on nodes marked.
+
+| Light                                                                                                                                                                                                                                                  | Dark                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Profiles side by side: what everyone signed in gets, and what developers, operators and auditors get where grants give it, with what shows Secret values or runs code on nodes marked.](access-profiles-light-1x.webp)](access-profiles-light.webp) | [![Profiles side by side: what everyone signed in gets, and what developers, operators and auditors get where grants give it, with what shows Secret values or runs code on nodes marked.](access-profiles-dark-1x.webp)](access-profiles-dark.webp) |
+
+### Grants and limits
+
+`access-rules`, served from a cluster: Grants that give groups a profile in some clusters and namespaces, and limits that hold anyone back wherever they match: one open, with who it names and how far it reaches.
+
+| Light                                                                                                                                                                                                                                  | Dark                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [![Grants that give groups a profile in some clusters and namespaces, and limits that hold anyone back wherever they match: one open, with who it names and how far it reaches.](access-rules-light-1x.webp)](access-rules-light.webp) | [![Grants that give groups a profile in some clusters and namespaces, and limits that hold anyone back wherever they match: one open, with who it names and how far it reaches.](access-rules-dark-1x.webp)](access-rules-dark.webp) |
+
+### Check someone
+
+`access-check`, served from a cluster: What someone may do in a namespace, and which grant or limit says so: Dan, an on-call developer, in the shop on production.
+
+| Light                                                                                                                                                                                 | Dark                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![What someone may do in a namespace, and which grant or limit says so: Dan, an on-call developer, in the shop on production.](access-check-light-1x.webp)](access-check-light.webp) | [![What someone may do in a namespace, and which grant or limit says so: Dan, an on-call developer, in the shop on production.](access-check-dark-1x.webp)](access-check-dark.webp) |
+
+### Your access
+
+`your-access`, served from a cluster: What Lumovi lets someone do, cluster by cluster, and why: their groups, the grants that give them more than everyone gets, and the limits that hold them back.
+
+| Light                                                                                                                                                                                                                  | Dark                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![What Lumovi lets someone do, cluster by cluster, and why: their groups, the grants that give them more than everyone gets, and the limits that hold them back.](your-access-light-1x.webp)](your-access-light.webp) | [![What Lumovi lets someone do, cluster by cluster, and why: their groups, the grants that give them more than everyone gets, and the limits that hold them back.](your-access-dark-1x.webp)](your-access-dark.webp) |
+
 ### An AI assistant’s change
 
 `assistant-approval`: A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.

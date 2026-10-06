@@ -170,6 +170,46 @@
       "dark": { "2x": "audit-checked-dark.webp", "1x": "audit-checked-dark-1x.webp" }
     },
     {
+      "name": "access",
+      "title": "Access, for admins",
+      "description": "Who may do what through Lumovi: Lumovi’s groups, each the identity provider’s groups and people by name, with who’s in them as they last signed in, and the provider’s groups seen at sign-in.",
+      "app": "server",
+      "light": { "2x": "access-light.webp", "1x": "access-light-1x.webp" },
+      "dark": { "2x": "access-dark.webp", "1x": "access-dark-1x.webp" }
+    },
+    {
+      "name": "access-profiles",
+      "title": "Access profiles",
+      "description": "Profiles side by side: what everyone signed in gets, and what developers, operators and auditors get where grants give it, with what shows Secret values or runs code on nodes marked.",
+      "app": "server",
+      "light": { "2x": "access-profiles-light.webp", "1x": "access-profiles-light-1x.webp" },
+      "dark": { "2x": "access-profiles-dark.webp", "1x": "access-profiles-dark-1x.webp" }
+    },
+    {
+      "name": "access-rules",
+      "title": "Grants and limits",
+      "description": "Grants that give groups a profile in some clusters and namespaces, and limits that hold anyone back wherever they match: one open, with who it names and how far it reaches.",
+      "app": "server",
+      "light": { "2x": "access-rules-light.webp", "1x": "access-rules-light-1x.webp" },
+      "dark": { "2x": "access-rules-dark.webp", "1x": "access-rules-dark-1x.webp" }
+    },
+    {
+      "name": "access-check",
+      "title": "Check someone",
+      "description": "What someone may do in a namespace, and which grant or limit says so: Dan, an on-call developer, in the shop on production.",
+      "app": "server",
+      "light": { "2x": "access-check-light.webp", "1x": "access-check-light-1x.webp" },
+      "dark": { "2x": "access-check-dark.webp", "1x": "access-check-dark-1x.webp" }
+    },
+    {
+      "name": "your-access",
+      "title": "Your access",
+      "description": "What Lumovi lets someone do, cluster by cluster, and why: their groups, the grants that give them more than everyone gets, and the limits that hold them back.",
+      "app": "server",
+      "light": { "2x": "your-access-light.webp", "1x": "your-access-light-1x.webp" },
+      "dark": { "2x": "your-access-dark.webp", "1x": "your-access-dark-1x.webp" }
+    },
+    {
       "name": "assistant-approval",
       "title": "An AI assistant’s change",
       "description": "A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.",
