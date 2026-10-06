@@ -1278,6 +1278,18 @@ test('Claude Desktop talks to Lumovi through a bridge, which starts Lumovi when 
     id: 1,
     error: { code: -32000, message: off },
   })
+  // Settings naming somewhere other than a port of this computer: nothing's sent.
+  expect(
+    (await answer({ enabled: true, port: `${status.port}@evil.example`, token: status.token }))[1],
+  ).toEqual({
+    jsonrpc: '2.0',
+    id: 1,
+    error: {
+      code: -32000,
+      message:
+        'Lumovi’s settings name no port it listens on: open Lumovi, and choose AI assistants’ port again.',
+    },
+  })
   // Lumovi has never been started, to say how it's started.
   expect((await answer({ enabled: true, port: closed, token: status.token }))[1]).toEqual({
     jsonrpc: '2.0',

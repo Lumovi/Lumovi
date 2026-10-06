@@ -29,6 +29,10 @@ export interface AssistantsSetting {
 export const isPort = (value: unknown): value is number =>
   Number.isInteger(value) && (value as number) >= 1_024 && (value as number) <= 65_535
 
+/** What a token looks like: a random one, URL-safe. */
+export const isToken = (value: unknown): value is string =>
+  typeof value === 'string' && /^[\w-]{32,}$/.test(value)
+
 /** The assistants Lumovi shows how to connect, and sets up where it can. */
 export type AssistantClient = 'claude-code' | 'claude-desktop' | 'cursor' | 'vscode'
 
