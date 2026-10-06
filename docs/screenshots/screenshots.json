@@ -126,10 +126,32 @@
     {
       "name": "assistants",
       "title": "AI assistants",
-      "description": "AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.",
+      "description": "AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.",
       "app": "desktop",
       "light": { "2x": "assistants-light.webp", "1x": "assistants-light-1x.webp" },
       "dark": { "2x": "assistants-dark.webp", "1x": "assistants-dark-1x.webp" }
+    },
+    {
+      "name": "assistant-permissions",
+      "title": "What AI assistants may do",
+      "description": "What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.",
+      "app": "desktop",
+      "light": {
+        "2x": "assistant-permissions-light.webp",
+        "1x": "assistant-permissions-light-1x.webp"
+      },
+      "dark": {
+        "2x": "assistant-permissions-dark.webp",
+        "1x": "assistant-permissions-dark-1x.webp"
+      }
+    },
+    {
+      "name": "assistant-rule",
+      "title": "A rule for AI assistants",
+      "description": "A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.",
+      "app": "desktop",
+      "light": { "2x": "assistant-rule-light.webp", "1x": "assistant-rule-light-1x.webp" },
+      "dark": { "2x": "assistant-rule-dark.webp", "1x": "assistant-rule-dark-1x.webp" }
     },
     {
       "name": "assistant-approval",
