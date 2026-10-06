@@ -501,10 +501,11 @@ export function accessHandlers(
       },
       [IPC.accessHistory]: (after) => {
         admin()
-        if (after !== undefined && (typeof after !== 'string' || !/^\d+$/.test(after))) {
-          throw new Error('Where the page ended isn’t one Lumovi gave.')
-        }
-        return audit.query({ actions: ['access.changed'], after, limit: 50 }, () => true)
+        // Where a page ended, as the audit log gave it: anything else, it says it didn't.
+        return audit.query(
+          { actions: ['access.changed'], after: after as string | undefined, limit: 50 },
+          () => true,
+        )
       },
     },
     stop: () => void stop(),

@@ -4,7 +4,7 @@
  * user), and found on its Audit page, its objects' Audit tabs, and from
  * wherever else changes show.
  */
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -284,6 +284,20 @@ test('what’s done in the desktop app is kept on this computer, and found again
     Array.from({ length: kept.length }, (_, i) => kept.length - i),
   )
   expect(kept.at(-1)!.summary).toBe('Made sandbox read-only in Lumovi')
+})
+
+test('a folder the history can’t be kept in: kept in memory, and said why', async ({ launch }) => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  // Where its folder would be, a file.
+  writeFileSync(join(userDataDir, 'audit'), 'not a folder')
+  const { page } = await launch({ userDataDir })
+  await page.evaluate(() => window.lumovi!.app.setReadOnly('sandbox', true))
+  await go(page, '/audit')
+  await expect(row(page, 'Made sandbox read-only in Lumovi')).toBeVisible()
+  // (Its path as the system has it: through /private, on a Mac.)
+  await expect(page.getByRole('main')).toContainText(
+    /Kept in memory until Lumovi quits: \S*lumovi-user-\w+[/\\]audit can’t be used: EEXIST/,
+  )
 })
 
 test('who may do what is a server’s: the desktop app has no Access pages', async ({ page }) => {

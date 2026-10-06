@@ -253,6 +253,7 @@ export function auditHistory(day: string, more: [string, AuditInput][] = []): st
       type: 'lumovi.audit' as const,
       version: 1 as const,
       id: `screenshots-${i + 1}`,
+      chain: 'screenshots',
       seq: i + 1,
       time: `${day}T${time}.000Z`,
       category: AUDIT_ACTIONS[input.action],

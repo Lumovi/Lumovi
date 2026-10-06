@@ -8,15 +8,22 @@
 import { createHash } from 'node:crypto'
 import type { AuditEvent, AuditVerification } from '@shared/audit'
 
-/** JSON with every object's keys in order, so the same event always has the same text. */
+/** As jq writes a string: JSON's escapes, and DEL (U+007F) too. */
+const text = (value: string) => JSON.stringify(value).replace(/\u007f/g, '\\u007f')
+
+/**
+ * JSON with every object's keys in order, so the same event always has the same text: the text
+ * `jq -jcS 'del(.hash)'` writes, so anyone can check a hash with jq and sha256sum.
+ */
 export function canonical(value: unknown): string {
+  if (typeof value === 'string') return text(value)
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, v]) => v !== undefined)
-    // Keys are each other's own: never the same.
-    .sort(([a], [b]) => (a < b ? -1 : 1))
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
+    // By code point, as jq sorts them (not UTF-16's units); keys are each other's own, never the same.
+    .sort(([a], [b]) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+  return `{${entries.map(([k, v]) => `${text(k)}:${canonical(v)}`).join(',')}}`
 }
 
 export const hashOf = (event: Omit<AuditEvent, 'hash'>): string =>
@@ -24,33 +31,40 @@ export const hashOf = (event: Omit<AuditEvent, 'hash'>): string =>
     .update(canonical({ ...event, hash: undefined }))
     .digest('hex')
 
+/** How many places a check lists where the chain doesn't hold: past that, how many more. */
+const LISTED = 100
+
+type Break = AuditVerification['breaks'][number]
+
 /** Checks events in order, oldest first: whether each follows from the one before it. */
 export class ChainCheck {
   #last: AuditEvent | undefined
   #checked = 0
   #first: AuditEvent | undefined
-  #broken: AuditVerification['broken']
+  readonly #breaks: Break[] = []
+  #more = 0
 
-  /** Takes the next event; false where the chain is broken (check nothing after it). */
-  add(event: AuditEvent): boolean {
+  /** Takes the next event: where it doesn't follow, that's said, and the check goes on from it. */
+  add(event: AuditEvent) {
     const reason = this.#reasonAgainst(event)
-    if (reason) {
-      this.#broken = { seq: event.seq, time: event.time, reason }
-      return false
-    }
+    if (reason) this.#break({ seq: event.seq, time: event.time, reason })
     this.#first ??= event
     this.#last = event
     this.#checked++
-    return true
   }
 
-  /** An event that couldn't be read at all, where the next should have been. */
+  /** A line that can't be read as an event at all, where the next should have been. */
   unreadable(where: string) {
-    this.#broken ??= {
+    this.#break({
       seq: (this.#last?.seq ?? 0) + 1,
       time: this.#last?.time ?? '',
       reason: `${where} can’t be read as an audit event.`,
-    }
+    })
+  }
+
+  #break(broken: Break) {
+    if (this.#breaks.length < LISTED) this.#breaks.push(broken)
+    else this.#more++
   }
 
   #reasonAgainst(event: AuditEvent): string | undefined {
@@ -59,8 +73,12 @@ export class ChainCheck {
     }
     const last = this.#last
     if (!last) return undefined
-    // A new chain starts where the server started with nothing to follow (memory, or a new volume).
-    if (event.seq === 1 && event.prev === '') return undefined
+    if (event.seq === 1 && event.prev === '') {
+      return `A new chain starts here, after event ${last.seq}: Lumovi started again without the events before it (they were removed, or couldn’t be read).`
+    }
+    if (event.chain !== last.chain) {
+      return 'It’s from another chain than the event before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
+    }
     if (event.seq <= last.seq) {
       return `It’s number ${event.seq}, after number ${last.seq}: one was repeated, or moved.`
     }
@@ -76,11 +94,14 @@ export class ChainCheck {
   }
 
   result(): AuditVerification {
+    const last = this.#last
     return {
       checked: this.#checked,
       from: this.#first?.time,
-      to: this.#last?.time,
-      broken: this.#broken,
+      to: last?.time,
+      ...(last ? { last: { seq: last.seq, hash: last.hash } } : {}),
+      breaks: this.#breaks,
+      more: this.#more,
     }
   }
 }
