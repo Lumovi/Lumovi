@@ -49,6 +49,7 @@ export const AUDIT_ACTIONS = {
   'port-forward.close': 'access',
   'logs.read': 'access',
   'secret.read': 'access',
+  'helm.values.read': 'access',
   // Signing in to a server, and out.
   'session.sign-in': 'sign-in',
   'session.sign-out': 'sign-in',
@@ -61,6 +62,7 @@ export const AUDIT_ACTIONS = {
   // What decides what may be done.
   'permissions.changed': 'settings',
   'read-only.changed': 'settings',
+  'node-shell.changed': 'settings',
   'assistants.changed': 'settings',
   'access.changed': 'settings',
   // The server itself, and its audit log.
@@ -172,9 +174,18 @@ export type AuditLevel = 'changes' | 'access'
 export const isAuditLevel = (value: unknown): value is AuditLevel =>
   value === 'changes' || value === 'access'
 
-/** Whether an action is recorded at a level. */
-export const recordedAt = (level: AuditLevel, action: AuditAction): boolean =>
-  level === 'access' || (AUDIT_ACTIONS[action] !== 'access' && action !== 'assistant.tool')
+/**
+ * Whether it's recorded at a level. An assistant's tool calls are kept at access; but one that
+ * changes, refused (where its namespace is hidden, say), is a change asked for: kept at changes.
+ */
+export const recordedAt = (
+  level: AuditLevel,
+  { action, outcome, details }: Pick<AuditInput, 'action' | 'outcome' | 'details'>,
+): boolean =>
+  level === 'access' ||
+  (action === 'assistant.tool'
+    ? outcome === 'refused' && details?.changing === true
+    : AUDIT_ACTIONS[action] !== 'access')
 
 // ——— Finding events ———
 

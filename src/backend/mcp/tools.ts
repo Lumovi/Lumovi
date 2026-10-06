@@ -143,6 +143,14 @@ const refused = (message: string): CallToolResult => {
   return result
 }
 
+/** What came to nothing, nobody's doing (unanswered, or withdrawn): recorded as cancelled. */
+const cancellations = new WeakSet<CallToolResult>()
+const cancelled = (message: string): CallToolResult => {
+  const result = failed(message)
+  cancellations.add(result)
+  return result
+}
+
 /**
  * Not allowed, thrown: the assistant reads `message` (a hidden namespace's "not found", as
  * the API would say), and the audit log why it really was (`why`).
@@ -205,7 +213,11 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
   const server = {
     registerTool: ((
       name: string,
-      config: { title: string; inputSchema?: unknown },
+      config: {
+        title: string
+        inputSchema?: unknown
+        annotations?: { readOnlyHint?: boolean }
+      },
       handler: (...args: unknown[]) => Promise<CallToolResult> | CallToolResult,
     ) =>
       mcp.registerTool(
@@ -229,7 +241,12 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
                 ? { target: { ...target, ...(typeof namespace === 'string' ? { namespace } : {}) } }
                 : {}),
               summary: `${config.title}${target ? `: ${target.kind} ${target.name}` : ''}`,
-              details: { tool: name, ...argumentsOf(input) },
+              details: {
+                tool: name,
+                // One that changes: refused, it's kept however little the log records.
+                ...(config.annotations?.readOnlyHint === false ? { changing: true } : {}),
+                ...argumentsOf(input),
+              },
               ...(error ? { error } : {}),
             })
           }
@@ -237,7 +254,13 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
             const result = await handler(...args)
             const said = result.isError ? String((result.content[0] as { text?: string }).text) : ''
             record(
-              result.isError ? (refusals.has(result) ? 'refused' : 'failure') : 'success',
+              result.isError
+                ? refusals.has(result)
+                  ? 'refused'
+                  : cancellations.has(result)
+                    ? 'cancelled'
+                    : 'failure'
+                : 'success',
               said,
             )
             return result
@@ -797,7 +820,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     const scope = c.target.kind === 'Namespace' ? c.target.name : c.target.namespace
     const place = scope ? `${scope} in ${c.context}` : c.context
     /** What became of it, in the audit log: as asked, and answered (when it was). */
-    const asked = Date.now()
+    let waited = 0
     const audit = (
       outcome: AuditOutcome,
       approval: AuditApproval['status'] | undefined,
@@ -826,7 +849,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
                 status: approval,
                 ...(approval === 'approved' || approval === 'rejected' ? { by: t.audit.user } : {}),
                 ...(approval === 'rejected' && error ? { note: error } : {}),
-                ...(approval === 'unasked' ? {} : { waitedMs: Date.now() - asked }),
+                ...(approval === 'unasked' ? {} : { waitedMs: waited }),
               },
             }
           : {}),
@@ -917,23 +940,26 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       return make(true)
     }
     extra.signal.throwIfAborted()
+    // How long the person took: from when they're asked, to their answer.
+    const asked = Date.now()
     t.approvals.ask(proposal, async (answer) => {
+      waited = Date.now() - asked
       if ('withdrawn' in answer) {
         t.outcome({ proposal, status: 'withdrawn' })
-        audit('cancelled', 'withdrawn', 'The assistant stopped waiting for an answer.')
-        return failed('Withdrawn: nothing was changed.')
+        audit('cancelled', 'withdrawn', answer.withdrawn)
+        return cancelled(`Withdrawn: ${answer.withdrawn} Nothing was changed.`)
       }
       if ('expired' in answer) {
         t.outcome({ proposal, status: 'expired' })
         audit('cancelled', 'expired', `Nobody answered within ${WAIT}.`)
-        return failed(
+        return cancelled(
           `Nobody approved it in Lumovi within ${WAIT}: nothing was changed. Ask the person to look at Lumovi, and try again.`,
         )
       }
       if (!answer.approved) {
         t.outcome({ proposal, status: 'rejected', ...(answer.note ? { error: answer.note } : {}) })
         audit('refused', 'rejected', answer.note)
-        return failed(
+        return refused(
           `The person rejected it in Lumovi${answer.note ? `, saying: “${answer.note}”` : ''}. Nothing was changed.`,
         )
       }

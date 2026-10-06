@@ -23,7 +23,8 @@ export const WAIT_SLICE_MS = Number(process.env.LUMOVI_APPROVAL_SLICE_MS) || 50_
 export const approvalTime = (ms = APPROVAL_TIMEOUT_MS) =>
   ms >= 60_000 ? `${Math.round(ms / 60_000)} minutes` : `${Math.round(ms / 1000)} seconds`
 
-export type Answer = ProposalDecision | { expired: true } | { withdrawn: true }
+/** The person's answer; or none in time; or none to be had (withdrawn: why). */
+export type Answer = ProposalDecision | { expired: true } | { withdrawn: string }
 
 /** A page's answer, checked: a change's id, whether it's approved, and maybe a note. */
 export function checkedDecision(id: unknown, decision: unknown): [string, ProposalDecision] {
@@ -83,7 +84,8 @@ export class Approvals {
         resolve(outcome)
       }
       const slice = setTimeout(() => done('waiting'), WAIT_SLICE_MS)
-      const withdraw = () => this.#waiting.get(id)?.answer({ withdrawn: true })
+      const withdraw = () =>
+        this.#waiting.get(id)?.answer({ withdrawn: 'The assistant stopped waiting for an answer.' })
       signal.addEventListener('abort', withdraw, { once: true })
       void result.then(done)
     })
@@ -95,13 +97,13 @@ export class Approvals {
   }
 
   /** Withdraws everything waiting: assistants may no longer ask (they were turned off, say). */
-  withdrawAll(): void {
-    for (const id of [...this.#waiting.keys()]) this.withdraw(id)
+  withdrawAll(why: string): void {
+    for (const id of [...this.#waiting.keys()]) this.withdraw(id, why)
   }
 
   /** Withdraws one, if it's still waiting: its assistant may no longer ask (it was let go, say). */
-  withdraw(id: string): void {
-    this.#waiting.get(id)?.answer({ withdrawn: true })
+  withdraw(id: string, why: string): void {
+    this.#waiting.get(id)?.answer({ withdrawn: why })
   }
 
   /** What's waiting now, oldest first. */
