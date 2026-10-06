@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-06
+
+What AI assistants may do, and where: defaults, and rules for some clusters and namespaces,
+which the tools keep to, on the desktop and on a server, where administrators set limits
+nobody loosens.
+
 ### Added
 
 - What AI assistants may do, and where: a Permissions tab, in the desktop app and on a server.
@@ -293,7 +299,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Lumovi/Lumovi/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Lumovi/Lumovi/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Lumovi/Lumovi/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Lumovi/Lumovi/compare/v1.1.0...v1.2.0
