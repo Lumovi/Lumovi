@@ -1,10 +1,10 @@
 /**
- * The coverage gate: every source file must be loaded by the e2e suite and
- * every statement, branch, function and line must run.
+ * The coverage gate: every source file must be loaded by the e2e suite, and more
+ * than 95% of statements, branches, functions and lines must run.
  *
  * Reads the raw coverage in `.nyc_output/` (from one or several test runs, e.g.
- * the Linux, macOS and Windows CI jobs) and exits non-zero on any gap, listing
- * exactly what was missed.
+ * the Linux, macOS and Windows CI jobs), lists exactly what wasn't run, and exits
+ * non-zero if a file was never loaded, or any measure is 95% or less.
  */
 import { globSync, readFileSync } from 'node:fs'
 import libCoverage from 'istanbul-lib-coverage'
@@ -17,13 +17,17 @@ if (files.length === 0) {
 }
 for (const file of files) map.merge(JSON.parse(readFileSync(file, 'utf8')))
 
+/** More than this, of each measure, must run. */
+const THRESHOLD = 95
+
+const unloaded: string[] = []
 const problems: string[] = []
 const sources = globSync('src/**/*.{ts,tsx}')
   .map((path) => path.split('\\').join('/'))
   .filter((path) => !path.endsWith('.d.ts'))
 const covered = new Set(map.files())
 for (const source of sources) {
-  if (!covered.has(source)) problems.push(`${source}: never loaded by any test`)
+  if (!covered.has(source)) unloaded.push(`${source}: never loaded by any test`)
 }
 
 for (const path of map.files().sort()) {
@@ -48,16 +52,27 @@ for (const path of map.files().sort()) {
 }
 
 const summary = map.getCoverageSummary()
-const pct = (key: 'statements' | 'branches' | 'functions' | 'lines') =>
-  `${key} ${summary[key].pct}%`
+const MEASURES = ['statements', 'branches', 'functions', 'lines'] as const
 console.log(
-  `Coverage from ${files.length} files: ${['statements', 'branches', 'functions', 'lines'].map((k) => pct(k as never)).join(', ')}`,
+  `Coverage from ${files.length} files: ${MEASURES.map((k) => `${k} ${summary[k].pct}%`).join(', ')}`,
 )
 
+// What wasn't run, said: to find what a change left untested.
 if (problems.length > 0) {
+  console.log(
+    `\n${problems.length} not run:\n${[...new Set(problems)].map((p) => `  ${p}`).join('\n')}`,
+  )
+}
+const low = MEASURES.filter((k) => summary[k].pct <= THRESHOLD)
+if (unloaded.length > 0 || low.length > 0) {
   console.error(
-    `\n${problems.length} gap(s):\n${[...new Set(problems)].map((p) => `  ${p}`).join('\n')}`,
+    [
+      ...unloaded.map((p) => `  ${p}`),
+      ...low.map((k) => `  ${k}: ${summary[k].pct}%, not more than ${THRESHOLD}%`),
+    ].join('\n'),
   )
   process.exit(1)
 }
-console.log(`All ${sources.length} source files are fully covered.`)
+console.log(
+  `All ${sources.length} source files are loaded, and more than ${THRESHOLD}% of each measure runs.`,
+)

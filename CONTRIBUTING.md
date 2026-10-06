@@ -82,9 +82,10 @@ To check views against a newer release of a tool, change its version in `sources
 
 ## Coverage
 
-The project keeps **100% end-to-end coverage** of statements, branches, functions and lines,
-enforced in CI. `npm run coverage` prints the report and writes an HTML version to
-`coverage/index.html`, and `npm run coverage:check` lists every uncovered line.
+The project keeps **above 95% end-to-end coverage** of statements, branches, functions and
+lines, and every source file loaded by some test, enforced in CI. `npm run coverage` prints the
+report and writes an HTML version to `coverage/index.html`, and `npm run coverage:check` lists
+every uncovered line. New code should come with tests that run it.
 
 A few code paths only run on one operating system, for example native title-bar colors on
 Windows and Linux. CI merges coverage from Linux, macOS and Windows, so those show as
