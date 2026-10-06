@@ -80,6 +80,8 @@ export function suggestions(
     const labels = new Set(
       pool.flatMap((ns) =>
         Object.entries(labelsOf(ns))
+          // Not the label every namespace has, which only says its name.
+          .filter(([key]) => key !== NAME_LABEL)
           .filter(([key, value]) => key.startsWith(body) || value.startsWith(body))
           .map(([key, value]) => `${key}=${value}`),
       ),
@@ -102,6 +104,9 @@ export function suggestions(
 }
 
 const KIND = { name: 'Name', pattern: 'Pattern', label: 'Label' } as const
+
+/** The label Kubernetes gives every namespace: its name, again. */
+export const NAME_LABEL = 'kubernetes.io/metadata.name'
 
 /** What a matcher is, for its chip: "pattern", "label", "not"… */
 export function matcherKind(text: string): string {
