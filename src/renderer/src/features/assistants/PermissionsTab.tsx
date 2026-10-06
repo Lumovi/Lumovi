@@ -40,6 +40,7 @@ import {
   choicesOf,
   formatCount,
   matcherKind,
+  NAME_LABEL,
   plural,
   SETTING_TEXT,
   sourceText,
@@ -919,7 +920,7 @@ function Decision({
         </span>
         {/* Not the label every namespace has, which only says its name. */}
         {Object.entries(ns.labels)
-          .filter(([key]) => key !== 'kubernetes.io/metadata.name')
+          .filter(([key]) => key !== NAME_LABEL)
           .map(([key, value]) => (
             <span
               key={key}
