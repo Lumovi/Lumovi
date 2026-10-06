@@ -23,6 +23,7 @@ import { CopyButton } from '@renderer/components/CopyButton'
 import { Switch } from '@renderer/components/Switch'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { cn } from '@renderer/lib/cn'
+import { useSettings } from '@renderer/hooks/settings'
 import { Card } from './PageParts'
 
 type AssistantsApi = NonNullable<LumoviApi['assistants']>
@@ -60,6 +61,8 @@ export function AssistantsButton({ assistants }: { assistants: AssistantsApi }) 
 export function DesktopConnectTab({ assistants }: { assistants: AssistantsApi }) {
   const queryClient = useQueryClient()
   const status = useAssistantsStatus(assistants)
+  // Turned off by the organization's policy: they can't be turned on here.
+  const managedOff = useSettings().data?.managed?.assistantsOff === true
   const [busy, setBusy] = useState(false)
   if (!status) return null
   const configure = async (change: { enabled?: boolean; port?: number }) => {
@@ -85,7 +88,7 @@ export function DesktopConnectTab({ assistants }: { assistants: AssistantsApi })
           <Switch
             label="Let AI assistants connect"
             checked={status.enabled}
-            disabled={busy}
+            disabled={busy || managedOff}
             onCheckedChange={(enabled) => void configure({ enabled })}
           />
         </span>
@@ -99,14 +102,26 @@ export function DesktopConnectTab({ assistants }: { assistants: AssistantsApi })
             configure={(change) => void configure(change)}
           />
         ) : (
-          <Off busy={busy} onTurnOn={() => void configure({ enabled: true })} />
+          <Off
+            busy={busy}
+            managedOff={managedOff}
+            onTurnOn={() => void configure({ enabled: true })}
+          />
         )}
       </div>
     </Card>
   )
 }
 
-function Off({ busy, onTurnOn }: { busy: boolean; onTurnOn: () => void }) {
+function Off({
+  busy,
+  managedOff,
+  onTurnOn,
+}: {
+  busy: boolean
+  managedOff: boolean
+  onTurnOn: () => void
+}) {
   const points: [LucideIcon, string, string][] = [
     [
       Eye,
@@ -136,10 +151,17 @@ function Off({ busy, onTurnOn }: { busy: boolean; onTurnOn: () => void }) {
           </li>
         ))}
       </ul>
-      <Button variant="primary" className="mt-5" disabled={busy} onClick={onTurnOn}>
-        {busy && <LoaderCircle className="animate-spin" />}
-        Turn on
-      </Button>
+      {managedOff ? (
+        <p className="mt-5 flex items-center gap-2 text-[13px] text-ink-2">
+          <Lock className="size-4 shrink-0 text-ink-3" />
+          Your organization’s policy turns AI assistants off on this computer.
+        </p>
+      ) : (
+        <Button variant="primary" className="mt-5" disabled={busy} onClick={onTurnOn}>
+          {busy && <LoaderCircle className="animate-spin" />}
+          Turn on
+        </Button>
+      )}
     </div>
   )
 }

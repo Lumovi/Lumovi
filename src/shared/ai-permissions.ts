@@ -393,6 +393,44 @@ export function checkedRule(given: unknown, where: string, own: boolean): AiRule
   }
 }
 
+/**
+ * An administrator's rules (a server's LUMOVI_ASSISTANT_RULES, a desktop's policy), checked:
+ * a list of { name, clusters, namespaces, and the settings each limits }. Throws what's wrong,
+ * where (`name`).
+ */
+export function checkedLimits(entries: unknown, name: string): AiRule[] {
+  if (!Array.isArray(entries)) {
+    throw new Error(
+      `${name} must be a list of rules, each with a name, where it applies, and what it limits.`,
+    )
+  }
+  return entries.map((entry: unknown, i) => {
+    const at = `${name}[${i}]`
+    const { name: called, clusters, namespaces, ...set } = Object(entry) as Record<string, unknown>
+    const rule = checkedRule(
+      typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+        ? { name: called, clusters, namespaces, set }
+        : entry,
+      at,
+      false,
+    )
+    if (Object.keys(rule.set).length === 0) {
+      throw new Error(
+        `${at} (${rule.name}) limits nothing: give it visibility, changes, secrets, env or logs.`,
+      )
+    }
+    // The loosest of a setting is no limit at all.
+    for (const [key, value] of Object.entries(rule.set) as [AiSetting, string][]) {
+      if ((AI_SETTINGS[key] as readonly string[]).indexOf(value) === 0) {
+        throw new Error(
+          `${at} (${rule.name}) says ${key}: ${value}, which limits nothing: it’s the loosest there is.`,
+        )
+      }
+    }
+    return rule
+  })
+}
+
 /** A person's own, as a page sends them or as they were kept, checked. */
 export function checkedPermissions(given: unknown): AiPermissions {
   if (typeof given !== 'object' || given === null) throw new Error('Expected AI permissions.')

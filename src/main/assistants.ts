@@ -144,6 +144,9 @@ export class Assistants {
   }
 
   async configure(change: { enabled?: boolean; port?: number }): Promise<AssistantsStatus> {
+    if (change.enabled && this.deps.settings.get().managed?.assistantsOff) {
+      throw new Error('Your organization’s policy turns AI assistants off on this computer.')
+    }
     this.deps.settings.update({ assistants: { ...this.#setting, ...change } })
     await this.start()
     return this.status()
@@ -269,7 +272,7 @@ export class Assistants {
     const { kube, settings, version } = this.deps
     const server = createMcpServer(version, {
       kube,
-      policy: () => ({ mine: settings.aiPermissions(), admin: [] }),
+      policy: () => ({ mine: settings.aiPermissions(), admin: settings.adminRules() }),
       approvals: this.approvals,
       outcome: (outcome) => this.deps.send(IPC.assistantsOutcome, outcome),
       // Its tools are called once it has said who it is.

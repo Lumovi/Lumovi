@@ -7,14 +7,7 @@ import { createHash } from 'node:crypto'
 import { delimiter, join } from 'node:path'
 import { parse } from 'yaml'
 import { NODE_SHELL_DEFAULTS, type MetricsSourceSetting, type NodeShellSetting } from '@shared/api'
-import {
-  AI_SETTINGS,
-  checkedRule,
-  parseMatcher,
-  type AiRule,
-  type AiSetting,
-  type Matcher,
-} from '@shared/ai-permissions'
+import { checkedLimits, parseMatcher, type AiRule, type Matcher } from '@shared/ai-permissions'
 import { isAiChanges, type AiChanges } from '@shared/assistants'
 import { checkedPolicy, type BasePolicy } from '@shared/access'
 import { AUDIT_EXPORT_LIMIT, isAuditLevel, type AuditLevel } from '@shared/audit'
@@ -558,41 +551,11 @@ function adminRules(setting: string | undefined): AiRule[] {
     if (error instanceof ConfigError) throw error
     throw new ConfigError(`${name} isn’t YAML: ${(error as Error).message.split('\n')[0]}`)
   }
-  if (!Array.isArray(entries)) {
-    throw new ConfigError(
-      `${name} must be a list of rules, each with a name, where it applies, and what it limits.`,
-    )
+  try {
+    return checkedLimits(entries, name)
+  } catch (error) {
+    throw new ConfigError((error as Error).message, { cause: error })
   }
-  return entries.map((entry: unknown, i) => {
-    const at = `${name}[${i}]`
-    const { name: called, clusters, namespaces, ...set } = Object(entry) as Record<string, unknown>
-    let rule: AiRule
-    try {
-      rule = checkedRule(
-        typeof entry === 'object' && entry !== null && !Array.isArray(entry)
-          ? { name: called, clusters, namespaces, set }
-          : entry,
-        at,
-        false,
-      )
-    } catch (error) {
-      throw new ConfigError((error as Error).message)
-    }
-    if (Object.keys(rule.set).length === 0) {
-      throw new ConfigError(
-        `${at} (${rule.name}) limits nothing: give it visibility, changes, secrets, env or logs.`,
-      )
-    }
-    // The loosest of a setting is no limit at all.
-    for (const [key, value] of Object.entries(rule.set) as [AiSetting, string][]) {
-      if ((AI_SETTINGS[key] as readonly string[]).indexOf(value) === 0) {
-        throw new ConfigError(
-          `${at} (${rule.name}) says ${key}: ${value}, which limits nothing: it’s the loosest there is.`,
-        )
-      }
-    }
-    return rule
-  })
 }
 
 /** Where people's own AI rules are kept: see RulesKeeping. */
