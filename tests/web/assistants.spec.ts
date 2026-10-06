@@ -4,125 +4,12 @@
  * clusters that person can, and the changes they ask for wait on the person's
  * own pages.
  */
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import type { BrowserContext, Page } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import {
-  UnauthorizedError,
-  type OAuthClientProvider,
-} from '@modelcontextprotocol/sdk/client/auth.js'
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import type {
-  OAuthClientInformationMixed,
-  OAuthClientMetadata,
-  OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js'
-import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js'
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { DEMO, expect, PEOPLE, refusedConfig, signIn, test, type Served } from './fixtures.ts'
-
-/** Where an assistant is sent back to with its code: a server of its own, on this computer. */
-async function callback(): Promise<{
-  url: string
-  answer: Promise<URLSearchParams>
-  close(): void
-}> {
-  let answered!: (query: URLSearchParams) => void
-  const answer = new Promise<URLSearchParams>((resolve) => (answered = resolve))
-  const server = createServer((req, res) => {
-    answered(new URL(req.url!, 'http://127.0.0.1').searchParams)
-    res.writeHead(200, { 'Content-Type': 'text/plain' }).end('You can close this tab.')
-  })
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const { port } = server.address() as AddressInfo
-  return { url: `http://127.0.0.1:${port}/callback`, answer, close: () => server.close() }
-}
-
-/** An assistant, as the MCP SDK signs one in: it registers, sends the person to Lumovi, and keeps its tokens. */
-class Assistant implements OAuthClientProvider {
-  authorizationUrl?: URL
-  #client?: OAuthClientInformationMixed
-  #tokens?: OAuthTokens
-  #verifier = ''
-
-  constructor(
-    readonly redirectUrl: string,
-    readonly name = 'Claude Code (lumovi)',
-  ) {}
-
-  get clientMetadata(): OAuthClientMetadata {
-    return {
-      client_name: this.name,
-      redirect_uris: [this.redirectUrl],
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-    }
-  }
-  clientInformation() {
-    return this.#client
-  }
-  saveClientInformation(client: OAuthClientInformationMixed) {
-    this.#client = client
-  }
-  tokens() {
-    return this.#tokens
-  }
-  saveTokens(tokens: OAuthTokens) {
-    this.#tokens = tokens
-  }
-  redirectToAuthorization(url: URL) {
-    this.authorizationUrl = url
-  }
-  saveCodeVerifier(verifier: string) {
-    this.#verifier = verifier
-  }
-  codeVerifier() {
-    return this.#verifier
-  }
-}
-
-/**
- * An assistant connected to `served` as whoever `page` is signed in as: it
- * asks, the person allows it on Lumovi's page, and it signs in with the code.
- */
-async function connect(
-  page: Page,
-  served: Served,
-  { name = 'claude-code', clientName = 'Claude Code (lumovi)' } = {},
-) {
-  const back = await callback()
-  const assistant = new Assistant(back.url, clientName)
-  const endpoint = new URL('mcp', served.url)
-  const first = new Client({ name, version: '1.0.0' })
-  const transport = new StreamableHTTPClientTransport(endpoint, { authProvider: assistant })
-  await expect(first.connect(transport)).rejects.toThrow(UnauthorizedError)
-  await page.goto(assistant.authorizationUrl!.href)
-  await page.getByRole('button', { name: 'Allow' }).click()
-  const answer = await back.answer
-  await page.waitForURL((url) => url.href.startsWith(back.url))
-  back.close()
-  await transport.finishAuth(answer.get('code')!)
-  const client = new Client({ name, version: '1.0.0' })
-  await client.connect(new StreamableHTTPClientTransport(endpoint, { authProvider: assistant }))
-  return { client, assistant }
-}
-
-/** A tool's answer, as text, and whether it's an error. */
-async function call(
-  client: Client,
-  name: string,
-  args: Record<string, unknown> = {},
-  options?: RequestOptions,
-): Promise<{ text: string; error: boolean }> {
-  const result = (await client.callTool(
-    { name, arguments: args },
-    undefined,
-    options,
-  )) as CallToolResult
-  return { text: (result.content[0] as { text: string }).text, error: result.isError === true }
-}
+import { Assistant, call, callback, connect } from './assistant-client.ts'
+import { DEMO, expect, PEOPLE, refusedConfig, signIn, test } from './fixtures.ts'
 
 /** What a change came to: waiting for it again while the assistant is told to (slow machines). */
 async function outcome(client: Client, asked: Promise<{ text: string }>): Promise<string> {
@@ -183,11 +70,8 @@ test('assistants sign in as the person, and read what they may', async ({
   // Her assistants, by the names they give.
   await page.goto(`${served.url}cluster/demo`)
   await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
-  const dialog = page.getByRole('dialog', { name: 'AI assistants' })
-  const yours = dialog.getByRole('region', { name: 'Your assistants' })
-  await expect(yours.getByRole('listitem')).toHaveText([
-    /^Claude CodeAllowed \d+s ago · used \d+s ago/,
-  ])
+  const dialog = page.getByRole('main')
+  await expect(page.getByRole('link', { name: /^Your assistants\s*1$/ })).toBeVisible()
   await expect(dialog.getByLabel('Command', { exact: true })).toHaveText(
     `claude mcp add --transport http lumovi ${served.url}mcp`,
   )
@@ -205,9 +89,11 @@ test('assistants sign in as the person, and read what they may', async ({
   })
   await dialog.getByRole('tab', { name: 'Other' }).click()
   await expect(dialog.getByLabel('Address', { exact: true })).toHaveText(`${served.url}mcp`)
-  await expect(dialog.getByRole('region', { name: 'Changes they ask for' })).toContainText(
-    'demoAsk you',
-  )
+  await page.getByRole('link', { name: /^Your assistants/ }).click()
+  const yours = dialog.getByRole('region', { name: 'Your assistants' })
+  await expect(yours.getByRole('listitem')).toHaveText([
+    /^Claude CodeAllowed \d+s ago · used \d+s ago/,
+  ])
 
   // Let go, it can't act as her any more.
   await yours.getByRole('button', { name: 'Disconnect' }).click()
@@ -608,10 +494,10 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
   // Listed for her, not yet used.
   await page.goto(`${served.url}cluster/demo`)
   await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await page.getByRole('link', { name: /^Your assistants/ }).click()
   await expect(
     page.getByRole('region', { name: 'Your assistants' }).getByRole('listitem'),
   ).toHaveText([/^An AI assistantAllowed \d+s agoDisconnect$/])
-  await page.keyboard.press('Escape')
 
   // Expired, an access token is refused; the refresh token renews it, once.
   await new Promise((resolve) => setTimeout(resolve, 1200))
@@ -807,10 +693,9 @@ test('clusters a person made read-only are read-only for their assistants too', 
   }
   expect((await call(client, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
   await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
-  await expect(
-    page.getByRole('region', { name: 'Changes they ask for' }).getByRole('listitem'),
-  ).toHaveText(['demoRead-only: no changes'])
-  await page.keyboard.press('Escape')
+  await page.getByRole('link', { name: 'Permissions' }).click()
+  await expect(page.getByLabel('What assistants are told')).toContainText('changes: read-only')
+  await page.getByRole('button', { name: 'Back' }).click()
 
   // Her next page says what her browser keeps: still read-only, until she allows changes.
   await page.reload()
@@ -826,10 +711,16 @@ test('an administrator can turn assistants off', async ({ page, serve }) => {
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByRole('option', { name: 'AI assistants…' }).click()
-  await expect(page.getByRole('dialog', { name: 'AI assistants' })).toContainText(
+  await expect(page.getByRole('main')).toContainText(
     'This server’s administrator has turned AI assistants off.',
   )
-  await page.keyboard.press('Escape')
+  await expect(page.getByRole('link', { name: 'Permissions' })).toHaveCount(0)
+  expect(
+    await page.evaluate(() =>
+      window.lumovi!.aiPermissions!.get().catch((error: Error) => error.message),
+    ),
+  ).toContain('This server’s administrator has turned AI assistants off.')
+  await page.getByRole('button', { name: 'Back' }).click()
   await expect(page.getByRole('button', { name: /^AI assistants/ })).toHaveCount(0)
   // Nothing of theirs is there; a request to allow one says so.
   for (const path of ['mcp', 'oauth/token', 'oauth/register']) {
@@ -852,7 +743,26 @@ test('an administrator says what assistants’ changes do, cluster by cluster', 
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   const { client } = await connect(page, served)
   await page.goto(`${served.url}cluster/demo`)
-  await expect(page.getByRole('button', { name: 'AI assistants (1 connected)' })).toBeVisible()
+  // Never, but in demo: a limit everywhere else, which people's own rules don't loosen.
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await page.getByRole('link', { name: 'Permissions' }).click()
+  await expect(
+    page.getByRole('article', { name: 'Changes (LUMOVI_ASSISTANT_CHANGES)' }),
+  ).toHaveText(
+    /^Changes \(LUMOVI_ASSISTANT_CHANGES\)Set by your administrator!demo\s+\/\s+all namespacesNo changes0 namespaces$/,
+  )
+  // Demo's, she lets assistants change without asking.
+  await page
+    .getByRole('region', { name: 'Defaults' })
+    .getByRole('group', { name: 'Changes' })
+    .getByRole('button', { name: 'Without asking' })
+    .click()
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.lumovi!.aiPermissions!.get().then((v) => v.mine.defaults.changes)),
+    )
+    .toBe('allow')
+  await page.getByRole('button', { name: 'Back' }).click()
   const restarted = await call(client, 'restart', {
     cluster: 'demo',
     kind: 'deploy',
@@ -865,12 +775,6 @@ test('an administrator says what assistants’ changes do, cluster by cluster', 
     'Claude Code changed demo without asking',
   )
   expect(served.log()).toContain('Restart Deployment cart in demo, made without asking')
-  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
-  await expect(
-    page
-      .getByRole('dialog', { name: 'AI assistants' })
-      .getByRole('region', { name: 'Changes they ask for' }),
-  ).toContainText('demoMade without asking')
 })
 
 test('assistants’ settings that don’t make sense stop the server', async ({ clusters }) => {
@@ -983,17 +887,19 @@ test('a person may let the browser tell them of changes waiting', async ({
   const served = await serve()
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   await page.getByRole('button', { name: 'AI assistants', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'AI assistants' })
+  const dialog = page.getByRole('main')
+  await page.getByRole('link', { name: /^Your assistants/ }).click()
   await expect(dialog.getByRole('region', { name: 'Your assistants' })).toContainText('None yet')
-  const notifications = dialog.getByRole('region', { name: 'Notifications' })
+  await page.getByRole('link', { name: 'Connect' }).click()
+  const notifications = dialog.getByRole('region', { name: 'Notifications', exact: true })
   await expect(notifications).toContainText('Let this browser tell you when a change waits')
   await notifications.getByRole('button', { name: 'Notify me' }).click()
   await expect(notifications).toContainText('This browser tells you when a change waits for you.')
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Back' }).click()
   await page.evaluate(() => Object.assign(Notification, { permission: 'denied' }))
   await page.getByRole('button', { name: 'AI assistants', exact: true }).click()
   await expect(notifications).toContainText('This browser’s settings block Lumovi’s notifications.')
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Back' }).click()
 
   // Blocked, a change waiting while the tab is elsewhere shows only on it.
   const { client } = await connect(page, served)
@@ -1023,9 +929,11 @@ test('a person may let the browser tell them of changes waiting', async ({
     Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true }),
   )
   await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
-  await expect(page.getByRole('region', { name: 'Your assistants' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Notifications' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await expect(page.getByRole('region', { name: 'Connect an assistant' })).toBeVisible()
+  await expect(
+    page.getByRole('main').getByRole('region', { name: 'Notifications', exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: 'Back' }).click()
   const restarting = call(client, 'restart', {
     cluster: 'demo',
     kind: 'deploy',

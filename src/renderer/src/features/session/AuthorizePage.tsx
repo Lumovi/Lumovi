@@ -1,7 +1,24 @@
-import { CircleAlert, LoaderCircle, Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import {
+  CircleAlert,
+  Eye,
+  LoaderCircle,
+  Lock,
+  PencilLine,
+  ScrollText,
+  Sparkles,
+} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { decider } from '@shared/ai-permissions'
+import type { LumoviApi } from '@shared/api'
 import { Button } from '@renderer/components/Button'
+import { useContexts } from '@renderer/hooks/queries'
+import { useSettings } from '@renderer/hooks/settings'
+import { api } from '@renderer/lib/api'
+import { cn } from '@renderer/lib/cn'
 import { serverUrl } from '@renderer/web/session'
+import { useNamespaceIndex } from '../assistants/namespaces'
+import { useAiPermissions } from '../assistants/PermissionsTab'
+import { formatCount, plural, tally, targetOf } from '../assistants/permissions-model'
 import { card, Frame } from './SignInPage'
 
 /** Who asks to act as the person, and where it goes back to (the server checked the request). */
@@ -62,10 +79,10 @@ export function AuthorizePage() {
             <Sparkles className="size-4 text-accent-strong" /> {request.client}
           </p>
           <p className="mt-2 text-[13px] leading-relaxed text-ink-2">
-            wants to use Lumovi as <span className="font-medium text-ink-1">{request.person}</span>:
-            to read the clusters you can see, and to ask to change them. Each change waits for your
-            approval in Lumovi, unless a cluster lets assistants make it without asking.
+            wants to use Lumovi as <span className="font-medium text-ink-1">{request.person}</span>.
+            With your AI permissions, it will:
           </p>
+          <Summary permissions={api.aiPermissions!} />
           <p className="mt-3 text-xs leading-relaxed text-ink-3">
             Then it goes back to <span className="font-mono text-ink-2">{request.returnsTo}</span>.
             Allow it only if you started this from {request.client}.
@@ -91,5 +108,84 @@ export function AuthorizePage() {
         </section>
       )}
     </Frame>
+  )
+}
+
+/**
+ * What the assistant may do once allowed, as the person's AI permissions say,
+ * counted over every namespace they can list: how much it sees, changes, and
+ * reads.
+ */
+function Summary({ permissions }: { permissions: NonNullable<LumoviApi['aiPermissions']> }) {
+  const view = useAiPermissions(permissions).data
+  const contexts = useContexts().data?.contexts
+  const settings = useSettings().data
+  const index = useNamespaceIndex(contexts)
+  const counts = useMemo(() => {
+    if (!view) return undefined
+    const decide = decider(view)
+    const decided = index.namespaces.map((ns) => ({ ns, decision: decide(targetOf(ns)) }))
+    return tally(decided, (cluster) =>
+      Boolean(settings?.readOnlyAll || settings?.readOnly?.includes(cluster)),
+    )
+  }, [view, index, settings])
+  if (!counts || index.counting.length) {
+    return <p className="mt-3 text-xs text-ink-3">Counting what it may do…</p>
+  }
+  const facts = [
+    {
+      icon: Eye,
+      text: `See ${plural(counts.seen, 'namespace', 'namespaces')} in ${plural(counts.clusters, 'cluster', 'clusters')}${counts.hidden ? `; ${formatCount(counts.hidden)} hidden from it` : ''}.`,
+    },
+    {
+      icon: PencilLine,
+      text: `Ask you before it changes anything in ${plural(counts.asking, 'namespace', 'namespaces')}, and never change ${formatCount(counts.never)}.`,
+    },
+    {
+      icon: PencilLine,
+      text: `Change ${plural(counts.unasked, 'namespace', 'namespaces')} without asking.`,
+      warn: counts.unasked > 0,
+    },
+    {
+      icon: Lock,
+      text: `Read Secrets’ values in ${plural(counts.values, 'namespace', 'namespaces')}.`,
+      warn: counts.values > 0,
+    },
+    { icon: ScrollText, text: `Read logs in ${plural(counts.logs, 'namespace', 'namespaces')}.` },
+  ]
+  return (
+    <>
+      <ul
+        aria-label="What it may do"
+        className="mt-3 divide-y divide-line overflow-hidden rounded-lg border border-line"
+      >
+        {facts.map(({ icon: Icon, text, warn }) => (
+          <li
+            key={text}
+            className={cn(
+              'flex gap-2.5 px-3 py-2 text-[13px] leading-snug',
+              warn ? 'text-warn-text' : 'text-ink-1',
+            )}
+          >
+            <Icon className="mt-0.5 size-3.5 shrink-0 text-ink-3" />
+            {text}
+          </li>
+        ))}
+      </ul>
+      {index.failed.length > 0 && (
+        <p className="mt-2 text-xs text-warn-text">
+          Not counted: {index.failed.map(({ context }) => context).join(', ')}, whose namespaces
+          can’t be listed.
+        </p>
+      )}
+      <a
+        href={serverUrl('assistants/permissions').href}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 inline-block text-xs text-accent hover:text-accent-strong hover:underline"
+      >
+        Change what assistants may do
+      </a>
+    </>
   )
 }

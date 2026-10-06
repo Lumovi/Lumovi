@@ -7,7 +7,8 @@ import { createHash } from 'node:crypto'
 import { delimiter, join } from 'node:path'
 import { parse } from 'yaml'
 import { NODE_SHELL_DEFAULTS, type MetricsSourceSetting, type NodeShellSetting } from '@shared/api'
-import { isAiChanges, type AiChanges, type AiChangesPolicy } from '@shared/assistants'
+import { checkedRule, parseMatcher, type AiRule } from '@shared/ai-permissions'
+import { isAiChanges, type AiChanges } from '@shared/assistants'
 import type { AuthMode } from '@shared/server'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { MAX_SESSION_HOURS } from './sessions'
@@ -104,11 +105,25 @@ export interface ServerConfig {
   /** Where the page's files are: the renderer's build, next to the server's. */
   rendererDir: string
   /**
-   * AI assistants over MCP: whether they may connect, what their changes do, and the sites
-   * (host names) they may be sent back to over https, besides the person's computer and apps.
+   * AI assistants over MCP: whether they may connect, the administrator's rules (limits on
+   * what they may do, which nothing loosens), where people's own rules are kept, and the
+   * sites (host names) they may be sent back to over https, besides the person's computer
+   * and apps.
    */
-  assistants: { enabled: boolean; changes: AiChangesPolicy; redirectHosts: string[] }
+  assistants: {
+    enabled: boolean
+    rules: AiRule[]
+    keep: RulesKeeping
+    redirectHosts: string[]
+  }
 }
+
+/**
+ * Where people's own AI rules are kept: in a ConfigMap of the namespace
+ * Lumovi runs in (the chart's), a file, or only in memory.
+ */
+export type RulesKeeping =
+  { kind: 'configmap'; name: string } | { kind: 'file'; path: string } | { kind: 'memory' }
 
 export class ConfigError extends Error {}
 
@@ -219,34 +234,29 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
-    assistants: assistantsConfig(value),
+    assistants: assistantsConfig(env, value),
   }
 }
 
 /**
- * AI assistants: on unless LUMOVI_ASSISTANTS is off, what their changes do
- * (LUMOVI_ASSISTANT_CHANGES): ask (the default), allow or never, with
- * clusters' own after it, like ask,staging=allow,production=never; and the
- * sites they may be sent back to (LUMOVI_ASSISTANT_REDIRECT_HOSTS).
+ * AI assistants: on unless LUMOVI_ASSISTANTS is off; the administrator's
+ * rules (LUMOVI_ASSISTANT_RULES, and LUMOVI_ASSISTANT_CHANGES, which came
+ * first); where people's own rules are kept (LUMOVI_ASSISTANT_RULES_CONFIGMAP,
+ * else a file under LUMOVI_DATA_DIR, else memory); and the sites they may be
+ * sent back to (LUMOVI_ASSISTANT_REDIRECT_HOSTS).
  */
-function assistantsConfig(value: (name: string) => string | undefined): ServerConfig['assistants'] {
+function assistantsConfig(
+  env: NodeJS.ProcessEnv,
+  value: (name: string) => string | undefined,
+): ServerConfig['assistants'] {
   const switched = value('LUMOVI_ASSISTANTS') ?? 'on'
   if (!['on', 'off'].includes(switched)) {
     throw new ConfigError(`LUMOVI_ASSISTANTS must be on or off, not "${switched}".`)
   }
-  const setting = value('LUMOVI_ASSISTANT_CHANGES')
-  const changes: AiChangesPolicy = { default: 'ask', clusters: {} }
-  for (const entry of list(setting)) {
-    const [, cluster, policy] = /^(?:([^=]*)=)?(.*)$/.exec(entry)!
-    const name = cluster?.trim()
-    if (!isAiChanges(policy!.trim()) || name === '') {
-      throw new ConfigError(
-        `LUMOVI_ASSISTANT_CHANGES must be ask, allow or never, with clusters' own after it (ask,staging=allow), not "${setting}".`,
-      )
-    }
-    if (name === undefined) changes.default = policy!.trim() as AiChanges
-    else changes.clusters[name] = policy!.trim() as AiChanges
-  }
+  const rules = [
+    ...changesRules(value('LUMOVI_ASSISTANT_CHANGES')),
+    ...adminRules(value('LUMOVI_ASSISTANT_RULES')),
+  ]
   const hosts = value('LUMOVI_ASSISTANT_REDIRECT_HOSTS')
   const redirectHosts = list(hosts).map((host) => host.toLowerCase())
   if (!redirectHosts.every((host) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host))) {
@@ -254,7 +264,120 @@ function assistantsConfig(value: (name: string) => string | undefined): ServerCo
       `LUMOVI_ASSISTANT_REDIRECT_HOSTS must be host names, like assistant.example.com, not "${hosts}".`,
     )
   }
-  return { enabled: switched === 'on', changes, redirectHosts }
+  return { enabled: switched === 'on', rules, keep: rulesKeeping(env, value), redirectHosts }
+}
+
+/**
+ * LUMOVI_ASSISTANT_CHANGES, as rules: ask, allow or never, with clusters' own
+ * after it (ask,staging=allow,production=never). Ask and never are limits;
+ * allow is none, so people choose.
+ */
+function changesRules(setting: string | undefined): AiRule[] {
+  let fallback: AiChanges | undefined
+  const clusters: [string, AiChanges][] = []
+  for (const entry of list(setting)) {
+    const [, cluster, policy] = /^(?:([^=]*)=)?(.*)$/.exec(entry)!
+    const name = cluster?.trim()
+    if (
+      !isAiChanges(policy!.trim()) ||
+      name === '' ||
+      (name !== undefined && typeof parseMatcher(name) === 'string')
+    ) {
+      throw new ConfigError(
+        `LUMOVI_ASSISTANT_CHANGES must be ask, allow or never, with clusters' own after it (ask,staging=allow), not "${setting}".`,
+      )
+    }
+    if (name === undefined) fallback = policy!.trim() as AiChanges
+    else clusters.push([name, policy!.trim() as AiChanges])
+  }
+  const named = 'LUMOVI_ASSISTANT_CHANGES'
+  return [
+    ...(fallback && fallback !== 'allow'
+      ? [
+          {
+            name: `Changes (${named})`,
+            clusters: clusters.map(([cluster]) => `!${cluster}`),
+            namespaces: [],
+            set: { changes: fallback },
+          },
+        ]
+      : []),
+    ...clusters
+      .filter(([, changes]) => changes !== 'allow')
+      .map(([cluster, changes]) => ({
+        name: `Changes to ${cluster} (${named})`,
+        clusters: [cluster],
+        namespaces: [],
+        set: { changes },
+      })),
+  ]
+}
+
+/**
+ * LUMOVI_ASSISTANT_RULES: the administrator's rules, as YAML (or JSON, or
+ * either in base64), a list of { name, clusters, namespaces, and the settings
+ * each limits: visibility, changes, secrets, env, logs }.
+ */
+function adminRules(setting: string | undefined): AiRule[] {
+  if (!setting) return []
+  const name = 'LUMOVI_ASSISTANT_RULES'
+  let entries: unknown
+  try {
+    entries = parse(document(name, setting))
+  } catch (error) {
+    if (error instanceof ConfigError) throw error
+    throw new ConfigError(`${name} isn’t YAML: ${(error as Error).message.split('\n')[0]}`)
+  }
+  if (!Array.isArray(entries)) {
+    throw new ConfigError(
+      `${name} must be a list of rules, each with a name, where it applies, and what it limits.`,
+    )
+  }
+  return entries.map((entry: unknown, i) => {
+    const at = `${name}[${i}]`
+    const { name: called, clusters, namespaces, ...set } = Object(entry) as Record<string, unknown>
+    let rule: AiRule
+    try {
+      rule = checkedRule(
+        typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+          ? { name: called, clusters, namespaces, set }
+          : entry,
+        at,
+        false,
+      )
+    } catch (error) {
+      throw new ConfigError((error as Error).message)
+    }
+    if (Object.keys(rule.set).length === 0) {
+      throw new ConfigError(
+        `${at} (${rule.name}) limits nothing: give it visibility, changes, secrets, env or logs.`,
+      )
+    }
+    return rule
+  })
+}
+
+/** Where people's own AI rules are kept: see RulesKeeping. */
+function rulesKeeping(
+  env: NodeJS.ProcessEnv,
+  value: (name: string) => string | undefined,
+): RulesKeeping {
+  const configMap = value('LUMOVI_ASSISTANT_RULES_CONFIGMAP')
+  if (configMap) {
+    if (!/^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/.test(configMap)) {
+      throw new ConfigError(
+        `LUMOVI_ASSISTANT_RULES_CONFIGMAP must name a ConfigMap, like lumovi-assistant-rules, not "${configMap}".`,
+      )
+    }
+    if (!env.KUBERNETES_SERVICE_HOST) {
+      throw new ConfigError(
+        'LUMOVI_ASSISTANT_RULES_CONFIGMAP keeps people’s AI rules in the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
+      )
+    }
+    return { kind: 'configmap', name: configMap }
+  }
+  const dir = value('LUMOVI_DATA_DIR')
+  return dir ? { kind: 'file', path: join(dir, 'assistant-rules.json') } : { kind: 'memory' }
 }
 
 /** A fleet's sources, when any is set. */

@@ -147,6 +147,11 @@ export function createWebApi(): LumoviApi {
       onProposal: listen(IPC.assistantsProposal),
       onOutcome: listen(IPC.assistantsOutcome),
     },
+    aiPermissions: {
+      get: invoke(IPC.aiPermissionsGet),
+      set: invoke(IPC.aiPermissionsSet),
+      onChanged: listen(IPC.aiPermissionsChanged),
+    },
     serverAssistants: {
       status: invoke(IPC.serverAssistantsStatus),
       revoke: invoke(IPC.serverAssistantsRevoke),

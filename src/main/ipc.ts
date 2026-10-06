@@ -15,7 +15,8 @@ import { toKubeError } from '@backend/kube/errors'
 import type { Forwards } from '@backend/kube/streams'
 import { assertString, invalid } from '@backend/kube/validate'
 import { isTheme } from '@backend/settings'
-import { isAiChanges, isPort } from '@shared/assistants'
+import type { AiPermissionsView } from '@shared/ai-permissions'
+import { isPort } from '@shared/assistants'
 import { checkedDecision } from '@backend/mcp/approvals'
 import type { Assistants } from './assistants'
 import { LocalTerminals } from './local-terminal'
@@ -142,11 +143,11 @@ export function registerIpc(deps: Dependencies): void {
       }
       return assistants.install(client)
     },
-    [IPC.assistantsSetChanges]: (context, changes) => {
-      if (typeof context !== 'string' || context === '' || !isAiChanges(changes)) {
-        throw new Error('Expected a context name, and ask, allow or never')
-      }
-      return settings.setAiChanges(context, changes)
+    // What they may do, and where: kept with the app's settings.
+    [IPC.aiPermissionsGet]: () => aiPermissions(),
+    [IPC.aiPermissionsSet]: (given) => {
+      settings.setAiPermissions(given)
+      return aiPermissions()
     },
     [IPC.assistantsDecide]: (id, decision) =>
       assistants.approvals.decide(...checkedDecision(id, decision)),
@@ -154,6 +155,10 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.forwardStart]: (request) => forwards.start(request),
     [IPC.forwardList]: () => forwards.list(),
     [IPC.forwardStop]: (id) => forwards.stop(id),
+  }
+
+  function aiPermissions(): AiPermissionsView {
+    return { mine: settings.aiPermissions(), admin: [], kept: 'settings' }
   }
 
   for (const [channel, handler] of Object.entries({ ...shared.invoke, ...desktop })) {

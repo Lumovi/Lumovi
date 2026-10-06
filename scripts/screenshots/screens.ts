@@ -269,22 +269,45 @@ export const SCREENS: Screen[] = [
     name: 'assistants',
     title: 'AI assistants',
     description:
-      'AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.',
+      'What AI assistants may do, and where: defaults, rules for some clusters and namespaces, and any namespace checked.',
     app: 'desktop',
     path: cluster,
     async steps(page) {
       await assistantConnects(page)
+      // Staging's assistants change it without asking; the system's namespaces are hidden.
+      await page.evaluate(
+        (staging) =>
+          window.lumovi!.aiPermissions!.set({
+            defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+            rules: [
+              {
+                id: 'staging',
+                name: 'Staging',
+                clusters: [staging],
+                namespaces: [],
+                set: { changes: 'allow' },
+              },
+              {
+                id: 'system',
+                name: 'System namespaces',
+                clusters: [],
+                namespaces: ['kube-*'],
+                set: { visibility: 'hidden' },
+              },
+            ],
+          }),
+        CLUSTERS.staging,
+      )
       await page.getByRole('button', { name: /^AI assistants/ }).click()
-      await page.getByRole('region', { name: 'Connected now' }).getByText('Claude Code').waitFor()
-      // Staging's assistants change it without asking.
-      const staging = page.getByRole('radiogroup', { name: `Changes to ${CLUSTERS.staging}` })
-      await staging.getByRole('radio', { name: 'Allow' }).click()
-      await staging.getByRole('radio', { name: 'Allow', checked: true }).waitFor()
+      await page.getByRole('link', { name: 'Permissions' }).click()
+      await page.getByRole('heading', { name: 'Defaults' }).waitFor()
     },
     async after(page) {
-      await page.evaluate(
-        (staging) => window.lumovi!.assistants!.setChanges(staging, 'ask'),
-        CLUSTERS.staging,
+      await page.evaluate(() =>
+        window.lumovi!.aiPermissions!.set({
+          defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+          rules: [],
+        }),
       )
       await assistantLeaves(page)
     },

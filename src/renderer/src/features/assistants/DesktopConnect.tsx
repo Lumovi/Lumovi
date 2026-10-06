@@ -1,3 +1,8 @@
+/**
+ * The desktop app's AI assistants: turning them on, where they connect, how
+ * to set each one up, and which are connected now (the AI assistants page's
+ * Connect tab).
+ */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CircleAlert,
@@ -7,26 +12,18 @@ import {
   Lock,
   ShieldCheck,
   Sparkles,
-  X,
   type LucideIcon,
 } from 'lucide-react'
-import { Dialog } from 'radix-ui'
 import { useEffect, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router'
 import type { LumoviApi } from '@shared/api'
-import {
-  isPort,
-  type AiChanges,
-  type AssistantClient,
-  type AssistantsStatus,
-} from '@shared/assistants'
+import { isPort, type AssistantClient, type AssistantsStatus } from '@shared/assistants'
 import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { Switch } from '@renderer/components/Switch'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
-import { useContexts } from '@renderer/hooks/queries'
-import { useSettings } from '@renderer/hooks/settings'
 import { cn } from '@renderer/lib/cn'
-import { useUi } from '@renderer/state/ui'
+import { Card } from './PageParts'
 
 type AssistantsApi = NonNullable<LumoviApi['assistants']>
 
@@ -40,16 +37,16 @@ export function useAssistantsStatus(assistants: AssistantsApi): AssistantsStatus
   return useQuery({ queryKey: ['assistants'], queryFn: () => assistants.status() }).data
 }
 
-/** Opens the AI assistants settings; a dot says one's connected. */
+/** Opens the AI assistants page; a dot says one's connected. */
 export function AssistantsButton({ assistants }: { assistants: AssistantsApi }) {
   const status = useAssistantsStatus(assistants)
-  const setOpen = useUi((ui) => ui.setAssistants)
+  const navigate = useNavigate()
   const connected = status?.clients.length ?? 0
   return (
     <IconButton
       label={connected ? `AI assistants (${connected} connected)` : 'AI assistants'}
       className="relative"
-      onClick={() => setOpen(true)}
+      onClick={() => void navigate('/assistants')}
     >
       <Sparkles />
       {connected > 0 && (
@@ -59,97 +56,53 @@ export function AssistantsButton({ assistants }: { assistants: AssistantsApi }) 
   )
 }
 
-/** Connecting AI assistants, and what they may change. */
-export function AssistantsDialog({ assistants }: { assistants: AssistantsApi }) {
-  const open = useUi((ui) => ui.assistants)
-  const setOpen = useUi((ui) => ui.setAssistants)
-  const status = useAssistantsStatus(assistants)
-  const contexts = useContexts().data?.contexts
-  // Opened once it knows how things stand (at once, nearly always: the sidebar's button asked).
-  return open && status && contexts ? (
-    <Settings
-      assistants={assistants}
-      status={status}
-      contexts={contexts.map((c) => c.name)}
-      onClose={() => setOpen(false)}
-    />
-  ) : null
-}
-
-function Settings({
-  assistants,
-  status,
-  contexts,
-  onClose,
-}: {
-  assistants: AssistantsApi
-  status: AssistantsStatus
-  contexts: string[]
-  onClose: () => void
-}) {
+/** Turning assistants on, and connecting them. */
+export function DesktopConnectTab({ assistants }: { assistants: AssistantsApi }) {
   const queryClient = useQueryClient()
+  const status = useAssistantsStatus(assistants)
   const [busy, setBusy] = useState(false)
+  if (!status) return null
   const configure = async (change: { enabled?: boolean; port?: number }) => {
     setBusy(true)
     queryClient.setQueryData(['assistants'], await assistants.configure(change))
     setBusy(false)
   }
   return (
-    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
-        <Dialog.Content
-          aria-describedby={undefined}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          className="fixed top-[8vh] left-1/2 z-50 flex max-h-[84vh] w-[640px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
-        >
-          <header className="flex items-start gap-3 px-5 pt-5 pb-4">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-strong">
-              <Sparkles className="size-[18px]" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-[15px] leading-snug font-semibold text-ink-1">
-                AI assistants
-              </Dialog.Title>
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
-                Claude Code, Claude Desktop, Cursor and VS Code read your clusters through Lumovi,
-                and ask you before they change anything.
-              </p>
-            </div>
-            <span className="mt-2 flex items-center gap-2 text-xs text-ink-2">
-              {busy && <LoaderCircle className="size-3.5 animate-spin text-ink-3" />}
-              <Switch
-                label="Let AI assistants connect"
-                checked={status.enabled}
-                disabled={busy}
-                onCheckedChange={(enabled) => void configure({ enabled })}
-              />
-            </span>
-            {/* A plain button: a tooltip opening on focus would swallow the first Escape. */}
-            <Dialog.Close
-              aria-label="Close"
-              className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1"
-            >
-              <X className="size-4" />
-            </Dialog.Close>
-          </header>
-
-          <div className="min-h-0 flex-1 overflow-y-auto border-t border-line">
-            {status.enabled ? (
-              <On
-                status={status}
-                contexts={contexts}
-                assistants={assistants}
-                busy={busy}
-                configure={(change) => void configure(change)}
-              />
-            ) : (
-              <Off busy={busy} onTurnOn={() => void configure({ enabled: true })} />
-            )}
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Card>
+      <header className="flex items-start gap-3 px-5 pt-5 pb-4">
+        <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-strong">
+          <Sparkles className="size-[18px]" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[15px] leading-snug font-semibold text-ink-1">On this computer</h2>
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
+            Claude Code, Claude Desktop, Cursor and VS Code read your clusters through Lumovi, and
+            ask you before they change anything.
+          </p>
+        </div>
+        <span className="mt-2 flex items-center gap-2 text-xs text-ink-2">
+          {busy && <LoaderCircle className="size-3.5 animate-spin text-ink-3" />}
+          <Switch
+            label="Let AI assistants connect"
+            checked={status.enabled}
+            disabled={busy}
+            onCheckedChange={(enabled) => void configure({ enabled })}
+          />
+        </span>
+      </header>
+      <div className="border-t border-line">
+        {status.enabled ? (
+          <On
+            status={status}
+            assistants={assistants}
+            busy={busy}
+            configure={(change) => void configure(change)}
+          />
+        ) : (
+          <Off busy={busy} onTurnOn={() => void configure({ enabled: true })} />
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -158,7 +111,7 @@ function Off({ busy, onTurnOn }: { busy: boolean; onTurnOn: () => void }) {
     [
       Eye,
       'They read',
-      'Clusters’ objects, events and logs, and what’s failing; never Secrets’ values.',
+      'Clusters’ objects, events and logs, and what’s failing, as your AI permissions say.',
     ],
     [
       ShieldCheck,
@@ -193,13 +146,11 @@ function Off({ busy, onTurnOn }: { busy: boolean; onTurnOn: () => void }) {
 
 function On({
   status,
-  contexts,
   assistants,
   busy,
   configure,
 }: {
   status: AssistantsStatus
-  contexts: string[]
   assistants: AssistantsApi
   busy: boolean
   configure: (change: { port?: number }) => void
@@ -210,7 +161,6 @@ function On({
       <Endpoint key={status.port} status={status} busy={busy} configure={configure} />
       {status.url && <Connect status={status} url={status.url} assistants={assistants} />}
       <Connected status={status} />
-      <Clusters contexts={contexts} assistants={assistants} />
       <NewToken assistants={assistants} />
     </>
   )
@@ -481,81 +431,6 @@ function Connected({ status }: { status: AssistantsStatus }) {
           ))}
         </ul>
       )}
-    </section>
-  )
-}
-
-const CHANGES: { value: AiChanges; label: string; hint: string }[] = [
-  { value: 'ask', label: 'Ask', hint: 'You approve each change here' },
-  {
-    value: 'allow',
-    label: 'Allow',
-    hint: 'Changes are made without asking, and you’re told; deletions still ask',
-  },
-  { value: 'never', label: 'Never', hint: 'Assistants only read' },
-]
-
-/** What each cluster lets assistants change. */
-function Clusters({ contexts, assistants }: { contexts: string[]; assistants: AssistantsApi }) {
-  const queryClient = useQueryClient()
-  const settings = useSettings().data
-  const set = async (context: string, changes: AiChanges) => {
-    queryClient.setQueryData(['settings'], await assistants.setChanges(context, changes))
-  }
-  return (
-    <section aria-label="Changes they ask for" className="border-t border-line px-5 py-4">
-      <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
-        Changes they ask for
-      </h3>
-      <p className="mt-1 mb-3 text-xs leading-relaxed text-ink-3">
-        Ask: you approve each one here. Allow: they’re made without asking, and you’re told
-        (deletions, and changes that take fields over from Helm or Argo CD, still ask). Never:
-        assistants only read. Your own access (RBAC) applies either way.
-      </p>
-      <ul className="divide-y divide-line rounded-lg border border-line">
-        {contexts.map((name) => {
-          const readOnly = settings?.readOnlyAll || settings?.readOnly?.includes(name)
-          const current = settings?.aiChanges?.[name] ?? 'ask'
-          return (
-            <li key={name} className="flex items-center gap-3 py-2 pr-2 pl-3">
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-1" title={name}>
-                {name}
-              </span>
-              {readOnly ? (
-                <span className="flex items-center gap-1.5 py-1 pr-1.5 text-xs text-ink-3">
-                  <Lock className="size-3" /> Read-only: no changes
-                </span>
-              ) : (
-                <div
-                  role="radiogroup"
-                  aria-label={`Changes to ${name}`}
-                  className="flex shrink-0 rounded-lg bg-surface-3/80 p-0.5"
-                >
-                  {CHANGES.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={current === option.value}
-                      title={option.hint}
-                      onClick={() => void set(name, option.value)}
-                      className={cn(
-                        'h-6 rounded-md px-2.5 text-xs font-medium transition-colors',
-                        current === option.value
-                          ? 'bg-surface-2 text-ink-1 shadow-xs'
-                          : 'text-ink-3 hover:text-ink-1',
-                        current === option.value && option.value === 'allow' && 'text-warn-text',
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
     </section>
   )
 }

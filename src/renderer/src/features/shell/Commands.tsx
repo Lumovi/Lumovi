@@ -52,7 +52,7 @@ export function Commands() {
   const goTo = useGo()
   const queryClient = useQueryClient()
   const context = useMatch('/cluster/:context/*')?.params.context
-  const { setPalette, setShortcuts, setCreate, setAssistants } = useUi()
+  const { setPalette, setShortcuts, setCreate } = useUi()
   const pendingGo = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const run = (command: AppCommand) => {
@@ -80,7 +80,7 @@ export function Commands() {
         const { here, add } = useDock.getState()
         if (here) add(here.context, here.namespace)
       },
-      assistants: () => setAssistants(true),
+      assistants: () => void navigate('/assistants'),
       // Asked only while a terminal has focus (its ⌘W and ⌘K, on macOS).
       'close-terminal': () => useDock.getState().close(useDock.getState().active!),
       'clear-terminal': () => {

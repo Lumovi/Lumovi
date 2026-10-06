@@ -4,11 +4,12 @@
  * Lumovi's tools, and ask to change them: each change is shown in Lumovi, as
  * the diff it makes and its kubectl command, for the person to approve.
  */
+import type { AiAccess } from './ai-permissions'
 import type { KubeObject } from './api'
 import type { ResourceKind } from './resources'
 
-/** Whether assistants' changes to a cluster are asked about, made without asking, or refused. */
-export type AiChanges = 'ask' | 'allow' | 'never'
+/** Whether assistants' changes are asked about, made without asking, or refused. */
+export type AiChanges = AiAccess['changes']
 
 export const isAiChanges = (value: unknown): value is AiChanges =>
   value === 'ask' || value === 'allow' || value === 'never'
@@ -69,7 +70,7 @@ export interface ServerAssistant {
   lastUsed?: number
 }
 
-/** A server's MCP server, for its pages: where assistants connect, and what they may change. */
+/** A server's MCP server, for its pages: where assistants connect, and the person's. */
 export interface ServerAssistantsStatus {
   /** Whether the server lets assistants connect (LUMOVI_ASSISTANTS). */
   enabled: boolean
@@ -77,14 +78,6 @@ export interface ServerAssistantsStatus {
   url: string
   /** The person's own: each they allowed, until they revoke it or their session ends. */
   clients: ServerAssistant[]
-  /** What assistants' changes do, as the server's administrator set it: each cluster's, or `default`. */
-  changes: AiChangesPolicy
-}
-
-/** What assistants' changes do on each cluster, unless a cluster has its own. */
-export interface AiChangesPolicy {
-  default: AiChanges
-  clusters: Record<string, AiChanges>
 }
 
 /** What an assistant asked to do. */

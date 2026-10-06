@@ -266,7 +266,7 @@ export class Assistants {
     const { kube, settings, version } = this.deps
     const server = createMcpServer(version, {
       kube,
-      changes: (context) => settings.aiChanges(context),
+      policy: () => ({ mine: settings.aiPermissions(), admin: [] }),
       approvals: this.approvals,
       outcome: (outcome) => this.deps.send(IPC.assistantsOutcome, outcome),
     })
