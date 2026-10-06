@@ -911,15 +911,18 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await page.getByRole('button', { name: '2 new events' }).click()
   await expect(page.getByRole('button', { name: /new event/ })).toBeHidden()
 
-  // Narrowed to someone: what others do meanwhile doesn't come in.
+  // Narrowed to someone: what others do meanwhile doesn't come in; theirs does. (Bob's comes
+  // after Alice's: once it's in, hers was heard.)
   await pick(page, 'Who', 'bob@example.com')
-  const shown = await list(page).getByRole('option').count()
-  await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
-  await expect
-    .poll(() => query(page, { users: ['alice@example.com'], limit: 1 }).then((p) => p.events))
-    .toHaveLength(1)
-  await expect(page.getByRole('button', { name: /new event/ })).toBeHidden()
-  await expect(list(page).getByRole('option')).toHaveCount(shown)
+  await expect(page.getByLabel('Chosen filters')).toContainText('Who:bob@example.com')
+  await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
+  await bob.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
+  await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
+    /Made demo changeable in Lumovi$/,
+  )
+  await expect(list(page).getByRole('option').filter({ hasText: 'alice@example.com' })).toHaveCount(
+    0,
+  )
   await bobs.close()
 })
 
