@@ -123,8 +123,18 @@ spec:
               value: {{ .Values.readOnly | quote }}
             - name: LUMOVI_ASSISTANTS
               value: {{ ternary "on" "off" .Values.assistants.enabled | quote }}
+            {{- with include "lumovi.assistantChanges" . }}
             - name: LUMOVI_ASSISTANT_CHANGES
-              value: {{ include "lumovi.assistantChanges" . | quote }}
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.assistants.rules }}
+            - name: LUMOVI_ASSISTANT_RULES
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- if .Values.assistants.enabled }}
+            - name: LUMOVI_ASSISTANT_RULES_CONFIGMAP
+              value: {{ include "lumovi.fullname" . }}-assistant-rules
+            {{- end }}
             {{- with .Values.assistants.redirectHosts }}
             - name: LUMOVI_ASSISTANT_REDIRECT_HOSTS
               value: {{ join "," . | quote }}

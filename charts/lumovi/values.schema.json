@@ -165,8 +165,68 @@
         "enabled": {
           "type": "boolean"
         },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "clusters": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "namespaces": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "visibility": {
+                "enum": ["visible", "hidden"]
+              },
+              "changes": {
+                "enum": ["allow", "ask", "never"]
+              },
+              "secrets": {
+                "enum": ["values", "keys", "hidden"]
+              },
+              "env": {
+                "enum": ["show", "sensitive", "all"]
+              },
+              "logs": {
+                "enum": ["read", "off"]
+              }
+            }
+          }
+        },
         "changes": {
-          "enum": ["ask", "allow", "never"]
+          "enum": ["", "ask", "allow", "never"]
         },
         "clusters": {
           "type": "object",
