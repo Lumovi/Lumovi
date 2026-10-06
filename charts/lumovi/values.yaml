@@ -199,12 +199,15 @@ audit:
   stdout: true
   # The history the Audit page searches, on a volume that uninstalling keeps. Off, it's in
   # memory: what happened since Lumovi started. It's one chain, kept by one replica: with it
-  # on, upgrades stop the old pod before the new one starts.
+  # on, upgrades stop the old pod before the new one starts, and a second pod using the same
+  # volume (scaled by hand, or by an autoscaler) doesn't start. The pod's fsGroup
+  # (podSecurityContext) must be one that may write to it.
   persistence:
     enabled: true
     size: 2Gi
-    # The cluster's default storage class unless set (a cluster without one needs it set).
-    storageClass: ''
+    # The cluster's default storage class unless set (a cluster without one needs it set);
+    # '' for none (a volume made by hand, with no class).
+    storageClass: null
     # A claim of your own, instead of the chart's.
     existingClaim: ''
   # How long the history keeps events, in days (the log collector or webhook keeps its own).

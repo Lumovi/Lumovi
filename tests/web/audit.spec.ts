@@ -1661,8 +1661,12 @@ test('one Lumovi keeps a history: another, sharing its folder, doesn’t start',
   await served.stop()
   // A folder it can't write in (as one that isn't the system's administrator) stops it too.
   if (process.platform !== 'win32' && process.getuid?.() !== 0) {
-    expect(await refusedConfig(clusters, { LUMOVI_AUDIT_DIR: '/' })).toMatch(
-      /E(ACCES|ROFS|PERM)\b.*audit\.lock/,
+    const said = await refusedConfig(clusters, { LUMOVI_AUDIT_DIR: '/' })
+    expect(said).toMatch(
+      /LUMOVI_AUDIT_DIR \(\/\) can’t be written in: E(ACCES|ROFS|PERM)\b.*audit\.lock/,
+    )
+    expect(said).toContain(
+      'Lumovi’s image runs as user 65532: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.',
     )
   }
 })
