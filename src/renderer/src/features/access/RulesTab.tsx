@@ -130,7 +130,8 @@ export function RulesTab({ policy, update, admin, clusters: contexts, index }: T
           }
         >
           Who gets which profile, and where. Someone in several groups gets the most any grant gives
-          them, setting by setting.
+          them, setting by setting. (Whose audit events someone reads isn’t a cluster’s: a grant
+          that gives everyone’s gives them everywhere.)
         </SectionHead>
         {policy.grants.length === 0 && (
           <Empty>No grants yet: everyone gets what the Everyone profile says, everywhere.</Empty>
@@ -148,7 +149,8 @@ export function RulesTab({ policy, update, admin, clusters: contexts, index }: T
           }
         >
           They win over every grant: nobody they name, wherever they match, gets more than they say.
-          Kubernetes RBAC still applies after both.
+          Kubernetes RBAC still applies after both. (One on whose audit events holds them back
+          everywhere.)
         </SectionHead>
         {policy.limits.length === 0 && (
           <Empty>

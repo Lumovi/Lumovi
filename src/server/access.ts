@@ -5,6 +5,7 @@
  * lately, with the groups their provider sent; and, for each person, a
  * guard that Lumovi's services ask before they act.
  */
+import { createHash } from 'node:crypto'
 import type { AccessGuard } from '@shared/access'
 import type { Handler } from '@backend/handlers'
 import type { AuditLog } from '@backend/audit/log'
@@ -15,12 +16,14 @@ import {
   accessDecider,
   allows,
   because,
+  canonical,
   changesOf,
   checkedPolicy,
   mergedPolicy,
   OPEN_POLICY,
   ownPart,
   policyFor,
+  samePerson,
   SCOPES,
   usesLabels,
   type AccessDecision,
@@ -34,6 +37,7 @@ import type { AiTarget } from '@shared/ai-permissions'
 import { IPC, type Result } from '@shared/api'
 import type { AuditActor } from '@shared/audit'
 import type { SessionUser } from '@shared/server'
+import { SERVER_ACTOR } from './audit'
 import { ConfigError, type AccessConfig, type AuthConfig } from './config'
 import { keeper, MAX_KEPT_BYTES, type Keeper, type Kept } from './kept'
 import { log } from './log'
@@ -53,7 +57,11 @@ type Part = 'groups' | 'profiles' | 'grants' | 'limits'
  * goes (a grant of a profile it took away; a group it took away, from who a grant's for), and
  * the log says so. A grant or limit for no group left is for nobody: it goes too.
  */
-function pruned(given: unknown, base: BasePolicy | undefined): unknown {
+function pruned(
+  given: unknown,
+  base: BasePolicy | undefined,
+  said: (dropped: string[]) => void,
+): unknown {
   if (typeof given !== 'object' || given === null || Array.isArray(given)) return given
   const kept = given as Record<string, unknown>
   // What isn't made as it should be is the check's to say.
@@ -87,31 +95,51 @@ function pruned(given: unknown, base: BasePolicy | undefined): unknown {
     })
   const grants = forSomeone('grants')
   const limits = forSomeone('limits')
-  if (dropped.length) {
-    log(
-      `Access: ${dropped.join(', ')} named groups or profiles the chart no longer has, and no longer apply.`,
-    )
-  }
+  said(dropped)
   return { ...kept, groups, profiles, grants, limits }
 }
 
+/**
+ * What's kept, as read: the policy, and whether Lumovi wrote it (a replica of it, through its
+ * page) or someone changed it where it's kept, by hand: a seal of it says which.
+ */
+interface Stored {
+  policy: AccessPolicy
+  sealed: boolean
+}
+
+const seal = (policy: unknown) => createHash('sha256').update(canonical(policy)).digest('hex')
+
 /** How what admins set is kept: as JSON, checked on its way in, with the chart's. */
-function keptAs(base: BasePolicy | undefined): Kept<AccessPolicy> {
+function keptAs(base: BasePolicy | undefined): Kept<Stored> {
+  // What the chart no longer has is said once, not each time it's read again.
+  let told = ''
+  const tell = (dropped: string[]) => {
+    if (dropped.length && dropped.join() !== told) {
+      log(
+        `Access: ${dropped.join(', ')} named groups or profiles the chart no longer has, and no longer apply.`,
+      )
+    }
+    told = dropped.join()
+  }
   return {
     what: 'access settings',
     key: 'access.json',
-    empty: ownPart(OPEN_POLICY, base),
-    write: (policy) => JSON.stringify({ version: 1, policy }),
+    empty: { policy: ownPart(OPEN_POLICY, base), sealed: true },
+    write: ({ policy }) => JSON.stringify({ version: 1, policy, seal: seal(policy) }),
     read: (text, where) => {
-      let parsed: unknown
+      let parsed: { policy?: unknown; seal?: unknown } | null
       try {
         parsed = JSON.parse(text)
       } catch {
         throw new ConfigError(`${where} isn’t JSON: Lumovi can’t read who may do what, kept there.`)
       }
       try {
-        const policy = (parsed as { policy?: unknown } | null)?.policy
-        return ownPart(checkedPolicy(pruned(policy, base), where), base)
+        const given = parsed?.policy
+        return {
+          policy: ownPart(checkedPolicy(pruned(given, base, tell), where), base),
+          sealed: parsed?.seal === seal(given),
+        }
       } catch (error) {
         throw new ConfigError((error as Error).message, { cause: error })
       }
@@ -141,7 +169,7 @@ export class ServerAccess {
 
   private constructor(
     private readonly config: AccessConfig,
-    private readonly keeper: Keeper<AccessPolicy>,
+    private readonly keeper: Keeper<Stored>,
     private readonly audit: AuditLog,
     private readonly provider: AdminAccess['provider'],
     own: AccessPolicy,
@@ -167,7 +195,7 @@ export class ServerAccess {
         : auth.mode === 'proxy'
           ? { mode: 'proxy', name: 'your proxy', claim: auth.groupsHeader }
           : { mode: 'token', name: 'Kubernetes' }
-    const access = new ServerAccess(config, kept, audit, provider, await kept.read())
+    const access = new ServerAccess(config, kept, audit, provider, (await kept.read()).policy)
     await access.#seenLately()
     if (administered && kept.kept !== 'memory') {
       access.#refresher = setInterval(() => void access.#refresh(), REFRESH_MS)
@@ -182,7 +210,10 @@ export class ServerAccess {
 
   isAdmin(user: SessionUser): boolean {
     const { admins } = this.config
-    return admins.users.includes(user.name) || user.groups.some((g) => admins.groups.includes(g))
+    return (
+      admins.users.some((name) => samePerson(name, user.name)) ||
+      user.groups.some((g) => admins.groups.includes(g))
+    )
   }
 
   /** Tells `listener` whenever the policy changes (here, or as kept by someone else). */
@@ -264,7 +295,8 @@ export class ServerAccess {
   }
 
   /** Someone's own: what applies to them, and nothing about anyone else. */
-  mine(user: SessionUser): MyAccess {
+  /** (Whether they're an auditor is the page's connection's to say: LUMOVI_AUDITORS too.) */
+  mine(user: SessionUser): Omit<MyAccess, 'auditor'> {
     return {
       person: user,
       policy: policyFor(this.#policy, user),
@@ -301,12 +333,15 @@ export class ServerAccess {
     }
     const policy = checkedPolicy(given, 'Access')
     const own = ownPart(policy, this.config.base)
-    if (Buffer.byteLength(keptAs(this.config.base).write(own)) > MAX_KEPT_BYTES) {
+    if (
+      Buffer.byteLength(keptAs(this.config.base).write({ policy: own, sealed: true })) >
+      MAX_KEPT_BYTES
+    ) {
       throw new Error('Lumovi can’t keep that much: who may do what would be over 1 MB.')
     }
     const before = this.#policy
     try {
-      await this.keeper.write(own)
+      await this.keeper.write({ policy: own, sealed: true })
     } catch (error) {
       if (toKubeError(error).code === 'conflict') {
         await this.#refresh()
@@ -319,18 +354,22 @@ export class ServerAccess {
       })
     }
     this.#use(own)
-    const changes = changesOf(before, this.#policy)
-    if (changes.length) {
-      const first = changes[0]!
-      this.audit.record({
-        action: 'access.changed',
-        outcome: 'success',
-        actor,
-        summary: `${first}${changes.length > 1 ? `, and ${changes.length - 1} more` : ''}`,
-        details: { changes },
-      })
-    }
+    this.#record(before, actor)
     return this.admin()
+  }
+
+  /** What changed since `before`, recorded: by an admin, or (`actor` the server's) by hand. */
+  #record(before: AccessPolicy, actor: AuditActor): void {
+    const changes = changesOf(before, this.#policy)
+    if (!changes.length) return
+    const outside = actor === SERVER_ACTOR
+    this.audit.record({
+      action: 'access.changed',
+      outcome: 'success',
+      actor,
+      summary: `${outside ? 'Changed outside Lumovi: ' : ''}${changes[0]}${changes.length > 1 ? `, and ${changes.length - 1} more` : ''}`,
+      details: { changes, ...(outside ? { outside: true } : {}) },
+    })
   }
 
   #use(own: AccessPolicy): void {
@@ -339,14 +378,21 @@ export class ServerAccess {
     for (const listener of this.#listeners) listener()
   }
 
-  /** What's kept, read again: someone else's change applies here too. */
+  /**
+   * What's kept, read again: someone else's change applies here too. Another replica's was
+   * recorded there; one made by hand, where it's kept, is recorded here.
+   */
   async #refresh(): Promise<void> {
     const was = this.keeper.version()
     try {
-      const own = await this.keeper.read()
+      const stored = await this.keeper.read()
       if (this.#refreshFailed) log('Access: Lumovi reads who may do what again.')
       this.#refreshFailed = false
-      if (this.keeper.version() !== was) this.#use(own)
+      if (this.keeper.version() !== was) {
+        const before = this.#policy
+        this.#use(stored.policy)
+        if (!stored.sealed) this.#record(before, SERVER_ACTOR)
+      }
     } catch (error) {
       // What it last read still holds.
       if (!this.#refreshFailed) {
@@ -367,6 +413,8 @@ export function accessHandlers(
   user: SessionUser,
   actor: AuditActor,
   audit: AuditLog,
+  /** Whether they read everyone's events, LUMOVI_AUDITORS included. */
+  auditor: () => boolean,
   emit: (channel: string, ...args: unknown[]) => void,
 ): { invoke: Record<string, Handler>; stop(): void } {
   const admin = () => {
@@ -377,7 +425,7 @@ export function accessHandlers(
   const stop = access.onChange(() => emit(IPC.accessChanged))
   return {
     invoke: {
-      [IPC.accessMine]: () => access.mine(user),
+      [IPC.accessMine]: () => ({ ...access.mine(user), auditor: auditor() }),
       [IPC.accessAdmin]: () => {
         admin()
         return access.admin()

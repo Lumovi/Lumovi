@@ -331,22 +331,22 @@
                   "enum": ["read", "write"]
                 },
                 "shells": {
-                  "enum": ["off", "on"]
+                  "enum": ["off", "on", false, true]
                 },
                 "nodeShells": {
-                  "enum": ["off", "on"]
+                  "enum": ["off", "on", false, true]
                 },
                 "logs": {
-                  "enum": ["off", "on"]
+                  "enum": ["off", "on", false, true]
                 },
                 "secrets": {
                   "enum": ["hidden", "keys", "values"]
                 },
                 "helm": {
-                  "enum": ["off", "upgrade", "install"]
+                  "enum": ["off", "upgrade", "install", false]
                 },
                 "assistants": {
-                  "enum": ["off", "ask", "self"]
+                  "enum": ["off", "ask", "self", false]
                 },
                 "audit": {
                   "enum": ["own", "all"]
@@ -423,22 +423,22 @@
                         "enum": ["read", "write"]
                       },
                       "shells": {
-                        "enum": ["off", "on"]
+                        "enum": ["off", "on", false, true]
                       },
                       "nodeShells": {
-                        "enum": ["off", "on"]
+                        "enum": ["off", "on", false, true]
                       },
                       "logs": {
-                        "enum": ["off", "on"]
+                        "enum": ["off", "on", false, true]
                       },
                       "secrets": {
                         "enum": ["hidden", "keys", "values"]
                       },
                       "helm": {
-                        "enum": ["off", "upgrade", "install"]
+                        "enum": ["off", "upgrade", "install", false]
                       },
                       "assistants": {
-                        "enum": ["off", "ask", "self"]
+                        "enum": ["off", "ask", "self", false]
                       },
                       "audit": {
                         "enum": ["own", "all"]
@@ -547,22 +547,22 @@
                         "enum": ["read", "write"]
                       },
                       "shells": {
-                        "enum": ["off", "on"]
+                        "enum": ["off", "on", false, true]
                       },
                       "nodeShells": {
-                        "enum": ["off", "on"]
+                        "enum": ["off", "on", false, true]
                       },
                       "logs": {
-                        "enum": ["off", "on"]
+                        "enum": ["off", "on", false, true]
                       },
                       "secrets": {
                         "enum": ["hidden", "keys", "values"]
                       },
                       "helm": {
-                        "enum": ["off", "upgrade", "install"]
+                        "enum": ["off", "upgrade", "install", false]
                       },
                       "assistants": {
-                        "enum": ["off", "ask", "self"]
+                        "enum": ["off", "ask", "self", false]
                       },
                       "audit": {
                         "enum": ["own", "all"]

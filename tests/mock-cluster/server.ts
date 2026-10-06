@@ -1062,6 +1062,15 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
           `the body of the request was in an unknown format - accepted media types include: ${PATCH_TYPES.join(', ')}`,
         )
       }
+      // As the API server does: a patch that says which version it's of applies to that one only.
+      const version = (body as { metadata?: { resourceVersion?: string } } | null)?.metadata
+        ?.resourceVersion
+      if (version && version !== existing.metadata.resourceVersion) {
+        throw new HttpError(
+          409,
+          `Operation cannot be fulfilled on ${plural} "${name}": the object has been modified; please apply your changes to the latest version and try again`,
+        )
+      }
       let patched: Json
       try {
         patched = apply(existing, body)

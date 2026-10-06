@@ -28,7 +28,7 @@ import {
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
-import type { AccessGuard } from '@shared/access'
+import type { AccessGuard, Levels } from '@shared/access'
 import { kubeRequest, type RequestOptions } from './client'
 import { discover } from './discovery'
 import { KubeRequestError, toKubeError } from './errors'
@@ -374,6 +374,8 @@ export class KubeService {
       else if (r.namespace !== undefined) throw invalid(`${r.kind} objects have no namespace`)
       const change = assertQuery<Change>(r.change)
       if (change.action !== 'create') assertString(r.name, 'name')
+      // What a change to a Secret answers with is the Secret: its values, for those shown them.
+      let secrets: Levels['secrets'] = 'values'
       if (this.guard) {
         // Where it is: its namespace, a Namespace's own name, or (a cluster's own object) none.
         const named = r.name ?? (change as { object?: KubeObject }).object?.metadata?.name
@@ -382,9 +384,16 @@ export class KubeService {
           await this.guard.require(r.context, 'shells', 'on', where, 'debug pods')
         }
         await this.guard.require(r.context, 'changes', 'write', where, 'make changes')
-        // A Secret written whole, by someone shown only its keys, would lose its values.
-        if (r.kind === 'Secret' && (change.action === 'replace' || change.action === 'apply')) {
-          await this.guard.require(r.context, 'secrets', 'values', where, 'edit Secrets whole')
+        if (r.kind === 'Secret') {
+          // Not seen at all, not changed either.
+          secrets = await this.guard.secrets(r.context, where!)
+          if (secrets === 'hidden') {
+            await this.guard.require(r.context, 'secrets', 'keys', where, 'change Secrets')
+          }
+          // A Secret written whole, by someone shown only its keys, would lose its values.
+          if (change.action === 'replace' || change.action === 'apply') {
+            await this.guard.require(r.context, 'secrets', 'values', where, 'edit Secrets whole')
+          }
         }
       }
       if (this.isReadOnly(r.context)) {
@@ -395,8 +404,12 @@ export class KubeService {
       }
       const dryRun = r.dryRun === true ? '?dryRun=All' : ''
       const path = resourcePath(resource, r.namespace, r.name)
-      const send = async (target: string, options: Omit<RequestOptions, 'timeoutMs'>) =>
-        slim(JSON.parse(await this.#request(r.context, target, options)) as KubeObject)
+      const send = async (target: string, options: Omit<RequestOptions, 'timeoutMs'>) => {
+        const object = slim(
+          JSON.parse(await this.#request(r.context, target, options)) as KubeObject,
+        )
+        return secrets === 'values' ? object : withoutValues(object)
+      }
 
       switch (change.action) {
         case 'patch': {

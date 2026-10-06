@@ -305,6 +305,8 @@ export interface ChipView {
   kind?: string
   sub?: string
   mono?: boolean
+  /** Something to know about it: "not seen yet". */
+  note?: string
 }
 
 /**
@@ -373,6 +375,9 @@ export function ChipField({
             {chip.kind && <span className="font-sans text-2xs text-ink-3">{chip.kind}</span>}
             <span className={cn('truncate', chip.mono && 'font-mono')}>{chip.text}</span>
             {chip.sub && <span className="truncate font-mono text-2xs text-ink-3">{chip.sub}</span>}
+            {chip.note && (
+              <span className="text-2xs whitespace-nowrap text-warn-text">{chip.note}</span>
+            )}
             {!locked && (
               <button
                 type="button"

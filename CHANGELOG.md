@@ -68,9 +68,11 @@ All notable changes to Lumovi are documented here. The format follows
   happens (an action, a shell, logs, a Secret, a release) and links to it; it's in the account
   menu and the command palette, with the Admin pages for admins (and in the sidebar).
 - What admins set is kept in a ConfigMap (the chart's), `LUMOVI_DATA_DIR`, or memory, and read
-  again every 15 seconds, so each replica follows. `LUMOVI_ACCESS` says what the chart does,
-  which admins see but can't change. With no admins, everyone may do all their RBAC allows, as
-  before.
+  again every 15 seconds, so each replica follows; changed by hand where it's kept, it's recorded
+  too, as changed outside Lumovi. `LUMOVI_ACCESS` says what the chart does, which admins see but
+  can't change (`on` and `off`, as YAML reads them unquoted, are taken as meant). People named in
+  a group, or as admins, are matched whatever the case of their name. With no admins, everyone
+  may do all their RBAC allows, as before.
 - Helm chart: `access.admins` and `access.policy`.
 
 ### Changed
@@ -83,6 +85,12 @@ All notable changes to Lumovi are documented here. The format follows
 - CI runs each platform's tests on four machines at once, not two.
 - AI rules kept in `LUMOVI_DATA_DIR` by two replicas: one's change no longer writes over the
   other's.
+
+### Fixed
+
+- AI rules kept in the chart's ConfigMap: saving them no longer takes the annotation that keeps
+  the ConfigMap when the chart's uninstalled off it, nor its labels. Without it, an upgrade that
+  turned assistants off deleted the ConfigMap, and everyone's AI rules with it.
 
 ## [1.5.0] - 2026-10-06
 
