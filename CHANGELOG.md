@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-06
+
+An audit log of what's done through Lumovi, by whom, and how it went, kept as a chain anyone
+can check; and, on a server, Access: who may do what through Lumovi, set by its admins, within
+what Kubernetes RBAC allows.
+
 ### Added
 
 - An audit log of what's done through Lumovi, by whom, from where, and how it went: changes
@@ -89,6 +95,8 @@ All notable changes to Lumovi are documented here. The format follows
   upgrade stops the old pod before the new one starts (one writes the history at a time), and
   more than one replica needs `audit.persistence.enabled: false`.
 - CI runs each platform's tests on four machines at once, not two.
+- The end-to-end coverage CI requires is more than 95% of statements, branches, functions and
+  lines (it was 100%), with every source file loaded by some test.
 - AI rules kept in `LUMOVI_DATA_DIR` by two replicas: one's change no longer writes over the
   other's.
 
@@ -97,6 +105,8 @@ All notable changes to Lumovi are documented here. The format follows
 - AI rules kept in the chart's ConfigMap: saving them no longer takes the annotation that keeps
   the ConfigMap when the chart's uninstalled off it, nor its labels. Without it, an upgrade that
   turned assistants off deleted the ConfigMap, and everyone's AI rules with it.
+- AI rules: an edit made just as a save landed (a matcher added, a rule's name typed) was
+  sometimes lost, the page showing the rules as they were before for a moment.
 
 ## [1.5.0] - 2026-10-06
 
@@ -391,7 +401,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/Lumovi/Lumovi/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Lumovi/Lumovi/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Lumovi/Lumovi/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Lumovi/Lumovi/compare/v1.2.0...v1.3.0
