@@ -30,8 +30,11 @@ export interface AuditEvents {
   more: boolean
   loadingMore: boolean
   loadMore: () => void
-  /** It stopped looking before it found a page's worth: how many it looked through. */
-  stopped?: number
+  /**
+   * It stopped looking before it found a page's worth: how many it looked through (said to an
+   * auditor alone: it counts everyone's).
+   */
+  stopped?: { scanned?: number }
 }
 
 export function useAuditEvents(query: AuditQuery, range: Range, key: string): AuditEvents {
@@ -95,7 +98,12 @@ export function useAuditEvents(query: AuditQuery, range: Range, key: string): Au
       loadingMore: pages.isFetchingNextPage,
       loadMore: () => void pages.fetchNextPage(),
       stopped: last?.stopped
-        ? pages.data!.pages.reduce((sum, page) => sum + page.scanned, 0)
+        ? {
+            scanned:
+              last.scanned === undefined
+                ? undefined
+                : pages.data!.pages.reduce((sum, page) => sum + page.scanned!, 0),
+          }
         : undefined,
     }
   }, [pages, live, key])

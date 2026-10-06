@@ -4,11 +4,14 @@
  * that does the same), kept on a volume, written on the server's output and
  * sent to a webhook; and found again on the Audit page, by whoever may.
  */
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
   chmodSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -17,7 +20,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserContext, Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
@@ -51,21 +54,23 @@ async function as(context: BrowserContext, user: string, groups = '') {
 /** A webhook that keeps what it's sent, answering as a test says. */
 async function webhook() {
   const received: { headers: IncomingMessage['headers']; body: string; status: number }[] = []
-  let answer: (body: string) => number = () => 200
+  /** A status to answer with; or no answer at all. */
+  let answer: (body: string) => number | 'never' = () => 200
   const server = createServer((req, res) => {
     let body = ''
     req.setEncoding('utf8').on('data', (chunk: string) => (body += chunk))
     req.on('end', () => {
       const status = answer(body)
+      if (status === 'never') return
       received.push({ headers: req.headers, body, status })
-      res.writeHead(status).end()
+      res.writeHead(status, status === 302 ? { location: '/elsewhere' } : {}).end()
     })
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/audit?token=secret`,
     received,
-    answer: (next: (body: string) => number) => (answer = next),
+    answer: (next: (body: string) => number | 'never') => (answer = next),
     /** The events it took (not those it refused), in order: a JSON array a request, or a line each. */
     events: (): AuditEvent[] =>
       received
@@ -76,7 +81,11 @@ async function webhook() {
             .filter(Boolean)
             .flatMap((line) => JSON.parse(line) as AuditEvent | AuditEvent[]),
         ),
-    close: () => new Promise((done) => server.close(done)),
+    close: () =>
+      new Promise((done) => {
+        server.close(done)
+        server.closeAllConnections()
+      }),
   }
 }
 
@@ -307,7 +316,8 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
           context: 'demo',
           namespace: 'shop',
           name: 'web',
-          source: { chart: 'oci://registry.example.com/web' },
+          // Who it goes as (a robot's password, a signed query) isn't recorded.
+          source: { chart: 'oci://robot:s3cret@registry.example.com/web?token=t0k' },
           values: '- not a map',
           dryRun: false,
         }),
@@ -548,8 +558,9 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
     target: { kind: 'Secret', name: 'postgres-credentials', namespace: 'data' },
     details: { keys: ['username', 'password', 'database'] },
   })
-  // Never its values.
+  // Never its values, nor who a chart's fetched as.
   expect(JSON.stringify(events)).not.toContain(DEMO.postgresPassword)
+  expect(JSON.stringify(events)).not.toMatch(/s3cret|t0k/)
   expect(events.find((e) => e.action === 'helm.install')!.details).toEqual({
     chart: 'nginx',
     version: '1.2.3',
@@ -589,12 +600,14 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
     authorization: 'Bearer hook-token',
     'content-type': 'application/x-ndjson',
   })
-  // Kept a file a day, readable only by Lumovi.
-  const files = readdirSync(dir)
-  expect(files).toEqual([`audit-${history[0]!.time.slice(0, 10)}.jsonl`])
+  // Kept a file a day, readable only by Lumovi; and its one writer's lock.
+  const files = readdirSync(dir).sort()
+  expect(files).toEqual([`audit-${history[0]!.time.slice(0, 10)}.jsonl`, 'audit.lock'])
   if (process.platform !== 'win32') {
     expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600)
   }
+  // Each hash is what anyone works out with jq and sha256sum.
+  for (const event of history) expect(hashOf(event)).toBe(event.hash)
 
   // Started again, it goes on from where it was: one chain, and it holds.
   await served.stop()
@@ -612,11 +625,18 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   expect(said(again.events)).toEqual(resumed)
   expect(again.events[0]!.seq).toBe(again.events[1]!.seq + 1)
   expect(again.events[0]!.prev).toBe(again.events[1]!.hash)
-  expect(again.next).toBe(String(again.events.at(-1)!.seq))
+  expect(again.events[0]!.chain).toBe(history[0]!.chain)
+  // Where it ended says nothing (of whose, or how many): the next page goes on from it.
+  expect(again.next).toMatch(/^[\w-]{40,}$/)
+  const before = await query(page, { limit: 1, after: again.next })
+  expect(before.events[0]!.seq).toBe(again.events.at(-1)!.seq - 1)
   expect(await page.evaluate(() => window.lumovi!.audit.verify())).toEqual({
     checked: history.length + (GRACEFUL ? 2 : 1),
     from: history[0]!.time,
     to: again.events[0]!.time,
+    last: { seq: again.events[0]!.seq, hash: again.events[0]!.hash },
+    breaks: [],
+    more: 0,
   })
   await hook.close()
 })
@@ -814,7 +834,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   expect(csv.name).toMatch(/^lumovi-audit-\d{4}-\d{2}-\d{2}\.csv$/)
   const lines = csv.text.trimEnd().split('\r\n')
   expect(lines[0]).toBe(
-    'time,user,via,assistant,action,outcome,cluster,namespace,kind,name,summary,command,approval,error,id,seq,hash',
+    'time,user,via,assistant,action,outcome,cluster,namespace,kind,name,summary,command,approval,error,id,chain,seq,hash',
   )
   expect(lines).toHaveLength(5)
   expect(lines[1]).toContain(',lumovi,server,,server.started,success,')
@@ -874,7 +894,12 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await page.getByRole('button', { name: 'Check integrity' }).click()
   const integrity = page.getByRole('status', { name: 'Integrity' })
   await expect(integrity).toContainText('All 5 events hold.')
-  await expect(integrity).toContainText('none was changed, removed, or added since it was recorded')
+  await expect(integrity).toContainText(
+    'follows from the one before it: none was changed, and none removed or put in between them.',
+  )
+  // What it can't show by itself: the newest's hash, to compare with a copy kept elsewhere.
+  await expect(integrity).toContainText('shows what this can’t: the newest removed')
+  await expect(integrity.getByRole('button', { name: 'Copy its hash' })).toBeVisible()
   await integrity.getByRole('button', { name: 'Close' }).click()
   await expect(integrity).toBeHidden()
 
@@ -926,8 +951,14 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await bobs.close()
 })
 
-/** An event's hash, as the docs say anyone can work it out: SHA-256 of its JSON, keys in order. */
+/**
+ * An event's hash, as the docs say anyone can work it out: `jq -jcS 'del(.hash)' | sha256sum`.
+ * (Where there's no jq, the same by hand: JSON, keys in order.)
+ */
 function hashOf(event: AuditEvent): string {
+  const line = JSON.stringify(event)
+  const jq = spawnSync('jq', ['-jcS', 'del(.hash)'], { input: line, encoding: 'utf8' })
+  if (!jq.error) return createHash('sha256').update(jq.stdout).digest('hex')
   const canonical = (value: unknown): string => {
     if (value === null || typeof value !== 'object') return JSON.stringify(value)
     if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
@@ -952,6 +983,11 @@ const write = (path: string, events: (AuditEvent | string)[], end = '\n') =>
     events.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n') + end,
   )
 const verify = (page: Page) => page.evaluate(() => window.lumovi!.audit.verify())
+/** A folder's day files (and what else is there), not its writer's lock. */
+const days = (dir: string) =>
+  readdirSync(dir)
+    .filter((name) => name !== 'audit.lock')
+    .sort()
 
 test('a history that was changed shows where, and how', async ({ page, context, serve }) => {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
@@ -980,66 +1016,79 @@ test('a history that was changed shows where, and how', async ({ page, context, 
     expect(event.prev).toBe(i === 0 ? '' : kept[i - 1]!.hash)
   }
 
-  const broken = async (seq: number, reason: string) => {
+  /** Where checking finds the chain doesn't hold: each place, oldest first. */
+  const breaks = async (...expected: [number, string][]) => {
     const result = await verify(page)
-    expect(result.broken).toMatchObject({ seq, reason })
+    expect(result.breaks.map((b) => [b.seq, b.reason])).toEqual(expected)
+    expect(result.more).toBe(0)
     return result
   }
-  // Edited after it was recorded.
+  const CHANGED = 'Its hash isn’t what its contents give: it was changed after it was recorded.'
+  // Edited after it was recorded: each one said, and the rest still checked.
   write(
     file,
-    kept.map((e) => (e.seq === 3 ? { ...e, summary: 'Nothing happened' } : e)),
+    kept.map((e) => (e.seq === 2 || e.seq === 3 ? { ...e, summary: 'Nothing happened' } : e)),
   )
   await running(async () => {
-    expect(
-      await broken(
-        3,
-        'Its hash isn’t what its contents give: it was changed after it was recorded.',
-      ),
-    ).toMatchObject({ checked: 2, from: kept[0]!.time, to: kept[1]!.time })
+    expect(await breaks([2, CHANGED], [3, CHANGED])).toMatchObject({
+      checked: kept.length + 1,
+      from: kept[0]!.time,
+    })
     await page.getByRole('button', { name: 'Check integrity' }).click()
     const alert = page.getByRole('alert', { name: 'Integrity' })
-    await expect(alert).toContainText(/The log was changed: event #3 \(after .*\) doesn’t follow\./)
-    await expect(alert).toContainText('it was changed after it was recorded. The 2 before it hold.')
+    await expect(alert).toContainText('The log was changed: it doesn’t hold in 2 places.')
+    await expect(alert.getByRole('listitem')).toHaveText([
+      /^#2 \(after .*\) Its hash isn’t what its contents give/,
+      /^#3 \(after .*\) Its hash isn’t what its contents give/,
+    ])
+    // The newest, to compare with a copy kept elsewhere.
+    const { last } = await verify(page)
+    await expect(alert).toContainText(
+      `Compare the newest there: #${last!.seq}, ${last!.hash.slice(0, 16)}…`,
+    )
   })
   // One taken out, or several.
   write(
     file,
     kept.filter((e) => e.seq !== 3),
   )
-  await running(() => broken(4, 'Event 3 is missing.').then(() => undefined))
+  await running(() => breaks([4, 'Event 3 is missing.']).then(() => undefined))
   write(
     file,
     kept.filter((e) => e.seq !== 2 && e.seq !== 3),
   )
-  await running(() => broken(4, 'Events 2–3 are missing.').then(() => undefined))
+  await running(() => breaks([4, 'Events 2–3 are missing.']).then(() => undefined))
   // One repeated.
   write(file, [...kept.slice(0, 3), kept[2]!, ...kept.slice(3)])
   await running(() =>
-    broken(3, 'It’s number 3, after number 3: one was repeated, or moved.').then(() => undefined),
+    breaks([3, 'It’s number 3, after number 3: one was repeated, or moved.']).then(() => undefined),
   )
-  // Replaced by another that hashes right, but doesn't follow.
+  // Replaced by another that hashes right, but doesn't follow (nor does the one after it).
+  const replaced = { ...kept[2]!, prev: 'f'.repeat(64) }
   write(
     file,
-    kept.map((e) =>
-      e.seq === 3
-        ? { ...e, prev: 'f'.repeat(64), hash: hashOf({ ...e, prev: 'f'.repeat(64) }) }
-        : e,
-    ),
+    kept.map((e) => (e.seq === 3 ? { ...replaced, hash: hashOf(replaced) } : e)),
   )
-  await running(() =>
-    broken(
-      3,
-      'It doesn’t follow from the event before it: one of them was changed, or replaced.',
-    ).then(() => undefined),
+  const NOT_FOLLOWING =
+    'It doesn’t follow from the event before it: one of them was changed, or replaced.'
+  await running(() => breaks([3, NOT_FOLLOWING], [4, NOT_FOLLOWING]).then(() => undefined))
+  // Another chain's, put in where it goes on (two servers keeping theirs here at once, say).
+  const other = { ...kept[2]!, chain: 'another' }
+  write(
+    file,
+    kept.map((e) => (e.seq === 3 ? { ...other, hash: hashOf(other) } : e)),
   )
-  // A new chain where one started afresh (a new volume) holds.
+  const ANOTHER =
+    'It’s from another chain than the event before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
+  await running(() => breaks([3, ANOTHER], [4, ANOTHER]).then(() => undefined))
+  // A chain that starts again in the same history: the events before it went.
   const fresh = { ...kept[0]!, id: 'fresh', seq: 1, prev: '' }
   write(file, [...kept, { ...fresh, hash: hashOf(fresh) }])
   await running(async () => {
-    const result = await verify(page)
-    expect(result.broken).toBeUndefined()
-    expect(result.checked).toBe(kept.length + 2)
+    await breaks([
+      1,
+      `A new chain starts here, after event ${kept.length}: Lumovi started again without the events before it (they were removed, or couldn’t be read).`,
+    ])
     // It goes on from the last.
     expect((await query(page, { limit: 1 })).events[0]!.seq).toBe(2)
   })
@@ -1049,8 +1098,11 @@ test('a history that was changed shows where, and how', async ({ page, context, 
   write(file, [...kept, unfinished], '')
   await running(async () => {
     expect(
-      await broken(next, `Line ${next} of audit-${today()}.jsonl can’t be read as an audit event.`),
-    ).toMatchObject({ checked: kept.length })
+      await breaks([
+        next,
+        `Line ${next} of audit-${today()}.jsonl can’t be read as an audit event.`,
+      ]),
+    ).toMatchObject({ checked: kept.length + 1 })
     expect((await query(page, { limit: 1 })).events[0]!.seq).toBe(next)
   })
   expect(linesOf(file)[kept.length]).toBe(unfinished)
@@ -1067,6 +1119,7 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
       type: 'lumovi.audit' as const,
       version: 1 as const,
       id: `e-${seq}`,
+      chain: 'kept',
       seq,
       time,
       category: 'settings' as const,
@@ -1093,11 +1146,11 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
     LUMOVI_AUDIT_RETENTION_DAYS: '30',
   })
   let served = await serve({ env: env(old) })
-  expect(readdirSync(old).sort()).toEqual(['audit-2020-01-01.jsonl', `audit-${today()}.jsonl`])
+  expect(days(old)).toEqual(['audit-2020-01-01.jsonl', `audit-${today()}.jsonl`])
   expect(eventsIn(dayFile(old))[0]).toMatchObject({ seq: 8, prev: ancient.hash })
   await served.stop()
   served = await serve({ env: env(old) })
-  expect(readdirSync(old)).toEqual([`audit-${today()}.jsonl`])
+  expect(days(old)).toEqual([`audit-${today()}.jsonl`])
   await served.stop()
 
   // Days of it: an old one let go, one that can't be read skipped, and what's searched for found.
@@ -1113,7 +1166,7 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
   // A file that isn't one of its days is left alone.
   writeFileSync(join(dir, 'notes.txt'), 'mine')
   served = await serve({ env: env(dir) })
-  expect(readdirSync(dir).sort()).toEqual(
+  expect(days(dir)).toEqual(
     [
       `audit-${twoDays}.jsonl`,
       `audit-${yesterday}.jsonl`,
@@ -1145,16 +1198,37 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
   expect(one.events.map((e) => e.summary)).toEqual(['Yesterday evening'])
   const next = await query(page, { limit: 1, to: `${yesterday}T23:59:59.000Z`, after: one.next })
   expect(next.events.map((e) => e.summary)).toEqual(['Yesterday morning'])
-  // The unreadable line breaks the chain where it is.
-  expect(await verify(page)).toMatchObject({
-    broken: { seq: 1, reason: `Line 1 of audit-${twoDays}.jsonl can’t be read as an audit event.` },
-  })
+  // The lines that aren't events are said where they are; the chain holds around them.
+  expect((await verify(page)).breaks).toEqual([
+    {
+      seq: 1,
+      time: '',
+      reason: `Line 1 of audit-${twoDays}.jsonl can’t be read as an audit event.`,
+    },
+    {
+      seq: 1,
+      time: '',
+      reason: `Line 2 of audit-${twoDays}.jsonl can’t be read as an audit event.`,
+    },
+  ])
+  // Searched newest first, they're found where they are too.
+  const all = await query(page, { limit: 1000 })
+  expect(all.events.at(-1)!.summary).toBe('Two days ago')
+  expect(all.scanned).toBe(all.events.length + 2)
 
-  // Deleted while Lumovi runs: as if it had none.
+  // Deleted while Lumovi runs: as if it had none, a page at a time too.
   rmSync(dayFile(dir, twoDays))
   expect(
     (await query(page, { to: `${yesterday}T12:00:00.000Z` })).events.map((e) => e.summary),
   ).toEqual(['Yesterday morning'])
+  const evening = await query(page, { limit: 1, to: `${yesterday}T23:59:59.000Z` })
+  const after = await query(page, {
+    limit: 1,
+    to: `${yesterday}T23:59:59.000Z`,
+    after: evening.next,
+  })
+  expect(after.events.map((e) => e.summary)).toEqual(['Yesterday morning'])
+  expect(after.next).toBeUndefined()
   // One that can't be read at all: the search says so.
   // (Not on Windows, nor as root, who reads it anyway.)
   if (process.platform !== 'win32' && process.getuid?.() !== 0) {
@@ -1206,6 +1280,261 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
   await expect(list(page)).toContainText(/March 4, 2020/)
 })
 
+/** An event as Lumovi records it: hashed, following `prev`. */
+function made(seq: number, time: string, prev = '', summary = `Event ${seq}`): AuditEvent {
+  const event = {
+    type: 'lumovi.audit' as const,
+    version: 1 as const,
+    id: `made-${seq}`,
+    chain: 'made',
+    seq,
+    time,
+    category: 'settings' as const,
+    action: 'read-only.changed' as const,
+    outcome: 'success' as const,
+    actor: { user: 'alice@example.com', via: 'ui' as const },
+    cluster: 'demo',
+    summary,
+    prev,
+  }
+  return { ...event, hash: hashOf(event as AuditEvent) }
+}
+
+/** Events that follow each other, from `from`, an hour apart on a day. */
+function chained(from: number, count: number, day: string, prev = ''): AuditEvent[] {
+  const events: AuditEvent[] = []
+  for (let i = 0; i < count; i++) {
+    const hour = String(Math.min(i, 23)).padStart(2, '0')
+    const event = made(from + i, `${day}T${hour}:00:00.000Z`, events.at(-1)?.hash ?? prev)
+    events.push(event)
+  }
+  return events
+}
+
+test('a history read a piece at a time: lines too long, many breaks, pages resumed', async ({
+  page,
+  context,
+  serve,
+}) => {
+  await as(context, 'alice@example.com', 'auditors')
+  const env = (dir: string, more: Record<string, string> = {}) => ({
+    LUMOVI_AUTH: 'proxy',
+    LUMOVI_AUDIT_DIR: dir,
+    LUMOVI_AUDITORS: 'auditors',
+    ...more,
+  })
+  const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+  // Longer than any event can be: whatever it says, it isn't one.
+  const long = 'x'.repeat(1_200_000)
+
+  // One first in its file, and one left unfinished at the end of another.
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const early = chained(1, 2, ago(2))
+  const later = chained(3, 1, ago(1), early.at(-1)!.hash)
+  write(dayFile(dir, ago(2)), [long, ...early])
+  write(dayFile(dir, ago(1)), [...later, long], '')
+  let served = await serve({ env: env(dir) })
+  // It goes on from the last that is one.
+  expect(eventsIn(dayFile(dir)).find((e) => e.action === 'server.started')).toMatchObject({
+    seq: 4,
+    prev: later[0]!.hash,
+  })
+  await page.goto(`${served.url}audit?range=all`)
+  expect(await page.evaluate(() => window.lumovi!.audit.info())).toMatchObject({
+    oldest: early[0]!.time,
+  })
+  expect((await verify(page)).breaks).toEqual([
+    {
+      seq: 1,
+      time: '',
+      reason: `Line 1 of audit-${ago(2)}.jsonl can’t be read as an audit event.`,
+    },
+    {
+      seq: 4,
+      time: later[0]!.time,
+      reason: `Line 2 of audit-${ago(1)}.jsonl can’t be read as an audit event.`,
+    },
+  ])
+  const all = await query(page, { limit: 1000 })
+  expect(all.events.slice(-3).map((e) => e.seq)).toEqual([3, 2, 1])
+  expect(all.scanned).toBe(all.events.length + 2)
+  // A page at a time, each going on where the last ended: across days, and past what isn't one.
+  const seen: number[] = []
+  for (let after: string | undefined, pages = 0; pages < 20; pages++) {
+    const one: { events: AuditEvent[]; next?: string } = await query(page, { limit: 1, after })
+    seen.push(...one.events.map((e) => e.seq))
+    if (!one.next) break
+    after = one.next
+  }
+  expect(seen.slice(-3)).toEqual([3, 2, 1])
+  // Where a page ended, written over meanwhile: read again from the file's end, and still right.
+  const two = await query(page, { limit: 2, to: `${ago(1)}T23:59:59.000Z` })
+  expect(two.events.map((e) => e.seq)).toEqual([3, 2])
+  // (Where the event was, a line that isn't one now.)
+  write(dayFile(dir, ago(2)), [long, early[0]!, 'x'.repeat(JSON.stringify(early[1]).length)])
+  expect((await query(page, { after: two.next })).events.map((e) => e.seq)).toEqual([1])
+  await served.stop()
+
+  // A search stopping at a line that isn't an event goes on from it, when asked.
+  const junk = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const first = made(1, `${ago(1)}T08:00:00.000Z`, '', 'needle')
+  write(dayFile(junk, ago(1)), [first, ...Array.from({ length: 250 }, (_, i) => `junk ${i}`)])
+  served = await serve({ env: env(junk, { LUMOVI_AUDIT_SCAN_LIMIT: '100' }) })
+  await page.goto(`${served.url}audit`)
+  let found: { events: AuditEvent[]; next?: string; stopped?: boolean } = await query(page, {
+    text: 'needle',
+  })
+  for (let pages = 0; found.stopped && pages < 5; pages++) {
+    found = await query(page, { text: 'needle', after: found.next })
+  }
+  expect(found.events.map((e) => e.summary)).toEqual(['needle'])
+  await served.stop()
+
+  // The clock set back a day: the newest day's file goes on, in the chain's order.
+  const ahead = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+  write(dayFile(ahead, tomorrow), [made(1, `${tomorrow}T08:00:00.000Z`)])
+  served = await serve({ env: env(ahead) })
+  await served.stop()
+  expect(days(ahead)).toEqual([`audit-${tomorrow}.jsonl`])
+  expect(eventsIn(dayFile(ahead, tomorrow)).map((e) => e.seq)).toEqual(
+    GRACEFUL ? [1, 2, 3] : [1, 2],
+  )
+
+  // Changed in more places than are listed: how many more, said.
+  const many = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  write(
+    dayFile(many, ago(1)),
+    chained(1, 105, ago(1)).map((e) => ({ ...e, summary: 'Changed' })),
+  )
+  served = await serve({ env: env(many) })
+  await page.goto(`${served.url}audit`)
+  const checked = await verify(page)
+  expect(checked).toMatchObject({ checked: 106, more: 5 })
+  expect(checked.breaks).toHaveLength(100)
+  await page.getByRole('button', { name: 'Check integrity' }).click()
+  const alert = page.getByRole('alert', { name: 'Integrity' })
+  await expect(alert).toContainText('it doesn’t hold in 105 places.')
+  await expect(alert.getByRole('listitem').last()).toHaveText('…and 5 more.')
+  await served.stop()
+})
+
+test('whatever an event is about, it stays a line, and hashes as jq has it', async ({
+  page,
+  context,
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const served = await serve({
+    env: { LUMOVI_AUTH: 'proxy', LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDITORS: 'auditors' },
+  })
+  await as(context, 'alice@example.com', 'auditors')
+  await page.goto(`${served.url}cluster/demo/pods`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  // DEL, which jq writes escaped; and half a pair, which no two tools read the same.
+  await page.evaluate(() => window.lumovi!.app.setReadOnly('a\u007fb\ud800c', true))
+  // A name thousands of characters long, each written as six (the summary, the command and the
+  // error all say it).
+  await page.evaluate(() =>
+    window.lumovi!.kube.change({
+      context: 'demo',
+      kind: 'ConfigMap',
+      name: '\u0001'.repeat(4000),
+      namespace: 'shop',
+      change: { action: 'delete' },
+    }),
+  )
+  // A change to more of an object than its details hold: as many as fit, and that some didn't.
+  const data = Object.fromEntries(
+    Array.from({ length: 40 }, (_, i) => [`${String(i).padStart(2, '0')}${'k'.repeat(600)}`, 'v']),
+  )
+  await page.evaluate(
+    (data) =>
+      window.lumovi!.kube.change({
+        context: 'demo',
+        kind: 'ConfigMap',
+        name: 'kube-root-ca.crt',
+        namespace: 'shop',
+        change: { action: 'patch', patchType: 'merge', patch: { data } },
+      }),
+    data,
+  )
+  const lines = linesOf(dayFile(dir))
+  const events = lines.map((line) => JSON.parse(line) as AuditEvent)
+  expect(events.find((e) => e.action === 'resource.patch')!.details).toMatchObject({
+    truncated: true,
+  })
+  const odd = events.find((e) => e.action === 'read-only.changed')!
+  expect(odd.cluster).toBe('a\u007fb\ufffdc')
+  const huge = events.find((e) => e.action === 'resource.delete')!
+  expect(huge.summary.length).toBeLessThanOrEqual(1000)
+  expect(huge.details).toEqual({ truncated: true })
+  for (const [i, event] of events.entries()) {
+    expect(Buffer.byteLength(lines[i]!)).toBeLessThanOrEqual(64 * 1024)
+    expect(hashOf(event)).toBe(event.hash)
+  }
+  expect((await verify(page)).breaks).toEqual([])
+})
+
+test('one Lumovi keeps a history: another, sharing its folder, doesn’t start', async ({
+  clusters,
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const lock = join(dir, 'audit.lock')
+  const env = { LUMOVI_AUDIT_DIR: dir }
+  const held = (holder: object) => writeFileSync(lock, JSON.stringify(holder))
+  const now = Date.now()
+  // Held by a process that's running here (this one), or by one elsewhere, lately.
+  held({ pid: process.pid, host: hostname(), at: now })
+  expect(await refusedConfig(clusters, env)).toContain(
+    `Another Lumovi (process ${process.pid} on ${hostname()}) keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
+  )
+  held({ pid: 4321, host: 'lumovi-7d9f-2', at: now })
+  expect(await refusedConfig(clusters, env)).toContain('(process 4321 on lumovi-7d9f-2)')
+  // Left by one that stopped: here, a process that's gone; elsewhere, one not heard from in a
+  // while; or one that can't be read. Taken over, and let go of as it stops.
+  for (const holder of [
+    { pid: 2 ** 22 + 7, host: hostname(), at: now },
+    { pid: 4321, host: 'lumovi-7d9f-2', at: now - 10 * 60_000 },
+  ]) {
+    held(holder)
+    const served = await serve({ env })
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
+    await served.stop()
+    if (GRACEFUL) expect(existsSync(lock)).toBe(false)
+  }
+  writeFileSync(lock, 'not a lock')
+  const served = await serve({ env })
+  await served.stop()
+  // A folder it can't write in (as one that isn't the system's administrator) stops it too.
+  if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+    expect(await refusedConfig(clusters, { LUMOVI_AUDIT_DIR: '/' })).toMatch(
+      /E(ACCES|ROFS|PERM)\b.*audit\.lock/,
+    )
+  }
+})
+
+test('a history whose folder goes while Lumovi runs: said once, and again if it goes again', async ({
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const served = await serve({ env: { LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDIT_WATCH_MS: '300' } })
+  const said = () =>
+    served.log().split('The audit history can’t be looked after: ENOENT').length - 1
+  rmSync(dir, { recursive: true })
+  await expect.poll(said).toBe(1)
+  // (Looked after again, and again: said once.)
+  await new Promise((done) => setTimeout(done, 1000))
+  expect(said()).toBe(1)
+  // Back, and gone again.
+  mkdirSync(dir)
+  await new Promise((done) => setTimeout(done, 700))
+  rmSync(dir, { recursive: true })
+  await expect.poll(said).toBe(2)
+  await served.stop()
+})
+
 test('events reach a webhook however it answers, and what doesn’t is said', async ({
   page,
   context,
@@ -1218,6 +1547,7 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
     LUMOVI_AUDIT_WEBHOOK_URL: hook.url,
     LUMOVI_AUDIT_WEBHOOK_BUFFER: '10',
     LUMOVI_AUDIT_WATCH_MS: '300',
+    LUMOVI_AUDIT_SMALLER_MS: '1000',
   }
   // Down at first (500): sent again, a while later; then taking one event at a time (413 for
   // more): sent in smaller batches, until they're taken.
@@ -1244,7 +1574,9 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
   expect(hook.received.some(({ status }) => status === 413)).toBe(true)
   expect(hook.received[0]!.headers['content-type']).toBe('application/json')
 
-  // Events it refuses (400) can't ever be sent: let go, counted, and said, there and here.
+  // Events it refuses (400) can't ever be sent: let go, counted, and said, there and here. (By
+  // then, a while later, batches are as large as they were: sent whole.)
+  await page.waitForTimeout(1100)
   hook.answer(() => 400)
   await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
   await expect
@@ -1286,13 +1618,19 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
   await page.evaluate(async () => {
     for (let i = 0; i < 12; i++) await window.lumovi!.app.setReadOnly('demo', i % 2 === 0)
   })
+  // What's wrong now is said; why some were let go, as they were.
   await expect
     .poll(() => page.evaluate(() => window.lumovi!.audit.info()).then((i) => i.sinks[2]))
     .toMatchObject({
       name: base,
       dropped: expect.any(Number),
-      problem: 'More than 10 events were waiting to be sent: the oldest were let go.',
+      problem: 'It can’t be reached: the connection failed (ECONNREFUSED).',
     })
+  await expect
+    .poll(() => audited(served, 'audit.dropped').at(-1)!.error)
+    .toBe(
+      'More than 10 events (or 64 MiB of them) were waiting to be sent: the oldest were let go.',
+    )
   await page.goto(`${served.url}audit`)
   await expect(problems).toContainText('couldn’t be sent to')
   await served.stop()
@@ -1316,7 +1654,7 @@ test('a webhook that can’t be reached: what waits for it is said', async ({
   await expect(async () => {
     await page.reload()
     await expect(page.getByRole('main').getByRole('alert')).toHaveText(
-      `Events are waiting to be sent to ${base}. It can’t be reached: fetch failed.`,
+      `Events are waiting to be sent to ${base}. It can’t be reached: the connection failed (ECONNREFUSED).`,
       { timeout: 1000 },
     )
   }).toPass({ timeout: 15_000 })
@@ -1331,6 +1669,56 @@ test('what the webhook still has waiting is sent as the server stops', async ({ 
   })
   await served.stop()
   expect(hook.events().map((e) => e.action)).toEqual(['server.started', 'server.stopped'])
+
+  // One that doesn't answer as it stops: it waits as long as stopping does, then what's left is
+  // counted as lost, and said (in the history, and the server's log).
+  hook.answer(() => 'never')
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const stuck = await serve({
+    env: { LUMOVI_AUDIT_WEBHOOK_URL: hook.url, LUMOVI_AUDIT_DIR: dir },
+  })
+  await stuck.stop()
+  const lost = eventsIn(dayFile(dir)).filter((e) => e.action === 'audit.dropped')
+  expect(lost).toMatchObject([
+    {
+      summary: `2 audit events couldn’t be sent to ${hook.url.replace(/\?.*/, '')}`,
+      error: 'Lumovi stopped before they could be sent.',
+    },
+  ])
+  expect(stuck.log()).toContain('Lumovi stopped before they could be sent.')
+  await hook.close()
+})
+
+test('a webhook that sends elsewhere, or doesn’t answer: said, never what was sent', async ({
+  page,
+  context,
+  serve,
+}) => {
+  const hook = await webhook()
+  hook.answer(() => 302)
+  const served = await serve({
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_AUDITORS: 'auditors',
+      LUMOVI_AUDIT_WEBHOOK_URL: hook.url,
+      LUMOVI_AUDIT_WEBHOOK_HEADERS: 'Authorization: Bearer hook-token',
+      LUMOVI_AUDIT_ANSWER_MS: '500',
+    },
+  })
+  await as(context, 'alice@example.com', 'auditors')
+  await page.goto(`${served.url}audit`)
+  const problem = () =>
+    page.evaluate(() => window.lumovi!.audit.info()).then((i) => i.sinks[2]!.problem)
+  // Redirected: not followed (who it goes as would go too).
+  await expect.poll(problem, { timeout: 15_000 }).toBe('It can’t be reached: the request failed.')
+  hook.answer(() => 'never')
+  await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
+  await expect
+    .poll(problem, { timeout: 15_000 })
+    .toBe('It can’t be reached: it didn’t answer within 0.5 seconds.')
+  expect(served.log()).not.toContain('hook-token')
+  hook.answer(() => 200)
+  await expect.poll(problem, { timeout: 15_000 }).toBeUndefined()
   await hook.close()
 })
 
@@ -1433,6 +1821,8 @@ test('a search looks so far back at once, and further when asked', async ({
       LUMOVI_AUDITORS: 'auditors',
       LUMOVI_DATA_DIR: mkdtempSync(join(tmpdir(), 'lumovi-data-')),
       LUMOVI_AUDIT_SCAN_LIMIT: '100',
+      // One search at a time: the others wait their turn.
+      LUMOVI_AUDIT_SEARCHES: '1',
     },
   })
   await page.goto(`${served.url}cluster/demo/pods`)
@@ -1500,16 +1890,26 @@ test('a search looks so far back at once, and further when asked', async ({
     [{ target: { kind: 'Deployment', uid: 7 } }, 'object'],
     [{ text: 7 }, 'text'],
     [{ text: 'x'.repeat(501) }, 'text'],
-    [{ after: 'last' }, 'place'],
+    [{ after: 'not a place' }, 'place'],
+    [{ after: 'x'.repeat(201) }, 'place'],
     [{ after: 7 }, 'place'],
     [{ limit: 1.5 }, 'limit'],
   ]
   for (const [q, what] of cases) {
     expect(await refused(q)).toBe(`An audit search’s ${what} isn’t what Lumovi takes.`)
   }
-  expect(await refused({ after: '99999999999999999999' })).toBe(
-    'Where the page ended isn’t one Lumovi gave: "99999999999999999999".',
+  // Where a page ended is sealed: one made up (or from before Lumovi started again) isn't taken.
+  expect(await refused({ after: 'A'.repeat(60) })).toBe(
+    'Where the page ended isn’t one this Lumovi gave (it may have started again since): search again.',
   )
+  // Many searches at once: each waits its turn, and all are answered.
+  expect(
+    await page.evaluate(() =>
+      Promise.all(
+        Array.from({ length: 20 }, () => window.lumovi!.audit.query({ text: 'needle' })),
+      ).then((pages) => pages.map((p) => p.stopped)),
+    ),
+  ).toEqual(Array.from({ length: 20 }, () => true))
   // As many as it takes, at most; at least one.
   expect((await query(page, { limit: 5000, users: ['alice@example.com'] })).events).toHaveLength(
     100,
@@ -1521,6 +1921,20 @@ test('a search looks so far back at once, and further when asked', async ({
       actions: ['resource.scale'],
     }),
   ).toBe('taken')
+
+  // To someone who sees only their own: how far it looked, not how many (that counts everyone's),
+  // nor where else events go.
+  await as(context, 'bob@example.com', 'developers')
+  await page.goto(`${served.url}audit?q=needle`)
+  await expect(page.getByRole('main')).toContainText(
+    'Lumovi looked as far back as one search goes.',
+  )
+  const theirs = await query(page, { text: 'needle' })
+  expect(theirs).toMatchObject({ stopped: true, events: [] })
+  expect(theirs.scanned).toBeUndefined()
+  const info = await page.evaluate(() => window.lumovi!.audit.info())
+  expect(info).toMatchObject({ everyone: false, sinks: [] })
+  expect(info.oldest).toBeUndefined()
 })
 
 test('the audit settings say what’s wrong with them', async ({ clusters }) => {
@@ -1556,11 +1970,11 @@ test('the audit settings say what’s wrong with them', async ({ clusters }) => 
     ],
     [
       { LUMOVI_AUDIT_WEBHOOK_URL: 'siem.example.com' },
-      'LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL, not "siem.example.com".',
+      'LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL.',
     ],
     [
       { LUMOVI_AUDIT_WEBHOOK_URL: 'https://' },
-      'LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL, not "https://".',
+      'LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL.',
     ],
     [
       { LUMOVI_AUDIT_WEBHOOK_URL: 'https://me:pw@siem.example.com/in' },
@@ -1605,10 +2019,25 @@ test('the audit settings say what’s wrong with them', async ({ clusters }) => 
   for (const [env, message] of cases) {
     expect(await refusedConfig(clusters, env)).toContain(message)
   }
-  // Headers as base64-encoded YAML, as hosts with one-line settings take them.
+  // What can carry a token is never said back: a URL that isn't one, nor a header's value.
+  const said = await refusedConfig(clusters, {
+    LUMOVI_AUDIT_WEBHOOK_URL: 'ftp://ingest:s3cret@siem.example.com/in',
+  })
+  expect(said).toContain('LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL.')
+  expect(said).not.toContain('s3cret')
+  const header = await refusedConfig(clusters, {
+    LUMOVI_AUDIT_WEBHOOK_URL: 'https://siem.example.com/in',
+    LUMOVI_AUDIT_WEBHOOK_HEADERS: 'Authorization: "Bearer s3cret\\r\\nX-Evil: 1"',
+  })
+  expect(header).toContain(
+    'LUMOVI_AUDIT_WEBHOOK_HEADERS: Authorization’s value can’t be sent in a header (it has a line break, say).',
+  )
+  expect(header).not.toContain('s3cret')
+  // Headers as base64-encoded YAML, as hosts with one-line settings take them; a scheme in
+  // capitals, as some write it.
   const served = await startServer(clusters, {
     env: {
-      LUMOVI_AUDIT_WEBHOOK_URL: 'http://127.0.0.1:9/in',
+      LUMOVI_AUDIT_WEBHOOK_URL: 'HTTP://127.0.0.1:9/in',
       LUMOVI_AUDIT_WEBHOOK_HEADERS: Buffer.from('Authorization: Bearer x\n').toString('base64'),
       LUMOVI_AUDIT_WEBHOOK_FORMAT: 'ndjson',
     },

@@ -49,7 +49,10 @@ export function checkedQuery(value: unknown): AuditQuery {
     throw bad('object')
   }
   if (q.text !== undefined && (typeof q.text !== 'string' || q.text.length > 500)) throw bad('text')
-  if (q.after !== undefined && (typeof q.after !== 'string' || !/^\d+$/.test(q.after))) {
+  if (
+    q.after !== undefined &&
+    (typeof q.after !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(q.after))
+  ) {
     throw bad('place')
   }
   if (q.limit !== undefined && !Number.isInteger(q.limit)) throw bad('limit')
@@ -89,7 +92,7 @@ export function auditHandlers(
   return {
     invoke: {
       [IPC.auditInfo]: () => log.info(reading.everyone),
-      [IPC.auditQuery]: (query) => log.query(checkedQuery(query), reading.may),
+      [IPC.auditQuery]: (query) => log.query(checkedQuery(query), reading.may, reading.everyone),
       [IPC.auditVerify]: () => {
         if (!reading.everyone) {
           throw new Error('Only an auditor checks the whole audit log: it holds everyone’s events.')

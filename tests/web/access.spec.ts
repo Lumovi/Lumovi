@@ -1398,7 +1398,11 @@ test('saving over another replica’s change is refused; leaving unsaved asks fi
     LUMOVI_ACCESS_REFRESH_MS: '600000',
   }
   // Two replicas, keeping it in one folder.
-  const [one, two] = await Promise.all([serve({ env }), serve({ env })])
+  // (Each its own audit history: one folder is one Lumovi's.)
+  const [one, two] = await Promise.all([
+    serve({ env: { ...env, LUMOVI_AUDIT_DIR: join(data, 'audit-one') } }),
+    serve({ env: { ...env, LUMOVI_AUDIT_DIR: join(data, 'audit-two') } }),
+  ])
   await as(context, 'ana@example.com', 'platform-admins')
   await page.goto(`${one.url}access/profiles`)
   const other = await browser.newContext()
@@ -1621,10 +1625,16 @@ test('who signed in is remembered as the server starts again, the most lately se
     await page.evaluate(() =>
       window.lumovi!.access!.history('x').catch((error: Error) => error.message),
     ),
-  ).toBe('Where the page ended isn’t one Lumovi gave.')
-  expect(await page.evaluate(() => window.lumovi!.access!.history('1'))).toMatchObject({
-    events: [],
-  })
+  ).toBe(
+    'Where the page ended isn’t one this Lumovi gave (it may have started again since): search again.',
+  )
+  expect(
+    await page.evaluate(() =>
+      window.lumovi!.access!.history(7 as never).catch((error: Error) => error.message),
+    ),
+  ).toBe(
+    'Where the page ended isn’t one this Lumovi gave (it may have started again since): search again.',
+  )
   // Saved against a version that isn't the latest: refused.
   expect(
     await page.evaluate(async () => {

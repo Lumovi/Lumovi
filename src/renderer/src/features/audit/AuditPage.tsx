@@ -118,9 +118,7 @@ export function AuditPage() {
               icon={filtered ? SearchX : ScrollText}
               title={filtered ? 'No events match' : 'Nothing yet'}
             >
-              {found.stopped
-                ? `Lumovi looked through the ${found.stopped.toLocaleString('en')} most recent events. `
-                : ''}
+              {found.stopped ? `${lookedThrough(found.stopped)} ` : ''}
               {filtered
                 ? 'Try fewer filters, other words, or further back.'
                 : 'What’s done through Lumovi shows here as it happens: changes, shells, port-forwards, logs and Secrets read, sign-ins, and what AI assistants do.'}
@@ -148,7 +146,7 @@ export function AuditPage() {
           )}
           {found.stopped !== undefined && found.events.length > 0 && (
             <p className="shrink-0 border-t border-line bg-surface px-5 py-2 text-xs text-ink-3">
-              Lumovi looked through the {found.stopped.toLocaleString('en')} most recent events.{' '}
+              {lookedThrough(found.stopped)}{' '}
               <button
                 type="button"
                 onClick={found.loadMore}
@@ -195,10 +193,10 @@ function Kept({ info }: { info: AuditInfo }) {
     info.oldest && new Date(info.oldest).toLocaleDateString(undefined, { dateStyle: 'medium' })
   return (
     <p className="mt-3 max-w-[640px] text-[13px] text-ink-2">
-      {api.host === 'desktop'
-        ? `Kept on this computer for ${info.retentionDays} days.`
-        : info.kept === 'files'
-          ? `Kept on the server for ${info.retentionDays} days.`
+      {info.kept === 'files'
+        ? `Kept on ${api.host === 'desktop' ? 'this computer' : 'the server'} for ${info.retentionDays} days.`
+        : api.host === 'desktop'
+          ? `Kept in memory until Lumovi quits: ${info.unkept}`
           : 'Kept in the server’s memory, since it started: set LUMOVI_AUDIT_DIR (the Helm chart’s audit.persistence) to keep it.'}
       {oldest && ` The oldest is from ${oldest}.`}{' '}
       {api.host === 'server' &&
@@ -236,3 +234,9 @@ function Problems({ info }: { info: AuditInfo }) {
     </div>
   )
 }
+
+/** How far a search that stopped looked: as many as it says, to an auditor. */
+const lookedThrough = ({ scanned }: { scanned?: number }) =>
+  scanned === undefined
+    ? 'Lumovi looked as far back as one search goes.'
+    : `Lumovi looked through the ${scanned.toLocaleString('en')} most recent events.`

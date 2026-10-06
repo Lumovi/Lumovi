@@ -424,10 +424,9 @@ function auditWebhook(
     }
     return undefined
   }
-  if (!/^https?:\/\//.test(setting) || !URL.canParse(setting)) {
-    throw new ConfigError(
-      `LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL, not "${setting}".`,
-    )
+  // (Not said back: a URL can carry a token.)
+  if (!/^https?:\/\//i.test(setting) || !URL.canParse(setting)) {
+    throw new ConfigError('LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL.')
   }
   const url = new URL(setting)
   if (url.username || url.password) {
@@ -450,9 +449,17 @@ function auditWebhook(
     )
   }
   const given = stringMap('LUMOVI_AUDIT_WEBHOOK_HEADERS', parsed)
-  for (const name of Object.keys(given)) {
+  for (const [name, setValue] of Object.entries(given)) {
     if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
       throw new ConfigError(`LUMOVI_AUDIT_WEBHOOK_HEADERS: "${name}" isn’t a header’s name.`)
+    }
+    // Checked as it'll be sent, now, not as each event is: and its value never said (a token).
+    try {
+      new Headers({ [name]: setValue })
+    } catch {
+      throw new ConfigError(
+        `LUMOVI_AUDIT_WEBHOOK_HEADERS: ${name}’s value can’t be sent in a header (it has a line break, say).`,
+      )
     }
   }
   return { url, headers: given, format, buffer }
