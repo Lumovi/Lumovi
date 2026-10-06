@@ -122,8 +122,6 @@ export class FileStore implements AuditStore {
   #days: string[] = []
   /** The day whose file was last written to: checked, as it was first, for a line left unfinished. */
   #writing: string | undefined
-  /** Each day file's first event, read once for as long as its size stays the same. */
-  readonly #firsts = new Map<string, { size: number; seq: number | undefined }>()
   readonly #lock: HistoryLock
 
   constructor(
@@ -197,12 +195,13 @@ export class FileStore implements AuditStore {
       if (from && day < dayOf(from)) break
       if (to && day > dayOf(to)) continue
       // All of it newer than where a page ended: not read again.
-      if (before && (day > before.day! || (await this.#firstSeq(day))! >= before.seq)) continue
+      if (before && day > before.day!) continue
       const path = this.#path(day)
-      // Where the page ended, if what's there is what it ended with: read on from there.
+      // Where the page ended, if what's there is what it ended with: read on from there, and all
+      // before it is older. If it isn't (written over meanwhile), what's older has smaller numbers.
       const end = before?.day === day ? await resumable(path, before) : undefined
-      // What's older than an unreadable line: older than the newest event after it.
-      let newer = before?.seq ?? Number.MAX_SAFE_INTEGER
+      const counted = before?.day === day && end === undefined
+      let newer = counted ? before.seq : Number.MAX_SAFE_INTEGER
       for await (const line of linesBackward(path, end)) {
         const event = eventOf(line.text)
         if (!event) {
@@ -210,27 +209,12 @@ export class FileStore implements AuditStore {
             unreadable: `Line ${await lineNumberAt(path, line.at)} of audit-${day}.jsonl`,
             at: { seq: newer, day, offset: line.at, unreadable: true },
           }
-        } else if (event.seq < newer) {
+        } else if (!counted || event.seq < newer) {
           newer = event.seq
           yield { event, at: { seq: event.seq, day, offset: line.at } }
         }
       }
     }
-  }
-
-  /** The first event's seq in a day's file (none: it can't be skipped). */
-  async #firstSeq(day: string): Promise<number | undefined> {
-    const path = this.#path(day)
-    const size = statSync(path, { throwIfNoEntry: false })?.size
-    const known = this.#firsts.get(day)
-    if (known && known.size === size) return known.seq
-    let seq: number | undefined
-    for await (const line of linesForward(path)) {
-      seq = eventOf(line.text)?.seq
-      if (seq !== undefined) break
-    }
-    this.#firsts.set(day, { size: size!, seq })
-    return seq
   }
 
   async *oldestFirst(): AsyncIterable<Read> {
@@ -252,7 +236,6 @@ export class FileStore implements AuditStore {
     for (const day of this.#days) {
       if (day >= oldestKept || day === newest) continue
       rmSync(this.#path(day), { force: true })
-      this.#firsts.delete(day)
     }
     this.#days = this.#listDays()
   }
