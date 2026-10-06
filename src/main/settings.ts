@@ -10,7 +10,6 @@ import {
   checkedPermissions,
   NO_PERMISSIONS,
   parseMatcher,
-  type AiDefaults,
   type AiPermissions,
   type AiRule,
 } from '@shared/ai-permissions'
@@ -32,8 +31,11 @@ const DEFAULTS: Settings = {
   aiPermissions: NO_PERMISSIONS,
 }
 
-/** What AI assistants may do when what was kept can't be read: nothing. */
-const STRICTEST: AiDefaults = { changes: 'never', secrets: 'hidden', env: 'all', logs: 'off' }
+/** What AI assistants may do when what was kept can't be read: nothing, until it's set again. */
+const UNREADABLE: AiPermissions = {
+  defaults: { changes: 'never', secrets: 'hidden', env: 'all', logs: 'off' },
+  rules: [],
+}
 
 /** Persists user preferences as JSON in the app's userData directory. */
 export class SettingsStore implements SettingsAccess {
@@ -41,6 +43,8 @@ export class SettingsStore implements SettingsAccess {
   #settings: Settings
   /** LUMOVI_READ_ONLY makes every context read-only, whatever was stored. */
   readonly #readOnlyAll: boolean
+  /** AI permissions as they were kept, when they couldn't be read. */
+  #unreadable: unknown
 
   constructor(
     private readonly dir: string,
@@ -93,6 +97,11 @@ export class SettingsStore implements SettingsAccess {
     return this.#settings.aiPermissions!
   }
 
+  /** Whether what was kept couldn't be read (so assistants may do nothing), until it's set again. */
+  aiPermissionsUnreadable(): boolean {
+    return this.#settings.aiPermissions === UNREADABLE
+  }
+
   /** Keeps them, once they're checked (a page sends them). */
   setAiPermissions(given: unknown): AiPermissions {
     return this.update({ aiPermissions: checkedPermissions(given) }).aiPermissions!
@@ -102,7 +111,12 @@ export class SettingsStore implements SettingsAccess {
     this.#settings = { ...this.#settings, ...patch }
     mkdirSync(this.dir, { recursive: true })
     // Yours alone: it holds the token AI assistants connect with.
-    writeFileSync(this.#file, JSON.stringify(this.#settings, null, 2), { mode: 0o600 })
+    // What couldn't be read stays as it was, until the person sets it again.
+    const kept =
+      this.#settings.aiPermissions === UNREADABLE
+        ? { ...this.#settings, aiPermissions: this.#unreadable }
+        : this.#settings
+    writeFileSync(this.#file, JSON.stringify(kept, null, 2), { mode: 0o600 })
     chmodSync(this.#file, 0o600)
     return this.get()
   }
@@ -110,6 +124,8 @@ export class SettingsStore implements SettingsAccess {
   #read(): Settings {
     try {
       const stored = JSON.parse(readFileSync(this.#file, 'utf8')) as Partial<Settings>
+      const aiPermissions = storedPermissions(stored)
+      if (aiPermissions === UNREADABLE) this.#unreadable = stored.aiPermissions
       return {
         theme: isTheme(stored.theme) ? stored.theme : DEFAULTS.theme,
         // Validated against the connected displays when the window opens.
@@ -139,7 +155,7 @@ export class SettingsStore implements SettingsAccess {
             ? { launch: stored.assistants.launch }
             : {}),
         },
-        aiPermissions: storedPermissions(stored),
+        aiPermissions,
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.
@@ -160,7 +176,7 @@ function storedPermissions(stored: Partial<Settings> & { aiChanges?: unknown }):
     try {
       return checkedPermissions(stored.aiPermissions)
     } catch {
-      return { defaults: STRICTEST, rules: [] }
+      return UNREADABLE
     }
   }
   const rules: AiRule[] = Object.entries(Object(stored.aiChanges) as Record<string, unknown>)

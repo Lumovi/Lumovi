@@ -65,6 +65,8 @@ export type AiPermissionsKept = 'settings' | 'configmap' | 'file' | 'memory'
 /** What a page shows and edits. */
 export interface AiPermissionsView extends AiPolicy {
   kept: AiPermissionsKept
+  /** Why they're not what was kept (it couldn't be read): until they're set again. */
+  problem?: string
 }
 
 export const NO_PERMISSIONS: AiPermissions = { defaults: AI_DEFAULTS, rules: [] }
