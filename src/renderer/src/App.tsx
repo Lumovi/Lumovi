@@ -8,6 +8,7 @@ import { TooltipProvider } from './components/Tooltip'
 import { AddOnPage } from './features/add-ons/AddOnPage'
 import { ApprovalCenter } from './features/assistants/ApprovalCenter'
 import { AssistantsDialog } from './features/assistants/AssistantsDialog'
+import { ServerAssistantsDialog } from './features/assistants/ServerAssistantsDialog'
 import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
@@ -16,6 +17,7 @@ import { OverviewPage } from './features/overview/OverviewPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
 import { RightsizingPage } from './features/rightsizing/RightsizingPage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
+import { AuthorizePage } from './features/session/AuthorizePage'
 import { SessionGate } from './features/session/SessionGate'
 import { ClusterLayout } from './features/shell/ClusterLayout'
 import { FleetPage } from './features/fleet/FleetPage'
@@ -50,6 +52,8 @@ const routes: RouteObject[] = [
     errorElement: <RouteError />,
     children: [
       { path: '/', element: <Home /> },
+      // A server's: where AI assistants send people to allow them.
+      { path: '/authorize', element: <AuthorizePage /> },
       {
         path: '/cluster/:context',
         element: <ClusterLayout />,
@@ -93,6 +97,15 @@ const router =
     ? createHashRouter(routes)
     : createBrowserRouter(routes, { basename: basename() || '/' })
 
+/** AI assistants: connecting them (the desktop app's, or a server's), and their changes. */
+const assistants = (
+  <>
+    {api.assistants && <AssistantsDialog assistants={api.assistants} />}
+    {api.serverAssistants && <ServerAssistantsDialog assistants={api.serverAssistants} />}
+    {api.approvals && <ApprovalCenter approvals={api.approvals} />}
+  </>
+)
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -100,14 +113,13 @@ export function App() {
         {api.host === 'server' ? (
           <SessionGate>
             <RouterProvider router={router} />
+            {/* The signed-in person's: over the page's connection, which a session opens. */}
+            {assistants}
           </SessionGate>
         ) : (
-          <RouterProvider router={router} />
-        )}
-        {api.assistants && (
           <>
-            <AssistantsDialog assistants={api.assistants} />
-            <ApprovalCenter assistants={api.assistants} />
+            <RouterProvider router={router} />
+            {assistants}
           </>
         )}
         <Toaster />

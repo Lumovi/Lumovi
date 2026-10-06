@@ -46,6 +46,7 @@ import { ServerBanner } from '../session/ServerBanner'
 import { Commands } from '../shell/Commands'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
+import { ServerAssistantsButton } from '../assistants/ServerAssistantsDialog'
 import { ThemeMenu } from '../shell/ThemeMenu'
 
 /** How often each cluster is summed up again, while the page is open. */
@@ -135,6 +136,7 @@ export function FleetPage() {
           <LogoLockup className="h-6" />
         </Link>
         <ThemeMenu />
+        {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}
         <AccountMenu session={session} />
         <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />

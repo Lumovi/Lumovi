@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { delimiter, join } from 'node:path'
 import { parse } from 'yaml'
 import { NODE_SHELL_DEFAULTS, type MetricsSourceSetting, type NodeShellSetting } from '@shared/api'
+import { isAiChanges, type AiChanges, type AiChangesPolicy } from '@shared/assistants'
 import type { AuthMode } from '@shared/server'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { MAX_SESSION_HOURS } from './sessions'
@@ -102,6 +103,8 @@ export interface ServerConfig {
   viewsDir: string
   /** Where the page's files are: the renderer's build, next to the server's. */
   rendererDir: string
+  /** AI assistants over MCP: whether they may connect, and what their changes do. */
+  assistants: { enabled: boolean; changes: AiChangesPolicy }
 }
 
 export class ConfigError extends Error {}
@@ -213,7 +216,34 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
+    assistants: assistantsConfig(value),
   }
+}
+
+/**
+ * AI assistants: on unless LUMOVI_ASSISTANTS is off, and what their changes
+ * do (LUMOVI_ASSISTANT_CHANGES): ask (the default), allow or never, with
+ * clusters' own after it, like ask,staging=allow,production=never.
+ */
+function assistantsConfig(value: (name: string) => string | undefined): ServerConfig['assistants'] {
+  const switched = value('LUMOVI_ASSISTANTS') ?? 'on'
+  if (!['on', 'off'].includes(switched)) {
+    throw new ConfigError(`LUMOVI_ASSISTANTS must be on or off, not "${switched}".`)
+  }
+  const setting = value('LUMOVI_ASSISTANT_CHANGES')
+  const changes: AiChangesPolicy = { default: 'ask', clusters: {} }
+  for (const entry of list(setting)) {
+    const [, cluster, policy] = /^(?:([^=]*)=)?(.*)$/.exec(entry)!
+    const name = cluster?.trim()
+    if (!isAiChanges(policy!.trim()) || name === '') {
+      throw new ConfigError(
+        `LUMOVI_ASSISTANT_CHANGES must be ask, allow or never, with clusters' own after it (ask,staging=allow), not "${setting}".`,
+      )
+    }
+    if (name === undefined) changes.default = policy!.trim() as AiChanges
+    else changes.clusters[name] = policy!.trim() as AiChanges
+  }
+  return { enabled: switched === 'on', changes }
 }
 
 /** A fleet's sources, when any is set. */
