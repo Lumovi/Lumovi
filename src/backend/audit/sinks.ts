@@ -17,23 +17,12 @@ export interface AuditSink {
   flush(ms: number): Promise<void>
 }
 
-/** One JSON line each, to the server's output. */
+/** One JSON line each, to the server's output (whatever collects it says when it can't). */
 export class StdoutSink implements AuditSink {
   readonly name = 'the server’s output'
-  #dropped = 0
-  #problem: string | undefined
-
-  send(event: AuditEvent) {
-    try {
-      process.stdout.write(`${JSON.stringify(event)}\n`)
-    } catch (error) {
-      this.#dropped++
-      this.#problem = (error as Error).message
-    }
-  }
-
-  dropped = () => this.#dropped
-  problem = () => this.#problem
+  send = (event: AuditEvent) => void process.stdout.write(`${JSON.stringify(event)}\n`)
+  dropped = () => 0
+  problem = () => undefined
   flush = async () => {}
 }
 

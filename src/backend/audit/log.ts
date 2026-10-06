@@ -37,6 +37,9 @@ export interface AuditLogOptions {
 /** Whose events a reader may see: everyone's, or theirs alone. */
 export type AuditReader = (event: AuditEvent) => boolean
 
+/** How often what's older than it keeps is let go, and what couldn't be sent said (an env for tests). */
+const WATCH_MS = Number(process.env.LUMOVI_AUDIT_WATCH_MS) || 60_000
+
 const MAX_TEXT = 4000
 const MAX_DETAIL = 1000
 const MAX_DETAILS = 50
@@ -101,7 +104,7 @@ export class AuditLog {
     this.#watch = setInterval(() => {
       this.#store.prune(this.#now())
       this.#sayDropped()
-    }, 60_000)
+    }, WATCH_MS)
     this.#watch.unref()
   }
 
@@ -159,10 +162,10 @@ export class AuditLog {
     for (const { name, dropped, problem } of this.#sinkStates()) {
       const told = this.#toldDropped.get(name) ?? 0
       if (dropped <= told) continue
-      this.#toldDropped.set(name, dropped)
       const count = dropped - told
       const summary = `${count.toLocaleString('en')} audit ${count === 1 ? 'event' : 'events'} couldn’t be ${name === 'history' ? 'kept in the history' : `sent to ${name}`}`
-      this.#warn(`${summary}${problem ? `: ${problem}` : '.'}`)
+      // Whatever drops them is why (a sink only drops what it says it couldn't keep or send).
+      this.#warn(`${summary}: ${problem}`)
       this.record({
         action: 'audit.dropped',
         outcome: 'failure',
@@ -171,6 +174,8 @@ export class AuditLog {
         details: { sink: name, count },
         error: problem,
       })
+      // Counted after it's said: saying so can't be kept where nothing can, and isn't news.
+      this.#toldDropped.set(name, this.#sinkStates().find((sink) => sink.name === name)!.dropped)
     }
   }
 
