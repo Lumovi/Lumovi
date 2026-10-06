@@ -245,9 +245,9 @@ test('changes wait for the person’s answer, on their own pages only', async ({
   // The audit log: each change as the assistant asked it, and as she answered, after how long.
   const changes = audited(served).filter((e) => e.category === 'change')
   expect(changes.map((e) => [e.action, e.outcome, e.summary, e.approval?.status])).toEqual([
-    ['resource.scale', 'success', 'Scaled cart to 3 replicas', 'approved'],
+    ['resource.scale', 'success', 'Scaled Deployment cart to 3 replicas', 'approved'],
     ['resource.restart', 'refused', 'Restart Deployment cart', 'rejected'],
-    ['resource.scale', 'success', 'Scaled cart to 1 replica', 'approved'],
+    ['resource.scale', 'success', 'Scaled Deployment cart to 1 replica', 'approved'],
   ])
   expect(changes[0]).toMatchObject({
     actor: { user: 'alice@example.com', via: 'assistant', assistant: 'Claude Code' },
@@ -262,7 +262,7 @@ test('changes wait for the person’s answer, on their own pages only', async ({
   // On her Audit page: through her assistant, and how she answered.
   await page.goto(`${served.url}audit`)
   const events = page.getByRole('listbox', { name: 'Events' })
-  const scaled = events.getByRole('option', { name: /Scaled cart to 3 replicas$/ })
+  const scaled = events.getByRole('option', { name: /Scaled Deployment cart to 3 replicas$/ })
   await expect(scaled).toContainText('alice@example.comClaude Code')
   await scaled.click()
   const event = page.getByRole('complementary', { name: 'Event' })

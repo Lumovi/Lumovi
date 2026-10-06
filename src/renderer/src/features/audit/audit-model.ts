@@ -274,12 +274,14 @@ export const clock = (time: string) =>
     second: '2-digit',
   })
 
-/** How long something waited, as people say it. */
+const DURATION = new Intl.DurationFormat(undefined, { style: 'narrow', secondsDisplay: 'always' })
+
+/** How long something waited, as people say it: 45s, 3m 12s, 1h 2m 0s. */
 export function waited(ms: number): string {
   const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  return minutes < 60
-    ? `${minutes}m ${seconds % 60}s`
-    : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+  return DURATION.format({
+    hours: Math.floor(seconds / 3600),
+    minutes: Math.floor(seconds / 60) % 60,
+    seconds: seconds % 60,
+  })
 }

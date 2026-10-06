@@ -154,6 +154,22 @@
       "dark": { "2x": "assistant-rule-dark.webp", "1x": "assistant-rule-dark-1x.webp" }
     },
     {
+      "name": "audit",
+      "title": "The audit log",
+      "description": "What was done through Lumovi, by whom, and how it went, a day at a time: one of them open, a change an AI assistant made as Jane, as she approved it.",
+      "app": "server",
+      "light": { "2x": "audit-light.webp", "1x": "audit-light-1x.webp" },
+      "dark": { "2x": "audit-dark.webp", "1x": "audit-dark-1x.webp" }
+    },
+    {
+      "name": "audit-checked",
+      "title": "The audit log, checked",
+      "description": "The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.",
+      "app": "server",
+      "light": { "2x": "audit-checked-light.webp", "1x": "audit-checked-light-1x.webp" },
+      "dark": { "2x": "audit-checked-dark.webp", "1x": "audit-checked-dark-1x.webp" }
+    },
+    {
       "name": "assistant-approval",
       "title": "An AI assistant’s change",
       "description": "A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.",

@@ -20,6 +20,7 @@ import { createInterface } from 'node:readline'
 import { _electron as electron, chromium, type Browser, type Page } from '@playwright/test'
 import { parse, stringify } from 'yaml'
 import { startMockOidc, type MockOidc } from '../../tests/mock-oidc/server.ts'
+import { auditHistory } from './audit-history.ts'
 import { writeCatalog } from './catalog.ts'
 import { EPOCH, stopAnimations, stopClock } from './still.ts'
 import { CLUSTERS } from './clusters.ts'
@@ -259,8 +260,22 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
   } else if (mode === 'proxy') {
     auth.LUMOVI_AUTH = 'proxy'
   }
-  const child: ChildProcess = spawn(process.execPath, [resolve('out/server/index.js')], {
+  // The audit log's: a day of it, kept as a volume would (its auditors see it all), recorded
+  // by a clock that starts where the page's stopped.
+  const audit =
+    mode === 'audit'
+      ? {
+          LUMOVI_AUTH: 'proxy',
+          LUMOVI_AUDITORS: 'platform',
+          LUMOVI_AUDIT_DIR: auditHistory(new Date(EPOCH).toISOString().slice(0, 10)),
+          LUMOVI_AUDIT_STDOUT: 'false',
+          LUMOVI_SCREENSHOT_EPOCH: String(EPOCH),
+        }
+      : {}
+  const node = mode === 'audit' ? ['-r', resolve('scripts/screenshots/shifted-clock.cjs')] : []
+  const child: ChildProcess = spawn(process.execPath, [...node, resolve('out/server/index.js')], {
     env: {
+      ...audit,
       ...process.env,
       ...auth,
       ...shows,
@@ -427,7 +442,8 @@ try {
           reducedMotion: 'reduce',
           locale: 'en-US',
           timezoneId: 'UTC',
-          extraHTTPHeaders: mode === 'proxy' || mode === 'fleet' ? PROXY_HEADERS : undefined,
+          extraHTTPHeaders:
+            mode === 'proxy' || mode === 'fleet' || mode === 'audit' ? PROXY_HEADERS : undefined,
         })
         try {
           await context.addInitScript(stopClock, EPOCH)

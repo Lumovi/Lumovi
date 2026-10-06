@@ -30,7 +30,6 @@ import {
   signIn,
   startServer,
   test,
-  type Served,
 } from './fixtures.ts'
 
 const POD = DEMO.pods.storefront[0]!
@@ -103,7 +102,7 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
     LUMOVI_AUDIT_WEBHOOK_FORMAT: 'ndjson',
     LUMOVI_AUDIT_WEBHOOK_HEADERS: 'Authorization: Bearer hook-token',
   }
-  let served: Served = await serve({ env })
+  const served = await serve({ env })
   await as(context, 'alice@example.com', 'auditors, developers')
   await page.goto(`${served.url}cluster/demo/pods`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
@@ -558,6 +557,23 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
     'demo is read-only in Lumovi. Allow changes to it to continue.',
   )
 
+  // Found by where, what, through whom; one object's by its uid (and those that had none).
+  const summaries = async (q: object) => (await query(page, q)).events.map((e) => e.summary)
+  expect(await summaries({ namespaces: ['data'] })).toEqual(['Read Secret postgres-credentials'])
+  expect(await summaries({ kinds: ['helmrelease'], outcomes: ['failure'] })).toEqual([
+    'Upgrade web with new values',
+  ])
+  expect(await summaries({ assistants: ['Claude Code'] })).toEqual([])
+  const storefront = { kind: 'Deployment', name: 'storefront', namespace: 'shop' }
+  expect(await summaries({ target: { ...storefront, uid: scaled.target!.uid } })).toEqual([
+    'Change Deployment storefront’s status: status.observedGeneration',
+    'Restarted Deployment storefront',
+    'Scaled Deployment storefront to 4 replicas',
+  ])
+  expect(await summaries({ target: { ...storefront, uid: 'another' } })).toEqual([
+    'Change Deployment storefront’s status: status.observedGeneration',
+  ])
+
   // Each a line on the server's output, as it was kept; and sent to the webhook, as it asked.
   const history = [...events].reverse()
   expect(audited(served).slice(0, history.length)).toEqual(history)
@@ -576,7 +592,7 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
 
   // Started again, it goes on from where it was: one chain, and it holds.
   await served.stop()
-  served = await serve({ env, port: served.port })
+  await serve({ env, port: served.port })
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
   const again = await query(page, { limit: 3 })
@@ -621,7 +637,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
     LUMOVI_AUDIT_DIR: mkdtempSync(join(tmpdir(), 'lumovi-audit-')),
     LUMOVI_AUDITORS: 'auditors',
   }
-  let served = await serve({ env })
+  const served = await serve({ env })
   // Bob, who isn't an auditor, changes things too.
   const bobs = await browser.newContext({
     extraHTTPHeaders: { 'X-Forwarded-User': 'bob@example.com', 'X-Forwarded-Groups': 'developers' },
@@ -855,7 +871,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
 
   // The server restarts: the page connects again, and what's recorded since comes in.
   await served.stop()
-  served = await serve({ env, port: served.port })
+  await serve({ env, port: served.port })
   await expect(list(page).getByRole('option').first()).toHaveAccessibleName(/Lumovi .* started$/)
   await bob.reload()
   await bob.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
@@ -1623,8 +1639,8 @@ test('people see what they did, and only that, as it happens', async ({
   serve,
 }) => {
   const served = await serve({ env: { LUMOVI_AUTH: 'proxy', LUMOVI_AUDITORS: 'auditors' } })
-  // Carol, who isn't an auditor, has done nothing yet.
-  await as(context, 'carol@example.com', 'developers')
+  // Carol (whose name could be a spreadsheet's formula), who isn't an auditor, has done nothing.
+  await as(context, '-carol@example.com', 'developers')
   await page.goto(`${served.url}audit`)
   await expect(page.getByRole('heading', { name: 'Nothing yet' })).toBeVisible()
   await expect(page.getByRole('main')).toContainText(
@@ -1671,6 +1687,12 @@ test('people see what they did, and only that, as it happens', async ({
     /Made demo read-only in Lumovi$/,
   )
   await alices.close()
+  // Exported, what could be a formula is text.
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export' }).click()
+  await page.getByRole('menuitem', { name: 'CSV for spreadsheets' }).click()
+  const csv = readFileSync(await (await downloading).path(), 'utf8').split('\r\n')
+  expect(csv[1]).toMatch(/^[^,]+,'-carol@example\.com,ui,,read-only\.changed,/)
 
   // Signed in with a token: her session, by a hash of it, in what she did.
   const tokens = await serve({ env: { LUMOVI_AUDITORS: 'auditors' } })

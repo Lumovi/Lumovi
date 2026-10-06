@@ -51,18 +51,20 @@ export function origin(
   }
 }
 
+/** Someone, through Lumovi's page, in a session of theirs (by a hash of it). */
+export const sessionActor = (user: SessionUser, session?: string): AuditActor => ({
+  user: user.name,
+  ...(user.groups.length ? { groups: user.groups } : {}),
+  via: 'ui',
+  ...(session ? { session: sessionTag(session) } : {}),
+})
+
 /** Someone, through Lumovi's page (or signing in to it), from where their request came. */
 export const personActor = (
   user: SessionUser,
   req: IncomingMessage,
   session?: string,
-): AuditActor => ({
-  user: user.name,
-  ...(user.groups.length ? { groups: user.groups } : {}),
-  via: 'ui',
-  ...(session ? { session: sessionTag(session) } : {}),
-  ...origin(req),
-})
+): AuditActor => ({ ...sessionActor(user, session), ...origin(req) })
 
 /** The server itself: starting, stopping, and its log. */
 export const SERVER_ACTOR: AuditActor = { user: 'lumovi', via: 'server' }
