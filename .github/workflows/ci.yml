@@ -90,6 +90,25 @@ jobs:
           (! helm template lumovi charts/lumovi | grep -q 'storageClassName')
           helm template lumovi charts/lumovi --set audit.persistence.storageClass='' | grep -q 'storageClassName: ""'
           helm template lumovi charts/lumovi --set audit.persistence.storageClass=fast | grep -q 'storageClassName: "fast"'
+          # A company's network: the proxy and its certificate authority, for the server and an agent.
+          helm template lumovi charts/lumovi --set proxy.https=http://proxy.corp:3128 \
+            --set proxy.noProxy=.corp --set extraCA.configMap=corp-ca > net.yaml
+          grep -q 'HTTPS_PROXY' net.yaml && grep -q 'NO_PROXY' net.yaml
+          grep -q 'value: /etc/lumovi/ca/ca.crt' net.yaml && grep -q 'name: corp-ca' net.yaml
+          helm template lumovi charts/lumovi --set mode=agent --set clusterName=edge \
+            --set agent.hubUrl=https://hub.example.com --set agent.tokenSecret=t \
+            --set proxy.https=http://proxy.corp:3128 --set extraCA.secret=corp-ca \
+            | grep -q 'secretName: corp-ca'
+          # A proxy with credentials, from a Secret: not in the Deployment; and not both ways.
+          helm template lumovi charts/lumovi --set proxy.secret=corp-proxy \
+            | grep -A3 'name: HTTPS_PROXY' | grep -q 'name: corp-proxy'
+          (! helm template lumovi charts/lumovi --set proxy.secret=corp-proxy \
+            --set proxy.https=http://proxy.corp:3128 2>/dev/null)
+          # OpenShift gives the user and groups: none set there, its SCC's taken.
+          (! helm template lumovi charts/lumovi --api-versions security.openshift.io/v1 | grep -qE 'runAsUser|runAsGroup|fsGroup')
+          helm template lumovi charts/lumovi | grep -q 'runAsUser: 65532'
+          (! helm template lumovi charts/lumovi --set openshift=true | grep -q 'runAsUser')
+          helm template lumovi charts/lumovi --api-versions security.openshift.io/v1 --set openshift=false | grep -q 'runAsUser: 65532'
           helm template lumovi charts/lumovi | grep -q 'type: Recreate'
           helm template lumovi charts/lumovi --show-only templates/audit.yaml \
             | grep -q 'helm.sh/resource-policy: keep'

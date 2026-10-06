@@ -1730,7 +1730,7 @@ test('one Lumovi keeps a history: another waits for it, and doesn’t start whil
       /LUMOVI_AUDIT_DIR \(\/\) can’t be written in: E(ACCES|ROFS|PERM)\b.*audit\.lock/,
     )
     expect(said).toContain(
-      'Lumovi’s image runs as user 65532: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.',
+      `Lumovi runs as user ${process.getuid?.()}: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.`,
     )
   }
 })
