@@ -7,8 +7,7 @@ import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
 import { AddOnPage } from './features/add-ons/AddOnPage'
 import { ApprovalCenter } from './features/assistants/ApprovalCenter'
-import { AssistantsDialog } from './features/assistants/AssistantsDialog'
-import { ServerAssistantsDialog } from './features/assistants/ServerAssistantsDialog'
+import { AssistantsPage } from './features/assistants/AssistantsPage'
 import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
@@ -54,6 +53,8 @@ const routes: RouteObject[] = [
       { path: '/', element: <Home /> },
       // A server's: where AI assistants send people to allow them.
       { path: '/authorize', element: <AuthorizePage /> },
+      // AI assistants: connecting them, what they may do and where, and what they did.
+      { path: '/assistants/:tab?', element: <AssistantsPage /> },
       {
         path: '/cluster/:context',
         element: <ClusterLayout />,
@@ -97,14 +98,8 @@ const router =
     ? createHashRouter(routes)
     : createBrowserRouter(routes, { basename: basename() || '/' })
 
-/** AI assistants: connecting them (the desktop app's, or a server's), and their changes. */
-const assistants = (
-  <>
-    {api.assistants && <AssistantsDialog assistants={api.assistants} />}
-    {api.serverAssistants && <ServerAssistantsDialog assistants={api.serverAssistants} />}
-    {api.approvals && <ApprovalCenter approvals={api.approvals} />}
-  </>
-)
+/** The changes AI assistants ask for (the desktop app's, or a server's), wherever the page is. */
+const assistants = api.approvals && <ApprovalCenter approvals={api.approvals} />
 
 export function App() {
   return (

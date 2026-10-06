@@ -46,7 +46,7 @@ import { ServerBanner } from '../session/ServerBanner'
 import { Commands } from '../shell/Commands'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
-import { ServerAssistantsButton } from '../assistants/ServerAssistantsDialog'
+import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
 
 /** How often each cluster is summed up again, while the page is open. */

@@ -1,9 +1,11 @@
 /**
  * The tools Lumovi gives AI assistants over MCP: reading clusters, and asking
- * to change them. A change is first tried as a dry run (so the API server
- * checks it, and the person's access), then shown in Lumovi with what it
- * changes and its kubectl command, and made only once the person approves,
- * unless the cluster lets its assistants change it without asking.
+ * to change them, as the person's AI permissions say (under a server's
+ * administrator's rules). What they hide is as good as gone: a hidden
+ * namespace isn't there. A change is first tried as a dry run (so the API
+ * server checks it, and the person's access), then shown in Lumovi with what
+ * it changes and its kubectl command, and made only once the person approves,
+ * unless their permissions let assistants change it without asking.
  */
 import { randomUUID } from 'node:crypto'
 import { eventCount, lastSeen } from '@shared/events'
@@ -16,8 +18,15 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js'
 import { parseAllDocuments } from 'yaml'
 import { z } from 'zod'
+import {
+  clusterForAssistant,
+  decider,
+  type AiDecision,
+  type AiPolicy,
+  type AiSource,
+} from '@shared/ai-permissions'
 import type { ChangeRequest, KubeObject, Result } from '@shared/api'
-import type { AiChanges, ChangeProposal, ProposalOutcome } from '@shared/assistants'
+import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
 import { kubectl, objectArg } from '@shared/kubectl'
 import {
   isBuiltinKind,
@@ -26,6 +35,7 @@ import {
   type ResourceKind,
 } from '@shared/resources'
 import type { KubeService } from '../kube/service'
+import { NamespaceLabels, readsSecrets } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
 import { findProblems } from './problems'
 import { age, changesOf, describeStatus, involved, readable, row, statusOf, yaml } from './present'
@@ -38,8 +48,11 @@ export interface ToolContext {
   kube: KubeService
   /** The assistant calling, as Lumovi shows it: "Claude Code". */
   client(): string
-  /** Whether its changes to a context are asked about, made, or refused. */
-  changes(context: string): AiChanges
+  /**
+   * What it may do, and where: the person's AI permissions, under the administrator's rules.
+   * Read on each call, so a change to them applies at once.
+   */
+  policy(): AiPolicy
   /** Where its changes wait for the person's answer. */
   approvals: Pick<Approvals, 'ask' | 'wait'>
   /** What became of a change it asked for, for the activity log. */
@@ -105,6 +118,19 @@ const reason = z
 const text = (value: string): CallToolResult => ({ content: [{ type: 'text', text: value }] })
 const failed = (message: string): CallToolResult => ({ ...text(message), isError: true })
 
+/** Who says it may not: the person's permissions, a rule of theirs, or the administrator's. */
+function because(from: AiSource): string {
+  if (from.kind === 'default') return 'the person’s AI permissions say so'
+  const named = from.names.map((name) => `“${name}”`).join(', ')
+  return from.kind === 'rule'
+    ? `the person’s AI permissions say so (${named})`
+    : `this server’s administrator says so (${named})`
+}
+
+/** Why it may not read a namespace's Secrets. */
+const secretsHidden = (namespace: string, access: AiDecision) =>
+  `Lumovi doesn’t show AI assistants the Secrets in ${namespace}: ${because(access.secrets.from)}.`
+
 /** A cluster call's data, or its error, for the assistant to read. */
 function data<T>(result: Result<T>): T {
   if (!result.ok) throw new Error(result.error.message)
@@ -113,14 +139,69 @@ function data<T>(result: Result<T>): T {
 
 export function registerTools(server: McpServer, t: ToolContext): void {
   const { kube } = t
+  const labels = new NamespaceLabels(kube)
+
+  const clusterOf = (context: string) => ({
+    name: context,
+    labels: kube.contexts().contexts.find((c) => c.name === context)?.labels,
+  })
+
+  /** The kubeconfig's contexts, but those the person's AI permissions hide. */
+  const visibleContexts = () => {
+    const decide = decider(t.policy())
+    return kube
+      .contexts()
+      .contexts.filter((c) => decide({ cluster: c }).visibility.value !== 'hidden')
+  }
 
   /** Checks that `context` is one of the kubeconfig's, for a useful error when it isn't. */
   const knownCluster = (context: string) => {
-    const names = kube.contexts().contexts.map((c) => c.name)
+    const names = visibleContexts().map((c) => c.name)
     if (!names.includes(context)) {
       throw new Error(`There is no cluster called “${context}”. These are: ${names.join(', ')}.`)
     }
   }
+
+  /** What it may do with a cluster's own objects, or in one of its namespaces. */
+  const access = async (context: string, namespace?: string): Promise<AiDecision> =>
+    decider(t.policy())({
+      cluster: clusterOf(context),
+      ...(namespace === undefined
+        ? {}
+        : { namespace: { name: namespace, labels: await labels.of(context, namespace) } }),
+    })
+
+  /** What it may do in each of many namespaces (a list's), each decided once. */
+  const accessIn = (context: string) => {
+    const decide = decider(t.policy())
+    const decided = new Map<string, Promise<AiDecision>>()
+    return (namespace: string) => {
+      let decision = decided.get(namespace)
+      if (!decision) {
+        decision = labels
+          .of(context, namespace)
+          .then((found) =>
+            decide({ cluster: clusterOf(context), namespace: { name: namespace, labels: found } }),
+          )
+        decided.set(namespace, decision)
+      }
+      return decision
+    }
+  }
+
+  /**
+   * What it may do in a namespace (a Namespace object's own, for one): a hidden one is as
+   * good as gone, and what's asked for isn't there (`missing` says so, as the API would).
+   */
+  const inNamespace = async (context: string, namespace: string, missing: string) => {
+    const decision = await access(context, namespace)
+    if (decision.visibility.value === 'hidden') throw new Error(missing)
+    return decision
+  }
+
+  /** The namespace an object's rules look at: its own, or a Namespace's name. */
+  const scopeOf = (definition: ResourceDefinition, name: string, namespace?: string) =>
+    definition.kind === 'Namespace' ? name : namespace
 
   /** A kind as kubectl takes it (Deployment, deploy, deployments, certificates.cert-manager.io…). */
   const resolveKind = async (context: string, given: string): Promise<ResourceDefinition> => {
@@ -158,21 +239,18 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     {
       title: 'List clusters',
       description:
-        'The clusters Lumovi can show (the kubeconfig’s contexts), which is the current one, each one’s default namespace, and whether it takes changes: read-only ones take none, and each says whether assistants’ changes are asked about (ask), made without asking (allow), or refused (never).',
+        'The clusters Lumovi can show (the kubeconfig’s contexts), which is the current one, each one’s default namespace, and what assistants may do there, as the person’s AI permissions say: whether changes are asked about (ask), made without asking (allow) or refused (never; a read-only cluster takes none); whether Secrets show their values, only their keys, or are hidden; which env values are hidden (sensitive ones, or all); whether logs may be read; and the rules that say otherwise in some of its namespaces (where several apply, the strictest wins).',
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     () => {
-      const { contexts, currentContext, error } = kube.contexts()
+      const { currentContext, error } = kube.contexts()
       if (error) return failed(`Lumovi can’t read the kubeconfig: ${error}`)
+      const policy = t.policy()
+      const shown = visibleContexts()
       return text(
         yaml({
-          current: currentContext,
-          clusters: contexts.map((c) => ({
-            name: c.name,
-            server: c.server,
-            ...(c.namespace ? { namespace: c.namespace } : {}),
-            changes: kube.isReadOnly(c.name) ? 'read-only' : t.changes(c.name),
-          })),
+          ...(shown.some((c) => c.name === currentContext) ? { current: currentContext } : {}),
+          clusters: shown.map((c) => clusterForAssistant(policy, c, kube.isReadOnly(c.name))),
         }),
       )
     },
@@ -229,21 +307,53 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     },
     async ({ cluster, kind, namespace, labelSelector, limit = 100 }) => {
       const definition = await resolveKind(cluster, kind)
+      const listed = definition.namespaced ? namespace : undefined
+      const isSecret = definition.kind === 'Secret'
+      if (listed !== undefined) {
+        const decision = await access(cluster, listed)
+        // As good as gone: nothing is in it.
+        if (decision.visibility.value === 'hidden') {
+          return text(yaml({ kind: definition.kind, total: 0, items: [] }))
+        }
+        if (isSecret && decision.secrets.value === 'hidden') {
+          return failed(secretsHidden(listed, decision))
+        }
+      }
       const list = data(
         await kube.list({
           context: cluster,
           kind: definition.kind,
-          namespace: definition.namespaced ? namespace : undefined,
+          namespace: listed,
           labelSelector,
         }),
       )
+      const decide = accessIn(cluster)
+      const items: KubeObject[] = []
+      let secretsNotShown = 0
+      for (const item of list.items) {
+        const scope = scopeOf(definition, item.metadata.name, item.metadata.namespace)
+        if (scope !== undefined) {
+          const decision = await decide(scope)
+          if (decision.visibility.value === 'hidden') continue
+          if (isSecret && decision.secrets.value === 'hidden') {
+            secretsNotShown++
+            continue
+          }
+        }
+        items.push(item)
+      }
       const now = Date.now()
       return text(
         yaml({
           kind: definition.kind,
-          total: list.items.length,
-          ...(list.items.length > limit ? { shown: limit } : {}),
-          items: list.items.slice(0, limit).map((o) => row(definition.kind, o, now)),
+          total: items.length,
+          ...(items.length > limit ? { shown: limit } : {}),
+          ...(secretsNotShown
+            ? {
+                notShown: `${secretsNotShown} more, in namespaces whose Secrets the person’s AI permissions hide`,
+              }
+            : {}),
+          items: items.slice(0, limit).map((o) => row(definition.kind, o, now)),
         }),
       )
     },
@@ -254,7 +364,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     {
       title: 'Get a resource',
       description:
-        'One object as YAML, with its health first. A Secret’s values are never shown, only its keys.',
+        'One object as YAML, with its health first. A Secret’s values are shown only where the person’s AI permissions allow it (only its keys elsewhere), and env values they hide read “(hidden by Lumovi)”.',
       inputSchema: {
         cluster,
         kind,
@@ -265,18 +375,24 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     },
     async ({ cluster, kind, name, namespace }) => {
       const definition = await resolveKind(cluster, kind)
+      const where = namespaceFor(definition, namespace)
+      const scope = scopeOf(definition, name, where)
+      const decision =
+        scope === undefined
+          ? await access(cluster)
+          : await inNamespace(cluster, scope, `${definition.plural} "${name}" not found`)
+      if (definition.kind === 'Secret' && decision.secrets.value === 'hidden') {
+        return failed(secretsHidden(where!, decision))
+      }
       const object = data(
-        await kube.get({
-          context: cluster,
-          kind: definition.kind,
-          name,
-          namespace: namespaceFor(definition, namespace),
-        }),
+        await kube.get({ context: cluster, kind: definition.kind, name, namespace: where }),
       )
       const status = statusOf(definition.kind, object)
-      return text(
-        `${status ? `# Health: ${describeStatus(status)}\n` : ''}${yaml(readable(object))}`,
-      )
+      const shown = readable(object, {
+        secrets: decision.secrets.value === 'values' ? 'values' : 'keys',
+        env: decision.env.value,
+      })
+      return text(`${status ? `# Health: ${describeStatus(status)}\n` : ''}${yaml(shown)}`)
     },
   )
 
@@ -298,12 +414,16 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     },
     async ({ cluster, namespace, kind, name, warningsOnly, limit = 50 }) => {
       knownCluster(cluster)
+      // A hidden namespace has none: it isn't there.
+      if (namespace && (await access(cluster, namespace)).visibility.value === 'hidden') {
+        return text('No events.')
+      }
       const about = kind && name ? await resolveKind(cluster, kind) : undefined
       const fields = [
         ...(about ? [`involvedObject.kind=${about.apiKind}`, `involvedObject.name=${name}`] : []),
         ...(warningsOnly ? ['type=Warning'] : []),
       ]
-      const events = data(
+      const listed = data(
         await kube.list({
           context: cluster,
           kind: 'Event',
@@ -311,6 +431,21 @@ export function registerTools(server: McpServer, t: ToolContext): void {
           fieldSelector: fields.length ? fields.join(',') : undefined,
         }),
       ).items
+      const decide = accessIn(cluster)
+      const events: KubeObject[] = []
+      for (const event of listed) {
+        const { kind: about, name: called, namespace: theirs } = involved(event)
+        const scopes = [
+          event.metadata.namespace,
+          theirs,
+          about === 'Namespace' ? called : undefined,
+        ]
+        let hidden = false
+        for (const scope of new Set(scopes.filter((s): s is string => Boolean(s)))) {
+          if ((await decide(scope)).visibility.value === 'hidden') hidden = true
+        }
+        if (!hidden) events.push(event)
+      }
       const seen = (e: KubeObject) => Date.parse(lastSeen(e))
       const now = Date.now()
       const latest = [...events].sort((a, b) => seen(b) - seen(a)).slice(0, limit)
@@ -336,7 +471,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     {
       title: 'Get logs',
       description:
-        'A pod’s container’s latest log lines, as kubectl logs shows them; its run before the last restart with previous (what a crash-looping container said before it died).',
+        'A pod’s container’s latest log lines, as kubectl logs shows them; its run before the last restart with previous (what a crash-looping container said before it died). Only where the person’s AI permissions let assistants read logs.',
       inputSchema: {
         cluster,
         namespace: z.string().min(1),
@@ -356,6 +491,12 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     },
     async ({ cluster, namespace, pod, container, tailLines = 200, previous, sinceSeconds }) => {
       knownCluster(cluster)
+      const decision = await inNamespace(cluster, namespace, `pods "${pod}" not found`)
+      if (decision.logs.value === 'off') {
+        return failed(
+          `Lumovi doesn’t let AI assistants read logs in ${namespace}: ${because(decision.logs.from)}.`,
+        )
+      }
       const logs = data(
         await kube.podLogs({
           context: cluster,
@@ -383,8 +524,28 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     },
     async ({ cluster, namespace }) => {
       knownCluster(cluster)
-      const found = await findProblems(kube, cluster, namespace, Date.now())
       const where = namespace ? `${namespace} in ${cluster}` : cluster
+      const hidden = namespace && (await access(cluster, namespace)).visibility.value === 'hidden'
+      const found = hidden
+        ? { problems: [], warnings: [], unchecked: [] }
+        : await findProblems(kube, cluster, namespace, Date.now())
+      // Nothing in a namespace that's hidden: it isn't there.
+      const decide = accessIn(cluster)
+      const shown = async (records: Record<string, unknown>[]) => {
+        const kept: Record<string, unknown>[] = []
+        for (const record of records) {
+          const object = String(record.object)
+          const scope = object.startsWith('Namespace/')
+            ? object.slice('Namespace/'.length)
+            : (record.namespace as string | undefined)
+          if (scope === undefined || (await decide(scope)).visibility.value !== 'hidden') {
+            kept.push(record)
+          }
+        }
+        return kept
+      }
+      found.problems = await shown(found.problems)
+      found.warnings = await shown(found.warnings)
       if (!found.problems.length && !found.warnings.length && !found.unchecked.length) {
         return text(
           `Nothing is wrong in ${where}: no unhealthy objects, and no warnings in the last hour.`,
@@ -403,6 +564,8 @@ export function registerTools(server: McpServer, t: ToolContext): void {
   // ——— Changing ———
 
   interface Change {
+    /** What it may do where the change is. */
+    access: AiDecision
     context: string
     action: ChangeProposal['action']
     target: ChangeProposal['target']
@@ -460,10 +623,11 @@ export function registerTools(server: McpServer, t: ToolContext): void {
    * even then); makes it once approved.
    */
   const propose = async (c: Change, extra: Extra): Promise<CallToolResult> => {
-    const policy = t.changes(c.context)
+    const policy = c.access.changes.value
+    const place = c.target.namespace ? `${c.target.namespace} in ${c.context}` : c.context
     if (policy === 'never') {
       return failed(
-        `Lumovi doesn’t let AI assistants change ${c.context}: its AI assistants settings say “Never”. Nothing was changed.`,
+        `Lumovi doesn’t let AI assistants change ${place}: ${because(c.access.changes.from)}. Nothing was changed.`,
       )
     }
     // The API server checks it, and the person's access, and says what it would come to.
@@ -527,7 +691,12 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       )
     }
 
-    if (policy === 'allow' && c.action !== 'delete' && !c.takesOver) return make(true)
+    // A workload that would read a Secret could show it in its logs: the person sees it first,
+    // unless assistants may read Secrets' values there anyway.
+    const readsHidden = c.access.secrets.value !== 'values' && readsSecrets(dryRun.data!)
+    if (policy === 'allow' && c.action !== 'delete' && !c.takesOver && !readsHidden) {
+      return make(true)
+    }
     extra.signal.throwIfAborted()
     t.approvals.ask(proposal, async (answer) => {
       if ('withdrawn' in answer) {
@@ -559,8 +728,35 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     throw new Error(found.error.message)
   }
 
+  /**
+   * What it may do where a change is, checked first: a hidden namespace isn't there, and
+   * Secrets its rules hide can't be changed.
+   */
+  const changeAccess = async (
+    context: string,
+    definition: ResourceDefinition,
+    name: string,
+    namespace?: string,
+  ) => {
+    const scope = scopeOf(definition, name, namespace)
+    const decision =
+      scope === undefined
+        ? await access(context)
+        : await inNamespace(
+            context,
+            scope,
+            definition.kind === 'Namespace'
+              ? `${definition.plural} "${name}" not found`
+              : `namespaces "${namespace}" not found`,
+          )
+    if (definition.kind === 'Secret' && decision.secrets.value === 'hidden') {
+      throw new Error(secretsHidden(namespace!, decision))
+    }
+    return decision
+  }
+
   /** The waiting, said in each change tool's description. */
-  const waits = `The person approves it in Lumovi (unless the cluster lets assistants change it): the call waits for their answer up to a minute, then says it’s still waiting; then call wait_for_change, until they answer or ${WAIT} have passed.`
+  const waits = `The person approves it in Lumovi (unless their AI permissions let assistants change it without asking): the call waits for their answer up to a minute, then says it’s still waiting; then call wait_for_change, until they answer or ${WAIT} have passed.`
 
   server.registerTool(
     'apply_manifest',
@@ -591,6 +787,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       const definition = await resolveKind(cluster, kindFor(object.apiVersion, object.kind))
       const namespace = namespaceFor(definition, object.metadata.namespace)
       const { name } = object.metadata
+      const decision = await changeAccess(cluster, definition, name, namespace)
       const before = await current(cluster, definition.kind, name, namespace)
       const verb = before ? 'Change' : 'Create'
       const request = (force: boolean): ChangeRequest => ({
@@ -610,6 +807,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       const conflicts = await kube.change({ ...request(false), dryRun: true })
       return propose(
         {
+          access: decision,
           context: cluster,
           action: 'apply',
           target: { kind: definition.kind, name, namespace },
@@ -661,6 +859,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       if (!builtin && !definition.subresources?.includes('scale')) {
         return failed(`${definition.label} can’t be scaled.`)
       }
+      const decision = await changeAccess(cluster, definition, name, namespace)
       const read = async () =>
         data(
           await kube.get({
@@ -677,6 +876,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
         return text(`${name} already runs ${count(replicas)}: nothing to change.`)
       return propose(
         {
+          access: decision,
           context: cluster,
           action: 'scale',
           target: { kind: definition.kind, name, namespace },
@@ -725,11 +925,13 @@ export function registerTools(server: McpServer, t: ToolContext): void {
           `Only Deployments, StatefulSets and DaemonSets restart; ${definition.label} don’t.`,
         )
       }
+      const decision = await changeAccess(cluster, definition, name, namespace)
       const read = async () =>
         data(await kube.get({ context: cluster, kind: definition.kind, name, namespace }))
       const before = await read()
       return propose(
         {
+          access: decision,
           context: cluster,
           action: 'restart',
           target: { kind: definition.kind, name, namespace },
@@ -789,11 +991,13 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     async ({ cluster, kind, name, namespace, reason }, extra) => {
       const definition = await resolveKind(cluster, kind)
       const where = namespaceFor(definition, namespace)
+      const decision = await changeAccess(cluster, definition, name, where)
       const before = data(
         await kube.get({ context: cluster, kind: definition.kind, name, namespace: where }),
       )
       return propose(
         {
+          access: decision,
           context: cluster,
           action: 'delete',
           target: { kind: definition.kind, name, namespace: where },

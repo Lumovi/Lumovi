@@ -130,6 +130,25 @@ test('behind a proxy: each person with their own RBAC', async ({ browser }) => {
   await expect(viewer.getByRole('alert')).toContainText(
     'User "vera@example.com" cannot list resource "nodes"',
   )
+  // What she lets AI assistants do is kept in the chart's ConfigMap, which Lumovi may write.
+  await viewer.evaluate(() =>
+    window.lumovi!.aiPermissions!.set({
+      defaults: { changes: 'never', secrets: 'keys', env: 'sensitive', logs: 'read' },
+      rules: [],
+    }),
+  )
+  const kept = JSON.parse(
+    kubectl([
+      'get',
+      'configmap',
+      `${RELEASE}-assistant-rules`,
+      '-n',
+      NS,
+      '-o',
+      'jsonpath={.data.rules\\.json}',
+    ]),
+  )
+  expect(kept.people['vera@example.com'].defaults.changes).toBe('never')
 
   // Nobody in particular: the cluster refuses what they ask.
   const nobody = await proxied(browser, 'nobody@example.com', '')

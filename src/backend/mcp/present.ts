@@ -11,7 +11,10 @@ import {
   STATUS_BY_KIND,
   type Status,
 } from '@shared/health'
+import type { AiAccess } from '@shared/ai-permissions'
 import { isBuiltinKind, type ResourceKind } from '@shared/resources'
+
+type EnvAccess = AiAccess['env']
 
 const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
 
@@ -20,10 +23,14 @@ export const yaml = (value: unknown) =>
 
 /**
  * An object as an assistant reads it: without what's large and says little
- * (managed fields, the last applied configuration), and with a Secret's
- * values hidden, keeping their keys.
+ * (managed fields, the last applied configuration), with a Secret's values
+ * hidden, keeping their keys (unless its rules show them), and env values as
+ * its rules say. As the person sees it in a change they approve, too.
  */
-export function readable(object: KubeObject): KubeObject {
+export function readable(
+  object: KubeObject,
+  { secrets = 'keys', env = 'show' }: { secrets?: 'values' | 'keys'; env?: EnvAccess } = {},
+): KubeObject {
   const copy = structuredClone(object)
   delete copy.metadata.managedFields
   const annotations = copy.metadata.annotations
@@ -31,7 +38,8 @@ export function readable(object: KubeObject): KubeObject {
     delete annotations[LAST_APPLIED]
     if (Object.keys(annotations).length === 0) delete copy.metadata.annotations
   }
-  if (copy.kind === 'Secret') {
+  hideEnv(copy, env)
+  if (copy.kind === 'Secret' && secrets === 'keys') {
     for (const field of ['data', 'stringData'] as const) {
       const values = copy[field] as Record<string, string> | undefined
       if (values) copy[field] = Object.fromEntries(Object.keys(values).map((k) => [k, HIDDEN]))
@@ -44,8 +52,40 @@ export function readable(object: KubeObject): KubeObject {
 export const involved = (event: KubeObject) =>
   event.involvedObject as { kind: string; name: string; namespace?: string }
 
-/** In place of a Secret's values. */
+/** In place of what an assistant may not read: a Secret's values, env values. */
 export const HIDDEN = '(hidden by Lumovi)'
+
+/** Env names that usually hold what shouldn't be read: passwords, tokens, keys… */
+const SENSITIVE_NAME =
+  /pass|secret|token|key|cred|auth|private|cert|dsn|conn|session|cookie|salt|sig/i
+/** A URL that carries its credentials: postgres://user:password@db. */
+const CREDENTIALS_IN_URL = /:\/\/[^/\s:@]+:[^/\s@]+@/
+
+/**
+ * Hides env values, wherever an object has containers (pods, workloads'
+ * templates, custom resources' too): sensitive ones (by their name, or a URL
+ * with credentials), or all.
+ */
+export function hideEnv(object: KubeObject, which: EnvAccess): void {
+  if (which === 'show') return
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) value.forEach(walk)
+    else if (value !== null && typeof value === 'object') {
+      for (const [key, inner] of Object.entries(value)) {
+        if (key === 'env' && Array.isArray(inner)) inner.forEach((variable) => hide(variable))
+        else walk(inner)
+      }
+    }
+  }
+  const hide = (variable: unknown) => {
+    const { name, value } = Object(variable) as { name?: unknown; value?: unknown }
+    if (typeof name !== 'string' || typeof value !== 'string') return
+    if (which === 'all' || SENSITIVE_NAME.test(name) || CREDENTIALS_IN_URL.test(value)) {
+      ;(variable as { value: string }).value = HIDDEN
+    }
+  }
+  walk(object)
+}
 
 /** An object's health, by Lumovi's rules for its kind, or the conventions controllers follow. */
 export function statusOf(kind: ResourceKind, object: KubeObject): Status | null {

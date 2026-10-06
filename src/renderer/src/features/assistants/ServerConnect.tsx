@@ -1,22 +1,26 @@
+/**
+ * A server's AI assistants: how to connect them (they sign in through
+ * Lumovi), the browser's notifications of their changes, and the person's
+ * own assistants (the AI assistants page's Connect and Your assistants tabs).
+ */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Lock, Sparkles, X } from 'lucide-react'
-import { Dialog } from 'radix-ui'
+import { Bell, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router'
 import type { LumoviApi } from '@shared/api'
-import type { AiChanges, ServerAssistantsStatus } from '@shared/assistants'
+import type { ServerAssistantsStatus } from '@shared/assistants'
 import { Button, buttonClass, IconButton } from '@renderer/components/Button'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
-import { useContexts } from '@renderer/hooks/queries'
-import { useSettings } from '@renderer/hooks/settings'
-import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
-import { useUi } from '@renderer/state/ui'
-import { Snippet } from './AssistantsDialog'
+import { Snippet } from './DesktopConnect'
+import { Card } from './PageParts'
 
-type ServerAssistantsApi = NonNullable<LumoviApi['serverAssistants']>
+export type ServerAssistantsApi = NonNullable<LumoviApi['serverAssistants']>
 
 /** The person's assistants on this server, and how they connect: kept up to date by the server. */
-function useServerStatus(assistants: ServerAssistantsApi): ServerAssistantsStatus | undefined {
+export function useServerStatus(
+  assistants: ServerAssistantsApi,
+): ServerAssistantsStatus | undefined {
   const queryClient = useQueryClient()
   useEffect(
     () => assistants.onStatus((status) => queryClient.setQueryData(['server-assistants'], status)),
@@ -25,17 +29,17 @@ function useServerStatus(assistants: ServerAssistantsApi): ServerAssistantsStatu
   return useQuery({ queryKey: ['server-assistants'], queryFn: () => assistants.status() }).data
 }
 
-/** Opens AI assistants' settings; a dot says one of the person's is connected. Hidden when they're off. */
+/** Opens the AI assistants page; a dot says one of the person's is connected. Hidden when they're off. */
 export function ServerAssistantsButton({ assistants }: { assistants: ServerAssistantsApi }) {
   const status = useServerStatus(assistants)
-  const setOpen = useUi((ui) => ui.setAssistants)
+  const navigate = useNavigate()
   if (!status?.enabled) return null
   const connected = status.clients.length
   return (
     <IconButton
       label={connected ? `AI assistants (${connected} connected)` : 'AI assistants'}
       className="relative"
-      onClick={() => setOpen(true)}
+      onClick={() => void navigate('/assistants')}
     >
       <Sparkles />
       {connected > 0 && (
@@ -45,61 +49,15 @@ export function ServerAssistantsButton({ assistants }: { assistants: ServerAssis
   )
 }
 
-/** A server's AI assistants: connecting them, the person's own, and what they may change. */
-export function ServerAssistantsDialog({ assistants }: { assistants: ServerAssistantsApi }) {
-  const open = useUi((ui) => ui.assistants)
-  const setOpen = useUi((ui) => ui.setAssistants)
-  const status = useServerStatus(assistants)
-  const contexts = useContexts().data?.contexts
-  return open && status && contexts ? (
-    <Dialog.Root open onOpenChange={(open) => !open && setOpen(false)}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
-        <Dialog.Content
-          aria-describedby={undefined}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          className="fixed top-[8vh] left-1/2 z-50 flex max-h-[84vh] w-[640px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
-        >
-          <header className="flex items-start gap-3 px-5 pt-5 pb-4">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-strong">
-              <Sparkles className="size-[18px]" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-[15px] leading-snug font-semibold text-ink-1">
-                AI assistants
-              </Dialog.Title>
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
-                Claude Code, Cursor, VS Code and other assistants read the clusters you can see
-                through Lumovi, as you, and ask you here before they change anything.
-              </p>
-            </div>
-            {/* A plain button: a tooltip opening on focus would swallow the first Escape. */}
-            <Dialog.Close
-              aria-label="Close"
-              className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1"
-            >
-              <X className="size-4" />
-            </Dialog.Close>
-          </header>
-          <div className="min-h-0 flex-1 overflow-y-auto border-t border-line">
-            {status.enabled ? (
-              <>
-                <Connect url={status.url} />
-                <Yours status={status} assistants={assistants} />
-                <Changes status={status} contexts={contexts.map((c) => c.name)} />
-                {/* Not every browser has them: Safari on a phone, outside a home-screen app. */}
-                {'Notification' in window && <Notifications />}
-              </>
-            ) : (
-              <p className="px-5 py-5 text-[13px] leading-relaxed text-ink-2">
-                This server’s administrator has turned AI assistants off.
-              </p>
-            )}
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  ) : null
+/** How to connect an assistant, and the browser's notifications of what they ask for. */
+export function ServerConnectTab({ url }: { url: string }) {
+  return (
+    <Card>
+      <Connect url={url} />
+      {/* Not every browser has them: Safari on a phone, outside a home-screen app. */}
+      {'Notification' in window && <Notifications />}
+    </Card>
+  )
 }
 
 const TABS = [
@@ -162,7 +120,7 @@ function Connect({ url }: { url: string }) {
 }
 
 /** The person's assistants: each acts as them until they disconnect it, or sign out. */
-function Yours({
+export function YourAssistantsTab({
   status,
   assistants,
 }: {
@@ -174,11 +132,9 @@ function Yours({
     queryClient.setQueryData(['server-assistants'], await assistants.revoke(id))
   }
   return (
-    <section aria-label="Your assistants" className="border-t border-line px-5 py-4">
-      <h3 className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-        Your assistants
-      </h3>
-      <p className="mb-2.5 text-xs leading-relaxed text-ink-3">
+    <Card as="section" aria-label="Your assistants" className="px-5 py-4">
+      <h2 className="mb-1 text-[15px] font-semibold text-ink-1">Your assistants</h2>
+      <p className="mb-3 text-xs leading-relaxed text-ink-3">
         They act as you, with what you may do in each cluster, until you disconnect them or sign out
         of Lumovi.
       </p>
@@ -207,51 +163,7 @@ function Yours({
           ))}
         </ul>
       )}
-    </section>
-  )
-}
-
-const POLICY: Record<AiChanges, { label: string; className: string }> = {
-  ask: { label: 'Ask you', className: 'text-ink-2' },
-  allow: { label: 'Made without asking', className: 'text-warn-text' },
-  never: { label: 'Never', className: 'text-ink-3' },
-}
-const READ_ONLY = { label: 'Read-only: no changes', className: 'text-ink-3' }
-
-/** What assistants' changes do in each cluster, as the server's administrator set it. */
-function Changes({ status, contexts }: { status: ServerAssistantsStatus; contexts: string[] }) {
-  const settings = useSettings().data
-  return (
-    <section aria-label="Changes they ask for" className="border-t border-line px-5 py-4">
-      <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
-        Changes they ask for
-      </h3>
-      <p className="mt-1 mb-3 text-xs leading-relaxed text-ink-3">
-        As this server’s administrator set them, and none where you made a cluster read-only.
-        Deletions, and changes that take fields over from Helm or Argo CD, ask you wherever changes
-        are made without asking.
-      </p>
-      <ul className="divide-y divide-line rounded-lg border border-line">
-        {contexts.map((name) => {
-          // Read-only for the person, too: their assistants change nothing there.
-          const policy =
-            settings?.readOnlyAll || settings?.readOnly?.includes(name)
-              ? READ_ONLY
-              : POLICY[status.changes.clusters[name] ?? status.changes.default]
-          return (
-            <li key={name} className="flex items-center gap-3 py-2 pr-3 pl-3">
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-1" title={name}>
-                {name}
-              </span>
-              <span className={cn('flex items-center gap-1.5 text-xs', policy.className)}>
-                <Lock className="size-3 text-ink-3" />
-                {policy.label}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-    </section>
+    </Card>
   )
 }
 

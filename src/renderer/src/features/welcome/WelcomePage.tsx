@@ -19,7 +19,7 @@ import { clusterPath } from '@renderer/lib/routes'
 import { usePrefs } from '@renderer/state/prefs'
 import { Commands } from '../shell/Commands'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
-import { AssistantsButton } from '../assistants/AssistantsDialog'
+import { AssistantsButton } from '../assistants/DesktopConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
 
 export { REPO_URL } from '@shared/app'

@@ -52,8 +52,8 @@ import { useSession, useSwitching } from '@renderer/state/session'
 import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
-import { AssistantsButton } from '../assistants/AssistantsDialog'
-import { ServerAssistantsButton } from '../assistants/ServerAssistantsDialog'
+import { AssistantsButton } from '../assistants/DesktopConnect'
+import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from './ThemeMenu'
 
 export const CATEGORY_LABELS: Record<ResourceCategory, string> = {

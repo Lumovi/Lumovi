@@ -114,7 +114,6 @@ function Palette({ onDone }: { onDone: () => void }) {
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
   const setMetricsSource = useUi((ui) => ui.setMetricsSource)
-  const setAssistants = useUi((ui) => ui.setAssistants)
   const objects = useCachedObjects(context)
   const open = useSearchParams()[0].get('open')
   const readOnly = useReadOnly()
@@ -337,7 +336,7 @@ function Palette({ onDone }: { onDone: () => void }) {
             <Item
               icon={<Sparkles />}
               value="AI assistants MCP Claude Code Desktop Cursor VS Code connect"
-              onSelect={run(() => setAssistants(true))}
+              onSelect={run(() => go('/assistants'))}
             >
               AI assistants…
             </Item>

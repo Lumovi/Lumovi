@@ -91,8 +91,12 @@ const api: LumoviApi = {
     configure: (setting) => invoke(IPC.assistantsConfigure, setting),
     resetToken: () => invoke(IPC.assistantsResetToken),
     install: (client) => invoke(IPC.assistantsInstall, client),
-    setChanges: (context, changes) => invoke(IPC.assistantsSetChanges, context, changes),
     onStatus: (listener) => subscribe(IPC.assistantsStatusChanged, listener),
+  },
+  aiPermissions: {
+    get: () => invoke(IPC.aiPermissionsGet),
+    set: (permissions) => invoke(IPC.aiPermissionsSet, permissions),
+    onChanged: (listener) => subscribe(IPC.aiPermissionsChanged, listener),
   },
   updates: {
     state: () => invoke(IPC.updateState),
