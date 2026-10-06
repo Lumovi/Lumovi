@@ -101,6 +101,50 @@ test('sign in with a token, at the address that was opened', async ({
   expect(alice!.details).toEqual({ method: 'token', with: 'a token' })
 })
 
+test('sign-ins that fail, past so many a minute, are counted, not each recorded', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve({
+    env: { LUMOVI_SIGN_IN_RECORDED: '2', LUMOVI_SIGN_IN_WINDOW_MS: '1000' },
+  })
+  await page.goto(served.url)
+  await expect(page.getByPlaceholder('Paste a token')).toBeVisible()
+  // Anyone can try, as often as they like.
+  await page.evaluate(async () => {
+    for (let i = 0; i < 5; i++) {
+      await fetch('api/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: `not-a-token-${i}` }),
+      })
+    }
+  })
+  await expect
+    .poll(() => audited(served, 'session.sign-in').map((e) => [e.outcome, e.summary]))
+    .toEqual([
+      ['refused', 'Sign in with a token'],
+      ['refused', 'Sign in with a token'],
+      [
+        'refused',
+        '3 more sign-ins didn’t succeed, each not recorded: more than 2 were tried in a minute',
+      ],
+    ])
+  expect(audited(served, 'session.sign-in').at(-1)).toMatchObject({
+    actor: { user: 'lumovi', via: 'server' },
+    details: { count: 3, from: [expect.stringMatching(/127\.0\.0\.1$/)] },
+  })
+  // A new minute: recorded each again.
+  await page.evaluate(() =>
+    fetch('api/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'still-not' }),
+    }),
+  )
+  await expect.poll(() => audited(served, 'session.sign-in')).toHaveLength(4)
+})
+
 test('a session ends: it expires, or its person signs out in another tab', async ({
   page,
   context,

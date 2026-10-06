@@ -112,7 +112,8 @@ export function EventDetail({
               <span className="font-mono">{actor.address}</span>
               {actor.forwardedFor && (
                 <span className="block text-ink-3">
-                  forwarded for <span className="font-mono">{actor.forwardedFor}</span>
+                  which says it’s forwarding for{' '}
+                  <span className="font-mono">{actor.forwardedFor}</span>
                 </span>
               )}
             </Field>
