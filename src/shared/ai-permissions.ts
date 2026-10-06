@@ -249,6 +249,16 @@ export function decider(policy: AiPolicy): (target: AiTarget) => AiDecision {
   }
 }
 
+/** The stricter of two decisions, setting by setting (somewhere seen two ways: as it is, and as it would be). */
+export function stricter(a: AiDecision, b: AiDecision): AiDecision {
+  return Object.fromEntries(
+    AI_SETTING_KEYS.map((key) => [
+      key,
+      rank(key, b[key].value as never) > rank(key, a[key].value as never) ? b[key] : a[key],
+    ]),
+  ) as AiDecision
+}
+
 /** One setting's values in words, as the page and assistants read them. */
 export const AI_VALUE_LABELS: { [K in AiSetting]: Record<AiAccess[K], string> } = {
   visibility: { visible: 'Visible', hidden: 'Hidden' },

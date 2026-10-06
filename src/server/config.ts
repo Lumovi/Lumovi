@@ -7,7 +7,14 @@ import { createHash } from 'node:crypto'
 import { delimiter, join } from 'node:path'
 import { parse } from 'yaml'
 import { NODE_SHELL_DEFAULTS, type MetricsSourceSetting, type NodeShellSetting } from '@shared/api'
-import { checkedRule, parseMatcher, type AiRule } from '@shared/ai-permissions'
+import {
+  AI_SETTINGS,
+  checkedRule,
+  parseMatcher,
+  type AiRule,
+  type AiSetting,
+  type Matcher,
+} from '@shared/ai-permissions'
 import { isAiChanges, type AiChanges } from '@shared/assistants'
 import type { AuthMode } from '@shared/server'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
@@ -83,7 +90,10 @@ export interface ServerConfig {
   publicUrl?: URL
   /** The name pages use for the cluster, as for a kubeconfig context. */
   clusterName?: string
-  /** What the cluster the server runs in is labelled with, in a fleet. */
+  /**
+   * What the cluster the server runs in is labelled with: in a fleet, as one of its clusters;
+   * alone, for AI assistants' rules to match.
+   */
   clusterLabels: Record<string, string>
   /** Many clusters, rather than one; unset, the server shows one. */
   fleet?: FleetConfig
@@ -216,13 +226,29 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     )
   }
 
+  const clusterLabels = labels('LUMOVI_CLUSTER_LABELS', value('LUMOVI_CLUSTER_LABELS'))
+  const assistants = assistantsConfig(env, value)
+  // One cluster: a rule matching clusters by a label it doesn't have would do nothing.
+  if (!fleet) {
+    for (const rule of assistants.rules) {
+      for (const text of rule.clusters) {
+        const matcher = parseMatcher(text) as Matcher
+        if (matcher.kind === 'label' && !(matcher.key! in clusterLabels)) {
+          throw new ConfigError(
+            `The AI rule “${rule.name}” matches clusters by the label ${matcher.key}, which this server’s cluster doesn’t have: give it its labels (LUMOVI_CLUSTER_LABELS, the chart’s clusterLabels), or name it.`,
+          )
+        }
+      }
+    }
+  }
+
   return {
     port,
     address: value('LUMOVI_ADDRESS'),
     basePath,
     publicUrl,
     clusterName: value('LUMOVI_CLUSTER_NAME'),
-    clusterLabels: labels('LUMOVI_CLUSTER_LABELS', value('LUMOVI_CLUSTER_LABELS')),
+    clusterLabels,
     fleet,
     auth,
     usernamePrefix: value('LUMOVI_USERNAME_PREFIX') ?? '',
@@ -234,7 +260,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
-    assistants: assistantsConfig(env, value),
+    assistants,
   }
 }
 
@@ -352,6 +378,14 @@ function adminRules(setting: string | undefined): AiRule[] {
       throw new ConfigError(
         `${at} (${rule.name}) limits nothing: give it visibility, changes, secrets, env or logs.`,
       )
+    }
+    // The loosest of a setting is no limit at all.
+    for (const [key, value] of Object.entries(rule.set) as [AiSetting, string][]) {
+      if ((AI_SETTINGS[key] as readonly string[]).indexOf(value) === 0) {
+        throw new ConfigError(
+          `${at} (${rule.name}) says ${key}: ${value}, which limits nothing: it’s the loosest there is.`,
+        )
+      }
     }
     return rule
   })

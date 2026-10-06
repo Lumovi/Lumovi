@@ -45,21 +45,33 @@ export class NamespaceLabels {
 
 type Labels = Record<string, string>
 
-/** Where an object names a Secret it reads: envFrom's, an env var's, a volume's (projected too). */
-const SECRET_REFERENCES = ['secretRef', 'secretKeyRef', 'secret']
+/**
+ * Where an object names a Secret it reads: envFrom's, an env var's, a
+ * volume's (projected too), a CSI driver's.
+ */
+const SECRET_REFERENCES = ['secretRef', 'secretKeyRef', 'secret', 'nodePublishSecretRef']
+
+/** The Secrets an object reads into what it runs, each as it names it. */
+function secretReads(object: KubeObject | null): Set<string> {
+  const found = new Set<string>()
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) value.forEach(walk)
+    else if (value !== null && typeof value === 'object') {
+      for (const [key, inner] of Object.entries(value)) {
+        if (SECRET_REFERENCES.includes(key)) found.add(`${key}:${JSON.stringify(inner)}`)
+        else walk(inner)
+      }
+    }
+  }
+  walk(object)
+  return found
+}
 
 /**
- * Whether an object reads a Secret into what it runs: an env var from one
- * (envFrom, secretKeyRef), or a volume of one (projected ones too). A
- * workload's logs could show it.
+ * Whether a change makes an object read a Secret it didn't (a workload's
+ * logs could show it): not one that scales or restarts what reads one now.
  */
-export function readsSecrets(object: KubeObject | null): boolean {
-  const walk = (value: unknown): boolean => {
-    if (Array.isArray(value)) return value.some(walk)
-    if (value === null || typeof value !== 'object') return false
-    return Object.entries(value).some(
-      ([key, inner]) => SECRET_REFERENCES.includes(key) || walk(inner),
-    )
-  }
-  return walk(object)
+export function addsSecretReads(before: KubeObject | null, after: KubeObject | null): boolean {
+  const had = secretReads(before)
+  return [...secretReads(after)].some((read) => !had.has(read))
 }
