@@ -5,7 +5,15 @@
 import { request as http, type Page } from '@playwright/test'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { startMockOidc, type MockOidc, type MockOidcOptions } from '../mock-oidc/server.ts'
-import { expect, freePort, test, type ServeOptions, type Served } from './fixtures.ts'
+import {
+  audited,
+  expect,
+  freePort,
+  signIns,
+  test,
+  type ServeOptions,
+  type Served,
+} from './fixtures.ts'
 
 const ALICE = {
   sub: 'u-1',
@@ -88,6 +96,16 @@ test('sign in with single sign-on, as whoever the provider says', async ({
   // Signing in again is one click while the provider still knows Alice.
   await page.getByRole('button', { name: 'Sign in with Dex' }).click()
   await expect(page.getByRole('button', { name: 'Signed in as alice@example.com' })).toBeVisible()
+  // Recorded: with whom, as whom (the groups the provider said).
+  expect(signIns(served)).toEqual([
+    ['session.sign-in', 'success', 'Signed in with Dex', 'alice@example.com', undefined],
+    ['session.sign-out', 'success', 'Signed out', 'alice@example.com', undefined],
+    ['session.sign-in', 'success', 'Signed in with Dex', 'alice@example.com', undefined],
+  ])
+  expect(audited(served, 'session.sign-in')[0]).toMatchObject({
+    actor: { groups: ALICE.groups, via: 'ui' },
+    details: { method: 'oidc', with: 'Dex' },
+  })
   await oidc.close()
 })
 
@@ -154,6 +172,33 @@ test('signing in that doesn’t work says so, and the server’s log says why', 
   oidc.failing.delete('jwks')
   await attempt()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  // Each recorded: failed, or refused by the provider; and, at last, done.
+  const said = signIns(served)
+  expect(said[0]).toEqual([
+    'session.sign-in',
+    'failure',
+    'Sign in with single sign-on',
+    '(unknown)',
+    expect.stringMatching(/openid-configuration answered 500/),
+  ])
+  expect(said[1]).toEqual([
+    'session.sign-in',
+    'refused',
+    'Sign in with single sign-on',
+    '(unknown)',
+    'The provider said access_denied.',
+  ])
+  expect(said.slice(2, -1).map(([, outcome]) => outcome)).toEqual(
+    Array(cases.length + 2).fill('failure'),
+  )
+  expect(said[2]![4]).toBe('The provider sent no ID token')
+  expect(said.at(-1)).toEqual([
+    'session.sign-in',
+    'success',
+    'Signed in with single sign-on',
+    'alice@example.com',
+    undefined,
+  ])
   await oidc.close()
 })
 
@@ -399,5 +444,12 @@ test('the server won’t act as Kubernetes’ own users, nor put anyone in their
     ),
   ).toBeVisible()
   expect(served.log()).toContain('Lumovi doesn’t act as system:admin')
+  expect(signIns(served).at(-1)).toEqual([
+    'session.sign-in',
+    'refused',
+    'Sign in with single sign-on',
+    'system:admin',
+    'Lumovi doesn’t act as system:admin: names starting with system: are Kubernetes’ own.',
+  ])
   await oidc.close()
 })

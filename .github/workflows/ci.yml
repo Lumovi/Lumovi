@@ -99,13 +99,13 @@ jobs:
           (! helm template lumovi charts/lumovi --set mode=agent 2>/dev/null)
 
   e2e:
-    name: E2E (${{ matrix.os }}, ${{ matrix.shard }}/2)
+    name: E2E (${{ matrix.os }}, ${{ matrix.shard }}/4)
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # Each platform's tests, split over two machines that run at once.
-        shard: [1, 2]
+        # Each platform's tests, split over four machines that run at once.
+        shard: [1, 2, 3, 4]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -150,7 +150,7 @@ jobs:
           # Nobody's watching: draw the windows, as transparent ones render slowly on Linux and
           # Windows (on macOS, transparent ones are the faster).
           LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
-          SHARD: ${{ matrix.shard }}/2
+          SHARD: ${{ matrix.shard }}/4
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run --auto-servernum npx playwright test --shard="$SHARD"
