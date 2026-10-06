@@ -124,14 +124,27 @@ export class FileStore implements AuditStore {
   #writing: string | undefined
   readonly #lock: HistoryLock
 
-  constructor(
-    readonly dir: string,
-    readonly retentionDays: number,
-  ) {
+  /**
+   * The folder's history, once it's this Lumovi's alone: held by another, it waits (`wait`) for
+   * that one to let go or stop renewing it, saying so (`say`); still held, it says who holds it.
+   */
+  static async open(
+    dir: string,
+    retentionDays: number,
+    { wait, say }: { wait: boolean; say: (message: string) => void },
+  ): Promise<FileStore> {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     // Its own, whoever made it (a volume, mounted): nobody else reads who did what.
     ownOnly(dir, 0o700)
-    this.#lock = new HistoryLock(dir)
+    return new FileStore(dir, retentionDays, await HistoryLock.take(dir, wait, say))
+  }
+
+  private constructor(
+    readonly dir: string,
+    readonly retentionDays: number,
+    lock: HistoryLock,
+  ) {
+    this.#lock = lock
     this.#days = this.#listDays()
     for (const day of this.#days) ownOnly(this.#path(day), 0o600)
     // Where the chain goes on from: the newest file's last event that can be read.
@@ -226,9 +239,8 @@ export class FileStore implements AuditStore {
     }
   }
 
-  /** Deletes the days older than it keeps (never the one the chain goes on from), and says it's still kept. */
+  /** Deletes the days older than it keeps; never the one the chain goes on from. */
   prune(now: Date) {
-    this.#lock.renew()
     const oldestKept = dayOf(
       new Date(now.getTime() - this.retentionDays * 86_400_000).toISOString(),
     )
@@ -256,47 +268,86 @@ function ownOnly(path: string, mode: number) {
 
 // ——— One writer ———
 
-/** How long a lock nobody renews holds: a Lumovi that stopped without letting go of it. */
-const LOCK_STALE_MS = 5 * 60_000
+/**
+ * How long a lock nobody renews holds (a Lumovi that stopped without letting go of it: its node
+ * lost, say), and how often it's renewed (an env for tests).
+ */
+const LOCK_STALE_MS = Number(process.env.LUMOVI_AUDIT_LOCK_STALE_MS) || 30_000
+const LOCK_RENEW_MS = LOCK_STALE_MS / 3
 
 /**
  * The folder's one writer: two would number events the same (two pods sharing a volume, say).
- * Taken as the history opens, renewed as it's looked after (a minute at a time), and let go of
- * as it closes.
+ * Taken as the history opens, renewed while it's kept, and let go of as it closes.
  */
 class HistoryLock {
   readonly #path: string
+  readonly #renew: NodeJS.Timeout
 
-  constructor(dir: string) {
-    this.#path = join(dir, 'audit.lock')
-    try {
-      writeFileSync(this.#path, this.#mine(), { flag: 'wx', mode: 0o600 })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      const holder = holderOf(this.#path)
-      if (holder) {
+  /** Taken: at once, or once whoever holds it lets go or stops renewing it (`wait`). */
+  static async take(
+    dir: string,
+    wait: boolean,
+    say: (message: string) => void,
+  ): Promise<HistoryLock> {
+    const path = join(dir, 'audit.lock')
+    // Long enough for one that stopped renewing it to be stale; not for one that renews it.
+    const until = Date.now() + (wait ? LOCK_STALE_MS + LOCK_RENEW_MS : 0)
+    let told = false
+    while (!taken(path)) {
+      const holder = holderOf(path)
+      if (!holder) {
+        // Left by one that stopped: moved aside by one taker alone (a rename is), then taken.
+        const stale = `${path}.${process.pid}`
+        renameSync(path, stale)
+        rmSync(stale)
+        continue
+      }
+      const who = `Another Lumovi (process ${holder.pid} on ${holder.host})`
+      if (Date.now() >= until) {
         throw new Error(
-          `Another Lumovi (process ${holder.pid} on ${holder.host}) keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
-          { cause: error },
+          `${who} keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
         )
       }
-      // Left by one that stopped: moved aside by one taker alone (a rename is), then taken.
-      const stale = `${this.#path}.${process.pid}`
-      renameSync(this.#path, stale)
-      rmSync(stale)
-      writeFileSync(this.#path, this.#mine(), { flag: 'wx', mode: 0o600 })
+      if (!told) {
+        say(
+          `${who} keeps its audit history in ${dir}: waiting for it to stop (${Math.round(LOCK_STALE_MS / 1000)} seconds at most).`,
+        )
+        told = true
+      }
+      await new Promise((done) => setTimeout(done, 500))
     }
+    return new HistoryLock(path)
   }
 
-  #mine = () => JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() })
-
-  /** Still held: said, so it isn't taken as left by one that stopped. */
-  renew() {
-    writeFileSync(this.#path, this.#mine(), { mode: 0o600 })
+  private constructor(path: string) {
+    this.#path = path
+    this.#renew = setInterval(() => {
+      try {
+        writeFileSync(path, mine(), { mode: 0o600 })
+      } catch {
+        // Said where it matters: as events can't be kept there.
+      }
+    }, LOCK_RENEW_MS)
+    this.#renew.unref()
   }
 
   release() {
+    clearInterval(this.#renew)
     rmSync(this.#path, { force: true })
+  }
+}
+
+/** A lock as this process holds it: who, where, and when it was last said to be. */
+const mine = () => JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() })
+
+/** Takes a lock nobody holds: whether it was taken (one that's there is someone's, or was). */
+function taken(path: string): boolean {
+  try {
+    writeFileSync(path, mine(), { flag: 'wx', mode: 0o600 })
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    return false
   }
 }
 
