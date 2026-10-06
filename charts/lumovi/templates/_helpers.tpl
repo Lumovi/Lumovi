@@ -77,3 +77,79 @@ their own tokens are passed on.
 {{- end }}
 {{- join "," $entries }}
 {{- end }}
+
+{{/* The proxy Lumovi's own connections go through, and certificate authorities it trusts. */}}
+{{- define "lumovi.networkEnv" -}}
+{{- if and .Values.proxy.secret (or .Values.proxy.https .Values.proxy.http) }}
+{{- fail "proxy.secret holds the proxies' URLs: give it, or proxy.https and proxy.http, not both." }}
+{{- end }}
+{{- with .Values.proxy.secret }}
+{{- /* HTTPS_PROXY must be there: a Secret misnamed, or without it, stops the pod, saying so. */}}
+- name: HTTPS_PROXY
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: HTTPS_PROXY
+- name: HTTP_PROXY
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: HTTP_PROXY
+      optional: true
+{{- end }}
+{{- with .Values.proxy.https }}
+- name: HTTPS_PROXY
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.proxy.http }}
+- name: HTTP_PROXY
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.proxy.noProxy }}
+- name: NO_PROXY
+  value: {{ . | quote }}
+{{- end }}
+{{- if or .Values.extraCA.configMap .Values.extraCA.secret }}
+- name: LUMOVI_CA_FILE
+  value: /etc/lumovi/ca/{{ .Values.extraCA.key }}
+{{- end }}
+{{- end }}
+
+{{- define "lumovi.caMount" -}}
+{{- if or .Values.extraCA.configMap .Values.extraCA.secret }}
+- name: ca
+  mountPath: /etc/lumovi/ca
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "lumovi.caVolume" -}}
+{{- if .Values.extraCA.configMap }}
+- name: ca
+  configMap:
+    name: {{ .Values.extraCA.configMap }}
+{{- else if .Values.extraCA.secret }}
+- name: ca
+  secret:
+    secretName: {{ .Values.extraCA.secret }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether it's installed on OpenShift: where its security context constraints give each pod's
+user, group and fsGroup from the namespace's ranges (auto: where the cluster has them).
+*/}}
+{{- define "lumovi.openshift" -}}
+{{- if eq (toString .Values.openshift) "true" }}true
+{{- else if and (eq (toString .Values.openshift) "auto") (.Capabilities.APIVersions.Has "security.openshift.io/v1") }}true
+{{- end }}
+{{- end }}
+
+{{/* The pod's security context: on OpenShift, without the user and groups its SCC gives. */}}
+{{- define "lumovi.podSecurityContext" -}}
+{{- if include "lumovi.openshift" . }}
+{{- toYaml (omit .Values.podSecurityContext "runAsUser" "runAsGroup" "fsGroup") }}
+{{- else }}
+{{- toYaml .Values.podSecurityContext }}
+{{- end }}
+{{- end }}

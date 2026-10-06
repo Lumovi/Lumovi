@@ -46,7 +46,7 @@ spec:
       priorityClassName: {{ . }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- include "lumovi.podSecurityContext" . | nindent 8 }}
       containers:
         - name: agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -69,6 +69,7 @@ spec:
                   key: token
             - name: LUMOVI_AGENT_HEALTH_PORT
               value: "8081"
+            {{- include "lumovi.networkEnv" . | nindent 12 }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -84,6 +85,14 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
+          {{- with (include "lumovi.caMount" .) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with (include "lumovi.caVolume" .) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

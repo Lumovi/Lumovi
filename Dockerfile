@@ -47,7 +47,8 @@ COPY --from=build /src/out/server/THIRD_PARTY_NOTICES.txt /app/licenses/SERVER_T
 COPY --from=build /src/out/server/index.js /app/out/server/index.js
 COPY --from=build /src/out/agent/agent.js /app/out/agent/agent.js
 COPY --from=build /src/out/renderer /app/out/renderer
-COPY --from=build --chown=65532:65532 /data/lumovi /var/lib/lumovi
+# Its user's, and group 0's (OpenShift runs it as a user of its own, always in group 0).
+COPY --from=build --chown=65532:0 --chmod=775 /data/lumovi /var/lib/lumovi
 ENV NODE_ENV=production \
     LUMOVI_HELM=/usr/local/bin/helm \
     HELM_CACHE_HOME=/tmp/helm/cache \
