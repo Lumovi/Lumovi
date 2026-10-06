@@ -28,7 +28,7 @@ import {
 } from '@shared/ai-permissions'
 import type { ChangeRequest, KubeErrorCode, KubeObject, Result } from '@shared/api'
 import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
-import type { AuditAction, AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
+import type { AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
 import { kubectl, objectArg } from '@shared/kubectl'
 import {
   isBuiltinKind,
@@ -36,7 +36,7 @@ import {
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
-import { isRefusal, outcomeOf } from '../audit/describe'
+import { describeChange, isRefusal, outcomeOf } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
 import type { KubeService } from '../kube/service'
 import { addsSecretReads, NamespaceLabels } from './access'
@@ -153,14 +153,6 @@ class ClusterError extends Error {
   ) {
     super(message)
   }
-}
-
-/** What a change an assistant asked for is, in the audit log. */
-const PROPOSAL_ACTIONS: Record<ChangeProposal['action'], AuditAction> = {
-  apply: 'resource.apply',
-  scale: 'resource.scale',
-  restart: 'resource.restart',
-  delete: 'resource.delete',
 }
 
 /** A tool's arguments, as the audit log keeps them: what it was asked for, not what it was given. */
@@ -773,15 +765,23 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       outcome: AuditOutcome,
       approval: AuditApproval['status'] | undefined,
       error?: string,
-      uid?: string,
+      /** What it made: given once it's made (null, deleted). */
+      made?: KubeObject | null,
     ) => {
-      const known = uid ?? c.before?.metadata.uid
+      // Said as a change from the page is (the same request), with the assistant's command, and why.
+      const described = describeChange(
+        c.request,
+        made === undefined
+          ? { ok: false, error: { code: 'server', message: '' } }
+          : { ok: true, data: made },
+      )
+      const uid = described.target!.uid ?? c.before?.metadata.uid
       t.audit.record({
-        action: PROPOSAL_ACTIONS[c.action],
+        action: described.action,
         outcome,
         cluster: c.context,
-        target: { ...c.target, ...(known ? { uid: known } : {}) },
-        summary: outcome === 'success' ? c.done : c.title,
+        target: { ...described.target!, ...(uid ? { uid } : {}) },
+        summary: described.summary,
         command: c.command,
         ...(approval
           ? {
@@ -793,7 +793,11 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
               },
             }
           : {}),
-        details: { reason: c.reason, ...(c.takesOver ? { takesOver: c.takesOver } : {}) },
+        details: {
+          ...described.details,
+          reason: c.reason,
+          ...(c.takesOver ? { takesOver: c.takesOver } : {}),
+        },
         ...(error && approval !== 'rejected' ? { error } : {}),
       })
     }
@@ -862,7 +866,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
         )
       }
       t.outcome({ proposal, status: 'applied', ...(unasked ? { unasked } : {}) })
-      audit('success', unasked ? 'unasked' : 'approved', undefined, made.data?.metadata.uid)
+      audit('success', unasked ? 'unasked' : 'approved', undefined, made.data)
       return text(
         `${c.done}${unasked ? '' : ', approved in Lumovi'}. The kubectl command that does the same: ${c.command}`,
       )

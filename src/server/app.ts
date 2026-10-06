@@ -9,7 +9,7 @@ import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { ServerAssistants } from './assistants/assistants'
 import { PermissionsStore } from './assistants/permissions'
 import { Auth } from './auth'
-import { isAuditor, openAudit, personActor, SERVER_ACTOR, sessionTag } from './audit'
+import { isAuditor, openAudit, personActor, SERVER_ACTOR, sessionActor } from './audit'
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
 import { PageConnection } from './connection'
@@ -60,16 +60,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     assistants.sessionEnded(ended.id)
     // Signing out is recorded as it's asked for, from where.
     if (how === 'expired') {
-      const { user } = ended.identity
       audit.record({
         action: 'session.expired',
         outcome: 'success',
-        actor: {
-          user: user.name,
-          ...(user.groups.length ? { groups: user.groups } : {}),
-          via: 'ui',
-          session: sessionTag(ended.id),
-        },
+        actor: sessionActor(ended.identity.user, ended.id),
         summary: 'Signed out by Lumovi: the session ended',
         details: { why },
       })

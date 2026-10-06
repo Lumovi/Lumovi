@@ -203,6 +203,22 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.](assistant-rule-light-1x.webp)](assistant-rule-light.webp) | [![A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.](assistant-rule-dark-1x.webp)](assistant-rule-dark.webp) |
 
+### The audit log
+
+`audit`, served from a cluster: What was done through Lumovi, by whom, and how it went, a day at a time: one of them open, a change an AI assistant made as Jane, as she approved it.
+
+| Light                                                                                                                                                                                             | Dark                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![What was done through Lumovi, by whom, and how it went, a day at a time: one of them open, a change an AI assistant made as Jane, as she approved it.](audit-light-1x.webp)](audit-light.webp) | [![What was done through Lumovi, by whom, and how it went, a day at a time: one of them open, a change an AI assistant made as Jane, as she approved it.](audit-dark-1x.webp)](audit-dark.webp) |
+
+### The audit log, checked
+
+`audit-checked`, served from a cluster: The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.
+
+| Light                                                                                                                                                                                 | Dark                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.](audit-checked-light-1x.webp)](audit-checked-light.webp) | [![The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.](audit-checked-dark-1x.webp)](audit-checked-dark.webp) |
+
 ### An AI assistant’s change
 
 `assistant-approval`: A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.
