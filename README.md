@@ -16,7 +16,7 @@ in your own cluster for your whole team to open in a browser.
 
 [![Release](https://img.shields.io/github/v/release/Lumovi/Lumovi?label=release&color=2675d3)](https://github.com/Lumovi/Lumovi/releases/latest)
 [![CI](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml/badge.svg)](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml)
-[![E2E coverage](https://img.shields.io/badge/e2e%20coverage-100%25-3fb950)](docs/development.md#testing)
+[![E2E coverage](https://img.shields.io/badge/e2e%20coverage-%3E95%25-3fb950)](docs/development.md#testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/kotapeter)
 

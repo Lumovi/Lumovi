@@ -106,11 +106,12 @@ mock clusters and a mock OpenID Connect provider, and drives the page in Chromiu
 in each way and sessions ending, the WebSocket dropping and coming back, shells, logs and
 Helm through the server, and what it answers to anything malformed.
 
-**Coverage is 100% for statements, branches, functions and lines, measured end-to-end.** The
+**Coverage is above 95% for statements, branches, functions and lines, measured end-to-end,
+and every source file is loaded by some test.** The
 build is instrumented with Istanbul, and coverage is collected from all three Electron
 processes (main, preload and renderer), the server, and the page in the browser. A few lines only run on one operating system, such
 as native title-bar colors on Windows and Linux, so CI runs the suite on Linux, macOS and
-Windows and enforces 100% on the merged result. Locally, `npm run coverage` shows what your
+Windows and enforces the gate on the merged result. Locally, `npm run coverage` shows what your
 platform reaches.
 
 CI also packages the app on every platform and runs tests against the packaged build.
