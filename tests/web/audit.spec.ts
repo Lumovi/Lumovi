@@ -910,6 +910,16 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await expect(page.getByRole('button', { name: '2 new events' })).toBeVisible()
   await page.getByRole('button', { name: '2 new events' }).click()
   await expect(page.getByRole('button', { name: /new event/ })).toBeHidden()
+
+  // Narrowed to someone: what others do meanwhile doesn't come in.
+  await pick(page, 'Who', 'bob@example.com')
+  const shown = await list(page).getByRole('option').count()
+  await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
+  await expect
+    .poll(() => query(page, { users: ['alice@example.com'], limit: 1 }).then((p) => p.events))
+    .toHaveLength(1)
+  await expect(page.getByRole('button', { name: /new event/ })).toBeHidden()
+  await expect(list(page).getByRole('option')).toHaveCount(shown)
   await bobs.close()
 })
 
