@@ -16,7 +16,7 @@ import type {
   ServerNotification,
   ServerRequest,
 } from '@modelcontextprotocol/sdk/types.js'
-import { parseAllDocuments } from 'yaml'
+import { LineCounter, parseAllDocuments } from 'yaml'
 import { z } from 'zod'
 import {
   clusterForAssistant,
@@ -38,7 +38,7 @@ import {
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
-import { describeChange, isRefusal, outcomeOf } from '../audit/describe'
+import { describeChange, errorAbout, isRefusal, outcomeOf } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
 import type { KubeService } from '../kube/service'
 import { addsSecretReads, NamespaceLabels } from './access'
@@ -835,7 +835,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           reason: c.reason,
           ...(c.takesOver ? { takesOver: c.takesOver } : {}),
         },
-        ...(error && approval !== 'rejected' ? { error } : {}),
+        ...(error && approval !== 'rejected' ? { error: errorAbout(c.request.kind, error) } : {}),
       })
     }
     if (policy === 'never') {
@@ -1036,13 +1036,22 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     },
     async ({ cluster, manifest, reason }, extra) => {
       knownCluster(cluster)
-      const documents = parseAllDocuments(manifest).filter((d) => d.contents !== null)
+      // Its errors say where, not what's there: what's there may be a Secret's value.
+      const lines = new LineCounter()
+      const documents = parseAllDocuments(manifest, {
+        lineCounter: lines,
+        prettyErrors: false,
+      }).filter((d) => d.contents !== null)
       if (documents.length !== 1) {
         return failed('Apply one object at a time: this has ' + documents.length + '.')
       }
       const [document] = documents
       if (document!.errors.length) {
-        return failed(`The manifest isn’t valid YAML: ${document!.errors[0]!.message}`)
+        const [error] = document!.errors
+        const at = lines.linePos(error!.pos[0])
+        return failed(
+          `The manifest isn’t valid YAML (line ${at.line}, column ${at.col}): ${error!.message}`,
+        )
       }
       const object = document!.toJSON() as KubeObject
       if (!object?.apiVersion || !object.kind || !object.metadata?.name) {
