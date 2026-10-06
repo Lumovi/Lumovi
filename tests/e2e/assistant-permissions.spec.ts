@@ -456,30 +456,19 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
     error: true,
     text: 'Lumovi doesn’t let AI assistants change payments-two in demo: the person’s AI permissions say so (“Payments”). Nothing was changed.',
   })
-  // A custom resource definition's deletion deletes its objects in every namespace: not while
-  // some are hidden, or refused.
-  expect(
-    await call(client, 'delete_resource', {
-      cluster: 'demo',
-      kind: 'crd',
-      name: 'rollouts.argoproj.io',
-      reason: 'Unused.',
-    }),
-  ).toEqual({
-    error: true,
-    text: 'Deleting rollouts.argoproj.io deletes its objects in every namespace, and the person’s AI permissions don’t let assistants change all of them. Nothing was changed.',
-  })
-  // A cluster's own object, changed: as the cluster's rules say (ask).
-  const deleting = call(client, 'delete_resource', {
-    cluster: 'demo',
-    kind: 'node',
-    name: DEMO.nodes.worker3,
-    reason: 'It’s gone.',
-  })
-  const node = page.getByRole('dialog', { name: `Delete Node ${DEMO.nodes.worker3}` })
-  await node.getByRole('button', { name: 'Reject…' }).click()
-  await node.getByRole('button', { name: 'Reject', exact: true }).click()
-  expect((await deleting).text).toBe('The person rejected it in Lumovi. Nothing was changed.')
+  // A cluster's own objects can reach into every namespace: not changed while one is hidden
+  // (or refused, or hides its Secrets).
+  for (const [kind, name, called] of [
+    ['crd', 'rollouts.argoproj.io', 'CustomResourceDefinition'],
+    ['node', DEMO.nodes.worker3, 'Node'],
+  ]) {
+    expect(
+      await call(client, 'delete_resource', { cluster: 'demo', kind, name, reason: 'Unused.' }),
+    ).toEqual({
+      error: true,
+      text: `${called} ${name} is demo’s own: a change to it can reach every namespace, and assistants may not change all of them: the person’s AI permissions say so (“System”). Nothing was changed.`,
+    })
+  }
   // Allowed, and failing as it's made.
   const failing = demo.fail(/\/configmaps\/broken\?fieldManager=lumovi&force=true$/, {
     status: 500,
@@ -532,8 +521,19 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
   ).toBe(
     'Lumovi doesn’t let AI assistants read logs in default: the person’s AI permissions say so.',
   )
-  // Every namespace may be changed now: the definition's deletion is asked about.
+  // Not where a namespace refuses changes, or hides its Secrets.
   const crd = { cluster: 'demo', kind: 'crd', name: 'rollouts.argoproj.io', reason: 'Unused.' }
+  for (const [named, set] of [
+    ['Frozen', { changes: 'never' }],
+    ['Sealed', { secrets: 'hidden' }],
+  ] as const) {
+    await permit(page, [rule(named, set, { namespaces: ['shop'] })])
+    expect((await call(client, 'delete_resource', crd)).text).toBe(
+      `CustomResourceDefinition rollouts.argoproj.io is demo’s own: a change to it can reach every namespace, and assistants may not change all of them: the person’s AI permissions say so (“${named}”). Nothing was changed.`,
+    )
+  }
+  await permit(page, [], { ...DEFAULTS, logs: 'off' })
+  // Every namespace may be changed now: the definition's deletion is asked about.
   const deletingCrd = call(client, 'delete_resource', crd)
   const crdDialog = page.getByRole('dialog', {
     name: 'Delete CustomResourceDefinition rollouts.argoproj.io',
@@ -866,10 +866,30 @@ test('Kept with the app’s settings, and what each context’s changes were, as
   // Edited into something that doesn't make sense: nothing at all, until set again.
   mkdirSync(first.userDataDir, { recursive: true })
   writeFileSync(settings, JSON.stringify({ aiPermissions: { defaults: 'all' } }))
-  const reset = await launch({ userDataDir: first.userDataDir })
-  expect(await reset.page.evaluate(() => window.lumovi!.aiPermissions!.get())).toEqual({
+  const unreadable = {
     mine: { defaults: { changes: 'never', secrets: 'hidden', env: 'all', logs: 'off' }, rules: [] },
     admin: [],
     kept: 'settings',
-  })
+    problem:
+      'Your AI permissions couldn’t be read (Lumovi’s settings were edited into something that doesn’t make sense): assistants may do nothing until you set them again.',
+  }
+  const reset = await launch({ userDataDir: first.userDataDir })
+  expect(await reset.page.evaluate(() => window.lumovi!.aiPermissions!.get())).toEqual(unreadable)
+  // Other settings kept meanwhile leave them as they were, and the page says why.
+  await reset.page.evaluate(() => window.lumovi!.app.setTheme('dark'))
+  await reset.app.close()
+  const still = await launch({ userDataDir: first.userDataDir })
+  expect(await still.page.evaluate(() => window.lumovi!.aiPermissions!.get())).toEqual(unreadable)
+  await openPermissions(still.page)
+  await expect(still.page.getByRole('alert')).toHaveText(unreadable.problem)
+  // Set again: what's set.
+  await still.page
+    .getByRole('region', { name: 'Defaults' })
+    .getByRole('group', { name: 'Logs' })
+    .getByRole('button', { name: 'Read', exact: true })
+    .click()
+  await expect(still.page.getByRole('alert')).toBeHidden()
+  expect(
+    (await still.page.evaluate(() => window.lumovi!.aiPermissions!.get())).problem,
+  ).toBeUndefined()
 })

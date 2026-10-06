@@ -137,6 +137,15 @@ function Editor({
   return (
     <div className="flex flex-wrap items-start gap-5">
       <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-5">
+        {view.problem && (
+          <p
+            role="alert"
+            className="flex gap-2.5 rounded-xl border border-critical/25 bg-critical/8 px-3.5 py-2.5 text-[13px] leading-snug text-ink-1"
+          >
+            <CircleAlert className="mt-px size-4 shrink-0 text-critical-text" />
+            <span>{view.problem}</span>
+          </p>
+        )}
         {view.kept === 'memory' && (
           <p
             role="note"

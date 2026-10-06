@@ -158,7 +158,17 @@ export function registerIpc(deps: Dependencies): void {
   }
 
   function aiPermissions(): AiPermissionsView {
-    return { mine: settings.aiPermissions(), admin: [], kept: 'settings' }
+    return {
+      mine: settings.aiPermissions(),
+      admin: [],
+      kept: 'settings',
+      ...(settings.aiPermissionsUnreadable()
+        ? {
+            problem:
+              'Your AI permissions couldn’t be read (Lumovi’s settings were edited into something that doesn’t make sense): assistants may do nothing until you set them again.',
+          }
+        : {}),
+    }
   }
 
   for (const [channel, handler] of Object.entries({ ...shared.invoke, ...desktop })) {

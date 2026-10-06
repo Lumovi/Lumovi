@@ -91,9 +91,6 @@ const SHORT_NAMES: Record<string, string[]> = {
   ReplicationController: ['rc'],
 }
 
-/** A custom resource definition's kind, as discovery names it. */
-const CRD = 'CustomResourceDefinition.apiextensions.k8s.io'
-
 /** The field manager Lumovi applies manifests as. */
 export const FIELD_MANAGER = 'lumovi'
 const MAX_ITEMS = 500
@@ -753,7 +750,9 @@ export function registerTools(server: McpServer, t: ToolContext): void {
         ? `${definition.plural} "${name}" not found`
         : `namespaces "${namespace}" not found`
     let decision =
-      scope === undefined ? await access(context) : await inNamespace(context, scope, missing)
+      scope === undefined
+        ? await clusterWide(context, definition, name)
+        : await inNamespace(context, scope, missing)
     if (labelled) {
       const now = await labels.of(context, name)
       const after = decider(t.policy())({
@@ -770,23 +769,34 @@ export function registerTools(server: McpServer, t: ToolContext): void {
   }
 
   /**
-   * Whether assistants may change every namespace of a cluster (none hidden
-   * from them, or refused): what a change that reaches into all of them
-   * needs, as deleting a CustomResourceDefinition does.
+   * What it may do with a cluster's own object (a node, a custom resource
+   * definition, a cluster role, a webhook, a persistent volume…): a change to
+   * one can reach into every namespace, so it's decided as the strictest of
+   * the cluster's and every namespace's. Where a namespace is hidden, refused,
+   * or hides its Secrets, it isn't made.
    */
-  const everyNamespace = async (context: string) => {
+  const clusterWide = async (context: string, definition: ResourceDefinition, name: string) => {
     const list = await kube.list({ context, kind: 'Namespace' })
     if (!list.ok) {
       throw new Error(`Lumovi can’t tell which namespaces that would reach: ${list.error.message}`)
     }
     const decide = accessIn(context)
-    for (const ns of list.data.items) {
-      const decision = await decide(ns.metadata.name)
-      if (decision.visibility.value === 'hidden' || decision.changes.value === 'never') {
-        return false
-      }
+    let decision = await access(context)
+    for (const ns of list.data.items) decision = stricter(decision, await decide(ns.metadata.name))
+    const why =
+      decision.visibility.value === 'hidden'
+        ? decision.visibility.from
+        : decision.changes.value === 'never'
+          ? decision.changes.from
+          : decision.secrets.value === 'hidden'
+            ? decision.secrets.from
+            : undefined
+    if (why) {
+      throw new Error(
+        `${definition.apiKind} ${name} is ${context}’s own: a change to it can reach every namespace, and assistants may not change all of them: ${because(why)}. Nothing was changed.`,
+      )
     }
-    return true
+    return decision
   }
 
   /** The waiting, said in each change tool's description. */
@@ -1032,11 +1042,6 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       const definition = await resolveKind(cluster, kind)
       const where = namespaceFor(definition, namespace)
       const decision = await changeAccess(cluster, definition, name, where)
-      if (definition.kind === CRD && !(await everyNamespace(cluster))) {
-        return failed(
-          `Deleting ${name} deletes its objects in every namespace, and the person’s AI permissions don’t let assistants change all of them. Nothing was changed.`,
-        )
-      }
       const before = data(
         await kube.get({ context: cluster, kind: definition.kind, name, namespace: where }),
       )
