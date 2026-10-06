@@ -50,8 +50,10 @@ export function useAuditEvents(query: AuditQuery, range: Range, key: string): Au
     },
     initialPageParam: undefined as { after: string; from?: string } | undefined,
     getNextPageParam: (last) => (last.next ? { after: last.next, from: last.from } : undefined),
-    // Events come as they're recorded: the list needn't ask again.
+    // Events come as they're recorded while it's shown: it needn't ask again then. Shown again
+    // (back on the page, or a search made again), it asks afresh: what came meanwhile wasn't heard.
     staleTime: Infinity,
+    gcTime: 0,
   })
   const { refetch } = pages
   const [live, setLive] = useState<{ key: string; events: AuditEvent[] }>({ key, events: [] })

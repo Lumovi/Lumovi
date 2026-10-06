@@ -129,7 +129,7 @@ export class WebhookSink implements AuditSink {
         this.#batch = Math.max(1, Math.floor(this.#batch / 2))
         return 'smaller'
       }
-      this.#problem = `It answered ${response.status}${response.statusText ? ` ${response.statusText}` : ''}.`
+      this.#problem = `It answered ${response.status}.`
       // The events themselves refused (not who sends them, nor how often): they never will be taken.
       return [400, 413, 422].includes(response.status) ? 'rejected' : 'retry'
     } catch (error) {

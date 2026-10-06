@@ -69,8 +69,8 @@ export const EventList = forwardRef<
   const ordered = rows.flatMap((row) => (row.kind === 'event' ? [row.event] : []))
   const move = (step: number) => {
     const at = ordered.findIndex((event) => event.id === selected)
-    const next = ordered[Math.min(Math.max(at + step, 0), ordered.length - 1)]
-    if (!next) return
+    // (It's shown with at least one.)
+    const next = ordered[Math.min(Math.max(at + step, 0), ordered.length - 1)]!
     onSelect(next)
     virtualizer.scrollToIndex(
       rows.findIndex((row) => row.kind === 'event' && row.event.id === next.id),

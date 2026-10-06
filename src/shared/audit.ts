@@ -273,6 +273,8 @@ export interface AuditInfo {
   sinks: { name: string; dropped: number; problem?: string }[]
   /** The oldest event kept. */
   oldest?: string
+  /** How many events an export holds, at most. */
+  exportLimit: number
 }
 
 /** What checking the chain found: intact, or where it broke. */
@@ -284,7 +286,15 @@ export interface AuditVerification {
   broken?: { seq: number; time: string; reason: string }
 }
 
+/** How many events an export holds, at most, unless a server says otherwise. */
 export const AUDIT_EXPORT_LIMIT = 50_000
+
+/** The history's name, among where events go. */
+export const HISTORY = 'history'
+
+/** What's said of events a sink couldn't keep or send: "3 audit events couldn’t be sent to …". */
+export const lostText = (count: number, sink: string) =>
+  `${count.toLocaleString('en')} audit ${count === 1 ? 'event' : 'events'} couldn’t be ${sink === HISTORY ? 'kept in the history' : `sent to ${sink}`}`
 
 /** The fields an export's CSV has, in order. */
 export const AUDIT_CSV_COLUMNS = [

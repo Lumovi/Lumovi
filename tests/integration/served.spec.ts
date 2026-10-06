@@ -149,6 +149,19 @@ test('behind a proxy: each person with their own RBAC', async ({ browser }) => {
     ]),
   )
   expect(kept.people['vera@example.com'].defaults.changes).toBe('never')
+  // Recorded: kept on the chart's volume, and a JSON line on Lumovi's output, for the cluster's
+  // log collector.
+  expect(await viewer.evaluate(() => window.lumovi!.audit.info())).toMatchObject({
+    kept: 'files',
+    retentionDays: 90,
+  })
+  const output = kubectl(['logs', `deployment/${RELEASE}`, '-n', NS])
+  const changed = output
+    .split('\n')
+    .filter((line) => line.startsWith('{"type":"lumovi.audit"'))
+    .map((line) => JSON.parse(line) as { action: string; actor: { user: string } })
+    .find((event) => event.action === 'permissions.changed')
+  expect(changed?.actor.user).toBe('vera@example.com')
 
   // Nobody in particular: the cluster refuses what they ask.
   const nobody = await proxied(browser, 'nobody@example.com', '')

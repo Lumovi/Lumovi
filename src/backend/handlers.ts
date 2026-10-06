@@ -137,7 +137,7 @@ export function handlers({
             },
             summary: `Read Secret ${q.name}`,
             details: {
-              keys: Object.keys((result.data as KubeObject & { data?: object }).data ?? {}),
+              keys: Object.keys(Object((result.data as KubeObject & { data?: object }).data)),
             },
           })
         }

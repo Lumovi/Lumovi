@@ -8,6 +8,8 @@ import {
   AUDIT_ACTIONS,
   AUDIT_TYPE,
   AUDIT_VERSION,
+  HISTORY,
+  lostText,
   matches,
   recordedAt,
   wordsOf,
@@ -30,6 +32,8 @@ export interface AuditLogOptions {
   level: AuditLevel
   /** How many events one search looks through, at most, before it says so and stops. */
   scanLimit: number
+  /** How many events an export holds, at most. */
+  exportLimit: number
   /** Said in the server's (or app's) own log: what couldn't be kept, and why. */
   warn: (message: string) => void
 }
@@ -82,6 +86,7 @@ export class AuditLog {
   readonly #warn: (message: string) => void
   readonly #now: () => Date
   readonly #scanLimit: number
+  readonly #exportLimit: number
   readonly #listeners = new Set<(event: AuditEvent) => void>()
   /** Where the chain is: whether or not the history kept the last one. */
   #head: { seq: number; hash: string }
@@ -98,6 +103,7 @@ export class AuditLog {
     this.#warn = options.warn
     this.#now = () => new Date()
     this.#scanLimit = options.scanLimit
+    this.#exportLimit = options.exportLimit
     const last = this.#store.last()
     this.#head = last ? { seq: last.seq, hash: last.hash } : { seq: 0, hash: '' }
     this.#store.prune(this.#now())
@@ -163,7 +169,7 @@ export class AuditLog {
       const told = this.#toldDropped.get(name) ?? 0
       if (dropped <= told) continue
       const count = dropped - told
-      const summary = `${count.toLocaleString('en')} audit ${count === 1 ? 'event' : 'events'} couldn’t be ${name === 'history' ? 'kept in the history' : `sent to ${name}`}`
+      const summary = lostText(count, name)
       // Whatever drops them is why (a sink only drops what it says it couldn't keep or send).
       this.#warn(`${summary}: ${problem}`)
       this.record({
@@ -181,7 +187,7 @@ export class AuditLog {
 
   #sinkStates(): AuditInfo['sinks'] {
     return [
-      { name: 'history', dropped: this.#storeDropped, problem: this.#storeProblem },
+      { name: HISTORY, dropped: this.#storeDropped, problem: this.#storeProblem },
       ...this.#sinks.map((sink) => ({
         name: sink.name,
         dropped: sink.dropped(),
@@ -198,6 +204,7 @@ export class AuditLog {
       everyone,
       sinks: this.#sinkStates(),
       oldest: this.#store.oldest(),
+      exportLimit: this.#exportLimit,
     }
   }
 

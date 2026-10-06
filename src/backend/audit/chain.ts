@@ -14,7 +14,8 @@ export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    // Keys are each other's own: never the same.
+    .sort(([a], [b]) => (a < b ? -1 : 1))
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
 }
 
@@ -30,9 +31,8 @@ export class ChainCheck {
   #first: AuditEvent | undefined
   #broken: AuditVerification['broken']
 
-  /** Takes the next event; false once the chain is broken (nothing after it is checked). */
+  /** Takes the next event; false where the chain is broken (check nothing after it). */
   add(event: AuditEvent): boolean {
-    if (this.#broken) return false
     const reason = this.#reasonAgainst(event)
     if (reason) {
       this.#broken = { seq: event.seq, time: event.time, reason }

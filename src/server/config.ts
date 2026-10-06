@@ -16,7 +16,7 @@ import {
   type Matcher,
 } from '@shared/ai-permissions'
 import { isAiChanges, type AiChanges } from '@shared/assistants'
-import { isAuditLevel, type AuditLevel } from '@shared/audit'
+import { AUDIT_EXPORT_LIMIT, isAuditLevel, type AuditLevel } from '@shared/audit'
 import type { AuthMode } from '@shared/server'
 import type { WebhookFormat } from '@backend/audit/sinks'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
@@ -141,6 +141,8 @@ export interface AuditConfig {
   memoryEvents: number
   /** How many events one search looks through before it stops, and offers to look further. */
   scanLimit: number
+  /** How many events an export holds, at most. */
+  exportLimit: number
   /** Each event as a JSON line on the server's output. */
   stdout: boolean
   webhook?: {
@@ -326,6 +328,7 @@ function auditConfig(value: (name: string) => string | undefined): AuditConfig {
     retentionDays: count('LUMOVI_AUDIT_RETENTION_DAYS', 90, 1, 3650),
     memoryEvents: count('LUMOVI_AUDIT_MEMORY_EVENTS', 10_000, 100, 1_000_000),
     scanLimit: count('LUMOVI_AUDIT_SCAN_LIMIT', 200_000, 100, 10_000_000),
+    exportLimit: count('LUMOVI_AUDIT_EXPORT_LIMIT', AUDIT_EXPORT_LIMIT, 10, 1_000_000),
     stdout: stdout === 'true',
     webhook: auditWebhook(value, count('LUMOVI_AUDIT_WEBHOOK_BUFFER', 10_000, 10, 1_000_000)),
     auditors: {

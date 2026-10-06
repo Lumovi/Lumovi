@@ -9,19 +9,29 @@ import { createServer, type IncomingMessage } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
   chmodSync,
-  symlinkSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserContext, Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
-import { audited, DEMO, expect, refusedConfig, startServer, test, type Served } from './fixtures.ts'
+import {
+  audited,
+  DEMO,
+  expect,
+  PEOPLE,
+  refusedConfig,
+  signIn,
+  startServer,
+  test,
+  type Served,
+} from './fixtures.ts'
 
 const POD = DEMO.pods.storefront[0]!
 const { version: VERSION } = JSON.parse(readFileSync('package.json', 'utf8')) as {
@@ -51,7 +61,6 @@ async function webhook() {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/audit?token=secret`,
     received,
     answer: (next: (body: string) => number) => (answer = next),
-    /** The events it took, in order. */
     /** The events it took (not those it refused), in order: a JSON array a request, or a line each. */
     events: (): AuditEvent[] =>
       received
@@ -82,6 +91,7 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   page,
   context,
   serve,
+  clusters,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
   const hook = await webhook()
@@ -98,6 +108,10 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   await page.goto(`${served.url}cluster/demo/pods`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
 
+  clusters.demo.fail('/api/v1/namespaces/shop/configmaps/long', {
+    status: 500,
+    body: JSON.stringify({ message: 'x'.repeat(5000) }),
+  })
   const outcomes = await page.evaluate(async (pod) => {
     const api = window.lumovi!
     const change = (r: object) => api.kube.change({ context: 'demo', ...r } as never)
@@ -319,6 +333,30 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
       () =>
         change({ kind: 'ConfigMap', name: 'x', namespace: 'shop', change: { action: 'delete' } }),
       () => api.app.setReadOnly('demo', false),
+      // Nothing to call it by; nothing it changes; and an error longer than a line can hold.
+      () =>
+        change({
+          kind: 'ConfigMap',
+          namespace: 'shop',
+          change: {
+            action: 'create',
+            object: { apiVersion: 'v1', kind: 'ConfigMap', metadata: {} },
+          },
+        }),
+      () =>
+        change({
+          kind: 'ConfigMap',
+          name: 'kube-root-ca.crt',
+          namespace: 'shop',
+          change: { action: 'patch', patchType: 'merge', patch: {} },
+        }),
+      () =>
+        change({
+          kind: 'ConfigMap',
+          name: 'long',
+          namespace: 'shop',
+          change: { action: 'delete' },
+        }),
     ]
     const results: unknown[] = []
     for (const step of steps) results.push(await step())
@@ -329,7 +367,19 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   expect(outcomes).toEqual([
     ...['ok', 'ok', 'ok', 'ok', 'server', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'not-found'],
     ...['ok', 'ok', 'ok', 'ok', 'not-found', 'ok', 'invalid', 'ok', 'ok', 'ok', 'ok', 'ok'],
-    ...['not-found', 'invalid', 'ok', 'ok', 'ok', 'ok', 'read-only', 'ok'],
+    ...[
+      'not-found',
+      'invalid',
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'read-only',
+      'ok',
+      'invalid',
+      'ok',
+      'server',
+    ],
   ])
   const where = (cmd: string) => `${cmd} -n shop --context demo`
   const done = [
@@ -454,6 +504,14 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
       command: where('kubectl delete configmap/x'),
     },
     { action: 'read-only.changed', outcome: 'success', summary: 'Made demo changeable in Lumovi' },
+    { action: 'resource.create', outcome: 'failure', summary: 'Create ConfigMap (unnamed)' },
+    { action: 'resource.patch', outcome: 'success', summary: 'Changed ConfigMap kube-root-ca.crt' },
+    {
+      action: 'resource.delete',
+      outcome: 'failure',
+      summary: 'Delete ConfigMap long',
+      command: where('kubectl delete configmap/long'),
+    },
   ]
   const { events } = await query(page)
   expect(said([...events].reverse())).toEqual(done)
@@ -493,6 +551,9 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
     repository: 'https://charts.example.com',
     values: ['replicaCount', 'image'],
   })
+  // However long what it says, an event stays a line.
+  expect(events[0]!.error).toHaveLength(4000)
+  expect(events[0]!.error).toMatch(/^x+…$/)
   expect(events.find((e) => e.outcome === 'refused')!.error).toBe(
     'demo is read-only in Lumovi. Allow changes to it to continue.',
   )
@@ -586,7 +647,13 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
     })
   })
 
-  await as(context, 'alice@example.com', 'auditors')
+  // Alice, an auditor, through a proxy that says where she is.
+  await context.setExtraHTTPHeaders({
+    'X-Forwarded-User': 'alice@example.com',
+    'X-Forwarded-Groups': 'auditors',
+    'X-Forwarded-For': '203.0.113.7',
+  })
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto(`${served.url}audit`)
   await expect(page.getByRole('heading', { name: /Audit log/ })).toBeVisible()
   await expect(page).toHaveTitle('Audit log — Lumovi')
@@ -639,8 +706,9 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await expect(event.getByRole('region', { name: 'Who' })).toContainText('PersonLumovi itself')
   await expect(event.getByRole('region', { name: 'Who' })).toContainText('ThroughLumovi itself')
   await expect(event.getByRole('button', { name: /Everything/ })).toHaveCount(0)
-  // By the keyboard: up and down the list, and away.
-  await list(page).focus()
+  // By the keyboard: from the search into the list, up and down it, and away.
+  await page.getByPlaceholder('Search what was done, by whom, where…').press('ArrowDown')
+  await expect(list(page)).toBeFocused()
   await page.keyboard.press('ArrowUp')
   await expect(event.getByRole('heading', { level: 2 })).toHaveText(
     'Scaled Deployment cart to 3 replicas',
@@ -652,6 +720,10 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await expect(event.getByRole('heading', { level: 2 })).toHaveText(/Lumovi .* started/)
   await page.keyboard.press('Escape')
   await expect(event).toBeHidden()
+  // Nothing open to close; keys the list doesn't take, it leaves.
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('a')
+  await expect(event).toBeHidden()
   // Closed with its button, the list has the keyboard again.
   await row(page, /Scaled Deployment cart/).click()
   await event.getByRole('button', { name: 'Close' }).click()
@@ -659,7 +731,8 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
 
   // Narrowed: by person, kind, outcome, how, cluster, time and words; each said, and undone.
   const chosen = page.getByLabel('Chosen filters')
-  await pick(page, 'Who', 'bob@example.com')
+  // (Ticked, unticked, and ticked again.)
+  await pick(page, 'Who', 'bob@example.com', 'bob@example.com', 'bob@example.com')
   await expect(page).toHaveURL(/[?&]user=bob%40example.com/)
   await expect(list(page).getByRole('option')).toHaveCount(3)
   await expect(chosen).toContainText('Who:bob@example.com')
@@ -699,6 +772,8 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await expect(page).toHaveURL(/kind=Deployment&name=cart&ns=shop/)
   await expect(page).toHaveURL(/range=all/)
   await expect(list(page).getByRole('option')).toHaveCount(1)
+  await chosen.getByRole('button', { name: 'Remove object filter' }).click()
+  await expect(chosen).not.toContainText('Object:')
   await chosen.getByRole('button', { name: 'Clear all' }).click()
   await expect(list(page).getByRole('option')).toHaveCount(4)
 
@@ -732,28 +807,51 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
     .split('\n')
     .map((line) => JSON.parse(line) as AuditEvent)
   expect(exportedEvents.map((e) => e.seq)).toEqual([1, 2, 3, 4])
+  // One alone.
+  await page.getByPlaceholder('Search what was done, by whom, where…').fill('cart replicas')
+  await expect(list(page).getByRole('option')).toHaveCount(1)
+  expect((await exported('JSON Lines for log tools')).text.trimEnd().split('\n')).toHaveLength(1)
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    'Exported 1 event',
+  )
+  await page.getByPlaceholder('Search what was done, by whom, where…').fill('')
+
+  // Her own: from where the proxy says she is; a Helm release, opened in Lumovi; what it set.
+  await page.evaluate(() =>
+    window.lumovi!.helm.deploy({
+      context: 'demo',
+      namespace: 'shop',
+      name: 'web',
+      source: { chart: 'nginx', repository: 'https://charts.example.com', version: '1.2.3' },
+      values: '',
+      install: true,
+      dryRun: false,
+    }),
+  )
+  await row(page, /Installed nginx 1.2.3 as web/).click()
+  await expect(event.getByRole('region', { name: 'Who' })).toContainText(
+    'From127.0.0.1forwarded for 203.0.113.7',
+  )
+  await expect(event.getByRole('region', { name: 'Details' })).toContainText('valuesnone')
+  await expect(event.getByRole('link', { name: 'Open in Lumovi' })).toHaveAttribute(
+    'href',
+    /\/cluster\/demo\/helm$/,
+  )
+  // All of it, as it was recorded, to paste wherever.
+  await event.getByRole('button', { name: 'Copy the event' }).click()
+  const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText())) as AuditEvent
+  expect(copied).toMatchObject({ action: 'helm.install', actor: { forwardedFor: '203.0.113.7' } })
+  await row(page, /Made demo read-only/).click()
+  await expect(event.getByRole('region', { name: 'Details' })).toContainText('readOnlyyes')
+  await event.getByRole('button', { name: 'Close' }).click()
 
   // Checked: each event follows from the one before it.
   await page.getByRole('button', { name: 'Check integrity' }).click()
   const integrity = page.getByRole('status', { name: 'Integrity' })
-  await expect(integrity).toContainText('All 4 events hold.')
+  await expect(integrity).toContainText('All 5 events hold.')
   await expect(integrity).toContainText('none was changed, removed, or added since it was recorded')
   await integrity.getByRole('button', { name: 'Close' }).click()
   await expect(integrity).toBeHidden()
-
-  // Bob sees his own, and can't check everyone's.
-  await bob.goto(`${served.url}audit`)
-  await expect(bob.getByRole('main')).toContainText(
-    'You see your own: its auditors see everyone’s.',
-  )
-  await expect(list(bob).getByRole('option')).toHaveCount(3)
-  await expect(bob.getByRole('button', { name: 'Check integrity' })).toHaveCount(0)
-  await expect(
-    bob.getByRole('toolbar', { name: 'Filters' }).getByRole('button', { name: 'Who' }),
-  ).toHaveCount(0)
-  await expect(bob.evaluate(() => window.lumovi!.audit.verify())).rejects.toThrow(
-    'Only an auditor checks the whole audit log: it holds everyone’s events.',
-  )
 
   // The server restarts: the page connects again, and what's recorded since comes in.
   await served.stop()
@@ -764,6 +862,8 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
     /Made demo changeable in Lumovi$/,
   )
+  await list(page).getByRole('option').first().click()
+  await expect(event.getByRole('region', { name: 'Details' })).toContainText('readOnlyno')
   // Many at once, while the list is scrolled down: said, and back to them in a click.
   await page.setViewportSize({ width: 1280, height: 640 })
   await bob.evaluate(async () => {
@@ -968,7 +1068,7 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
   const second = recorded(2, `${yesterday}T08:00:00.000Z`, 'Yesterday morning', first.hash)
   const third = recorded(3, `${yesterday}T20:00:00.000Z`, 'Yesterday evening', second.hash)
   write(dayFile(dir, '2020-06-01'), [recorded(0, '2020-06-01T00:00:00.000Z')])
-  write(dayFile(dir, twoDays), ['not an event', first])
+  write(dayFile(dir, twoDays), ['not an event', '{"type":"something else"}', first])
   write(dayFile(dir, yesterday), [second, third])
   // A file that isn't one of its days is left alone.
   writeFileSync(join(dir, 'notes.txt'), 'mine')
@@ -992,6 +1092,12 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
     to: `${yesterday}T23:59:59.000Z`,
   })
   expect(between.events.map((e) => e.summary)).toEqual(['Yesterday evening'])
+  // From before a day's first: back to the day before, and no further.
+  const since = await query(page, { from: `${yesterday}T07:00:00.000Z` })
+  expect(since.events.map((e) => e.summary).slice(-2)).toEqual([
+    'Yesterday evening',
+    'Yesterday morning',
+  ])
   const before = await query(page, { to: `${yesterday}T12:00:00.000Z` })
   expect(before.events.map((e) => e.summary)).toEqual(['Yesterday morning', 'Two days ago'])
   // A page at a time.
@@ -1018,6 +1124,14 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
       page.getByRole('heading', { name: 'The audit log couldn’t be searched' }),
     ).toBeVisible()
     await expect(page.getByRole('main')).toContainText('EACCES')
+    // And an object's own, the same.
+    await page.goto(`${served.url}cluster/demo/deployments?open=Deployment/shop/storefront`)
+    const detail = page.getByRole('complementary', { name: 'Deployment storefront' })
+    await detail.getByRole('tab', { name: 'Audit' }).click()
+    await expect(
+      detail.getByRole('heading', { name: 'The audit log couldn’t be searched' }),
+    ).toBeVisible()
+    await page.goto(`${served.url}audit`)
     await page.getByRole('button', { name: 'Check integrity' }).click()
     await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
       'Couldn’t check it',
@@ -1039,10 +1153,17 @@ test('the history is kept as long as it’s set to, and found where it is', asyn
   })
   await served.stop()
   const junk = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
-  write(dayFile(junk, yesterday), ['nothing here'])
+  writeFileSync(dayFile(junk, yesterday), '\nnothing here\n')
   served = await serve({ env: env(junk) })
   expect(eventsIn(dayFile(junk))[0]).toMatchObject({ seq: 1, prev: '' })
   await served.stop()
+
+  // Years ago (kept for ten): its year is said.
+  const years = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  write(dayFile(years, '2020-03-04'), [recorded(1, '2020-03-04T09:00:00.000Z')])
+  served = await serve({ env: { ...env(years), LUMOVI_AUDIT_RETENTION_DAYS: '3650' } })
+  await page.goto(`${served.url}audit?range=all`)
+  await expect(list(page)).toContainText(/March 4, 2020/)
 })
 
 test('events reach a webhook however it answers, and what doesn’t is said', async ({
@@ -1092,7 +1213,7 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
   expect(audited(served, 'audit.dropped')[0]).toMatchObject({
     outcome: 'failure',
     category: 'server',
-    error: 'It answered 400 Bad Request.',
+    error: 'It answered 400.',
     details: { count: 1 },
   })
   expect(served.log()).toContain(
@@ -1102,32 +1223,59 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
   expect(served.log()).not.toContain('token=secret')
   await page.goto(`${served.url}audit`)
   const problems = page.getByRole('main').getByRole('alert')
-  await expect(problems).toContainText(
-    `${hook.url.replace(/\?.*/, '')}: 1 event couldn’t be sent since Lumovi started. It answered 400 Bad Request.`,
+  const base = hook.url.replace(/\?.*/, '')
+  await expect(problems).toHaveText(
+    `1 audit event couldn’t be sent to ${base} since Lumovi started. It answered 400.`,
   )
 
-  // Unreachable, it's tried again (meanwhile, more than it keeps wait: the oldest let go).
+  // Unreachable: what's waiting is said as it's tried again, until more wait than it keeps (the
+  // oldest let go).
+  hook.answer(() => 200)
   await hook.close()
+  await page.goto(`${served.url}cluster/demo/pods`)
+  await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
+  await expect
+    .poll(() => page.evaluate(() => window.lumovi!.audit.info()).then((i) => i.sinks[2]), {
+      timeout: 15_000,
+    })
+    .toMatchObject({ name: base, problem: expect.stringMatching(/^It can’t be reached: /) })
   await page.evaluate(async () => {
     for (let i = 0; i < 12; i++) await window.lumovi!.app.setReadOnly('demo', i % 2 === 0)
   })
   await expect
-    .poll(() => page.evaluate(() => window.lumovi!.audit.info()), { timeout: 15_000 })
+    .poll(() => page.evaluate(() => window.lumovi!.audit.info()).then((i) => i.sinks[2]))
     .toMatchObject({
-      sinks: [
-        { name: 'history', dropped: 0 },
-        { name: 'the server’s output', dropped: 0 },
-        {
-          name: hook.url.replace(/\?.*/, ''),
-          dropped: expect.any(Number),
-          problem: expect.stringMatching(/^(It can’t be reached: |More than 10 events)/),
-        },
-      ],
+      name: base,
+      dropped: expect.any(Number),
+      problem: 'More than 10 events were waiting to be sent: the oldest were let go.',
     })
-  await page.reload()
-  await expect(problems).toContainText('couldn’t be sent since Lumovi started')
+  await page.goto(`${served.url}audit`)
+  await expect(problems).toContainText('couldn’t be sent to')
   await served.stop()
   expect(audited(served, 'audit.dropped').length).toBeGreaterThan(1)
+})
+
+test('a webhook that can’t be reached: what waits for it is said', async ({
+  page,
+  context,
+  serve,
+}) => {
+  const hook = await webhook()
+  await hook.close()
+  const served = await serve({
+    env: { LUMOVI_AUTH: 'proxy', LUMOVI_AUDITORS: 'auditors', LUMOVI_AUDIT_WEBHOOK_URL: hook.url },
+  })
+  await as(context, 'alice@example.com', 'auditors')
+  await page.goto(`${served.url}audit`)
+  const base = hook.url.replace(/\?.*/, '')
+  // Asked again (it's checked every half a minute) until the first try has failed.
+  await expect(async () => {
+    await page.reload()
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText(
+      `Events are waiting to be sent to ${base}. It can’t be reached: fetch failed.`,
+      { timeout: 1000 },
+    )
+  }).toPass({ timeout: 15_000 })
 })
 
 test('what the webhook still has waiting is sent as the server stops', async ({ serve }) => {
@@ -1152,7 +1300,8 @@ test('without a volume, in memory; and recording less, or not on the output', as
     env: {
       LUMOVI_AUTH: 'proxy',
       LUMOVI_AUDITORS: 'auditors',
-      LUMOVI_AUDIT_MEMORY_EVENTS: '100',
+      LUMOVI_AUDIT_MEMORY_EVENTS: '1100',
+      LUMOVI_AUDIT_EXPORT_LIMIT: '1050',
       LUMOVI_AUDIT_LEVEL: 'changes',
       LUMOVI_AUDIT_STDOUT: 'false',
     },
@@ -1163,22 +1312,33 @@ test('without a volume, in memory; and recording less, or not on the output', as
   await page.goto(`${served.url}cluster/demo/pods`)
   await page.evaluate(async () => {
     const api = window.lumovi!
-    for (let i = 0; i < 100; i++) await api.app.setReadOnly('demo', i % 2 === 0)
-    // Not recorded at this level: what's read.
+    for (let i = 0; i < 1150; i++) await api.app.setReadOnly('demo', i % 2 === 0)
+    // Not recorded at this level: what's read (however many different things are).
     await api.kube.get({
       context: 'demo',
       kind: 'Secret',
       name: 'postgres-credentials',
       namespace: 'data',
     })
+    for (let i = 0; i < 1010; i++) {
+      await api.logs.start(`logs-${String(i).padStart(6, '0')}`, {
+        context: 'demo',
+        namespace: 'shop',
+        pod: `nowhere-${i}`,
+        container: 'app',
+        previous: false,
+        follow: false,
+      })
+    }
   })
-  const all = await query(page, { limit: 5000 })
-  expect(all.events).toHaveLength(100)
-  expect(all.events.at(-1)!.seq).toBe(2)
-  expect(all.events.some((e) => e.action === 'secret.read')).toBe(false)
-  expect(
-    (await query(page, { limit: 2, after: String(all.events[0]!.seq) })).events.map((e) => e.seq),
-  ).toEqual([all.events[0]!.seq - 1, all.events[0]!.seq - 2])
+  // A thousand at most at once; the oldest memory kept was let go.
+  const first = await query(page, { limit: 5000 })
+  expect(first.events).toHaveLength(1000)
+  const rest = await query(page, { limit: 5000, after: first.next })
+  expect(rest.events).toHaveLength(100)
+  expect(rest.events.at(-1)!.seq).toBe(52)
+  expect(rest.next).toBeUndefined()
+  expect([...first.events, ...rest.events].some((e) => e.category === 'access')).toBe(false)
   expect(audited(served)).toEqual([])
   await page.goto(`${served.url}audit`)
   await expect(page.getByRole('main')).toContainText(
@@ -1191,9 +1351,29 @@ test('without a volume, in memory; and recording less, or not on the output', as
     kept: 'memory',
     level: 'changes',
     sinks: [{ name: 'history', dropped: 0 }],
+    exportLimit: 1050,
   })
+  // Scrolled down, older ones come as they're needed: all of them, a row each.
+  await expect(async () => {
+    await list(page).evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+    expect(await list(page).evaluate((el) => el.scrollHeight)).toBeGreaterThan(1100 * 58)
+  }).toPass({ timeout: 20_000 })
+  // Exported, as many as it holds: the most recent, said.
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export' }).click()
+  await page.getByRole('menuitem', { name: 'JSON Lines for log tools' }).click()
+  const exported = readFileSync(await (await downloading).path(), 'utf8')
+    .trimEnd()
+    .split('\n')
+  expect(exported).toHaveLength(1050)
+  expect((JSON.parse(exported[0]!) as AuditEvent).seq).toBe(102)
+  const notice = page.getByRole('region', { name: 'Notifications' })
+  await expect(notice).toContainText('Exported 1,050 events')
+  await expect(notice).toContainText(
+    'The 1,050 most recent the filters find: narrow them (by time, say) for the rest.',
+  )
   // Checked, it holds: one chain, from the oldest memory keeps.
-  expect(await verify(page)).toMatchObject({ checked: 100 })
+  expect(await verify(page)).toMatchObject({ checked: 1100 })
 })
 
 test('a search looks so far back at once, and further when asked', async ({
@@ -1434,4 +1614,71 @@ test('a history that can’t be kept is said; its events still go everywhere els
       { name: 'the server’s output', dropped: 0 },
     ],
   })
+})
+
+test('people see what they did, and only that, as it happens', async ({
+  page,
+  context,
+  browser,
+  serve,
+}) => {
+  const served = await serve({ env: { LUMOVI_AUTH: 'proxy', LUMOVI_AUDITORS: 'auditors' } })
+  // Carol, who isn't an auditor, has done nothing yet.
+  await as(context, 'carol@example.com', 'developers')
+  await page.goto(`${served.url}audit`)
+  await expect(page.getByRole('heading', { name: 'Nothing yet' })).toBeVisible()
+  await expect(page.getByRole('main')).toContainText(
+    'What’s done through Lumovi shows here as it happens: changes, shells, port-forwards, logs and Secrets read, sign-ins, and what AI assistants do.',
+  )
+  await expect(page.getByRole('main')).toContainText(
+    'You see your own: its auditors see everyone’s.',
+  )
+  await expect(page.getByRole('button', { name: 'Check integrity' })).toHaveCount(0)
+  await expect(
+    page.getByRole('toolbar', { name: 'Filters' }).getByRole('button', { name: 'Who' }),
+  ).toHaveCount(0)
+  await expect(page.evaluate(() => window.lumovi!.audit.verify())).rejects.toThrow(
+    'Only an auditor checks the whole audit log: it holds everyone’s events.',
+  )
+  // Someone else's, as it happens: not hers.
+  const alices = await browser.newContext({
+    extraHTTPHeaders: { 'X-Forwarded-User': 'alice@example.com', 'X-Forwarded-Groups': 'auditors' },
+  })
+  const alice = await alices.newPage()
+  await alice.goto(`${served.url}cluster/demo/pods`)
+  await alice.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
+  // Her own, as it happens: hers. (However many listen, and stop.)
+  const heard = await page.evaluate(async () => {
+    const api = window.lumovi!
+    const got: string[] = []
+    const first = api.audit.onEvent((e) => got.push(`first ${e.summary}`))
+    const second = api.audit.onEvent((e) => got.push(`second ${e.summary}`))
+    await api.app.setReadOnly('demo', false)
+    await new Promise((done) => setTimeout(done, 300))
+    first()
+    await api.app.setReadOnly('demo', true)
+    await new Promise((done) => setTimeout(done, 300))
+    second()
+    return got
+  })
+  expect(heard).toEqual([
+    'first Made demo changeable in Lumovi',
+    'second Made demo changeable in Lumovi',
+    'second Made demo read-only in Lumovi',
+  ])
+  await expect(list(page).getByRole('option')).toHaveCount(2)
+  await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
+    /Made demo read-only in Lumovi$/,
+  )
+  await alices.close()
+
+  // Signed in with a token: her session, by a hash of it, in what she did.
+  const tokens = await serve({ env: { LUMOVI_AUDITORS: 'auditors' } })
+  await context.setExtraHTTPHeaders({})
+  await signIn(page, `${tokens.url}cluster/demo/pods`, PEOPLE.bob.token)
+  await page.goto(`${tokens.url}audit`)
+  await row(page, /Signed in with a token/).click()
+  await expect(
+    page.getByRole('complementary', { name: 'Event' }).getByRole('region', { name: 'Who' }),
+  ).toContainText(/Session[0-9a-f]{16}/)
 })

@@ -258,6 +258,31 @@ test('changes wait for the person’s answer, on their own pages only', async ({
   })
   expect(changes[1]!.approval).toMatchObject({ by: 'alice@example.com', note: 'Not now.' })
   expect(changes[1]!.error).toBeUndefined()
+
+  // On her Audit page: through her assistant, and how she answered.
+  await page.goto(`${served.url}audit`)
+  const events = page.getByRole('listbox', { name: 'Events' })
+  const scaled = events.getByRole('option', { name: /Scaled cart to 3 replicas$/ })
+  await expect(scaled).toContainText('alice@example.comClaude Code')
+  await scaled.click()
+  const event = page.getByRole('complementary', { name: 'Event' })
+  await expect(event.getByRole('region', { name: 'Who' })).toContainText(
+    'ThroughClaude Code, an AI assistant acting as them',
+  )
+  await expect(event.getByRole('region', { name: 'Approval' })).toHaveText(
+    /^ApprovalAnswerApprovedByalice@example.comWaited\d+s$/,
+  )
+  await events.getByRole('option', { name: /Restart Deployment cart, refused$/ }).click()
+  await expect(event.getByRole('region', { name: 'Approval' })).toHaveText(
+    /^ApprovalAnswerRejectedByalice@example.comWaited\d+sTheir note“Not now\.”$/,
+  )
+  // And the object's own.
+  await page.goto(`${served.url}cluster/demo/deployments?open=Deployment/shop/cart`)
+  const cart = page.getByRole('complementary', { name: 'Deployment cart' })
+  await cart.getByRole('tab', { name: 'Audit' }).click()
+  await expect(cart.getByRole('list', { name: 'Audit log' })).toContainText(
+    'alice@example.com through Claude Code',
+  )
 })
 
 test('signing out of Lumovi lets the person’s assistants go', async ({ page, browser, serve }) => {

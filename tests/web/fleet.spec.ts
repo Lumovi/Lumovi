@@ -53,6 +53,11 @@ test('every cluster, worst first, as each person may see it', async ({
   )
   await expect(page).toHaveTitle('Clusters — Lumovi')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('4 clusters2 need attention')
+  // The audit log of a fleet: each of its clusters'.
+  await page.goto(`${served.url}audit`)
+  await expect(page.getByRole('banner')).toContainText('Fleetalice@example.com')
+  await page.goBack()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('4 clusters2 need attention')
   await expect
     .poll(() => names(page))
     .toEqual([FLEET.edge, FLEET.prodEu, FLEET.prodUs, FLEET.staging])
