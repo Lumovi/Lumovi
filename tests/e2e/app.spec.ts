@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import electronPath from 'electron'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
+import { startMockProxy } from '../mock-proxy/server.ts'
 import {
   clusterOption,
   COVERAGE_DIR,
@@ -413,7 +414,7 @@ test('treats an unavailable metrics API as "no metrics"', async ({ page, cluster
   ).toContainText('Running')
 })
 
-test.describe('login shell PATH', () => {
+test.describe('login shell PATH and proxy', () => {
   test.skip(posixOnly, 'Windows apps inherit the full user PATH')
 
   function fakeShell(dir: string, body: string): string {
@@ -423,10 +424,11 @@ test.describe('login shell PATH', () => {
     return path
   }
 
-  test('credential plugins are found on the PATH from the login shell', async ({
+  test('credential plugins are found on the PATH from the login shell, and its proxy gone through', async ({
     launch,
     clusters,
   }) => {
+    const proxy = await startMockProxy()
     const dir = mkdtempSync(join(tmpdir(), 'lumovi-shell-'))
     const bin = join(dir, 'bin')
     mkdirSync(bin)
@@ -438,15 +440,30 @@ test.describe('login shell PATH', () => {
     }
     writeFileSync(plugin, `#!/bin/sh\necho '${JSON.stringify(credential)}'\n`)
     chmodSync(plugin, 0o755)
+    // A cluster by a name only the proxy knows: reached through it, as kubectl would be.
     const kubeconfig = writeKubeconfig(dir, {
-      clusters: [{ name: 'demo', server: clusters.demo.url, caPem: clusters.demo.caPem }],
+      clusters: [
+        {
+          name: 'demo',
+          server: `https://cluster.test:${clusters.demo.port}`,
+          caPem: clusters.demo.caPem,
+          tlsServerName: 'localhost',
+        },
+      ],
       users: [{ name: 'plugin-user', exec: { command: 'lumovi-test-credential' } }],
       contexts: [{ name: 'via-plugin', cluster: 'demo', user: 'plugin-user' }],
     })
-    const shell = fakeShell(dir, `printf '__LUMOVI_PATH__%s__LUMOVI_PATH__' "${bin}:$PATH"`)
+    // A login shell whose profile sets PATH and the proxy, then runs what it's asked to.
+    const shell = fakeShell(
+      dir,
+      `PATH="${bin}:$PATH"; HTTPS_PROXY="${proxy.url}"; export PATH HTTPS_PROXY; eval "$2"`,
+    )
     const { page, app } = await launch({ env: { SHELL: shell, KUBECONFIG: kubeconfig } })
     await expect(clusterOption(page, 'via-plugin')).toContainText(DEMO.gitVersion)
     expect(await app.evaluate(() => process.env.PATH)).toContain(bin)
+    expect(await app.evaluate(() => process.env.HTTPS_PROXY)).toBe(proxy.url)
+    expect(proxy.seen).toContain(`CONNECT cluster.test:${clusters.demo.port}`)
+    await proxy.close()
   })
 
   test('keeps the inherited PATH when the shell prints nothing or fails', async ({ launch }) => {

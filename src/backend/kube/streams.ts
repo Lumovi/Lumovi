@@ -196,10 +196,10 @@ export class Terminals {
           'Node shells are turned off on this Lumovi server (LUMOVI_NODE_SHELL=off).',
         )
       }
-      const kc = this.deps.store.forContext(r.context)
       this.#connecting.add(id)
       try {
         await this.deps.envReady
+        const kc = this.deps.store.forContext(r.context)
         await prepare(kc)
         if (r.target === 'node') await this.#node(id, kc, r, setting!)
         else await this.#exec(id, kc, r, SHELL)
@@ -459,8 +459,8 @@ export class Forwards {
       assertIntegerInRange(r.port, 'port', 1, 65_535)
       if (r.localPort !== undefined) assertIntegerInRange(r.localPort, 'localPort', 1, 65_535)
       asked = r
-      const kc = this.deps.store.forContext(r.context)
       await this.deps.envReady
+      const kc = this.deps.store.forContext(r.context)
       await prepare(kc)
       const { pod, podPort } = await this.#target(kc, r)
       const server = net.createServer()

@@ -114,6 +114,8 @@ export interface ServerConfig {
   nodeShell: { setting: NodeShellSetting; off: boolean }
   /** Whether charts may come from addresses inside private networks. */
   allowPrivateCharts: boolean
+  /** Files of certificate authorities to trust besides Node's and the system's (LUMOVI_CA_FILE). */
+  caFiles: string[]
   /** Where the views everyone shares are (a ConfigMap's, say). */
   viewsDir: string
   /** Where the page's files are: the renderer's build, next to the server's. */
@@ -299,6 +301,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
     nodeShell: nodeShell(value),
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
+    caFiles: list(value('LUMOVI_CA_FILE')),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
     assistants,

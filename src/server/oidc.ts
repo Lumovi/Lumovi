@@ -3,6 +3,7 @@
  * The provider says who someone is, and which groups they're in; the server
  * then acts as them in the cluster (see cluster.ts), so their RBAC applies.
  */
+import { fetchFailure } from '@backend/network'
 import { createHash, randomBytes } from 'node:crypto'
 import type { SessionUser } from '@shared/server'
 import type { AuthConfig } from './config'
@@ -176,7 +177,7 @@ export class OidcClient {
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(
     (error: Error) => {
-      throw new Error(`Couldn’t reach ${url}: ${error.message}`)
+      throw new Error(`Couldn’t reach ${url}: ${fetchFailure(error)}`)
     },
   )
   if (!response.ok) {

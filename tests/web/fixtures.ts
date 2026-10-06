@@ -41,6 +41,17 @@ function saveCoverage(data: unknown): void {
   writeFileSync(join(COVERAGE_DIR, `${randomUUID()}.json`), JSON.stringify(data))
 }
 
+/** Never the developer's own proxy: the mocks run here (a test that wants one says so). */
+export const NO_PROXY_HERE = {
+  HTTPS_PROXY: undefined,
+  https_proxy: undefined,
+  HTTP_PROXY: undefined,
+  http_proxy: undefined,
+  NO_PROXY: undefined,
+  no_proxy: undefined,
+  SSL_CERT_FILE: undefined,
+}
+
 export interface ServeOptions {
   /** Added to (or, when undefined, removed from) the server's environment. */
   env?: Record<string, string | undefined>
@@ -79,6 +90,7 @@ export function startServer(
     LUMOVI_VIEWS_DIR: join(helmDir, 'views'),
     // The mock repositories and registries run here.
     LUMOVI_ALLOW_PRIVATE_CHARTS: 'true',
+    ...NO_PROXY_HERE,
     ...options.env,
   }
   const env = Object.fromEntries(
@@ -172,6 +184,7 @@ export function startAgent(env: Record<string, string | undefined>): Agent {
     ...process.env,
     LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
     LUMOVI_AGENT_HEALTH_PORT: '0',
+    ...NO_PROXY_HERE,
     ...env,
   }
   const child = spawn(process.execPath, [AGENT], {
