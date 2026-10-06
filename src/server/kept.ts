@@ -5,7 +5,7 @@
  * under LUMOVI_DATA_DIR, or, with neither, in memory until the server stops.
  */
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { KubeConfig } from '@kubernetes/client-node'
@@ -97,21 +97,20 @@ function fileKeeper<T>(path: string, kept: Kept<T>): Keeper<T> {
       mkdirSync(dirname(path), { recursive: true })
       // One writer at a time, whichever replica: the lock is made, or another's writing (unless
       // one stopped mid-write long ago).
+      // The lock says when it was taken. Made only if it isn't there, it's one writer's alone.
       const lock = `${path}.lock`
-      const locked = () => {
-        try {
-          writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 })
-          return true
-        } catch {
-          return false
-        }
-      }
-      if (!locked()) {
-        if (Date.now() - statSync(lock).mtimeMs < STALE_LOCK_MS) {
+      const take = () => writeFileSync(lock, String(Date.now()), { flag: 'wx', mode: 0o600 })
+      try {
+        take()
+      } catch {
+        if (Date.now() - Number(readFileSync(lock, 'utf8')) < STALE_LOCK_MS) {
           throw new KubeRequestError('conflict', `Another of Lumovi’s replicas is writing ${path}.`)
         }
-        rmSync(lock, { force: true })
-        writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 })
+        // Moved aside by one taker alone (a rename is): the others' saves fail, as they should.
+        const stale = `${lock}.${process.pid}`
+        renameSync(lock, stale)
+        rmSync(stale)
+        take()
       }
       try {
         // Another replica (or someone, by hand) wrote it since: theirs isn't written over.
