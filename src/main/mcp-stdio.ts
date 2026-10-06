@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { isPort, isToken } from '@shared/assistants'
 
 interface Message {
   jsonrpc: '2.0'
@@ -50,9 +51,15 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     } catch {
       // No settings yet: Lumovi hasn't been opened.
     }
-    if (!assistants?.enabled || !assistants.token) {
+    if (!assistants?.enabled || !isToken(assistants.token)) {
       throw new Error(
         'AI assistants are turned off in Lumovi: open Lumovi, and turn them on in its AI assistants settings.',
+      )
+    }
+    // A port, and nothing else: the token is only ever sent to this computer.
+    if (!isPort(assistants.port)) {
+      throw new Error(
+        'Lumovi’s settings name no port it listens on: open Lumovi, and choose AI assistants’ port again.',
       )
     }
     return {
