@@ -63,7 +63,7 @@ export const CAPABILITY_TEXT: Record<
   shells: { label: 'Shells', hint: 'Into containers', levels: { off: 'Off', on: 'Open them' } },
   nodeShells: {
     label: 'Node shells',
-    hint: 'As root, on a node',
+    hint: 'As root, on a node: Changes don’t decide them',
     levels: { off: 'Off', on: 'Open them' },
   },
   logs: { label: 'Logs', hint: 'Containers’ output', levels: { off: 'Off', on: 'Read them' } },
@@ -196,9 +196,13 @@ export type AccessDecision = {
   }
 }
 
+/** Whether a name is someone's: whatever its case (an email's is anyone's guess). */
+export const samePerson = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
 /** Whether someone's in a group: by one of its provider groups, or by name. */
 export const inGroup = (group: AccessGroup, person: Person) =>
-  group.people.includes(person.name) || group.provider.some((id) => person.groups.includes(id))
+  group.people.some((name) => samePerson(name, person.name)) ||
+  group.provider.some((id) => person.groups.includes(id))
 
 /** The ids of Lumovi's groups someone's in. */
 export const groupsOf = (policy: AccessPolicy, person: Person) =>
@@ -520,6 +524,8 @@ export interface MyAccess {
   provider: string
   /** Whether they're one of the admins: they change it. */
   admin: boolean
+  /** Whether they read everyone's audit events: LUMOVI_AUDITORS names them, or their access says. */
+  auditor: boolean
 }
 
 /** Someone's share of a policy: what decides for them, and nothing about anyone else. */
@@ -625,9 +631,11 @@ export function checkedPolicy(given: unknown, where: string): AccessPolicy {
   const levels = (value: unknown, at: string, partial: boolean): Partial<Levels> => {
     const map = object(value, at)
     const out: Partial<Levels> = {}
-    for (const [key, level] of Object.entries(map)) {
+    for (const [key, given] of Object.entries(map)) {
       const allowed = (CAPABILITIES as Record<string, readonly string[]>)[key]
       if (!allowed) fail(`${at}.${key} isn’t something Lumovi lets people do.`)
+      // YAML (Helm's, say) reads an unquoted on or off as yes or no.
+      const level = given === true ? 'on' : given === false ? 'off' : given
       if (!allowed!.includes(level as string))
         fail(`${at}.${key} is ${allowed!.join(', ')}, not “${String(level)}”.`)
       ;(out as Record<string, unknown>)[key] = level

@@ -5,7 +5,7 @@
  * under LUMOVI_DATA_DIR, or, with neither, in memory until the server stops.
  */
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { KubeConfig } from '@kubernetes/client-node'
@@ -41,6 +41,9 @@ export interface Keeper<T> {
   /** Which version was last read or written here: it changes whenever what's kept does. */
   version(): string
 }
+
+/** How long a lock left by a writer that stopped mid-write holds the others back. */
+const STALE_LOCK_MS = 30_000
 
 /** A ConfigMap holds a megabyte, at most. */
 export const MAX_KEPT_BYTES = 1_000_000
@@ -91,23 +94,45 @@ function fileKeeper<T>(path: string, kept: Kept<T>): Keeper<T> {
       return kept.read(text, path)
     },
     write: async (value) => {
-      // Another replica (or someone, by hand) wrote it since: theirs isn't written over.
-      let now = ''
-      try {
-        now = hash(readFileSync(path, 'utf8'))
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      if (now !== version) {
-        throw new KubeRequestError('conflict', `${path} changed since Lumovi last read it.`)
-      }
-      const text = kept.write(value)
-      // Whole, or not at all: a server stopping mid-write leaves what was there.
       mkdirSync(dirname(path), { recursive: true })
-      const next = `${path}.${process.pid}`
-      writeFileSync(next, text, { mode: 0o600 })
-      renameSync(next, path)
-      version = hash(text)
+      // One writer at a time, whichever replica: the lock is made, or another's writing (unless
+      // one stopped mid-write long ago).
+      const lock = `${path}.lock`
+      const locked = () => {
+        try {
+          writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 })
+          return true
+        } catch {
+          return false
+        }
+      }
+      if (!locked()) {
+        if (Date.now() - statSync(lock).mtimeMs < STALE_LOCK_MS) {
+          throw new KubeRequestError('conflict', `Another of Lumovi’s replicas is writing ${path}.`)
+        }
+        rmSync(lock, { force: true })
+        writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 })
+      }
+      try {
+        // Another replica (or someone, by hand) wrote it since: theirs isn't written over.
+        let now = ''
+        try {
+          now = hash(readFileSync(path, 'utf8'))
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+        if (now !== version) {
+          throw new KubeRequestError('conflict', `${path} changed since Lumovi last read it.`)
+        }
+        const text = kept.write(value)
+        // Whole, or not at all: a server stopping mid-write leaves what was there.
+        const next = `${path}.${process.pid}`
+        writeFileSync(next, text, { mode: 0o600 })
+        renameSync(next, path)
+        version = hash(text)
+      } finally {
+        rmSync(lock, { force: true })
+      }
     },
     version: () => version,
   }
@@ -142,15 +167,16 @@ function configMapKeeper<T>(name: string, kept: Kept<T>, env: NodeJS.ProcessEnv)
       const text = configMap.data?.[kept.key]
       return text === undefined ? kept.empty : kept.read(text, where)
     },
+    // Its data alone, as of the version read: what the chart set on it (the annotation that keeps
+    // it when Lumovi is uninstalled, its labels) stays, and someone else's write is refused.
     write: async (value) => {
       const saved = JSON.parse(
         await kubeRequest(kc, path, {
-          method: 'PUT',
+          method: 'PATCH',
+          contentType: 'application/merge-patch+json',
           timeoutMs: 20_000,
           body: {
-            apiVersion: 'v1',
-            kind: 'ConfigMap',
-            metadata: { name, namespace, resourceVersion: version },
+            metadata: { resourceVersion: version },
             data: { [kept.key]: kept.write(value) },
           },
         }),

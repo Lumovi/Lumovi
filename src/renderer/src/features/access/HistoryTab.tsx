@@ -29,7 +29,7 @@ export function HistoryTab() {
         title="History"
         action={
           <Link
-            to="/audit?category=settings&q=access.changed&range=90d"
+            to="/audit?category=settings&q=access.changed&range=all"
             className="text-[13px] font-medium text-accent hover:underline"
           >
             Open in the audit log
@@ -78,7 +78,12 @@ function partsOf(change: string) {
 
 function Change({ event, first }: { event: AuditEvent; first: boolean }) {
   const changes = event.details!.changes as string[]
-  const who = [event.actor.user, event.actor.forwardedFor ?? event.actor.address].filter(Boolean)
+  // Changed by hand, where it's kept (a ConfigMap, a file), not on this page: nobody's to name.
+  const who = event.details!.outside
+    ? 'Outside Lumovi, where it’s kept'
+    : [event.actor.user, event.actor.forwardedFor ?? event.actor.address]
+        .filter(Boolean)
+        .join(', from ')
   return (
     <li
       className={cn(
@@ -99,7 +104,7 @@ function Change({ event, first }: { event: AuditEvent; first: boolean }) {
         {event.actor.user.slice(0, 1).toUpperCase()}
       </span>
       <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
-        <span className="text-xs text-ink-3">{who.join(', from ')}</span>
+        <span className="text-xs text-ink-3">{who}</span>
         <ul className="flex flex-col gap-1">
           {changes.map((change) => {
             const { head, parts } = partsOf(change)

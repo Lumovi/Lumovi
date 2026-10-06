@@ -7,8 +7,9 @@
  * listed whole, only counted, searched and sampled.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, CircleAlert, Lock, Plus, Search, Server, X } from 'lucide-react'
+import { ChevronDown, CircleAlert, Lock, Plus, Search, Server, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { stringify } from 'yaml'
 import {
   AI_SETTING_KEYS,
@@ -31,6 +32,7 @@ import {
 } from '@shared/ai-permissions'
 import type { KubeContext, LumoviApi } from '@shared/api'
 import { Button } from '@renderer/components/Button'
+import { api } from '@renderer/lib/api'
 import { Loading } from '@renderer/components/States'
 import { useContexts } from '@renderer/hooks/queries'
 import { useSettings } from '@renderer/hooks/settings'
@@ -157,6 +159,18 @@ function Editor({
               This server keeps AI permissions in memory: when it restarts, yours are gone, and
               assistants do what the defaults say until you set them again. Its administrator can
               keep them (LUMOVI_DATA_DIR, or the Helm chart).
+            </span>
+          </p>
+        )}
+        {api.access && (
+          <p className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-2.5 text-[13px] leading-snug text-ink-2">
+            <ShieldCheck className="mt-px size-4 shrink-0 text-ink-3" aria-hidden />
+            <span>
+              Your access caps them too: where Lumovi’s admins don’t let you do something, your
+              assistants don’t either, whatever these say.{' '}
+              <Link to="/your-access" className="font-medium text-accent hover:underline">
+                See your access
+              </Link>
             </span>
           </p>
         )}

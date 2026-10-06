@@ -5,7 +5,7 @@
  */
 import { Plus, UserRound } from 'lucide-react'
 import { useState } from 'react'
-import type { AccessGroup, AccessPolicy, SeenPerson } from '@shared/access'
+import { samePerson, type AccessGroup, type AccessPolicy, type SeenPerson } from '@shared/access'
 import { Button } from '@renderer/components/Button'
 import { age } from '@renderer/lib/format'
 import { cn } from '@renderer/lib/cn'
@@ -363,14 +363,21 @@ function GroupEditor({
         locked={locked}
         empty="Nobody"
         chips={[
+          // What nobody seen matches is marked: a typo, or someone not yet signed in.
           ...group.provider.map((id) => ({
             value: `group:${id}`,
             kind: 'group',
             text: groupTitle(policy, id),
             sub: policy.names[id] ? id : undefined,
             mono: true,
+            note: sent.some((g) => g.id === id) ? undefined : 'not seen yet',
           })),
-          ...group.people.map((name) => ({ value: `person:${name}`, kind: 'person', text: name })),
+          ...group.people.map((name) => ({
+            value: `person:${name}`,
+            kind: 'person',
+            text: name,
+            note: seen.some((p) => samePerson(p.name, name)) ? undefined : 'not seen yet',
+          })),
         ]}
         onRemove={(value) => {
           const [kind, id] = split(value)
