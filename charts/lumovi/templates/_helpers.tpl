@@ -65,3 +65,12 @@ their own tokens are passed on.
 {{- define "lumovi.impersonates" -}}
 {{- if or (eq .Values.auth.mode "proxy") (and (eq .Values.auth.mode "oidc") (not .Values.auth.oidc.forwardToken)) }}true{{ end }}
 {{- end }}
+
+{{/* What AI assistants' changes do: the default, then each cluster's own (ask,staging=allow). */}}
+{{- define "lumovi.assistantChanges" -}}
+{{- $entries := list .Values.assistants.changes }}
+{{- range $cluster, $changes := .Values.assistants.clusters }}
+{{- $entries = append $entries (printf "%s=%s" $cluster $changes) }}
+{{- end }}
+{{- join "," $entries }}
+{{- end }}
