@@ -1,6 +1,6 @@
 /** Signing in to a Lumovi server with a token, and the session that follows. */
 import type { Page } from '@playwright/test'
-import { expect, PEOPLE, signIn, test } from './fixtures.ts'
+import { audited, expect, PEOPLE, signIn, signIns, test } from './fixtures.ts'
 
 /** What the sign-in page says about the last session. */
 const notice = (page: Page, text: string) => page.getByRole('status').filter({ hasText: text })
@@ -70,6 +70,29 @@ test('sign in with a token, at the address that was opened', async ({
   const session = await page.request.get(`${served.url}api/session`)
   expect(session.status()).toBe(401)
   expect(await session.json()).toEqual({ auth: 'token' })
+  // Each recorded, from where; a session by a hash of it, never itself.
+  expect(signIns(served)).toEqual([
+    [
+      'session.sign-in',
+      'refused',
+      'Sign in with a token',
+      '(unknown)',
+      'The cluster doesn’t accept this token.',
+    ],
+    ['session.sign-in', 'success', 'Signed in with a token', 'alice@example.com', undefined],
+    ['session.sign-in', 'success', 'Signed in with a token', 'bob@example.com', undefined],
+    ['session.sign-out', 'success', 'Signed out', 'alice@example.com', undefined],
+  ])
+  const [, alice, , out] = audited(served).filter((e) => e.category === 'sign-in')
+  expect(alice!.actor).toMatchObject({
+    // As the cluster said them: system:authenticated too.
+    groups: ['developers', 'on-call', 'system:authenticated'],
+    via: 'ui',
+    session: expect.stringMatching(/^[0-9a-f]{16}$/),
+    address: '127.0.0.1',
+  })
+  expect(out!.actor.session).toBe(alice!.actor.session)
+  expect(alice!.details).toEqual({ method: 'token', with: 'a token' })
 })
 
 test('a session ends: it expires, or its person signs out in another tab', async ({
@@ -81,6 +104,13 @@ test('a session ends: it expires, or its person signs out in another tab', async
   const served = await serve({ env: { LUMOVI_SESSION_HOURS: '0.0008' } })
   await signIn(page, served.url, PEOPLE.bob.token)
   await expect(notice(page, ENDED)).toBeVisible({ timeout: 15_000 })
+  expect(signIns(served).at(-1)).toEqual([
+    'session.expired',
+    'success',
+    'Signed out by Lumovi: the session ended',
+    'bob@example.com',
+    'It lasted the 0.0008 hours sessions do.',
+  ])
 
   const longer = await serve()
   await signIn(page, longer.url, PEOPLE.bob.token)
@@ -100,6 +130,13 @@ test('a token that stops working ends its session', async ({ page, serve, cluste
   // Revoked (or expired): the page's next request (its lists poll) is refused.
   clusters.demo.setUser(PEOPLE.bob.token, undefined)
   await expect(notice(page, ENDED)).toBeVisible({ timeout: 20_000 })
+  expect(signIns(served).at(-1)).toEqual([
+    'session.expired',
+    'success',
+    'Signed out by Lumovi: the session ended',
+    'bob@example.com',
+    'The cluster refused its token: it expired, or was revoked.',
+  ])
   // Signing in again comes back to where it was.
   clusters.demo.setUser(PEOPLE.bob.token, PEOPLE.bob.user)
   await page.getByPlaceholder('Paste a token').fill(PEOPLE.bob.token)
@@ -116,6 +153,15 @@ test('signing in when the cluster can’t say whose a token is, and signing out 
   await page.getByPlaceholder('Paste a token').fill('any-token')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('ECONNREFUSED')
+  expect(signIns(offline)).toEqual([
+    [
+      'session.sign-in',
+      'failure',
+      'Sign in with a token',
+      '(unknown)',
+      expect.stringContaining('ECONNREFUSED'),
+    ],
+  ])
   // It can be tried again.
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled()
 

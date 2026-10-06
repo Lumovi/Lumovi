@@ -147,6 +147,12 @@ export function audited(served: Served, action?: string): AuditEvent[] {
   )
 }
 
+/** Signing in and out, as the audit log has it: what, how it went, said how, by whom, why. */
+export const signIns = (served: Served) =>
+  audited(served)
+    .filter((e) => e.category === 'sign-in')
+    .map((e) => [e.action, e.outcome, e.summary, e.actor.user, e.error ?? e.details?.why])
+
 export interface Agent {
   /** What it wrote to stdout and stderr so far. */
   log(): string

@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { Assistant, call, callback, connect } from './assistant-client.ts'
-import { DEMO, expect, PEOPLE, refusedConfig, signIn, test } from './fixtures.ts'
+import { audited, DEMO, expect, PEOPLE, refusedConfig, signIn, test } from './fixtures.ts'
 
 /** What a change came to: waiting for it again while the assistant is told to (slow machines). */
 async function outcome(client: Client, asked: Promise<{ text: string }>): Promise<string> {
@@ -100,6 +100,46 @@ test('assistants sign in as the person, and read what they may', async ({
   await expect(yours).toContainText('None yet')
   await expect(call(client, 'list_clusters')).rejects.toThrow()
   expect(served.log()).toContain('alice@example.com’s Claude Code was let go')
+
+  // The audit log: allowed by her, from her page; what it called, as her, through it; let go.
+  expect(audited(served, 'assistant.allowed')).toEqual([
+    expect.objectContaining({
+      outcome: 'success',
+      summary: 'Allowed Claude Code (lumovi) to use Lumovi as them',
+      actor: expect.objectContaining({ user: 'alice@example.com', via: 'ui' }),
+      details: expect.objectContaining({ assistant: 'Claude Code (lumovi)' }),
+    }),
+  ])
+  const tools = audited(served, 'assistant.tool')
+  expect(tools.map((e) => [e.summary, e.outcome, e.cluster])).toEqual([
+    ['List clusters', 'success', undefined],
+    ['List resources', 'success', 'demo'],
+  ])
+  expect(tools[1]).toMatchObject({
+    category: 'assistant',
+    actor: {
+      user: 'alice@example.com',
+      groups: ['developers', 'on-call', 'system:authenticated'],
+      via: 'assistant',
+      assistant: 'Claude Code',
+      session: expect.stringMatching(/^[0-9a-f]{16}$/),
+      address: '127.0.0.1',
+    },
+    details: {
+      tool: 'list_resources',
+      cluster: 'demo',
+      kind: 'pods',
+      namespace: 'shop',
+    },
+  })
+  expect(audited(served, 'assistant.ended')).toEqual([
+    expect.objectContaining({
+      outcome: 'success',
+      summary: 'Claude Code was let go',
+      actor: { user: 'alice@example.com', via: 'ui', assistant: 'Claude Code' },
+      details: expect.objectContaining({ how: 'let go' }),
+    }),
+  ])
 })
 
 test('changes wait for the person’s answer, on their own pages only', async ({
@@ -201,6 +241,23 @@ test('changes wait for the person’s answer, on their own pages only', async ({
     .click()
   expect(await outcome(client, later)).toMatch(/^Scaled cart to 1 replica, approved in Lumovi\./)
   await elsewhere.close()
+
+  // The audit log: each change as the assistant asked it, and as she answered, after how long.
+  const changes = audited(served).filter((e) => e.category === 'change')
+  expect(changes.map((e) => [e.action, e.outcome, e.summary, e.approval?.status])).toEqual([
+    ['resource.scale', 'success', 'Scaled cart to 3 replicas', 'approved'],
+    ['resource.restart', 'refused', 'Restart Deployment cart', 'rejected'],
+    ['resource.scale', 'success', 'Scaled cart to 1 replica', 'approved'],
+  ])
+  expect(changes[0]).toMatchObject({
+    actor: { user: 'alice@example.com', via: 'assistant', assistant: 'Claude Code' },
+    target: { kind: 'Deployment', name: 'cart', namespace: 'shop', uid: expect.any(String) },
+    command: 'kubectl scale deployment/cart --replicas=3 -n shop --context demo',
+    approval: { by: 'alice@example.com', waitedMs: expect.any(Number) },
+    details: { reason: 'Busy.' },
+  })
+  expect(changes[1]!.approval).toMatchObject({ by: 'alice@example.com', note: 'Not now.' })
+  expect(changes[1]!.error).toBeUndefined()
 })
 
 test('signing out of Lumovi lets the person’s assistants go', async ({ page, browser, serve }) => {
@@ -236,6 +293,21 @@ test('signing out of Lumovi lets the person’s assistants go', async ({ page, b
   expect(served.log()).toContain('alice@example.com’s Claude Code can no longer use Lumovi')
   // …is withdrawn with it.
   expect(served.log()).toContain('Scale Deployment cart to 3 replicas in demo, withdrawn')
+  expect(audited(served, 'resource.scale')).toEqual([
+    expect.objectContaining({
+      outcome: 'cancelled',
+      summary: 'Scale Deployment cart to 3 replicas',
+      approval: { status: 'withdrawn', waitedMs: expect.any(Number) },
+      error: 'The assistant stopped waiting for an answer.',
+    }),
+  ])
+  expect(audited(served, 'assistant.ended')).toEqual([
+    expect.objectContaining({
+      summary: 'Claude Code can no longer use Lumovi',
+      actor: { user: 'alice@example.com', via: 'assistant', assistant: 'Claude Code' },
+      details: expect.objectContaining({ how: 'expired' }),
+    }),
+  ])
   // Bob's, allowed in his own session, carries on.
   expect((await call(bobs, 'list_clusters')).error).toBe(false)
   await elsewhere.close()
@@ -265,6 +337,14 @@ test('a person may deny an assistant, and a request that isn’t right is refuse
   await expect(request).toContainText(`Then it goes back to ${new URL(back.url).host}.`)
   await request.getByRole('button', { name: 'Deny' }).click()
   const denied = await back.answer
+  expect(audited(served, 'assistant.denied')).toEqual([
+    expect.objectContaining({
+      outcome: 'success',
+      summary: 'Didn’t allow Claude Code (lumovi) to use Lumovi',
+      actor: expect.objectContaining({ user: 'alice@example.com', via: 'ui' }),
+      details: expect.objectContaining({ returnsTo: new URL(back.url).origin }),
+    }),
+  ])
   await page.waitForURL((url) => url.href.startsWith(back.url))
   expect(Object.fromEntries(denied)).toEqual({
     error: 'access_denied',
@@ -565,6 +645,10 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
   ).toEqual([400, 'invalid_grant'])
   expect(served.log()).toContain(
     'alice@example.com’s An AI assistant was let go: its refresh token was used again',
+  )
+  // Refused, in the audit log: someone else may have it.
+  expect(audited(served, 'assistant.ended').map((e) => [e.details!.how, e.outcome])).toContainEqual(
+    ['reused', 'refused'],
   )
 })
 
