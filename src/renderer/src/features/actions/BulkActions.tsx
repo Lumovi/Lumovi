@@ -26,6 +26,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
 import { ActionDialog } from './ActionDialog'
 import { kindOf, nowTimestamp, target } from './common'
+import { useAccessHere } from '../access/use-access'
 
 interface BulkAction {
   id: string
@@ -176,9 +177,22 @@ export function SelectionBar({
   onClear: () => void
 }) {
   const { readOnly } = useReadOnly()
+  const here = useAccessHere()
   // What the dialog works on stays put while deleted rows leave the list.
   const [running, setRunning] = useState<{ action: BulkAction; objects: KubeObject[] } | null>(null)
   if (objects.length === 0) return null
+  // All of them, or none: one the person's access doesn't let them change says so.
+  const disabled = readOnly
+    ? 'Changes are turned off for this cluster.'
+    : objects
+        .map((o) =>
+          here.whyNot(
+            'changes',
+            'write',
+            o.kind === 'Namespace' ? o.metadata.name : o.metadata.namespace,
+          ),
+        )
+        .find(Boolean)
   const actions = BULK.filter((action) => objects.some(action.applies))
   return (
     <>
@@ -195,7 +209,7 @@ export function SelectionBar({
             <Button
               key={action.id}
               variant="ghost"
-              disabled={readOnly}
+              disabled={disabled !== undefined}
               onClick={() => setRunning({ action, objects })}
               className={cn(
                 'h-7 px-2.5 text-xs',
@@ -206,8 +220,8 @@ export function SelectionBar({
               {action.label}
             </Button>
           )
-          return readOnly ? (
-            <Tooltip key={action.id} content="Changes are turned off for this cluster.">
+          return disabled ? (
+            <Tooltip key={action.id} content={disabled}>
               <span tabIndex={0}>{button}</span>
             </Tooltip>
           ) : (

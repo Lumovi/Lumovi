@@ -18,7 +18,8 @@ import type { ReactNode } from 'react'
 import type { KubeErrorCode } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { Button } from './Button'
+import { Link } from 'react-router'
+import { Button, buttonClass } from './Button'
 
 /** Served pages reach the cluster through the Lumovi server, as whoever signed in. */
 const served = api.host === 'server'
@@ -95,6 +96,11 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
     hint: 'This is what helm said.',
     icon: ShipWheel,
   },
+  'not-allowed': {
+    title: 'Not for you, here',
+    hint: 'Lumovi’s admins decide who may do what. Your access (in the account menu) says why.',
+    icon: Lock,
+  },
 }
 
 /** For errors Lumovi didn't see coming: a bug, or a failure outside the API. */
@@ -142,12 +148,22 @@ export function ErrorState({
         {error.message}
       </p>
       <div className="mt-5 flex gap-2">
+        {error.code === 'not-allowed' && <YourAccessLink />}
         <Button onClick={onRetry}>
           <RotateCw /> Try again
         </Button>
         {children}
       </div>
     </div>
+  )
+}
+
+/** Where someone sees what Lumovi lets them do, and why (errors show in the app's pages). */
+function YourAccessLink() {
+  return (
+    <Link to="/your-access" className={buttonClass('primary')}>
+      See your access
+    </Link>
   )
 }
 

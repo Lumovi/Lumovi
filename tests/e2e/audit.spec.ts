@@ -285,3 +285,11 @@ test('what’s done in the desktop app is kept on this computer, and found again
   )
   expect(kept.at(-1)!.summary).toBe('Made sandbox read-only in Lumovi')
 })
+
+test('who may do what is a server’s: the desktop app has no Access pages', async ({ page }) => {
+  for (const path of ['/access', '/your-access']) {
+    await go(page, path)
+    await expect(page).toHaveURL(/#\/$/)
+  }
+  expect(await page.evaluate(() => window.lumovi!.access)).toBeUndefined()
+})

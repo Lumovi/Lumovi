@@ -27,6 +27,8 @@ import { cn } from '@renderer/lib/cn'
 import { shortNames, type Level, type LogLine, type Segment } from '@renderer/lib/logs'
 import { toast } from '@renderer/state/toasts'
 import type { PodQuery } from '../details/PodsTab'
+import { NotAllowed } from '../access/NotAllowed'
+import { useAccessHere } from '../access/use-access'
 
 /** Where the logs start: each container's last lines, or a span of time. */
 const RANGES = [
@@ -197,7 +199,14 @@ function containerNames(pod: KubeObject): string[] {
  * The logs of some pods (one pod's, or every pod of a workload), streamed as
  * they're written and merged in that order, each line marked with its pod.
  */
+/** Pods' logs, where the person's access lets them read them. */
 export function LogsView({ pods, name }: { pods: KubeObject[]; name: string }) {
+  const notAllowed = useAccessHere().whyNot('logs', 'on', pods[0]!.metadata.namespace)
+  if (notAllowed) return <NotAllowed title="You can’t read logs here" reason={notAllowed} />
+  return <Logs pods={pods} name={name} />
+}
+
+function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
   const sorted = [...pods].sort((a, b) => a.metadata.name.localeCompare(b.metadata.name))
   const names = [...new Set(sorted.flatMap(containerNames))]
   const [container, setContainer] = useState<string>(sorted[0]!.spec.containers[0].name)

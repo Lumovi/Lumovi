@@ -24,6 +24,7 @@ import type {
   Result,
 } from '@shared/api'
 import { KubeRequestError, toKubeError } from '../kube/errors'
+import type { AccessGuard } from '@shared/access'
 import type { KubeService } from '../kube/service'
 import {
   assertIntegerInRange,
@@ -70,6 +71,8 @@ export interface HelmOptions {
   localCharts: boolean
   /** Refuses URLs charts mustn't be fetched from (see the server's network policy). */
   checkUrl?: (url: string) => Promise<void>
+  /** A server's: what its person may do (the desktop app has none). */
+  guard?: AccessGuard
 }
 
 /** On the desktop: the context in the user's kubeconfig. */
@@ -84,6 +87,7 @@ export class HelmService {
   readonly #target: (context: string) => Promise<HelmTarget>
   readonly #localCharts: boolean
   readonly #checkUrl: (url: string) => Promise<void>
+  readonly #guard?: AccessGuard
 
   constructor(
     private readonly kube: KubeService,
@@ -94,6 +98,7 @@ export class HelmService {
     this.#target = options.target ?? kubeContext
     this.#localCharts = options.localCharts
     this.#checkUrl = options.checkUrl ?? (async () => undefined)
+    this.#guard = options.guard
   }
 
   get #command(): string {
@@ -117,7 +122,19 @@ export class HelmService {
       assertString(context, 'context')
       assertName(namespace, 'namespace')
       assertName(name, 'name')
-      return (await releaseHistory(this.#list(context), namespace, name)).detail
+      const { detail } = await releaseHistory(this.#list(context), namespace, name)
+      if (!this.#guard || (await this.#guard.secrets(context, namespace)) === 'values')
+        return detail
+      return {
+        ...detail,
+        revisions: detail.revisions.map((r) => ({
+          ...r,
+          values: {},
+          manifest: '',
+          notes: undefined,
+        })),
+        withheld: `Its values and manifests can hold Secrets, and your access shows only their keys in ${namespace}.`,
+      }
     })
   }
 
@@ -135,6 +152,7 @@ export class HelmService {
     return this.#result(async () => {
       const r = assertQuery<HelmRollback>(request)
       this.#assertChangeable(r)
+      await this.#allowed(r, 'upgrade', 'roll releases back')
       assertIntegerInRange(r.revision, 'revision', 1, 1_000_000)
       await this.#onCluster(r.context, (args, env) =>
         this.#helm(
@@ -150,6 +168,7 @@ export class HelmService {
     return this.#result(async () => {
       const r = assertQuery<HelmUninstall>(request)
       this.#assertChangeable(r)
+      await this.#allowed(r, 'install', 'uninstall releases')
       await this.#onCluster(r.context, (args, env) =>
         this.#helm(
           [
@@ -175,6 +194,12 @@ export class HelmService {
     return this.#result(async () => {
       const r = assertQuery<HelmDeploy>(request)
       this.#assertChangeable(r)
+      if (r.install === true) await this.#allowed(r, 'install', 'install charts')
+      else {
+        await this.#allowed(r, 'upgrade', 'upgrade releases')
+        // Upgrading starts from the values it has, which only those shown them can keep.
+        await this.#guard?.require(r.context, 'secrets', 'values', r.namespace, 'upgrade releases')
+      }
       // No values at all is fine: the chart's defaults apply.
       if (typeof r.values !== 'string') throw invalid('values must be a string')
       if (r.values.length > MAX_VALUES) throw invalid('The values are too large')
@@ -386,6 +411,16 @@ export class HelmService {
 
   #list(context: string) {
     return (path: string, selector: string) => this.kube.listRaw(context, path, selector)
+  }
+
+  /** Refuses unless the person may change things there, and do this much with Helm. */
+  async #allowed(
+    r: { context: string; namespace: string },
+    level: 'upgrade' | 'install',
+    doing: string,
+  ): Promise<void> {
+    await this.#guard?.require(r.context, 'changes', 'write', r.namespace, doing)
+    await this.#guard?.require(r.context, 'helm', level, r.namespace, doing)
   }
 
   #assertChangeable(r: { context: unknown; namespace: unknown; name: unknown }): void {

@@ -25,7 +25,9 @@ import {
   type AiDecision,
   type AiPolicy,
   type AiSource,
+  type AiTarget,
 } from '@shared/ai-permissions'
+import { cappedByAccess, type AccessDecision } from '@shared/access'
 import type { ChangeRequest, KubeErrorCode, KubeObject, Result } from '@shared/api'
 import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
 import type { AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
@@ -57,6 +59,15 @@ export interface ToolContext {
    * Read on each call, so a change to them applies at once.
    */
   policy(): AiPolicy
+  /**
+   * On a server: what the person may do themselves, which their assistants never do more than.
+   * Read on each call, as `policy` is.
+   */
+  access?(): {
+    decide: (target: AiTarget) => AccessDecision
+    /** Whether they may use assistants somewhere in a cluster (its namespaces decide each). */
+    somewhere: (cluster: AiTarget['cluster']) => boolean
+  }
   /** Where its changes wait for the person's answer. */
   approvals: Pick<Approvals, 'ask' | 'wait'>
   /** What became of a change it asked for, for the activity log. */
@@ -168,6 +179,10 @@ function argumentsOf(input: Record<string, unknown>): Record<string, AuditDetail
 /** Who says it may not: the person's permissions, a rule of theirs, or the administrator's. */
 function because(from: AiSource): string {
   if (from.kind === 'default') return 'the person’s AI permissions say so'
+  if (from.kind === 'access') {
+    const named = from.names.map((name) => `“${name}”`).join(', ')
+    return `Lumovi’s admins don’t let the person${named ? ` (${named})` : ''}`
+  }
   const named = from.names.map((name) => `“${name}”`).join(', ')
   return from.kind === 'rule'
     ? `the person’s AI permissions say so (${named})`
@@ -240,6 +255,20 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
   }
   const labels = new NamespaceLabels(kube)
 
+  /** What it may do anywhere: the person's AI permissions, under their access on a server. */
+  const decideAll = (): ((target: AiTarget) => AiDecision) => {
+    const ai = decider(t.policy())
+    const access = t.access?.()
+    return access
+      ? (target) =>
+          cappedByAccess(
+            ai(target),
+            access.decide(target),
+            !target.namespace && access.somewhere(target.cluster),
+          )
+      : ai
+  }
+
   const clusterOf = (context: string) => ({
     name: context,
     labels: kube.contexts().contexts.find((c) => c.name === context)?.labels,
@@ -247,7 +276,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
 
   /** The kubeconfig's contexts, but those the person's AI permissions hide. */
   const visibleContexts = () => {
-    const decide = decider(t.policy())
+    const decide = decideAll()
     return kube
       .contexts()
       .contexts.filter((c) => decide({ cluster: c }).visibility.value !== 'hidden')
@@ -266,7 +295,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
 
   /** What it may do with a cluster's own objects, or in one of its namespaces. */
   const access = async (context: string, namespace?: string): Promise<AiDecision> =>
-    decider(t.policy())({
+    decideAll()({
       cluster: clusterOf(context),
       ...(namespace === undefined
         ? {}
@@ -275,7 +304,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
 
   /** What it may do in each of many namespaces (a list's), each decided once. */
   const accessIn = (context: string) => {
-    const decide = decider(t.policy())
+    const decide = decideAll()
     const decided = new Map<string, Promise<AiDecision>>()
     return (namespace: string) => {
       let decision = decided.get(namespace)
@@ -354,7 +383,15 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       return text(
         yaml({
           ...(shown.some((c) => c.name === currentContext) ? { current: currentContext } : {}),
-          clusters: shown.map((c) => clusterForAssistant(policy, c, kube.isReadOnly(c.name))),
+          clusters: shown.map((c) => ({
+            ...clusterForAssistant(policy, c, kube.isReadOnly(c.name)),
+            ...(t.access
+              ? {
+                  access:
+                    'Lumovi’s admins decide what the person may do here, namespace by namespace, and the assistant never does more: a tool refuses what they don’t allow, and says why.',
+                }
+              : {}),
+          })),
         }),
       )
     },
@@ -936,7 +973,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
         : await inNamespace(context, scope, missing)
     if (labelled) {
       const now = await labels.of(context, name)
-      const after = decider(t.policy())({
+      const after = decideAll()({
         cluster: clusterOf(context),
         namespace: { name, labels: { ...now, ...labelled } },
       })

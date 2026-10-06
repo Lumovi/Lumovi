@@ -1,5 +1,6 @@
-import { Check, CircleHelp, Eye, EyeOff, TriangleAlert } from 'lucide-react'
+import { Check, CircleHelp, Eye, EyeOff, Lock, TriangleAlert } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import type { ContainerUsage, KubeObject } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
 import { Button, IconButton } from '@renderer/components/Button'
@@ -389,9 +390,19 @@ function decode(base64: string): string {
   return new TextDecoder().decode(bytes)
 }
 
-/** ConfigMap and Secret data. Secret values are decoded but hidden until revealed. */
-/** ConfigMap and Secret data. Secret values are decoded but hidden until revealed. */
-export function DataEntries({ data, secret }: { data: Record<string, string>; secret: boolean }) {
+/**
+ * ConfigMap and Secret data. Secret values are decoded but hidden until revealed; where the
+ * person's access shows only their keys (`withheld` says why), they never arrived.
+ */
+export function DataEntries({
+  data,
+  secret,
+  withheld,
+}: {
+  data: Record<string, string>
+  secret: boolean
+  withheld?: string
+}) {
   const [revealed, setRevealed] = useState<Set<string>>(new Set())
   const keys = Object.keys(data)
   const allRevealed = revealed.size === keys.length
@@ -404,16 +415,28 @@ export function DataEntries({ data, secret }: { data: Record<string, string>; se
     })
   return (
     <div className="space-y-2">
-      {secret && (
-        <div className="flex justify-end">
-          <Button
-            variant="ghost"
-            onClick={() => setRevealed(allRevealed ? new Set() : new Set(keys))}
-          >
-            {allRevealed ? <EyeOff /> : <Eye />}
-            {allRevealed ? 'Hide all' : 'Reveal all'}
-          </Button>
-        </div>
+      {withheld ? (
+        <p className="flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-2">
+          <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
+          <span>
+            Only the keys: {withheld}{' '}
+            <Link to="/your-access" className="font-medium text-accent hover:underline">
+              See your access
+            </Link>
+          </span>
+        </p>
+      ) : (
+        secret && (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              onClick={() => setRevealed(allRevealed ? new Set() : new Set(keys))}
+            >
+              {allRevealed ? <EyeOff /> : <Eye />}
+              {allRevealed ? 'Hide all' : 'Reveal all'}
+            </Button>
+          </div>
+        )
       )}
       {keys.map((key) => (
         <DataEntry
@@ -421,6 +444,7 @@ export function DataEntries({ data, secret }: { data: Record<string, string>; se
           name={key}
           value={secret ? decode(data[key]!) : data[key]!}
           secret={secret}
+          withheld={Boolean(withheld)}
           revealed={!secret || revealed.has(key)}
           onToggle={() => toggle(key)}
         />
@@ -435,15 +459,28 @@ function DataEntry({
   name,
   value,
   secret,
+  withheld,
   revealed,
   onToggle,
 }: {
   name: string
   value: string
   secret: boolean
+  /** Only its key is shown: the value never arrived. */
+  withheld: boolean
   revealed: boolean
   onToggle: () => void
 }) {
+  if (withheld) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-ink-1">
+          {name}
+        </span>
+        <span className="text-2xs text-ink-3">Value hidden by your access</span>
+      </div>
+    )
+  }
   return (
     <div className="overflow-hidden rounded-xl border border-line">
       <div className="flex items-center gap-2 bg-surface-2 py-1 pr-1 pl-3">

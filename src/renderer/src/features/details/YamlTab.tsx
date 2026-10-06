@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Pencil } from 'lucide-react'
+import { Eye, EyeOff, Lock, Pencil } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
@@ -8,6 +8,7 @@ import { YamlText } from '@renderer/components/YamlText'
 import { formatRef } from '@renderer/lib/routes'
 import { toYaml } from '@renderer/lib/yaml'
 import { useActionsUi } from '@renderer/state/actions'
+import { useAccessHere } from '../access/use-access'
 import { kindOf } from '../actions/common'
 import { useObjectActions } from '../actions/use-actions'
 import { YamlEditor } from './YamlEditor'
@@ -62,6 +63,12 @@ function EditButton({ object, onEdit }: { object: KubeObject; onEdit: () => void
 function YamlView({ object, onEdit }: { object: KubeObject; onEdit: () => void }) {
   const isSecret = object.kind === 'Secret'
   const [revealed, setRevealed] = useState(false)
+  const withheld = useAccessHere().whyNot(
+    'secrets',
+    'values',
+    object.metadata.namespace,
+    'see Secrets’ values',
+  )
   const yaml = useMemo(
     () => toYaml(isSecret && !revealed ? maskSecret(object) : object),
     [object, isSecret, revealed],
@@ -72,12 +79,19 @@ function YamlView({ object, onEdit }: { object: KubeObject; onEdit: () => void }
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-5 py-2">
         <span className="flex-1 text-xs text-ink-3">{lines.length} lines · read-only</span>
-        {isSecret && (
-          <Button variant="ghost" onClick={() => setRevealed(!revealed)}>
-            {revealed ? <EyeOff /> : <Eye />}
-            {revealed ? 'Hide values' : 'Reveal values'}
-          </Button>
-        )}
+        {isSecret &&
+          (withheld ? (
+            <Tooltip content={withheld}>
+              <span tabIndex={0} className="flex items-center gap-1.5 text-xs text-ink-3">
+                <Lock className="size-3.5" aria-hidden /> Values hidden by your access
+              </span>
+            </Tooltip>
+          ) : (
+            <Button variant="ghost" onClick={() => setRevealed(!revealed)}>
+              {revealed ? <EyeOff /> : <Eye />}
+              {revealed ? 'Hide values' : 'Reveal values'}
+            </Button>
+          ))}
         <CopyButton text={yaml} label="Copy YAML" />
         <EditButton object={object} onEdit={onEdit} />
       </div>

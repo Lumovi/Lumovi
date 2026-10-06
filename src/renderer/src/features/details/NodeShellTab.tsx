@@ -18,6 +18,8 @@ import { useNodeShellSetting, useReadOnly } from '@renderer/hooks/settings'
 import { kubectl } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
+import { NotAllowed } from '../access/NotAllowed'
+import { useAccessHere } from '../access/use-access'
 import { ActionDialog } from '../actions/ActionDialog'
 import { TerminalSession } from '../terminal/session'
 import { TerminalNotice, TerminalView, usePhase } from '../terminal/TerminalView'
@@ -85,13 +87,16 @@ export function NodeShellTab({ node }: { node: KubeObject }) {
     { verb: 'delete', kind: 'Pod', namespace: setting.namespace },
   ])
   const windows = node.status!.nodeInfo.operatingSystem === 'windows'
+  const notAllowed = useAccessHere().whyNot('nodeShells', 'on')
   const start = (as: Mode) => {
     setMode(as)
     setAttempt({ n: (attempt?.n ?? 0) + 1, mode: as, image: setting.image })
   }
 
   let body
-  if (off) {
+  if (notAllowed) {
+    body = <NotAllowed title="You can’t open shells on nodes here" reason={notAllowed} />
+  } else if (off) {
     body = (
       <EmptyState icon={SquareTerminal} title="Node shells are off">
         This Lumovi server turned them off.

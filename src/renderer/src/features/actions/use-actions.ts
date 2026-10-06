@@ -8,6 +8,7 @@ import { formatRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
+import { useAccessHere, type AccessHere } from '../access/use-access'
 import { actionsFor, type Action } from './catalog'
 import { kindOf } from './common'
 
@@ -39,22 +40,49 @@ function forbidden(check: AccessCheck): string {
 }
 
 /**
+ * Why a server's access doesn't let its person use an action: shells (a node's, a container's,
+ * or a debug container's) and changes, where the object is.
+ */
+function notAllowed(action: Action, check: AccessCheck, object: KubeObject, here: AccessHere) {
+  const where = object.kind === 'Namespace' ? object.metadata.name : object.metadata.namespace
+  const kind = check.subresource ? `${check.verb}/${check.subresource}` : check.verb
+  if (action.id === 'node-shell') return here.whyNot('nodeShells', 'on', undefined)
+  if (kind === 'create/exec') return here.whyNot('shells', 'on', where)
+  // Forwarding a port changes nothing.
+  if (kind === 'create/portforward') return undefined
+  // A Secret written whole by someone shown only its keys would lose its values.
+  if (object.kind === 'Secret' && action.id === 'edit-yaml') {
+    return (
+      here.whyNot('changes', 'write', where) ??
+      here.whyNot('secrets', 'values', where, 'edit Secrets whole')
+    )
+  }
+  if (kind === 'patch/ephemeralcontainers') {
+    return (
+      here.whyNot('shells', 'on', where, 'debug pods') ?? here.whyNot('changes', 'write', where)
+    )
+  }
+  return here.whyNot('changes', 'write', where)
+}
+
+/**
  * The actions that apply to `object`, each with the reason it is disabled, if
- * it is: the cluster is read-only, or RBAC doesn't allow it.
+ * it is: the cluster is read-only, a server's access doesn't let its person,
+ * or RBAC doesn't allow it.
  */
 export function useObjectActions(object: KubeObject): AvailableAction[] {
   const actions = actionsFor(object)
   const checks = actions.map((action) => action.access(object))
   const access = useAccess(checks)
   const { readOnly } = useReadOnly()
+  const here = useAccessHere()
   return actions.map((action, i) => ({
     action,
     disabled:
       readOnly && !action.safe
         ? 'Changes are turned off for this cluster.'
-        : access[i] === false
-          ? forbidden(checks[i]!)
-          : undefined,
+        : (notAllowed(action, checks[i]!, object, here) ??
+          (access[i] === false ? forbidden(checks[i]!) : undefined)),
   }))
 }
 

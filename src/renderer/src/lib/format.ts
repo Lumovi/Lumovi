@@ -82,4 +82,5 @@ export const ERROR_LABELS: Record<KubeErrorCode, string> = {
   conflict: 'Conflict',
   'read-only': 'Read-only',
   helm: 'Helm failed',
+  'not-allowed': 'Not allowed',
 }

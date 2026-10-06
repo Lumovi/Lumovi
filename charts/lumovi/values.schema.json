@@ -308,6 +308,280 @@
         }
       }
     },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "everyone": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "changes": {
+                  "enum": ["read", "write"]
+                },
+                "shells": {
+                  "enum": ["off", "on"]
+                },
+                "nodeShells": {
+                  "enum": ["off", "on"]
+                },
+                "logs": {
+                  "enum": ["off", "on"]
+                },
+                "secrets": {
+                  "enum": ["hidden", "keys", "values"]
+                },
+                "helm": {
+                  "enum": ["off", "upgrade", "install"]
+                },
+                "assistants": {
+                  "enum": ["off", "ask", "self"]
+                },
+                "audit": {
+                  "enum": ["own", "all"]
+                }
+              },
+              "required": [
+                "changes",
+                "shells",
+                "nodeShells",
+                "logs",
+                "secrets",
+                "helm",
+                "assistants",
+                "audit"
+              ]
+            },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "people": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "profiles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name", "values"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "changes": {
+                        "enum": ["read", "write"]
+                      },
+                      "shells": {
+                        "enum": ["off", "on"]
+                      },
+                      "nodeShells": {
+                        "enum": ["off", "on"]
+                      },
+                      "logs": {
+                        "enum": ["off", "on"]
+                      },
+                      "secrets": {
+                        "enum": ["hidden", "keys", "values"]
+                      },
+                      "helm": {
+                        "enum": ["off", "upgrade", "install"]
+                      },
+                      "assistants": {
+                        "enum": ["off", "ask", "self"]
+                      },
+                      "audit": {
+                        "enum": ["own", "all"]
+                      }
+                    },
+                    "required": [
+                      "changes",
+                      "shells",
+                      "nodeShells",
+                      "logs",
+                      "secrets",
+                      "helm",
+                      "assistants",
+                      "audit"
+                    ]
+                  }
+                }
+              }
+            },
+            "grants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name", "who", "profile"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "who": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "profile": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  },
+                  "clusters": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "namespaces": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "limits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name", "caps"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "who": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "clusters": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "namespaces": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "caps": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "changes": {
+                        "enum": ["read", "write"]
+                      },
+                      "shells": {
+                        "enum": ["off", "on"]
+                      },
+                      "nodeShells": {
+                        "enum": ["off", "on"]
+                      },
+                      "logs": {
+                        "enum": ["off", "on"]
+                      },
+                      "secrets": {
+                        "enum": ["hidden", "keys", "values"]
+                      },
+                      "helm": {
+                        "enum": ["off", "upgrade", "install"]
+                      },
+                      "assistants": {
+                        "enum": ["off", "ask", "self"]
+                      },
+                      "audit": {
+                        "enum": ["own", "all"]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "names": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "metrics": {
       "type": "object",
       "properties": {

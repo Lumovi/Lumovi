@@ -6,6 +6,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
+import { ServerAccess } from './access'
 import { ServerAssistants } from './assistants/assistants'
 import { PermissionsStore } from './assistants/permissions'
 import { Auth } from './auth'
@@ -48,6 +49,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
   const audit = openAudit(config.audit)
+  // Who may do what: what the chart says, and what admins set on the Access page.
+  const access = await ServerAccess.open(config.access, config.auth, options.env, audit)
   // What each person lets their AI assistants do: kept where the administrator says.
   const permissions = config.assistants.enabled
     ? await PermissionsStore.open(config.assistants.keep, options.env)
@@ -77,6 +80,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     readOnly: ['1', 'true'].includes(options.env.LUMOVI_READ_ONLY ?? ''),
     permissions,
     audit,
+    access,
   })
   const oidc =
     config.auth.mode === 'oidc'
@@ -208,12 +212,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ws.on('pong', () => (sockets.get(ws)!.alive = true))
       ws.on('close', () => sockets.delete(ws))
       const actor = personActor(caller.identity.user, req, caller.session)
+      access.saw(caller.identity.user, config.auth.mode)
       const connection = new PageConnection(ws, {
         ...options,
         identity: caller.identity,
         audit,
         actor,
-        auditor: isAuditor(config.audit, caller.identity),
+        auditor: () =>
+          isAuditor(config.audit, caller.identity) || access.readsEveryone(caller.identity.user),
+        access,
         rejected: () =>
           sessions.end(
             caller.session!,
@@ -269,6 +276,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://${config.address ?? 'localhost'}:${port}${base}`,
     async close() {
       clearInterval(heartbeat)
+      access.close()
       const ending = [...connections]
       hosted.close()
       await assistants.close()

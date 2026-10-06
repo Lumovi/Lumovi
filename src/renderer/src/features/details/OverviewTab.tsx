@@ -4,6 +4,7 @@ import { isBuiltinKind, kindOf, type BuiltinKind } from '@shared/resources'
 import { useMetrics } from '@renderer/hooks/queries'
 import { resourceFor, useSchema } from '@renderer/hooks/resources'
 import { viewFor, viewLinks } from '@renderer/lib/views'
+import { useAccessHere } from '../access/use-access'
 import { factsFor } from './facts'
 import { FieldTree } from './FieldTree'
 import { ObjectLink } from './ObjectLink'
@@ -67,10 +68,17 @@ function TemplateSection({ object }: { object: KubeObject }) {
 
 function DataSection({ object }: { object: KubeObject }) {
   const data = (object.data ?? {}) as Record<string, string>
+  const secret = object.kind === 'Secret'
+  const withheld = useAccessHere().whyNot(
+    'secrets',
+    'values',
+    object.metadata.namespace,
+    'see Secrets’ values',
+  )
   return (
     <Section title="Data">
       {Object.keys(data).length > 0 ? (
-        <DataEntries data={data} secret={object.kind === 'Secret'} />
+        <DataEntries data={data} secret={secret} withheld={secret ? withheld : undefined} />
       ) : (
         <p className="text-ink-3">No data.</p>
       )}

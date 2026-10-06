@@ -1,11 +1,13 @@
-import { LogOut } from 'lucide-react'
+import { LogOut, Shield, ShieldCheck } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState } from 'react'
+import { Link } from 'react-router'
 import type { Session } from '@shared/server'
 import { IconButton } from '@renderer/components/Button'
 import { cn } from '@renderer/lib/cn'
 import { toast } from '@renderer/state/toasts'
 import { sessionEnded, signOut } from '@renderer/web/session'
+import { useMyAccess } from '../access/use-access'
 import { menuContent, menuItem } from '../shell/menu-styles'
 
 /** Groups shown by name; the rest are counted. */
@@ -18,6 +20,9 @@ export function AccountMenu({ session }: { session: Session }) {
   const initials = user.name.replace(/@.*/, '').slice(0, 2).toUpperCase()
   // Everyone signed in is in system:authenticated: it says nothing.
   const groups = user.groups.filter((group) => group !== 'system:authenticated')
+  const access = useMyAccess()
+  // Lumovi's own groups they're in, as its admins named them.
+  const lumoviGroups = access?.policy.groups.map((g) => g.name) ?? []
   const leave = async () => {
     setLeaving(true)
     try {
@@ -46,7 +51,7 @@ export function AccountMenu({ session }: { session: Session }) {
           align="start"
           sideOffset={6}
           aria-label="Account"
-          className={cn(menuContent, 'w-[272px] p-0')}
+          className={cn(menuContent, 'w-[300px] p-0')}
         >
           <div className="border-b border-line px-3.5 py-3">
             <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Signed in as</p>
@@ -56,6 +61,11 @@ export function AccountMenu({ session }: { session: Session }) {
             >
               {user.name}
             </p>
+            {(lumoviGroups.length > 0 || access?.admin) && (
+              <p className="mt-0.5 truncate text-xs text-ink-3">
+                {[...lumoviGroups, ...(access?.admin ? ['Admin'] : [])].join(' · ')}
+              </p>
+            )}
             {groups.length > 0 && (
               <ul aria-label="Groups" className="mt-2 flex flex-wrap gap-1">
                 {groups.slice(0, SHOWN_GROUPS).map((group) => (
@@ -74,6 +84,26 @@ export function AccountMenu({ session }: { session: Session }) {
               </ul>
             )}
           </div>
+          {access && (
+            <div className="border-b border-line p-1">
+              <Popover.Close asChild>
+                <Link to="/your-access" className={cn(menuItem, 'hover:bg-surface-3')}>
+                  <ShieldCheck className="size-4 text-ink-3" />
+                  <span className="flex-1 whitespace-nowrap">Your access</span>
+                  <span className="text-2xs text-ink-3">What you may do, and why</span>
+                </Link>
+              </Popover.Close>
+              {access.admin && (
+                <Popover.Close asChild>
+                  <Link to="/access" className={cn(menuItem, 'hover:bg-surface-3')}>
+                    <Shield className="size-4 text-ink-3" />
+                    <span className="flex-1 whitespace-nowrap">Admin</span>
+                    <span className="text-2xs text-ink-3">Who may do what</span>
+                  </Link>
+                </Popover.Close>
+              )}
+            </div>
+          )}
           <div className="p-1">
             {auth !== 'proxy' ? (
               <button
