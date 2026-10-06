@@ -14,10 +14,11 @@ All notable changes to Lumovi are documented here. The format follows
   rollbacks and uninstalls, shells and node shells (with how long they ran), port-forwards,
   logs, Secrets and Helm releases' values read (or refused), sign-ins and sign-outs, sessions
   ending, assistants allowed, denied and let go (a refresh token used twice, refused), each tool
-  an assistant calls, and changes to read-only, where node shells run, and AI permissions. Each change is described by the server, from what
-  was asked (never from what the page says it is), with the kubectl or helm command that does
-  the same; what a patch sets is named, never its values; Secrets' values, tokens and
-  manifests' contents are never in it.
+  an assistant calls, and changes to read-only, where node shells run, and AI permissions. Each
+  change is described by the server, from what was asked (never from what the page says it is),
+  with the kubectl or helm command that does the same; what a patch sets is named, never its
+  values; Secrets' values, tokens and manifests' contents are never in it, nor what the cluster
+  says in an error about a Secret.
 - Events are chained: each holds its chain's id and the hash of the one before it, so changing
   one, or removing or putting one in between others, shows when it's checked: on the Audit page
   (every place it doesn't hold), or by anyone with the events, jq and SHA-256 (`jq -jcS
@@ -41,9 +42,9 @@ All notable changes to Lumovi are documented here. The format follows
   recorded each up to 60 a minute, and counted past that. People see their own events; those in
   `LUMOVI_AUDITORS` (groups, or `user:` names) see everyone's. Its history is kept in
   `LUMOVI_AUDIT_DIR` (or `LUMOVI_DATA_DIR/audit`) for `LUMOVI_AUDIT_RETENTION_DAYS` (90), by one
-  server alone (another sharing the folder doesn't start), else in memory since it started
-  (said on the page). `LUMOVI_AUDIT_LEVEL=changes` records changes,
-  sign-ins and settings, but not what's opened and read.
+  server alone (another sharing the folder waits, 30 seconds at most, for it to stop, then
+  doesn't start), else in memory since it started (said on the page). `LUMOVI_AUDIT_LEVEL=changes`
+  records changes, sign-ins and settings, but not what's opened and read.
 - The desktop app keeps its own, for 90 days, as the computer's person and each cluster's
   kubeconfig user (in memory, and said why, if its folder can't be used).
 - Helm chart: `audit` values: the level, auditors, the output, a volume for the history
