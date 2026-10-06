@@ -10,6 +10,9 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron'
 import { IPC, type AppInfo, type Result } from '@shared/api'
+import { describePermissions } from '@backend/audit/describe'
+import { auditHandlers } from '@backend/audit/handlers'
+import type { AuditLog } from '@backend/audit/log'
 import { handlers, type Backend, type Handler } from '@backend/handlers'
 import { toKubeError } from '@backend/kube/errors'
 import type { Forwards } from '@backend/kube/streams'
@@ -31,6 +34,10 @@ interface Dependencies extends Backend {
   terminalKeys: TerminalKeys
   forwards: Forwards
   updates: Updates
+  /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
+  auditLog: AuditLog
+  /** Tells the page of something. */
+  send: (channel: string, ...args: unknown[]) => void
   /** Only frames showing this URL may call into the main process. */
   rendererUrl: string
 }
@@ -46,6 +53,9 @@ export function registerIpc(deps: Dependencies): void {
     forwards,
     updates,
     rendererUrl,
+    audit,
+    auditLog,
+    send,
   } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame?.url.startsWith(rendererUrl) === true
@@ -131,12 +141,33 @@ export function registerIpc(deps: Dependencies): void {
       ) {
         throw new Error('Expected whether assistants may connect, and a port from 1024 to 65535')
       }
+      audit.record({
+        action: 'assistants.changed',
+        outcome: 'success',
+        summary: [
+          ...(enabled === undefined
+            ? []
+            : [enabled ? 'Let AI assistants connect' : 'Stopped AI assistants connecting']),
+          ...(port === undefined ? [] : [`Moved where AI assistants connect to port ${port}`]),
+        ].join('; '),
+        details: {
+          ...(enabled !== undefined ? { enabled } : {}),
+          ...(port !== undefined ? { port } : {}),
+        },
+      })
       return assistants.configure({
         ...(enabled !== undefined ? { enabled } : {}),
         ...(port !== undefined ? { port } : {}),
       })
     },
-    [IPC.assistantsResetToken]: () => assistants.resetToken(),
+    [IPC.assistantsResetToken]: () => {
+      audit.record({
+        action: 'assistants.changed',
+        outcome: 'success',
+        summary: 'Made a new token for AI assistants: those set up with the old one can’t connect',
+      })
+      return assistants.resetToken()
+    },
     [IPC.assistantsInstall]: (client) => {
       if (client !== 'claude-desktop' && client !== 'cursor' && client !== 'vscode') {
         throw new Error(`Lumovi can’t set ${String(client)} up itself`)
@@ -147,6 +178,7 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.aiPermissionsGet]: () => aiPermissions(),
     [IPC.aiPermissionsSet]: (given) => {
       settings.setAiPermissions(given)
+      audit.record(describePermissions(settings.aiPermissions()))
       return aiPermissions()
     },
     [IPC.assistantsDecide]: (id, decision) =>
@@ -171,7 +203,13 @@ export function registerIpc(deps: Dependencies): void {
     }
   }
 
-  for (const [channel, handler] of Object.entries({ ...shared.invoke, ...desktop })) {
+  // Everything in this computer's audit log is its person's: they read all of it.
+  const auditing = auditHandlers(auditLog, { everyone: true, may: () => true }, send)
+  for (const [channel, handler] of Object.entries({
+    ...shared.invoke,
+    ...auditing.invoke,
+    ...desktop,
+  })) {
     handle(channel, handler)
   }
   const desktopSend: Record<string, Handler> = {

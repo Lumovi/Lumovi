@@ -4,7 +4,24 @@
  * its own on top (windows, files and updates on the desktop; who is signed in
  * on the server).
  */
-import { IPC } from '@shared/api'
+import {
+  IPC,
+  type ChangeRequest,
+  type GetQuery,
+  type HelmDeploy,
+  type HelmRollback,
+  type HelmUninstall,
+  type KubeObject,
+  type Result,
+} from '@shared/api'
+import {
+  describeChange,
+  describeDeploy,
+  describeRollback,
+  describeUninstall,
+  malformed,
+} from './audit/describe'
+import type { Recorder } from './audit/recorder'
 import type { HelmService } from './helm/service'
 import type { LogStreams } from './kube/logs'
 import type { KubeService } from './kube/service'
@@ -25,6 +42,8 @@ export interface Backend {
   logs: LogStreams
   /** Where the views of one's own are, and how that folder is shown. */
   viewsDirectory: { path: string; shown: string }
+  /** The audit log, as the page's person records to it. */
+  audit: Recorder
 }
 
 export interface Handlers {
@@ -42,7 +61,21 @@ export function handlers({
   terminals,
   logs,
   viewsDirectory,
+  audit,
 }: Backend): Handlers {
+  /** Recorded once it's done, as it came out: but not what was only tried (a dry run). */
+  const recorded =
+    <R, T>(
+      run: (request: R) => Promise<Result<T>>,
+      describe: (request: R, result: Result<T>) => ReturnType<typeof describeChange>,
+    ) =>
+    async (request: unknown): Promise<Result<T>> => {
+      const result = await run(request as R)
+      if (!malformed(result) && (request as { dryRun?: unknown }).dryRun !== true) {
+        audit.record(describe(request as R, result))
+      }
+      return result
+    }
   return {
     invoke: {
       [IPC.settings]: () => settings.get(),
@@ -50,7 +83,15 @@ export function handlers({
         if (typeof context !== 'string' || context === '' || typeof readOnly !== 'boolean') {
           throw new Error('Expected a context name and whether it is read-only')
         }
-        return settings.setReadOnly(context, readOnly)
+        const updated = settings.setReadOnly(context, readOnly)
+        audit.record({
+          action: 'read-only.changed',
+          outcome: 'success',
+          cluster: context,
+          summary: `Made ${context} ${readOnly ? 'read-only' : 'changeable'} in Lumovi`,
+          details: { readOnly },
+        })
+        return updated
       },
       [IPC.setMetricsSource]: (context, setting) => {
         if (typeof context !== 'string' || context === '' || !isMetricsSourceSetting(setting)) {
@@ -79,18 +120,46 @@ export function handlers({
       [IPC.resources]: (context) => kube.resources(context),
       [IPC.schema]: (context, kind) => kube.schema(context, kind),
       [IPC.list]: (query) => kube.list(query),
-      [IPC.get]: (query) => kube.get(query),
+      [IPC.get]: async (query) => {
+        const result = await kube.get(query)
+        // A Secret's values went to the page: who read which, a while at a time.
+        const q = query as GetQuery
+        if (result.ok && result.data.kind === 'Secret') {
+          audit.read(`secret:${q.context}/${q.namespace}/${q.name}`, {
+            action: 'secret.read',
+            outcome: 'success',
+            cluster: q.context,
+            target: {
+              kind: 'Secret',
+              name: q.name,
+              namespace: q.namespace,
+              uid: result.data.metadata.uid,
+            },
+            summary: `Read Secret ${q.name}`,
+            details: {
+              keys: Object.keys((result.data as KubeObject & { data?: object }).data ?? {}),
+            },
+          })
+        }
+        return result
+      },
       [IPC.metrics]: (query) => kube.metrics(query),
-      [IPC.change]: (request) => kube.change(request),
+      [IPC.change]: recorded((request: ChangeRequest) => kube.change(request), describeChange),
       [IPC.can]: (context, checks) => kube.can(context, checks),
       [IPC.history]: (query) => kube.history(query),
 
       [IPC.helmReleases]: (context, namespace) => helm.releases(context, namespace),
       [IPC.helmRelease]: (context, namespace, name) => helm.release(context, namespace, name),
       [IPC.helmCli]: () => helm.cli(),
-      [IPC.helmRollback]: (request) => helm.rollback(request),
-      [IPC.helmUninstall]: (request) => helm.uninstall(request),
-      [IPC.helmDeploy]: (request) => helm.deploy(request),
+      [IPC.helmRollback]: recorded(
+        (request: HelmRollback) => helm.rollback(request),
+        describeRollback,
+      ),
+      [IPC.helmUninstall]: recorded(
+        (request: HelmUninstall) => helm.uninstall(request),
+        describeUninstall,
+      ),
+      [IPC.helmDeploy]: recorded((request: HelmDeploy) => helm.deploy(request), describeDeploy),
       [IPC.helmDefaults]: (source) => helm.defaults(source),
       [IPC.helmVersions]: (repository, chart) => helm.versions(repository, chart),
       [IPC.helmSearch]: (query) => helm.search(query),

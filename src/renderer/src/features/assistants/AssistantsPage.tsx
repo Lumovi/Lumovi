@@ -3,17 +3,15 @@
  * they may do and where (Permissions), and what they did (Activity). The
  * desktop app's and a server's, each with its tabs.
  */
-import { ArrowLeft } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router'
+import { Link, Navigate, useParams } from 'react-router'
 import type { LumoviApi } from '@shared/api'
-import { IconButton } from '@renderer/components/Button'
-import { LogoLockup } from '@renderer/components/LogoLockup'
 import { useContexts } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useSession } from '@renderer/state/session'
 import { Commands } from '../shell/Commands'
+import { PageHeader } from '../shell/PageHeader'
 import { ActivityTab } from './ActivityTab'
 import { DesktopConnectTab } from './DesktopConnect'
 import { PermissionsTab, type Scope } from './PermissionsTab'
@@ -131,26 +129,11 @@ function Page({
   tabs: Tab[]
 }) {
   const { tab } = useParams()
-  const navigate = useNavigate()
   const current = tabs.find(({ path }) => path === tab)
   if (tabs.length && !current) return <Navigate replace to={`/assistants/${tabs[0]!.path}`} />
-  // Back where the person came from; opened from elsewhere (a link), to the start.
-  const back = () =>
-    void ((window.history.state as { idx?: number } | null)?.idx ? navigate(-1) : navigate('/'))
   return (
     <div className="vt-page flex h-full flex-col overflow-hidden bg-app">
-      <header className="titlebar-leading titlebar-trailing flex min-h-[52px] shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2 drag">
-        <IconButton label="Back" className="no-drag" onClick={back}>
-          <ArrowLeft />
-        </IconButton>
-        <LogoLockup className="h-5" />
-        <span aria-hidden className="h-5 w-px bg-line-strong" />
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-[13px] font-semibold text-ink-1">{scope}</span>
-          {scopeLine && <span className="text-xs whitespace-nowrap text-ink-3">{scopeLine}</span>}
-        </span>
-        <span className="flex min-w-0 flex-1 justify-end">{end}</span>
-      </header>
+      <PageHeader scope={scope} scopeLine={scopeLine} end={end} />
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[1240px] px-5 pt-8 pb-16">
           <div className="flex flex-wrap items-start gap-4">

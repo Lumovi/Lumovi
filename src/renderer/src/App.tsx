@@ -8,6 +8,7 @@ import { TooltipProvider } from './components/Tooltip'
 import { AddOnPage } from './features/add-ons/AddOnPage'
 import { ApprovalCenter } from './features/assistants/ApprovalCenter'
 import { AssistantsPage } from './features/assistants/AssistantsPage'
+import { AuditPage } from './features/audit/AuditPage'
 import { HelmPage } from './features/helm/HelmPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
@@ -55,6 +56,8 @@ const routes: RouteObject[] = [
       { path: '/authorize', element: <AuthorizePage /> },
       // AI assistants: connecting them, what they may do and where, and what they did.
       { path: '/assistants/:tab?', element: <AssistantsPage /> },
+      // What was done through Lumovi, by whom, and how it went.
+      { path: '/audit', element: <AuditPage /> },
       {
         path: '/cluster/:context',
         element: <ClusterLayout />,

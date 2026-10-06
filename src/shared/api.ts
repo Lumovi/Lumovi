@@ -16,6 +16,7 @@ import type {
   ProposalOutcome,
   ServerAssistantsStatus,
 } from './assistants'
+import type { AuditEvent, AuditInfo, AuditPage, AuditQuery, AuditVerification } from './audit'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
 
@@ -837,6 +838,18 @@ export interface LumoviApi {
     /** Another page (or window) changed them. */
     onChanged(listener: (view: AiPermissionsView) => void): () => void
   }
+  /**
+   * The audit log: what's been done through Lumovi, by whom, and how it came out. The person's
+   * own, or (an auditor on a server) everyone's.
+   */
+  audit: {
+    info(): Promise<AuditInfo>
+    query(query: AuditQuery): Promise<AuditPage>
+    /** Checks that every event kept follows from the one before it. */
+    verify(): Promise<AuditVerification>
+    /** Each event the person may see, as it's recorded, until let go of. */
+    onEvent(listener: (event: AuditEvent) => void): () => void
+  }
   /** A server's MCP server: where assistants connect, and the person's. */
   serverAssistants?: {
     status(): Promise<ServerAssistantsStatus>
@@ -931,4 +944,10 @@ export const IPC = {
   serverAssistantsStatus: 'server-assistants:status',
   serverAssistantsRevoke: 'server-assistants:revoke',
   serverAssistantsStatusChanged: 'server-assistants:status-changed',
+  auditInfo: 'audit:info',
+  auditQuery: 'audit:query',
+  auditVerify: 'audit:verify',
+  /** Starts (true) or stops (false) telling the page of events as they're recorded. */
+  auditWatch: 'audit:watch',
+  auditEvent: 'audit:event',
 } as const

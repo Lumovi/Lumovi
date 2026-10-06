@@ -26,8 +26,9 @@ import {
   type AiPolicy,
   type AiSource,
 } from '@shared/ai-permissions'
-import type { ChangeRequest, KubeObject, Result } from '@shared/api'
+import type { ChangeRequest, KubeErrorCode, KubeObject, Result } from '@shared/api'
 import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
+import type { AuditAction, AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
 import { kubectl, objectArg } from '@shared/kubectl'
 import {
   isBuiltinKind,
@@ -35,6 +36,8 @@ import {
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
+import { isRefusal, outcomeOf } from '../audit/describe'
+import type { Recorder } from '../audit/recorder'
 import type { KubeService } from '../kube/service'
 import { addsSecretReads, NamespaceLabels } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
@@ -58,6 +61,8 @@ export interface ToolContext {
   approvals: Pick<Approvals, 'ask' | 'wait'>
   /** What became of a change it asked for, for the activity log. */
   outcome(outcome: ProposalOutcome): void
+  /** The audit log, as the assistant (acting as the person) records to it. */
+  audit: Recorder
   /** Where the person answers, for assistants to tell them: a server's address. */
   appUrl?: string
 }
@@ -119,6 +124,60 @@ const reason = z
 const text = (value: string): CallToolResult => ({ content: [{ type: 'text', text: value }] })
 const failed = (message: string): CallToolResult => ({ ...text(message), isError: true })
 
+/** What Lumovi didn't let it do (not what failed): the audit log says it was refused. */
+const refusals = new WeakSet<CallToolResult>()
+const refused = (message: string): CallToolResult => {
+  const result = failed(message)
+  refusals.add(result)
+  return result
+}
+
+/**
+ * Not allowed, thrown: the assistant reads `message` (a hidden namespace's "not found", as
+ * the API would say), and the audit log why it really was (`why`).
+ */
+class Refusal extends Error {
+  constructor(
+    message: string,
+    readonly why?: string,
+  ) {
+    super(message)
+  }
+}
+
+/** The cluster's own error, as it said it: refused where it doesn't allow it. */
+class ClusterError extends Error {
+  constructor(
+    message: string,
+    readonly code: KubeErrorCode,
+  ) {
+    super(message)
+  }
+}
+
+/** What a change an assistant asked for is, in the audit log. */
+const PROPOSAL_ACTIONS: Record<ChangeProposal['action'], AuditAction> = {
+  apply: 'resource.apply',
+  scale: 'resource.scale',
+  restart: 'resource.restart',
+  delete: 'resource.delete',
+}
+
+/** A tool's arguments, as the audit log keeps them: what it was asked for, not what it was given. */
+function argumentsOf(input: Record<string, unknown>): Record<string, AuditDetail> {
+  return Object.fromEntries(
+    Object.entries(input)
+      // A manifest is what's applied: its own event says what, not its contents.
+      .filter(([key, value]) => key !== 'manifest' && value !== undefined)
+      .map(([key, value]): [string, AuditDetail] => [
+        key,
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+          ? value
+          : JSON.stringify(value),
+      ]),
+  )
+}
+
 /** Who says it may not: the person's permissions, a rule of theirs, or the administrator's. */
 function because(from: AiSource): string {
   if (from.kind === 'default') return 'the person’s AI permissions say so'
@@ -134,12 +193,64 @@ const secretsHidden = (namespace: string, access: AiDecision) =>
 
 /** A cluster call's data, or its error, for the assistant to read. */
 function data<T>(result: Result<T>): T {
-  if (!result.ok) throw new Error(result.error.message)
+  if (!result.ok) throw new ClusterError(result.error.message, result.error.code)
   return result.data
 }
 
-export function registerTools(server: McpServer, t: ToolContext): void {
+export function registerTools(mcp: McpServer, t: ToolContext): void {
   const { kube } = t
+  /** Each tool, recorded as it's called: what it was asked, and how it came out. */
+  const server = {
+    registerTool: ((
+      name: string,
+      config: { title: string; inputSchema?: unknown },
+      handler: (...args: unknown[]) => Promise<CallToolResult> | CallToolResult,
+    ) =>
+      mcp.registerTool(
+        name,
+        config as never,
+        (async (...args: unknown[]) => {
+          const input = (config.inputSchema ? args[0] : {}) as Record<string, unknown>
+          const record = (outcome: AuditOutcome, error?: string) => {
+            const { cluster, kind, name: object, pod, namespace } = input
+            const target =
+              typeof object === 'string'
+                ? { kind: String(kind), name: object }
+                : typeof pod === 'string'
+                  ? { kind: 'Pod', name: pod }
+                  : undefined
+            t.audit.record({
+              action: 'assistant.tool',
+              outcome,
+              ...(typeof cluster === 'string' ? { cluster } : {}),
+              ...(target
+                ? { target: { ...target, ...(typeof namespace === 'string' ? { namespace } : {}) } }
+                : {}),
+              summary: `${config.title}${target ? `: ${target.kind} ${target.name}` : ''}`,
+              details: { tool: name, ...argumentsOf(input) },
+              ...(error ? { error } : {}),
+            })
+          }
+          try {
+            const result = await handler(...args)
+            const said = result.isError ? String((result.content[0] as { text?: string }).text) : ''
+            record(
+              result.isError ? (refusals.has(result) ? 'refused' : 'failure') : 'success',
+              said,
+            )
+            return result
+          } catch (error) {
+            const refusal = error instanceof Refusal
+            const code = error instanceof ClusterError ? error.code : undefined
+            record(
+              refusal || (code !== undefined && isRefusal(code)) ? 'refused' : 'failure',
+              refusal && error.why ? `${error.message} (${error.why})` : (error as Error).message,
+            )
+            throw error
+          }
+        }) as never,
+      )) as McpServer['registerTool'],
+  }
   const labels = new NamespaceLabels(kube)
 
   const clusterOf = (context: string) => ({
@@ -159,7 +270,10 @@ export function registerTools(server: McpServer, t: ToolContext): void {
   const knownCluster = (context: string) => {
     const names = visibleContexts().map((c) => c.name)
     if (!names.includes(context)) {
-      throw new Error(`There is no cluster called “${context}”. These are: ${names.join(', ')}.`)
+      const message = `There is no cluster called “${context}”. These are: ${names.join(', ')}.`
+      const hidden = kube.contexts().contexts.some((c) => c.name === context)
+      if (hidden) throw new Refusal(message, 'the person’s AI permissions hide the cluster')
+      throw new Error(message)
     }
   }
 
@@ -196,7 +310,9 @@ export function registerTools(server: McpServer, t: ToolContext): void {
    */
   const inNamespace = async (context: string, namespace: string, missing: string) => {
     const decision = await access(context, namespace)
-    if (decision.visibility.value === 'hidden') throw new Error(missing)
+    if (decision.visibility.value === 'hidden') {
+      throw new Refusal(missing, `${namespace} is hidden: ${because(decision.visibility.from)}`)
+    }
     return decision
   }
 
@@ -317,7 +433,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
           return text(yaml({ kind: definition.kind, total: 0, items: [] }))
         }
         if (isSecret && decision.secrets.value === 'hidden') {
-          return failed(secretsHidden(listed, decision))
+          return refused(secretsHidden(listed, decision))
         }
       }
       const list = data(
@@ -383,7 +499,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
           ? await access(cluster)
           : await inNamespace(cluster, scope, `${definition.plural} "${name}" not found`)
       if (definition.kind === 'Secret' && decision.secrets.value === 'hidden') {
-        return failed(secretsHidden(where!, decision))
+        return refused(secretsHidden(where!, decision))
       }
       const object = data(
         await kube.get({ context: cluster, kind: definition.kind, name, namespace: where }),
@@ -393,6 +509,17 @@ export function registerTools(server: McpServer, t: ToolContext): void {
         secrets: decision.secrets.value === 'values' ? 'values' : 'keys',
         env: decision.env.value,
       })
+      // Its values went to the assistant: who read which, a while at a time.
+      if (definition.kind === 'Secret' && decision.secrets.value === 'values') {
+        t.audit.read(`secret:${cluster}/${where}/${name}`, {
+          action: 'secret.read',
+          outcome: 'success',
+          cluster,
+          target: { kind: 'Secret', name, namespace: where, uid: object.metadata.uid },
+          summary: `Read Secret ${name}’s values`,
+          details: { keys: Object.keys((object as KubeObject & { data?: object }).data ?? {}) },
+        })
+      }
       return text(`${status ? `# Health: ${describeStatus(status)}\n` : ''}${yaml(shown)}`)
     },
   )
@@ -494,7 +621,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       knownCluster(cluster)
       const decision = await inNamespace(cluster, namespace, `pods "${pod}" not found`)
       if (decision.logs.value === 'off') {
-        return failed(
+        return refused(
           `Lumovi doesn’t let AI assistants read logs in ${namespace}: ${because(decision.logs.from)}.`,
         )
       }
@@ -510,6 +637,23 @@ export function registerTools(server: McpServer, t: ToolContext): void {
           limitBytes: MAX_LOG_BYTES,
         }),
       )
+      t.audit.read(`logs:${cluster}/${namespace}/${pod}/${container ?? ''}/${previous === true}`, {
+        action: 'logs.read',
+        outcome: 'success',
+        cluster,
+        target: { kind: 'Pod', name: pod, namespace },
+        summary: `Read the logs of Pod ${pod}${container ? ` (${container})` : ''}${previous ? ', from before it restarted' : ''}`,
+        command: kubectl(
+          cluster,
+          namespace,
+          'logs',
+          pod,
+          ...(container ? ['-c', container] : []),
+          `--tail=${tailLines}`,
+          ...(previous ? ['--previous'] : []),
+        ),
+        details: { tailLines, previous: previous === true },
+      })
       return text(logs || '(No log lines.)')
     },
   )
@@ -628,14 +772,47 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     // Where: its namespace (a Namespace's own), or the cluster.
     const scope = c.target.kind === 'Namespace' ? c.target.name : c.target.namespace
     const place = scope ? `${scope} in ${c.context}` : c.context
+    /** What became of it, in the audit log: as asked, and answered (when it was). */
+    const asked = Date.now()
+    const audit = (
+      outcome: AuditOutcome,
+      approval: AuditApproval['status'] | undefined,
+      error?: string,
+      uid?: string,
+    ) => {
+      const known = uid ?? c.before?.metadata.uid
+      t.audit.record({
+        action: PROPOSAL_ACTIONS[c.action],
+        outcome,
+        cluster: c.context,
+        target: { ...c.target, ...(known ? { uid: known } : {}) },
+        summary: outcome === 'success' ? c.done : c.title,
+        command: c.command,
+        ...(approval
+          ? {
+              approval: {
+                status: approval,
+                ...(approval === 'approved' || approval === 'rejected' ? { by: t.audit.user } : {}),
+                ...(approval === 'rejected' && error ? { note: error } : {}),
+                ...(approval === 'unasked' ? {} : { waitedMs: Date.now() - asked }),
+              },
+            }
+          : {}),
+        details: { reason: c.reason, ...(c.takesOver ? { takesOver: c.takesOver } : {}) },
+        ...(error && approval !== 'rejected' ? { error } : {}),
+      })
+    }
     if (policy === 'never') {
-      return failed(
-        `Lumovi doesn’t let AI assistants change ${place}: ${because(c.access.changes.from)}. Nothing was changed.`,
-      )
+      const message = `Lumovi doesn’t let AI assistants change ${place}: ${because(c.access.changes.from)}. Nothing was changed.`
+      audit('refused', undefined, message)
+      return refused(message)
     }
     // The API server checks it, and the person's access, and says what it would come to.
     const dryRun = await kube.change({ ...c.request, dryRun: true })
-    if (!dryRun.ok) return failed(`${c.title} wouldn’t work: ${dryRun.error.message}`)
+    if (!dryRun.ok) {
+      audit(outcomeOf(dryRun).outcome, undefined, dryRun.error.message)
+      return failed(`${c.title} wouldn’t work: ${dryRun.error.message}`)
+    }
     const proposal: ChangeProposal = {
       id: randomUUID(),
       client: t.client(),
@@ -657,6 +834,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     /** Why it can't be made, the outcome told. */
     const fails = (error: string, unasked: boolean, message: string) => {
       t.outcome({ proposal, status: 'failed', error, ...(unasked ? { unasked } : {}) })
+      audit('failure', unasked ? 'unasked' : 'approved', error)
       return failed(message)
     }
     const changedSince = (why: string) =>
@@ -689,6 +867,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
         )
       }
       t.outcome({ proposal, status: 'applied', ...(unasked ? { unasked } : {}) })
+      audit('success', unasked ? 'unasked' : 'approved', undefined, made.data?.metadata.uid)
       return text(
         `${c.done}${unasked ? '' : ', approved in Lumovi'}. The kubectl command that does the same: ${c.command}`,
       )
@@ -705,16 +884,19 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     t.approvals.ask(proposal, async (answer) => {
       if ('withdrawn' in answer) {
         t.outcome({ proposal, status: 'withdrawn' })
+        audit('cancelled', 'withdrawn', 'The assistant stopped waiting for an answer.')
         return failed('Withdrawn: nothing was changed.')
       }
       if ('expired' in answer) {
         t.outcome({ proposal, status: 'expired' })
+        audit('cancelled', 'expired', `Nobody answered within ${WAIT}.`)
         return failed(
           `Nobody approved it in Lumovi within ${WAIT}: nothing was changed. Ask the person to look at Lumovi, and try again.`,
         )
       }
       if (!answer.approved) {
         t.outcome({ proposal, status: 'rejected', ...(answer.note ? { error: answer.note } : {}) })
+        audit('refused', 'rejected', answer.note)
         return failed(
           `The person rejected it in Lumovi${answer.note ? `, saying: “${answer.note}”` : ''}. Nothing was changed.`,
         )
@@ -759,11 +941,13 @@ export function registerTools(server: McpServer, t: ToolContext): void {
         cluster: clusterOf(context),
         namespace: { name, labels: { ...now, ...labelled } },
       })
-      if (after.visibility.value === 'hidden') throw new Error(missing)
+      if (after.visibility.value === 'hidden') {
+        throw new Refusal(missing, `${name} would be hidden: ${because(after.visibility.from)}`)
+      }
       decision = stricter(decision, after)
     }
     if (definition.kind === 'Secret' && decision.secrets.value === 'hidden') {
-      throw new Error(secretsHidden(namespace!, decision))
+      throw new Refusal(secretsHidden(namespace!, decision))
     }
     return decision
   }
@@ -792,7 +976,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
             ? decision.secrets.from
             : undefined
     if (why) {
-      throw new Error(
+      throw new Refusal(
         `${definition.apiKind} ${name} is ${context}’s own: a change to it can reach every namespace, and assistants may not change all of them: ${because(why)}. Nothing was changed.`,
       )
     }
