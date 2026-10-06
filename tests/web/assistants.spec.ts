@@ -124,6 +124,15 @@ async function call(
   return { text: (result.content[0] as { text: string }).text, error: result.isError === true }
 }
 
+/** What a change came to: waiting for it again while the assistant is told to (slow machines). */
+async function outcome(client: Client, asked: Promise<{ text: string }>): Promise<string> {
+  let { text } = await asked
+  for (let id; text.startsWith('Still waiting') && (id = text.match(/id “([\w-]+)”/)?.[1]);) {
+    ;({ text } = await call(client, 'wait_for_change', { id }))
+  }
+  return text
+}
+
 const approval = (page: Page, title: string | RegExp) => page.getByRole('dialog', { name: title })
 
 /** The browser's notifications, recorded (window.__notices), with the permission `permission` gives. */
@@ -284,7 +293,7 @@ test('changes wait for the person’s answer, on their own pages only', async ({
   await restart.getByRole('button', { name: 'Reject…' }).click()
   await restart.getByRole('textbox', { name: 'Note' }).fill('Not now.')
   await page.keyboard.press('ControlOrMeta+Enter')
-  expect((await restarting).text).toBe(
+  expect(await outcome(client, restarting)).toBe(
     'The person rejected it in Lumovi, saying: “Not now.”. Nothing was changed.',
   )
   expect(served.log()).toContain('Restart Deployment cart in demo, rejected: Not now.')
@@ -304,7 +313,7 @@ test('changes wait for the person’s answer, on their own pages only', async ({
   await approval(page, 'Scale Deployment cart to 1 replica')
     .getByRole('button', { name: /^Approve/ })
     .click()
-  expect((await later).text).toMatch(/^Scaled cart to 1 replica, approved in Lumovi\./)
+  expect(await outcome(client, later)).toMatch(/^Scaled cart to 1 replica, approved in Lumovi\./)
   await elsewhere.close()
 })
 
@@ -455,7 +464,15 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
   page,
   serve,
 }) => {
-  const served = await serve({ env: { LUMOVI_ASSISTANT_TOKEN_SECONDS: '1' } })
+  const served = await serve({
+    env: {
+      LUMOVI_ASSISTANT_TOKEN_SECONDS: '1',
+      LUMOVI_ASSISTANT_REUSE_MS: '1000',
+      LUMOVI_ASSISTANT_REDIRECT_HOSTS: 'assistant.example',
+      // Swept often: what has run out goes.
+      LUMOVI_ASSISTANTS_IDLE_MS: '500',
+    },
+  })
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   const token = `${served.url}oauth/token`
 
@@ -470,17 +487,31 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
     [],
     'https://a.example/',
     ['http://evil.example/callback'],
+    // A site, unless the administrator allows it: anyone could send someone's code there.
+    ['https://evil.example/callback'],
     ['javascript:alert(1)'],
-    ['https://a.example/#fragment'],
+    ['https://assistant.example/#fragment'],
     ['not a url'],
   ]) {
     expect((await register({ redirect_uris: redirects })).status, String(redirects)).toBe(400)
   }
-  // A site's own address is as good as an app's.
   expect(
     (await register({ client_name: 'Web', redirect_uris: ['https://assistant.example/callback'] }))
       .status,
   ).toBe(201)
+  // Of what it names, only where it may go: VS Code's, say, with a site of its own.
+  expect(
+    await (
+      await register({
+        client_name: 'Visual Studio Code',
+        redirect_uris: [
+          'https://vscode.dev/redirect',
+          'http://127.0.0.1:33418/',
+          'https://evil.example/',
+        ],
+      })
+    ).json(),
+  ).toMatchObject({ redirect_uris: ['https://vscode.dev/redirect', 'http://127.0.0.1:33418/'] })
   const app = await (
     await register({ redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback'] })
   ).json()
@@ -622,6 +653,33 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
     ),
   ).toEqual([400, 'invalid_grant'])
   expect(served.log()).toContain('alice@example.com’s An AI assistant signed out')
+
+  // A refresh token used again, after a moment (no retry): someone else has a copy, and its
+  // assistant is let go. Tokens nobody used, run out, go too.
+  const allowed4 = await page.request.post(`${served.url}api/assistants/authorize`, {
+    headers: { Origin: new URL(served.url).origin },
+    data: { query: query.toString(), approved: true },
+  })
+  const copied = await (
+    await swap({ code: new URL((await allowed4.json()).redirect).searchParams.get('code')! })
+  ).json()
+  const renewal = await (
+    await form(token, { grant_type: 'refresh_token', refresh_token: copied.refresh_token })
+  ).json()
+  await new Promise((resolve) => setTimeout(resolve, 1_600))
+  expect(
+    await refusal(
+      await form(token, { grant_type: 'refresh_token', refresh_token: copied.refresh_token }),
+    ),
+  ).toEqual([400, 'invalid_grant'])
+  expect(
+    await refusal(
+      await form(token, { grant_type: 'refresh_token', refresh_token: renewal.refresh_token }),
+    ),
+  ).toEqual([400, 'invalid_grant'])
+  expect(served.log()).toContain(
+    'alice@example.com’s An AI assistant was let go: its refresh token was used again',
+  )
 })
 
 test('assistants find how to sign in, at the origin’s root and below the base path', async ({
@@ -691,6 +749,78 @@ test('behind a proxy, an assistant acts as who allowed it, for as long as a sess
   expect(served.log()).toContain('frank@example.com’s Claude Code can no longer use Lumovi')
 })
 
+test('behind a proxy, an assistant acts as who the proxy says its person is now', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const served = await serve({ env: { LUMOVI_AUTH: 'proxy' } })
+  const as = (groups: string) =>
+    context.setExtraHTTPHeaders({
+      'X-Forwarded-User': 'frank@example.com',
+      'X-Forwarded-Groups': groups,
+    })
+  await as('platform')
+  await page.goto(`${served.url}cluster/demo`)
+  const { client, assistant } = await connect(page, served)
+  const groups = async (connected: Client) => {
+    expect((await call(connected, 'list_resources', { cluster: 'demo', kind: 'ns' })).error).toBe(
+      false,
+    )
+    return clusters.demo.requests.at(-1)?.headers['impersonate-group']
+  }
+  expect(await groups(client)).toBe('platform')
+  // In another group now: his next page says so, and his assistant starts again as that.
+  await as('sre')
+  await page.goto(`${served.url}cluster/demo`)
+  await expect(page.getByRole('button', { name: 'AI assistants (1 connected)' })).toBeVisible()
+  await expect(call(client, 'list_clusters')).rejects.toThrow('That session has ended')
+  const again = new Client({ name: 'claude-code', version: '1.0.0' })
+  await again.connect(
+    new StreamableHTTPClientTransport(new URL('mcp', served.url), { authProvider: assistant }),
+  )
+  expect(await groups(again)).toBe('sre')
+})
+
+test('clusters a person made read-only are read-only for their assistants too', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  await page.goto(`${served.url}cluster/demo`)
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click()
+  await page.getByRole('switch', { name: 'Read-only' }).click()
+  await page.keyboard.press('Escape')
+  await expect
+    .poll(async () => (await call(client, 'list_clusters')).text)
+    .toMatch(/changes: read-only/)
+  const scale = {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    replicas: 3,
+    reason: 'Busy.',
+  }
+  expect((await call(client, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await expect(
+    page.getByRole('region', { name: 'Changes they ask for' }).getByRole('listitem'),
+  ).toHaveText(['demoRead-only: no changes'])
+  await page.keyboard.press('Escape')
+
+  // Her next page says what her browser keeps: still read-only, until she allows changes.
+  await page.reload()
+  expect((await call(client, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click()
+  await page.getByRole('switch', { name: 'Read-only' }).click()
+  await page.keyboard.press('Escape')
+  await expect.poll(async () => (await call(client, 'list_clusters')).text).toMatch(/changes: ask/)
+})
+
 test('an administrator can turn assistants off', async ({ page, serve }) => {
   const served = await serve({ env: { LUMOVI_ASSISTANTS: 'off' } })
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
@@ -701,12 +831,17 @@ test('an administrator can turn assistants off', async ({ page, serve }) => {
   )
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: /^AI assistants/ })).toHaveCount(0)
+  // Nothing of theirs is there; a request to allow one says so.
   for (const path of ['mcp', 'oauth/token', 'oauth/register']) {
-    expect((await fetch(`${served.url}${path}`, { method: 'POST' })).status, path).toBe(405)
+    expect((await fetch(`${served.url}${path}`, { method: 'POST' })).status, path).toBe(404)
   }
-  expect(
-    (await fetch(`${new URL(served.url).origin}/.well-known/oauth-protected-resource/mcp`)).status,
-  ).toBe(200)
+  for (const path of ['mcp', '.well-known/oauth-protected-resource/mcp']) {
+    expect((await fetch(`${served.url}${path}`)).status, path).toBe(404)
+  }
+  await page.goto(`${served.url}authorize?client_id=lumovi-x`)
+  await expect(page.getByRole('alert')).toContainText(
+    'This server’s administrator has turned AI assistants off.',
+  )
 })
 
 test('an administrator says what assistants’ changes do, cluster by cluster', async ({
@@ -747,6 +882,11 @@ test('assistants’ settings that don’t make sense stop the server', async ({ 
       `LUMOVI_ASSISTANT_CHANGES must be ask, allow or never, with clusters' own after it (ask,staging=allow), not "${setting}".`,
     )
   }
+  expect(
+    await refusedConfig(clusters, { LUMOVI_ASSISTANT_REDIRECT_HOSTS: 'https://a.example/' }),
+  ).toContain(
+    'LUMOVI_ASSISTANT_REDIRECT_HOSTS must be host names, like assistant.example.com, not "https://a.example/".',
+  )
 })
 
 test('each assistant keeps to its own sessions, and quiet ones are let go', async ({
@@ -763,6 +903,16 @@ test('each assistant keeps to its own sessions, and quiet ones are let go', asyn
     new StreamableHTTPClientTransport(new URL('mcp', served.url), {
       authProvider: cursor.assistant,
     }),
+  )
+  // In use all along, however long what follows takes.
+  let calls = 0
+  const using = setInterval(
+    () =>
+      void call(again, 'list_clusters').then(
+        () => calls++,
+        () => {},
+      ),
+    250,
   )
   const mcp = (headers: Record<string, string>, body?: string, method = 'POST') =>
     fetch(`${served.url}mcp`, {
@@ -814,11 +964,13 @@ test('each assistant keeps to its own sessions, and quiet ones are let go', asyn
     ),
   ).toContain('Expected a change’s id')
 
-  // Quiet for a while, a session is let go; Cursor's other one, in use, isn't.
-  for (let i = 0; i < 3; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1_200))
-    expect((await call(again, 'list_clusters')).error).toBe(false)
-  }
+  // Quiet for a while (idle, then the sweep after), a session is let go; Cursor's other one,
+  // in use, isn't.
+  const since = calls
+  await new Promise((resolve) => setTimeout(resolve, 3_500))
+  clearInterval(using)
+  expect(calls).toBeGreaterThan(since)
+  expect((await call(again, 'list_clusters')).error).toBe(false)
   await expect(call(code.client, 'list_clusters')).rejects.toThrow()
 })
 
@@ -863,4 +1015,26 @@ test('a person may let the browser tell them of changes waiting', async ({
     .click()
   expect((await scaling).error).toBe(false)
   expect(await page.evaluate(() => (window as { __notices?: unknown[] }).__notices)).toEqual([])
+
+  // A browser without notifications at all (Safari on a phone, say): none offered, none sent.
+  await page.addInitScript(() => delete (window as { Notification?: unknown }).Notification)
+  await page.goto(`${served.url}cluster/demo`)
+  await page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true }),
+  )
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await expect(page.getByRole('region', { name: 'Your assistants' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Notifications' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const restarting = call(client, 'restart', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    reason: 'Stale.',
+  })
+  await approval(page, 'Restart Deployment cart')
+    .getByRole('button', { name: /^Approve/ })
+    .click()
+  expect(await outcome(client, restarting)).toMatch(/^Restarted cart/)
 })

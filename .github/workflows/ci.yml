@@ -53,6 +53,12 @@ jobs:
           # Below a base path, AI assistants find how to sign in at the origin's root too.
           helm template lumovi charts/lumovi --set ingress.enabled=true --set basePath=/lumovi \
             | grep -q 'path: /.well-known/oauth-authorization-server/lumovi'
+          # More than one replica, with assistants on: refused; their names are checked.
+          ! helm template lumovi charts/lumovi --set replicaCount=2 2>/dev/null
+          helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false >/dev/null
+          ! helm template lumovi charts/lumovi --set assistants.chanegs=allow 2>/dev/null
+          helm template lumovi charts/lumovi --set 'assistants.redirectHosts={assistant.example.com}' \
+            | grep -q 'value: "assistant.example.com"'
           # A fleet, with every source; a member; an agent.
           helm template lumovi charts/lumovi --set auth.mode=proxy \
             --set fleet.kubeconfigSecret=fleet --set 'fleet.secrets={lumovi,cluster-api,argocd}' \

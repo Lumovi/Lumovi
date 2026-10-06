@@ -158,6 +158,31 @@
     "readOnly": {
       "type": "boolean"
     },
+    "assistants": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "changes": {
+          "enum": ["ask", "allow", "never"]
+        },
+        "clusters": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": ["ask", "allow", "never"]
+          }
+        },
+        "redirectHosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$"
+          }
+        }
+      }
+    },
     "metrics": {
       "type": "object",
       "properties": {
