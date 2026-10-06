@@ -1459,8 +1459,19 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
       }),
     data,
   )
+  // What the cluster says of a Secret, without what it quotes (a value, it may be).
+  await page.evaluate(() =>
+    window.lumovi!.kube.change({
+      context: 'demo',
+      kind: 'Secret',
+      name: 'gone',
+      namespace: 'shop',
+      change: { action: 'delete' },
+    }),
+  )
   const lines = linesOf(dayFile(dir))
   const events = lines.map((line) => JSON.parse(line) as AuditEvent)
+  expect(events.find((e) => e.target?.kind === 'Secret')!.error).toBe('secrets "…" not found')
   expect(events.find((e) => e.action === 'resource.patch')!.details).toMatchObject({
     truncated: true,
   })
