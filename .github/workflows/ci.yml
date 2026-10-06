@@ -46,17 +46,20 @@ jobs:
               --set ingress.enabled=true --set networkPolicy.enabled=true >/dev/null
           done
           # Single sign-on with people's own tokens: no impersonation, so no ClusterRole.
-          ! helm template lumovi charts/lumovi --set auth.mode=oidc \
+          (! helm template lumovi charts/lumovi --set auth.mode=oidc \
             --set url=https://lumovi.example.com --set auth.oidc.issuer=https://dex.example.com \
             --set auth.oidc.clientId=lumovi --set auth.oidc.forwardToken=id \
-            | grep -q 'kind: ClusterRole$'
+            | grep -q 'kind: ClusterRole$')
           # Below a base path, AI assistants find how to sign in at the origin's root too.
           helm template lumovi charts/lumovi --set ingress.enabled=true --set basePath=/lumovi \
             | grep -q 'path: /.well-known/oauth-authorization-server/lumovi'
-          # More than one replica, with assistants on: refused; their names are checked.
-          ! helm template lumovi charts/lumovi --set replicaCount=2 2>/dev/null
-          helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false >/dev/null
-          ! helm template lumovi charts/lumovi --set assistants.chanegs=allow 2>/dev/null
+          # More than one replica, with assistants on or the audit history on its volume: refused;
+          # their names are checked.
+          (! helm template lumovi charts/lumovi --set replicaCount=2 2>/dev/null)
+          (! helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false 2>/dev/null)
+          helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false \
+            --set audit.persistence.enabled=false >/dev/null
+          (! helm template lumovi charts/lumovi --set assistants.chanegs=allow 2>/dev/null)
           helm template lumovi charts/lumovi --set 'assistants.redirectHosts={assistant.example.com}' \
             | grep -q 'value: "assistant.example.com"'
           # People's AI rules: a ConfigMap Lumovi may read and write, and nothing else; the
@@ -65,9 +68,24 @@ jobs:
           helm template lumovi charts/lumovi --set 'assistants.rules[0].name=System' \
             --set 'assistants.rules[0].namespaces={kube-*}' --set 'assistants.rules[0].visibility=hidden' \
             | grep -q 'LUMOVI_ASSISTANT_RULES$'
-          ! helm template lumovi charts/lumovi --set assistants.enabled=false | grep -q 'assistant-rules'
-          ! helm template lumovi charts/lumovi --set 'assistants.rules[0].name=x' \
-            --set 'assistants.rules[0].logs=maybe' 2>/dev/null
+          (! helm template lumovi charts/lumovi --set assistants.enabled=false | grep -q 'assistant-rules')
+          (! helm template lumovi charts/lumovi --set 'assistants.rules[0].name=x' \
+            --set 'assistants.rules[0].logs=maybe' 2>/dev/null)
+          # The audit history: on a volume uninstalling keeps, one pod writing it at a time; a
+          # claim of one's own, or none (memory); a webhook's headers from a Secret.
+          helm template lumovi charts/lumovi | grep -q 'claimName: lumovi-audit'
+          helm template lumovi charts/lumovi | grep -q 'type: Recreate'
+          helm template lumovi charts/lumovi --show-only templates/audit.yaml \
+            | grep -q 'helm.sh/resource-policy: keep'
+          (! helm template lumovi charts/lumovi --set audit.persistence.existingClaim=mine \
+            | grep -q 'kind: PersistentVolumeClaim')
+          helm template lumovi charts/lumovi --set audit.persistence.existingClaim=mine \
+            | grep -q 'claimName: mine'
+          (! helm template lumovi charts/lumovi --set audit.persistence.enabled=false \
+            | grep -q 'LUMOVI_AUDIT_DIR\|Recreate')
+          helm template lumovi charts/lumovi --set audit.webhook.url=https://siem.example.com/in \
+            --set audit.webhook.headersSecret=hooks | grep -q 'key: headers.yaml'
+          (! helm template lumovi charts/lumovi --set audit.level=everything 2>/dev/null)
           # A fleet, with every source; a member; an agent.
           helm template lumovi charts/lumovi --set auth.mode=proxy \
             --set fleet.kubeconfigSecret=fleet --set 'fleet.secrets={lumovi,cluster-api,argocd}' \
@@ -77,8 +95,8 @@ jobs:
           helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=https://lumovi.example.com \
             --set agent.tokenSecret=agent | grep -q 'out/agent/agent.js'
           # What a fleet can't be: signed in to with a token, or an agent without its hub.
-          ! helm template lumovi charts/lumovi --set fleet.kubeconfigSecret=fleet 2>/dev/null
-          ! helm template lumovi charts/lumovi --set mode=agent 2>/dev/null
+          (! helm template lumovi charts/lumovi --set fleet.kubeconfigSecret=fleet 2>/dev/null)
+          (! helm template lumovi charts/lumovi --set mode=agent 2>/dev/null)
 
   e2e:
     name: E2E (${{ matrix.os }}, ${{ matrix.shard }}/2)

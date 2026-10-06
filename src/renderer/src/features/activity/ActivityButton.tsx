@@ -1,5 +1,6 @@
 import { Ban, CircleCheck, CircleX, History, LoaderCircle } from 'lucide-react'
 import { Popover } from 'radix-ui'
+import { Link } from 'react-router'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { useOpenObject } from '@renderer/hooks/open-object'
@@ -69,6 +70,13 @@ export function ActivityButton() {
               ))}
             </ol>
           )}
+          <footer className="border-t border-line px-4 py-2">
+            <Popover.Close asChild>
+              <Link to="/audit" className="text-xs font-medium text-accent hover:underline">
+                Everything done through Lumovi, kept: the audit log
+              </Link>
+            </Popover.Close>
+          </footer>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

@@ -10,6 +10,9 @@ function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) 
   return () => void ipcRenderer.removeListener(channel, handler)
 }
 
+/** How many listen for audit events: the main process sends them while any does. */
+let auditListeners = 0
+
 // The renderer gets this narrow, typed API and nothing else from Electron or Node.
 const api: LumoviApi = {
   platform: process.platform,
@@ -92,6 +95,19 @@ const api: LumoviApi = {
     resetToken: () => invoke(IPC.assistantsResetToken),
     install: (client) => invoke(IPC.assistantsInstall, client),
     onStatus: (listener) => subscribe(IPC.assistantsStatusChanged, listener),
+  },
+  audit: {
+    info: () => invoke(IPC.auditInfo),
+    query: (query) => invoke(IPC.auditQuery, query),
+    verify: () => invoke(IPC.auditVerify),
+    onEvent: (listener) => {
+      const off = subscribe(IPC.auditEvent, listener)
+      if (auditListeners++ === 0) void invoke(IPC.auditWatch, true)
+      return () => {
+        off()
+        if (--auditListeners === 0) void invoke(IPC.auditWatch, false)
+      }
+    },
   },
   aiPermissions: {
     get: () => invoke(IPC.aiPermissionsGet),

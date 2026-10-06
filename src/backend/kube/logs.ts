@@ -4,6 +4,9 @@
  * flood the page with messages.
  */
 import type { KubeError, LogStreamRequest, Result } from '@shared/api'
+import { kubectl } from '@shared/kubectl'
+import { outcomeOf } from '../audit/describe'
+import type { Recorder } from '../audit/recorder'
 import { kubeStream } from './client'
 import { toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -19,6 +22,8 @@ interface Dependencies {
   envReady: Promise<void>
   /** How long the API server has to start answering. */
   timeoutMs: number
+  /** The audit log, as the page's person records to it. */
+  audit: Recorder
 }
 
 export class LogStreams {
@@ -33,6 +38,7 @@ export class LogStreams {
   ) {}
 
   async start(id: unknown, request: unknown): Promise<Result<null>> {
+    let asked: LogStreamRequest | undefined
     try {
       if (typeof id !== 'string' || !/^[\w-]{8,64}$/.test(id) || this.#streams.has(id)) {
         throw invalid('A new stream needs a new id')
@@ -60,9 +66,11 @@ export class LogStreams {
       else if (r.follow === true) params.set('follow', 'true')
       const path = `/api/v1/namespaces/${encodeURIComponent(r.namespace)}/pods/${encodeURIComponent(r.pod)}/log?${params}`
 
+      asked = r
       const kc = this.deps.store.forContext(r.context)
       await this.deps.envReady
       const { body, abort } = await kubeStream(kc, path, { timeoutMs: this.deps.timeoutMs })
+      this.#read(r, { outcome: 'success' })
       this.#streams.set(id, abort)
       let partial = ''
       let batch: string[] = []
@@ -95,8 +103,39 @@ export class LogStreams {
       body.on('close', () => end())
       return { ok: true, data: null }
     } catch (error) {
-      return { ok: false, error: toKubeError(error) }
+      const failure = { ok: false as const, error: toKubeError(error) }
+      if (asked) this.#read(asked, outcomeOf(failure))
+      return failure
     }
+  }
+
+  /** Recorded once a while for the same container's logs: a page asks for them again. */
+  #read(r: LogStreamRequest, outcome: ReturnType<typeof outcomeOf>) {
+    const which = r.previous === true ? 'previous' : 'current'
+    this.deps.audit.read(
+      `logs:${r.context}/${r.namespace}/${r.pod}/${r.container}/${which}/${outcome.outcome}`,
+      {
+        action: 'logs.read',
+        ...outcome,
+        cluster: r.context,
+        target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
+        summary: `Read the logs of Pod ${r.pod} (${r.container})${r.previous === true ? ', from before it restarted' : ''}`,
+        command: kubectl(
+          r.context,
+          r.namespace,
+          'logs',
+          r.pod,
+          '-c',
+          r.container,
+          ...(r.previous === true ? ['--previous'] : r.follow === true ? ['-f'] : []),
+        ),
+        details: {
+          container: r.container,
+          previous: r.previous === true,
+          follow: r.follow === true,
+        },
+      },
+    )
   }
 
   stop(id: unknown): void {

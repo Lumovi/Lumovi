@@ -17,7 +17,9 @@ import { age } from '@renderer/lib/format'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
+import { useCluster } from '@renderer/state/cluster'
 import { ActionBar } from '../actions/ActionSurfaces'
+import { ObjectAudit } from '../audit/ObjectAudit'
 import { actionsFor } from '../actions/catalog'
 import { EventsTab } from './EventsTab'
 import { LogsView, PodLogs } from '../logs/LogsView'
@@ -140,6 +142,7 @@ const MAPLESS = new Set(['Event', 'Namespace'])
 
 function DetailTabs({ object }: { object: KubeObject }) {
   const kind = kindOf(object)
+  const { context } = useCluster()
   // A view's pods are the ones it relates the object to; other related kinds get a tab each.
   const related = relatedOf(object)
   const ownPods = related.find((r) => r.kind === 'Pod')
@@ -179,6 +182,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
     ...others.map((r, i) => ({ value: `related:${i}`, label: r.name })),
     ...(MAPLESS.has(kind) ? [] : [{ value: 'map', label: 'Map' }]),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
+    { value: 'audit', label: 'Audit' },
     { value: 'yaml', label: 'YAML' },
   ]
   const content = 'min-h-0 flex-1 animate-fade-in outline-none'
@@ -242,6 +246,14 @@ function DetailTabs({ object }: { object: KubeObject }) {
           <MapTab object={object} />
         </TabContent>
       )}
+      <TabContent value="audit" className={cn(content, 'overflow-y-auto')}>
+        <ObjectAudit
+          context={context}
+          kind={kind}
+          name={object.metadata.name}
+          namespace={object.metadata.namespace}
+        />
+      </TabContent>
       <TabContent value="yaml" className={cn(content, 'flex flex-col')}>
         <YamlTab object={object} />
       </TabContent>
