@@ -176,6 +176,11 @@ test('changes wait for the person’s answer, on their own pages only', async ({
       `^Still waiting for the person’s answer in Lumovi \\(${served.url.slice(0, -1)}\\): nothing has changed yet\\. .* id “([\\w-]+)”`,
     ),
   )!
+  // Asked, and not answered yet: recorded so (what becomes of it is its own event).
+  expect(audited(served, 'assistant.tool').at(-1)).toMatchObject({
+    outcome: 'success',
+    details: expect.objectContaining({ tool: 'scale', changing: true, waiting: true }),
+  })
   const dialog = approval(page, 'Scale Deployment cart to 3 replicas')
   await expect(dialog).toContainText('Claude Code asks')
   await expect

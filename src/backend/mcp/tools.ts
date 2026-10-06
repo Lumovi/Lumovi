@@ -28,7 +28,7 @@ import {
   type AiTarget,
 } from '@shared/ai-permissions'
 import { cappedByAccess, type AccessDecision } from '@shared/access'
-import type { ChangeRequest, KubeErrorCode, KubeObject, Result } from '@shared/api'
+import type { ChangeRequest, KubeError, KubeErrorCode, KubeObject, Result } from '@shared/api'
 import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
 import type { AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
 import { kubectl, objectArg } from '@shared/kubectl'
@@ -143,6 +143,9 @@ const refused = (message: string): CallToolResult => {
   return result
 }
 
+/** A change still waiting for the person's answer: the call asked, and that's all so far. */
+const waitings = new WeakSet<CallToolResult>()
+
 /** What came to nothing, nobody's doing (unanswered, or withdrawn): recorded as cancelled. */
 const cancellations = new WeakSet<CallToolResult>()
 const cancelled = (message: string): CallToolResult => {
@@ -225,7 +228,16 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
         config as never,
         (async (...args: unknown[]) => {
           const input = (config.inputSchema ? args[0] : {}) as Record<string, unknown>
-          const record = (outcome: AuditOutcome, error?: string) => {
+          // About a Secret (by its kind, or a manifest of one): what failed isn't kept as the
+          // cluster said it (it can quote the Secret's values). Lumovi's own refusals are.
+          const secret =
+            /secret/i.test(String(input.kind)) ||
+            /\bkind["']?\s*:\s*["']?Secret\b/.test(String(input.manifest))
+          const record = (outcome: AuditOutcome, said?: string, waiting = false) => {
+            const error =
+              said && secret && outcome === 'failure'
+                ? 'It failed. What the cluster said of the Secret isn’t kept: it can quote its values.'
+                : said
             const { cluster, kind, name: object, pod, namespace } = input
             const target =
               typeof object === 'string'
@@ -245,6 +257,8 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
                 tool: name,
                 // One that changes: refused, it's kept however little the log records.
                 ...(config.annotations?.readOnlyHint === false ? { changing: true } : {}),
+                // Asked, and not answered yet: what becomes of it is its own event.
+                ...(waiting ? { waiting: true } : {}),
                 ...argumentsOf(input),
               },
               ...(error ? { error } : {}),
@@ -262,6 +276,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
                     : 'failure'
                 : 'success',
               said,
+              waitings.has(result),
             )
             return result
           } catch (error) {
@@ -775,10 +790,13 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
   }
 
   /** What an assistant hears while the person hasn't answered yet. */
-  const stillWaiting = (id: string) =>
-    text(
+  const stillWaiting = (id: string) => {
+    const result = text(
       `Still waiting for the person’s answer in Lumovi${t.appUrl ? ` (${t.appUrl})` : ''}: nothing has changed yet. Tell them to look at Lumovi, and call wait_for_change with id “${id}” to keep waiting for it.`,
     )
+    waitings.add(result)
+    return result
+  }
 
   /** Waits for what becomes of change `id`, a while at most, saying so meanwhile where asked. */
   const waitFor = async (id: string, extra: Extra): Promise<CallToolResult> => {
@@ -824,7 +842,8 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     const audit = (
       outcome: AuditOutcome,
       approval: AuditApproval['status'] | undefined,
-      error?: string,
+      /** Lumovi's own words, or the cluster's error (about a Secret, not kept as it said it). */
+      error?: string | KubeError,
       /** What it made: given once it's made (null, deleted). */
       made?: KubeObject | null,
     ) => {
@@ -848,7 +867,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
               approval: {
                 status: approval,
                 ...(approval === 'approved' || approval === 'rejected' ? { by: t.audit.user } : {}),
-                ...(approval === 'rejected' && error ? { note: error } : {}),
+                ...(approval === 'rejected' && typeof error === 'string' ? { note: error } : {}),
                 ...(approval === 'unasked' ? {} : { waitedMs: waited }),
               },
             }
@@ -858,7 +877,9 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           reason: c.reason,
           ...(c.takesOver ? { takesOver: c.takesOver } : {}),
         },
-        ...(error && approval !== 'rejected' ? { error: errorAbout(c.request.kind, error) } : {}),
+        ...(error && approval !== 'rejected'
+          ? { error: typeof error === 'string' ? error : errorAbout(c.request.kind, error) }
+          : {}),
       })
     }
     if (policy === 'never') {
@@ -869,7 +890,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     // The API server checks it, and the person's access, and says what it would come to.
     const dryRun = await kube.change({ ...c.request, dryRun: true })
     if (!dryRun.ok) {
-      audit(outcomeOf(dryRun).outcome, undefined, dryRun.error.message)
+      audit(outcomeOf(dryRun).outcome, undefined, dryRun.error)
       return failed(`${c.title} wouldn’t work: ${dryRun.error.message}`)
     }
     const proposal: ChangeProposal = {
@@ -891,8 +912,9 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
 
     const shown = changesOf(c.before, dryRun.data!)
     /** Why it can't be made, the outcome told. */
-    const fails = (error: string, unasked: boolean, message: string) => {
-      t.outcome({ proposal, status: 'failed', error, ...(unasked ? { unasked } : {}) })
+    const fails = (error: string | KubeError, unasked: boolean, message: string) => {
+      const said = typeof error === 'string' ? error : error.message
+      t.outcome({ proposal, status: 'failed', error: said, ...(unasked ? { unasked } : {}) })
       audit('failure', unasked ? 'unasked' : 'approved', error)
       return failed(message)
     }
@@ -908,7 +930,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
         const now = await c.reread().catch(() => null)
         const tried = await kube.change({ ...c.request, dryRun: true })
         if (!tried.ok) {
-          return fails(tried.error.message, unasked, `${c.title} failed: ${tried.error.message}`)
+          return fails(tried.error, unasked, `${c.title} failed: ${tried.error.message}`)
         }
         if (changesOf(now, tried.data!) !== shown) {
           const why = 'what it would change is different now'
@@ -918,7 +940,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       const made = await kube.change(c.request)
       if (!made.ok) {
         return fails(
-          made.error.message,
+          made.error,
           unasked,
           made.error.code === 'conflict'
             ? changedSince(made.error.message)

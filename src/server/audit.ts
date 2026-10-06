@@ -15,7 +15,7 @@ import type { Identity } from './cluster'
 import { ConfigError, type AuditConfig } from './config'
 import { log } from './log'
 
-export function openAudit(config: AuditConfig): AuditLog {
+export async function openAudit(config: AuditConfig): Promise<AuditLog> {
   const sinks: AuditSink[] = []
   if (config.stdout) sinks.push(new StdoutSink())
   if (config.webhook) sinks.push(new WebhookSink(config.webhook))
@@ -26,7 +26,7 @@ export function openAudit(config: AuditConfig): AuditLog {
   }
   return new AuditLog({
     store: config.dir
-      ? filesIn(config.dir, config.retentionDays)
+      ? await filesIn(config.dir, config.retentionDays)
       : new MemoryStore(config.memoryEvents),
     sinks,
     level: config.level,
@@ -37,9 +37,10 @@ export function openAudit(config: AuditConfig): AuditLog {
 }
 
 /** The history's folder: or, where it can't be written in, why, and what usually makes it so. */
-function filesIn(dir: string, retentionDays: number): FileStore {
+async function filesIn(dir: string, retentionDays: number): Promise<FileStore> {
   try {
-    return new FileStore(dir, retentionDays)
+    // Another Lumovi's (one stopping, as this starts): waited for, a while.
+    return await FileStore.open(dir, retentionDays, { wait: true, say: log })
   } catch (error) {
     // (Another Lumovi keeping it says so itself.)
     if (!(error as NodeJS.ErrnoException).code) throw error

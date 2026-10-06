@@ -204,16 +204,18 @@ test('signing in that doesn’t work says so, and the server’s log says why', 
 
 test('a way back from the provider is taken once, and what it says is kept short and plain', async ({
   page,
+  context,
   serve,
 }) => {
-  // (Sign-ins that may take a second, at most.)
-  const { oidc, served } = await withProvider(serve, {}, { LUMOVI_SIGN_IN_MINUTES: '0.02' })
+  // (Sign-ins that may take six seconds, at most.)
+  const { oidc, served } = await withProvider(serve, {}, { LUMOVI_SIGN_IN_MINUTES: '0.1' })
   // A provider (or whoever made the way back) saying more than an error code.
   oidc.refuse = `access_denied\u0007${'x'.repeat(300)}`
   const callback = page.waitForRequest((r) => r.url().includes('/auth/callback'))
   await page.goto(`${served.url}auth/sign-in`)
   const back = (await callback).url()
   await expect(notice(page, 'Signing in was cancelled, or the provider said no.')).toBeVisible()
+  const cookie = (await context.cookies()).find((c) => c.name === 'lumovi-sign-in')!
   // Taken again, with its cookie: as one that took too long, and not recorded again.
   await page.goto(back)
   await expect(
@@ -228,8 +230,14 @@ test('a way back from the provider is taken once, and what it says is kept short
       `The provider said access_denied${'x'.repeat(87)}.`,
     ],
   ])
-  // Long after: what was taken is let go (it couldn't be taken again anyway), and another goes.
-  await page.waitForTimeout(1500)
+  // Long after: its cookie (whoever has it) is refused as expired, what was taken is let go, and
+  // another sign-in goes.
+  await page.waitForTimeout(6500)
+  await context.addCookies([{ ...cookie, expires: -1 }])
+  await page.goto(back)
+  await expect(
+    notice(page, 'That sign-in took too long, or started in another browser. Try again.'),
+  ).toBeVisible()
   oidc.refuse = true
   await page.goto(`${served.url}auth/sign-in`)
   await expect(notice(page, 'Signing in was cancelled, or the provider said no.')).toBeVisible()
