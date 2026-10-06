@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-06
+
+Your AI assistant, with you in charge: assistants read your clusters through Lumovi, and the
+changes they ask for wait for your approval. And right-sizing for clusters of thousands of
+namespaces.
+
 ### Added
 
 - AI assistants, in the desktop app: Claude Code, Claude Desktop, Cursor, VS Code and other
@@ -221,7 +227,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Lumovi/Lumovi/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Lumovi/Lumovi/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Lumovi/Lumovi/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Lumovi/Lumovi/releases/tag/v1.0.0
