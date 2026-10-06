@@ -19,7 +19,9 @@ import {
   describeDeploy,
   describeRollback,
   describeUninstall,
+  isRefusal,
   malformed,
+  outcomeOf,
 } from './audit/describe'
 import type { Recorder } from './audit/recorder'
 import type { HelmService } from './helm/service'
@@ -76,6 +78,27 @@ export function handlers({
       }
       return result
     }
+  /**
+   * A Secret that went to the page (its values, unless the person's access shows only its
+   * keys), or that it was refused: who read which, a while at a time.
+   */
+  const secretRead = (q: GetQuery, result: Result<KubeObject | null>) => {
+    const object = result.ok ? result.data : undefined
+    const kept = object && Object.keys(Object((object as { data?: object }).data))
+    audit.read(`secret:${q.context}/${q.namespace}/${q.name}:${result.ok}`, {
+      action: 'secret.read',
+      ...outcomeOf(result),
+      cluster: q.context,
+      target: {
+        kind: 'Secret',
+        name: q.name,
+        namespace: q.namespace,
+        ...(object ? { uid: object.metadata.uid } : {}),
+      },
+      summary: `Read Secret ${q.name}`,
+      ...(kept ? { details: { keys: kept } } : {}),
+    })
+  }
   return {
     invoke: {
       [IPC.settings]: () => settings.get(),
@@ -111,7 +134,18 @@ export function handlers({
         ) {
           throw new Error('Expected a context name and where its node shells run')
         }
-        return settings.setNodeShell(context, reset ? null : setting)
+        const updated = settings.setNodeShell(context, reset ? null : setting)
+        // Where privileged pods are made, and from what: who changed it.
+        audit.record({
+          action: 'node-shell.changed',
+          outcome: 'success',
+          cluster: context,
+          summary: reset
+            ? `Made node shells in ${context} run as Lumovi’s defaults`
+            : `Made node shells in ${context} run ${setting.image} in ${setting.namespace}`,
+          ...(reset ? {} : { details: { namespace: setting.namespace, image: setting.image } }),
+        })
+        return updated
       },
       [IPC.views]: () => readViews(viewsDirectory),
 
@@ -122,34 +156,39 @@ export function handlers({
       [IPC.list]: (query) => kube.list(query),
       [IPC.get]: async (query) => {
         const result = await kube.get(query)
-        // A Secret's values went to the page: who read which, a while at a time.
         const q = query as GetQuery
-        if (result.ok && result.data.kind === 'Secret') {
-          audit.read(`secret:${q.context}/${q.namespace}/${q.name}`, {
-            action: 'secret.read',
-            outcome: 'success',
-            cluster: q.context,
-            target: {
-              kind: 'Secret',
-              name: q.name,
-              namespace: q.namespace,
-              uid: result.data.metadata.uid,
-            },
-            summary: `Read Secret ${q.name}`,
-            details: {
-              keys: Object.keys(Object((result.data as KubeObject & { data?: object }).data)),
-            },
-          })
+        if (q.kind === 'Secret' && (result.ok || isRefusal(result.error.code))) {
+          secretRead(q, result)
         }
         return result
       },
       [IPC.metrics]: (query) => kube.metrics(query),
-      [IPC.change]: recorded((request: ChangeRequest) => kube.change(request), describeChange),
+      [IPC.change]: recorded(async (request: ChangeRequest) => {
+        const result = await kube.change(request)
+        // Only tried, a Secret's change answers with it as it'd be: read, as a get is.
+        if (request.kind === 'Secret' && request.dryRun === true && result.ok && result.data) {
+          secretRead({ ...request, name: result.data.metadata.name }, result)
+        }
+        return result
+      }, describeChange),
       [IPC.can]: (context, checks) => kube.can(context, checks),
       [IPC.history]: (query) => kube.history(query),
 
       [IPC.helmReleases]: (context, namespace) => helm.releases(context, namespace),
-      [IPC.helmRelease]: (context, namespace, name) => helm.release(context, namespace, name),
+      [IPC.helmRelease]: async (context, namespace, name) => {
+        const result = await helm.release(context, namespace, name)
+        // Its values and manifests (a Secret's data, they may hold) went to the page.
+        if (result.ok && !result.data.withheld) {
+          audit.read(`helm:${context}/${namespace}/${name}`, {
+            action: 'helm.values.read',
+            outcome: 'success',
+            cluster: context as string,
+            target: { kind: 'HelmRelease', name: name as string, namespace: namespace as string },
+            summary: `Read release ${name as string}’s values and manifests`,
+          })
+        }
+        return result
+      },
       [IPC.helmCli]: () => helm.cli(),
       [IPC.helmRollback]: recorded(
         (request: HelmRollback) => helm.rollback(request),

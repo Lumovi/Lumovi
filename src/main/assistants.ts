@@ -134,7 +134,7 @@ export class Assistants {
     this.#server = undefined
     this.#listening = false
     this.#error = undefined
-    this.approvals.withdrawAll()
+    this.approvals.withdrawAll('AI assistants were turned off before it was answered.')
     await Promise.all([...this.#sessions.values()].map(({ transport }) => transport.close()))
     this.#sessions.clear()
     if (server) {

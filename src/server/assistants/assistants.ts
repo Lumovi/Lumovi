@@ -116,7 +116,9 @@ export class ServerAssistants {
       ended: (grant) => {
         this.#disconnect(grant)
         const approvals = this.#people.approvals(grant.person)
-        for (const id of this.#asked.get(grant.id) ?? []) approvals.withdraw(id)
+        for (const id of this.#asked.get(grant.id) ?? []) {
+          approvals.withdraw(id, 'The assistant was let go before it was answered.')
+        }
         this.#asked.delete(grant.id)
         this.#people.changed(grant.person)
       },

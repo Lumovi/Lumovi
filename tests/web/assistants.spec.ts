@@ -323,7 +323,7 @@ test('signing out of Lumovi lets the person’s assistants go', async ({ page, b
       outcome: 'cancelled',
       summary: 'Scale Deployment cart to 3 replicas',
       approval: { status: 'withdrawn', waitedMs: expect.any(Number) },
-      error: 'The assistant stopped waiting for an answer.',
+      error: 'The assistant was let go before it was answered.',
     }),
   ])
   expect(audited(served, 'assistant.ended')).toEqual([

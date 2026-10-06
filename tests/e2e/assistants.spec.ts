@@ -234,6 +234,15 @@ test('Lumovi says when its port is taken, and takes another', async ({ page }) =
     `Lumovi can’t use port ${busy} (listen EADDRINUSE`,
   )
   await expect(dialog.getByRole('tablist')).toBeHidden()
+  // Recorded as it came out.
+  const recorded = await page.evaluate(() =>
+    window.lumovi!.audit.query({ actions: ['assistants.changed'], limit: 1 }),
+  )
+  expect(recorded.events[0]).toMatchObject({
+    outcome: 'failure',
+    summary: `Moved where AI assistants connect to port ${busy}`,
+    error: expect.stringContaining(`Lumovi can’t use port ${busy}`),
+  })
 
   const free = await freePort()
   await port.fill(String(free))

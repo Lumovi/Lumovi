@@ -63,6 +63,12 @@ test('sign in with a token, at the address that was opened', async ({
     .getByRole('link', { name: 'Pods' })
     .click()
   await expect(bob.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  // His own sign-ins, as he sees them: not the one that failed (who tried it isn't known, whatever
+  // it's called).
+  const his = await bob.evaluate(() => window.lumovi!.audit.query({ categories: ['sign-in'] }))
+  expect(his.events.map((e) => [e.summary, e.actor.user])).toEqual([
+    ['Signed in with a token', 'bob@example.com'],
+  ])
   await elsewhere.close()
   await expect(page.getByPlaceholder('Paste a token')).toBeVisible()
   expect(served.log()).toContain('alice@example.com signed out')

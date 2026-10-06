@@ -24,6 +24,7 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserContext, Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
+import { call, connect } from './assistant-client.ts'
 import {
   audited,
   DEMO,
@@ -1485,6 +1486,122 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
     expect(hashOf(event)).toBe(event.hash)
   }
   expect((await verify(page)).breaks).toEqual([])
+})
+
+test('what was read, refused, only tried, or set is recorded too', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const served = await serve({ env: { LUMOVI_AUTH: 'proxy', LUMOVI_AUDITORS: 'auditors' } })
+  await as(context, 'alice@example.com', 'auditors')
+  await page.goto(`${served.url}cluster/demo/pods`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  const secret = {
+    context: 'demo',
+    kind: 'Secret',
+    namespace: 'data',
+    name: 'postgres-credentials',
+  }
+  // A release's values and manifests (a Secret's data, they may hold).
+  await page.evaluate(() => window.lumovi!.helm.release('demo', 'shop', 'storefront'))
+  // A Secret the cluster won't show: refused, and said so.
+  const refusing = clusters.demo.fail('/api/v1/namespaces/data/secrets/postgres-credentials', {
+    status: 403,
+  })
+  await page.evaluate((q) => window.lumovi!.kube.get(q as never), secret)
+  refusing()
+  // A change to one only tried: its answer is the Secret, as it'd be.
+  await page.evaluate(
+    (q) =>
+      window.lumovi!.kube.change({
+        ...q,
+        change: {
+          action: 'patch',
+          patchType: 'merge',
+          patch: { metadata: { labels: { a: 'b' } } },
+        },
+        dryRun: true,
+      } as never),
+    secret,
+  )
+  // Where node shells run, and as what; and back to Lumovi's own.
+  await page.evaluate(() =>
+    window.lumovi!.app.setNodeShell('demo', { namespace: 'ops', image: 'busybox:1.37' }),
+  )
+  await page.evaluate(() => window.lumovi!.app.setNodeShell('demo', null))
+  expect(
+    audited(served)
+      .filter((e) => ['helm.values.read', 'secret.read', 'node-shell.changed'].includes(e.action))
+      .map(({ action, outcome, summary, error, details }) => ({
+        action,
+        outcome,
+        summary,
+        ...(error ? { error } : {}),
+        ...(details ? { details } : {}),
+      })),
+  ).toEqual([
+    {
+      action: 'helm.values.read',
+      outcome: 'success',
+      summary: 'Read release storefront’s values and manifests',
+    },
+    {
+      action: 'secret.read',
+      outcome: 'refused',
+      summary: 'Read Secret postgres-credentials',
+      error: expect.any(String),
+    },
+    {
+      action: 'secret.read',
+      outcome: 'success',
+      summary: 'Read Secret postgres-credentials',
+      details: { keys: ['username', 'password', 'database'] },
+    },
+    {
+      action: 'node-shell.changed',
+      outcome: 'success',
+      summary: 'Made node shells in demo run busybox:1.37 in ops',
+      details: { namespace: 'ops', image: 'busybox:1.37' },
+    },
+    {
+      action: 'node-shell.changed',
+      outcome: 'success',
+      summary: 'Made node shells in demo run as Lumovi’s defaults',
+    },
+  ])
+})
+
+test('recording changes alone, an assistant’s change refused is kept; what it read isn’t', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve({ env: { LUMOVI_AUDIT_LEVEL: 'changes' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await page.evaluate(() =>
+    window.lumovi!.aiPermissions!.set({
+      defaults: { changes: 'ask', secrets: 'hidden', env: 'sensitive', logs: 'read' },
+      rules: [],
+    }),
+  )
+  const { client } = await connect(page, served)
+  await call(client, 'list_resources', { cluster: 'demo', kind: 'pods', namespace: 'shop' })
+  const refused = await call(client, 'delete_resource', {
+    cluster: 'demo',
+    kind: 'secrets',
+    namespace: 'data',
+    name: 'postgres-credentials',
+    reason: 'Tidying.',
+  })
+  expect(refused.error).toBe(true)
+  expect(audited(served, 'assistant.tool')).toEqual([
+    expect.objectContaining({
+      outcome: 'refused',
+      summary: 'Delete a resource: secrets postgres-credentials',
+      details: expect.objectContaining({ tool: 'delete_resource', changing: true }),
+    }),
+  ])
 })
 
 test('one Lumovi keeps a history: another, sharing its folder, doesn’t start', async ({

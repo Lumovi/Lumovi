@@ -133,7 +133,7 @@ export function registerIpc(deps: Dependencies): void {
       LocalTerminals.handles(request) ? local.open(id, request) : terminals.open(id, request),
     // AI assistants over MCP: whether and where they connect, and the changes they ask for.
     [IPC.assistantsStatus]: () => assistants.status(),
-    [IPC.assistantsConfigure]: (change) => {
+    [IPC.assistantsConfigure]: async (change) => {
       const { enabled, port } = Object(change) as { enabled?: unknown; port?: unknown }
       if (
         (enabled !== undefined && typeof enabled !== 'boolean') ||
@@ -141,9 +141,15 @@ export function registerIpc(deps: Dependencies): void {
       ) {
         throw new Error('Expected whether assistants may connect, and a port from 1024 to 65535')
       }
+      const status = await assistants.configure({
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(port !== undefined ? { port } : {}),
+      })
+      // As it came out: a port that can't be listened on, say.
       audit.record({
         action: 'assistants.changed',
-        outcome: 'success',
+        outcome: status.error ? 'failure' : 'success',
+        ...(status.error ? { error: status.error } : {}),
         summary: [
           ...(enabled === undefined
             ? []
@@ -155,18 +161,16 @@ export function registerIpc(deps: Dependencies): void {
           ...(port !== undefined ? { port } : {}),
         },
       })
-      return assistants.configure({
-        ...(enabled !== undefined ? { enabled } : {}),
-        ...(port !== undefined ? { port } : {}),
-      })
+      return status
     },
-    [IPC.assistantsResetToken]: () => {
+    [IPC.assistantsResetToken]: async () => {
+      const status = await assistants.resetToken()
       audit.record({
         action: 'assistants.changed',
         outcome: 'success',
         summary: 'Made a new token for AI assistants: those set up with the old one can’t connect',
       })
-      return assistants.resetToken()
+      return status
     },
     [IPC.assistantsInstall]: (client) => {
       if (client !== 'claude-desktop' && client !== 'cursor' && client !== 'vscode') {
