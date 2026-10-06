@@ -95,6 +95,52 @@ const assistantLeaves = async (page: Page) => {
   }
 }
 
+/**
+ * What AI assistants may do, as the screens show it: staging's changes made
+ * without asking, the system's namespaces hidden, and the database's Secrets
+ * and logs kept from them.
+ */
+const permitForScreens = (page: Page) =>
+  page.evaluate(
+    (staging) =>
+      window.lumovi!.aiPermissions!.set({
+        defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+        rules: [
+          {
+            id: 'system',
+            name: 'System namespaces',
+            clusters: [],
+            namespaces: ['kube-*'],
+            set: { visibility: 'hidden' },
+          },
+          {
+            id: 'staging',
+            name: 'Staging',
+            clusters: [staging],
+            namespaces: [],
+            set: { changes: 'allow' },
+          },
+          {
+            id: 'database',
+            name: 'Database',
+            clusters: [],
+            namespaces: ['data'],
+            set: { secrets: 'hidden', logs: 'off', changes: 'never' },
+          },
+        ],
+      }),
+    CLUSTERS.staging,
+  )
+
+const resetPermissions = async (page: Page) => {
+  await page.evaluate(() =>
+    window.lumovi!.aiPermissions!.set({
+      defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+      rules: [],
+    }),
+  )
+}
+
 /** Turns the production cluster's read-only switch over. */
 const toggleReadOnly = async (page: Page) => {
   await page.getByRole('button', { name: 'Switch cluster' }).click()
@@ -269,48 +315,52 @@ export const SCREENS: Screen[] = [
     name: 'assistants',
     title: 'AI assistants',
     description:
-      'What AI assistants may do, and where: defaults, rules for some clusters and namespaces, and any namespace checked.',
+      'AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.',
     app: 'desktop',
     path: cluster,
     async steps(page) {
       await assistantConnects(page)
-      // Staging's assistants change it without asking; the system's namespaces are hidden.
-      await page.evaluate(
-        (staging) =>
-          window.lumovi!.aiPermissions!.set({
-            defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
-            rules: [
-              {
-                id: 'staging',
-                name: 'Staging',
-                clusters: [staging],
-                namespaces: [],
-                set: { changes: 'allow' },
-              },
-              {
-                id: 'system',
-                name: 'System namespaces',
-                clusters: [],
-                namespaces: ['kube-*'],
-                set: { visibility: 'hidden' },
-              },
-            ],
-          }),
-        CLUSTERS.staging,
-      )
+      await page.getByRole('button', { name: /^AI assistants/ }).click()
+      await page.getByRole('region', { name: 'Connected now' }).getByText('Claude Code').waitFor()
+    },
+    after: assistantLeaves,
+  },
+  {
+    name: 'assistant-permissions',
+    title: 'What AI assistants may do',
+    description:
+      'What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.',
+    app: 'desktop',
+    path: cluster,
+    async steps(page) {
+      await permitForScreens(page)
       await page.getByRole('button', { name: /^AI assistants/ }).click()
       await page.getByRole('link', { name: 'Permissions' }).click()
-      await page.getByRole('heading', { name: 'Defaults' }).waitFor()
+      const check = page.getByRole('region', { name: 'Check a namespace' })
+      await check.getByRole('searchbox', { name: 'Namespace' }).fill('data')
+      await check.getByRole('button', { name: /^data/ }).first().click()
+      await check.getByText('Database', { exact: true }).first().waitFor()
     },
-    async after(page) {
-      await page.evaluate(() =>
-        window.lumovi!.aiPermissions!.set({
-          defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
-          rules: [],
-        }),
-      )
-      await assistantLeaves(page)
+    after: resetPermissions,
+  },
+  {
+    name: 'assistant-rule',
+    title: 'A rule for AI assistants',
+    description:
+      'A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.',
+    app: 'desktop',
+    path: cluster,
+    async steps(page) {
+      await permitForScreens(page)
+      await page.getByRole('button', { name: /^AI assistants/ }).click()
+      await page.getByRole('link', { name: 'Permissions' }).click()
+      await page.getByRole('button', { name: /^Database/, expanded: false }).click()
+      const rule = page.getByRole('article', { name: 'Database' })
+      await rule.getByLabel('Namespaces', { exact: true }).fill('mon')
+      await rule.getByRole('group', { name: 'Suggestions for Namespaces' }).waitFor()
+      await rule.scrollIntoViewIfNeeded()
     },
+    after: resetPermissions,
   },
   {
     name: 'assistant-approval',

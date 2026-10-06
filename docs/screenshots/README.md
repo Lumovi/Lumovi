@@ -181,11 +181,27 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### AI assistants
 
-`assistants`: AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.
+`assistants`: AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.
 
-| Light                                                                                                                                                                    | Dark                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.](assistants-light-1x.webp)](assistants-light.webp) | [![AI assistants on this computer connected to Lumovi, how to connect others, and what each cluster lets them change.](assistants-dark-1x.webp)](assistants-dark.webp) |
+| Light                                                                                                                                                                      | Dark                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [![AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.](assistants-light-1x.webp)](assistants-light.webp) | [![AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.](assistants-dark-1x.webp)](assistants-dark.webp) |
+
+### What AI assistants may do
+
+`assistant-permissions`: What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.
+
+| Light                                                                                                                                                                                                                    | Dark                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.](assistant-permissions-light-1x.webp)](assistant-permissions-light.webp) | [![What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.](assistant-permissions-dark-1x.webp)](assistant-permissions-dark.webp) |
+
+### A rule for AI assistants
+
+`assistant-rule`: A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.
+
+| Light                                                                                                                                                                                            | Dark                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.](assistant-rule-light-1x.webp)](assistant-rule-light.webp) | [![A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.](assistant-rule-dark-1x.webp)](assistant-rule-dark.webp) |
 
 ### An AI assistant’s change
 
