@@ -15,6 +15,8 @@ COPY package.json package-lock.json .npmrc ./
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
 COPY . .
 RUN npm run build
+# Where a volume for the audit history goes: Lumovi's own, so a Docker volume there starts so.
+RUN mkdir -p /data/lumovi/audit
 
 # helm, for the target platform, checked against its published checksum.
 FROM --platform=$BUILDPLATFORM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS helm
@@ -45,6 +47,7 @@ COPY --from=build /src/out/server/THIRD_PARTY_NOTICES.txt /app/licenses/SERVER_T
 COPY --from=build /src/out/server/index.js /app/out/server/index.js
 COPY --from=build /src/out/agent/agent.js /app/out/agent/agent.js
 COPY --from=build /src/out/renderer /app/out/renderer
+COPY --from=build --chown=65532:65532 /data/lumovi /var/lib/lumovi
 ENV NODE_ENV=production \
     LUMOVI_HELM=/usr/local/bin/helm \
     HELM_CACHE_HOME=/tmp/helm/cache \
