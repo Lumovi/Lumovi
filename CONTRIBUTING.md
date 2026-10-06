@@ -138,12 +138,15 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
 When CI passes on that commit, the _Release_ workflow sees a version without a release, and
 builds the installers for every platform (signing and notarizing the macOS app), and the
 image (`ghcr.io/lumovi/lumovi`) and Helm chart (`oci://ghcr.io/lumovi/charts`),
-which it pushes to GitHub's container registry with provenance attestations. It attaches
-them and a `SHA256SUMS.txt` to a GitHub release, with the version's CHANGELOG section as
+which it pushes to GitHub's container registry with provenance attestations and signs
+with cosign (keyless). It attaches the installers, a `SHA256SUMS.txt` and a bill of
+materials (`Lumovi-<version>.cdx.json`) to a GitHub release, with the version's CHANGELOG
+section as
 its notes, and publishes it with an annotated tag, `v1.1.0`, on the commit CI tested. It
 refuses a version that isn't newer than the last release, or that has no CHANGELOG section.
 Each file gets a signed build provenance attestation (`gh attestation verify <file> --repo
-Lumovi/Lumovi`), and published releases are immutable. A release that fails part of
+Lumovi/Lumovi`), the installers one of their bill of materials too (see
+[Checking a release](SECURITY.md#checking-a-release)), and published releases are immutable. A release that fails part of
 the way can be run again from the workflow's page (_Run workflow_).
 
 The signing secrets are in the repository's `release` environment, which only `main` can

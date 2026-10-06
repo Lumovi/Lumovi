@@ -2,10 +2,11 @@ name: Release
 
 # Releases a version when it reaches main. Once CI passes on a commit whose
 # package.json version has no release yet, this builds the installers for every
-# platform (macOS signed and notarized), attaches them and their checksums to a
-# GitHub release with the version's CHANGELOG notes, and publishes it, which
-# tags the commit. The image and Helm chart for running Lumovi in a cluster
-# go to GitHub's container registry. To release, bump the version, add its
+# platform (macOS signed and notarized), attaches them, their checksums and the
+# software bill of materials (SBOM) to a GitHub release with the version's
+# CHANGELOG notes, and publishes it, which tags the commit. The image and Helm
+# chart for running Lumovi in a cluster go to GitHub's container registry,
+# signed with cosign. Each is attested: built here, from this commit, of what. To release, bump the version, add its
 # CHANGELOG section and push (see CONTRIBUTING.md).
 on:
   workflow_run:
@@ -25,9 +26,9 @@ concurrency:
 jobs:
   preflight:
     name: Find the version to release
-    # Only what CI passed on main, pushed to this repository.
+    # Only what CI passed on main, pushed to this repository; by hand, only from main.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
@@ -111,6 +112,9 @@ jobs:
           for Windows, \`.AppImage\`, \`.deb\` and \`.rpm\` for Linux. \`SHA256SUMS.txt\` lists
           their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
           that a file was built by this repository's release workflow.
+          \`Lumovi-$VERSION.cdx.json\` is the software bill of materials (CycloneDX): the
+          packages Lumovi is made of. How to check a release, the image and the chart:
+          [SECURITY.md](https://github.com/$GITHUB_REPOSITORY/blob/main/SECURITY.md#checking-a-release).
 
           **In your cluster** ([documentation](https://docs.lumovi.dev/server/install)):
           \`helm install lumovi oci://ghcr.io/lumovi/charts/lumovi --version $VERSION\`, with the
@@ -168,7 +172,14 @@ jobs:
       - name: Install rpm tooling
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
+      # It writes what the installers are made of, too: every package bundled into the app or
+      # shipped beside it, and Electron (out/sbom.cdx.json, CycloneDX), attested with them below.
       - run: npm run build
+      - name: Keep the software bill of materials
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: cp out/sbom.cdx.json "$RUNNER_TEMP/Lumovi-$VERSION.cdx.json"
       # Into a keychain of its own, which electron-builder signs from. (Given the certificate
       # itself, electron-builder 26 unlocks its keychain with the wrong password.)
       - name: Import the signing certificate
@@ -229,12 +240,28 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: release/Lumovi-*
+      - name: Attest what the installers are made of
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
+        with:
+          subject-path: release/Lumovi-*
+          sbom-path: ${{ runner.temp }}/Lumovi-${{ needs.preflight.outputs.version }}.cdx.json
+      # Once, for the release: the same on every platform.
+      - name: Add the software bill of materials to the release
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: gh release upload "v$VERSION" "$RUNNER_TEMP/Lumovi-$VERSION.cdx.json" --clobber
 
   image:
     name: Image and Helm chart
     needs: preflight
     if: needs.preflight.outputs.version != ''
     runs-on: ubuntu-latest
+    # Only main deploys from this environment: what's pushed and signed is main's.
+    environment: release
     permissions:
       contents: read
       # To push to GitHub's container registry, and attest what was pushed.
@@ -265,6 +292,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: VERSION=${{ env.VERSION }}
+          # What it's made of (its packages, the system's and npm's), and how it was built, in
+          # the registry with it.
+          sbom: true
+          provenance: mode=max
           # Pre-releases aren't the latest.
           tags: |
             ${{ env.IMAGE }}:${{ env.VERSION }}
@@ -274,6 +305,32 @@ jobs:
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      # Signed by this workflow's identity (keyless: GitHub's OIDC token, recorded in Rekor),
+      # for admission controllers that check signatures: as a Sigstore bundle (an OCI referrer,
+      # cosign 3's way), and as the .sig tag older controllers look for.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          cosign sign --yes "$IMAGE@$DIGEST"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false "$IMAGE@$DIGEST"
+      # What its JavaScript is made of, which BuildKit's own bill can't see (it's bundled):
+      # taken from the image, and attested with it.
+      - name: Take the image's software bill of materials
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          container=$(docker create --platform linux/amd64 "$IMAGE@$DIGEST")
+          docker cp "$container:/app/licenses/sbom.cdx.json" "$RUNNER_TEMP/image.cdx.json"
+          docker rm "$container" >/dev/null
+      - name: Attest what the image is made of
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/image.cdx.json
           push-to-registry: true
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Package and push the chart
@@ -291,6 +348,13 @@ jobs:
           subject-name: ${{ env.CHARTS }}/lumovi
           subject-digest: ${{ steps.chart.outputs.digest }}
           push-to-registry: true
+      - name: Sign the chart
+        env:
+          DIGEST: ${{ steps.chart.outputs.digest }}
+        run: |
+          cosign sign --yes "$CHARTS/lumovi@$DIGEST"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            "$CHARTS/lumovi@$DIGEST"
 
   publish:
     name: Checksums and publish
@@ -310,7 +374,7 @@ jobs:
         run: |
           mkdir assets && cd assets
           gh release download "$TAG" --pattern 'Lumovi-*'
-          # The installers, not the files updates use to download less.
+          # The installers and the bill of materials, not the files updates use to download less.
           files=()
           for file in Lumovi-*; do [[ $file == *.blockmap ]] || files+=("$file"); done
           sha256sum "${files[@]}" > SHA256SUMS.txt

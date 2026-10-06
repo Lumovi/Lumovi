@@ -1,19 +1,20 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import { coverage } from './scripts/vite-coverage'
+import { licenses } from './scripts/vite-licenses'
 
 const withCoverage = process.env.LUMOVI_COVERAGE === 'true'
 
 /**
  * A fleet's agent (`node out/agent/agent.js`), for a cluster its hub can't
- * reach: it dials the hub and relays its API server's connections. ws is its
- * only package, which the server's third-party notices cover.
+ * reach: it dials the hub and relays its API server's connections. Its
+ * packages are the server's too, which its third-party notices cover.
  */
 export default defineConfig({
   resolve: {
     alias: { '@shared': resolve('src/shared'), '@backend': resolve('src/backend') },
   },
-  plugins: coverage('server', withCoverage),
+  plugins: [...coverage('server', withCoverage), licenses('agent')],
   // ws looks for optional native add-ons, which aren't bundled: it does without them.
   define: {
     'process.env.WS_NO_BUFFER_UTIL': JSON.stringify('1'),
