@@ -8,7 +8,6 @@ import { DropdownMenu } from 'radix-ui'
 import { useState } from 'react'
 import {
   AUDIT_CSV_COLUMNS,
-  AUDIT_EXPORT_LIMIT,
   auditCsvRow,
   type AuditEvent,
   type AuditQuery,
@@ -24,24 +23,36 @@ import { fromOf, type Range } from './audit-model'
 type Format = 'csv' | 'jsonl'
 
 /** Every event the search finds (as many as an export holds), oldest first. */
-async function everything(query: AuditQuery): Promise<{ events: AuditEvent[]; cut: boolean }> {
+async function everything(
+  query: AuditQuery,
+  limit: number,
+): Promise<{ events: AuditEvent[]; cut: boolean }> {
   const events: AuditEvent[] = []
   let after: string | undefined
   do {
     const page = await api.audit.query({ ...query, limit: 1000, ...(after ? { after } : {}) })
     events.push(...page.events)
     after = page.next
-  } while (after && events.length < AUDIT_EXPORT_LIMIT)
-  return { events: events.slice(0, AUDIT_EXPORT_LIMIT).reverse(), cut: Boolean(after) }
+  } while (after && events.length < limit)
+  return { events: events.slice(0, limit).reverse(), cut: events.length > limit || Boolean(after) }
 }
 
-export function ExportMenu({ query, range }: { query: AuditQuery; range: Range }) {
+export function ExportMenu({
+  query,
+  range,
+  limit,
+}: {
+  query: AuditQuery
+  range: Range
+  /** How many an export holds, at most. */
+  limit: number
+}) {
   const [busy, setBusy] = useState(false)
   const save = async (format: Format) => {
     setBusy(true)
     try {
       const from = fromOf(range, Date.now())
-      const { events, cut } = await everything({ ...query, ...(from ? { from } : {}) })
+      const { events, cut } = await everything({ ...query, ...(from ? { from } : {}) }, limit)
       const text =
         format === 'csv'
           ? `${[AUDIT_CSV_COLUMNS.join(','), ...events.map(auditCsvRow)].join('\r\n')}\r\n`
@@ -54,7 +65,7 @@ export function ExportMenu({ query, range }: { query: AuditQuery; range: Range }
           tone: 'success',
           title: `Exported ${events.length.toLocaleString('en')} ${events.length === 1 ? 'event' : 'events'}`,
           description: cut
-            ? `The ${AUDIT_EXPORT_LIMIT.toLocaleString('en')} most recent the filters find: narrow them (by time, say) for the rest.`
+            ? `The ${limit.toLocaleString('en')} most recent the filters find: narrow them (by time, say) for the rest.`
             : undefined,
         })
       }

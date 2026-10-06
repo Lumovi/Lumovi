@@ -598,6 +598,7 @@ test('related objects: a tab each, and pods with their logs and usage', async ({
     'Things',
     'Map',
     'Events',
+    'Audit',
     'YAML',
   ])
   await detail.getByRole('tab', { name: 'Storefront' }).click()
