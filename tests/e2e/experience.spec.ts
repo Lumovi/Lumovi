@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { demoCluster } from '../mock-cluster/fixtures/demo.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import {
@@ -384,6 +384,18 @@ test('errors Lumovi didn’t expect still explain themselves', async ({ lumovi }
   await expect(alert).toContainText('something broke')
 })
 
+/**
+ * Scrolls a log to its first line, as a reader would, until it stays there: a log that's
+ * following its newest lines keeps the end in view until the scroll's event says otherwise.
+ */
+async function scrollToTop(log: Locator): Promise<void> {
+  await expect(async () => {
+    await log.evaluate((element) => element.scrollTo({ top: 0 }))
+    await log.page().waitForTimeout(100)
+    expect(await log.evaluate((element) => element.scrollTop)).toBe(0)
+  }).toPass()
+}
+
 test('logs can be searched and followed', async ({ page, clusters }) => {
   const pod = DEMO.pods.storefront[0]!
   await openCluster(page)
@@ -405,7 +417,7 @@ test('logs can be searched and followed', async ({ page, clusters }) => {
   await expect(log).toContainText('heartbeat')
   await search.fill('"path":"/api/cart"')
   // It's the oldest of many: at the top.
-  await log.evaluate((element) => element.scrollTo({ top: 0 }))
+  await scrollToTop(log)
   await expect(log).toContainText('{"level":"info","msg":"request completed","path":"/api/cart"')
 
   await search.fill('')
@@ -422,7 +434,7 @@ test('logs can be searched and followed', async ({ page, clusters }) => {
   await expect(log.locator('[data-level] > span').first()).not.toHaveText(/^\d\d:\d\d/)
 
   // Scrolling up pauses following; "Jump to latest" resumes it.
-  await log.evaluate((element) => element.scrollTo({ top: 0 }))
+  await scrollToTop(log)
   await detail.getByRole('button', { name: 'Jump to latest' }).click()
   await expect(detail.getByRole('button', { name: 'Jump to latest' })).toHaveCount(0)
   // New lines arrive as they're written.
