@@ -19,7 +19,8 @@ export interface Screen {
   description: string
   /** The desktop app, or Lumovi served from a cluster (signed in as `server` says). */
   app: 'desktop' | 'server'
-  server?: 'token' | 'sso' | 'proxy' | 'fleet'
+  /** How people sign in; `audit`: behind a proxy, with a day of the audit log kept. */
+  server?: 'token' | 'sso' | 'proxy' | 'fleet' | 'audit'
   /** Where it starts: a path in the app. */
   path: string
   /** What to do there before the screenshot, if anything. */
@@ -361,6 +362,38 @@ export const SCREENS: Screen[] = [
       await rule.scrollIntoViewIfNeeded()
     },
     after: resetPermissions,
+  },
+  {
+    name: 'audit',
+    title: 'The audit log',
+    description:
+      'What was done through Lumovi, by whom, and how it went, a day at a time: one of them open, a change an AI assistant made as Jane, as she approved it.',
+    app: 'server',
+    server: 'audit',
+    path: '/audit',
+    async steps(page) {
+      await page
+        .getByRole('listbox', { name: 'Events' })
+        .getByRole('option', { name: /Restarted Deployment checkout$/ })
+        .click()
+      await page
+        .getByRole('complementary', { name: 'Event' })
+        .getByRole('region', { name: 'Approval' })
+        .waitFor()
+    },
+  },
+  {
+    name: 'audit-checked',
+    title: 'The audit log, checked',
+    description:
+      'The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.',
+    app: 'server',
+    server: 'audit',
+    path: '/audit?category=change',
+    async steps(page) {
+      await page.getByRole('button', { name: 'Check integrity' }).click()
+      await page.getByRole('status', { name: 'Integrity' }).waitFor()
+    },
   },
   {
     name: 'assistant-approval',

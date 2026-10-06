@@ -6,6 +6,53 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- An audit log of what's done through Lumovi, by whom, from where, and how it went: changes
+  (from the page, or AI assistants' with how they were approved: by whom, after how long, with
+  their note, or made without asking where the rules allow it), Helm installs, upgrades,
+  rollbacks and uninstalls, shells and node shells (with how long they ran), port-forwards,
+  logs and Secrets' values read, sign-ins and sign-outs, sessions ending, assistants allowed,
+  denied and let go (a refresh token used twice, refused), each tool an assistant calls, and
+  changes to read-only and AI permissions. Each change is described by the server, from what
+  was asked (never from what the page says it is), with the kubectl or helm command that does
+  the same; what a patch sets is named, never its values; Secrets' values, tokens and
+  manifests' contents are never in it.
+- Events are chained: each holds the hash of the one before it, so a change, a removal or an
+  addition anywhere shows when it's checked (on the Audit page, or by anyone with the events
+  and SHA-256: its hash is of its JSON, keys in order).
+- The Audit page: search, filters (what kind, outcome, who, through the page or an assistant,
+  cluster, how far back) kept in the address to share, a day at a time, as many as there are
+  (it asks for older ones as it's scrolled), events coming in as they happen, everything about
+  one (who, groups, from where and through what proxy, browser, session by a hash, the
+  approval, the command, what it set, its place in the chain), export as CSV or JSON Lines
+  (what a spreadsheet would run as a formula, as text), and a check of the chain. In the
+  sidebar, the command palette, and from the activity menu and the AI assistants' Activity tab.
+- Each object's Audit tab: who changed it (or read it, or opened a shell in it), and how it
+  went, as it happens.
+- On a server, each event is also a JSON line on its output (with `"type":"lumovi.audit"`), for
+  the cluster's log collector (`LUMOVI_AUDIT_STDOUT=false` stops it), and can be sent to a
+  webhook (`LUMOVI_AUDIT_WEBHOOK_URL`, its headers from a Secret, as JSON or NDJSON), in
+  batches, tried again until it takes them; events that can't be kept or sent are counted, said
+  in the log, recorded, and shown to auditors. People see their own events; those in
+  `LUMOVI_AUDITORS` (groups, or `user:` names) see everyone's. Its history is kept in
+  `LUMOVI_AUDIT_DIR` (or `LUMOVI_DATA_DIR/audit`) for `LUMOVI_AUDIT_RETENTION_DAYS` (90), else
+  in memory since it started (said on the page). `LUMOVI_AUDIT_LEVEL=changes` records changes,
+  sign-ins and settings, but not what's opened and read.
+- The desktop app keeps its own, for 90 days, as the computer's person and each cluster's
+  kubeconfig user.
+- Helm chart: `audit` values: the level, auditors, the output, a volume for the history
+  (`audit.persistence`, kept when the chart's uninstalled), how long it's kept, and a webhook.
+
+### Changed
+
+- Helm chart: the audit history is on a volume by default, so the chart makes a
+  PersistentVolumeClaim (2 GiB, the cluster's default storage class: a cluster without one
+  needs `audit.persistence.storageClass`, or `audit.persistence.enabled: false`). With it, an
+  upgrade stops the old pod before the new one starts (one writes the history at a time), and
+  more than one replica needs `audit.persistence.enabled: false`.
+- CI runs each platform's tests on four machines at once, not two.
+
 ## [1.5.0] - 2026-10-06
 
 What AI assistants may do, and where: defaults, and rules for some clusters and namespaces,
