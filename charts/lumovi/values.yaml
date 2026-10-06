@@ -115,14 +115,27 @@ auth:
 readOnly: false
 
 # AI assistants (Claude Code, Cursor, VS Code and other MCP clients) connect at <url>/mcp,
-# signed in as someone through Lumovi (OAuth), and read the clusters that person can. The
-# changes they ask for wait for that person's approval in Lumovi, unless changes says otherwise.
+# signed in as someone through Lumovi (OAuth), and read the clusters that person can. Each
+# person says in Lumovi what theirs may do, and where; what they say is kept in a ConfigMap the
+# chart makes (<release>-assistant-rules), which uninstalling keeps.
 assistants:
   enabled: true
-  # What assistants' changes do: ask (each waits for approval), allow (made without asking;
-  # deletions, and changes that take fields over from others, still ask), or never.
-  changes: ask
-  # A cluster's own, by its name: { staging: allow, production: never }.
+  # Limits nobody's own AI permissions loosen. Each rule has a name; where it applies, as
+  # clusters and namespaces (names, patterns like tenant-*, labels like team=payments, or "!"
+  # first to leave one out; none: all of them); and what it limits: visibility (hidden),
+  # changes (ask, never), secrets (keys, hidden), env (sensitive, all) or logs (off). Say:
+  #   - name: System namespaces
+  #     namespaces: [kube-*, cert-manager]
+  #     visibility: hidden
+  #   - name: Production
+  #     clusters: [env=production]
+  #     changes: ask
+  #     secrets: keys
+  rules: []
+  # Changes as 1.4 limited them (rules say more): ask or never everywhere, unless set
+  # otherwise for a cluster by its name: { staging: allow, production: never }. Unset, people
+  # choose.
+  changes: ''
   clusters: {}
   # Sites (host names) an assistant may send the person back to over https, after they allow
   # it. Assistants on their computer, and apps (Claude Code, Cursor, VS Code), need none.

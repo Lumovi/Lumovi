@@ -59,6 +59,15 @@ jobs:
           ! helm template lumovi charts/lumovi --set assistants.chanegs=allow 2>/dev/null
           helm template lumovi charts/lumovi --set 'assistants.redirectHosts={assistant.example.com}' \
             | grep -q 'value: "assistant.example.com"'
+          # People's AI rules: a ConfigMap Lumovi may read and write, and nothing else; the
+          # administrator's, as JSON; nothing at all with assistants off.
+          helm template lumovi charts/lumovi | grep -q 'resourceNames: \[lumovi-assistant-rules\]'
+          helm template lumovi charts/lumovi --set 'assistants.rules[0].name=System' \
+            --set 'assistants.rules[0].namespaces={kube-*}' --set 'assistants.rules[0].visibility=hidden' \
+            | grep -q 'LUMOVI_ASSISTANT_RULES$'
+          ! helm template lumovi charts/lumovi --set assistants.enabled=false | grep -q 'assistant-rules'
+          ! helm template lumovi charts/lumovi --set 'assistants.rules[0].name=x' \
+            --set 'assistants.rules[0].logs=maybe' 2>/dev/null
           # A fleet, with every source; a member; an agent.
           helm template lumovi charts/lumovi --set auth.mode=proxy \
             --set fleet.kubeconfigSecret=fleet --set 'fleet.secrets={lumovi,cluster-api,argocd}' \

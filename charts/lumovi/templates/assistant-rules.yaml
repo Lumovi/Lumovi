@@ -1,0 +1,42 @@
+{{- if and (include "lumovi.dashboard" .) .Values.assistants.enabled }}
+# What each person lets their AI assistants do, as they say it in Lumovi. Lumovi reads and
+# writes this ConfigMap (and nothing else here); upgrades leave what's in it, and uninstalling
+# keeps it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lumovi.fullname" . }}-assistant-rules
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+{{- if .Values.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "lumovi.fullname" . }}-assistant-rules
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [{{ include "lumovi.fullname" . }}-assistant-rules]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "lumovi.fullname" . }}-assistant-rules
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "lumovi.fullname" . }}-assistant-rules
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
