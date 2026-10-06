@@ -14,14 +14,17 @@ All notable changes to Lumovi are documented here. The format follows
   all but sensitive ones, or none); and whether they read logs. Rules say otherwise for some
   clusters and namespaces, by name, pattern (`tenant-*`) or label (`team=payments`), or leave
   one out (`!kube-system`), so one rule covers thousands; where rules overlap, the strictest
-  wins. A namespace a rule hides isn't there for assistants. The tab counts what assistants
+  wins. A namespace a rule hides isn't there for assistants; a cluster's own objects follow
+  the rules that name no namespaces, and deleting a custom resource definition (which deletes
+  its objects everywhere) is refused unless assistants may change every namespace. The tab counts what assistants
   see, change and read over every namespace, checks any one (and which rule decided), and
   shows what assistants are told as they start, and the tools keep to it all.
 - On a server, each person's are kept in a ConfigMap the Helm chart makes (or a file under
   `LUMOVI_DATA_DIR`, or memory, said on the page), the same in every browser; and
   administrators set rules that are limits nobody's own loosen (`LUMOVI_ASSISTANT_RULES`, the
-  chart's `assistants.rules`). The page that allows an assistant says what it will be able to
-  do.
+  chart's `assistants.rules`). A server of one cluster takes its labels for them from
+  `LUMOVI_CLUSTER_LABELS` (the chart's `clusterLabels`). The page that allows an assistant
+  says what it will be able to do.
 
 ### Changed
 
@@ -34,7 +37,10 @@ All notable changes to Lumovi are documented here. The format follows
 - The desktop app's Ask, Allow and Never for each cluster are rules now, as they were.
 - `LUMOVI_ASSISTANT_CHANGES` (the chart's `assistants.changes` and `assistants.clusters`) are
   limits now: ask and never cap what people let their assistants do; allow leaves it to them,
-  and they ask unless people say otherwise. The chart no longer sets them unless you do.
+  and they ask unless people say otherwise. The chart no longer sets them unless you do. So
+  after upgrading, people may let their assistants change without asking, and read Secrets'
+  values, which 1.4 didn't allow: to keep 1.4's limits, give the chart the rule
+  `{ name: Limits, changes: ask, secrets: keys }` under `assistants.rules`.
 
 ## [1.4.0] - 2026-10-06
 

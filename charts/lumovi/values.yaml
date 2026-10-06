@@ -22,6 +22,9 @@ fullnameOverride: ''
 # What Lumovi calls the cluster: in its pages, their addresses and titles. An agent's name
 # at its fleet's Lumovi, too.
 clusterName: in-cluster
+# What the cluster is labelled with, like { env: production }, for AI assistants' rules that
+# match clusters by label (in a fleet, its clusters' are fleet.labels and theirs).
+clusterLabels: {}
 
 # Many clusters, rather than this one: see https://docs.lumovi.dev/server/fleet. People
 # sign in with auth.mode oidc or proxy, and see each cluster as their RBAC there allows.
@@ -123,7 +126,8 @@ assistants:
   # Limits nobody's own AI permissions loosen. Each rule has a name; where it applies, as
   # clusters and namespaces (names, patterns like tenant-*, labels like team=payments, or "!"
   # first to leave one out; none: all of them); and what it limits: visibility (hidden),
-  # changes (ask, never), secrets (keys, hidden), env (sensitive, all) or logs (off). Say:
+  # changes (ask, never), secrets (keys, hidden), env (sensitive, all) or logs (off). A
+  # cluster's labels are clusterLabels (in a fleet, its clusters'). Say:
   #   - name: System namespaces
   #     namespaces: [kube-*, cert-manager]
   #     visibility: hidden

@@ -20,6 +20,7 @@ try {
         name: config.clusterName,
         usernamePrefix: config.usernamePrefix,
         groupsPrefix: config.groupsPrefix,
+        labels: config.clusterLabels,
       })
   const server = await startServer({ config, hosted, env: process.env, version })
   log(

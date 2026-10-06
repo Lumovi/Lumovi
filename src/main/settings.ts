@@ -10,6 +10,7 @@ import {
   checkedPermissions,
   NO_PERMISSIONS,
   parseMatcher,
+  type AiDefaults,
   type AiPermissions,
   type AiRule,
 } from '@shared/ai-permissions'
@@ -30,6 +31,9 @@ const DEFAULTS: Settings = {
   assistants: { enabled: false, port: DEFAULT_ASSISTANTS_PORT },
   aiPermissions: NO_PERMISSIONS,
 }
+
+/** What AI assistants may do when what was kept can't be read: nothing. */
+const STRICTEST: AiDefaults = { changes: 'never', secrets: 'hidden', env: 'all', logs: 'off' }
 
 /** Persists user preferences as JSON in the app's userData directory. */
 export class SettingsStore implements SettingsAccess {
@@ -146,26 +150,27 @@ export class SettingsStore implements SettingsAccess {
 
 /**
  * What AI assistants may do, as kept: unless it was edited into something
- * that doesn't make sense, then the defaults. Before them, each context's
- * changes were asked about, made without asking or refused (aiChanges): those
- * are rules now, a context each.
+ * that doesn't make sense, then nothing at all, until the person says again
+ * (never looser than they meant). Before them, each context's changes were
+ * asked about, made without asking or refused (aiChanges): those are rules
+ * now, a context each.
  */
 function storedPermissions(stored: Partial<Settings> & { aiChanges?: unknown }): AiPermissions {
   if (stored.aiPermissions !== undefined) {
     try {
       return checkedPermissions(stored.aiPermissions)
     } catch {
-      return NO_PERMISSIONS
+      return { defaults: STRICTEST, rules: [] }
     }
   }
   const rules: AiRule[] = Object.entries(Object(stored.aiChanges) as Record<string, unknown>)
     .filter(([context, changes]) => {
+      if (!isAiChanges(changes) || changes === 'ask') return false
+      // A name, as it was; one that reads as a pattern only where that's stricter (never).
       const named = parseMatcher(context)
       return (
-        isAiChanges(changes) &&
-        changes !== 'ask' &&
         typeof named !== 'string' &&
-        named.kind === 'name'
+        (named.kind === 'name' || (named.kind === 'pattern' && changes === 'never'))
       )
     })
     .map(([context, changes], i) => ({

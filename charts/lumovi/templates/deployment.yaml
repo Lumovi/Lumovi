@@ -181,6 +181,11 @@ spec:
             - name: LUMOVI_CLUSTER_LABELS
               value: {{ include "lumovi.labelList" . | quote }}
             {{- end }}
+            {{- else }}
+            {{- with .Values.clusterLabels }}
+            - name: LUMOVI_CLUSTER_LABELS
+              value: {{ include "lumovi.labelList" . | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
