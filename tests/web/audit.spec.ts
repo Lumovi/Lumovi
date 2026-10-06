@@ -32,7 +32,8 @@ import {
   test,
 } from './fixtures.ts'
 
-const POD = DEMO.pods.storefront[0]!
+// One no step changes the owner of: storefront's are replaced as it restarts, a moment later.
+const POD = DEMO.pods.checkout[2]!
 /**
  * Whether a server the tests stop stops as Kubernetes stops it (SIGTERM): recording that it
  * stopped, and sending what's waiting. Windows can only end it at once.
