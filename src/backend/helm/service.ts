@@ -123,8 +123,8 @@ export class HelmService {
       assertName(namespace, 'namespace')
       assertName(name, 'name')
       const { detail } = await releaseHistory(this.#list(context), namespace, name)
-      if (!this.#guard || (await this.#guard.secrets(context, namespace)) === 'values')
-        return detail
+      const shown = this.#guard ? await this.#guard.secrets(context, namespace) : 'values'
+      if (shown === 'values') return detail
       return {
         ...detail,
         revisions: detail.revisions.map((r) => ({
@@ -133,7 +133,7 @@ export class HelmService {
           manifest: '',
           notes: undefined,
         })),
-        withheld: `Its values and manifests can hold Secrets, and your access shows only their keys in ${namespace}.`,
+        withheld: `Its values and manifests can hold Secrets, and your access ${shown === 'hidden' ? 'hides them' : 'shows only their keys'} in ${namespace}.`,
       }
     })
   }

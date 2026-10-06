@@ -65,7 +65,6 @@ function Yours({ mine }: { mine: MyAccess }) {
   const decide = useMemo(() => myDecider(mine), [mine])
   const { policy } = mine
   const sent = sentGroups(mine.person.groups)
-  const audit = decide({ cluster: { name: '' } }).audit
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start gap-5">
@@ -220,7 +219,7 @@ function Yours({ mine }: { mine: MyAccess }) {
           </div>
           <p className="text-xs text-ink-2">
             Everywhere:{' '}
-            {audit.value === 'all'
+            {mine.auditor
               ? 'everyone’s events in the audit log.'
               : 'your own events in the audit log.'}
           </p>

@@ -5,7 +5,15 @@
  * what each person may do, and why; and refusals where they happen, decided
  * by the server whatever the page shows.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Browser, Page } from '@playwright/test'
@@ -312,6 +320,8 @@ test('admins set who may do what, read it back, and save it together', async ({
   await expect(members).toHaveValue('')
   await expect(developers).toContainText('In it now, as they last signed in: 2 people')
   await expect(developers).toContainText('hugo@example.comvia developers')
+  // Nobody seen is that: marked (a typo, or someone yet to sign in).
+  await expect(developers).toContainText('personzoe@example.comnot seen yet')
   // Already in it: not offered again.
   await members.fill('zoe@example.com')
   await expect(developers.getByRole('option')).toHaveCount(0)
@@ -362,6 +372,7 @@ test('admins set who may do what, read it back, and save it together', async ({
   await expect(temps).toContainText(
     'Nobody yet: nobody has signed in with temps in the last 30 days.',
   )
+  await expect(temps).toContainText('grouptempsnot seen yet')
   // Another, made and thought better of.
   await page.getByRole('button', { name: 'New group' }).click()
   await page
@@ -563,7 +574,7 @@ test('admins set who may do what, read it back, and save it together', async ({
   await expect(history).toContainText('SecretsValuesKeys only')
   await expect(page.getByRole('link', { name: 'Open in the audit log' })).toHaveAttribute(
     'href',
-    '/audit?category=settings&q=access.changed&range=90d',
+    '/audit?category=settings&q=access.changed&range=all',
   )
 
   // ——— Check someone ———
@@ -680,9 +691,10 @@ test('admins set who may do what, read it back, and save it together', async ({
 
 /** Who may do what in the demo cluster: developers run the shop, but not its Secrets' values. */
 const POLICY = `
-everyone: { changes: read, shells: off, nodeShells: off, logs: on, secrets: keys, helm: off, assistants: ask, audit: own }
+# (Helm writes off and on as no and yes: they're taken as they're meant.)
+everyone: { changes: read, shells: false, nodeShells: false, logs: true, secrets: keys, helm: off, assistants: ask, audit: own }
 groups:
-  - { id: dev, name: Developers, provider: [developers] }
+  - { id: dev, name: Developers, provider: [developers], people: [Dana@Example.com] }
   - { id: sec, name: Security, provider: [security] }
 profiles:
   - id: developer
@@ -722,17 +734,18 @@ test('grants and limits decide what someone may do, where; the server holds to i
       LUMOVI_AUTH: 'proxy',
       LUMOVI_ACCESS: POLICY,
       LUMOVI_ADMINS: 'platform-admins,user:root@example.com',
+      LUMOVI_AUDITORS: 'auditors',
     },
   })
   await as(context, 'dave@example.com', 'developers')
   const coredns = DEMO.pods.coredns[0]!
 
   // Namespaces' labels decide some of it: until they're read, the page leaves it to the server.
-  const slow = clusters.demo.fail('/api/v1/namespaces', { delayMs: 2_000 })
+  const unlisted = clusters.demo.fail('/api/v1/namespaces', { status: 500 })
   await page.goto(`${served.url}cluster/demo/pods?open=Pod/kube-system/${coredns}`)
   const panel = page.getByRole('complementary').filter({ hasText: coredns })
   await expect(panel.getByRole('button', { name: 'Restart', exact: true })).toBeEnabled()
-  slow()
+  unlisted()
   // Not theirs to change: said on the action, before it's tried…
   await expect(panel.getByRole('button', { name: 'Restart', exact: true })).toBeDisabled()
   const restart = panel.getByRole('button', { name: 'Restart', exact: true }).locator('..')
@@ -880,6 +893,47 @@ test('grants and limits decide what someone may do, where; the server holds to i
     'not-allowed: Lumovi doesn’t let you edit Secrets whole in shop: the limit “Card data” says so.',
   )
 
+  // A change answers with what it changed: a Secret's values, only to whom they're shown.
+  const patched = (await page.evaluate(() =>
+    window.lumovi!.kube.change({
+      context: 'demo',
+      kind: 'Secret',
+      namespace: 'shop',
+      name: 'storefront-tls',
+      change: { action: 'patch', patchType: 'json', patch: [] },
+      dryRun: true,
+    }),
+  )) as unknown as { ok: true; data: { data: Record<string, string> } }
+  expect(patched.data.data).toEqual({ 'tls.crt': '', 'tls.key': '' })
+  const created = await page.evaluate(() =>
+    window.lumovi!.kube.change({
+      context: 'demo',
+      kind: 'Secret',
+      namespace: 'shop',
+      change: {
+        action: 'create',
+        object: {
+          apiVersion: 'v1',
+          kind: 'Secret',
+          metadata: { name: 'new-one', namespace: 'shop' },
+          stringData: { password: 'hunter2' },
+        },
+      },
+      dryRun: true,
+    }),
+  )
+  expect(created.ok).toBe(true)
+  expect(JSON.stringify(created)).not.toContain('hunter2')
+  // Where they're hidden, not changed either.
+  expect(
+    await refusal(
+      page,
+      `api.kube.change({ context: 'demo', kind: 'Secret', namespace: 'data', name: 'postgres-credentials', change: { action: 'patch', patchType: 'merge', patch: {} }, dryRun: true })`,
+    ),
+  ).toBe(
+    'not-allowed: Lumovi doesn’t let you change Secrets in data: the limit “Data stays put” says so.',
+  )
+
   // Helm: rolled back in the shop, not uninstalled; its values withheld, so not upgraded.
   const release = (await page.evaluate(() =>
     window.lumovi!.helm.release('demo', 'shop', 'storefront'),
@@ -893,6 +947,12 @@ test('grants and limits decide what someone may do, where; the server holds to i
   expect(
     release.data.revisions.every((r) => r.manifest === '' && Object.keys(r.values).length === 0),
   ).toBe(true)
+  const redis = (await page.evaluate(() =>
+    window.lumovi!.helm.release('demo', 'data', 'redis'),
+  )) as unknown as { ok: true; data: { withheld?: string } }
+  expect(redis.data.withheld).toBe(
+    'Its values and manifests can hold Secrets, and your access hides them in data.',
+  )
   for (const [call, said] of [
     [
       `api.helm.uninstall({ context: 'demo', namespace: 'shop', name: 'storefront' })`,
@@ -990,6 +1050,15 @@ test('grants and limits decide what someone may do, where; the server holds to i
   await expect(
     page.getByText('The server names them: platform-admins, root@example.com.'),
   ).toBeVisible()
+
+  // Named in a group, whatever the case of the name they sign in with.
+  await as(context, 'dana@example.com', '')
+  await page.goto(`${served.url}your-access`)
+  await expect(page.getByText('So in Lumovi’s groups').locator('..')).toContainText('Developers')
+  // An auditor the server's settings name: everyone's events, whatever their access says.
+  await as(context, 'aud@example.com', 'auditors')
+  await page.goto(`${served.url}your-access`)
+  await expect(page.getByText('Everywhere: everyone’s events in the audit log.')).toBeVisible()
 
   // Whose audit events: everyone's, for those a grant gives it to.
   await as(context, 'sam@example.com', 'security')
@@ -1178,6 +1247,8 @@ test('kept in a ConfigMap of the namespace Lumovi runs in, as the chart keeps it
       name: 'lumovi-access',
       namespace: 'lumovi',
       creationTimestamp: new Date().toISOString(),
+      labels: { 'app.kubernetes.io/name': 'lumovi' },
+      annotations: { 'helm.sh/resource-policy': 'keep' },
     },
     ...(data ? { data } : {}),
   })
@@ -1196,6 +1267,10 @@ test('kept in a ConfigMap of the namespace Lumovi runs in, as the chart keeps it
       ]!,
     ).policy
   expect(stored().everyone.logs).toBe('off')
+  // Its data alone is written: what the chart set on it stays (uninstalling keeps it).
+  const kept = demo.object('ConfigMap', 'lumovi', 'lumovi-access')!.metadata
+  expect(kept.annotations).toEqual({ 'helm.sh/resource-policy': 'keep' })
+  expect(kept.labels).toEqual({ 'app.kubernetes.io/name': 'lumovi' })
 
   // Someone else's change (another replica's): it arrives, and a page with nothing unsaved
   // shows it.
@@ -1229,6 +1304,19 @@ test('kept in a ConfigMap of the namespace Lumovi runs in, as the chart keeps it
   await expect(
     page.getByRole('combobox', { name: 'Node shells for Everyone', exact: true }),
   ).toHaveValue('off')
+  // Changed by hand where it's kept, not on the page: recorded, as changed outside Lumovi.
+  expect(audited(served, 'access.changed').map((e) => e.summary)).toEqual([
+    'Changed what everyone may do: Logs: Read them → Off',
+    'Changed outside Lumovi: Changed what everyone may do: Shells: Open them → Off',
+    'Changed outside Lumovi: Changed what everyone may do: Node shells: Open them → Off',
+  ])
+  expect(audited(served, 'access.changed').at(-1)).toMatchObject({
+    actor: { user: 'lumovi', via: 'server' },
+    details: { outside: true },
+  })
+  await page.getByRole('link', { name: 'History' }).click()
+  await expect(page.getByText('Outside Lumovi, where it’s kept')).toHaveCount(2)
+  await page.getByRole('link', { name: /^Profiles/ }).click()
   await expect(page.getByRole('combobox', { name: 'Helm for Everyone', exact: true })).toHaveValue(
     'install',
   )
@@ -1300,6 +1388,20 @@ test('saving over another replica’s change is refused; leaving unsaved asks fi
   expect(JSON.parse(readFileSync(join(data, 'access.json'), 'utf8')).policy.everyone.shells).toBe(
     'off',
   )
+  // Another replica writing it right now: not written over, and said.
+  const lock = join(data, 'access.json.lock')
+  writeFileSync(lock, '1')
+  await logs.selectOption('off')
+  await bar.getByRole('button', { name: 'Save changes' }).click()
+  await expect(bar).toContainText('Someone else saved changes to access')
+  await bar.getByRole('button', { name: 'Start over from theirs' }).click()
+  // One that stopped mid-write, long ago: its lock holds nobody back.
+  const long = new Date(Date.now() - 60_000)
+  utimesSync(lock, long, long)
+  await logs.selectOption('off')
+  await bar.getByRole('button', { name: 'Save changes' }).click()
+  await expect(bar).toHaveCount(0)
+  expect(existsSync(lock)).toBe(false)
 
   // What doesn't make sense isn't saved, and the server says why.
   await page.getByRole('link', { name: /^Grants & limits/ }).click()
@@ -1333,7 +1435,7 @@ test('saving over another replica’s change is refused; leaving unsaved asks fi
   rmSync(join(data, 'access.json'))
   mkdirSync(join(data, 'access.json'))
   await page.goto(`${one.url}access/profiles`)
-  await logs.selectOption('off')
+  await logs.selectOption('on')
   await bar.getByRole('button', { name: 'Save changes' }).click()
   await expect(bar.getByRole('alert')).toContainText(
     'Not saved: Lumovi couldn’t keep who may do what:',
@@ -1381,6 +1483,7 @@ test('what the chart no longer has, what was kept can’t name', async ({ page, 
       LUMOVI_AUTH: 'proxy',
       LUMOVI_ADMINS: 'platform-admins',
       LUMOVI_DATA_DIR: data,
+      LUMOVI_ACCESS_REFRESH_MS: '200',
       LUMOVI_ACCESS: `
 profiles:
   - id: platform
@@ -1395,6 +1498,9 @@ profiles:
   await as(context, 'ana@example.com', 'platform-admins')
   await page.goto(`${served.url}access/rules`)
   await expect(page.getByRole('article')).toHaveText([/^Nobody yet/])
+  // Said once, however often it's read again.
+  await new Promise((done) => setTimeout(done, 1_000))
+  expect(served.log().split('named groups or profiles the chart no longer has')).toHaveLength(2)
 })
 
 test('kept in memory, an admin is told it doesn’t last', async ({ page, context, serve }) => {
@@ -1550,6 +1656,7 @@ test('every change, said as it was and as it is', async ({ page, context, serve 
     groups: [
       { id: 'dev', name: 'Developers', provider: ['developers'], people: ['amy@example.com'] },
       { id: 'sre', name: 'SRE', description: 'Keeps it running', provider: [], people: [] },
+      { id: 'ops', name: 'Ops', description: 'Runs the clusters', provider: [], people: [] },
     ],
     profiles: [
       { id: 'dev', name: 'Developer', values: levels({ changes: 'write' }) },
@@ -1596,6 +1703,8 @@ test('every change, said as it was and as it is', async ({ page, context, serve 
         people: ['bo@example.com'],
       },
       { id: 'sre', name: 'SRE', provider: [], people: [] },
+      // Someone more, described as it was.
+      { ...before.groups[2]!, people: ['cy@example.com'] },
       { id: 'qa', name: 'QA', provider: [], people: [] },
     ],
     profiles: [
@@ -1628,6 +1737,7 @@ test('every change, said as it was and as it is', async ({ page, context, serve 
   expect(audited(served, 'access.changed').at(-1)!.details!.changes).toEqual([
     'Changed the group “Engineers”: renamed it from “Developers”; described it; added SRE team; added oncall; took out Devs; added bo@example.com; took out amy@example.com',
     'Changed the group “SRE”: described it',
+    'Changed the group “Ops”: added cy@example.com',
     'Added the group “QA”',
     'Changed the profile “Developer”: Helm: Off → Upgrade, roll back',
     'Changed the grant “Developers build”: who: added “QA”, took out “Engineers”; clusters all → env=staging; namespaces all → shop; profile Developer → Operator',

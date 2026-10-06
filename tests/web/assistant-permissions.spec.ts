@@ -257,7 +257,12 @@ test('in a ConfigMap of the namespace Lumovi runs in, as the chart keeps them', 
   const configMap = (data?: Record<string, string>) => ({
     apiVersion: 'v1',
     kind: 'ConfigMap',
-    metadata: { name: 'lumovi-assistant-rules', namespace: 'lumovi', creationTimestamp: ago(60) },
+    metadata: {
+      name: 'lumovi-assistant-rules',
+      namespace: 'lumovi',
+      creationTimestamp: ago(60),
+      annotations: { 'helm.sh/resource-policy': 'keep' },
+    },
     ...(data ? { data } : {}),
   })
   demo.upsert(configMap({ 'rules.json': 'nope' }))
@@ -280,6 +285,10 @@ test('in a ConfigMap of the namespace Lumovi runs in, as the chart keeps them', 
     'alice@example.com': { ...alice, defaults: { ...DEFAULTS, logs: 'off' } },
   })
   expect((await page.evaluate(() => window.lumovi!.aiPermissions!.get())).kept).toBe('configmap')
+  // Its data alone is written: the chart's annotation (uninstalling keeps it) stays.
+  expect(
+    demo.object('ConfigMap', 'lumovi', 'lumovi-assistant-rules')!.metadata.annotations,
+  ).toEqual({ 'helm.sh/resource-policy': 'keep' })
 
   // Changed by someone else meanwhile: theirs kept, with hers.
   const bob = { defaults: { ...DEFAULTS, changes: 'never' }, rules: [] }

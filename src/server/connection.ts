@@ -266,8 +266,13 @@ export class PageConnection {
       },
       (channel, ...args) => this.emit(channel, ...args),
     )
-    const accessing = accessHandlers(access, identity.user, actor, audit, (channel, ...args) =>
-      this.emit(channel, ...args),
+    const accessing = accessHandlers(
+      access,
+      identity.user,
+      actor,
+      audit,
+      auditor,
+      (channel, ...args) => this.emit(channel, ...args),
     )
     const info: AppInfo = {
       name: 'Lumovi',
