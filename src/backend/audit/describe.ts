@@ -214,9 +214,25 @@ const release = (r: { context: string; namespace: string; name: string }) => ({
   target: { kind: 'HelmRelease', name: r.name, namespace: r.namespace },
 })
 
+/** A chart's or repository's URL as it's recorded: where, never who it goes as (a user and password, a signed query). */
+function where(text: string): string {
+  if (!URL.canParse(text)) return text
+  const url = new URL(text)
+  if (!url.username && !url.password && !url.search) return text
+  url.username = ''
+  url.password = ''
+  url.search = ''
+  return url.toString()
+}
+
 export function describeDeploy(r: HelmDeploy, result: Result<unknown>): Recorded {
   const stored = r.source === 'stored'
-  const source = stored ? undefined : (r.source as HelmDeploy['source'] & object)
+  const given = stored ? undefined : (r.source as HelmDeploy['source'] & object)
+  const source = given && {
+    ...given,
+    chart: where(given.chart),
+    repository: given.repository && where(given.repository),
+  }
   const chart = source ? `${source.chart}${source.version ? ` ${source.version}` : ''}` : ''
   const values = valueNames(r.values)
   const said = (past: string, present: string) => (result.ok ? past : present)

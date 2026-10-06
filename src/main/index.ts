@@ -6,7 +6,7 @@ import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
 import icon from '../../build/icon.png?asset'
 import { AuditLog } from '@backend/audit/log'
 import { recorder } from '@backend/audit/recorder'
-import { FileStore } from '@backend/audit/store'
+import { FileStore, MemoryStore, type AuditStore } from '@backend/audit/store'
 import { HelmService } from '@backend/helm/service'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
 import { LogStreams } from '@backend/kube/logs'
@@ -64,7 +64,7 @@ if (stdio) {
     const kube = new KubeService(store, envReady, isReadOnly)
     // What's done through Lumovi on this computer: kept in its folder, for the Audit page.
     const auditLog = new AuditLog({
-      store: new FileStore(join(app.getPath('userData'), 'audit'), AUDIT_RETENTION_DAYS),
+      store: auditStore(join(app.getPath('userData'), 'audit')),
       sinks: [],
       level: 'access',
       scanLimit: 200_000,
@@ -253,4 +253,18 @@ function claudeDesktopConfig(): string | undefined {
   }
   const folder = folders[process.platform]
   return folder && join(folder, 'Claude', 'claude_desktop_config.json')
+}
+
+/**
+ * The audit history's folder; or, if it can't be kept there (made, or written: another Lumovi
+ * keeping it, say), memory until the app quits. The Audit page says which.
+ */
+function auditStore(dir: string): AuditStore {
+  try {
+    return new FileStore(dir, AUDIT_RETENTION_DAYS)
+  } catch (error) {
+    const why = `${dir} can’t be used: ${(error as Error).message}`
+    console.warn(`The audit history is kept in memory until Lumovi quits: ${why}`)
+    return new MemoryStore(10_000, why)
+  }
 }

@@ -132,6 +132,11 @@ export interface AuditEvent {
   type: typeof AUDIT_TYPE
   version: typeof AUDIT_VERSION
   id: string
+  /**
+   * Which chain it's in: one goes on as long as its history does (a server with no volume starts
+   * one each time it starts; each replica has its own). Check each on its own, by seq.
+   */
+  chain: string
   /** Its place in the chain: one after the event before it. */
   seq: number
   /** When, to the millisecond (ISO 8601, UTC). */
@@ -158,7 +163,7 @@ export interface AuditEvent {
 /** What's recorded, as its source gives it: the log adds the id, place, time and hashes. */
 export type AuditInput = Omit<
   AuditEvent,
-  'type' | 'version' | 'id' | 'seq' | 'time' | 'category' | 'prev' | 'hash'
+  'type' | 'version' | 'id' | 'chain' | 'seq' | 'time' | 'category' | 'prev' | 'hash'
 >
 
 /** How much is recorded: changes (and sign-ins, settings, the server), or what's opened and read too. */
@@ -252,8 +257,11 @@ export interface AuditPage {
   events: AuditEvent[]
   /** Where the next page starts (pass it as `after`): none when there's no more. */
   next?: string
-  /** How many events were looked through for it (a filter that matches few looks through more). */
-  scanned: number
+  /**
+   * How many events were looked through for it (a filter that matches few looks through more):
+   * said to an auditor alone, since it counts everyone's.
+   */
+  scanned?: number
   /** It stopped looking before the page filled (it looked through as many as it does): `next` looks further back. */
   stopped?: boolean
 }
@@ -264,6 +272,8 @@ export interface AuditInfo {
   kept: 'files' | 'memory'
   /** How long it's kept, in days (files only). */
   retentionDays?: number
+  /** Why it's kept in memory, where it would have been kept in files (the desktop app's folder). */
+  unkept?: string
   level: AuditLevel
   /** Whether the reader sees everyone's events (an auditor), or their own. */
   everyone: boolean
@@ -278,13 +288,21 @@ export interface AuditInfo {
   exportLimit: number
 }
 
-/** What checking the chain found: intact, or where it broke. */
+/** What checking the chain found: that it holds, or every place it doesn't. */
 export interface AuditVerification {
+  /** How many events were read, and checked. */
   checked: number
   from?: string
   to?: string
-  /** The first event whose place or hash doesn't follow from the one before it. */
-  broken?: { seq: number; time: string; reason: string }
+  /**
+   * The newest: compared with a copy kept somewhere else (the server's output, a webhook's, an
+   * export), it shows nothing after it was removed, and nothing before it rewritten.
+   */
+  last?: { seq: number; hash: string }
+  /** Each event (or line) that doesn't follow from the one before it, oldest first: 100 at most. */
+  breaks: { seq: number; time: string; reason: string }[]
+  /** How many more don't, past those listed. */
+  more: number
 }
 
 /** How many events an export holds, at most, unless a server says otherwise. */
@@ -314,6 +332,7 @@ export const AUDIT_CSV_COLUMNS = [
   'approval',
   'error',
   'id',
+  'chain',
   'seq',
   'hash',
 ] as const
@@ -336,6 +355,7 @@ export function auditCsvRow(event: AuditEvent): string {
     approval: event.approval?.status,
     error: event.error,
     id: event.id,
+    chain: event.chain,
     seq: event.seq,
     hash: event.hash,
   }

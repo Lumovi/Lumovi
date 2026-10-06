@@ -14,6 +14,7 @@ import {
   type AuditVerification,
 } from '@shared/audit'
 import { Button } from '@renderer/components/Button'
+import { CopyButton } from '@renderer/components/CopyButton'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { toast } from '@renderer/state/toasts'
@@ -127,7 +128,11 @@ export function VerifyButton({ onResult }: { onResult: (result: AuditVerificatio
 const day = (time: string) =>
   new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-/** What checking found: that every event follows from the one before it, or where one doesn't. */
+/**
+ * What checking found: that every event follows from the one before it, or each place one
+ * doesn't. And what it can't show by itself (the newest removed, or all of it rewritten), with
+ * the newest's hash, to compare with a copy kept elsewhere.
+ */
 export function Verification({
   result,
   onClose,
@@ -135,7 +140,9 @@ export function Verification({
   result: AuditVerification
   onClose: () => void
 }) {
-  const { broken } = result
+  const { breaks, more, last } = result
+  const broken = breaks.length > 0
+  const places = breaks.length + more
   const Icon = broken ? ShieldX : ShieldCheck
   return (
     <div
@@ -153,12 +160,25 @@ export function Verification({
         {broken ? (
           <>
             <p className="font-semibold text-critical-text">
-              The log was changed: event #{broken.seq.toLocaleString('en')}
-              {broken.time && ` (after ${day(broken.time)})`} doesn’t follow.
+              The log was changed: it doesn’t hold in {places.toLocaleString('en')}{' '}
+              {places === 1 ? 'place' : 'places'}.
             </p>
             <p className="mt-0.5 text-ink-2">
-              {broken.reason} The {result.checked.toLocaleString('en')} before it hold.
+              Of the {result.checked.toLocaleString('en')} events read, each of these doesn’t follow
+              from the one before it:
             </p>
+            <ul className="mt-1.5 flex max-h-48 flex-col gap-1 overflow-y-auto">
+              {breaks.map((b, i) => (
+                <li key={i} className="text-ink-2">
+                  <span className="font-medium text-ink-1">
+                    #{b.seq.toLocaleString('en')}
+                    {b.time && ` (after ${day(b.time)})`}
+                  </span>{' '}
+                  {b.reason}
+                </li>
+              ))}
+              {more > 0 && <li className="text-ink-3">…and {more.toLocaleString('en')} more.</li>}
+            </ul>
           </>
         ) : (
           <>
@@ -169,11 +189,24 @@ export function Verification({
             </p>
             {result.from && (
               <p className="mt-0.5 text-ink-2">
-                Each, from the first ({day(result.from)}) to the last, follows from the one before
-                it: none was changed, removed, or added since it was recorded.
+                Each, from the oldest kept ({day(result.from)}) to the newest, follows from the one
+                before it: none was changed, and none removed or put in between them.
               </p>
             )}
           </>
+        )}
+        {last && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-ink-3">
+            <span className="min-w-0">
+              A copy kept elsewhere (the server’s output, a webhook’s, an export) shows what this
+              can’t: the newest removed, or all of it rewritten. Compare the newest there: #
+              {last.seq.toLocaleString('en')},{' '}
+              <code className="font-mono text-ink-2" title={last.hash}>
+                {last.hash.slice(0, 16)}…
+              </code>
+            </span>
+            <CopyButton text={last.hash} label="Copy its hash" />
+          </div>
         )}
       </div>
       <button
