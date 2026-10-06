@@ -1053,7 +1053,13 @@ test('a history that was changed shows where, and how', async ({ page, context, 
     file,
     kept.filter((e) => e.seq !== 3),
   )
-  await running(() => breaks([4, 'Event 3 is missing.']).then(() => undefined))
+  await running(async () => {
+    await breaks([4, 'Event 3 is missing.'])
+    await page.getByRole('button', { name: 'Check integrity' }).click()
+    await expect(page.getByRole('alert', { name: 'Integrity' })).toContainText(
+      'it doesn’t hold in 1 place.',
+    )
+  })
   write(
     file,
     kept.filter((e) => e.seq !== 2 && e.seq !== 3),
