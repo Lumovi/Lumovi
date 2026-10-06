@@ -65,6 +65,9 @@ jobs:
           # People's AI rules: a ConfigMap Lumovi may read and write, and nothing else; the
           # administrator's, as JSON; nothing at all with assistants off.
           helm template lumovi charts/lumovi | grep -q 'resourceNames: \[lumovi-assistant-rules\]'
+          # What the keeper sends (a GET, a merge PATCH): the mock cluster doesn't check RBAC.
+          [ "$(helm template lumovi charts/lumovi --set 'access.admins={a}' | grep -c 'verbs: \[get, patch\]')" = 2 ]
+          grep -q "method: 'PATCH'" src/server/kept.ts && ! grep -q "method: 'PUT'" src/server/kept.ts
           helm template lumovi charts/lumovi --set 'assistants.rules[0].name=System' \
             --set 'assistants.rules[0].namespaces={kube-*}' --set 'assistants.rules[0].visibility=hidden' \
             | grep -q 'LUMOVI_ASSISTANT_RULES$'
