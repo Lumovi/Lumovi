@@ -7,6 +7,7 @@ import type { KubeError, LogStreamRequest, Result } from '@shared/api'
 import { kubectl } from '@shared/kubectl'
 import { outcomeOf } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
+import type { AccessGuard } from '@shared/access'
 import { kubeStream } from './client'
 import { toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -24,6 +25,8 @@ interface Dependencies {
   timeoutMs: number
   /** The audit log, as the page's person records to it. */
   audit: Recorder
+  /** A server's: what its person may do (the desktop app has none). */
+  guard?: AccessGuard
 }
 
 export class LogStreams {
@@ -67,6 +70,7 @@ export class LogStreams {
       const path = `/api/v1/namespaces/${encodeURIComponent(r.namespace)}/pods/${encodeURIComponent(r.pod)}/log?${params}`
 
       asked = r
+      await this.deps.guard?.require(r.context, 'logs', 'on', r.namespace, 'read logs')
       const kc = this.deps.store.forContext(r.context)
       await this.deps.envReady
       const { body, abort } = await kubeStream(kc, path, { timeoutMs: this.deps.timeoutMs })

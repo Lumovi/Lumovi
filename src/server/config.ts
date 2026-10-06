@@ -16,9 +16,11 @@ import {
   type Matcher,
 } from '@shared/ai-permissions'
 import { isAiChanges, type AiChanges } from '@shared/assistants'
+import { checkedPolicy, type BasePolicy } from '@shared/access'
 import { AUDIT_EXPORT_LIMIT, isAuditLevel, type AuditLevel } from '@shared/audit'
 import type { AuthMode } from '@shared/server'
 import type { WebhookFormat } from '@backend/audit/sinks'
+import type { Keeping } from './kept'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { MAX_SESSION_HOURS } from './sessions'
 
@@ -129,6 +131,18 @@ export interface ServerConfig {
     redirectHosts: string[]
   }
   audit: AuditConfig
+  access: AccessConfig
+}
+
+/**
+ * Who may do what through Lumovi: who administers it (LUMOVI_ADMINS); what the chart (or the
+ * server's settings) says (LUMOVI_ACCESS), which admins can't change here; and where what they
+ * set is kept.
+ */
+export interface AccessConfig {
+  admins: { groups: string[]; users: string[] }
+  base?: BasePolicy
+  keep: Keeping
 }
 
 /** The audit log: how much it records, where it keeps and sends it, and who reads everyone's. */
@@ -160,8 +174,7 @@ export interface AuditConfig {
  * Where people's own AI rules are kept: in a ConfigMap of the namespace
  * Lumovi runs in (the chart's), a file, or only in memory.
  */
-export type RulesKeeping =
-  { kind: 'configmap'; name: string } | { kind: 'file'; path: string } | { kind: 'memory' }
+export type RulesKeeping = Keeping
 
 export class ConfigError extends Error {}
 
@@ -290,6 +303,64 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     rendererDir,
     assistants,
     audit: auditConfig(value),
+    access: accessConfig(env, value),
+  }
+}
+
+/** Who may do what: LUMOVI_ADMINS, LUMOVI_ACCESS, and LUMOVI_ACCESS_CONFIGMAP (or a file, or memory). */
+function accessConfig(
+  env: NodeJS.ProcessEnv,
+  value: (name: string) => string | undefined,
+): AccessConfig {
+  const admins = list(value('LUMOVI_ADMINS'))
+  const setting = value('LUMOVI_ACCESS')
+  let base: BasePolicy | undefined
+  if (setting) {
+    let parsed: unknown
+    try {
+      parsed = parse(document('LUMOVI_ACCESS', setting))
+    } catch (error) {
+      if (error instanceof ConfigError) throw error
+      throw new ConfigError(
+        `LUMOVI_ACCESS isn’t YAML: ${(error as Error).message.split('\n')[0]}`,
+        {
+          cause: error,
+        },
+      )
+    }
+    try {
+      base = {
+        policy: checkedPolicy(parsed, 'LUMOVI_ACCESS'),
+        // (A map, once it's checked.)
+        setsEveryone: 'everyone' in (parsed as object),
+      }
+    } catch (error) {
+      throw new ConfigError((error as Error).message, { cause: error })
+    }
+  }
+  const configMap = value('LUMOVI_ACCESS_CONFIGMAP')
+  if (configMap && !/^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/.test(configMap)) {
+    throw new ConfigError(
+      `LUMOVI_ACCESS_CONFIGMAP must name a ConfigMap, like lumovi-access, not "${configMap}".`,
+    )
+  }
+  if (configMap && !env.KUBERNETES_SERVICE_HOST) {
+    throw new ConfigError(
+      'LUMOVI_ACCESS_CONFIGMAP keeps who may do what in the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
+    )
+  }
+  const dataDir = value('LUMOVI_DATA_DIR')
+  return {
+    admins: {
+      groups: admins.filter((entry) => !entry.startsWith('user:')),
+      users: admins.filter((entry) => entry.startsWith('user:')).map((entry) => entry.slice(5)),
+    },
+    base,
+    keep: configMap
+      ? { kind: 'configmap', name: configMap }
+      : dataDir
+        ? { kind: 'file', path: join(dataDir, 'access.json') }
+        : { kind: 'memory' },
   }
 }
 

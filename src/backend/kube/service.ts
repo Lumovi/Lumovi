@@ -28,6 +28,7 @@ import {
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
+import type { AccessGuard } from '@shared/access'
 import { kubeRequest, type RequestOptions } from './client'
 import { discover } from './discovery'
 import { KubeRequestError, toKubeError } from './errors'
@@ -129,6 +130,8 @@ export class KubeService {
     /** Whether the user made a context read-only; changes to it are refused. */
     readonly isReadOnly: (context: string) => boolean,
     env: NodeJS.ProcessEnv = process.env,
+    /** A server's: what its person may do, asked before acting (the desktop app has none). */
+    private readonly guard?: AccessGuard,
   ) {
     this.timeoutMs = Number(env.LUMOVI_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
     this.#maxListItems = Number(env.LUMOVI_MAX_LIST_ITEMS) || DEFAULT_MAX_LIST_ITEMS
@@ -221,6 +224,11 @@ export class KubeService {
         table,
       )
       const apiVersion = resource.group ? `${resource.group}/${resource.version}` : resource.version
+      // Secrets only where they're shown (their values never are in a list).
+      if (this.guard && resource.kind === 'Secret') {
+        if (q.namespace) await this.#secretsShown(q.context, q.namespace)
+        else list.items = await this.#onlyShown(q.context, list.items)
+      }
       return {
         ...list,
         // List items omit apiVersion/kind; add them back so detail views and YAML are complete.
@@ -291,10 +299,38 @@ export class KubeService {
       assertString(q.name, 'name')
       optionalString(q.namespace, 'namespace')
       if (q.subresource !== undefined) assertOneOf(q.subresource, 'subresource', ['scale'])
-      const path = resourcePath(await this.#resource(q.context, q.kind), q.namespace, q.name)
+      const resource = await this.#resource(q.context, q.kind)
+      const shown =
+        this.guard && resource.kind === 'Secret'
+          ? await this.#secretsShown(q.context, q.namespace!)
+          : 'values'
+      const path = resourcePath(resource, q.namespace, q.name)
       const subresource = q.subresource ? `/${q.subresource}` : ''
-      return slim(await this.#getJson<KubeObject>(q.context, `${path}${subresource}`))
+      const object = slim(await this.#getJson<KubeObject>(q.context, `${path}${subresource}`))
+      return shown === 'values' ? object : withoutValues(object)
     })
+  }
+
+  /** What a namespace's Secrets show the person: refused where they're hidden. */
+  async #secretsShown(context: string, namespace: string) {
+    const shown = await this.guard!.secrets(context, namespace)
+    if (shown === 'hidden') {
+      await this.guard!.require(context, 'secrets', 'keys', namespace, 'see Secrets')
+    }
+    return shown
+  }
+
+  /** A list of Secrets in many namespaces, but those whose namespaces hide them. */
+  async #onlyShown(context: string, items: KubeObject[]): Promise<KubeObject[]> {
+    const shown = new Map<string, Promise<string>>()
+    const levels = await Promise.all(
+      items.map((item) => {
+        const namespace = item.metadata.namespace!
+        if (!shown.has(namespace)) shown.set(namespace, this.guard!.secrets(context, namespace))
+        return shown.get(namespace)!
+      }),
+    )
+    return items.filter((_, i) => levels[i] !== 'hidden')
   }
 
   metrics(query: unknown): Promise<Result<MetricsSnapshot>> {
@@ -338,6 +374,19 @@ export class KubeService {
       else if (r.namespace !== undefined) throw invalid(`${r.kind} objects have no namespace`)
       const change = assertQuery<Change>(r.change)
       if (change.action !== 'create') assertString(r.name, 'name')
+      if (this.guard) {
+        // Where it is: its namespace, a Namespace's own name, or (a cluster's own object) none.
+        const named = r.name ?? (change as { object?: KubeObject }).object?.metadata?.name
+        const where = r.kind === 'Namespace' ? named : resource.namespaced ? r.namespace : undefined
+        if (change.action === 'debug') {
+          await this.guard.require(r.context, 'shells', 'on', where, 'debug pods')
+        }
+        await this.guard.require(r.context, 'changes', 'write', where, 'make changes')
+        // A Secret written whole, by someone shown only its keys, would lose its values.
+        if (r.kind === 'Secret' && (change.action === 'replace' || change.action === 'apply')) {
+          await this.guard.require(r.context, 'secrets', 'values', where, 'edit Secrets whole')
+        }
+      }
       if (this.isReadOnly(r.context)) {
         throw new KubeRequestError(
           'read-only',
@@ -585,7 +634,8 @@ export class KubeService {
 
   /** A container's logs as they are, as `kubectl logs` shows them (for MCP's tools, which check it). */
   podLogs(q: PodLogsQuery): Promise<Result<string>> {
-    return this.#run(() => {
+    return this.#run(async () => {
+      await this.guard?.require(q.context, 'logs', 'on', q.namespace, 'read logs')
       const params = new URLSearchParams({
         tailLines: String(q.tailLines),
         limitBytes: String(q.limitBytes),
@@ -635,6 +685,16 @@ function atVersion(resource: ResourceDefinition, object: KubeObject): ResourceDe
 /** Drops server-side bookkeeping that is large and never shown. */
 function slim<T extends KubeObject>(object: T): T {
   delete object.metadata.managedFields
+  return object
+}
+
+/** A Secret as someone shown only its keys sees it: each value empty, and nothing that holds them. */
+function withoutValues(object: KubeObject): KubeObject {
+  for (const field of ['data', 'stringData'] as const) {
+    const values = object[field] as Record<string, string> | undefined
+    if (values) object[field] = Object.fromEntries(Object.keys(values).map((key) => [key, '']))
+  }
+  delete object.metadata.annotations?.[LAST_APPLIED]
   return object
 }
 

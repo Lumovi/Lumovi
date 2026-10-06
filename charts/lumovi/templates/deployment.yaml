@@ -147,6 +147,16 @@ spec:
             - name: LUMOVI_ASSISTANT_REDIRECT_HOSTS
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.access.admins }}
+            - name: LUMOVI_ADMINS
+              value: {{ join "," . | quote }}
+            - name: LUMOVI_ACCESS_CONFIGMAP
+              value: {{ include "lumovi.fullname" $ }}-access
+            {{- end }}
+            {{- with .Values.access.policy }}
+            - name: LUMOVI_ACCESS
+              value: {{ toJson . | quote }}
+            {{- end }}
             - name: LUMOVI_AUDIT_LEVEL
               value: {{ .Values.audit.level | quote }}
             {{- with .Values.audit.auditors }}

@@ -15,6 +15,7 @@ import { usePrefs } from '@renderer/state/prefs'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
 import { LintFindings, LocalChartPanel, useLocalChart } from './LocalChart'
 import { FluxWarning } from './ReleaseDialogs'
+import { useAccessHere } from '../access/use-access'
 
 /** Where the chart comes from: stored with the release, a repository or registry, or this computer. */
 type ChartMode = 'stored' | 'repository' | 'local'
@@ -104,7 +105,14 @@ export function DeployDialog({
     // Read and checked as it is now (a failed read keeps the last one's data).
     local: checked.isSuccess,
   }[mode]
-  const ready = (install ? name !== '' && namespace !== '' : true) && chartReady
+  // Installing where the person's access doesn't let them is said before they try.
+  const here = useAccessHere()
+  const notAllowed =
+    install && namespace !== ''
+      ? (here.whyNot('changes', 'write', namespace) ??
+        here.whyNot('helm', 'install', namespace, 'install charts'))
+      : undefined
+  const ready = (install ? name !== '' && namespace !== '' : true) && chartReady && !notAllowed
 
   const review = async () => {
     try {
@@ -144,7 +152,7 @@ export function DeployDialog({
       wide
       ready={ready && !checking}
       pending={pending || checking}
-      error={error ?? problem}
+      error={error ?? problem ?? notAllowed}
       onClose={onClose}
       onSubmit={() => void (reviewed ? apply() : review())}
     >

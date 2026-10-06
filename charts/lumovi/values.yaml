@@ -219,6 +219,39 @@ audit:
     #   Authorization: Bearer …
     headersSecret: ''
 
+# Who may do what through Lumovi, beyond what Kubernetes RBAC says (never more than it does):
+# Lumovi's Admin pages, for the admins named here. None: everyone may do all their RBAC
+# allows, as before. https://docs.lumovi.dev/server/access
+access:
+  # Who administers access in Lumovi: groups, as the sign-in names them, and people as
+  # user:<name>. Say [platform-admins, user:ana@example.com].
+  admins: []
+  # What the chart says, which admins see in Lumovi but change only here: what everyone gets,
+  # groups, profiles, grants, limits, and names for the provider's groups. What admins set in
+  # Lumovi is kept in a ConfigMap that upgrades and uninstalling leave be. Say:
+  #   everyone: { changes: read, shells: off, nodeShells: off, logs: on, secrets: keys,
+  #               helm: off, assistants: ask, audit: own }
+  #   groups:
+  #     - id: platform
+  #       name: Platform team
+  #       provider: [platform-admins]
+  #   profiles:
+  #     - id: platform
+  #       name: Platform
+  #       values: { changes: write, shells: on, nodeShells: on, logs: on, secrets: values,
+  #                 helm: install, assistants: self, audit: all }
+  #   grants:
+  #     - id: platform
+  #       name: The platform team runs everything
+  #       who: [platform]
+  #       profile: platform
+  #   limits:
+  #     - id: production
+  #       name: Production
+  #       clusters: [env=production]
+  #       caps: { nodeShells: off, helm: upgrade }
+  policy: {}
+
 rbac:
   # With oidc or proxy, Lumovi's service account may impersonate users and groups:
   # whoever can reach Lumovi's pod can act as anyone. Keep it in a namespace only cluster

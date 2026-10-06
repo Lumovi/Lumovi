@@ -20,6 +20,7 @@ import { createInterface } from 'node:readline'
 import { _electron as electron, chromium, type Browser, type Page } from '@playwright/test'
 import { parse, stringify } from 'yaml'
 import { startMockOidc, type MockOidc } from '../../tests/mock-oidc/server.ts'
+import { ACCESS_BASE, accessData, SIGN_INS } from './access.ts'
 import { auditHistory } from './audit-history.ts'
 import { writeCatalog } from './catalog.ts'
 import { EPOCH, stopAnimations, stopClock } from './still.ts'
@@ -246,7 +247,7 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
     LUMOVI_CONTEXT: CLUSTERS.production,
     LUMOVI_CLUSTER_NAME: CLUSTERS.production,
   }
-  if (mode === 'fleet') {
+  if (mode === 'fleet' || mode === 'access') {
     auth.LUMOVI_AUTH = 'proxy'
     shows = { LUMOVI_FLEET_KUBECONFIG_FILE: fleetKubeconfig(kubeconfig) }
   } else if (mode === 'sso') {
@@ -262,17 +263,29 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
   }
   // The audit log's: a day of it, kept as a volume would (its auditors see it all), recorded
   // by a clock that starts where the page's stopped.
+  // Access's: the chart's, what the admins set, and who signed in that day.
+  const day = new Date(EPOCH).toISOString().slice(0, 10)
   const audit =
-    mode === 'audit'
+    mode === 'audit' || mode === 'access'
       ? {
           LUMOVI_AUTH: 'proxy',
           LUMOVI_AUDITORS: 'platform',
-          LUMOVI_AUDIT_DIR: auditHistory(new Date(EPOCH).toISOString().slice(0, 10)),
+          LUMOVI_AUDIT_DIR: auditHistory(day, mode === 'access' ? SIGN_INS : []),
           LUMOVI_AUDIT_STDOUT: 'false',
           LUMOVI_SCREENSHOT_EPOCH: String(EPOCH),
+          ...(mode === 'access'
+            ? {
+                LUMOVI_ADMINS: 'platform',
+                LUMOVI_ACCESS: ACCESS_BASE,
+                LUMOVI_DATA_DIR: accessData(),
+              }
+            : {}),
         }
       : {}
-  const node = mode === 'audit' ? ['-r', resolve('scripts/screenshots/shifted-clock.cjs')] : []
+  const node =
+    mode === 'audit' || mode === 'access'
+      ? ['-r', resolve('scripts/screenshots/shifted-clock.cjs')]
+      : []
   const child: ChildProcess = spawn(process.execPath, [...node, resolve('out/server/index.js')], {
     env: {
       ...audit,
@@ -443,7 +456,9 @@ try {
           locale: 'en-US',
           timezoneId: 'UTC',
           extraHTTPHeaders:
-            mode === 'proxy' || mode === 'fleet' || mode === 'audit' ? PROXY_HEADERS : undefined,
+            mode === 'proxy' || mode === 'fleet' || mode === 'audit' || mode === 'access'
+              ? PROXY_HEADERS
+              : undefined,
         })
         try {
           await context.addInitScript(stopClock, EPOCH)

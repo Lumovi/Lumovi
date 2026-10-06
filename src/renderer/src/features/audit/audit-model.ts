@@ -238,6 +238,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'assistant.ended': { label: 'An AI assistant was let go', icon: Unplug },
   'assistant.tool': { label: 'An AI assistant’s tool call', icon: Wrench },
   'permissions.changed': { label: 'Changed AI permissions', icon: Sparkles },
+  'access.changed': { label: 'Changed access', icon: ShieldCheck },
   'read-only.changed': { label: 'Changed read-only', icon: Lock },
   'assistants.changed': { label: 'Changed AI assistants', icon: SlidersHorizontal },
   'server.started': { label: 'Lumovi started', icon: Power },

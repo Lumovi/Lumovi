@@ -50,6 +50,7 @@ import {
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { useSession, useSwitching } from '@renderer/state/session'
+import { AdminButton } from '../access/AdminButton'
 import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
@@ -213,6 +214,7 @@ export function Sidebar() {
         <IconButton label="Audit log" onClick={() => void navigate('/audit')}>
           <ScrollText />
         </IconButton>
+        <AdminButton />
         {session && <AccountMenu session={session} />}
         <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />

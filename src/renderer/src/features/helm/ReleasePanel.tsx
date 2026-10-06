@@ -27,6 +27,8 @@ import { useCluster } from '@renderer/state/cluster'
 import { ReadOnlyBadge } from '../actions/ActionSurfaces'
 import { KeyValueGrid, Section } from '../details/sections'
 import { SidePanel, type PanelFrame } from '../details/SidePanel'
+import { NotAllowed } from '../access/NotAllowed'
+import { useAccessHere } from '../access/use-access'
 import { DeployDialog } from './DeployDialog'
 import { RollbackReleaseDialog, UninstallReleaseDialog } from './ReleaseDialogs'
 
@@ -116,13 +118,28 @@ function ReleaseActions({
 }) {
   const cli = useHelmCli().data
   const { readOnly } = useReadOnly()
-  const disabled = readOnly
+  const here = useAccessHere()
+  const ns = release.namespace
+  const disabledAll = readOnly
     ? 'Changes are turned off for this cluster.'
     : cli && !cli.available
       ? `Lumovi uses helm for this, and couldn’t run ${cli.command}. Install Helm, or set LUMOVI_HELM to where it is.`
-      : undefined
+      : here.whyNot('changes', 'write', ns)
+  // What each needs of the person's access: upgrading, the release's values too.
+  const allowed = {
+    upgrade:
+      here.whyNot('helm', 'upgrade', ns, 'upgrade releases') ??
+      (release.withheld ? `You can’t upgrade it: ${release.withheld}` : undefined),
+    rollback: here.whyNot('helm', 'upgrade', ns, 'roll releases back'),
+    uninstall: here.whyNot('helm', 'install', ns, 'uninstall releases'),
+  }
   // Uninstalling is rarer, and dangerous: an icon, so the others fit on one line.
-  const actions: { id: Dialog; label: string; icon: typeof History; danger?: boolean }[] = [
+  const actions: {
+    id: Dialog
+    label: string
+    icon: typeof History
+    danger?: boolean
+  }[] = [
     { id: 'upgrade', label: 'Upgrade…', icon: ArrowUpCircle },
     ...(release.revisions.length > 1
       ? [{ id: 'rollback' as const, label: 'Roll back…', icon: History }]
@@ -137,6 +154,7 @@ function ReleaseActions({
     >
       {readOnly && <ReadOnlyBadge />}
       {actions.map((action) => {
+        const disabled = disabledAll ?? allowed[action.id]
         const button = (
           <Button
             key={action.id}
@@ -172,6 +190,10 @@ function ReleaseActions({
 function ReleaseTabs({ release }: { release: HelmReleaseDetail }) {
   const [tab, setTab] = useState('overview')
   const content = 'min-h-0 flex-1 animate-fade-in outline-none'
+  // What it rendered can hold Secrets: shown only to those their access shows them to.
+  const hidden = release.withheld && (
+    <NotAllowed title="Its values and manifests are hidden" reason={release.withheld} />
+  )
   return (
     <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
       <TabList
@@ -187,16 +209,16 @@ function ReleaseTabs({ release }: { release: HelmReleaseDetail }) {
         <ReleaseOverview release={release} />
       </TabContent>
       <TabContent value="resources" className={cn(content, 'overflow-y-auto')}>
-        <ReleaseResources release={release} />
+        {hidden || <ReleaseResources release={release} />}
       </TabContent>
       <TabContent value="values" className={cn(content, 'flex flex-col')}>
-        <ReleaseValues release={release} />
+        {hidden || <ReleaseValues release={release} />}
       </TabContent>
       <TabContent value="manifest" className={cn(content, 'flex flex-col')}>
-        <YamlText text={release.revisions[0]!.manifest} label="Manifest" />
+        {hidden || <YamlText text={release.revisions[0]!.manifest} label="Manifest" />}
       </TabContent>
       <TabContent value="history" className={cn(content, 'flex flex-col')}>
-        <ReleaseHistory release={release} />
+        {hidden || <ReleaseHistory release={release} />}
       </TabContent>
     </Tabs>
   )

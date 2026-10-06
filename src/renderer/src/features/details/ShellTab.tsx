@@ -8,6 +8,8 @@ import { useReadOnly } from '@renderer/hooks/settings'
 import { formatRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
+import { NotAllowed } from '../access/NotAllowed'
+import { useAccessHere } from '../access/use-access'
 import { TerminalSession } from '../terminal/session'
 import { TerminalNotice, TerminalView, usePhase } from '../terminal/TerminalView'
 
@@ -43,6 +45,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   const [allowed] = useAccess([
     { verb: 'create', kind: 'Pod', namespace, name, subresource: 'exec' },
   ])
+  const notAllowed = useAccessHere().whyNot('shells', 'on', namespace)
   const statuses: ContainerStatus[] = [
     ...(pod.status?.containerStatuses ?? []),
     ...(pod.status?.ephemeralContainerStatuses ?? []),
@@ -50,7 +53,9 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   const running = Boolean(statuses.find((s) => s.name === container)?.state?.running)
 
   let body
-  if (readOnly) {
+  if (notAllowed) {
+    body = <NotAllowed title="You can’t open shells here" reason={notAllowed} />
+  } else if (readOnly) {
     body = (
       <EmptyState icon={SquareTerminal} title="Shells are off">
         {context} is read-only in Lumovi, and a shell can change a container.
@@ -98,7 +103,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
         <Button
           variant="ghost"
           className="h-7 px-2 text-xs"
-          disabled={!running || readOnly || allowed === false}
+          disabled={!running || readOnly || allowed === false || Boolean(notAllowed)}
           onClick={() => setAttempt(attempt + 1)}
         >
           <RotateCw /> Reconnect

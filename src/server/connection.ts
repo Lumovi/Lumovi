@@ -29,6 +29,7 @@ import { clusterSummary } from '@backend/kube/summary'
 import { Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from '@backend/settings'
+import { accessHandlers, type ServerAccess } from './access'
 import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
@@ -120,7 +121,10 @@ export interface ConnectionOptions {
   /** The audit log; who the page's person is to it (and where from); whether they read everyone's. */
   audit: AuditLog
   actor: AuditActor
-  auditor: boolean
+  /** Whether they read everyone's events (asked each time: their access can change). */
+  auditor: () => boolean
+  /** Who may do what: Lumovi's services ask before they act as the page's person. */
+  access: ServerAccess
   /**
    * Called when the cluster refuses the person's own token: it expired, or was revoked. (In a
    * fleet, one cluster refusing it is that cluster's error.)
@@ -182,6 +186,7 @@ export class PageConnection {
       audit,
       actor,
       auditor,
+      access,
     }: ConnectionOptions,
   ) {
     const recording = recorder(audit, () => actor)
@@ -196,10 +201,13 @@ export class PageConnection {
     )
     const isReadOnly = (context: string) => preferences.isReadOnly(context)
     const ready = Promise.resolve()
-    const kube = new KubeService(configs, ready, isReadOnly)
+    // What the person may do: asked with namespaces' labels as they may read them.
+    const guard = access.guard(identity.user, new KubeService(configs, ready, isReadOnly))
+    const kube = new KubeService(configs, ready, isReadOnly, env, guard)
     const helm = new HelmService(kube, {
       envReady: ready,
       isReadOnly,
+      guard,
       localCharts: false,
       checkUrl: config.allowPrivateCharts ? undefined : checkChartUrl,
       // A kubeconfig of its own for each run, acting as this person, removed after.
@@ -219,7 +227,7 @@ export class PageConnection {
         }
       },
     })
-    const deps = { store: configs, envReady: ready, isReadOnly, audit: recording }
+    const deps = { store: configs, envReady: ready, isReadOnly, audit: recording, guard }
     const terminals = new Terminals(
       {
         ...deps,
@@ -250,8 +258,16 @@ export class PageConnection {
     })
     const auditing = auditHandlers(
       audit,
-      { everyone: auditor, may: readerFor(auditor, identity.user) },
+      {
+        get everyone() {
+          return auditor()
+        },
+        may: (event) => readerFor(auditor(), identity.user)(event),
+      },
       (channel, ...args) => this.emit(channel, ...args),
+    )
+    const accessing = accessHandlers(access, identity.user, actor, audit, (channel, ...args) =>
+      this.emit(channel, ...args),
     )
     const info: AppInfo = {
       name: 'Lumovi',
@@ -262,6 +278,7 @@ export class PageConnection {
     this.#invoke = {
       ...shared.invoke,
       ...auditing.invoke,
+      ...accessing.invoke,
       ...assistants.invoke,
       [IPC.appInfo]: () => info,
       // A fleet's page sums each cluster up.
@@ -275,6 +292,7 @@ export class PageConnection {
     this.ended = new Promise((resolve) => {
       socket.on('close', () => {
         auditing.stop()
+        accessing.stop()
         assistants.detach()
         logs.stopAll()
         void terminals.closeAll().then(resolve)

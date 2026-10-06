@@ -71,6 +71,15 @@ jobs:
           (! helm template lumovi charts/lumovi --set assistants.enabled=false | grep -q 'assistant-rules')
           (! helm template lumovi charts/lumovi --set 'assistants.rules[0].name=x' \
             --set 'assistants.rules[0].logs=maybe' 2>/dev/null)
+          # Access: with admins, a ConfigMap Lumovi may read and write, and nothing else; what the
+          # chart says, as JSON, checked; none of it without admins.
+          helm template lumovi charts/lumovi --set 'access.admins={platform-admins}' \
+            | grep -q 'resourceNames: \[lumovi-access\]'
+          helm template lumovi charts/lumovi --set 'access.policy.limits[0].id=prod' \
+            --set 'access.policy.limits[0].name=Production' --set 'access.policy.limits[0].caps.helm=upgrade' \
+            | grep -q 'LUMOVI_ACCESS$'
+          (! helm template lumovi charts/lumovi | grep -q 'lumovi-access')
+          (! helm template lumovi charts/lumovi --set 'access.policy.everyone.changes=maybe' 2>/dev/null)
           # The audit history: on a volume uninstalling keeps, one pod writing it at a time; a
           # claim of one's own, or none (memory); a webhook's headers from a Secret.
           helm template lumovi charts/lumovi | grep -q 'claimName: lumovi-audit'

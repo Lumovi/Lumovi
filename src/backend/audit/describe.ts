@@ -22,7 +22,7 @@ import type { Recorded } from './recorder'
 
 /** Whether an error is the cluster (or Lumovi) not allowing it, rather than it failing. */
 export const isRefusal = (code: KubeErrorCode) =>
-  code === 'forbidden' || code === 'unauthorized' || code === 'read-only'
+  code === 'forbidden' || code === 'unauthorized' || code === 'read-only' || code === 'not-allowed'
 
 /** How a result came out: refused where the cluster, or Lumovi, doesn't allow it. */
 export function outcomeOf(result: Result<unknown>): { outcome: AuditOutcome; error?: string } {

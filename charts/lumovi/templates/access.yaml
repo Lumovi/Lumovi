@@ -1,0 +1,42 @@
+{{- if and (include "lumovi.dashboard" .) .Values.access.admins }}
+# Who may do what through Lumovi, as its admins set it on the Access page (what the chart
+# says is in LUMOVI_ACCESS). Lumovi reads and writes this ConfigMap (and nothing else here);
+# upgrades leave what's in it, and uninstalling keeps it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lumovi.fullname" . }}-access
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+{{- if .Values.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "lumovi.fullname" . }}-access
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [{{ include "lumovi.fullname" . }}-access]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "lumovi.fullname" . }}-access
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "lumovi.fullname" . }}-access
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

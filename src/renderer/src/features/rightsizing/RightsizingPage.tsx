@@ -51,6 +51,7 @@ import { menuContent } from '../shell/menu-styles'
 import { AdviceDetail } from './AdviceDetail'
 import { ApplyDialog } from './ApplyDialog'
 import { useRightsizing, type Advised } from './use-rightsizing'
+import { useAccessHere } from '../access/use-access'
 
 const VERDICTS: Record<Verdict, { label: string; icon: LucideIcon; health?: Health }> = {
   under: { label: 'Needs more', icon: TriangleAlert, health: 'warning' },
@@ -434,12 +435,16 @@ function AdviceTable({
     ).values(),
   ]
   const access = useAccess(checks)
+  const here = useAccessHere()
   const refusal = ({ workload: w }: Advised) => {
     if (readOnly) return 'Changes are turned off for this cluster.'
     const i = checks.findIndex((c) => c.kind === w.kind && c.namespace === w.metadata.namespace)
-    return access[i] === false
-      ? `Your account can’t change ${builtinResource(w.kind!)!.label.toLowerCase()} in ${w.metadata.namespace}.`
-      : undefined
+    return (
+      here.whyNot('changes', 'write', w.metadata.namespace) ??
+      (access[i] === false
+        ? `Your account can’t change ${builtinResource(w.kind!)!.label.toLowerCase()} in ${w.metadata.namespace}.`
+        : undefined)
+    )
   }
   const toggle = (key: string) => {
     const next = new Set(open)

@@ -12,6 +12,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { IPC } from '@shared/api'
+import { assistantsIn, mayUseAssistants } from '@shared/access'
 import type { AiPermissionsView } from '@shared/ai-permissions'
 import type { ProposalOutcome, ServerAssistantsStatus } from '@shared/assistants'
 import type { AuditActor } from '@shared/audit'
@@ -29,6 +30,7 @@ import { log } from '../log'
 import type { Sessions } from '../sessions'
 import { Grants, type Endpoints, type Grant, type Signer } from './oauth'
 import { People } from './people'
+import type { ServerAccess } from '../access'
 import type { PermissionsStore } from './permissions'
 
 /** Paths below the server's base path. */
@@ -58,6 +60,10 @@ const THEIRS = new Set([
 const MAX_BODY = 4 * 1024 * 1024
 /** Sessions with no request for this long are let go: their assistant has gone (an env for tests). */
 const IDLE_MS = Number(process.env.LUMOVI_ASSISTANTS_IDLE_MS) || 6 * 60 * 60_000
+
+/** Why someone's assistants can't act as them: their access says so. */
+const NOT_YOURS =
+  'Lumovi’s admins don’t let you use AI assistants on this server. Your access, in Lumovi’s account menu, says more.'
 
 /** How an outcome reads in the server's log. */
 const OUTCOMES: Record<ProposalOutcome['status'], string> = {
@@ -96,6 +102,8 @@ export class ServerAssistants {
       /** What each person lets their assistants do (none while assistants are off). */
       permissions?: PermissionsStore
       audit: AuditLog
+      /** Who may do what: assistants never do more than their person may. */
+      access: ServerAccess
     },
   ) {
     this.#grants = new Grants({
@@ -186,7 +194,10 @@ export class ServerAssistants {
     } else if (path === PATHS.authorizeApi) {
       const who = signer()
       if (!who) sendJson(res, 401, { error: 'Sign in to Lumovi first.' })
-      else if (req.method === 'GET') this.#grants.describe(res, url.searchParams, endpoints(), who)
+      else if (!this.#mayUse(who.identity)) {
+        sendJson(res, 403, { error: NOT_YOURS })
+      } else if (req.method === 'GET')
+        this.#grants.describe(res, url.searchParams, endpoints(), who)
       // Only from Lumovi's own page: a site can't allow an assistant as someone.
       else if (!sameOrigin(req, this.deps.config.publicUrl)) {
         sendJson(res, 403, { error: 'Allow assistants from Lumovi’s own page.' })
@@ -289,6 +300,8 @@ export class ServerAssistants {
       return
     }
     const { grant, identity } = signedIn
+    // Their access changed since they allowed it: it can't act as them now.
+    if (!this.#mayUse(identity)) return this.#refuse(res, 403, NOT_YOURS)
     let body: unknown
     if (req.method === 'POST') {
       body = await readJson(req, MAX_BODY)
@@ -323,11 +336,16 @@ export class ServerAssistants {
     const person = grant.person
     let kube = this.#kube.get(grant.id)
     if (!kube) {
-      // Changing nothing where nobody may, nor where its person said not to.
+      // Changing nothing where nobody may, nor where its person said not to (nor may).
+      const configs = hosted.configsFor(identity)
+      const isReadOnly = (context: string) => readOnly || this.#people.isReadOnly(person, context)
+      const { access } = this.deps
       kube = new KubeService(
-        hosted.configsFor(identity),
+        configs,
         Promise.resolve(),
-        (context) => readOnly || this.#people.isReadOnly(person, context),
+        isReadOnly,
+        process.env,
+        access.guard(identity.user, new KubeService(configs, Promise.resolve(), isReadOnly)),
       )
       this.#kube.set(grant.id, kube)
     }
@@ -340,6 +358,10 @@ export class ServerAssistants {
         const { mine, admin } = this.#permissions(person)
         return { mine, admin }
       },
+      access: () => ({
+        decide: this.deps.access.decider(identity.user),
+        somewhere: assistantsIn(this.deps.access.policy, identity.user),
+      }),
       // Its person's, each kept as this assistant's, to be withdrawn when it's let go.
       approvals: {
         ask: (proposal, settle) => {
@@ -380,6 +402,11 @@ export class ServerAssistants {
     session.transport.onclose = () => void this.#sessions.delete(session.transport.sessionId!)
     await server.connect(session.transport)
     return session
+  }
+
+  /** Whether someone's access lets them use AI assistants anywhere. */
+  #mayUse(identity: Identity): boolean {
+    return mayUseAssistants(this.deps.access.policy, identity.user)
   }
 
   /** Closes a grant's connections, and lets go of its connection to the clusters. */
