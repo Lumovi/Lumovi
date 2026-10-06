@@ -29,5 +29,18 @@ spec:
                 name: {{ include "lumovi.fullname" $ }}
                 port:
                   name: http
+          {{- $base := include "lumovi.basePath" $ }}
+          {{- if and $.Values.assistants.enabled (ne $base "/") }}
+          # Where AI assistants look for how to sign in: the origin's root, with the base path after.
+          {{- range list (printf "/.well-known/oauth-authorization-server%s" (trimSuffix "/" $base)) (printf "/.well-known/oauth-protected-resource%smcp" $base) }}
+          - path: {{ . }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "lumovi.fullname" $ }}
+                port:
+                  name: http
+          {{- end }}
+          {{- end }}
     {{- end }}
 {{- end }}
