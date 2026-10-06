@@ -278,7 +278,7 @@
               "minLength": 1
             },
             "storageClass": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "existingClaim": {
               "type": "string"

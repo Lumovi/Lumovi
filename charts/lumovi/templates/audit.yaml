@@ -11,8 +11,8 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   accessModes: [ReadWriteOnce]
-  {{- with .Values.audit.persistence.storageClass }}
-  storageClassName: {{ . | quote }}
+  {{- if kindIs "string" .Values.audit.persistence.storageClass }}
+  storageClassName: {{ .Values.audit.persistence.storageClass | quote }}
   {{- end }}
   resources:
     requests:

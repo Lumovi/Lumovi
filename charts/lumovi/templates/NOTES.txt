@@ -71,7 +71,8 @@ People sign in with {{ .Values.auth.oidc.providerName | default "single sign-on"
 their RBAC applies. Its service account may impersonate anyone: keep its namespace to admins.
 {{- else }}
 
-Lumovi trusts the {{ .Values.auth.proxy.userHeader }} header: make sure only the
+Lumovi trusts the {{ .Values.auth.proxy.userHeader }} and {{ .Values.auth.proxy.groupsHeader }} headers: whoever reaches it
+directly can say they're anyone, in any group (an admin's, an auditor's). Make sure only the
 authenticating proxy can reach it{{ if not .Values.networkPolicy.enabled }} (networkPolicy.enabled keeps everything else out){{ end }}.
 {{- end }}
 {{- end }}

@@ -12,7 +12,7 @@ import { AuditLog } from '@backend/audit/log'
 import { StdoutSink, WebhookSink, type AuditSink } from '@backend/audit/sinks'
 import { FileStore, MemoryStore } from '@backend/audit/store'
 import type { Identity } from './cluster'
-import type { AuditConfig } from './config'
+import { ConfigError, type AuditConfig } from './config'
 import { log } from './log'
 
 export function openAudit(config: AuditConfig): AuditLog {
@@ -26,7 +26,7 @@ export function openAudit(config: AuditConfig): AuditLog {
   }
   return new AuditLog({
     store: config.dir
-      ? new FileStore(config.dir, config.retentionDays)
+      ? filesIn(config.dir, config.retentionDays)
       : new MemoryStore(config.memoryEvents),
     sinks,
     level: config.level,
@@ -34,6 +34,20 @@ export function openAudit(config: AuditConfig): AuditLog {
     exportLimit: config.exportLimit,
     warn: log,
   })
+}
+
+/** The history's folder: or, where it can't be written in, why, and what usually makes it so. */
+function filesIn(dir: string, retentionDays: number): FileStore {
+  try {
+    return new FileStore(dir, retentionDays)
+  } catch (error) {
+    // (Another Lumovi keeping it says so itself.)
+    if (!(error as NodeJS.ErrnoException).code) throw error
+    throw new ConfigError(
+      `LUMOVI_AUDIT_DIR (${dir}) can’t be written in: ${(error as Error).message}. Lumovi’s image runs as user 65532: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.`,
+      { cause: error },
+    )
+  }
 }
 
 /** A session, as the audit log names it: by a hash, so it says which without giving it away. */
