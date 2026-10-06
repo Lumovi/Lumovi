@@ -118,6 +118,10 @@ spec:
               value: {{ .Values.auth.sessionHours | quote }}
             - name: LUMOVI_READ_ONLY
               value: {{ .Values.readOnly | quote }}
+            - name: LUMOVI_ASSISTANTS
+              value: {{ ternary "on" "off" .Values.assistants.enabled | quote }}
+            - name: LUMOVI_ASSISTANT_CHANGES
+              value: {{ include "lumovi.assistantChanges" . | quote }}
             - name: LUMOVI_METRICS_SOURCE
               value: {{ .Values.metrics.source | quote }}
             - name: LUMOVI_ALLOW_PRIVATE_CHARTS

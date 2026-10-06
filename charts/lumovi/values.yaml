@@ -114,6 +114,17 @@ auth:
 # Nobody changes anything through Lumovi, whatever their RBAC allows.
 readOnly: false
 
+# AI assistants (Claude Code, Cursor, VS Code and other MCP clients) connect at <url>/mcp,
+# signed in as someone through Lumovi (OAuth), and read the clusters that person can. The
+# changes they ask for wait for that person's approval in Lumovi, unless changes says otherwise.
+assistants:
+  enabled: true
+  # What assistants' changes do: ask (each waits for approval), allow (made without asking;
+  # deletions, and changes that take fields over from others, still ask), or never.
+  changes: ask
+  # A cluster's own, by its name: { staging: allow, production: never }.
+  clusters: {}
+
 metrics:
   # Where usage history comes from: auto (Lumovi looks for Prometheus or VictoriaMetrics),
   # off, or a service: monitoring/prometheus-operated:9090 (with a path after the port for
