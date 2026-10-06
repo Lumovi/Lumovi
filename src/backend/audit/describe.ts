@@ -110,7 +110,11 @@ export function describeChange(r: ChangeRequest, result: Result<KubeObject | nul
       const unschedulable = (patch?.spec as { unschedulable?: unknown } | undefined)?.unschedulable
       details.fields = fieldsOf(change.patch)
       details.patchType = change.patchType
-      if (change.subresource === 'scale' && typeof replicas === 'number') {
+      // Scaled through its scale subresource (a custom resource), or its replicas alone.
+      const scaling =
+        change.subresource === 'scale' ||
+        (details.fields.length === 1 && details.fields[0] === 'spec.replicas')
+      if (scaling && typeof replicas === 'number') {
         action = 'resource.scale'
         summary = `${said('Scaled', 'Scale')} ${what} to ${plural(replicas, 'replica')}`
         command = kubectl(r.context, r.namespace, 'scale', arg, `--replicas=${replicas}`)

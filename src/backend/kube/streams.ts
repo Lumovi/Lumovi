@@ -58,17 +58,8 @@ function shellRecord(r: ContainerShellRequest | NodeShellRequest) {
         cluster: r.context,
         target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
         what: `a shell in Pod ${r.pod} (${r.container})`,
-        command: kubectl(
-          r.context,
-          r.namespace,
-          'exec',
-          '-it',
-          r.pod,
-          '-c',
-          r.container,
-          '--',
-          'sh',
-        ),
+        // Its flags before `--`: what's after it is the shell's.
+        command: `${kubectl(r.context, r.namespace, 'exec', '-it', r.pod, '-c', r.container)} -- sh`,
       }
 }
 

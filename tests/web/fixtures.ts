@@ -11,6 +11,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { expect, test as base, type Page } from '@playwright/test'
+import type { AuditEvent } from '../../src/shared/audit.ts'
 import { startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
 
 export { expect }
@@ -127,6 +128,23 @@ export function startServer(
     child.stdout!.on('data', listening)
     void exited.then((code) => reject(new Error(`The server exited (${code}):\n${output}`)))
   })
+}
+
+/**
+ * The audit events a server wrote on its output, in order (each a JSON line that says it's
+ * one): of one action, if given.
+ */
+export function audited(served: Served, action?: string): AuditEvent[] {
+  return (
+    served
+      .log()
+      .split('\n')
+      // The last may still be being written.
+      .slice(0, -1)
+      .filter((line) => line.startsWith('{"type":"lumovi.audit"'))
+      .map((line) => JSON.parse(line) as AuditEvent)
+      .filter((event) => action === undefined || event.action === action)
+  )
 }
 
 export interface Agent {

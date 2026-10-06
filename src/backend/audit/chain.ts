@@ -61,10 +61,13 @@ export class ChainCheck {
     if (!last) return undefined
     // A new chain starts where the server started with nothing to follow (memory, or a new volume).
     if (event.seq === 1 && event.prev === '') return undefined
+    if (event.seq <= last.seq) {
+      return `It’s number ${event.seq}, after number ${last.seq}: one was repeated, or moved.`
+    }
     if (event.seq !== last.seq + 1) {
-      return event.seq > last.seq
-        ? `Events ${last.seq + 1}–${event.seq - 1} are missing.`
-        : `It comes after event ${last.seq}, out of order.`
+      return event.seq === last.seq + 2
+        ? `Event ${last.seq + 1} is missing.`
+        : `Events ${last.seq + 1}–${event.seq - 1} are missing.`
     }
     if (event.prev !== last.hash) {
       return 'It doesn’t follow from the event before it: one of them was changed, or replaced.'
