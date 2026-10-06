@@ -6,6 +6,51 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Behind a company's proxy: Lumovi's own connections (to clusters, single sign-on, Helm
+  repositories, the audit webhook, a fleet agent's hub) go through `HTTPS_PROXY` /
+  `HTTP_PROXY` (`http://` where it gives no scheme), but for what `NO_PROXY` leaves out: names
+  and what's under them, and addresses, each with a port or for any, the same for all of them
+  (not ranges). A cluster's `proxy-url` in its kubeconfig is used where it has one. The
+  desktop app takes the proxy from the login shell, as it takes `PATH`; a server leaves out
+  the in-cluster API server and services. A proxy that wants credentials (407), or won't open
+  a tunnel, says so; its credentials are never said, nor a proxy that isn't a URL.
+- Certificate authorities of a company's own: the operating system's are trusted besides
+  Node's (where IT installs the one an HTTPS-inspecting proxy signs with), and on a server
+  those in the files `LUMOVI_CA_FILE` names, which Helm is given too. A certificate Lumovi
+  doesn't trust, an expired one, or one for another name says which, and what usually makes it
+  so behind such a proxy; a file of them that can't be read says which.
+- The chart: `proxy.https`, `proxy.http` and `proxy.noProxy`, or `proxy.secret` (a Secret with
+  `HTTPS_PROXY`, and `HTTP_PROXY` if plain http goes through one) for a proxy with credentials; `extraCA` (a ConfigMap's or a Secret's certificate authorities); and
+  OpenShift's restricted SCC (`restricted-v2`), where the pod's user, group and fsGroup are
+  left for OpenShift to choose (`openshift: auto`, by `security.openshift.io/v1`).
+- A policy an organization sets for every desktop Lumovi on its computers (deployed by an
+  MDM, Group Policy, Intune or configuration management), where only an administrator can
+  write it: `/Library/Application Support/Lumovi/policy.json` on macOS and
+  `/etc/lumovi/policy.json` on Linux (root's, as is its folder), and the registry's
+  `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Lumovi` (its `Policy` value) on Windows. It makes
+  every cluster, or those whose names match, read-only; turns AI assistants off, or limits
+  what they may do (rules as a server's `LUMOVI_ASSISTANT_RULES`); turns Lumovi's own updates
+  off, for IT to deploy new versions; and sets the proxy and certificate authorities to use.
+  What it sets is locked ("Set by your organization"), and the person's own settings are back
+  when it's gone. One that can't be used (not an administrator's, not JSON, a key twice, what
+  Lumovi doesn't know, a registry Lumovi can't read) locks the most it could: every cluster
+  read-only and assistants off, saying why. What the desktop app couldn't set up as it started
+  (its policy, a certificate authority's file, a proxy) is said on the page, too.
+- Releases carry a software bill of materials (CycloneDX, `Lumovi-<version>.cdx.json`) of
+  every package the app bundles or ships, and Electron, attested with each installer; the
+  image carries its JavaScript's (attested with it) and its system's, and its full build
+  provenance; and the image and the chart are signed with cosign, keyless, by the release
+  workflow from main, both as a Sigstore bundle and with the `.sig` tag older admission
+  controllers look for. SECURITY.md says how to check each, and how to report a vulnerability:
+  security@lumovi.dev.
+
+### Fixed
+
+- What's asked of a cluster as the desktop app starts waits for the login shell's
+  environment, so it isn't sent before the proxy (or a credential plugin's `PATH`) is known.
+
 ## [1.6.0] - 2026-10-06
 
 An audit log of what's done through Lumovi, by whom, and how it went, kept as a chain anyone
