@@ -134,15 +134,27 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
     actor: { user: 'lumovi', via: 'server' },
     details: { count: 3, from: [expect.stringMatching(/127\.0\.0\.1$/)] },
   })
-  // A new minute: recorded each again.
-  await page.evaluate(() =>
-    fetch('api/session', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: 'still-not' }),
-    }),
-  )
-  await expect.poll(() => audited(served, 'session.sign-in')).toHaveLength(4)
+  // A new minute: recorded each again, and past that, counted again.
+  await page.evaluate(async () => {
+    for (let i = 0; i < 3; i++) {
+      await fetch('api/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: `still-not-${i}` }),
+      })
+    }
+  })
+  await expect
+    .poll(() => audited(served, 'session.sign-in').map((e) => e.summary))
+    .toEqual([
+      ...Array(2).fill('Sign in with a token'),
+      '3 more sign-ins didn’t succeed, each not recorded: more than 2 were tried in a minute',
+      ...Array(2).fill('Sign in with a token'),
+      '1 more sign-in didn’t succeed, each not recorded: more than 2 were tried in a minute',
+    ])
+  // A minute with none past that: nothing said.
+  await page.waitForTimeout(1500)
+  expect(audited(served, 'session.sign-in')).toHaveLength(6)
 })
 
 test('a session ends: it expires, or its person signs out in another tab', async ({

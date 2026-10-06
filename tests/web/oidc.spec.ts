@@ -206,7 +206,8 @@ test('a way back from the provider is taken once, and what it says is kept short
   page,
   serve,
 }) => {
-  const { oidc, served } = await withProvider(serve)
+  // (Sign-ins that may take a second, at most.)
+  const { oidc, served } = await withProvider(serve, {}, { LUMOVI_SIGN_IN_MINUTES: '0.02' })
   // A provider (or whoever made the way back) saying more than an error code.
   oidc.refuse = `access_denied\u0007${'x'.repeat(300)}`
   const callback = page.waitForRequest((r) => r.url().includes('/auth/callback'))
@@ -227,6 +228,12 @@ test('a way back from the provider is taken once, and what it says is kept short
       `The provider said access_denied${'x'.repeat(87)}.`,
     ],
   ])
+  // Long after: what was taken is let go (it couldn't be taken again anyway), and another goes.
+  await page.waitForTimeout(1500)
+  oidc.refuse = true
+  await page.goto(`${served.url}auth/sign-in`)
+  await expect(notice(page, 'Signing in was cancelled, or the provider said no.')).toBeVisible()
+  expect(signIns(served)).toHaveLength(2)
 })
 
 test('a sign-in only finishes where it started, and only goes to the app', async ({
