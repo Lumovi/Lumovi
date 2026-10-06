@@ -10,11 +10,12 @@ import {
   LayoutDashboard,
   List,
   Lock,
+  ScrollText,
   ShipWheel,
 } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
-import { NavLink, useLocation } from 'react-router'
+import { NavLink, useLocation, useNavigate } from 'react-router'
 import type { KubeContext } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import {
@@ -147,6 +148,7 @@ export function Sidebar() {
   const session = useSession()
   const addOns = useAddOns()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
+  const navigate = useNavigate()
   return (
     <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
       {/* Room for macOS's window controls, which sit above the cluster. */}
@@ -208,6 +210,9 @@ export function Sidebar() {
         <ThemeMenu />
         {api.assistants && <AssistantsButton assistants={api.assistants} />}
         {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}
+        <IconButton label="Audit log" onClick={() => void navigate('/audit')}>
+          <ScrollText />
+        </IconButton>
         {session && <AccountMenu session={session} />}
         <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />

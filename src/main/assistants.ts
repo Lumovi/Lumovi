@@ -26,6 +26,7 @@ import type {
 import { Approvals } from '@backend/mcp/approvals'
 import { assistantName, createMcpServer } from '@backend/mcp/server'
 import { toKubeError } from '@backend/kube/errors'
+import type { Recorder } from '@backend/audit/recorder'
 import type { KubeService } from '@backend/kube/service'
 import type { SettingsStore } from './settings'
 
@@ -48,6 +49,8 @@ export interface AssistantsDeps {
   stdio: { command: string; args: string[]; env?: Record<string, string> }
   /** Claude Desktop's settings file, where it's installed (macOS and Windows). */
   claudeDesktopConfig?: string
+  /** The audit log, as an assistant records to it (named as it says it is). */
+  audit(name: () => string): Recorder
 }
 
 interface Session {
@@ -269,6 +272,8 @@ export class Assistants {
       policy: () => ({ mine: settings.aiPermissions(), admin: [] }),
       approvals: this.approvals,
       outcome: (outcome) => this.deps.send(IPC.assistantsOutcome, outcome),
+      // Its tools are called once it has said who it is.
+      audit: this.deps.audit(() => session.name!),
     })
     const session: Session = {
       server,

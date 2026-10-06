@@ -1,8 +1,11 @@
-import { homedir } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { app, Menu, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC, type ShellExit } from '@shared/api'
 import icon from '../../build/icon.png?asset'
+import { AuditLog } from '@backend/audit/log'
+import { recorder } from '@backend/audit/recorder'
+import { FileStore } from '@backend/audit/store'
 import { HelmService } from '@backend/helm/service'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
 import { LogStreams } from '@backend/kube/logs'
@@ -58,6 +61,26 @@ if (stdio) {
     const store = new KubeConfigStore()
     const isReadOnly = (context: string) => settings.isReadOnly(context)
     const kube = new KubeService(store, envReady, isReadOnly)
+    // What's done through Lumovi on this computer: kept in its folder, for the Audit page.
+    const auditLog = new AuditLog({
+      store: new FileStore(join(app.getPath('userData'), 'audit'), AUDIT_RETENTION_DAYS),
+      sinks: [],
+      level: 'access',
+      scanLimit: 200_000,
+      warn: (message) => console.warn(message),
+    })
+    const user = userInfo().username
+    /** This computer's person, as each cluster knows them: its kubeconfig's user. */
+    const actor =
+      (via: 'ui' | 'assistant', assistant?: string) => (cluster: string | undefined) => ({
+        user,
+        via,
+        ...(assistant ? { assistant } : {}),
+        ...(cluster === undefined
+          ? {}
+          : { kubeUser: kube.contexts().contexts.find((c) => c.name === cluster)?.user }),
+      })
+    const audit = recorder(auditLog, actor('ui'))
     const usage = new UsageHistory(kube, (context) => settings.metricsSource(context))
     const helm = new HelmService(kube, { envReady, isReadOnly, localCharts: true })
     // The page loads asynchronously, so the handlers below are in place before it can call them.
@@ -68,7 +91,7 @@ if (stdio) {
     const send = (channel: string, ...args: unknown[]) => {
       if (!win.isDestroyed()) win.webContents.send(channel, ...args)
     }
-    const deps = { store, envReady, isReadOnly }
+    const deps = { store, envReady, isReadOnly, audit }
     const shellEvents = {
       data: (id: string, data: string) => send(IPC.terminalData, id, data),
       exit: (id: string, exit: ShellExit) => send(IPC.terminalExit, id, exit),
@@ -123,6 +146,8 @@ if (stdio) {
     const assistants = new Assistants({
       settings,
       kube,
+      // As this computer's person, through the assistant (named once it says who it is).
+      audit: (name) => recorder(auditLog, (cluster) => actor('assistant', name())(cluster)),
       version: app.getVersion(),
       send,
       // A change waiting for an answer, while the person is elsewhere (in their assistant).
@@ -175,6 +200,9 @@ if (stdio) {
       updates,
       viewsDirectory: viewsDirectory(homedir()),
       rendererUrl: url,
+      audit,
+      auditLog,
+      send,
     })
     // Shells, forwards and log streams belong to the page that started them.
     const closeStreams = () => {
@@ -192,6 +220,7 @@ if (stdio) {
     app.on('will-quit', (event) => {
       closeStreams()
       void assistants.stop()
+      void auditLog.close()
       if (waited || !terminals.cleaning) return
       waited = true
       event.preventDefault()
@@ -204,6 +233,9 @@ if (stdio) {
     app.on('second-instance', reveal)
   })
 }
+
+/** How long the desktop app keeps what was done through it. */
+const AUDIT_RETENTION_DAYS = 90
 
 /**
  * Where Claude Desktop keeps its settings, on macOS and Windows (it isn't made

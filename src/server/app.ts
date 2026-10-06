@@ -9,6 +9,7 @@ import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { ServerAssistants } from './assistants/assistants'
 import { PermissionsStore } from './assistants/permissions'
 import { Auth } from './auth'
+import { isAuditor, openAudit, personActor, SERVER_ACTOR, sessionTag } from './audit'
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
 import { PageConnection } from './connection'
@@ -46,16 +47,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
+  const audit = openAudit(config.audit)
   // What each person lets their AI assistants do: kept where the administrator says.
   const permissions = config.assistants.enabled
     ? await PermissionsStore.open(config.assistants.keep, options.env)
     : undefined
-  const sessions = new Sessions(config.sessionHours, (ended, how) => {
+  const sessions = new Sessions(config.sessionHours, (ended, how, why) => {
     for (const [socket, { session }] of sockets) {
-      if (session === ended) socket.close(SESSION_ENDED, how)
+      if (session === ended.id) socket.close(SESSION_ENDED, how)
     }
     // The assistants allowed in it can't act as its person any more.
-    assistants.sessionEnded(ended)
+    assistants.sessionEnded(ended.id)
+    // Signing out is recorded as it's asked for, from where.
+    if (how === 'expired') {
+      const { user } = ended.identity
+      audit.record({
+        action: 'session.expired',
+        outcome: 'success',
+        actor: {
+          user: user.name,
+          ...(user.groups.length ? { groups: user.groups } : {}),
+          via: 'ui',
+          session: sessionTag(ended.id),
+        },
+        summary: 'Signed out by Lumovi: the session ended',
+        details: { why },
+      })
+    }
   })
   const assistants = new ServerAssistants({
     config,
@@ -64,12 +82,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     version: options.version,
     readOnly: ['1', 'true'].includes(options.env.LUMOVI_READ_ONLY ?? ''),
     permissions,
+    audit,
   })
   const oidc =
     config.auth.mode === 'oidc'
       ? new OidcClient(config.auth, new URL(`${base}${PATHS.callback}`, config.publicUrl).href)
       : undefined
-  const auth = new Auth(config, hosted, sessions, oidc)
+  const auth = new Auth(config, hosted, sessions, audit, oidc)
 
   /**
    * A request's address (null when it isn't one), and its path below the base
@@ -194,11 +213,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ws.on('error', () => ws.terminate())
       ws.on('pong', () => (sockets.get(ws)!.alive = true))
       ws.on('close', () => sockets.delete(ws))
+      const actor = personActor(caller.identity.user, req, caller.session)
       const connection = new PageConnection(ws, {
         ...options,
         identity: caller.identity,
-        rejected: () => sessions.end(caller.session!, 'expired'),
-        assistants: assistants.page(caller.identity, req, (channel, ...args) =>
+        audit,
+        actor,
+        auditor: isAuditor(config.audit, caller.identity),
+        rejected: () =>
+          sessions.end(
+            caller.session!,
+            'expired',
+            'The cluster refused its token: it expired, or was revoked.',
+          ),
+        assistants: assistants.page(caller.identity, req, actor, (channel, ...args) =>
           connection.emit(channel, ...args),
         ),
       })
@@ -224,6 +252,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     server.listen(config.port, config.address, resolve)
   })
   const { port } = server.address() as AddressInfo
+  const info = audit.info(true)
+  audit.record({
+    action: 'server.started',
+    outcome: 'success',
+    actor: SERVER_ACTOR,
+    summary: `Lumovi ${options.version} started`,
+    details: {
+      version: options.version,
+      auth: config.auth.mode,
+      level: info.level,
+      kept: info.kept,
+      ...(info.retentionDays ? { retentionDays: info.retentionDays } : {}),
+      sinks: info.sinks.map((sink) => sink.name),
+      auditors: [
+        ...config.audit.auditors.groups,
+        ...config.audit.auditors.users.map((user) => `user:${user}`),
+      ],
+    },
+  })
   return {
     url: `http://${config.address ?? 'localhost'}:${port}${base}`,
     async close() {
@@ -251,6 +298,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         Promise.all(ending.map((connection) => connection.ended)),
         new Promise((resolve) => setTimeout(resolve, CLEANUP_MS).unref()),
       ])
+      audit.record({
+        action: 'server.stopped',
+        outcome: 'success',
+        actor: SERVER_ACTOR,
+        summary: `Lumovi ${options.version} stopped`,
+      })
+      // What's still to be sent, sent (a few seconds at most).
+      await audit.close()
     },
   }
 }

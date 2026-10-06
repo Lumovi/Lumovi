@@ -12,7 +12,7 @@ import {
   type ShellExit,
 } from '@shared/api'
 import { PATHS } from '@shared/server'
-import { Connection, LOST } from './connection'
+import { Connection, LOST, useConnection } from './connection'
 import {
   onStoredSettings,
   storedSettings,
@@ -65,6 +65,14 @@ export function createWebApi(): LumoviApi {
       }
     },
   )
+  // Audit events come while a page listens: asked for again on each connection (a new server
+  // knows nothing of the last one's).
+  let auditListeners = 0
+  useConnection.subscribe((now, before) => {
+    if (auditListeners > 0 && now.state === 'open' && before.state !== 'open') {
+      void connection.invoke(IPC.auditWatch, true)
+    }
+  })
   connection.on(IPC.terminalExit, (id) => shells.delete(id as string))
   connection.on(IPC.logsEnd, (id) => streams.delete(id as string))
   onStoredSettings(() => {
@@ -151,6 +159,19 @@ export function createWebApi(): LumoviApi {
       get: invoke(IPC.aiPermissionsGet),
       set: invoke(IPC.aiPermissionsSet),
       onChanged: listen(IPC.aiPermissionsChanged),
+    },
+    audit: {
+      info: invoke(IPC.auditInfo),
+      query: invoke(IPC.auditQuery),
+      verify: invoke(IPC.auditVerify),
+      onEvent: (listener) => {
+        const off = connection.on(IPC.auditEvent, listener as (...args: unknown[]) => void)
+        if (auditListeners++ === 0) void connection.invoke(IPC.auditWatch, true)
+        return () => {
+          off()
+          if (--auditListeners === 0) void connection.invoke(IPC.auditWatch, false)
+        }
+      },
     },
     serverAssistants: {
       status: invoke(IPC.serverAssistantsStatus),

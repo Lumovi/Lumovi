@@ -1,0 +1,20 @@
+{{- if and (include "lumovi.dashboard" .) .Values.audit.persistence.enabled (not .Values.audit.persistence.existingClaim) }}
+# The audit history the Audit page searches: kept when the chart is upgraded, and when it's
+# uninstalled (delete it yourself, once nothing needs it).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "lumovi.fullname" . }}-audit
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.audit.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.audit.persistence.size | quote }}
+{{- end }}

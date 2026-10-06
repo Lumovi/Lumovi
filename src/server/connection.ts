@@ -17,6 +17,10 @@ import {
   type Settings,
 } from '@shared/api'
 import type { ClientMessage, PageSettings, ServerMessage } from '@shared/server'
+import type { AuditActor } from '@shared/audit'
+import { auditHandlers } from '@backend/audit/handlers'
+import type { AuditLog } from '@backend/audit/log'
+import { recorder } from '@backend/audit/recorder'
 import { handlers, type Handler } from '@backend/handlers'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
@@ -25,6 +29,7 @@ import { clusterSummary } from '@backend/kube/summary'
 import { Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from '@backend/settings'
+import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { checkChartUrl } from './network'
@@ -112,6 +117,10 @@ export interface ConnectionOptions {
   identity: Identity
   version: string
   env: NodeJS.ProcessEnv
+  /** The audit log; who the page's person is to it (and where from); whether they read everyone's. */
+  audit: AuditLog
+  actor: AuditActor
+  auditor: boolean
   /**
    * Called when the cluster refuses the person's own token: it expired, or was revoked. (In a
    * fleet, one cluster refusing it is that cluster's error.)
@@ -162,8 +171,20 @@ export class PageConnection {
 
   constructor(
     private readonly socket: WebSocket,
-    { hosted, config, identity, version, env, rejected, assistants }: ConnectionOptions,
+    {
+      hosted,
+      config,
+      identity,
+      version,
+      env,
+      rejected,
+      assistants,
+      audit,
+      actor,
+      auditor,
+    }: ConnectionOptions,
   ) {
+    const recording = recorder(audit, () => actor)
     // Only a token of the person's own can be refused for them: the server's are its problem.
     this.#rejected = identity.token && !hosted.fleet ? rejected : () => undefined
     const configs = hosted.configsFor(identity)
@@ -198,7 +219,7 @@ export class PageConnection {
         }
       },
     })
-    const deps = { store: configs, envReady: ready, isReadOnly }
+    const deps = { store: configs, envReady: ready, isReadOnly, audit: recording }
     const terminals = new Terminals(
       {
         ...deps,
@@ -225,7 +246,13 @@ export class PageConnection {
       terminals,
       logs,
       viewsDirectory: { path: config.viewsDir, shown: config.viewsDir },
+      audit: recording,
     })
+    const auditing = auditHandlers(
+      audit,
+      { everyone: auditor, may: readerFor(auditor, identity.user) },
+      (channel, ...args) => this.emit(channel, ...args),
+    )
     const info: AppInfo = {
       name: 'Lumovi',
       version,
@@ -234,6 +261,7 @@ export class PageConnection {
     }
     this.#invoke = {
       ...shared.invoke,
+      ...auditing.invoke,
       ...assistants.invoke,
       [IPC.appInfo]: () => info,
       // A fleet's page sums each cluster up.
@@ -246,6 +274,7 @@ export class PageConnection {
     socket.on('message', (data) => void this.#receive(data))
     this.ended = new Promise((resolve) => {
       socket.on('close', () => {
+        auditing.stop()
         assistants.detach()
         logs.stopAll()
         void terminals.closeAll().then(resolve)

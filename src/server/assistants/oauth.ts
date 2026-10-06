@@ -14,6 +14,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isDeepStrictEqual } from 'node:util'
 import type { ServerAssistant } from '@shared/assistants'
+import type { AuditLog } from '@backend/audit/log'
+import { personActor } from '../audit'
 import type { Identity } from '../cluster'
 import { readJson, SECURITY_HEADERS, sendJson } from '../http'
 import { log } from '../log'
@@ -197,6 +199,7 @@ export class Grants {
       ended(grant: Grant): void
       /** One was allowed, or renamed: its person's pages are told. */
       changed(grant: Grant): void
+      audit: AuditLog
     },
   ) {
     this.#allowed = redirectCheck(deps.redirectHosts)
@@ -339,6 +342,16 @@ export class Grants {
       return
     }
     const back = new URL(request.redirect)
+    const name = request.client.name
+    this.deps.audit.record({
+      action: given.approved ? 'assistant.allowed' : 'assistant.denied',
+      outcome: 'success',
+      actor: personActor(signer.identity.user, req, signer.session),
+      summary: given.approved
+        ? `Allowed ${name} to use Lumovi as them`
+        : `Didn’t allow ${name} to use Lumovi`,
+      details: { assistant: name, client: request.clientId, returnsTo: back.origin },
+    })
     if (given.approved) {
       const code = token()
       this.#codes.set(code, {
@@ -549,6 +562,18 @@ export class Grants {
       for (const [token, { grant: id }] of tokens) if (id === grant.id) tokens.delete(token)
     }
     log(`${grant.person}’s ${grant.name} ${ENDED[how]}`)
+    this.deps.audit.record({
+      action: 'assistant.ended',
+      // A refresh token used twice: someone else may have it, so it was let go.
+      outcome: how === 'reused' ? 'refused' : 'success',
+      actor: {
+        user: grant.person,
+        via: how === 'let go' ? 'ui' : 'assistant',
+        assistant: grant.name,
+      },
+      summary: `${grant.name} ${ENDED[how]}`,
+      details: { how, since: new Date(grant.since).toISOString() },
+    })
     this.deps.ended(grant)
   }
 }

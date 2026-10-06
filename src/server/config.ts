@@ -16,7 +16,9 @@ import {
   type Matcher,
 } from '@shared/ai-permissions'
 import { isAiChanges, type AiChanges } from '@shared/assistants'
+import { isAuditLevel, type AuditLevel } from '@shared/audit'
 import type { AuthMode } from '@shared/server'
+import type { WebhookFormat } from '@backend/audit/sinks'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { MAX_SESSION_HOURS } from './sessions'
 
@@ -126,6 +128,30 @@ export interface ServerConfig {
     keep: RulesKeeping
     redirectHosts: string[]
   }
+  audit: AuditConfig
+}
+
+/** The audit log: how much it records, where it keeps and sends it, and who reads everyone's. */
+export interface AuditConfig {
+  level: AuditLevel
+  /** Where its history is kept (a volume's folder); unset, in memory since the server started. */
+  dir?: string
+  retentionDays: number
+  /** Without a folder: how many of the most recent events memory keeps. */
+  memoryEvents: number
+  /** How many events one search looks through before it stops, and offers to look further. */
+  scanLimit: number
+  /** Each event as a JSON line on the server's output. */
+  stdout: boolean
+  webhook?: {
+    url: URL
+    headers: Record<string, string>
+    format: WebhookFormat
+    /** How many events wait to be sent, at most, while it can't take them. */
+    buffer: number
+  }
+  /** Who sees everyone's events, not only their own: people in these groups, and these people. */
+  auditors: { groups: string[]; users: string[] }
 }
 
 /**
@@ -261,7 +287,101 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
     rendererDir,
     assistants,
+    audit: auditConfig(value),
   }
+}
+
+/**
+ * The audit log: LUMOVI_AUDIT_LEVEL (changes, or access: what's opened and read too);
+ * its history in LUMOVI_AUDIT_DIR (else LUMOVI_DATA_DIR/audit, else memory), kept for
+ * LUMOVI_AUDIT_RETENTION_DAYS; each event on the server's output unless LUMOVI_AUDIT_STDOUT
+ * is false, and to LUMOVI_AUDIT_WEBHOOK_URL (with LUMOVI_AUDIT_WEBHOOK_HEADERS, as
+ * LUMOVI_AUDIT_WEBHOOK_FORMAT); everyone's read by LUMOVI_AUDITORS (groups, and user:names).
+ */
+function auditConfig(value: (name: string) => string | undefined): AuditConfig {
+  /** A whole number from `min` to `max`. */
+  const count = (name: string, fallback: number, min: number, max: number) => {
+    const setting = value(name) ?? String(fallback)
+    const n = Number(setting)
+    if (!Number.isInteger(n) || n < min || n > max) {
+      throw new ConfigError(
+        `${name} must be a whole number from ${min.toLocaleString('en')} to ${max.toLocaleString('en')}, not "${setting}".`,
+      )
+    }
+    return n
+  }
+  const level = value('LUMOVI_AUDIT_LEVEL') ?? 'access'
+  if (!isAuditLevel(level)) {
+    throw new ConfigError(`LUMOVI_AUDIT_LEVEL must be changes or access, not "${level}".`)
+  }
+  const stdout = value('LUMOVI_AUDIT_STDOUT') ?? 'true'
+  if (!['true', 'false'].includes(stdout)) {
+    throw new ConfigError(`LUMOVI_AUDIT_STDOUT must be true or false, not "${stdout}".`)
+  }
+  const dataDir = value('LUMOVI_DATA_DIR')
+  const auditors = list(value('LUMOVI_AUDITORS'))
+  return {
+    level,
+    dir: value('LUMOVI_AUDIT_DIR') ?? (dataDir && join(dataDir, 'audit')),
+    retentionDays: count('LUMOVI_AUDIT_RETENTION_DAYS', 90, 1, 3650),
+    memoryEvents: count('LUMOVI_AUDIT_MEMORY_EVENTS', 10_000, 100, 1_000_000),
+    scanLimit: count('LUMOVI_AUDIT_SCAN_LIMIT', 200_000, 100, 10_000_000),
+    stdout: stdout === 'true',
+    webhook: auditWebhook(value, count('LUMOVI_AUDIT_WEBHOOK_BUFFER', 10_000, 10, 1_000_000)),
+    auditors: {
+      groups: auditors.filter((entry) => !entry.startsWith('user:')),
+      users: auditors.filter((entry) => entry.startsWith('user:')).map((entry) => entry.slice(5)),
+    },
+  }
+}
+
+function auditWebhook(
+  value: (name: string) => string | undefined,
+  buffer: number,
+): AuditConfig['webhook'] {
+  const setting = value('LUMOVI_AUDIT_WEBHOOK_URL')
+  const headers = value('LUMOVI_AUDIT_WEBHOOK_HEADERS')
+  const format = value('LUMOVI_AUDIT_WEBHOOK_FORMAT') ?? 'json'
+  if (!setting) {
+    if (headers || value('LUMOVI_AUDIT_WEBHOOK_FORMAT') || value('LUMOVI_AUDIT_WEBHOOK_BUFFER')) {
+      throw new ConfigError(
+        'LUMOVI_AUDIT_WEBHOOK_HEADERS, _FORMAT and _BUFFER say how events are sent to LUMOVI_AUDIT_WEBHOOK_URL, which isn’t set.',
+      )
+    }
+    return undefined
+  }
+  if (!/^https?:\/\//.test(setting) || !URL.canParse(setting)) {
+    throw new ConfigError(
+      `LUMOVI_AUDIT_WEBHOOK_URL must be an http or https URL, not "${setting}".`,
+    )
+  }
+  const url = new URL(setting)
+  if (url.username || url.password) {
+    throw new ConfigError(
+      'LUMOVI_AUDIT_WEBHOOK_URL can’t carry a user and password: put an Authorization header in LUMOVI_AUDIT_WEBHOOK_HEADERS.',
+    )
+  }
+  if (format !== 'json' && format !== 'ndjson') {
+    throw new ConfigError(`LUMOVI_AUDIT_WEBHOOK_FORMAT must be json or ndjson, not "${format}".`)
+  }
+  let parsed: unknown
+  try {
+    parsed =
+      headers === undefined ? undefined : parse(document('LUMOVI_AUDIT_WEBHOOK_HEADERS', headers))
+  } catch (error) {
+    if (error instanceof ConfigError) throw error
+    throw new ConfigError(
+      `LUMOVI_AUDIT_WEBHOOK_HEADERS isn’t YAML: ${(error as Error).message.split('\n')[0]}`,
+      { cause: error },
+    )
+  }
+  const given = stringMap('LUMOVI_AUDIT_WEBHOOK_HEADERS', parsed)
+  for (const name of Object.keys(given)) {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
+      throw new ConfigError(`LUMOVI_AUDIT_WEBHOOK_HEADERS: "${name}" isn’t a header’s name.`)
+    }
+  }
+  return { url, headers: given, format, buffer }
 }
 
 /**

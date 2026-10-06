@@ -4,6 +4,7 @@ import { PassThrough, Writable } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
 import { Exec, PortForward as Forwarder, type KubeConfig } from '@kubernetes/client-node'
 import type {
+  ContainerShellRequest,
   ForwardKind,
   KubeObject,
   NodeShellRequest,
@@ -14,6 +15,9 @@ import type {
   ShellExit,
   ShellRequest,
 } from '@shared/api'
+import { outcomeOf } from '../audit/describe'
+import type { Recorder } from '../audit/recorder'
+import { kubectl } from '@shared/kubectl'
 import { authorize, kubeRequest, serverUrl } from './client'
 import { KubeRequestError, toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -29,6 +33,43 @@ interface Dependencies {
   store: ClusterConfigs
   envReady: Promise<void>
   isReadOnly: (context: string) => boolean
+  /** The audit log, as the page's person records to it. */
+  audit: Recorder
+}
+
+/** How long something ran, as people say it: 45s, 3m 12s, 2h 5m. */
+export function took(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+/** A shell, as the audit log has it: where, and what does the same. */
+function shellRecord(r: ContainerShellRequest | NodeShellRequest) {
+  return r.target === 'node'
+    ? {
+        cluster: r.context,
+        target: { kind: 'Node', name: r.node },
+        what: `a shell on Node ${r.node}${r.mode === 'node' ? ', as root' : ', in a pod with its files'}`,
+      }
+    : {
+        cluster: r.context,
+        target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
+        what: `a shell in Pod ${r.pod} (${r.container})`,
+        command: kubectl(
+          r.context,
+          r.namespace,
+          'exec',
+          '-it',
+          r.pod,
+          '-c',
+          r.container,
+          '--',
+          'sh',
+        ),
+      }
 }
 
 /** The part of the connection checks the WebSocket client doesn't make itself. */
@@ -99,6 +140,11 @@ export class Terminals {
   readonly #connecting = new Set<string>()
   /** Node shells' pods being deleted. */
   readonly #cleaning = new Set<Promise<unknown>>()
+  /** What each shell is, for the audit log: once it's open, since when; a node shell's pod. */
+  readonly #audited = new Map<
+    string,
+    { request: ContainerShellRequest | NodeShellRequest; since?: number; pod?: string }
+  >()
 
   constructor(
     private readonly deps: Dependencies & {
@@ -134,6 +180,7 @@ export class Terminals {
       } else {
         throw invalid('A shell here is in a container or on a node')
       }
+      this.#audited.set(id, { request: r })
       if (this.deps.isReadOnly(r.context)) {
         throw new KubeRequestError(
           'read-only',
@@ -160,8 +207,61 @@ export class Terminals {
       }
       return { ok: true, data: null }
     } catch (error) {
-      return { ok: false, error: toKubeError(error) }
+      const failure = { ok: false as const, error: toKubeError(error) }
+      // Recorded once it's one at all (a shell, somewhere).
+      const audited = typeof id === 'string' ? this.#audited.get(id) : undefined
+      if (audited && audited.since === undefined) {
+        this.#audited.delete(id as string)
+        this.#record(audited, 'open', outcomeOf(failure))
+      }
+      return failure
     }
+  }
+
+  #record(
+    {
+      request,
+      since,
+      pod,
+    }: { request: ContainerShellRequest | NodeShellRequest; since?: number; pod?: string },
+    stage: 'open' | 'close',
+    outcome: ReturnType<typeof outcomeOf>,
+    exit?: ShellExit,
+  ) {
+    const { what, ...where } = shellRecord(request)
+    const ran = since === undefined ? '' : `, after ${took(Date.now() - since)}`
+    this.deps.audit.record({
+      action: `${request.target === 'node' ? 'node-shell' : 'shell'}.${stage}`,
+      ...outcome,
+      ...where,
+      summary:
+        stage === 'open'
+          ? `${outcome.outcome === 'success' ? 'Opened' : 'Open'} ${what}`
+          : `Closed ${what}${ran}${exit?.code !== undefined ? `: it exited with ${exit.code}` : ''}`,
+      details: {
+        ...(request.target === 'node' ? { mode: request.mode } : { container: request.container }),
+        ...(pod ? { pod } : {}),
+        ...(stage === 'close' && since !== undefined
+          ? { seconds: Math.round((Date.now() - since) / 1000) }
+          : {}),
+        ...(exit?.message ? { exit: exit.message } : {}),
+        ...(exit?.left ? { left: exit.left } : {}),
+      },
+    })
+  }
+
+  /** A shell's connection is open: it's recorded as opened. */
+  #began(id: string) {
+    const audited = this.#audited.get(id)!
+    audited.since = Date.now()
+    this.#record(audited, 'open', { outcome: 'success' })
+  }
+
+  /** A shell ended (however it did): it's recorded as closed. */
+  #ended(id: string, exit: ShellExit) {
+    const audited = this.#audited.get(id)!
+    this.#audited.delete(id)
+    this.#record(audited, 'close', { outcome: 'success' }, exit)
   }
 
   /**
@@ -178,6 +278,7 @@ export class Terminals {
     const { timeoutMs } = this.deps
     say(`Starting a pod on ${r.node} from ${setting.image}, in ${setting.namespace}…`)
     const name = await createNodeShell(kc, r.node, setting, timeoutMs)
+    this.#audited.get(id)!.pod = `${setting.namespace}/${name}`
     const remove = () => deleteNodeShell(kc, setting.namespace, name, timeoutMs)
     const started = await waitForNodeShell(
       kc,
@@ -197,6 +298,13 @@ export class Terminals {
     })
     if (!started) {
       await remove()
+      // Closed before its pod started: nothing ran, but a pod was made (and deleted).
+      const audited = this.#audited.get(id)!
+      this.#audited.delete(id)
+      this.#record(audited, 'open', {
+        outcome: 'cancelled',
+        error: 'It was closed before its pod started.',
+      })
       return
     }
     say(
@@ -241,7 +349,11 @@ export class Terminals {
       ended = true
       this.#sessions.delete(id)
       // Said once it's cleaned up (a node shell's pod deleted), or said that it couldn't be.
-      void clean().then((left) => this.emit.exit(id, left ? { ...exit, left } : exit))
+      void clean().then((left) => {
+        const ended = left ? { ...exit, left } : exit
+        this.#ended(id, ended)
+        this.emit.exit(id, ended)
+      })
     }
     const socket = await new Exec(kc)
       .exec(
@@ -259,6 +371,7 @@ export class Terminals {
         void clean()
         throw error
       })
+    this.#began(id)
     socket.on('close', () => end({ message: 'The connection to the container closed.' }))
     const close = () => {
       socket.close()
@@ -300,7 +413,23 @@ export class Terminals {
 interface Forward extends PortForward {
   server: net.Server
   sockets: Set<net.Socket>
+  /** When it started, for the audit log. */
+  since: number
 }
+
+/** A forward, as the audit log has it. */
+const forwardRecord = (r: PortForwardRequest, localPort?: number) => ({
+  cluster: r.context,
+  target: { kind: r.kind, name: r.name, namespace: r.namespace },
+  what: `port ${localPort ?? r.localPort ?? '(any)'} on this computer to ${r.kind} ${r.name}:${r.port}`,
+  command: kubectl(
+    r.context,
+    r.namespace,
+    'port-forward',
+    `${r.kind.toLowerCase()}/${r.name}`,
+    `${localPort ?? r.localPort ?? ''}:${r.port}`,
+  ),
+})
 
 /** Local ports forwarded to pods (`kubectl port-forward`), until stopped or the app quits. */
 export class Forwards {
@@ -313,11 +442,12 @@ export class Forwards {
 
   list(): PortForward[] {
     return [...this.#forwards.values()].map(
-      ({ server: _server, sockets: _sockets, ...forward }) => forward,
+      ({ server: _server, sockets: _sockets, since: _since, ...forward }) => forward,
     )
   }
 
   async start(request: unknown): Promise<Result<PortForward>> {
+    let asked: PortForwardRequest | undefined
     try {
       const r = assertQuery<PortForwardRequest>(request)
       assertString(r.context, 'context')
@@ -326,6 +456,7 @@ export class Forwards {
       assertString(r.name, 'name')
       assertIntegerInRange(r.port, 'port', 1, 65_535)
       if (r.localPort !== undefined) assertIntegerInRange(r.localPort, 'localPort', 1, 65_535)
+      asked = r
       const kc = this.deps.store.forContext(r.context)
       await this.deps.envReady
       await prepare(kc)
@@ -354,13 +485,32 @@ export class Forwards {
         connections: 0,
         server,
         sockets: new Set(),
+        since: Date.now(),
       }
       server.on('connection', (socket) => void this.#connect(kc, forward, socket))
       this.#forwards.set(forward.id, forward)
       this.#notify()
+      const { what, ...where } = forwardRecord(r, forward.localPort)
+      this.deps.audit.record({
+        action: 'port-forward.open',
+        outcome: 'success',
+        ...where,
+        summary: `Forwarded ${what}`,
+        details: { pod, podPort, localPort: forward.localPort },
+      })
       return { ok: true, data: this.list().find((f) => f.id === forward.id)! }
     } catch (error) {
-      return { ok: false, error: toKubeError(error) }
+      const failure = { ok: false as const, error: toKubeError(error) }
+      if (asked) {
+        const { what, ...where } = forwardRecord(asked)
+        this.deps.audit.record({
+          action: 'port-forward.open',
+          ...outcomeOf(failure),
+          ...where,
+          summary: `Forward ${what}`,
+        })
+      }
+      return failure
     }
   }
 
@@ -371,6 +521,15 @@ export class Forwards {
     for (const socket of forward.sockets) socket.destroy()
     forward.server.close()
     this.#notify()
+    const { what, ...where } = forwardRecord(forward, forward.localPort)
+    const ms = Date.now() - forward.since
+    this.deps.audit.record({
+      action: 'port-forward.close',
+      outcome: 'success',
+      ...where,
+      summary: `Stopped forwarding ${what}, after ${took(ms)}`,
+      details: { seconds: Math.round(ms / 1000), localPort: forward.localPort },
+    })
   }
 
   stopAll(): void {

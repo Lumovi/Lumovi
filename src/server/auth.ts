@@ -7,7 +7,10 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Session, SessionUser, SignIn, SignInProblem } from '@shared/server'
 import { kubeRequest } from '@backend/kube/client'
+import type { AuditOutcome } from '@shared/audit'
+import type { AuditLog } from '@backend/audit/log'
 import { toKubeError } from '@backend/kube/errors'
+import { origin, personActor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { cookie, cookies, readJson, redirect, sameOrigin, secure, sendJson } from './http'
@@ -40,8 +43,29 @@ export class Auth {
     private readonly config: ServerConfig,
     private readonly hosted: Hosted,
     private readonly sessions: Sessions,
+    private readonly audit: AuditLog,
     private readonly oidc?: OidcClient,
   ) {}
+
+  /** A sign-in (or out), as it came out: who (when it's known), from where, how. */
+  #record(
+    req: IncomingMessage,
+    outcome: AuditOutcome,
+    summary: string,
+    { user, session, error }: { user?: SessionUser; session?: string; error?: string },
+  ) {
+    const how = this.config.auth.mode === 'oidc' ? this.config.auth.provider : 'a token'
+    this.audit.record({
+      action: summary.startsWith('Signed out') ? 'session.sign-out' : 'session.sign-in',
+      outcome,
+      actor: user
+        ? personActor(user, req, session)
+        : { user: '(unknown)', via: 'ui', ...origin(req) },
+      summary,
+      details: { method: this.config.auth.mode, with: how },
+      ...(error ? { error } : {}),
+    })
+  }
 
   identify(req: IncomingMessage): Caller {
     const { auth } = this.config
@@ -90,13 +114,16 @@ export class Auth {
       user = await this.#review(token)
     } catch (error) {
       const { code, message } = toKubeError(error)
-      sendJson(res, 401, {
-        error: code === 'unauthorized' ? 'The cluster doesn’t accept this token.' : message,
+      const said = code === 'unauthorized' ? 'The cluster doesn’t accept this token.' : message
+      this.#record(req, code === 'unauthorized' ? 'refused' : 'failure', 'Sign in with a token', {
+        error: said,
       })
+      sendJson(res, 401, { error: said })
       return
     }
     const session = this.sessions.create({ user, token })
     log(`${user.name} signed in with a token`)
+    this.#record(req, 'success', 'Signed in with a token', { user, session: session.id })
     sendJson(res, 200, this.#session(user), { 'Set-Cookie': this.#sessionCookie(req, session.id) })
   }
 
@@ -109,7 +136,11 @@ export class Auth {
     const caller = this.identify(req)
     if (caller && 'session' in caller) {
       log(`${caller.identity.user.name} signed out`)
-      this.sessions.end(caller.session!, 'signed-out')
+      this.#record(req, 'success', 'Signed out', {
+        user: caller.identity.user,
+        session: caller.session,
+      })
+      this.sessions.end(caller.session!, 'signed-out', 'They signed out.')
     }
     res.writeHead(204, { 'Set-Cookie': this.#sessionCookie(req, '', 0) })
     res.end()
@@ -123,6 +154,7 @@ export class Auth {
       // Only somewhere in the app: never another site.
       started = await this.oidc!.start(/^\/(?![/\\])/.test(then) ? then : '/')
     } catch (error) {
+      this.#record(req, 'failure', this.#signInWith(), { error: (error as Error).message })
       this.#problem(res, 'failed', error)
       return
     }
@@ -151,6 +183,7 @@ export class Auth {
     }
     const refusal = url.searchParams.get('error')
     if (refusal) {
+      this.#record(req, 'refused', this.#signInWith(), { error: `The provider said ${refusal}.` })
       this.#problem(res, 'denied', new Error(`The provider said ${refusal}`))
       return
     }
@@ -158,12 +191,14 @@ export class Auth {
     try {
       signedIn = await this.oidc!.finish(url.searchParams.get('code') ?? '', pending)
     } catch (error) {
+      this.#record(req, 'failure', this.#signInWith(), { error: (error as Error).message })
       this.#problem(res, 'failed', error)
       return
     }
     const { user, token } = signedIn
     const refused = this.hosted.refuses(user)
     if (refused) {
+      this.#record(req, 'refused', this.#signInWith(), { user, error: refused })
       this.#problem(res, 'refused', new Error(refused))
       return
     }
@@ -171,6 +206,15 @@ export class Auth {
     const session = this.sessions.create({ user, token })
     this.#keepFresh(session, signedIn)
     log(`${user.name} signed in`)
+    this.#record(
+      req,
+      'success',
+      `Signed in with ${(this.config.auth as { provider: string }).provider}`,
+      {
+        user,
+        session: session.id,
+      },
+    )
     redirect(res, `${this.config.basePath}${pending.then.slice(1)}`, {
       'Set-Cookie': [
         this.#sessionCookie(req, session.id),
@@ -196,11 +240,18 @@ export class Auth {
         this.#keepFresh(session, { ...next, refreshToken: next.refreshToken ?? refreshToken })
       } catch (error) {
         log(`Renewing ${session.identity.user.name}’s token failed: ${(error as Error).message}`)
-        this.sessions.end(session.id, 'expired')
+        this.sessions.end(
+          session.id,
+          'expired',
+          `Renewing its token failed: ${(error as Error).message}`,
+        )
       }
     }
     setTimeout(() => void renew(), Math.max(0, expires! - Date.now() - RENEW_EARLY_MS)).unref()
   }
+
+  /** What a sign-in with the provider is, before it's known whose it is. */
+  #signInWith = () => `Sign in with ${(this.config.auth as { provider: string }).provider}`
 
   /** Back to the sign-in page, which says what went wrong; the details go to the log. */
   #problem(res: ServerResponse, problem: SignInProblem, error?: unknown): void {

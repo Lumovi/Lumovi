@@ -14,9 +14,14 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { IPC } from '@shared/api'
 import type { AiPermissionsView } from '@shared/ai-permissions'
 import type { ProposalOutcome, ServerAssistantsStatus } from '@shared/assistants'
+import type { AuditActor } from '@shared/audit'
+import { describePermissions } from '@backend/audit/describe'
+import type { AuditLog } from '@backend/audit/log'
+import { recorder } from '@backend/audit/recorder'
 import { checkedDecision } from '@backend/mcp/approvals'
 import { assistantName, createMcpServer } from '@backend/mcp/server'
 import { KubeService } from '@backend/kube/service'
+import { origin, sessionTag } from '../audit'
 import type { Hosted, Identity } from '../cluster'
 import type { ServerConfig } from '../config'
 import { readJson, sameOrigin, secure, sendJson } from '../http'
@@ -90,9 +95,11 @@ export class ServerAssistants {
       readOnly: boolean
       /** What each person lets their assistants do (none while assistants are off). */
       permissions?: PermissionsStore
+      audit: AuditLog
     },
   ) {
     this.#grants = new Grants({
+      audit: deps.audit,
       sessions: deps.sessions,
       sessionHours: deps.config.sessionHours,
       redirectHosts: deps.config.assistants.redirectHosts,
@@ -222,6 +229,8 @@ export class ServerAssistants {
   page(
     identity: Identity,
     req: IncomingMessage,
+    /** Who the page's person is to the audit log, and where from. */
+    actor: AuditActor,
     emit: (channel: string, ...args: unknown[]) => void,
   ) {
     const person = identity.user.name
@@ -257,6 +266,7 @@ export class ServerAssistants {
           this.#permissions(person)
           await this.deps.permissions!.set(person, given)
           const view = this.#permissions(person)
+          this.deps.audit.record({ ...describePermissions(view.mine), actor })
           this.#people.tell(person, IPC.aiPermissionsChanged, view)
           return view
         },
@@ -297,13 +307,18 @@ export class ServerAssistants {
       if (req.method !== 'POST' || !isInitializeRequest(body)) {
         return this.#refuse(res, 400, 'Start a session first (initialize).')
       }
-      session = await this.#open(grant, identity, this.endpoints(req))
+      session = await this.#open(grant, identity, this.endpoints(req), req)
     }
     session.lastSeen = Date.now()
     await session.transport.handleRequest(req, res, body)
   }
 
-  async #open(grant: Grant, identity: Identity, endpoints: Endpoints): Promise<Session> {
+  async #open(
+    grant: Grant,
+    identity: Identity,
+    endpoints: Endpoints,
+    req: IncomingMessage,
+  ): Promise<Session> {
     const { hosted, readOnly, version } = this.deps
     const person = grant.person
     let kube = this.#kube.get(grant.id)
@@ -341,6 +356,15 @@ export class ServerAssistants {
         )
       },
       appUrl: endpoints.issuer,
+      // As the person, through this assistant (named as it is when it's recorded), from where.
+      audit: recorder(this.deps.audit, () => ({
+        user: person,
+        ...(identity.user.groups.length ? { groups: identity.user.groups } : {}),
+        via: 'assistant',
+        assistant: grant.name,
+        session: sessionTag(grant.id),
+        ...origin(req),
+      })),
     })
     const session: Session = {
       server,

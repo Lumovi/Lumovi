@@ -14,6 +14,7 @@ import {
   Monitor,
   Moon,
   Scale,
+  ScrollText,
   Server,
   Settings2,
   ShipWheel,
@@ -341,6 +342,13 @@ function Palette({ onDone }: { onDone: () => void }) {
               AI assistants…
             </Item>
           )}
+          <Item
+            icon={<ScrollText />}
+            value="Audit log history who changed what activity events security"
+            onSelect={run(() => go('/audit'))}
+          >
+            Audit log
+          </Item>
           <Item
             icon={<Keyboard />}
             value="Keyboard shortcuts"

@@ -21,14 +21,17 @@ export class Sessions {
 
   constructor(
     private readonly hours: number,
-    /** Called with each session that ends, so its pages can be told. */
-    private readonly ended: (id: string, how: SessionEnd) => void,
+    /** Called with each session that ends (and why, when it expired early), so its pages can be told. */
+    private readonly ended: (session: StoredSession, how: SessionEnd, why: string) => void,
   ) {}
 
   create(identity: Identity): StoredSession {
     const id = randomBytes(32).toString('base64url')
     const lifetime = this.hours * 3_600_000
-    const timer = setTimeout(() => this.end(id, 'expired'), lifetime).unref()
+    const timer = setTimeout(
+      () => this.end(id, 'expired', `It lasted the ${this.hours} hours sessions do.`),
+      lifetime,
+    ).unref()
     const session = { id, identity, expires: Date.now() + lifetime }
     this.#sessions.set(id, { ...session, timer })
     return session
@@ -38,11 +41,12 @@ export class Sessions {
     return id === undefined ? undefined : this.#sessions.get(id)
   }
 
-  end(id: string, how: SessionEnd): void {
+  end(id: string, how: SessionEnd, why: string): void {
     const session = this.#sessions.get(id)
     if (!session) return
     clearTimeout(session.timer)
     this.#sessions.delete(id)
-    this.ended(id, how)
+    const { timer: _timer, ...ended } = session
+    this.ended(ended, how, why)
   }
 }

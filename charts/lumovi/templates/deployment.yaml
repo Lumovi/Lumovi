@@ -7,6 +7,9 @@
 {{- if and .Values.assistants.enabled (gt (int .Values.replicaCount) 1) }}
 {{- fail "AI assistants need a single replica (replicaCount 1): what they're allowed lives in its memory, and their requests carry no cookies to stick to one. Set assistants.enabled false to run more" }}
 {{- end }}
+{{- if and .Values.audit.persistence.enabled (gt (int .Values.replicaCount) 1) }}
+{{- fail "The audit history on its volume needs a single replica (replicaCount 1): it's one chain, kept by one replica. Set audit.persistence.enabled false to run more (their events still go to their output and the webhook)" }}
+{{- end }}
 {{- if and $fleet (eq .Values.auth.mode "token") }}
 {{- fail "A fleet needs single sign-on or a proxy (auth.mode oidc or proxy): a pasted token only says who someone is to one cluster" }}
 {{- end }}
@@ -18,6 +21,11 @@ metadata:
     {{- include "lumovi.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if .Values.audit.persistence.enabled }}
+  # One writes the audit history at a time: the old pod stops before the new one starts.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "lumovi.selectorLabels" . | nindent 6 }}
@@ -139,6 +147,35 @@ spec:
             - name: LUMOVI_ASSISTANT_REDIRECT_HOSTS
               value: {{ join "," . | quote }}
             {{- end }}
+            - name: LUMOVI_AUDIT_LEVEL
+              value: {{ .Values.audit.level | quote }}
+            {{- with .Values.audit.auditors }}
+            - name: LUMOVI_AUDITORS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            - name: LUMOVI_AUDIT_STDOUT
+              value: {{ .Values.audit.stdout | quote }}
+            {{- if .Values.audit.persistence.enabled }}
+            - name: LUMOVI_AUDIT_DIR
+              value: /var/lib/lumovi/audit
+            {{- end }}
+            - name: LUMOVI_AUDIT_RETENTION_DAYS
+              value: {{ .Values.audit.retentionDays | quote }}
+            {{- with .Values.audit.webhook }}
+            {{- if .url }}
+            - name: LUMOVI_AUDIT_WEBHOOK_URL
+              value: {{ .url | quote }}
+            - name: LUMOVI_AUDIT_WEBHOOK_FORMAT
+              value: {{ .format | quote }}
+            {{- with .headersSecret }}
+            - name: LUMOVI_AUDIT_WEBHOOK_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: headers.yaml
+            {{- end }}
+            {{- end }}
+            {{- end }}
             - name: LUMOVI_METRICS_SOURCE
               value: {{ .Values.metrics.source | quote }}
             - name: LUMOVI_ALLOW_PRIVATE_CHARTS
@@ -217,6 +254,10 @@ spec:
               mountPath: /etc/lumovi/fleet
               readOnly: true
             {{- end }}
+            {{- if .Values.audit.persistence.enabled }}
+            - name: audit
+              mountPath: /var/lib/lumovi/audit
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -224,6 +265,11 @@ spec:
         - name: views
           configMap:
             name: {{ include "lumovi.fullname" . }}-views
+        {{- end }}
+        {{- if .Values.audit.persistence.enabled }}
+        - name: audit
+          persistentVolumeClaim:
+            claimName: {{ .Values.audit.persistence.existingClaim | default (printf "%s-audit" (include "lumovi.fullname" .)) }}
         {{- end }}
         {{- if and $fleet .Values.fleet.kubeconfigSecret }}
         - name: fleet

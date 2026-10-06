@@ -183,14 +183,51 @@ serviceAccount:
   name: ''
   annotations: {}
 
+# The audit log: what was done through Lumovi (changes, shells, port-forwards, logs and
+# Secrets read, sign-ins, what AI assistants do and how their changes were approved), by whom,
+# from where, and how it went. Events are chained (each holds the hash of the one before it),
+# so a change to the history shows. See https://docs.lumovi.dev/server/audit-log.
+audit:
+  # changes: changes, sign-ins and settings. access: those, and what's opened and read too
+  # (shells, port-forwards, logs, Secrets' values, and each tool an AI assistant calls).
+  level: access
+  # Who sees everyone's events on the Audit page (everyone else sees their own): groups, as
+  # the sign-in names them, and people as user:<name>. Say [platform-admins, user:ana@example.com].
+  auditors: []
+  # Each event as a JSON line on Lumovi's output (with "type":"lumovi.audit"), for whatever
+  # collects the cluster's logs: Fluent Bit, Vector, the Datadog or Splunk agent…
+  stdout: true
+  # The history the Audit page searches, on a volume that uninstalling keeps. Off, it's in
+  # memory: what happened since Lumovi started. It's one chain, kept by one replica: with it
+  # on, upgrades stop the old pod before the new one starts.
+  persistence:
+    enabled: true
+    size: 2Gi
+    # The cluster's default storage class unless set (a cluster without one needs it set).
+    storageClass: ''
+    # A claim of your own, instead of the chart's.
+    existingClaim: ''
+  # How long the history keeps events, in days (the log collector or webhook keeps its own).
+  retentionDays: 90
+  # Each event sent to a webhook as well (a SIEM, Vector, Logstash, Cribl…), in batches, tried
+  # again until it takes them.
+  webhook:
+    url: ''
+    # json: an array of events a request; ndjson: a JSON line each.
+    format: json
+    # A Secret of yours with the headers to send, as YAML under headers.yaml:
+    #   Authorization: Bearer …
+    headersSecret: ''
+
 rbac:
   # With oidc or proxy, Lumovi's service account may impersonate users and groups:
   # whoever can reach Lumovi's pod can act as anyone. Keep it in a namespace only cluster
   # admins can exec into, and use auth.usernamePrefix and auth.groupsPrefix.
   create: true
 
-# Sessions live in each replica's memory: more than one needs sticky sessions, and AI
-# assistants off (their requests carry no cookies to stick to one replica).
+# Sessions live in each replica's memory: more than one needs sticky sessions, AI assistants
+# off (their requests carry no cookies to stick to one replica), and the audit history off its
+# volume (audit.persistence.enabled false: it's one chain, kept by one replica).
 replicaCount: 1
 
 service:
