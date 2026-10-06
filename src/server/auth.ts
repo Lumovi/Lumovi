@@ -10,7 +10,7 @@ import { kubeRequest } from '@backend/kube/client'
 import type { AuditOutcome } from '@shared/audit'
 import type { AuditLog } from '@backend/audit/log'
 import { toKubeError } from '@backend/kube/errors'
-import { origin, personActor } from './audit'
+import { origin, personActor, SERVER_ACTOR } from './audit'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { cookie, cookies, readJson, redirect, sameOrigin, secure, sendJson } from './http'
@@ -35,17 +35,49 @@ const REVIEWS = '/apis/authentication.k8s.io/v1/selfsubjectreviews'
 /** How long before a passed-on token expires it's renewed. */
 const RENEW_EARLY_MS = 60_000
 
+/**
+ * Sign-ins that didn't succeed are recorded each, this many a minute at most: past that (anyone
+ * can try, as often as they like) they're counted, and said once a minute (envs for tests).
+ */
+const FAILED_RECORDED = Number(process.env.LUMOVI_SIGN_IN_RECORDED) || 60
+const FAILED_WINDOW_MS = Number(process.env.LUMOVI_SIGN_IN_WINDOW_MS) || 60_000
+
 /** Who a request is from: someone, someone the server won't act as, or nobody. */
 export type Caller = { identity: Identity; session?: string } | { refused: true } | undefined
 
 export class Auth {
+  /** Failed sign-ins this minute: recorded, and past those, only counted (with where from). */
+  #failed = 0
+  #unrecorded: string[] = []
+  /** The ways back from the provider already taken (a sign-in's state, until it'd expire). */
+  readonly #finished = new Map<string, number>()
+
   constructor(
     private readonly config: ServerConfig,
     private readonly hosted: Hosted,
     private readonly sessions: Sessions,
     private readonly audit: AuditLog,
     private readonly oidc?: OidcClient,
-  ) {}
+  ) {
+    setInterval(() => this.#sayUnrecorded(), FAILED_WINDOW_MS).unref()
+  }
+
+  /** The failed sign-ins only counted this minute, said as one event; and a new minute begun. */
+  #sayUnrecorded() {
+    const from = [...new Set(this.#unrecorded)]
+    if (from.length) {
+      const count = this.#unrecorded.length
+      this.audit.record({
+        action: 'session.sign-in',
+        outcome: 'refused',
+        actor: SERVER_ACTOR,
+        summary: `${count.toLocaleString('en')} more ${count === 1 ? 'sign-in' : 'sign-ins'} didn’t succeed, each not recorded: more than ${FAILED_RECORDED} were tried in a minute`,
+        details: { count, from: from.slice(0, 20) },
+      })
+    }
+    this.#failed = 0
+    this.#unrecorded = []
+  }
 
   /** A sign-in (or out), as it came out: who (when it's known), from where, how. */
   #record(
@@ -54,6 +86,10 @@ export class Auth {
     summary: string,
     { user, session, error }: { user?: SessionUser; session?: string; error?: string },
   ) {
+    if (outcome !== 'success' && ++this.#failed > FAILED_RECORDED) {
+      this.#unrecorded.push(String(req.socket.remoteAddress))
+      return
+    }
     const how = this.config.auth.mode === 'oidc' ? this.config.auth.provider : 'a token'
     this.audit.record({
       action: summary.startsWith('Signed out') ? 'session.sign-out' : 'session.sign-in',
@@ -177,12 +213,16 @@ export class Auth {
     const pending =
       same(signed, signature(body)) &&
       (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as PendingSignIn)
-    if (!pending || pending.state !== url.searchParams.get('state')) {
+    if (!pending || pending.state !== url.searchParams.get('state') || this.#taken(pending)) {
       this.#problem(res, 'expired')
       return
     }
-    const refusal = url.searchParams.get('error')
-    if (refusal) {
+    // As the provider said it (an error code), kept short and plain: anyone can make it say more.
+    const refusal = url.searchParams
+      .get('error')
+      ?.replace(/[^\x20-\x7e]/g, '')
+      .slice(0, 100)
+    if (refusal !== undefined) {
       this.#record(req, 'refused', this.#signInWith(), { error: `The provider said ${refusal}.` })
       this.#problem(res, 'denied', new Error(`The provider said ${refusal}`))
       return
@@ -254,6 +294,18 @@ export class Auth {
   #signInWith = () => `Sign in with ${(this.config.auth as { provider: string }).provider}`
 
   /** Back to the sign-in page, which says what went wrong; the details go to the log. */
+  /**
+   * Whether a way back from the provider was taken already: each is taken once (its cookie
+   * would let it be taken again, and again, recorded each time).
+   */
+  #taken(pending: PendingSignIn): boolean {
+    const now = Date.now()
+    for (const [state, expires] of this.#finished) if (expires < now) this.#finished.delete(state)
+    if (this.#finished.has(pending.state)) return true
+    this.#finished.set(pending.state, now + SIGN_IN_MINUTES * 60_000)
+    return false
+  }
+
   #problem(res: ServerResponse, problem: SignInProblem, error?: unknown): void {
     if (error) log(`Signing in failed: ${(error as Error).message}`)
     redirect(res, `${this.config.basePath}?sign-in=${problem}`)

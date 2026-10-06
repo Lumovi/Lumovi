@@ -876,7 +876,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   )
   await row(page, /Installed nginx 1.2.3 as web/).click()
   await expect(event.getByRole('region', { name: 'Who' })).toContainText(
-    'From127.0.0.1forwarded for 203.0.113.7',
+    'From127.0.0.1which says it’s forwarding for 203.0.113.7',
   )
   await expect(event.getByRole('region', { name: 'Details' })).toContainText('valuesnone')
   await expect(event.getByRole('link', { name: 'Open in Lumovi' })).toHaveAttribute(
