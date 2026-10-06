@@ -24,7 +24,8 @@ export const SESSION_COOKIE = 'lumovi-session'
  * its state, PKCE verifier and nonce, signed so it can't be changed.
  */
 const SIGN_IN_COOKIE = 'lumovi-sign-in'
-const SIGN_IN_MINUTES = 10
+/** How long a sign-in with the provider may take (an env for tests). */
+const SIGN_IN_MINUTES = Number(process.env.LUMOVI_SIGN_IN_MINUTES) || 10
 /** Signs sign-ins in progress; they don't outlive the server. */
 const KEY = randomBytes(32)
 const signature = (body: string) => createHmac('sha256', KEY).update(body).digest('base64url')
