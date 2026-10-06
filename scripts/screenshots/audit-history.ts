@@ -244,10 +244,11 @@ function hashOf(event: Omit<AuditEvent, 'hash'>): string {
 }
 
 /** A folder holding the day's history, for LUMOVI_AUDIT_DIR. */
-export function auditHistory(day: string): string {
+export function auditHistory(day: string, more: [string, AuditInput][] = []): string {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-audit-'))
   let prev = ''
-  const lines = DAY.map(([time, input], i) => {
+  const events = more.length ? [...DAY, ...more].sort(([a], [b]) => a.localeCompare(b)) : DAY
+  const lines = events.map(([time, input], i) => {
     const unhashed = {
       type: 'lumovi.audit' as const,
       version: 1 as const,

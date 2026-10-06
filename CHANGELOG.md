@@ -43,6 +43,35 @@ All notable changes to Lumovi are documented here. The format follows
   kubeconfig user.
 - Helm chart: `audit` values: the level, auditors, the output, a volume for the history
   (`audit.persistence`, kept when the chart's uninstalled), how long it's kept, and a webhook.
+- Access, on a server: who may do what through Lumovi, within what Kubernetes RBAC allows (never
+  more). What everyone signed in gets; Lumovi's own groups (the identity provider's groups, so
+  people who join or leave there do here, and people by name); profiles, each a level of
+  changes, shells, node shells, logs, Secrets (hidden, keys only, values), Helm (upgrade, or
+  install), AI assistants (off, changes ask first, as set) and the audit log (one's own, or
+  everyone's); grants, which give groups a profile in some clusters and namespaces (by name,
+  pattern or label), the most of them where several apply; and limits, which hold anyone they
+  name back wherever they match, whatever grants give. The server decides: changes, shells,
+  node shells, logs, Secrets (values withheld, or hidden), Helm releases (their values and
+  manifests withheld where Secrets' are), and AI assistants (never more than their person may,
+  and none for someone who may use them nowhere) are refused, said why, and recorded as refused.
+- The Admin pages, for the admins `LUMOVI_ADMINS` names (groups, or `user:` names): groups, with
+  who's in each as they last signed in, and the provider's groups seen at sign-in in the last
+  30 days, to add and (Microsoft Entra ID's IDs) name; profiles side by side, with what shows
+  Secret values or runs code on nodes marked; grants and limits, each with who it names and how
+  far it reaches; someone checked anywhere, with which rule decides each; and every change,
+  from the audit log. Changes are made to a draft, read back, and saved together; saving after
+  someone else did is refused, not lost in theirs; leaving with something unsaved asks first.
+  Said where groups don't arrive at sign-in, and how to send them. Every change is recorded
+  (`access.changed`), with what it was before.
+- Your access, for everyone: what they may do, cluster by cluster, and why (their groups, the
+  grants that give them more, the limits that hold them back). Every refusal says why where it
+  happens (an action, a shell, logs, a Secret, a release) and links to it; it's in the account
+  menu and the command palette, with the Admin pages for admins (and in the sidebar).
+- What admins set is kept in a ConfigMap (the chart's), `LUMOVI_DATA_DIR`, or memory, and read
+  again every 15 seconds, so each replica follows. `LUMOVI_ACCESS` says what the chart does,
+  which admins see but can't change. With no admins, everyone may do all their RBAC allows, as
+  before.
+- Helm chart: `access.admins` and `access.policy`.
 
 ### Changed
 
@@ -52,6 +81,8 @@ All notable changes to Lumovi are documented here. The format follows
   upgrade stops the old pod before the new one starts (one writes the history at a time), and
   more than one replica needs `audit.persistence.enabled: false`.
 - CI runs each platform's tests on four machines at once, not two.
+- AI rules kept in `LUMOVI_DATA_DIR` by two replicas: one's change no longer writes over the
+  other's.
 
 ## [1.5.0] - 2026-10-06
 

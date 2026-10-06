@@ -5,6 +5,9 @@ import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
 import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
+import { AccessPage } from './features/access/AccessPage'
+import { AccessUpdates } from './features/access/use-access'
+import { YourAccessPage } from './features/access/YourAccessPage'
 import { AddOnPage } from './features/add-ons/AddOnPage'
 import { ApprovalCenter } from './features/assistants/ApprovalCenter'
 import { AssistantsPage } from './features/assistants/AssistantsPage'
@@ -58,6 +61,9 @@ const routes: RouteObject[] = [
       { path: '/assistants/:tab?', element: <AssistantsPage /> },
       // What was done through Lumovi, by whom, and how it went.
       { path: '/audit', element: <AuditPage /> },
+      // A server's: who may do what (its admins'), and what the person may (everyone's).
+      { path: '/access/:tab?', element: <AccessPage /> },
+      { path: '/your-access', element: <YourAccessPage /> },
       {
         path: '/cluster/:context',
         element: <ClusterLayout />,
@@ -110,6 +116,7 @@ export function App() {
       <TooltipProvider delayDuration={500} skipDelayDuration={200}>
         {api.host === 'server' ? (
           <SessionGate>
+            <AccessUpdates />
             <RouterProvider router={router} />
             {/* The signed-in person's: over the page's connection, which a session opens. */}
             {assistants}

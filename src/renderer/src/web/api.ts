@@ -173,6 +173,13 @@ export function createWebApi(): LumoviApi {
         }
       },
     },
+    access: {
+      mine: invoke(IPC.accessMine),
+      admin: invoke(IPC.accessAdmin),
+      set: invoke(IPC.accessSet),
+      history: invoke(IPC.accessHistory),
+      onChanged: listen(IPC.accessChanged),
+    },
     serverAssistants: {
       status: invoke(IPC.serverAssistantsStatus),
       revoke: invoke(IPC.serverAssistantsRevoke),

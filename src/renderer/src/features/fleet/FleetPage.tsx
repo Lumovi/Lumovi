@@ -41,6 +41,7 @@ import { HEALTH_RANK, statusOf } from '@renderer/lib/health'
 import { matchWords } from '@renderer/lib/match'
 import { clusterPath, formatRef, workloadsPath } from '@renderer/lib/routes'
 import { useSession } from '@renderer/state/session'
+import { AdminButton } from '../access/AdminButton'
 import { AccountMenu } from '../session/AccountMenu'
 import { ServerBanner } from '../session/ServerBanner'
 import { Commands } from '../shell/Commands'
@@ -137,6 +138,7 @@ export function FleetPage() {
         </Link>
         <ThemeMenu />
         {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}
+        <AdminButton />
         <AccountMenu session={session} />
         <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />

@@ -6,6 +6,7 @@
  * throwing, because errors that cross IPC or the network are flattened into
  * plain strings and we want the page to know *why* a request failed.
  */
+import type { AccessPolicy, AdminAccess, MyAccess } from './access'
 import type { AiPermissions, AiPermissionsView } from './ai-permissions'
 import type {
   AssistantClient,
@@ -182,6 +183,8 @@ export type KubeErrorCode =
   | 'conflict'
   | 'read-only'
   | 'helm'
+  /** Lumovi's admins don't let this person do it there (their access, not the cluster's RBAC). */
+  | 'not-allowed'
 
 export interface KubeError {
   code: KubeErrorCode
@@ -307,6 +310,11 @@ export interface HelmReleaseDetail extends HelmRelease {
   schema?: unknown
   /** Newest first. */
   revisions: HelmRevision[]
+  /**
+   * Why its values and manifests aren't shown (each revision's are empty): they can hold
+   * Secrets, and the person's access shows them only the keys of those here.
+   */
+  withheld?: string
 }
 
 /** Where a chart comes from, the way helm takes it. */
@@ -850,6 +858,18 @@ export interface LumoviApi {
     /** Each event the person may see, as it's recorded, until let go of. */
     onEvent(listener: (event: AuditEvent) => void): () => void
   }
+  /** A server's: who may do what through Lumovi. The person's own; all of it, for an admin. */
+  access?: {
+    mine(): Promise<MyAccess>
+    /** An admin's: all of it, and the version read (saving says it). */
+    admin(): Promise<AdminAccess>
+    /** An admin's: keeps it, checked, unless someone saved since `version` (a conflict). */
+    set(policy: AccessPolicy, version: string): Promise<Result<AdminAccess>>
+    /** An admin's: how access changed, the newest first, from the audit log. */
+    history(after?: string): Promise<AuditPage>
+    /** It changed (here, or on another page): ask again. */
+    onChanged(listener: () => void): () => void
+  }
   /** A server's MCP server: where assistants connect, and the person's. */
   serverAssistants?: {
     status(): Promise<ServerAssistantsStatus>
@@ -950,4 +970,9 @@ export const IPC = {
   /** Starts (true) or stops (false) telling the page of events as they're recorded. */
   auditWatch: 'audit:watch',
   auditEvent: 'audit:event',
+  accessMine: 'access:mine',
+  accessAdmin: 'access:admin',
+  accessSet: 'access:set',
+  accessHistory: 'access:history',
+  accessChanged: 'access:changed',
 } as const

@@ -17,6 +17,8 @@ import {
   ScrollText,
   Server,
   Settings2,
+  Shield,
+  ShieldCheck,
   ShipWheel,
   Sparkles,
   Sun,
@@ -54,6 +56,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { useSwitching } from '@renderer/state/session'
 import { useUi } from '@renderer/state/ui'
+import { useMyAccess } from '../access/use-access'
 import { useObjectActions, useRunAction } from '../actions/use-actions'
 import { useDock } from '../terminal/dock'
 import { TERMINAL_KEYS } from '../terminal/keys'
@@ -130,6 +133,7 @@ function Palette({ onDone }: { onDone: () => void }) {
     onDone()
   }
   const go = useGo()
+  const access = useMyAccess()
 
   return (
     <Command loop filter={matchWords}>
@@ -349,6 +353,25 @@ function Palette({ onDone }: { onDone: () => void }) {
           >
             Audit log
           </Item>
+          {access?.admin && (
+            <Item
+              icon={<Shield />}
+              value="Access admin who may do what groups profiles grants limits permissions roles"
+              hint={<span className="text-2xs text-ink-3">Admin</span>}
+              onSelect={run(() => go('/access'))}
+            >
+              Access
+            </Item>
+          )}
+          {access && (
+            <Item
+              icon={<ShieldCheck />}
+              value="Your access what may I do permissions why can’t I"
+              onSelect={run(() => go('/your-access'))}
+            >
+              Your access
+            </Item>
+          )}
           <Item
             icon={<Keyboard />}
             value="Keyboard shortcuts"

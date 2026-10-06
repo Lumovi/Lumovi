@@ -18,6 +18,7 @@ import type {
 import { outcomeOf } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
 import { kubectl } from '@shared/kubectl'
+import type { AccessGuard } from '@shared/access'
 import { authorize, kubeRequest, serverUrl } from './client'
 import { KubeRequestError, toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -35,6 +36,8 @@ interface Dependencies {
   isReadOnly: (context: string) => boolean
   /** The audit log, as the page's person records to it. */
   audit: Recorder
+  /** A server's: what its person may do (the desktop app has none). */
+  guard?: AccessGuard
 }
 
 const DURATION = new Intl.DurationFormat('en', { style: 'narrow', secondsDisplay: 'always' })
@@ -175,6 +178,11 @@ export class Terminals {
         throw invalid('A shell here is in a container or on a node')
       }
       this.#audited.set(id, { request: r })
+      if (r.target === 'node') {
+        await this.deps.guard?.require(r.context, 'nodeShells', 'on', undefined, 'open node shells')
+      } else {
+        await this.deps.guard?.require(r.context, 'shells', 'on', r.namespace, 'open shells')
+      }
       if (this.deps.isReadOnly(r.context)) {
         throw new KubeRequestError(
           'read-only',

@@ -165,20 +165,28 @@ interface Compiled {
   applies(target: AiTarget): Maybe
 }
 
-function compile(rule: AiRule, admin: boolean): Compiled {
-  const clusters = listTest(rule.clusters)
-  const namespaces = listTest(rule.namespaces)
-  const aboutNamespaces = rule.namespaces.length > 0
-  return {
-    rule,
-    admin,
-    applies: ({ cluster, namespace }) => {
-      const inCluster = clusters(cluster.name, cluster.labels ?? {})
-      if (!aboutNamespaces) return inCluster
-      if (!namespace) return false
-      return and(inCluster, namespaces(namespace.name, namespace.labels))
-    },
+/**
+ * Where a rule applies, as its clusters and namespaces say: true, false, or null (maybe: labels
+ * it names can't be read). One that names namespaces is about what's in them: never a cluster's
+ * own objects.
+ */
+export function whereTest(
+  clusterTexts: string[],
+  namespaceTexts: string[],
+): (target: AiTarget) => boolean | null {
+  const clusters = listTest(clusterTexts)
+  const namespaces = listTest(namespaceTexts)
+  const aboutNamespaces = namespaceTexts.length > 0
+  return ({ cluster, namespace }) => {
+    const inCluster = clusters(cluster.name, cluster.labels ?? {})
+    if (!aboutNamespaces) return inCluster
+    if (!namespace) return false
+    return and(inCluster, namespaces(namespace.name, namespace.labels))
   }
+}
+
+function compile(rule: AiRule, admin: boolean): Compiled {
+  return { rule, admin, applies: whereTest(rule.clusters, rule.namespaces) }
 }
 
 /** Whether a rule applies somewhere (null: maybe, its labels unknown). */
@@ -191,10 +199,12 @@ export type AiSource =
   /** The person's rules that say so (some may only possibly apply: their labels are unknown). */
   | { kind: 'rule'; names: string[] }
   | { kind: 'admin'; names: string[] }
+  /** The person's access on a server: their assistants never do more than they may. */
+  | { kind: 'access'; names: string[] }
 
 export type AiDecision = { [K in AiSetting]: { value: AiAccess[K]; from: AiSource } }
 
-const rank = <K extends AiSetting>(key: K, value: AiAccess[K]) =>
+export const aiRank = <K extends AiSetting>(key: K, value: AiAccess[K]) =>
   (AI_SETTINGS[key] as readonly string[]).indexOf(value)
 
 /**
@@ -218,7 +228,7 @@ export function decider(policy: AiPolicy): (target: AiTarget) => AiDecision {
       const strictest = (hits: typeof ownHits) =>
         hits.reduce(
           (top, { c }) =>
-            rank(key, c.rule.set[key] as never) > rank(key, top as never)
+            aiRank(key, c.rule.set[key] as never) > aiRank(key, top as never)
               ? (c.rule.set[key] as string)
               : top,
           (AI_SETTINGS[key] as readonly string[])[0]!,
@@ -229,7 +239,7 @@ export function decider(policy: AiPolicy): (target: AiTarget) => AiDecision {
       // unless a maybe is stricter.
       const candidates = sure.length ? [...sure, ...maybe] : maybe
       const top = strictest(candidates)
-      if (sure.length || rank(key, top as never) > rank(key, fallback as never)) {
+      if (sure.length || aiRank(key, top as never) > aiRank(key, fallback as never)) {
         value = top
         from = {
           kind: 'rule',
@@ -238,7 +248,7 @@ export function decider(policy: AiPolicy): (target: AiTarget) => AiDecision {
       }
       const limits = setting(adminHits)
       const limit = strictest(limits)
-      if (limits.length && rank(key, limit as never) > rank(key, value as never)) {
+      if (limits.length && aiRank(key, limit as never) > aiRank(key, value as never)) {
         value = limit
         from = {
           kind: 'admin',
@@ -256,7 +266,7 @@ export function stricter(a: AiDecision, b: AiDecision): AiDecision {
   return Object.fromEntries(
     AI_SETTING_KEYS.map((key) => [
       key,
-      rank(key, b[key].value as never) > rank(key, a[key].value as never) ? b[key] : a[key],
+      aiRank(key, b[key].value as never) > aiRank(key, a[key].value as never) ? b[key] : a[key],
     ]),
   ) as AiDecision
 }

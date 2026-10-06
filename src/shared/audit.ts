@@ -62,6 +62,7 @@ export const AUDIT_ACTIONS = {
   'permissions.changed': 'settings',
   'read-only.changed': 'settings',
   'assistants.changed': 'settings',
+  'access.changed': 'settings',
   // The server itself, and its audit log.
   'server.started': 'server',
   'server.stopped': 'server',

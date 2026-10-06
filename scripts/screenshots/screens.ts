@@ -19,8 +19,11 @@ export interface Screen {
   description: string
   /** The desktop app, or Lumovi served from a cluster (signed in as `server` says). */
   app: 'desktop' | 'server'
-  /** How people sign in; `audit`: behind a proxy, with a day of the audit log kept. */
-  server?: 'token' | 'sso' | 'proxy' | 'fleet' | 'audit'
+  /**
+   * How people sign in; `audit`: behind a proxy, with a day of the audit log kept; `access`:
+   * a fleet behind a proxy, whose admins set who may do what.
+   */
+  server?: 'token' | 'sso' | 'proxy' | 'fleet' | 'audit' | 'access'
   /** Where it starts: a path in the app. */
   path: string
   /** What to do there before the screenshot, if anything. */
@@ -394,6 +397,70 @@ export const SCREENS: Screen[] = [
       await page.getByRole('button', { name: 'Check integrity' }).click()
       await page.getByRole('status', { name: 'Integrity' }).waitFor()
     },
+  },
+  {
+    name: 'access',
+    title: 'Access, for admins',
+    description:
+      'Who may do what through Lumovi: Lumovi’s groups, each the identity provider’s groups and people by name, with who’s in them as they last signed in, and the provider’s groups seen at sign-in.',
+    app: 'server',
+    server: 'access',
+    path: '/access/groups',
+    async steps(page) {
+      await page.getByRole('button', { name: /^Developers/ }).click()
+      await page.getByRole('article', { name: 'Developers' }).getByText('In it now').waitFor()
+    },
+  },
+  {
+    name: 'access-profiles',
+    title: 'Access profiles',
+    description:
+      'Profiles side by side: what everyone signed in gets, and what developers, operators and auditors get where grants give it, with what shows Secret values or runs code on nodes marked.',
+    app: 'server',
+    server: 'access',
+    path: '/access/profiles',
+  },
+  {
+    name: 'access-rules',
+    title: 'Grants and limits',
+    description:
+      'Grants that give groups a profile in some clusters and namespaces, and limits that hold anyone back wherever they match: one open, with who it names and how far it reaches.',
+    app: 'server',
+    server: 'access',
+    path: '/access/rules',
+    async steps(page) {
+      await page.getByRole('button', { name: /^Production/ }).click()
+      await page
+        .getByRole('article', { name: 'Production' })
+        .getByText('people it holds back')
+        .waitFor()
+    },
+  },
+  {
+    name: 'access-check',
+    title: 'Check someone',
+    description:
+      'What someone may do in a namespace, and which grant or limit says so: Dan, an on-call developer, in the shop on production.',
+    app: 'server',
+    server: 'access',
+    path: '/access/check',
+    async steps(page) {
+      const who = page.getByRole('region', { name: 'Check someone' })
+      await who.getByRole('combobox', { name: 'Person' }).fill('dan')
+      await who.getByRole('combobox', { name: 'Person' }).press('Enter')
+      const where = page.getByRole('region', { name: 'Where' })
+      await where.getByRole('combobox', { name: 'Namespace' }).fill('shop')
+      await where.getByRole('combobox', { name: 'Namespace' }).press('Enter')
+    },
+  },
+  {
+    name: 'your-access',
+    title: 'Your access',
+    description:
+      'What Lumovi lets someone do, cluster by cluster, and why: their groups, the grants that give them more than everyone gets, and the limits that hold them back.',
+    app: 'server',
+    server: 'access',
+    path: '/your-access',
   },
   {
     name: 'assistant-approval',

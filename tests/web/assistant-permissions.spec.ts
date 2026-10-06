@@ -50,7 +50,7 @@ test('an administrator’s rules are limits nobody’s own loosen', async ({ pag
     env: { LUMOVI_ASSISTANT_RULES: RULES, LUMOVI_APPROVAL_SLICE_MS: '1000' },
   })
   expect(served.log()).toContain(
-    'AI rules are kept in memory: people’s are lost when Lumovi stops. Set LUMOVI_DATA_DIR, or install the Helm chart, to keep them.',
+    'People’s AI rules are kept in memory: they’re lost when Lumovi stops. Set LUMOVI_DATA_DIR, or install the Helm chart, to keep them.',
   )
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   // Before she allows it, what it may do, counted.
