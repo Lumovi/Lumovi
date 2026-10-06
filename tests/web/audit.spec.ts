@@ -1371,8 +1371,16 @@ test('a history read a piece at a time: lines too long, many breaks, pages resum
   // Where a page ended, written over meanwhile: read again from the file's end, and still right.
   const two = await query(page, { limit: 2, to: `${ago(1)}T23:59:59.000Z` })
   expect(two.events.map((e) => e.seq)).toEqual([3, 2])
-  // (Where the event was, a line that isn't one now.)
-  write(dayFile(dir, ago(2)), [long, early[0]!, 'x'.repeat(JSON.stringify(early[1]).length)])
+  // (Where the event was, a line that isn't one now; the event, after it.)
+  write(dayFile(dir, ago(2)), [
+    long,
+    early[0]!,
+    'x'.repeat(JSON.stringify(early[1]).length),
+    early[1]!,
+  ])
+  expect((await query(page, { after: two.next })).events.map((e) => e.seq)).toEqual([1])
+  // (Shorter than where it was.)
+  write(dayFile(dir, ago(2)), [early[0]!])
   expect((await query(page, { after: two.next })).events.map((e) => e.seq)).toEqual([1])
   await served.stop()
 
@@ -1389,6 +1397,22 @@ test('a history read a piece at a time: lines too long, many breaks, pages resum
     found = await query(page, { text: 'needle', after: found.next })
   }
   expect(found.events.map((e) => e.summary)).toEqual(['needle'])
+  await served.stop()
+
+  // A chain started again in the same history: a page at a time, by where each is, finds all.
+  const restarted = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  write(dayFile(restarted, ago(2)), chained(1, 3, ago(2)))
+  write(dayFile(restarted, ago(1)), chained(1, 2, ago(1)))
+  served = await serve({ env: env(restarted) })
+  await page.goto(`${served.url}audit`)
+  const paged: number[] = []
+  for (let after: string | undefined, pages = 0; pages < 20; pages++) {
+    const one: { events: AuditEvent[]; next?: string } = await query(page, { limit: 1, after })
+    paged.push(...one.events.map((e) => e.seq))
+    if (!one.next) break
+    after = one.next
+  }
+  expect(paged.slice(-5)).toEqual([2, 1, 3, 2, 1])
   await served.stop()
 
   // The clock set back a day: the newest day's file goes on, in the chain's order.
