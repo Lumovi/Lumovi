@@ -10,7 +10,7 @@ import { ServerAccess } from './access'
 import { ServerAssistants } from './assistants/assistants'
 import { PermissionsStore } from './assistants/permissions'
 import { Auth } from './auth'
-import { isAuditor, openAudit, personActor, SERVER_ACTOR, sessionActor } from './audit'
+import { auditorsOf, isAuditor, openAudit, personActor, SERVER_ACTOR, sessionActor } from './audit'
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
 import { PageConnection } from './connection'
@@ -50,7 +50,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const connections = new Set<PageConnection>()
   const audit = openAudit(config.audit)
   // Who may do what: what the chart says, and what admins set on the Access page.
-  const access = await ServerAccess.open(config.access, config.auth, options.env, audit)
+  const access = await ServerAccess.open(
+    config.access,
+    config.auth,
+    options.env,
+    audit,
+    auditorsOf(config.audit),
+  )
   // What each person lets their AI assistants do: kept where the administrator says.
   const permissions = config.assistants.enabled
     ? await PermissionsStore.open(config.assistants.keep, options.env)
@@ -266,10 +272,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       kept: info.kept,
       ...(info.retentionDays ? { retentionDays: info.retentionDays } : {}),
       sinks: info.sinks.map((sink) => sink.name),
-      auditors: [
-        ...config.audit.auditors.groups,
-        ...config.audit.auditors.users.map((user) => `user:${user}`),
-      ],
+      auditors: auditorsOf(config.audit),
     },
   })
   return {

@@ -199,6 +199,14 @@ export type AccessDecision = {
 /** Whether a name is someone's: whatever its case (an email's is anyone's guess). */
 export const samePerson = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
+/** Whether a server setting's list (LUMOVI_ADMINS, LUMOVI_AUDITORS: groups, `user:` names) names someone. */
+export const namedIn = (list: string[], person: Person) =>
+  list.some((entry) =>
+    entry.startsWith('user:')
+      ? samePerson(entry.slice(5), person.name)
+      : person.groups.includes(entry),
+  )
+
 /** Whether someone's in a group: by one of its provider groups, or by name. */
 export const inGroup = (group: AccessGroup, person: Person) =>
   group.people.some((name) => samePerson(name, person.name)) ||
@@ -580,6 +588,8 @@ export interface AdminAccess {
   seen: SeenPerson[]
   /** Who's an admin (LUMOVI_ADMINS), as it says. */
   admins: string[]
+  /** Who reads everyone's audit events, whatever access says (LUMOVI_AUDITORS), as it says. */
+  auditors: string[]
   /** How people sign in: what sends their groups (in an ID token's claim, or a proxy's header). */
   provider: { mode: 'oidc' | 'proxy' | 'token'; name: string; claim?: string }
   /** Where it's kept. */

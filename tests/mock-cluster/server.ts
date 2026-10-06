@@ -38,7 +38,8 @@ import { streamingEndpoints } from './streams.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
 export type Fault =
-  | { status: number; body?: string; contentType?: string }
+  /** Answered with a status: to any request, or (`method`) to those alone ("PATCH"). */
+  | { status: number; body?: string; contentType?: string; method?: string }
   | { hang: true }
   /** Not a failure: the answer, after a wait. */
   | { delayMs: number }
@@ -328,14 +329,16 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   const requests: RecordedRequest[] = []
   const faults: { match: string | RegExp; fault: Fault }[] = []
   /** The fault for a request, if one matches its path (a RegExp: or its path and query). */
-  const faultFor = (url: URL) =>
-    faults.find(({ match }) =>
-      typeof match === 'string'
-        ? match === url.pathname
-        : match.test(url.pathname) ||
-          match.test(
-            `${url.pathname}?${decodeURIComponent(url.search.slice(1).replace(/\+/g, ' '))}`,
-          ),
+  const faultFor = (url: URL, method = 'GET') =>
+    faults.find(
+      ({ match, fault }) =>
+        (!('method' in fault) || fault.method === method) &&
+        (typeof match === 'string'
+          ? match === url.pathname
+          : match.test(url.pathname) ||
+            match.test(
+              `${url.pathname}?${decodeURIComponent(url.search.slice(1).replace(/\+/g, ' '))}`,
+            )),
     )?.fault
   const pending = new Set<http.ServerResponse>()
   let fixture: ClusterFixture
@@ -1354,7 +1357,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       )
       return
     }
-    const fault = faultFor(url)
+    const fault = faultFor(url, req.method)
     const serve = () => who.run(caller, () => answer(req, res, url, body, accept))
     if (fault && 'delayMs' in fault) {
       setTimeout(serve, fault.delayMs)
