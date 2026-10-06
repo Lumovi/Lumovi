@@ -9,7 +9,15 @@ import { startMockCluster, type MockCluster, type MockUser } from './server.ts'
 
 export interface KubeconfigSpec {
   currentContext?: string
-  clusters: { name: string; server: string; caPem?: string; insecure?: boolean }[]
+  clusters: {
+    name: string
+    server: string
+    caPem?: string
+    insecure?: boolean
+    /** The name its certificate is checked for, when it's reached by another. */
+    tlsServerName?: string
+    proxyUrl?: string
+  }[]
   users: {
     name: string
     token?: string
@@ -41,6 +49,8 @@ export function writeKubeconfig(dir: string, spec: KubeconfigSpec, fileName = 'c
           ? { 'certificate-authority-data': Buffer.from(c.caPem).toString('base64') }
           : {}),
         ...(c.insecure ? { 'insecure-skip-tls-verify': true } : {}),
+        ...(c.tlsServerName ? { 'tls-server-name': c.tlsServerName } : {}),
+        ...(c.proxyUrl ? { 'proxy-url': c.proxyUrl } : {}),
       },
     })),
     users: spec.users.map((u) => ({

@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { KubeConfig } from '@kubernetes/client-node'
 import type { ContextsResult } from '@shared/api'
+import { withProxy } from '../network'
 import { KubeRequestError } from './errors'
 
 /** Resolves kubeconfig locations the same way kubectl does. */
@@ -15,7 +16,7 @@ export function kubeconfigPaths(env: NodeJS.ProcessEnv): string[] {
  * Loads and merges kubeconfig files with kubectl semantics: missing files are
  * skipped, and the first file to define a name (or a current context) wins.
  */
-export function loadKubeConfig(paths: string[]): KubeConfig {
+export function loadKubeConfig(paths: string[], env = process.env): KubeConfig {
   const merged = { clusters: [], users: [], contexts: [], currentContext: '' } as {
     clusters: KubeConfig['clusters']
     users: KubeConfig['users']
@@ -41,7 +42,8 @@ export function loadKubeConfig(paths: string[]): KubeConfig {
     merged.currentContext ||= kc.currentContext
   }
   const kc = new KubeConfig()
-  kc.loadFromOptions(merged)
+  // Each cluster through the proxy the environment says, as kubectl would, unless its own does.
+  kc.loadFromOptions({ ...merged, clusters: merged.clusters.map((c) => withProxy(c, env)) })
   return kc
 }
 

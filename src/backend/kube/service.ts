@@ -676,8 +676,9 @@ export class KubeService {
     options: Omit<RequestOptions, 'timeoutMs'>,
   ): Promise<string> {
     assertString(context, 'context')
-    const kc = this.store.forContext(context)
+    // The kubeconfig as it is once the environment (the login shell's proxy) is in.
     await this.envReady
+    const kc = this.store.forContext(context)
     return kubeRequest(kc, path, { ...options, timeoutMs: this.timeoutMs })
   }
 
