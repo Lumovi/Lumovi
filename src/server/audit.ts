@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
+import { namedIn } from '@shared/access'
 import type { AuditActor, AuditEvent } from '@shared/audit'
 import type { SessionUser } from '@shared/server'
 import { AuditLog } from '@backend/audit/log'
@@ -71,8 +72,13 @@ export const SERVER_ACTOR: AuditActor = { user: 'lumovi', via: 'server' }
 
 /** Whether someone reads everyone's events: they're one of LUMOVI_AUDITORS, or in its groups. */
 export const isAuditor = (config: AuditConfig, identity: Identity) =>
-  config.auditors.users.includes(identity.user.name) ||
-  identity.user.groups.some((group) => config.auditors.groups.includes(group))
+  namedIn(auditorsOf(config), identity.user)
+
+/** LUMOVI_AUDITORS, as it's written: groups, and `user:` names. */
+export const auditorsOf = (config: AuditConfig) => [
+  ...config.auditors.groups,
+  ...config.auditors.users.map((user) => `user:${user}`),
+]
 
 /** Whose events someone may see: everyone's (an auditor), or their own. */
 export const readerFor = (auditor: boolean, user: SessionUser) =>

@@ -726,7 +726,7 @@ test('grants and limits decide what someone may do, where; the server holds to i
       LUMOVI_AUTH: 'proxy',
       LUMOVI_ACCESS: POLICY,
       LUMOVI_ADMINS: 'platform-admins,user:root@example.com',
-      LUMOVI_AUDITORS: 'auditors',
+      LUMOVI_AUDITORS: 'auditors,user:Ivy@Example.com',
     },
   })
   await as(context, 'dave@example.com', 'developers')
@@ -1060,6 +1060,26 @@ test('grants and limits decide what someone may do, where; the server holds to i
     .toBe(true)
   await page.goto(`${served.url}your-access`)
   await expect(page.getByText('Everywhere: everyone’s events in the audit log.')).toBeVisible()
+  // Named by the server's settings, whatever the case of their name.
+  await as(context, 'ivy@example.com', '')
+  await page.goto(`${served.url}your-access`)
+  await expect(page.getByText('Everywhere: everyone’s events in the audit log.')).toBeVisible()
+
+  // An admin checking an auditor: everyone's events, as the server's settings say.
+  await as(context, 'root@example.com', '')
+  await page.goto(`${served.url}access/check`)
+  const who = page.getByRole('region', { name: 'Check someone' })
+  await who.getByRole('combobox', { name: 'Person' }).fill('aud@')
+  await who.getByRole('combobox', { name: 'Person' }).press('Enter')
+  const audit = page
+    .getByRole('region', { name: 'Where' })
+    .getByRole('row')
+    .filter({ hasText: /^Audit/ })
+  await expect(audit).toContainText('Everyone’sServerLUMOVI_AUDITORS names them')
+  // Someone it doesn't name: as their access says.
+  await who.getByRole('combobox', { name: 'Person' }).fill('dave@')
+  await who.getByRole('combobox', { name: 'Person' }).press('Enter')
+  await expect(audit).toContainText('Their ownEveryone')
 })
 
 /** Assistants on a server whose admins say who may use them, and where. */
@@ -1306,8 +1326,35 @@ test('kept in a ConfigMap of the namespace Lumovi runs in, as the chart keeps it
     actor: { user: 'lumovi', via: 'server' },
     details: { outside: true },
   })
+  // Sealed once recorded: recorded once (by whichever replica read it first), not again.
+  const sealOf = () =>
+    JSON.parse(
+      (demo.object('ConfigMap', 'lumovi', 'lumovi-access')!.data as Record<string, string>)[
+        'access.json'
+      ]!,
+    ).seal
+  await expect.poll(sealOf).toMatch(/^[0-9a-f]{64}$/)
   await page.getByRole('link', { name: 'History' }).click()
   await expect(page.getByText('Outside Lumovi, where it’s kept')).toHaveCount(2)
+  // Recorded, but it can't be sealed: said, since it's recorded again as Lumovi starts.
+  const unsealable = demo.fail(/\/configmaps\/lumovi-access$/, { status: 403, method: 'PATCH' })
+  demo.upsert(
+    configMap({
+      'access.json': JSON.stringify({
+        version: 1,
+        policy: { ...stored(), everyone: { ...stored().everyone, logs: 'on' } },
+      }),
+    }),
+  )
+  await expect
+    .poll(() => served.log())
+    .toContain(
+      'Access: Lumovi recorded a change made outside it, and can’t seal it, so it’s recorded again as Lumovi starts:',
+    )
+  expect(audited(served, 'access.changed').at(-1)!.summary).toBe(
+    'Changed outside Lumovi: Changed what everyone may do: Logs: Off → Read them',
+  )
+  unsealable()
   await page.getByRole('link', { name: /^Profiles/ }).click()
   await expect(page.getByRole('combobox', { name: 'Helm for Everyone', exact: true })).toHaveValue(
     'install',
@@ -1486,8 +1533,31 @@ profiles:
   expect(served.log()).toContain(
     'Access: the grant “Old platform grant”, the grant “Gone profile”, the limit “Temps” named groups or profiles the chart no longer has, and no longer apply.',
   )
+  // Written by hand while no Lumovi ran: recorded as it starts, then sealed (as it was written,
+  // what no longer applies too), so it's recorded once.
+  expect(audited(served, 'access.changed')).toMatchObject([
+    {
+      actor: { user: 'lumovi', via: 'server' },
+      summary: 'Changed outside Lumovi, while it wasn’t running: what it was before can’t be known',
+      details: {
+        changes: [
+          'Changed while Lumovi wasn’t running, from what it can’t say: it now has 1 group, no profiles, 1 grant and no limits',
+        ],
+        outside: true,
+      },
+    },
+  ])
+  const sealed = JSON.parse(readFileSync(join(data, 'access.json'), 'utf8'))
+  expect(sealed.seal).toMatch(/^[0-9a-f]{64}$/)
+  expect(sealed.policy.grants).toHaveLength(3)
   await as(context, 'ana@example.com', 'platform-admins')
-  await page.goto(`${served.url}access/rules`)
+  await page.goto(`${served.url}access/history`)
+  await expect(
+    page.getByText(
+      'Changed while Lumovi wasn’t running, from what it can’t say: it now has 1 group, no profiles, 1 grant and no limits',
+    ),
+  ).toBeVisible()
+  await page.getByRole('link', { name: /^Grants/ }).click()
   await expect(page.getByRole('article')).toHaveText([/^Nobody yet/])
   // Said once, however often it's read again.
   await new Promise((done) => setTimeout(done, 1_000))
