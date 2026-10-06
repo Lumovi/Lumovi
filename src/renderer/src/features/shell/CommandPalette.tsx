@@ -333,7 +333,7 @@ function Palette({ onDone }: { onDone: () => void }) {
           >
             Metrics source…
           </Item>
-          {api.assistants && (
+          {(api.assistants || api.serverAssistants) && (
             <Item
               icon={<Sparkles />}
               value="AI assistants MCP Claude Code Desktop Cursor VS Code connect"

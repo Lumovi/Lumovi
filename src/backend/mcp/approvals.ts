@@ -25,6 +25,19 @@ export const approvalTime = (ms = APPROVAL_TIMEOUT_MS) =>
 
 export type Answer = ProposalDecision | { expired: true } | { withdrawn: true }
 
+/** A page's answer, checked: a change's id, whether it's approved, and maybe a note. */
+export function checkedDecision(id: unknown, decision: unknown): [string, ProposalDecision] {
+  const { approved, note } = Object(decision) as { approved?: unknown; note?: unknown }
+  if (
+    typeof id !== 'string' ||
+    typeof approved !== 'boolean' ||
+    (note !== undefined && (typeof note !== 'string' || note.length > 2_000))
+  ) {
+    throw new Error('Expected a change’s id, whether it’s approved, and a note')
+  }
+  return [id, approved ? { approved } : { approved, ...(note ? { note } : {}) }]
+}
+
 export class Approvals {
   readonly #waiting = new Map<string, { proposal: ChangeProposal; answer: (a: Answer) => void }>()
   /** What became of each change, for the calls that wait for it (forgotten when it expires). */
@@ -83,7 +96,12 @@ export class Approvals {
 
   /** Withdraws everything waiting: assistants may no longer ask (they were turned off, say). */
   withdrawAll(): void {
-    for (const { answer } of [...this.#waiting.values()]) answer({ withdrawn: true })
+    for (const id of [...this.#waiting.keys()]) this.withdraw(id)
+  }
+
+  /** Withdraws one, if it's still waiting: its assistant may no longer ask (it was let go, say). */
+  withdraw(id: string): void {
+    this.#waiting.get(id)?.answer({ withdrawn: true })
   }
 
   /** What's waiting now, oldest first. */

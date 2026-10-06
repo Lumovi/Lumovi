@@ -6,6 +6,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
+import { ServerAssistants } from './assistants/assistants'
 import { Auth } from './auth'
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
@@ -48,6 +49,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     for (const [socket, { session }] of sockets) {
       if (session === ended) socket.close(SESSION_ENDED, how)
     }
+    // The assistants allowed in it can't act as its person any more.
+    assistants.sessionEnded(ended)
+  })
+  const assistants = new ServerAssistants({
+    config,
+    hosted,
+    sessions,
+    version: options.version,
+    readOnly: ['1', 'true'].includes(options.env.LUMOVI_READ_ONLY ?? ''),
   })
   const oidc =
     config.auth.mode === 'oidc'
@@ -67,6 +77,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   async function answer(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const { url, path } = address(req)
+    // AI assistants look for how to sign in at the origin's root first.
+    if (path === undefined && url && assistants.answerAtRoot(req, res, url.pathname)) return
     if (path === undefined) {
       // The base path without its trailing slash, as people type it.
       if (`${url?.pathname}/` === base) redirect(res, base)
@@ -74,6 +86,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return
     }
     const route = `${req.method} ${path}`
+    const signer = () => {
+      const caller = auth.identify(req)
+      return caller && 'identity' in caller ? caller : undefined
+    }
+    if (await assistants.answer(req, res, path, url!, signer)) return
     if (route === `GET ${PATHS.health}`) {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok')
     } else if (route === `GET ${PATHS.session}`) {
@@ -175,6 +192,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         ...options,
         identity: caller.identity,
         rejected: () => sessions.end(caller.session!, 'expired'),
+        assistants: assistants.page(caller.identity, req, (channel, ...args) =>
+          connection.emit(channel, ...args),
+        ),
       })
       connections.add(connection)
       void connection.ended.then(() => connections.delete(connection))
@@ -204,6 +224,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       clearInterval(heartbeat)
       const ending = [...connections]
       hosted.close()
+      await assistants.close()
       // Pages reconnect, to whichever server is next.
       const closed = [...sockets.keys()].map(
         (socket) =>

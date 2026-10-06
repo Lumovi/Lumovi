@@ -6,6 +6,20 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- AI assistants on a Lumovi server, and across a fleet: Claude Code, Cursor, VS Code and other
+  MCP clients connect at the server's address (`/mcp`) and sign in through Lumovi, as MCP's
+  OAuth has them: Lumovi opens in the browser, the person signs in as they always do (a
+  token, single sign-on or a proxy), and allows the assistant. It then acts as them, with
+  their RBAC on every cluster, until they disconnect it in Lumovi or their session ends. The
+  changes it asks for wait on their own pages for their answer, with a browser notification
+  when the tab is elsewhere, and the server's log records each outcome. Administrators turn
+  assistants off (`LUMOVI_ASSISTANTS`, the chart's `assistants.enabled`), and say what their
+  changes do, for every cluster or each one (`LUMOVI_ASSISTANT_CHANGES`, like
+  `ask,staging=allow,production=never`). Below a base path, the chart's ingress routes the
+  addresses assistants look for how to sign in at.
+
 ## [1.3.0] - 2026-10-06
 
 Your AI assistant, with you in charge: assistants read your clusters through Lumovi, and the

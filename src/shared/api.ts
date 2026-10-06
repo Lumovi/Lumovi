@@ -14,6 +14,7 @@ import type {
   ChangeProposal,
   ProposalDecision,
   ProposalOutcome,
+  ServerAssistantsStatus,
 } from './assistants'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
@@ -806,7 +807,15 @@ export interface LumoviApi {
   fleet?: {
     summary(context: string): Promise<ClusterSummary>
   }
-  /** AI assistants that use Lumovi through MCP (the desktop app's). */
+  /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */
+  approvals?: {
+    decide(id: string, decision: ProposalDecision): Promise<void>
+    /** Changes waiting for approval now, for a page that has just loaded. */
+    pending(): Promise<ChangeProposal[]>
+    onProposal(listener: (proposal: ChangeProposal) => void): () => void
+    onOutcome(listener: (outcome: ProposalOutcome) => void): () => void
+  }
+  /** The desktop app's MCP server, for AI assistants on this computer. */
   assistants?: {
     status(): Promise<AssistantsStatus>
     /** Turns it on or off, or moves it to another port. */
@@ -816,12 +825,14 @@ export interface LumoviApi {
     /** Sets an assistant up: Claude Desktop's settings, or Cursor's or VS Code's install link. */
     install(client: AssistantClient): Promise<Result<string>>
     setChanges(context: string, changes: AiChanges): Promise<Settings>
-    decide(id: string, decision: ProposalDecision): Promise<void>
-    /** Changes waiting for approval now, for a page that has just loaded. */
-    pending(): Promise<ChangeProposal[]>
     onStatus(listener: (status: AssistantsStatus) => void): () => void
-    onProposal(listener: (proposal: ChangeProposal) => void): () => void
-    onOutcome(listener: (outcome: ProposalOutcome) => void): () => void
+  }
+  /** A server's MCP server: where assistants connect, the person's, and what they may change. */
+  serverAssistants?: {
+    status(): Promise<ServerAssistantsStatus>
+    /** Lets one of the person's assistants go: it signs in again to come back. */
+    revoke(id: string): Promise<ServerAssistantsStatus>
+    onStatus(listener: (status: ServerAssistantsStatus) => void): () => void
   }
   /** New versions of the desktop app, from its GitHub releases. */
   updates?: {
@@ -905,4 +916,7 @@ export const IPC = {
   assistantsStatusChanged: 'assistants:status-changed',
   assistantsProposal: 'assistants:proposal',
   assistantsOutcome: 'assistants:outcome',
+  serverAssistantsStatus: 'server-assistants:status',
+  serverAssistantsRevoke: 'server-assistants:revoke',
+  serverAssistantsStatusChanged: 'server-assistants:status-changed',
 } as const

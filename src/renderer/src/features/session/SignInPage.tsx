@@ -41,11 +41,20 @@ const NOTICES: Record<Notice, { text: string; problem: boolean }> = {
  * The sign-in page's frame, as the desktop app's start screen looks: the logo, or the mark
  * above a title that says the name.
  */
-function Frame({ title, children }: { title?: string; children: ReactNode }) {
+export function Frame({
+  title,
+  pageTitle = 'Sign in — Lumovi',
+  children,
+}: {
+  title?: string
+  /** The browser tab's. */
+  pageTitle?: string
+  children: ReactNode
+}) {
   const [theme, setTheme] = useState(storedTheme)
   useEffect(() => {
-    document.title = 'Sign in — Lumovi'
-  }, [])
+    document.title = pageTitle
+  }, [pageTitle])
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       <main className="relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-10">
@@ -102,7 +111,7 @@ function NoticeBar({ notice }: { notice: Notice }) {
   )
 }
 
-const card = 'rounded-2xl border border-line bg-surface-2 p-5 shadow-panel'
+export const card = 'rounded-2xl border border-line bg-surface-2 p-5 shadow-panel'
 
 const TOKEN_COMMAND = 'kubectl create token NAME --namespace NAMESPACE'
 

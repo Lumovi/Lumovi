@@ -113,6 +113,8 @@ export interface ConnectionOptions {
    * fleet, one cluster refusing it is that cluster's error.)
    */
   rejected: () => void
+  /** The person's AI assistants: their changes, shown on this page, and its calls about them. */
+  assistants: { invoke: Record<string, Handler>; detach(): void }
 }
 
 /** Whether an answer is the cluster refusing the credentials (401). */
@@ -149,7 +151,7 @@ export class PageConnection {
 
   constructor(
     private readonly socket: WebSocket,
-    { hosted, config, identity, version, env, rejected }: ConnectionOptions,
+    { hosted, config, identity, version, env, rejected, assistants }: ConnectionOptions,
   ) {
     // Only a token of the person's own can be refused for them: the server's are its problem.
     this.#rejected = identity.token && !hosted.fleet ? rejected : () => undefined
@@ -192,15 +194,15 @@ export class PageConnection {
         timeoutMs: kube.timeoutMs,
       },
       {
-        data: (id, data) => this.#emit(IPC.terminalData, id, data),
-        exit: (id, exit) => this.#emit(IPC.terminalExit, id, exit),
+        data: (id, data) => this.emit(IPC.terminalData, id, data),
+        exit: (id, exit) => this.emit(IPC.terminalExit, id, exit),
       },
     )
     const logs = new LogStreams(
       { ...deps, timeoutMs: kube.timeoutMs },
       {
-        lines: (id, lines) => this.#emit(IPC.logsLines, id, lines),
-        end: (id, error) => this.#emit(IPC.logsEnd, id, error),
+        lines: (id, lines) => this.emit(IPC.logsLines, id, lines),
+        end: (id, error) => this.emit(IPC.logsEnd, id, error),
       },
     )
     const shared = handlers({
@@ -220,6 +222,7 @@ export class PageConnection {
     }
     this.#invoke = {
       ...shared.invoke,
+      ...assistants.invoke,
       [IPC.appInfo]: () => info,
       // A fleet's page sums each cluster up.
       ...(hosted.fleet
@@ -231,6 +234,7 @@ export class PageConnection {
     socket.on('message', (data) => void this.#receive(data))
     this.ended = new Promise((resolve) => {
       socket.on('close', () => {
+        assistants.detach()
         logs.stopAll()
         void terminals.closeAll().then(resolve)
       })
@@ -272,7 +276,8 @@ export class PageConnection {
     }
   }
 
-  #emit(channel: string, ...args: unknown[]): void {
+  /** Tells the page of something (its shells' output, its person's assistants' changes). */
+  emit(channel: string, ...args: unknown[]): void {
     this.#write({ type: 'event', channel, args })
   }
 
