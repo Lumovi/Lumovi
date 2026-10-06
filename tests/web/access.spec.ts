@@ -5,15 +5,7 @@
  * what each person may do, and why; and refusals where they happen, decided
  * by the server whatever the page shows.
  */
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Browser, Page } from '@playwright/test'
@@ -1390,14 +1382,13 @@ test('saving over another replica’s change is refused; leaving unsaved asks fi
   )
   // Another replica writing it right now: not written over, and said.
   const lock = join(data, 'access.json.lock')
-  writeFileSync(lock, '1')
+  writeFileSync(lock, String(Date.now()))
   await logs.selectOption('off')
   await bar.getByRole('button', { name: 'Save changes' }).click()
   await expect(bar).toContainText('Someone else saved changes to access')
   await bar.getByRole('button', { name: 'Start over from theirs' }).click()
   // One that stopped mid-write, long ago: its lock holds nobody back.
-  const long = new Date(Date.now() - 60_000)
-  utimesSync(lock, long, long)
+  writeFileSync(lock, String(Date.now() - 60_000))
   await logs.selectOption('off')
   await bar.getByRole('button', { name: 'Save changes' }).click()
   await expect(bar).toHaveCount(0)
