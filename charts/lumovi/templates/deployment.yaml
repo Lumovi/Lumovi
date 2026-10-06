@@ -55,7 +55,7 @@ spec:
       priorityClassName: {{ . }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- include "lumovi.podSecurityContext" . | nindent 8 }}
       containers:
         - name: lumovi
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -234,6 +234,7 @@ spec:
               value: {{ include "lumovi.labelList" . | quote }}
             {{- end }}
             {{- end }}
+            {{- include "lumovi.networkEnv" . | nindent 12 }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -268,9 +269,11 @@ spec:
             - name: audit
               mountPath: /var/lib/lumovi/audit
             {{- end }}
+            {{- include "lumovi.caMount" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "lumovi.caVolume" . | nindent 8 }}
         {{- if .Values.views }}
         - name: views
           configMap:

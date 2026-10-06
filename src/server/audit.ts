@@ -45,7 +45,7 @@ async function filesIn(dir: string, retentionDays: number): Promise<FileStore> {
     // (Another Lumovi keeping it says so itself.)
     if (!(error as NodeJS.ErrnoException).code) throw error
     throw new ConfigError(
-      `LUMOVI_AUDIT_DIR (${dir}) can’t be written in: ${(error as Error).message}. Lumovi’s image runs as user 65532: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.`,
+      `LUMOVI_AUDIT_DIR (${dir}) can’t be written in: ${(error as Error).message}. Lumovi runs as user ${process.getuid?.()}: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.`,
       { cause: error },
     )
   }

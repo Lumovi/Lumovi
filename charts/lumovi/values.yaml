@@ -283,6 +283,31 @@ ingress:
   #  - secretName: lumovi-tls
   #    hosts: [lumovi.example.com]
 
+# A company's network: Lumovi's own connections (single sign-on, Helm repositories, the audit
+# webhook, an agent's to its hub, clusters its kubeconfig gives no proxy-url) go through this
+# proxy, as kubectl's do. This cluster's API server and services are always reached directly.
+proxy:
+  https: ''
+  http: ''
+  # Or a Secret of yours with them, under HTTPS_PROXY (and HTTP_PROXY, if plain http goes
+  # through one): for a proxy that wants credentials (http://user:password@proxy:3128), which
+  # then aren't in the Deployment.
+  secret: ''
+  # Never through it: names (and what's under them, .corp.example.com) and addresses, each
+  # with a port or for any; not ranges (CIDR).
+  noProxy: ''
+
+# Certificate authorities to trust besides the image's and the system's: a proxy that inspects
+# HTTPS signs with its own. A ConfigMap or Secret of yours with them as PEM, under `key`.
+extraCA:
+  configMap: ''
+  secret: ''
+  key: ca.crt
+
+# OpenShift gives each pod its user, group and fsGroup from the namespace's ranges: there, the
+# podSecurityContext below is used without them. auto: where the cluster is OpenShift.
+openshift: auto
+
 networkPolicy:
   # Only lets in what `from` allows (with auth.mode proxy: the proxy's pods).
   enabled: false

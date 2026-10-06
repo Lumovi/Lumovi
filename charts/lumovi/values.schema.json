@@ -659,6 +659,28 @@
         }
       }
     },
+    "proxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "https": { "type": "string" },
+        "http": { "type": "string" },
+        "secret": { "type": "string" },
+        "noProxy": { "type": "string" }
+      }
+    },
+    "extraCA": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "configMap": { "type": "string" },
+        "secret": { "type": "string" },
+        "key": { "type": "string", "minLength": 1 }
+      }
+    },
+    "openshift": {
+      "enum": ["auto", true, false, "true", "false"]
+    },
     "networkPolicy": {
       "type": "object",
       "properties": {
