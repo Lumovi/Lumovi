@@ -1235,6 +1235,10 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
   expect(served.log()).toContain(
     `couldn’t be sent to ${hook.url.replace(/\?.*/, '')}: It answered 400`,
   )
+  // Saying so is refused too: that isn't news, nor said again, and again.
+  await expect.poll(() => hook.received.at(-1)!.body).toContain('"action":"audit.dropped"')
+  await page.waitForTimeout(1000)
+  expect(audited(served, 'audit.dropped')).toHaveLength(1)
   // Never its token: the query isn't said.
   expect(served.log()).not.toContain('token=secret')
   await page.goto(`${served.url}audit`)
