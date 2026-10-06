@@ -160,12 +160,12 @@ export function Verification({
         {broken ? (
           <>
             <p className="font-semibold text-critical-text">
-              The log was changed: it doesn’t hold in {places.toLocaleString('en')}{' '}
+              The log doesn’t hold in {places.toLocaleString('en')}{' '}
               {places === 1 ? 'place' : 'places'}.
             </p>
             <p className="mt-0.5 text-ink-2">
               Of the {result.checked.toLocaleString('en')} events read, each of these doesn’t follow
-              from the one before it:
+              from the one before it, and says why:
             </p>
             <ul className="mt-1.5 flex max-h-48 flex-col gap-1 overflow-y-auto">
               {breaks.map((b, i) => (

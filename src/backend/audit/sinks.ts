@@ -12,6 +12,8 @@ export interface AuditSink {
   send(event: AuditEvent): void
   /** How many it couldn't send, ever. */
   dropped(): number
+  /** Those, by why it couldn't. */
+  losses(): ReadonlyMap<string, number>
   /** Why it can't send now, if it can't. */
   problem(): string | undefined
   /** Why it last couldn't send some (and let them go). */
@@ -27,6 +29,7 @@ export class StdoutSink implements AuditSink {
   readonly name = 'the server’s output'
   send = (event: AuditEvent) => void process.stdout.write(`${JSON.stringify(event)}\n`)
   dropped = () => 0
+  losses = () => new Map<string, number>()
   problem = () => undefined
   lost = () => undefined
   flush = async () => {}
@@ -54,6 +57,8 @@ const ANSWER_MS = Number(process.env.LUMOVI_AUDIT_ANSWER_MS) || 10 * SECOND
 /** How much waits to be sent, at most, however many events that is. */
 const BUFFER_BYTES = 64 * 1024 * 1024
 
+const STOPPED = 'Lumovi stopped before they could be sent.'
+
 /** An event waiting: as it's sent. */
 interface Waiting {
   event: AuditEvent
@@ -67,7 +72,8 @@ export class WebhookSink implements AuditSink {
   #bytes = 0
   #batch = BATCH
   #smallerUntil = 0
-  #dropped = 0
+  /** What it let go of, by why. */
+  readonly #losses = new Map<string, number>()
   #problem: string | undefined
   #lost: string | undefined
   #timer: NodeJS.Timeout | undefined
@@ -83,10 +89,13 @@ export class WebhookSink implements AuditSink {
   }
 
   send(event: AuditEvent) {
-    if (this.#abandoned) return
+    if (this.#abandoned) {
+      this.#lose([{ event, json: '' }], STOPPED)
+      return
+    }
     const json = JSON.stringify(event)
     this.#queue.push({ event, json })
-    this.#bytes += json.length
+    this.#bytes += Buffer.byteLength(json)
     if (this.#queue.length > this.options.buffer || this.#bytes > BUFFER_BYTES) {
       this.#lose(
         this.#take(1),
@@ -96,14 +105,15 @@ export class WebhookSink implements AuditSink {
     this.#schedule(SECOND)
   }
 
-  dropped = () => this.#dropped
+  dropped = () => [...this.#losses.values()].reduce((sum, n) => sum + n, 0)
+  losses = () => this.#losses
   problem = () => this.#problem
   lost = () => this.#lost
 
   /** The first `count` waiting, taken off the queue. */
   #take(count: number): Waiting[] {
     const taken = this.#queue.splice(0, count)
-    for (const { json } of taken) this.#bytes -= json.length
+    for (const { json } of taken) this.#bytes -= Buffer.byteLength(json)
     return taken
   }
 
@@ -115,8 +125,10 @@ export class WebhookSink implements AuditSink {
     const counted = waiting.filter(
       ({ event }) => !(event.action === 'audit.dropped' && event.details?.sink === this.name),
     ).length
-    this.#dropped += counted
-    if (counted > 0) this.#lost = why
+    if (counted > 0) {
+      this.#losses.set(why, (this.#losses.get(why) ?? 0) + counted)
+      this.#lost = why
+    }
   }
 
   #schedule(ms: number) {
@@ -207,7 +219,7 @@ export class WebhookSink implements AuditSink {
     this.#stopping.abort()
     clearTimeout(this.#timer)
     if (this.#queue.length > 0) {
-      this.#lose(this.#take(this.#queue.length), 'Lumovi stopped before they could be sent.')
+      this.#lose(this.#take(this.#queue.length), STOPPED)
     }
   }
 }

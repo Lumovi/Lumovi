@@ -10,6 +10,7 @@ import type {
   HelmDeploy,
   HelmRollback,
   HelmUninstall,
+  KubeError,
   KubeErrorCode,
   KubeObject,
   Result,
@@ -32,16 +33,30 @@ export function outcomeOf(
   if (result.ok) return { outcome: 'success' }
   return {
     outcome: isRefusal(result.error.code) ? 'refused' : 'failure',
-    error: errorAbout(kind, result.error.message),
+    error: errorAbout(kind, result.error),
   }
 }
 
+/** What the cluster's errors about a Secret are recorded as: what happened, not what it said. */
+const SECRET_ERRORS: Partial<Record<KubeErrorCode, string>> = {
+  'not-found': 'It isn’t there.',
+  forbidden: 'The cluster doesn’t let them.',
+  unauthorized: 'The cluster doesn’t know who they are.',
+  conflict: 'It changed since it was read.',
+  invalid: 'The cluster says it isn’t valid.',
+}
+
 /**
- * What went wrong, as it's recorded: about a Secret, without what it quotes (what the cluster,
- * or an admission webhook, quotes of one may be a value).
+ * What went wrong, as it's recorded. About a Secret, what the cluster (or an admission webhook)
+ * said isn't kept: it can quote the Secret's values, however it quotes them. Lumovi's own
+ * refusals (read-only, not allowed) are.
  */
-export const errorAbout = (kind: string | undefined, message: string) =>
-  kind === 'Secret' ? message.replace(/"(?:[^"\\]|\\.)*"/g, '"…"') : message
+export function errorAbout(kind: string | undefined, error: KubeError): string {
+  if (kind !== 'Secret' || error.code === 'read-only' || error.code === 'not-allowed') {
+    return error.message
+  }
+  return `${SECRET_ERRORS[error.code] ?? `It failed (${error.code}).`} What the cluster said of the Secret isn’t kept: it can quote its values.`
+}
 
 /**
  * Whether Lumovi turned it down as it came (it isn't one at all, or misses what it needs):

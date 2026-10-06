@@ -317,8 +317,9 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
           context: 'demo',
           namespace: 'shop',
           name: 'web',
-          // Who it goes as (a robot's password, a signed query) isn't recorded.
-          source: { chart: 'oci://robot:s3cret@registry.example.com/web?token=t0k' },
+          // Who it goes as (a robot's password) isn't recorded. (No query: Windows' helm, a
+          // .cmd, takes plain arguments alone.)
+          source: { chart: 'oci://robot:s3cret@registry.example.com/web' },
           values: '- not a map',
           dryRun: false,
         }),
@@ -561,7 +562,7 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   })
   // Never its values, nor who a chart's fetched as.
   expect(JSON.stringify(events)).not.toContain(DEMO.postgresPassword)
-  expect(JSON.stringify(events)).not.toMatch(/s3cret|t0k/)
+  expect(JSON.stringify(events)).not.toContain('s3cret')
   expect(events.find((e) => e.action === 'helm.install')!.details).toEqual({
     chart: 'nginx',
     version: '1.2.3',
@@ -1037,7 +1038,7 @@ test('a history that was changed shows where, and how', async ({ page, context, 
     })
     await page.getByRole('button', { name: 'Check integrity' }).click()
     const alert = page.getByRole('alert', { name: 'Integrity' })
-    await expect(alert).toContainText('The log was changed: it doesn’t hold in 2 places.')
+    await expect(alert).toContainText('The log doesn’t hold in 2 places.')
     await expect(alert.getByRole('listitem')).toHaveText([
       /^#2 \(after .*\) Its hash isn’t what its contents give/,
       /^#3 \(after .*\) Its hash isn’t what its contents give/,
@@ -1057,7 +1058,7 @@ test('a history that was changed shows where, and how', async ({ page, context, 
     await breaks([4, 'Event 3 is missing.'])
     await page.getByRole('button', { name: 'Check integrity' }).click()
     await expect(page.getByRole('alert', { name: 'Integrity' })).toContainText(
-      'it doesn’t hold in 1 place.',
+      'The log doesn’t hold in 1 place.',
     )
   })
   write(
@@ -1085,9 +1086,10 @@ test('a history that was changed shows where, and how', async ({ page, context, 
     file,
     kept.map((e) => (e.seq === 3 ? { ...other, hash: hashOf(other) } : e)),
   )
+  // (The chain it was put in goes on from where it was: missing what was replaced.)
   const ANOTHER =
-    'It’s from another chain than the event before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
-  await running(() => breaks([3, ANOTHER], [4, ANOTHER]).then(() => undefined))
+    'It’s from another chain than the events before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
+  await running(() => breaks([3, ANOTHER], [4, 'Event 3 is missing.']).then(() => undefined))
   // A chain that starts again in the same history: the events before it went.
   const fresh = { ...kept[0]!, id: 'fresh', seq: 1, prev: '' }
   write(file, [...kept, { ...fresh, hash: hashOf(fresh) }])
@@ -1445,7 +1447,7 @@ test('a history read a piece at a time: lines too long, many breaks, pages resum
   expect(checked.breaks).toHaveLength(100)
   await page.getByRole('button', { name: 'Check integrity' }).click()
   const alert = page.getByRole('alert', { name: 'Integrity' })
-  await expect(alert).toContainText('it doesn’t hold in 105 places.')
+  await expect(alert).toContainText('The log doesn’t hold in 105 places.')
   await expect(alert.getByRole('listitem').last()).toHaveText('…and 5 more.')
   await served.stop()
 })
@@ -1490,6 +1492,16 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
       }),
     data,
   )
+  // A number JSON tools write each their own way (1E+21, 1e+21): as its text.
+  await page.evaluate(() =>
+    window.lumovi!.kube.change({
+      context: 'demo',
+      kind: 'Deployment',
+      name: 'cart',
+      namespace: 'shop',
+      change: { action: 'patch', patchType: 'merge', patch: { spec: { replicas: 1e21 } } },
+    }),
+  )
   // What the cluster says of a Secret, without what it quotes (a value, it may be).
   await page.evaluate(() =>
     window.lumovi!.kube.change({
@@ -1502,9 +1514,14 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
   )
   const lines = linesOf(dayFile(dir))
   const events = lines.map((line) => JSON.parse(line) as AuditEvent)
-  expect(events.find((e) => e.target?.kind === 'Secret')!.error).toBe('secrets "…" not found')
+  expect(events.find((e) => e.target?.kind === 'Secret')!.error).toBe(
+    'It isn’t there. What the cluster said of the Secret isn’t kept: it can quote its values.',
+  )
   expect(events.find((e) => e.action === 'resource.patch')!.details).toMatchObject({
     truncated: true,
+  })
+  expect(events.find((e) => e.action === 'resource.scale')!.details).toMatchObject({
+    replicas: '1e+21',
   })
   const odd = events.find((e) => e.action === 'read-only.changed')!
   expect(odd.cluster).toBe('a\u007fb\ufffdc')
@@ -1634,24 +1651,59 @@ test('recording changes alone, an assistant’s change refused is kept; what it 
   ])
 })
 
-test('one Lumovi keeps a history: another, sharing its folder, doesn’t start', async ({
+test('an assistant’s call about a Secret that fails: what the cluster said isn’t kept', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  const failed = await call(client, 'get_resource', {
+    cluster: 'demo',
+    kind: 'secrets',
+    namespace: 'data',
+    name: 'gone',
+  })
+  expect(failed.error).toBe(true)
+  expect(audited(served, 'assistant.tool').at(-1)).toMatchObject({
+    outcome: 'failure',
+    error: 'It failed. What the cluster said of the Secret isn’t kept: it can quote its values.',
+  })
+})
+
+test('one Lumovi keeps a history: another waits for it, and doesn’t start while it renews it', async ({
   clusters,
   serve,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
   const lock = join(dir, 'audit.lock')
-  const env = { LUMOVI_AUDIT_DIR: dir }
+  // (A lock nobody renews is stale after a second and a half.)
+  const env = { LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDIT_LOCK_STALE_MS: '1500' }
   const held = (holder: object) => writeFileSync(lock, JSON.stringify(holder))
   const now = Date.now()
-  // Held by a process that's running here (this one), or by one elsewhere, lately.
+  // Held by a process running here (this one), renewing it as it goes on: waited for, then said.
+  const renewing = setInterval(
+    () => held({ pid: process.pid, host: hostname(), at: Date.now() }),
+    200,
+  )
   held({ pid: process.pid, host: hostname(), at: now })
-  expect(await refusedConfig(clusters, env)).toContain(
+  const refused = await refusedConfig(clusters, env)
+  clearInterval(renewing)
+  expect(refused).toContain(
+    `Another Lumovi (process ${process.pid} on ${hostname()}) keeps its audit history in ${dir}: waiting for it to stop (2 seconds at most).`,
+  )
+  expect(refused).toContain(
     `Another Lumovi (process ${process.pid} on ${hostname()}) keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
   )
-  held({ pid: 4321, host: 'lumovi-7d9f-2', at: now })
-  expect(await refusedConfig(clusters, env)).toContain('(process 4321 on lumovi-7d9f-2)')
+  // Held by one elsewhere (a pod on a node that's gone, say), renewing it no more: waited for,
+  // and taken over once it's stale.
+  held({ pid: 4321, host: 'lumovi-7d9f-2', at: Date.now() })
+  const waited = await serve({ env })
+  expect(waited.log()).toContain('(process 4321 on lumovi-7d9f-2) keeps its audit history')
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
+  await waited.stop()
   // Left by one that stopped: here, a process that's gone; elsewhere, one not heard from in a
-  // while; or one that can't be read. Taken over, and let go of as it stops.
+  // while; or one that can't be read. Taken over at once, and let go of as it stops.
   for (const holder of [
     { pid: 2 ** 22 + 7, host: hostname(), at: now },
     { pid: 4321, host: 'lumovi-7d9f-2', at: now - 10 * 60_000 },
@@ -1822,7 +1874,11 @@ test('a webhook that can’t be reached: what waits for it is said', async ({
   }).toPass({ timeout: 15_000 })
 })
 
-test('what the webhook still has waiting is sent as the server stops', async ({ serve }) => {
+test('what the webhook still has waiting is sent as the server stops', async ({
+  page,
+  context,
+  serve,
+}) => {
   test.skip(!GRACEFUL, 'Windows ends a server at once: Kubernetes, where servers run, stops them')
   const hook = await webhook()
   // Slow to answer at first: the server stops before its second second.
@@ -1832,20 +1888,32 @@ test('what the webhook still has waiting is sent as the server stops', async ({ 
   await served.stop()
   expect(hook.events().map((e) => e.action)).toEqual(['server.started', 'server.stopped'])
 
-  // One that doesn't answer as it stops: it waits as long as stopping does, then what's left is
-  // counted as lost, and said (in the history, and the server's log).
+  // One that doesn't answer: more wait than it keeps (the oldest let go), and as it stops, it
+  // waits as long as stopping does; then what's left is counted as lost. Each why said on its
+  // own, with how many (in the history, and the server's log).
   hook.answer(() => 'never')
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
   const stuck = await serve({
-    env: { LUMOVI_AUDIT_WEBHOOK_URL: hook.url, LUMOVI_AUDIT_DIR: dir },
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_AUDIT_WEBHOOK_URL: hook.url,
+      LUMOVI_AUDIT_WEBHOOK_BUFFER: '10',
+      LUMOVI_AUDIT_DIR: dir,
+    },
+  })
+  await as(context, 'alice@example.com', 'auditors')
+  await page.goto(`${stuck.url}cluster/demo/pods`)
+  await page.evaluate(async () => {
+    for (let i = 0; i < 12; i++) await window.lumovi!.app.setReadOnly('demo', i % 2 === 0)
   })
   await stuck.stop()
   const lost = eventsIn(dayFile(dir)).filter((e) => e.action === 'audit.dropped')
-  expect(lost).toMatchObject([
-    {
-      summary: `2 audit events couldn’t be sent to ${hook.url.replace(/\?.*/, '')}`,
-      error: 'Lumovi stopped before they could be sent.',
-    },
+  expect(lost.map((e) => [e.error, e.details!.count])).toEqual([
+    [
+      'More than 10 events (or 64 MiB of them) were waiting to be sent: the oldest were let go.',
+      expect.any(Number),
+    ],
+    ['Lumovi stopped before they could be sent.', 10],
   ])
   expect(stuck.log()).toContain('Lumovi stopped before they could be sent.')
   await hook.close()

@@ -46,7 +46,7 @@ if (stdio) {
 
   app.on('window-all-closed', () => app.quit())
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     // The app's own icon in the Dock, also when it runs as plain Electron (npm run dev).
     app.dock?.setIcon(icon)
     const settings = new SettingsStore(app.getPath('userData'))
@@ -64,7 +64,7 @@ if (stdio) {
     const kube = new KubeService(store, envReady, isReadOnly)
     // What's done through Lumovi on this computer: kept in its folder, for the Audit page.
     const auditLog = new AuditLog({
-      store: auditStore(join(app.getPath('userData'), 'audit')),
+      store: await auditStore(join(app.getPath('userData'), 'audit')),
       sinks: [],
       level: 'access',
       scanLimit: 200_000,
@@ -259,9 +259,10 @@ function claudeDesktopConfig(): string | undefined {
  * The audit history's folder; or, if it can't be kept there (made, or written: another Lumovi
  * keeping it, say), memory until the app quits. The Audit page says which.
  */
-function auditStore(dir: string): AuditStore {
+async function auditStore(dir: string): Promise<AuditStore> {
   try {
-    return new FileStore(dir, AUDIT_RETENTION_DAYS)
+    // (One app at a time: one holding it isn't waited for.)
+    return await FileStore.open(dir, AUDIT_RETENTION_DAYS, { wait: false, say: console.warn })
   } catch (error) {
     const why = `${dir} can’t be used: ${(error as Error).message}`
     console.warn(`The audit history is kept in memory until Lumovi quits: ${why}`)

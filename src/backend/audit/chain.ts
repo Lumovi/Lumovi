@@ -38,7 +38,9 @@ type Break = AuditVerification['breaks'][number]
 
 /** Checks events in order, oldest first: whether each follows from the one before it. */
 export class ChainCheck {
+  /** The event checked last; and each chain's last, each checked against its own. */
   #last: AuditEvent | undefined
+  readonly #lasts = new Map<string, AuditEvent>()
   #checked = 0
   #first: AuditEvent | undefined
   readonly #breaks: Break[] = []
@@ -50,6 +52,7 @@ export class ChainCheck {
     if (reason) this.#break({ seq: event.seq, time: event.time, reason })
     this.#first ??= event
     this.#last = event
+    this.#lasts.set(event.chain, event)
     this.#checked++
   }
 
@@ -71,13 +74,14 @@ export class ChainCheck {
     if (hashOf(event) !== event.hash) {
       return 'Its hash isn’t what its contents give: it was changed after it was recorded.'
     }
-    const last = this.#last
-    if (!last) return undefined
+    // The first checked follows from whatever came before it, kept no longer.
+    if (!this.#last) return undefined
+    const last = this.#lasts.get(event.chain) ?? this.#last
     if (event.seq === 1 && event.prev === '') {
       return `A new chain starts here, after event ${last.seq}: Lumovi started again without the events before it (they were removed, or couldn’t be read).`
     }
-    if (event.chain !== last.chain) {
-      return 'It’s from another chain than the event before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
+    if (!this.#lasts.has(event.chain)) {
+      return 'It’s from another chain than the events before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
     }
     if (event.seq <= last.seq) {
       return `It’s number ${event.seq}, after number ${last.seq}: one was repeated, or moved.`

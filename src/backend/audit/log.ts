@@ -81,6 +81,9 @@ const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value))
 /** A detail as it's kept: its text clipped. */
 function detail(value: AuditDetail): AuditDetail {
   if (typeof value === 'string') return clip(value, MAX_DETAIL)
+  // A number not a whole one within JSON's safe range (1e21, 0.1), as its text: JSON tools
+  // write those each their own way.
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return String(value)
   return Array.isArray(value)
     ? value.slice(0, MAX_LIST).map((item) => clip(item, MAX_DETAIL))
     : value
@@ -193,11 +196,12 @@ export class AuditLog {
   readonly #cursors = new Cursors()
   /** Where the chain is: whether or not the history kept the last one. */
   #head: { seq: number; hash: string; chain: string }
-  #storeDropped = 0
+  /** What the history couldn't keep, by why; and why it can't now. */
+  readonly #storeLosses = new Map<string, number>()
   #storeProblem: string | undefined
   #pruneProblem: string | undefined
-  /** The drops last said, sink by sink: so each is said once a minute at most. */
-  #toldDropped = new Map<string, number>()
+  /** The losses last said, sink by sink and why: so each is said once a minute at most. */
+  readonly #told = new Map<string, number>()
   #watch: NodeJS.Timeout
   /** Searches reading the history now, and those waiting their turn. */
   #searching = 0
@@ -258,11 +262,10 @@ export class AuditLog {
     try {
       this.#store.append(event)
     } catch (error) {
-      this.#storeDropped++
-      if (!this.#storeProblem) {
-        this.#warn(`The audit history can’t be kept: ${(error as Error).message}`)
-      }
-      this.#storeProblem = (error as Error).message
+      const { message } = error as Error
+      this.#storeLosses.set(message, (this.#storeLosses.get(message) ?? 0) + 1)
+      if (!this.#storeProblem) this.#warn(`The audit history can’t be kept: ${message}`)
+      this.#storeProblem = message
     }
     for (const sink of this.#sinks) sink.send(event)
     for (const listener of this.#listeners) listener(event)
@@ -291,40 +294,45 @@ export class AuditLog {
 
   /** What couldn't be kept or sent since the last time it was said: said in the log, as an event. */
   #sayDropped() {
-    for (const { name, dropped, lost } of this.#sinkStates()) {
-      const told = this.#toldDropped.get(name) ?? 0
-      if (dropped <= told) continue
-      const count = dropped - told
-      const summary = lostText(count, name)
-      // Whatever drops them is why (a sink only drops what it says it couldn't keep or send).
-      this.#warn(`${summary}: ${lost}`)
-      this.record({
-        action: 'audit.dropped',
-        outcome: 'failure',
-        actor: { user: 'lumovi', via: 'server' },
-        summary,
-        details: { sink: name, count },
-        error: lost,
-      })
-      // Counted after it's said: saying so can't be kept where nothing can, and isn't news.
-      this.#toldDropped.set(name, this.#sinkStates().find((sink) => sink.name === name)!.dropped)
+    for (const { name, losses } of this.#sinkStates()) {
+      // Each why on its own, with how many it was why for.
+      for (const [why, total] of [...losses]) {
+        const key = `${name}\n${why}`
+        const told = this.#told.get(key) ?? 0
+        if (total <= told) continue
+        const count = total - told
+        const summary = lostText(count, name)
+        this.#warn(`${summary}: ${why}`)
+        this.record({
+          action: 'audit.dropped',
+          outcome: 'failure',
+          actor: { user: 'lumovi', via: 'server' },
+          summary,
+          details: { sink: name, count },
+          error: why,
+        })
+        // Counted after it's said: saying so can't be kept where nothing can, and isn't news.
+        this.#told.set(key, losses.get(why)!)
+      }
     }
   }
 
   /** Where events go: how many each couldn't keep or send, what's wrong now, and why it lost some. */
-  #sinkStates(): (AuditInfo['sinks'][number] & { lost?: string })[] {
+  #sinkStates(): (AuditInfo['sinks'][number] & { losses: ReadonlyMap<string, number> })[] {
+    const total = (losses: ReadonlyMap<string, number>) =>
+      [...losses.values()].reduce((sum, n) => sum + n, 0)
     return [
       {
         name: HISTORY,
-        dropped: this.#storeDropped,
+        dropped: total(this.#storeLosses),
         problem: this.#storeProblem,
-        lost: this.#storeProblem,
+        losses: this.#storeLosses,
       },
       ...this.#sinks.map((sink) => ({
         name: sink.name,
         dropped: sink.dropped(),
         problem: sink.problem() ?? sink.lost(),
-        lost: sink.lost(),
+        losses: sink.losses(),
       })),
     ]
   }
@@ -340,7 +348,7 @@ export class AuditLog {
       unkept: this.#store.unkept,
       level: this.level,
       everyone,
-      sinks: everyone ? this.#sinkStates().map(({ lost: _, ...sink }) => sink) : [],
+      sinks: everyone ? this.#sinkStates().map(({ losses: _, ...sink }) => sink) : [],
       oldest: everyone ? this.#store.oldest() : undefined,
       exportLimit: this.#exportLimit,
     }

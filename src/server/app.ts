@@ -48,7 +48,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
-  const audit = openAudit(config.audit)
+  const audit = await openAudit(config.audit)
   // Who may do what: what the chart says, and what admins set on the Access page.
   const access = await ServerAccess.open(
     config.access,
@@ -303,6 +303,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         Promise.all(ending.map((connection) => connection.ended)),
         new Promise((resolve) => setTimeout(resolve, CLEANUP_MS).unref()),
       ])
+      // Sign-ins only counted, said before it stops.
+      auth.close()
       audit.record({
         action: 'server.stopped',
         outcome: 'success',

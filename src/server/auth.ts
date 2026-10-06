@@ -43,13 +43,17 @@ const RENEW_EARLY_MS = 60_000
 const FAILED_RECORDED = Number(process.env.LUMOVI_SIGN_IN_RECORDED) || 60
 const FAILED_WINDOW_MS = Number(process.env.LUMOVI_SIGN_IN_WINDOW_MS) || 60_000
 
+/** A sign-in started with the provider, as its cookie holds it: and when it expires. */
+type Started = PendingSignIn & { expires: number }
+
 /** Who a request is from: someone, someone the server won't act as, or nobody. */
 export type Caller = { identity: Identity; session?: string } | { refused: true } | undefined
 
 export class Auth {
-  /** Failed sign-ins this minute: recorded, and past those, only counted (with where from). */
+  /** Failed sign-ins this minute: recorded, and past those, only counted (by where from). */
   #failed = 0
-  #unrecorded: string[] = []
+  #unrecorded = new Map<string, number>()
+  readonly #window: NodeJS.Timeout
   /** The ways back from the provider already taken (a sign-in's state, until it'd expire). */
   readonly #finished = new Map<string, number>()
 
@@ -60,24 +64,35 @@ export class Auth {
     private readonly audit: AuditLog,
     private readonly oidc?: OidcClient,
   ) {
-    setInterval(() => this.#sayUnrecorded(), FAILED_WINDOW_MS).unref()
+    this.#window = setInterval(() => this.#sayUnrecorded(), FAILED_WINDOW_MS)
+    this.#window.unref()
+  }
+
+  /** As the server stops: what was only counted, said. */
+  close(): void {
+    clearInterval(this.#window)
+    this.#sayUnrecorded()
   }
 
   /** The failed sign-ins only counted this minute, said as one event; and a new minute begun. */
   #sayUnrecorded() {
-    const from = [...new Set(this.#unrecorded)]
+    // Where most came from first: "203.0.113.9: 240".
+    const from = [...this.#unrecorded].sort(([, a], [, b]) => b - a)
     if (from.length) {
-      const count = this.#unrecorded.length
+      const count = from.reduce((sum, [, n]) => sum + n, 0)
       this.audit.record({
         action: 'session.sign-in',
         outcome: 'refused',
         actor: SERVER_ACTOR,
         summary: `${count.toLocaleString('en')} more ${count === 1 ? 'sign-in' : 'sign-ins'} didn’t succeed, each not recorded: more than ${FAILED_RECORDED} were tried in a minute`,
-        details: { count, from: from.slice(0, 20) },
+        details: {
+          count,
+          from: from.slice(0, 20).map(([address, n]) => `${address}: ${n}`),
+        },
       })
     }
     this.#failed = 0
-    this.#unrecorded = []
+    this.#unrecorded = new Map()
   }
 
   /** A sign-in (or out), as it came out: who (when it's known), from where, how. */
@@ -88,7 +103,8 @@ export class Auth {
     { user, session, error }: { user?: SessionUser; session?: string; error?: string },
   ) {
     if (outcome !== 'success' && ++this.#failed > FAILED_RECORDED) {
-      this.#unrecorded.push(String(req.socket.remoteAddress))
+      const address = String(req.socket.remoteAddress)
+      this.#unrecorded.set(address, (this.#unrecorded.get(address) ?? 0) + 1)
       return
     }
     const how = this.config.auth.mode === 'oidc' ? this.config.auth.provider : 'a token'
@@ -195,7 +211,9 @@ export class Auth {
       this.#problem(res, 'failed', error)
       return
     }
-    const body = Buffer.from(JSON.stringify(started.pending)).toString('base64url')
+    // Signed with when it expires: past that, it's refused, whatever cookie brings it back.
+    const sealed: Started = { ...started.pending, expires: Date.now() + SIGN_IN_MINUTES * 60_000 }
+    const body = Buffer.from(JSON.stringify(sealed)).toString('base64url')
     redirect(res, started.url, {
       'Set-Cookie': cookie(SIGN_IN_COOKIE, `${body}.${signature(body)}`, {
         path: this.config.basePath,
@@ -213,8 +231,13 @@ export class Auth {
     const signed = sealed.slice(sealed.lastIndexOf('.') + 1)
     const pending =
       same(signed, signature(body)) &&
-      (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as PendingSignIn)
-    if (!pending || pending.state !== url.searchParams.get('state') || this.#taken(pending)) {
+      (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Started)
+    if (
+      !pending ||
+      pending.state !== url.searchParams.get('state') ||
+      pending.expires < Date.now() ||
+      this.#taken(pending)
+    ) {
       this.#problem(res, 'expired')
       return
     }
@@ -299,11 +322,12 @@ export class Auth {
    * Whether a way back from the provider was taken already: each is taken once (its cookie
    * would let it be taken again, and again, recorded each time).
    */
-  #taken(pending: PendingSignIn): boolean {
+  #taken(pending: Started): boolean {
     const now = Date.now()
     for (const [state, expires] of this.#finished) if (expires < now) this.#finished.delete(state)
     if (this.#finished.has(pending.state)) return true
-    this.#finished.set(pending.state, now + SIGN_IN_MINUTES * 60_000)
+    // Taken until it expires: then refused anyway.
+    this.#finished.set(pending.state, pending.expires)
     return false
   }
 
