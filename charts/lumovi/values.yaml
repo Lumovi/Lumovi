@@ -124,6 +124,9 @@ assistants:
   changes: ask
   # A cluster's own, by its name: { staging: allow, production: never }.
   clusters: {}
+  # Sites (host names) an assistant may send the person back to over https, after they allow
+  # it. Assistants on their computer, and apps (Claude Code, Cursor, VS Code), need none.
+  redirectHosts: []
 
 metrics:
   # Where usage history comes from: auto (Lumovi looks for Prometheus or VictoriaMetrics),
@@ -169,7 +172,8 @@ rbac:
   # admins can exec into, and use auth.usernamePrefix and auth.groupsPrefix.
   create: true
 
-# Sessions live in each replica's memory: more than one needs sticky sessions.
+# Sessions live in each replica's memory: more than one needs sticky sessions, and AI
+# assistants off (their requests carry no cookies to stick to one replica).
 replicaCount: 1
 
 service:

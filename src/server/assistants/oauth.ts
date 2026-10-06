@@ -12,6 +12,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { isDeepStrictEqual } from 'node:util'
 import type { ServerAssistant } from '@shared/assistants'
 import type { Identity } from '../cluster'
 import { readJson, SECURITY_HEADERS, sendJson } from '../http'
@@ -22,6 +23,12 @@ import type { Sessions } from '../sessions'
 const ACCESS_SECONDS = Number(process.env.LUMOVI_ASSISTANT_TOKEN_SECONDS) || 3600
 /** How long an assistant has to swap the code it's given for tokens. */
 const CODE_MS = 2 * 60_000
+/**
+ * A refresh token used again within this long of its first use is taken for a
+ * retry (the assistant never heard the answer); after it, for a stolen copy,
+ * and its assistant is let go (LUMOVI_ASSISTANT_REUSE_MS, for tests).
+ */
+const REUSE_MS = Number(process.env.LUMOVI_ASSISTANT_REUSE_MS) || 30_000
 /** The largest token request: a few fields. */
 const MAX_FORM = 16 * 1024
 
@@ -70,6 +77,14 @@ interface AuthorizationRequest {
   state: string | null
 }
 
+/** How a grant's end reads in the server's log. */
+const ENDED = {
+  'signed out': 'signed out',
+  'let go': 'was let go',
+  expired: 'can no longer use Lumovi',
+  reused: 'was let go: its refresh token was used again, so someone else may have it',
+}
+
 /** Why an authorization or token request can't be answered. */
 class OAuthProblem extends Error {
   constructor(
@@ -83,14 +98,31 @@ class OAuthProblem extends Error {
 
 const token = () => randomBytes(32).toString('base64url')
 
-/** Where an assistant may be sent back to: https, this computer over http, or an app's own scheme. */
-function allowedRedirect(uri: unknown): boolean {
-  if (typeof uri !== 'string' || !URL.canParse(uri)) return false
-  const url = new URL(uri)
-  if (url.hash) return false
-  if (url.protocol === 'https:') return true
-  if (url.protocol === 'http:') return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-  return !['javascript:', 'data:', 'file:', 'blob:', 'about:', 'vbscript:'].includes(url.protocol)
+/** Sites that send an assistant's code on to the app on the person's computer (VS Code's). */
+const APP_REDIRECTORS = ['vscode.dev', 'insiders.vscode.dev']
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]']
+const NOT_APPS = ['javascript:', 'data:', 'file:', 'blob:', 'about:', 'vbscript:', 'ws:', 'wss:']
+
+/**
+ * Where an assistant may be sent back to, with the person's code: their own
+ * computer (an assistant listening there), an app's own scheme, or a site
+ * (https) that `hosts` names. Anywhere else, a link to Lumovi's page, made to
+ * look like an assistant's, could send someone's code to whoever made it.
+ */
+function redirectCheck(hosts: string[]): (uri: unknown) => uri is string {
+  const sites = [...APP_REDIRECTORS, ...hosts]
+  return (uri): uri is string => {
+    if (typeof uri !== 'string' || !URL.canParse(uri)) return false
+    const url = new URL(uri)
+    if (url.hash) return false
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return (
+        LOOPBACK.includes(url.hostname) ||
+        (url.protocol === 'https:' && sites.includes(url.hostname))
+      )
+    }
+    return !NOT_APPS.includes(url.protocol)
+  }
 }
 
 /**
@@ -100,11 +132,12 @@ function allowedRedirect(uri: unknown): boolean {
 const clientId = (client: Client) =>
   `lumovi-${Buffer.from(JSON.stringify([client.name, client.redirects])).toString('base64url')}`
 
-function clientOf(id: string | null): Client | undefined {
+/** The assistant an id is, if it's one this server would register as it is now. */
+function clientOf(id: string | null, allowed: (uri: unknown) => boolean): Client | undefined {
   if (!id?.startsWith('lumovi-')) return undefined
   try {
     const [name, redirects] = JSON.parse(Buffer.from(id.slice(7), 'base64url').toString('utf8'))
-    if (typeof name !== 'string' || !Array.isArray(redirects) || !redirects.every(allowedRedirect))
+    if (typeof name !== 'string' || !Array.isArray(redirects) || !redirects.every(allowed))
       return undefined
     return { name, redirects }
   } catch {
@@ -148,19 +181,26 @@ export class Grants {
   readonly #grants = new Map<string, Grant>()
   readonly #access = new Map<string, { grant: string; expires: number }>()
   readonly #refresh = new Map<string, string>()
+  /** Refresh tokens used already: whose, and when. */
+  readonly #spent = new Map<string, { grant: string; at: number }>()
   readonly #codes = new Map<string, Code>()
+  readonly #allowed: (uri: unknown) => uri is string
 
   constructor(
     private readonly deps: {
       sessions: Sessions
       /** How long an assistant allowed behind a proxy lasts. */
       sessionHours: number
+      /** Sites assistants may be sent back to (https), besides the person's computer and apps. */
+      redirectHosts: string[]
       /** A grant that ended: its assistant's connections close, and its person's pages are told. */
       ended(grant: Grant): void
       /** One was allowed, or renamed: its person's pages are told. */
       changed(grant: Grant): void
     },
-  ) {}
+  ) {
+    this.#allowed = redirectCheck(deps.redirectHosts)
+  }
 
   // ——— Metadata ———
 
@@ -197,12 +237,15 @@ export class Grants {
   /** `POST oauth/register` (RFC 7591): as a public client, sent back only where it says. */
   async register(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const given = Object(await readJson(req)) as { redirect_uris?: unknown; client_name?: unknown }
-    const redirects = given.redirect_uris
-    if (!Array.isArray(redirects) || redirects.length === 0 || !redirects.every(allowedRedirect)) {
+    // Only those it may be sent back to (VS Code names more than it needs, say).
+    const redirects = Array.isArray(given.redirect_uris)
+      ? given.redirect_uris.filter(this.#allowed)
+      : []
+    if (redirects.length === 0) {
       sendOAuth(res, 400, {
         error: 'invalid_redirect_uri',
         error_description:
-          'redirect_uris must be https addresses, http ones on this computer, or an app’s own.',
+          'redirect_uris must go back to this computer (http://localhost), to an app (its own scheme), or to a site this server allows (LUMOVI_ASSISTANT_REDIRECT_HOSTS).',
       })
       return
     }
@@ -210,7 +253,7 @@ export class Grants {
       typeof given.client_name === 'string' && given.client_name.trim()
         ? given.client_name.trim().slice(0, 100)
         : 'An AI assistant'
-    const client = { name, redirects: redirects as string[] }
+    const client = { name, redirects }
     sendOAuth(res, 201, {
       client_id: clientId(client),
       client_id_issued_at: Math.floor(Date.now() / 1000),
@@ -230,7 +273,7 @@ export class Grants {
    */
   #request(query: URLSearchParams, endpoints: Endpoints): AuthorizationRequest {
     const clientId = query.get('client_id')
-    const client = clientOf(clientId)
+    const client = clientOf(clientId, this.#allowed)
     if (!client) throw new OAuthProblem('invalid_client', 'It doesn’t say which assistant it is.')
     const redirect = query.get('redirect_uri') ?? ''
     if (!client.redirects.includes(redirect)) {
@@ -368,13 +411,19 @@ export class Grants {
   }
 
   #renew(form: URLSearchParams) {
-    const id = this.#refresh.get(form.get('refresh_token') ?? '')
+    const given = form.get('refresh_token') ?? ''
+    const spent = this.#spent.get(given)
+    // Used before, and not just now: someone else has a copy. (A grant takes its own with it.)
+    if (spent && Date.now() - spent.at > REUSE_MS)
+      this.#end(this.#grants.get(spent.grant)!, 'reused')
+    const id = this.#refresh.get(given)
     const grant = id === undefined ? undefined : this.#grants.get(id)!
     if (!grant || !this.#alive(grant)) {
       throw new OAuthProblem('invalid_grant', 'That refresh token has been used, or has ended.')
     }
     // Each is used once: the next comes with the new tokens.
     this.#refresh.delete(grant.refresh)
+    this.#spent.set(grant.refresh, { grant: grant.id, at: Date.now() })
     grant.refresh = token()
     this.#refresh.set(grant.refresh, grant.id)
     return this.#tokens(grant)
@@ -426,6 +475,30 @@ export class Grants {
     return grant.session ? this.deps.sessions.get(grant.session)?.identity : grant.identity
   }
 
+  /**
+   * Behind a proxy: who it says `identity`'s person is now (their groups, say),
+   * for the assistants they allowed. Those that act as someone else now.
+   */
+  reidentify(identity: Identity): Grant[] {
+    const changed = [...this.#grants.values()].filter(
+      (grant) =>
+        grant.identity &&
+        grant.person === identity.user.name &&
+        !isDeepStrictEqual(grant.identity, identity),
+    )
+    for (const grant of changed) grant.identity = identity
+    return changed
+  }
+
+  /** Lets go of what has run out: codes and tokens never used in time, and grants that ended. */
+  sweep(): void {
+    const now = Date.now()
+    for (const expiring of [this.#codes, this.#access]) {
+      for (const [key, { expires }] of expiring) if (expires < now) expiring.delete(key)
+    }
+    for (const grant of this.#grants.values()) this.#alive(grant)
+  }
+
   /** Whether a grant still acts as someone: not once its session has, or its time is up (it ends). */
   #alive(grant: Grant): boolean {
     if ((grant.expires ?? Infinity) < Date.now() || !this.identity(grant)) {
@@ -469,14 +542,13 @@ export class Grants {
     }
   }
 
-  #end(grant: Grant, how: 'signed out' | 'let go' | 'expired'): void {
+  #end(grant: Grant, how: keyof typeof ENDED): void {
     this.#grants.delete(grant.id)
     this.#refresh.delete(grant.refresh)
-    for (const [access, { grant: id }] of this.#access)
-      if (id === grant.id) this.#access.delete(access)
-    log(
-      `${grant.person}’s ${grant.name} ${how === 'expired' ? 'can no longer use Lumovi' : how === 'let go' ? 'was let go' : 'signed out'}`,
-    )
+    for (const tokens of [this.#access, this.#spent]) {
+      for (const [token, { grant: id }] of tokens) if (id === grant.id) tokens.delete(token)
+    }
+    log(`${grant.person}’s ${grant.name} ${ENDED[how]}`)
     this.deps.ended(grant)
   }
 }

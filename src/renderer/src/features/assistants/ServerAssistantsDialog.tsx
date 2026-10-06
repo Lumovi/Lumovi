@@ -7,6 +7,7 @@ import type { AiChanges, ServerAssistantsStatus } from '@shared/assistants'
 import { Button, buttonClass, IconButton } from '@renderer/components/Button'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useContexts } from '@renderer/hooks/queries'
+import { useSettings } from '@renderer/hooks/settings'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { useUi } from '@renderer/state/ui'
@@ -86,7 +87,8 @@ export function ServerAssistantsDialog({ assistants }: { assistants: ServerAssis
                 <Connect url={status.url} />
                 <Yours status={status} assistants={assistants} />
                 <Changes status={status} contexts={contexts.map((c) => c.name)} />
-                <Notifications />
+                {/* Not every browser has them: Safari on a phone, outside a home-screen app. */}
+                {'Notification' in window && <Notifications />}
               </>
             ) : (
               <p className="px-5 py-5 text-[13px] leading-relaxed text-ink-2">
@@ -214,21 +216,28 @@ const POLICY: Record<AiChanges, { label: string; className: string }> = {
   allow: { label: 'Made without asking', className: 'text-warn-text' },
   never: { label: 'Never', className: 'text-ink-3' },
 }
+const READ_ONLY = { label: 'Read-only: no changes', className: 'text-ink-3' }
 
 /** What assistants' changes do in each cluster, as the server's administrator set it. */
 function Changes({ status, contexts }: { status: ServerAssistantsStatus; contexts: string[] }) {
+  const settings = useSettings().data
   return (
     <section aria-label="Changes they ask for" className="border-t border-line px-5 py-4">
       <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
         Changes they ask for
       </h3>
       <p className="mt-1 mb-3 text-xs leading-relaxed text-ink-3">
-        As this server’s administrator set them. Deletions, and changes that take fields over from
-        Helm or Argo CD, ask you wherever changes are made without asking.
+        As this server’s administrator set them, and none where you made a cluster read-only.
+        Deletions, and changes that take fields over from Helm or Argo CD, ask you wherever changes
+        are made without asking.
       </p>
       <ul className="divide-y divide-line rounded-lg border border-line">
         {contexts.map((name) => {
-          const policy = POLICY[status.changes.clusters[name] ?? status.changes.default]
+          // Read-only for the person, too: their assistants change nothing there.
+          const policy =
+            settings?.readOnlyAll || settings?.readOnly?.includes(name)
+              ? READ_ONLY
+              : POLICY[status.changes.clusters[name] ?? status.changes.default]
           return (
             <li key={name} className="flex items-center gap-3 py-2 pr-3 pl-3">
               <span className="min-w-0 flex-1 truncate text-[13px] text-ink-1" title={name}>

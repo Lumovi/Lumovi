@@ -36,6 +36,17 @@ const PATHS = {
   resourceMetadata: '.well-known/oauth-protected-resource',
   serverMetadata: '.well-known/oauth-authorization-server',
 }
+/** What's assistants' alone, below the base path: with them off, there's nothing there. */
+const THEIRS = new Set([
+  PATHS.mcp,
+  PATHS.register,
+  PATHS.token,
+  PATHS.revoke,
+  PATHS.authorizeApi,
+  PATHS.resourceMetadata,
+  `${PATHS.resourceMetadata}/${PATHS.mcp}`,
+  PATHS.serverMetadata,
+])
 /** The largest message an assistant may send (a manifest to apply, say). */
 const MAX_BODY = 4 * 1024 * 1024
 /** Sessions with no request for this long are let go: their assistant has gone (an env for tests). */
@@ -80,20 +91,24 @@ export class ServerAssistants {
     this.#grants = new Grants({
       sessions: deps.sessions,
       sessionHours: deps.config.sessionHours,
+      redirectHosts: deps.config.assistants.redirectHosts,
       changed: (grant) => this.#people.changed(grant.person),
       // Its assistant's connections close, and what it asked for is withdrawn.
       ended: (grant) => {
-        for (const session of this.#sessions.values()) {
-          if (session.grant === grant.id) void session.transport.close()
-        }
+        this.#disconnect(grant)
         const approvals = this.#people.approvals(grant.person)
         for (const id of this.#asked.get(grant.id) ?? []) approvals.withdraw(id)
         this.#asked.delete(grant.id)
-        this.#kube.delete(grant.id)
         this.#people.changed(grant.person)
       },
     })
-    this.#idle = setInterval(() => this.#letGoIdle(), Math.min(60_000, IDLE_MS))
+    this.#idle = setInterval(
+      () => {
+        this.#letGoIdle()
+        this.#grants.sweep()
+      },
+      Math.min(60_000, IDLE_MS),
+    )
     this.#idle.unref()
   }
 
@@ -136,7 +151,11 @@ export class ServerAssistants {
     url: URL,
     signer: () => Signer | undefined,
   ): Promise<boolean> {
-    if (!this.enabled) return false
+    if (!this.enabled) {
+      if (!THEIRS.has(path)) return false
+      sendJson(res, 404, { error: 'This server’s administrator has turned AI assistants off.' })
+      return true
+    }
     const route = `${req.method} ${path}`
     const endpoints = () => this.endpoints(req)
     if (
@@ -201,6 +220,9 @@ export class ServerAssistants {
     emit: (channel: string, ...args: unknown[]) => void,
   ) {
     const person = identity.user.name
+    // Behind a proxy, the assistants they allowed act as who it says they are now: their
+    // connections close, and they start again as that.
+    for (const grant of this.#grants.reidentify(identity)) this.#disconnect(grant)
     const status = (): ServerAssistantsStatus => ({
       enabled: this.enabled,
       url: this.endpoints(req).resource,
@@ -214,6 +236,7 @@ export class ServerAssistants {
     const approvals = () => this.#people.approvals(person)
     return {
       detach,
+      readOnly: (contexts: string[]) => this.#people.setReadOnly(person, contexts),
       invoke: {
         [IPC.serverAssistantsStatus]: status,
         [IPC.serverAssistantsRevoke]: (id: unknown) => {
@@ -272,7 +295,12 @@ export class ServerAssistants {
     const person = grant.person
     let kube = this.#kube.get(grant.id)
     if (!kube) {
-      kube = new KubeService(hosted.configsFor(identity), Promise.resolve(), () => readOnly)
+      // Changing nothing where nobody may, nor where its person said not to.
+      kube = new KubeService(
+        hosted.configsFor(identity),
+        Promise.resolve(),
+        (context) => readOnly || this.#people.isReadOnly(person, context),
+      )
       this.#kube.set(grant.id, kube)
     }
     const approvals = this.#people.approvals(person)
@@ -312,6 +340,14 @@ export class ServerAssistants {
     session.transport.onclose = () => void this.#sessions.delete(session.transport.sessionId!)
     await server.connect(session.transport)
     return session
+  }
+
+  /** Closes a grant's connections, and lets go of its connection to the clusters. */
+  #disconnect(grant: Grant): void {
+    for (const session of this.#sessions.values()) {
+      if (session.grant === grant.id) void session.transport.close()
+    }
+    this.#kube.delete(grant.id)
   }
 
   #letGoIdle(): void {
