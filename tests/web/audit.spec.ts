@@ -1456,6 +1456,7 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
   page,
   context,
   serve,
+  clusters,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
   const served = await serve({
@@ -1492,7 +1493,11 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
       }),
     data,
   )
-  // A number JSON tools write each their own way (1E+21, 1e+21): as its text.
+  // A number JSON tools write each their own way (1E+21, 1e+21): as its text. (Refused by the
+  // cluster: its controllers would make as many pods.)
+  const refusing = clusters.demo.fail('/apis/apps/v1/namespaces/shop/deployments/cart', {
+    status: 422,
+  })
   await page.evaluate(() =>
     window.lumovi!.kube.change({
       context: 'demo',
@@ -1502,6 +1507,7 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
       change: { action: 'patch', patchType: 'merge', patch: { spec: { replicas: 1e21 } } },
     }),
   )
+  refusing()
   // What the cluster says of a Secret, without what it quotes (a value, it may be).
   await page.evaluate(() =>
     window.lumovi!.kube.change({
