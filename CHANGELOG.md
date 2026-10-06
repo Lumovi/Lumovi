@@ -12,15 +12,18 @@ All notable changes to Lumovi are documented here. The format follows
   (from the page, or AI assistants' with how they were approved: by whom, after how long, with
   their note, or made without asking where the rules allow it), Helm installs, upgrades,
   rollbacks and uninstalls, shells and node shells (with how long they ran), port-forwards,
-  logs and Secrets' values read, sign-ins and sign-outs, sessions ending, assistants allowed,
-  denied and let go (a refresh token used twice, refused), each tool an assistant calls, and
-  changes to read-only and AI permissions. Each change is described by the server, from what
+  logs, Secrets and Helm releases' values read (or refused), sign-ins and sign-outs, sessions
+  ending, assistants allowed, denied and let go (a refresh token used twice, refused), each tool
+  an assistant calls, and changes to read-only, where node shells run, and AI permissions. Each change is described by the server, from what
   was asked (never from what the page says it is), with the kubectl or helm command that does
   the same; what a patch sets is named, never its values; Secrets' values, tokens and
   manifests' contents are never in it.
-- Events are chained: each holds the hash of the one before it, so a change, a removal or an
-  addition anywhere shows when it's checked (on the Audit page, or by anyone with the events
-  and SHA-256: its hash is of its JSON, keys in order).
+- Events are chained: each holds its chain's id and the hash of the one before it, so changing
+  one, or removing or putting one in between others, shows when it's checked: on the Audit page
+  (every place it doesn't hold), or by anyone with the events, jq and SHA-256 (`jq -jcS
+'del(.hash)' | sha256sum`). The newest's hash, compared with a copy sent elsewhere, shows what
+  the chain alone can't: the newest removed, or all of it rewritten. Each event is a line of
+  64 KiB at most, whatever it's about.
 - The Audit page: search, filters (what kind, outcome, who, through the page or an assistant,
   cluster, how far back) kept in the address to share, a day at a time, as many as there are
   (it asks for older ones as it's scrolled), events coming in as they happen, everything about
@@ -34,13 +37,15 @@ All notable changes to Lumovi are documented here. The format follows
   the cluster's log collector (`LUMOVI_AUDIT_STDOUT=false` stops it), and can be sent to a
   webhook (`LUMOVI_AUDIT_WEBHOOK_URL`, its headers from a Secret, as JSON or NDJSON), in
   batches, tried again until it takes them; events that can't be kept or sent are counted, said
-  in the log, recorded, and shown to auditors. People see their own events; those in
+  in the log, recorded, and shown to auditors. Sign-ins that fail, which anyone can try, are
+  recorded each up to 60 a minute, and counted past that. People see their own events; those in
   `LUMOVI_AUDITORS` (groups, or `user:` names) see everyone's. Its history is kept in
-  `LUMOVI_AUDIT_DIR` (or `LUMOVI_DATA_DIR/audit`) for `LUMOVI_AUDIT_RETENTION_DAYS` (90), else
-  in memory since it started (said on the page). `LUMOVI_AUDIT_LEVEL=changes` records changes,
+  `LUMOVI_AUDIT_DIR` (or `LUMOVI_DATA_DIR/audit`) for `LUMOVI_AUDIT_RETENTION_DAYS` (90), by one
+  server alone (another sharing the folder doesn't start), else in memory since it started
+  (said on the page). `LUMOVI_AUDIT_LEVEL=changes` records changes,
   sign-ins and settings, but not what's opened and read.
 - The desktop app keeps its own, for 90 days, as the computer's person and each cluster's
-  kubeconfig user.
+  kubeconfig user (in memory, and said why, if its folder can't be used).
 - Helm chart: `audit` values: the level, auditors, the output, a volume for the history
   (`audit.persistence`, kept when the chart's uninstalled), how long it's kept, and a webhook.
 - Access, on a server: who may do what through Lumovi, within what Kubernetes RBAC allows (never
