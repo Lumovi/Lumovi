@@ -226,7 +226,7 @@ export class AuditLog {
 
   /** Records it, if the level records its kind: in its place, kept, sent, and told. */
   record(input: AuditInput): AuditEvent | undefined {
-    if (!recordedAt(this.level, input.action)) return undefined
+    if (!recordedAt(this.level, input)) return undefined
     const given = bounded(input)
     const unhashed: Omit<AuditEvent, 'hash'> = {
       type: AUDIT_TYPE,

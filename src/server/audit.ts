@@ -80,8 +80,15 @@ export const auditorsOf = (config: AuditConfig) => [
   ...config.auditors.users.map((user) => `user:${user}`),
 ]
 
-/** Whose events someone may see: everyone's (an auditor), or their own. */
+/**
+ * Whose events someone may see: everyone's (an auditor), or their own. A sign-in that didn't
+ * succeed is nobody's own: who tried isn't known (it's recorded as "(unknown)", which someone
+ * could be called).
+ */
 export const readerFor = (auditor: boolean, user: SessionUser) =>
   auditor
     ? () => true
-    : (event: AuditEvent) => event.actor.user === user.name && event.actor.via !== 'server'
+    : (event: AuditEvent) =>
+        event.actor.user === user.name &&
+        event.actor.via !== 'server' &&
+        !(event.category === 'sign-in' && event.outcome !== 'success')
