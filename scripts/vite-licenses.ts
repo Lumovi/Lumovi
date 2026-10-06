@@ -6,9 +6,13 @@
  * included), plus the main process's `dependencies`, which ship as they are in
  * `node_modules`. The three builds run in one process, one after another, so
  * each adds its packages and rewrites the file.
+ *
+ * Each build also writes the packages it bundled to `out/<build>/packages.json`
+ * (and the desktop's, those it ships as they are to `out/main/dependencies.json`),
+ * which scripts/sbom.ts makes the software bills of materials of.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { Plugin } from 'vite'
 
 interface PackageJson {
@@ -104,18 +108,40 @@ function write(output: string, dependencies: boolean): void {
   )
 }
 
-/** For the desktop app's builds, or (`server`) the server's, which ships with the page's files. */
-export function licenses(target: 'desktop' | 'server' = 'desktop'): Plugin {
+/** A list of packages, as scripts/sbom.ts reads it. */
+function list(output: string, dirs: Iterable<string>): void {
+  const packages = new Map<string, { name: string; version: string; license?: string }>()
+  for (const dir of dirs) {
+    const { name, version, license } = read(dir)
+    packages.set(`${name}@${version}`, { name, version, ...(license ? { license } : {}) })
+  }
+  const sorted = [...packages.keys()].sort().map((key) => packages.get(key)!)
+  mkdirSync(dirname(output), { recursive: true })
+  writeFileSync(output, JSON.stringify(sorted, null, 2) + '\n')
+}
+
+/**
+ * For the desktop app's builds, the server's (which ships with the page's files), or a fleet
+ * agent's (whose packages the server's notices cover: only listed).
+ */
+export function licenses(target: 'desktop' | 'server' | 'agent' = 'desktop'): Plugin {
   return {
     name: 'lumovi:licenses',
     apply: 'build',
-    generateBundle() {
+    generateBundle(options) {
+      const mine = new Set<string>()
       for (const id of this.getModuleIds()) {
         const dir = packageDir(id)
-        if (dir) bundled.add(dir)
+        if (dir) mine.add(dir)
       }
+      for (const dir of mine) bundled.add(dir)
+      const build = basename(options.dir ?? dirname(options.file!))
+      list(join(ROOT, 'out', build, 'packages.json'), mine)
       if (target === 'server') write(SERVER_OUTPUT, false)
-      else write(OUTPUT, true)
+      if (target === 'desktop') {
+        write(OUTPUT, true)
+        list(join(ROOT, 'out', 'main', 'dependencies.json'), shippedPackages())
+      }
     },
   }
 }

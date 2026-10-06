@@ -44,6 +44,8 @@ COPY --from=helm /HELM_LICENSE /app/licenses/helm/LICENSE
 COPY LICENSE /app/LICENSE
 COPY --from=build /src/out/THIRD_PARTY_NOTICES.txt /app/licenses/THIRD_PARTY_NOTICES.txt
 COPY --from=build /src/out/server/THIRD_PARTY_NOTICES.txt /app/licenses/SERVER_THIRD_PARTY_NOTICES.txt
+# What its JavaScript is made of (CycloneDX), which the release attests with the image.
+COPY --from=build /src/out/image.cdx.json /app/licenses/sbom.cdx.json
 COPY --from=build /src/out/server/index.js /app/out/server/index.js
 COPY --from=build /src/out/agent/agent.js /app/out/agent/agent.js
 COPY --from=build /src/out/renderer /app/out/renderer

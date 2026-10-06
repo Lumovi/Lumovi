@@ -208,8 +208,13 @@ and the [Changelog](CHANGELOG.md).
   them to Prometheus), to [Artifact Hub](https://artifacthub.io) when you search it for
   charts, and to GitHub to look for new versions, which you can turn off.
 - **Verifiable releases.** Every installer, the image and the chart carry a signed build
-  provenance attestation (`gh attestation verify <file> --repo Lumovi/Lumovi`), and
-  each release lists its installers' SHA-256 checksums.
+  provenance attestation (`gh attestation verify <file> --repo Lumovi/Lumovi`) and a
+  software bill of materials; the image and the chart are signed with cosign; and each
+  release lists its installers' SHA-256 checksums. See
+  [Checking a release](SECURITY.md#checking-a-release).
+- **For a company's computers and clusters.** Its proxy and certificate authorities, a
+  [policy](https://docs.lumovi.dev/desktop/policy) that locks what IT sets on every desktop,
+  and a chart that runs as non-root, read-only and under OpenShift's restricted SCC.
 - **Reporting a vulnerability.** See [SECURITY.md](SECURITY.md).
 
 ## Requirements
