@@ -6,7 +6,7 @@
  * namespaces, so what it shows is what assistants may do; nothing is ever
  * listed whole, only counted, searched and sampled.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { notifyManager, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, CircleAlert, Lock, Plus, Search, Server, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
@@ -110,8 +110,14 @@ function Editor({
       setSaving('saving')
       permissions.set(edited).then(
         (kept) => {
-          queryClient.setQueryData(['ai-permissions'], kept)
-          setEdited((current) => (current === edited ? undefined : current))
+          // What was edited is let go of as the page's copy of what's kept arrives, in one: never
+          // a moment showing what was there before (a rule's edits lost, or the rule gone).
+          notifyManager.batch(() => {
+            queryClient.setQueryData(['ai-permissions'], kept)
+            notifyManager.schedule(() =>
+              setEdited((current) => (current === edited ? undefined : current)),
+            )
+          })
           setSaving('saved')
         },
         (error: Error) => setSaving({ error: error.message }),
