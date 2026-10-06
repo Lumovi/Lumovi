@@ -16,22 +16,19 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: keyof typeof VARIANTS
 }
 
+/** A button's look, for what acts as one but isn't (a link to an app, say). */
+export const buttonClass = (variant: keyof typeof VARIANTS, className?: string) =>
+  cn(
+    'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 no-drag disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
+    VARIANTS[variant],
+    className,
+  )
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'secondary', className, type = 'button', ...props },
   ref,
 ) {
-  return (
-    <button
-      ref={ref}
-      type={type}
-      className={cn(
-        'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 no-drag disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
-        VARIANTS[variant],
-        className,
-      )}
-      {...props}
-    />
-  )
+  return <button ref={ref} type={type} className={buttonClass(variant, className)} {...props} />
 })
 
 type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {

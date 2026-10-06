@@ -58,6 +58,35 @@ export interface AssistantsStatus {
   installable: AssistantClient[]
 }
 
+/** An assistant someone allowed to use a Lumovi server as them. */
+export interface ServerAssistant {
+  /** What they allowed: revoked by it. */
+  id: string
+  /** As Lumovi shows it: "Claude Code". */
+  name: string
+  /** When they allowed it, and when it last asked anything. */
+  since: number
+  lastUsed?: number
+}
+
+/** A server's MCP server, for its pages: where assistants connect, and what they may change. */
+export interface ServerAssistantsStatus {
+  /** Whether the server lets assistants connect (LUMOVI_ASSISTANTS). */
+  enabled: boolean
+  /** Where assistants connect: https://lumovi.example.com/mcp. */
+  url: string
+  /** The person's own: each they allowed, until they revoke it or their session ends. */
+  clients: ServerAssistant[]
+  /** What assistants' changes do, as the server's administrator set it: each cluster's, or `default`. */
+  changes: AiChangesPolicy
+}
+
+/** What assistants' changes do on each cluster, unless a cluster has its own. */
+export interface AiChangesPolicy {
+  default: AiChanges
+  clusters: Record<string, AiChanges>
+}
+
 /** What an assistant asked to do. */
 export type ProposalAction = 'apply' | 'scale' | 'restart' | 'delete'
 

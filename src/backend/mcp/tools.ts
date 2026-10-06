@@ -40,9 +40,12 @@ export interface ToolContext {
   client(): string
   /** Whether its changes to a context are asked about, made, or refused. */
   changes(context: string): AiChanges
-  approvals: Approvals
+  /** Where its changes wait for the person's answer. */
+  approvals: Pick<Approvals, 'ask' | 'wait'>
   /** What became of a change it asked for, for the activity log. */
   outcome(outcome: ProposalOutcome): void
+  /** Where the person answers, for assistants to tell them: a server's address. */
+  appUrl?: string
 }
 
 /** kubectl's short names for the built-in kinds (discovery has custom resources'). */
@@ -419,7 +422,7 @@ export function registerTools(server: McpServer, t: ToolContext): void {
   /** What an assistant hears while the person hasn't answered yet. */
   const stillWaiting = (id: string) =>
     text(
-      `Still waiting for the person’s answer in Lumovi: nothing has changed yet. Tell them to look at Lumovi, and call wait_for_change with id “${id}” to keep waiting for it.`,
+      `Still waiting for the person’s answer in Lumovi${t.appUrl ? ` (${t.appUrl})` : ''}: nothing has changed yet. Tell them to look at Lumovi, and call wait_for_change with id “${id}” to keep waiting for it.`,
     )
 
   /** Waits for what becomes of change `id`, a while at most, saying so meanwhile where asked. */

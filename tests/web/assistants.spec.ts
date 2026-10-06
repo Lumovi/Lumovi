@@ -1,0 +1,866 @@
+/**
+ * AI assistants on a Lumovi server: they sign in as someone with OAuth, as MCP
+ * clients do (the MCP SDK's own client plays the assistant here), read the
+ * clusters that person can, and the changes they ask for wait on the person's
+ * own pages.
+ */
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import type { BrowserContext, Page } from '@playwright/test'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import {
+  UnauthorizedError,
+  type OAuthClientProvider,
+} from '@modelcontextprotocol/sdk/client/auth.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import type {
+  OAuthClientInformationMixed,
+  OAuthClientMetadata,
+  OAuthTokens,
+} from '@modelcontextprotocol/sdk/shared/auth.js'
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { DEMO, expect, PEOPLE, refusedConfig, signIn, test, type Served } from './fixtures.ts'
+
+/** Where an assistant is sent back to with its code: a server of its own, on this computer. */
+async function callback(): Promise<{
+  url: string
+  answer: Promise<URLSearchParams>
+  close(): void
+}> {
+  let answered!: (query: URLSearchParams) => void
+  const answer = new Promise<URLSearchParams>((resolve) => (answered = resolve))
+  const server = createServer((req, res) => {
+    answered(new URL(req.url!, 'http://127.0.0.1').searchParams)
+    res.writeHead(200, { 'Content-Type': 'text/plain' }).end('You can close this tab.')
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return { url: `http://127.0.0.1:${port}/callback`, answer, close: () => server.close() }
+}
+
+/** An assistant, as the MCP SDK signs one in: it registers, sends the person to Lumovi, and keeps its tokens. */
+class Assistant implements OAuthClientProvider {
+  authorizationUrl?: URL
+  #client?: OAuthClientInformationMixed
+  #tokens?: OAuthTokens
+  #verifier = ''
+
+  constructor(
+    readonly redirectUrl: string,
+    readonly name = 'Claude Code (lumovi)',
+  ) {}
+
+  get clientMetadata(): OAuthClientMetadata {
+    return {
+      client_name: this.name,
+      redirect_uris: [this.redirectUrl],
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+    }
+  }
+  clientInformation() {
+    return this.#client
+  }
+  saveClientInformation(client: OAuthClientInformationMixed) {
+    this.#client = client
+  }
+  tokens() {
+    return this.#tokens
+  }
+  saveTokens(tokens: OAuthTokens) {
+    this.#tokens = tokens
+  }
+  redirectToAuthorization(url: URL) {
+    this.authorizationUrl = url
+  }
+  saveCodeVerifier(verifier: string) {
+    this.#verifier = verifier
+  }
+  codeVerifier() {
+    return this.#verifier
+  }
+}
+
+/**
+ * An assistant connected to `served` as whoever `page` is signed in as: it
+ * asks, the person allows it on Lumovi's page, and it signs in with the code.
+ */
+async function connect(
+  page: Page,
+  served: Served,
+  { name = 'claude-code', clientName = 'Claude Code (lumovi)' } = {},
+) {
+  const back = await callback()
+  const assistant = new Assistant(back.url, clientName)
+  const endpoint = new URL('mcp', served.url)
+  const first = new Client({ name, version: '1.0.0' })
+  const transport = new StreamableHTTPClientTransport(endpoint, { authProvider: assistant })
+  await expect(first.connect(transport)).rejects.toThrow(UnauthorizedError)
+  await page.goto(assistant.authorizationUrl!.href)
+  await page.getByRole('button', { name: 'Allow' }).click()
+  const answer = await back.answer
+  await page.waitForURL((url) => url.href.startsWith(back.url))
+  back.close()
+  await transport.finishAuth(answer.get('code')!)
+  const client = new Client({ name, version: '1.0.0' })
+  await client.connect(new StreamableHTTPClientTransport(endpoint, { authProvider: assistant }))
+  return { client, assistant }
+}
+
+/** A tool's answer, as text, and whether it's an error. */
+async function call(
+  client: Client,
+  name: string,
+  args: Record<string, unknown> = {},
+  options?: RequestOptions,
+): Promise<{ text: string; error: boolean }> {
+  const result = (await client.callTool(
+    { name, arguments: args },
+    undefined,
+    options,
+  )) as CallToolResult
+  return { text: (result.content[0] as { text: string }).text, error: result.isError === true }
+}
+
+const approval = (page: Page, title: string | RegExp) => page.getByRole('dialog', { name: title })
+
+/** The browser's notifications, recorded (window.__notices), with the permission `permission` gives. */
+async function fakeNotifications(context: BrowserContext, permission = 'default') {
+  await context.addInitScript((permission) => {
+    const notices: { title: string; body?: string }[] = []
+    Object.assign(window, { __notices: notices })
+    class Recorded {
+      static permission = permission
+      static async requestPermission() {
+        Recorded.permission = 'granted'
+        return 'granted'
+      }
+      onclick: (() => void) | null = null
+      constructor(title: string, options?: { body?: string }) {
+        notices.push({ title, body: options?.body })
+        Object.assign(window, { __lastNotice: this })
+      }
+    }
+    Object.assign(window, { Notification: Recorded })
+  }, permission)
+}
+
+test('assistants sign in as the person, and read what they may', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  expect(served.log()).toContain(
+    'alice@example.com allowed Claude Code (lumovi) to use Lumovi as them',
+  )
+
+  // The clusters she sees, as her.
+  expect((await call(client, 'list_clusters')).text).toMatch(
+    /^current: demo\nclusters:\n {2}- name: demo\n/,
+  )
+  const pods = await call(client, 'list_resources', {
+    cluster: 'demo',
+    kind: 'pods',
+    namespace: 'shop',
+  })
+  expect(pods.text).toContain(DEMO.pods.storefront[0]!)
+  expect(clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
+
+  // Her assistants, by the names they give.
+  await page.goto(`${served.url}cluster/demo`)
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  const dialog = page.getByRole('dialog', { name: 'AI assistants' })
+  const yours = dialog.getByRole('region', { name: 'Your assistants' })
+  await expect(yours.getByRole('listitem')).toHaveText([
+    /^Claude CodeAllowed \d+s ago · used \d+s ago/,
+  ])
+  await expect(dialog.getByLabel('Command', { exact: true })).toHaveText(
+    `claude mcp add --transport http lumovi ${served.url}mcp`,
+  )
+  await dialog.getByRole('tab', { name: 'Cursor' }).click()
+  const cursor = new URL(
+    (await dialog.getByRole('link', { name: 'Add to Cursor' }).getAttribute('href'))!,
+  )
+  expect(JSON.parse(atob(cursor.searchParams.get('config')!))).toEqual({ url: `${served.url}mcp` })
+  await dialog.getByRole('tab', { name: 'VS Code' }).click()
+  const vscode = (await dialog.getByRole('link', { name: 'Add to VS Code' }).getAttribute('href'))!
+  expect(JSON.parse(decodeURIComponent(vscode.slice('vscode:mcp/install?'.length)))).toEqual({
+    name: 'lumovi',
+    type: 'http',
+    url: `${served.url}mcp`,
+  })
+  await dialog.getByRole('tab', { name: 'Other' }).click()
+  await expect(dialog.getByLabel('Address', { exact: true })).toHaveText(`${served.url}mcp`)
+  await expect(dialog.getByRole('region', { name: 'Changes they ask for' })).toContainText(
+    'demoAsk you',
+  )
+
+  // Let go, it can't act as her any more.
+  await yours.getByRole('button', { name: 'Disconnect' }).click()
+  await expect(yours).toContainText('None yet')
+  await expect(call(client, 'list_clusters')).rejects.toThrow()
+  expect(served.log()).toContain('alice@example.com’s Claude Code was let go')
+})
+
+test('changes wait for the person’s answer, on their own pages only', async ({
+  page,
+  context,
+  browser,
+  serve,
+}) => {
+  await fakeNotifications(context, 'granted')
+  const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1500' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  // Bob, signed in elsewhere, sees none of hers.
+  const elsewhere = await browser.newContext()
+  const bob = await elsewhere.newPage()
+  await signIn(bob, `${served.url}cluster/demo`, PEOPLE.bob.token)
+  const { client } = await connect(page, served)
+  await page.goto(`${served.url}cluster/demo`)
+  await expect(page.getByRole('button', { name: 'AI assistants (1 connected)' })).toBeVisible()
+
+  // While her tab is elsewhere, the browser tells her; the assistant hears where to send her.
+  await page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true }),
+  )
+  const asked = await call(client, 'scale', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    replicas: 3,
+    reason: 'Busy.',
+  })
+  const [, id] = asked.text.match(
+    new RegExp(
+      `^Still waiting for the person’s answer in Lumovi \\(${served.url.slice(0, -1)}\\): nothing has changed yet\\. .* id “([\\w-]+)”`,
+    ),
+  )!
+  const dialog = approval(page, 'Scale Deployment cart to 3 replicas')
+  await expect(dialog).toContainText('Claude Code asks')
+  await expect
+    .poll(() => page.evaluate(() => (window as { __notices?: unknown[] }).__notices))
+    .toEqual([
+      {
+        title: 'Claude Code asks to change demo',
+        body: 'Scale Deployment cart to 3 replicas. Review it in Lumovi.',
+      },
+    ])
+  await page.evaluate(() =>
+    (window as { __lastNotice?: { onclick(): void } }).__lastNotice!.onclick(),
+  )
+  await page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', {
+      get: () => 'visible',
+      configurable: true,
+    }),
+  )
+  await expect(approval(bob, 'Scale Deployment cart to 3 replicas')).toBeHidden()
+
+  // Answered on her page: made, and the server's log says who and what.
+  await dialog.getByRole('button', { name: /^Approve/ }).click()
+  expect(await call(client, 'wait_for_change', { id })).toEqual({
+    error: false,
+    text: expect.stringMatching(/^Scaled cart to 3 replicas, approved in Lumovi\./),
+  })
+  expect(served.log()).toContain(
+    'alice@example.com’s Claude Code: Scale Deployment cart to 3 replicas in demo, made',
+  )
+
+  // In front, a change waiting tells nobody; rejected with a note, the assistant reads it.
+  const restarting = call(client, 'restart', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    reason: 'Stale.',
+  })
+  const restart = approval(page, 'Restart Deployment cart')
+  await restart.getByRole('button', { name: 'Reject…' }).click()
+  await restart.getByRole('textbox', { name: 'Note' }).fill('Not now.')
+  await page.keyboard.press('ControlOrMeta+Enter')
+  expect((await restarting).text).toBe(
+    'The person rejected it in Lumovi, saying: “Not now.”. Nothing was changed.',
+  )
+  expect(served.log()).toContain('Restart Deployment cart in demo, rejected: Not now.')
+  expect(await page.evaluate(() => (window as { __notices?: unknown[] }).__notices)).toHaveLength(1)
+
+  // A change waiting while no page of hers is open shows on the next one.
+  await page.goto('about:blank')
+  const later = call(client, 'scale', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    replicas: 1,
+    reason: 'Quiet.',
+  })
+  await page.goto(`${served.url}cluster/demo`)
+  await approval(page, 'Scale Deployment cart to 1 replica')
+    .getByRole('button', { name: /^Approve/ })
+    .click()
+  expect((await later).text).toMatch(/^Scaled cart to 1 replica, approved in Lumovi\./)
+  await elsewhere.close()
+})
+
+test('signing out of Lumovi lets the person’s assistants go', async ({ page, browser, serve }) => {
+  const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1000' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  // A change still waiting for her answer…
+  const asked = await call(client, 'scale', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    replicas: 3,
+    reason: 'Busy.',
+  })
+  expect(asked.text).toMatch(/^Still waiting/)
+  const elsewhere = await browser.newContext()
+  const bob = await elsewhere.newPage()
+  await signIn(bob, `${served.url}cluster/demo`, PEOPLE.bob.token)
+  const { client: bobs } = await connect(bob, served)
+  await page.goto(`${served.url}cluster/demo`)
+  // Put aside, it waits on her page as she signs out.
+  await approval(page, 'Scale Deployment cart to 3 replicas')
+    .getByRole('button', { name: 'Later' })
+    .click()
+  await page.getByRole('button', { name: 'Signed in as alice@example.com' }).click()
+  await page
+    .getByRole('dialog', { name: 'Account' })
+    .getByRole('button', { name: 'Sign out' })
+    .click()
+  await expect(page.getByRole('heading', { name: 'Sign in to Lumovi' })).toBeVisible()
+  await expect(call(client, 'list_clusters')).rejects.toThrow()
+  expect(served.log()).toContain('alice@example.com’s Claude Code can no longer use Lumovi')
+  // …is withdrawn with it.
+  expect(served.log()).toContain('Scale Deployment cart to 3 replicas in demo, withdrawn')
+  // Bob's, allowed in his own session, carries on.
+  expect((await call(bobs, 'list_clusters')).error).toBe(false)
+  await elsewhere.close()
+})
+
+test('a person may deny an assistant, and a request that isn’t right is refused', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const back = await callback()
+  const assistant = new Assistant(back.url)
+  const transport = new StreamableHTTPClientTransport(new URL('mcp', served.url), {
+    authProvider: assistant,
+  })
+  await expect(new Client({ name: 'x', version: '1' }).connect(transport)).rejects.toThrow(
+    UnauthorizedError,
+  )
+  const asking = assistant.authorizationUrl!
+  await page.goto(asking.href)
+  await expect(page).toHaveTitle('Allow an AI assistant — Lumovi')
+  const request = page.getByRole('region', { name: 'Allow an assistant' })
+  await expect(request).toContainText(
+    `Claude Code (lumovi)wants to use Lumovi as alice@example.com`,
+  )
+  await expect(request).toContainText(`Then it goes back to ${new URL(back.url).host}.`)
+  await request.getByRole('button', { name: 'Deny' }).click()
+  const denied = await back.answer
+  await page.waitForURL((url) => url.href.startsWith(back.url))
+  expect(Object.fromEntries(denied)).toEqual({
+    error: 'access_denied',
+    ...(asking.searchParams.has('state') ? { state: asking.searchParams.get('state') } : {}),
+    iss: served.url.slice(0, -1),
+  })
+  back.close()
+
+  // What's wrong with a request, said where the person is.
+  const wrong = async (change: (query: URLSearchParams) => void, why: string) => {
+    const query = new URLSearchParams(asking.search)
+    change(query)
+    await page.goto(`${served.url}authorize?${query}`)
+    await expect(page.getByRole('alert')).toHaveText(
+      `This request to allow an assistant can’t be answered: ${why} Start again from the assistant.`,
+    )
+  }
+  await wrong((q) => q.set('client_id', 'someone'), 'It doesn’t say which assistant it is.')
+  await wrong(
+    (q) => q.set('client_id', 'lumovi-bm90LWpzb24'),
+    'It doesn’t say which assistant it is.',
+  )
+  await wrong(
+    (q) =>
+      q.set(
+        'client_id',
+        `lumovi-${Buffer.from('["x",["javascript:alert(1)"]]').toString('base64url')}`,
+      ),
+    'It doesn’t say which assistant it is.',
+  )
+  await wrong((q) => q.delete('redirect_uri'), 'It goes back somewhere the assistant didn’t name.')
+  await wrong(
+    (q) => q.set('redirect_uri', 'https://evil.example/'),
+    'It goes back somewhere the assistant didn’t name.',
+  )
+  await wrong((q) => q.set('response_type', 'token'), 'It asks for something other than a code.')
+  await wrong((q) => q.delete('code_challenge'), 'It has no PKCE code challenge (S256).')
+  await wrong(
+    (q) => q.set('resource', 'https://elsewhere.example/mcp'),
+    `It’s for https://elsewhere.example/mcp, not Lumovi’s ${served.url}mcp.`,
+  )
+
+  // The answer must come from Lumovi's own page, signed in.
+  const fromElsewhere = await page.request.post(`${served.url}api/assistants/authorize`, {
+    headers: { Origin: 'https://evil.example' },
+    data: { query: asking.search.slice(1), approved: true },
+  })
+  expect(fromElsewhere.status()).toBe(403)
+  const malformed = await page.request.post(`${served.url}api/assistants/authorize`, {
+    headers: { Origin: new URL(served.url).origin },
+    data: { approved: 'yes' },
+  })
+  expect(await malformed.json()).toEqual({
+    error: 'Expected the request, and whether it’s allowed.',
+  })
+  const anonymous = await fetch(`${served.url}api/assistants/authorize${asking.search}`)
+  expect(anonymous.status).toBe(401)
+
+  // Answered, but the server can't go on with it: said on the page.
+  await page.route('**/api/assistants/authorize', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ status: 400, json: { error: 'It has expired.' } })
+      : route.fallback(),
+  )
+  await page.goto(asking.href)
+  await page.getByRole('button', { name: 'Allow' }).click()
+  await expect(page.getByRole('alert')).toContainText('It has expired.')
+})
+
+/** POSTs a form, as OAuth's token and revocation requests are. */
+const form = (
+  url: string,
+  fields: Record<string, string>,
+  type = 'application/x-www-form-urlencoded',
+) =>
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': type },
+    body: new URLSearchParams(fields).toString(),
+  })
+
+test('codes are swapped for tokens once, with their PKCE verifier, and renewed', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve({ env: { LUMOVI_ASSISTANT_TOKEN_SECONDS: '1' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const token = `${served.url}oauth/token`
+
+  // Registering: where an assistant may be sent back to.
+  const register = (body: unknown) =>
+    fetch(`${served.url}oauth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  for (const redirects of [
+    [],
+    'https://a.example/',
+    ['http://evil.example/callback'],
+    ['javascript:alert(1)'],
+    ['https://a.example/#fragment'],
+    ['not a url'],
+  ]) {
+    expect((await register({ redirect_uris: redirects })).status, String(redirects)).toBe(400)
+  }
+  // A site's own address is as good as an app's.
+  expect(
+    (await register({ client_name: 'Web', redirect_uris: ['https://assistant.example/callback'] }))
+      .status,
+  ).toBe(201)
+  const app = await (
+    await register({ redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback'] })
+  ).json()
+  expect(app).toMatchObject({ client_name: 'An AI assistant', token_endpoint_auth_method: 'none' })
+
+  // An app's own scheme: the page says which app it goes back to.
+  const verifier = 'v'.repeat(43)
+  const challenge = Buffer.from(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)),
+  ).toString('base64url')
+  const query = new URLSearchParams({
+    response_type: 'code',
+    client_id: app.client_id,
+    redirect_uri: 'cursor://anysphere.cursor-mcp/oauth/callback',
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    resource: `${served.url}mcp/`,
+    state: 'from-cursor',
+  })
+  await page.goto(`${served.url}authorize?${query}`)
+  const request = page.getByRole('region', { name: 'Allow an assistant' })
+  await expect(request).toContainText('Then it goes back to cursor.')
+  const allowed = await page.request.post(`${served.url}api/assistants/authorize`, {
+    headers: { Origin: new URL(served.url).origin },
+    data: { query: query.toString(), approved: true },
+  })
+  const sentBack = new URL((await allowed.json()).redirect)
+  expect(sentBack.searchParams.get('state')).toBe('from-cursor')
+  const code = sentBack.searchParams.get('code')!
+
+  const swap = (fields: Record<string, string>) =>
+    form(token, {
+      grant_type: 'authorization_code',
+      code,
+      client_id: app.client_id,
+      redirect_uri: 'cursor://anysphere.cursor-mcp/oauth/callback',
+      code_verifier: verifier,
+      ...fields,
+    })
+  const refusal = async (response: Response) => [response.status, (await response.json()).error]
+  // Without what it needs: no code, or no refresh token.
+  expect(await refusal(await form(token, { grant_type: 'authorization_code' }))).toEqual([
+    400,
+    'invalid_grant',
+  ])
+  expect(await refusal(await form(token, { grant_type: 'refresh_token' }))).toEqual([
+    400,
+    'invalid_grant',
+  ])
+  expect(await refusal(await form(token, { grant_type: 'password' }))).toEqual([
+    400,
+    'unsupported_grant_type',
+  ])
+  expect(await refusal(await form(token, {}, 'application/json'))).toEqual([400, 'invalid_request'])
+  expect(
+    await refusal(
+      await form(token, { grant_type: 'refresh_token', refresh_token: 'x'.repeat(20_000) }),
+    ),
+  ).toEqual([400, 'invalid_request'])
+  // Without its verifier, the code is spent: it's never good twice.
+  expect(
+    await refusal(
+      await form(token, {
+        grant_type: 'authorization_code',
+        code,
+        client_id: app.client_id,
+        redirect_uri: 'cursor://anysphere.cursor-mcp/oauth/callback',
+      }),
+    ),
+  ).toEqual([400, 'invalid_grant'])
+  expect(await refusal(await swap({ code_verifier: 'w'.repeat(43) }))).toEqual([
+    400,
+    'invalid_grant',
+  ])
+  expect(await refusal(await swap({}))).toEqual([400, 'invalid_grant'])
+
+  // A fresh code: swapped once, for another assistant's it's refused.
+  const again = await page.request.post(`${served.url}api/assistants/authorize`, {
+    headers: { Origin: new URL(served.url).origin },
+    data: { query: query.toString(), approved: true },
+  })
+  const fresh = new URL((await again.json()).redirect).searchParams.get('code')!
+  expect(await refusal(await swap({ code: fresh, client_id: 'someone-else' }))).toEqual([
+    400,
+    'invalid_grant',
+  ])
+  const third = await page.request.post(`${served.url}api/assistants/authorize`, {
+    headers: { Origin: new URL(served.url).origin },
+    data: { query: query.toString(), approved: true },
+  })
+  const good = new URL((await third.json()).redirect).searchParams.get('code')!
+  const tokens = await (await swap({ code: good })).json()
+  expect(tokens).toMatchObject({ token_type: 'Bearer', expires_in: 1 })
+  // Listed for her, not yet used.
+  await page.goto(`${served.url}cluster/demo`)
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await expect(
+    page.getByRole('region', { name: 'Your assistants' }).getByRole('listitem'),
+  ).toHaveText([/^An AI assistantAllowed \d+s agoDisconnect$/])
+  await page.keyboard.press('Escape')
+
+  // Expired, an access token is refused; the refresh token renews it, once.
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  const mcp = (access: string) =>
+    fetch(`${served.url}mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${access}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    })
+  const expired = await mcp(tokens.access_token)
+  expect(expired.status).toBe(401)
+  expect(expired.headers.get('www-authenticate')).toBe(
+    `Bearer error="invalid_token", resource_metadata="${served.url}.well-known/oauth-protected-resource/mcp"`,
+  )
+  const renewed = await (
+    await form(token, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token })
+  ).json()
+  expect(renewed.refresh_token).not.toBe(tokens.refresh_token)
+  expect(
+    await refusal(
+      await form(token, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token }),
+    ),
+  ).toEqual([400, 'invalid_grant'])
+  expect((await mcp(renewed.access_token)).status).toBe(400)
+
+  // Revoked (signing an assistant out), it's gone; anything else is answered alike.
+  const revoke = `${served.url}oauth/revoke`
+  expect((await form(revoke, { token: 'unknown' })).status).toBe(200)
+  expect((await form(revoke, {})).status).toBe(200)
+  expect((await form(revoke, {}, 'application/json')).status).toBe(200)
+  expect((await form(revoke, { token: renewed.refresh_token })).status).toBe(200)
+  expect(
+    await refusal(
+      await form(token, { grant_type: 'refresh_token', refresh_token: renewed.refresh_token }),
+    ),
+  ).toEqual([400, 'invalid_grant'])
+  expect(served.log()).toContain('alice@example.com’s An AI assistant signed out')
+})
+
+test('assistants find how to sign in, at the origin’s root and below the base path', async ({
+  serve,
+}) => {
+  const served = await serve({
+    env: { LUMOVI_BASE_PATH: '/lumovi', LUMOVI_URL: 'https://lumovi.example.com' },
+  })
+  const origin = new URL(served.url).origin
+  const json = async (path: string) => (await fetch(`${origin}${path}`)).json()
+  const issuer = 'https://lumovi.example.com/lumovi'
+  const server = {
+    issuer,
+    authorization_endpoint: `${issuer}/authorize`,
+    token_endpoint: `${issuer}/oauth/token`,
+    registration_endpoint: `${issuer}/oauth/register`,
+    revocation_endpoint: `${issuer}/oauth/revoke`,
+    response_types_supported: ['code'],
+    response_modes_supported: ['query'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+    revocation_endpoint_auth_methods_supported: ['none'],
+    authorization_response_iss_parameter_supported: true,
+  }
+  const resource = {
+    resource: `${issuer}/mcp`,
+    authorization_servers: [issuer],
+    bearer_methods_supported: ['header'],
+    resource_name: 'Lumovi',
+  }
+  expect(await json('/.well-known/oauth-authorization-server/lumovi')).toEqual(server)
+  expect(await json('/lumovi/.well-known/oauth-authorization-server')).toEqual(server)
+  expect(await json('/.well-known/oauth-protected-resource/lumovi/mcp')).toEqual(resource)
+  expect(await json('/lumovi/.well-known/oauth-protected-resource')).toEqual(resource)
+  expect(await json('/lumovi/.well-known/oauth-protected-resource/mcp')).toEqual(resource)
+  // Nothing else at the root is Lumovi's.
+  expect((await fetch(`${origin}/.well-known/openid-configuration`)).status).toBe(404)
+  expect(
+    (await fetch(`${origin}/.well-known/oauth-authorization-server/lumovi`, { method: 'POST' }))
+      .status,
+  ).toBe(404)
+
+  // Without LUMOVI_URL, where the person (or assistant) reached it: over HTTPS at a proxy, say.
+  const plain = await serve()
+  const behind = await fetch(`${plain.url}.well-known/oauth-authorization-server`, {
+    headers: { 'X-Forwarded-Proto': 'https' },
+  })
+  expect((await behind.json()).issuer).toBe(`https://${new URL(plain.url).host}`)
+})
+
+test('behind a proxy, an assistant acts as who allowed it, for as long as a session lasts', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const served = await serve({ env: { LUMOVI_AUTH: 'proxy', LUMOVI_SESSION_HOURS: '0.001' } })
+  await context.setExtraHTTPHeaders({ 'X-Forwarded-User': 'frank@example.com' })
+  await page.goto(`${served.url}cluster/demo`)
+  const { client } = await connect(page, served)
+  // Its requests carry no proxy's headers: it's Frank, impersonated, all the same.
+  expect((await call(client, 'list_resources', { cluster: 'demo', kind: 'ns' })).error).toBe(false)
+  expect(clusters.demo.requests.at(-1)?.user).toBe('frank@example.com')
+  await new Promise((resolve) => setTimeout(resolve, 3_700))
+  await expect(call(client, 'list_clusters')).rejects.toThrow()
+  expect(served.log()).toContain('frank@example.com’s Claude Code can no longer use Lumovi')
+})
+
+test('an administrator can turn assistants off', async ({ page, serve }) => {
+  const served = await serve({ env: { LUMOVI_ASSISTANTS: 'off' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('option', { name: 'AI assistants…' }).click()
+  await expect(page.getByRole('dialog', { name: 'AI assistants' })).toContainText(
+    'This server’s administrator has turned AI assistants off.',
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: /^AI assistants/ })).toHaveCount(0)
+  for (const path of ['mcp', 'oauth/token', 'oauth/register']) {
+    expect((await fetch(`${served.url}${path}`, { method: 'POST' })).status, path).toBe(405)
+  }
+  expect(
+    (await fetch(`${new URL(served.url).origin}/.well-known/oauth-protected-resource/mcp`)).status,
+  ).toBe(200)
+})
+
+test('an administrator says what assistants’ changes do, cluster by cluster', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve({ env: { LUMOVI_ASSISTANT_CHANGES: 'never, demo = allow' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  await page.goto(`${served.url}cluster/demo`)
+  await expect(page.getByRole('button', { name: 'AI assistants (1 connected)' })).toBeVisible()
+  const restarted = await call(client, 'restart', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    reason: 'Stale.',
+  })
+  expect(restarted.text).toMatch(/^Restarted cart\. /)
+  await expect(page.getByRole('status').filter({ hasText: 'Restarted cart' })).toContainText(
+    'Claude Code changed demo without asking',
+  )
+  expect(served.log()).toContain('Restart Deployment cart in demo, made without asking')
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await expect(
+    page
+      .getByRole('dialog', { name: 'AI assistants' })
+      .getByRole('region', { name: 'Changes they ask for' }),
+  ).toContainText('demoMade without asking')
+})
+
+test('assistants’ settings that don’t make sense stop the server', async ({ clusters }) => {
+  expect(await refusedConfig(clusters, { LUMOVI_ASSISTANTS: 'maybe' })).toContain(
+    'LUMOVI_ASSISTANTS must be on or off, not "maybe".',
+  )
+  for (const setting of ['sometimes', 'ask,=never', 'ask,demo=maybe']) {
+    expect(await refusedConfig(clusters, { LUMOVI_ASSISTANT_CHANGES: setting }), setting).toContain(
+      `LUMOVI_ASSISTANT_CHANGES must be ask, allow or never, with clusters' own after it (ask,staging=allow), not "${setting}".`,
+    )
+  }
+})
+
+test('each assistant keeps to its own sessions, and quiet ones are let go', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve({ env: { LUMOVI_ASSISTANTS_IDLE_MS: '1500' } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const code = await connect(page, served)
+  const cursor = await connect(page, served, { name: 'cursor-vscode', clientName: 'Cursor' })
+  // Connecting again, it keeps its name.
+  const again = new Client({ name: 'cursor-vscode', version: '1.0.0' })
+  await again.connect(
+    new StreamableHTTPClientTransport(new URL('mcp', served.url), {
+      authProvider: cursor.assistant,
+    }),
+  )
+  const mcp = (headers: Record<string, string>, body?: string, method = 'POST') =>
+    fetch(`${served.url}mcp`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${cursor.assistant.tokens()!.access_token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        ...headers,
+      },
+      body,
+    })
+  const refusal = async (response: Response) => [
+    response.status,
+    (await response.json()).error.message,
+  ]
+  const list = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+  // Claude Code's session is as good as gone to Cursor.
+  const theirs = (code.client.transport as StreamableHTTPClientTransport).sessionId!
+  expect(await refusal(await mcp({ 'Mcp-Session-Id': theirs }, list))).toEqual([
+    404,
+    'That session has ended: start a new one.',
+  ])
+  expect(await refusal(await mcp({}, list))).toEqual([400, 'Start a session first (initialize).'])
+  expect(await refusal(await mcp({}, undefined, 'GET'))).toEqual([
+    400,
+    'Start a session first (initialize).',
+  ])
+  expect(await refusal(await mcp({}, '{ nope'))).toEqual([
+    400,
+    'That isn’t a JSON-RPC message (or it’s more than 4 MB).',
+  ])
+
+  // Its own page's calls about them are checked.
+  await page.goto(`${served.url}cluster/demo`)
+  expect(
+    await page.evaluate(() =>
+      window.lumovi!.serverAssistants!.revoke(5 as never).catch((error: Error) => error.message),
+    ),
+  ).toContain('Expected an assistant’s id')
+  expect(
+    await page.evaluate(() => window.lumovi!.serverAssistants!.revoke('someone-elses')),
+  ).toMatchObject({ clients: [{ name: 'Claude Code' }, { name: 'Cursor' }] })
+  expect(
+    await page.evaluate(() =>
+      window
+        .lumovi!.approvals!.decide(5 as never, { approved: true })
+        .catch((error: Error) => error.message),
+    ),
+  ).toContain('Expected a change’s id')
+
+  // Quiet for a while, a session is let go; Cursor's other one, in use, isn't.
+  for (let i = 0; i < 3; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    expect((await call(again, 'list_clusters')).error).toBe(false)
+  }
+  await expect(call(code.client, 'list_clusters')).rejects.toThrow()
+})
+
+test('a person may let the browser tell them of changes waiting', async ({
+  page,
+  context,
+  serve,
+}) => {
+  await fakeNotifications(context)
+  const served = await serve()
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await page.getByRole('button', { name: 'AI assistants', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'AI assistants' })
+  await expect(dialog.getByRole('region', { name: 'Your assistants' })).toContainText('None yet')
+  const notifications = dialog.getByRole('region', { name: 'Notifications' })
+  await expect(notifications).toContainText('Let this browser tell you when a change waits')
+  await notifications.getByRole('button', { name: 'Notify me' }).click()
+  await expect(notifications).toContainText('This browser tells you when a change waits for you.')
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => Object.assign(Notification, { permission: 'denied' }))
+  await page.getByRole('button', { name: 'AI assistants', exact: true }).click()
+  await expect(notifications).toContainText('This browser’s settings block Lumovi’s notifications.')
+  await page.keyboard.press('Escape')
+
+  // Blocked, a change waiting while the tab is elsewhere shows only on it.
+  const { client } = await connect(page, served)
+  await page.goto(`${served.url}cluster/demo`)
+  await page.evaluate(() => {
+    Object.assign(Notification, { permission: 'denied' })
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true })
+  })
+  const scaling = call(client, 'scale', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    replicas: 3,
+    reason: 'Busy.',
+  })
+  await approval(page, 'Scale Deployment cart to 3 replicas')
+    .getByRole('button', { name: /^Approve/ })
+    .click()
+  expect((await scaling).error).toBe(false)
+  expect(await page.evaluate(() => (window as { __notices?: unknown[] }).__notices)).toEqual([])
+})

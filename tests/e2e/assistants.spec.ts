@@ -1333,18 +1333,19 @@ test('The window’s requests about assistants are checked', async ({ page }) =>
   expect(
     await page.evaluate(async () => {
       const a = window.lumovi!.assistants!
+      const approvals = window.lumovi!.approvals!
       const tries: (() => Promise<unknown>)[] = [
         () => a.configure({ enabled: 'yes' as never }),
         () => a.configure({ port: 80 }),
         () => a.install('claude-code' as never),
         () => a.setChanges('', 'ask'),
         () => a.setChanges('demo', 'sometimes' as never),
-        () => a.decide(5 as never, { approved: true }),
-        () => a.decide('x', { approved: 'yes' } as never),
-        () => a.decide('x', { approved: false, note: 5 } as never),
-        () => a.decide('x', { approved: false, note: 'x'.repeat(2_001) }),
+        () => approvals.decide(5 as never, { approved: true }),
+        () => approvals.decide('x', { approved: 'yes' } as never),
+        () => approvals.decide('x', { approved: false, note: 5 } as never),
+        () => approvals.decide('x', { approved: false, note: 'x'.repeat(2_001) }),
         // An answer to a change that's no longer waiting is let go.
-        () => a.decide('gone', { approved: true }),
+        () => approvals.decide('gone', { approved: true }),
         () =>
           window.lumovi!.kube.change({
             context: 'demo',
@@ -1522,7 +1523,7 @@ test('A call waits a while for the answer, then keeps waiting with wait_for_chan
   expect(scale.text).toMatch(/^Still waiting/)
   await page.evaluate(() => window.lumovi!.assistants!.configure({ enabled: false }))
   await expect(approval(page, 'Scale Deployment storefront to 6 replicas')).toBeHidden()
-  expect(await page.evaluate(() => window.lumovi!.assistants!.pending())).toEqual([])
+  expect(await page.evaluate(() => window.lumovi!.approvals!.pending())).toEqual([])
 })
 
 test('An approved change is made as it was shown, or not at all', async ({ page, clusters }) => {

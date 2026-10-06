@@ -53,6 +53,7 @@ import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
 import { AssistantsButton } from '../assistants/AssistantsDialog'
+import { ServerAssistantsButton } from '../assistants/ServerAssistantsDialog'
 import { ThemeMenu } from './ThemeMenu'
 
 export const CATEGORY_LABELS: Record<ResourceCategory, string> = {
@@ -206,6 +207,7 @@ export function Sidebar() {
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
         <ThemeMenu />
         {api.assistants && <AssistantsButton assistants={api.assistants} />}
+        {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}
         {session && <AccountMenu session={session} />}
         <IconButton label="Lumovi on GitHub" onClick={() => api.app.openExternal(REPO_URL)}>
           <GithubMark />

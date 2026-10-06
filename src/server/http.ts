@@ -42,14 +42,14 @@ export function redirect(
   res.end()
 }
 
-/** A JSON request body; `undefined` when it isn't one, or is too large. */
-export async function readJson(req: IncomingMessage): Promise<unknown> {
+/** A JSON request body; `undefined` when it isn't one, or is larger than `max`. */
+export async function readJson(req: IncomingMessage, max = MAX_BODY): Promise<unknown> {
   if (!req.headers['content-type']?.startsWith('application/json')) return undefined
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req as AsyncIterable<Buffer>) {
     size += chunk.length
-    if (size > MAX_BODY) return undefined
+    if (size > max) return undefined
     chunks.push(chunk)
   }
   try {

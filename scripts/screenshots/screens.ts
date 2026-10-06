@@ -90,7 +90,7 @@ const assistantLeaves = async (page: Page) => {
   await (assistant!.transport as StreamableHTTPClientTransport).terminateSession()
   await assistant!.close()
   await page.evaluate(() => window.lumovi!.assistants!.configure({ enabled: false }))
-  while ((await page.evaluate(() => window.lumovi!.assistants!.pending())).length > 0) {
+  while ((await page.evaluate(() => window.lumovi!.approvals!.pending())).length > 0) {
     await page.waitForTimeout(100)
   }
 }

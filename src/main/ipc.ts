@@ -16,6 +16,7 @@ import type { Forwards } from '@backend/kube/streams'
 import { assertString, invalid } from '@backend/kube/validate'
 import { isTheme } from '@backend/settings'
 import { isAiChanges, isPort } from '@shared/assistants'
+import { checkedDecision } from '@backend/mcp/approvals'
 import type { Assistants } from './assistants'
 import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
@@ -147,20 +148,8 @@ export function registerIpc(deps: Dependencies): void {
       }
       return settings.setAiChanges(context, changes)
     },
-    [IPC.assistantsDecide]: (id, decision) => {
-      const { approved, note } = Object(decision) as { approved?: unknown; note?: unknown }
-      if (
-        typeof id !== 'string' ||
-        typeof approved !== 'boolean' ||
-        (note !== undefined && (typeof note !== 'string' || note.length > 2_000))
-      ) {
-        throw new Error('Expected a change’s id, whether it’s approved, and a note')
-      }
-      assistants.approvals.decide(
-        id,
-        approved ? { approved } : { approved, ...(note ? { note } : {}) },
-      )
-    },
+    [IPC.assistantsDecide]: (id, decision) =>
+      assistants.approvals.decide(...checkedDecision(id, decision)),
     [IPC.assistantsPending]: () => assistants.approvals.pending(),
     [IPC.forwardStart]: (request) => forwards.start(request),
     [IPC.forwardList]: () => forwards.list(),

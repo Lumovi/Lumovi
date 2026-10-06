@@ -27,6 +27,7 @@ import { CopyButton } from '@renderer/components/CopyButton'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { MOD_KEY } from '@renderer/components/Kbd'
 import { refreshAfterChange } from '@renderer/hooks/change'
+import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { pluralize } from '@renderer/lib/format'
 import { looksLikeProduction } from '@renderer/lib/production'
@@ -36,7 +37,7 @@ import { toast } from '@renderer/state/toasts'
 import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
 
-type AssistantsApi = NonNullable<LumoviApi['assistants']>
+type ApprovalsApi = NonNullable<LumoviApi['approvals']>
 
 const ICONS: Record<ProposalAction, LucideIcon> = {
   apply: FileCode2,
@@ -50,23 +51,30 @@ const ICONS: Record<ProposalAction, LucideIcon> = {
  * the person to approve or reject (with a note the assistant is told). Put
  * aside, they wait in a pill at the bottom of the window.
  */
-export function ApprovalCenter({ assistants }: { assistants: AssistantsApi }) {
+export function ApprovalCenter({ approvals }: { approvals: ApprovalsApi }) {
   const queryClient = useQueryClient()
   const { queue, shown, hidden, add, remove } = useApprovals()
 
   // What comes, and what's waiting already (the window was reloaded, say).
-  useEffect(() => assistants.onProposal(add), [assistants, add])
   useEffect(
     () =>
-      assistants.onOutcome((outcome) => {
+      approvals.onProposal((proposal) => {
+        add(proposal)
+        notify(proposal)
+      }),
+    [approvals, add],
+  )
+  useEffect(
+    () =>
+      approvals.onOutcome((outcome) => {
         remove(outcome.proposal.id)
         settle(outcome, queryClient)
       }),
-    [assistants, remove, queryClient],
+    [approvals, remove, queryClient],
   )
   useEffect(
-    () => void assistants.pending().then((waiting) => waiting.forEach(add)),
-    [assistants, add],
+    () => void approvals.pending().then((waiting) => waiting.forEach(add)),
+    [approvals, add],
   )
 
   const proposal = queue.find((p) => p.id === shown)
@@ -74,9 +82,27 @@ export function ApprovalCenter({ assistants }: { assistants: AssistantsApi }) {
   if (hidden) return <Waiting queue={queue} />
   const decide = (decision: ProposalDecision) => {
     remove(proposal.id)
-    void assistants.decide(proposal.id, decision)
+    void approvals.decide(proposal.id, decision)
   }
   return <ApprovalDialog key={proposal.id} proposal={proposal} decide={decide} />
+}
+
+/**
+ * A served page's notification of a change waiting, while it isn't in front
+ * (where the browser lets it): the desktop app's main process sends its own.
+ */
+function notify({ client, context, title }: ChangeProposal) {
+  if (
+    api.host !== 'server' ||
+    document.visibilityState === 'visible' ||
+    Notification.permission !== 'granted'
+  ) {
+    return
+  }
+  const notice = new Notification(`${client} asks to change ${context}`, {
+    body: `${title}. Review it in Lumovi.`,
+  })
+  notice.onclick = () => window.focus()
 }
 
 /** What became of a change: in the activity log, and told when the person didn't decide it. */

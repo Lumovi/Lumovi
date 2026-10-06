@@ -140,6 +140,18 @@ export function createWebApi(): LumoviApi {
     },
     // Answered by servers with a fleet: the page asks only when its session says it has one.
     fleet: { summary: invoke(IPC.fleetSummary) },
+    // The signed-in person's AI assistants, and the changes they ask for.
+    approvals: {
+      decide: invoke(IPC.assistantsDecide),
+      pending: invoke(IPC.assistantsPending),
+      onProposal: listen(IPC.assistantsProposal),
+      onOutcome: listen(IPC.assistantsOutcome),
+    },
+    serverAssistants: {
+      status: invoke(IPC.serverAssistantsStatus),
+      revoke: invoke(IPC.serverAssistantsRevoke),
+      onStatus: listen(IPC.serverAssistantsStatusChanged),
+    },
     helm: {
       releases: invoke(IPC.helmReleases),
       release: invoke(IPC.helmRelease),

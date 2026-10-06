@@ -385,7 +385,7 @@ function Connect({
 }
 
 /** Text to copy: shown as given (the token in part), copied whole. */
-function Snippet({
+export function Snippet({
   text,
   shown = text,
   label,
