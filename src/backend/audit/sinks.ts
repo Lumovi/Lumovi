@@ -61,8 +61,7 @@ export class WebhookSink implements AuditSink {
   send(event: AuditEvent) {
     this.#queue.push(event)
     if (this.#queue.length > this.options.buffer) {
-      this.#queue.shift()
-      this.#dropped++
+      this.#lose([this.#queue.shift()!])
       this.#problem = `More than ${this.options.buffer.toLocaleString('en')} events were waiting to be sent: the oldest were let go.`
     }
     this.#schedule(SECOND)
@@ -70,6 +69,16 @@ export class WebhookSink implements AuditSink {
 
   dropped = () => this.#dropped
   problem = () => this.#problem
+
+  /**
+   * Counts what's let go: but not what it was told of its own losses (a webhook refusing every
+   * event refuses those too, and that's no news: counted, it'd be told again, and again).
+   */
+  #lose(events: AuditEvent[]) {
+    this.#dropped += events.filter(
+      (event) => !(event.action === 'audit.dropped' && event.details?.sink === this.name),
+    ).length
+  }
 
   #schedule(ms: number) {
     if (this.#timer || this.#sending) return
@@ -91,9 +100,7 @@ export class WebhookSink implements AuditSink {
         this.#problem = undefined
       } else if (outcome === 'rejected') {
         // Refused as they are: sending them again won't change that.
-        const sent = this.#queue.indexOf(batch.at(-1)!) + 1
-        this.#queue.splice(0, sent)
-        this.#dropped += sent
+        this.#lose(this.#queue.splice(0, this.#queue.indexOf(batch.at(-1)!) + 1))
       } else if (outcome === 'smaller') {
         continue
       } else {
