@@ -15,7 +15,7 @@ import {
   readSync,
   rmSync,
 } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isAuditAction, type AuditEvent } from '@shared/audit'
 
@@ -184,6 +184,8 @@ export class FileStore implements AuditStore {
 
   async #lines(day: string): Promise<string[]> {
     try {
+      // A file's alone: a device in its place (a full disk's, say) reads forever.
+      if (!(await stat(this.#path(day))).isFile()) return []
       return (await readFile(this.#path(day), 'utf8')).split('\n')
     } catch (error) {
       // Let go of meanwhile, by retention.
