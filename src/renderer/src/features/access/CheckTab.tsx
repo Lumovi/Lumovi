@@ -10,6 +10,7 @@ import {
   CAPABILITY_KEYS,
   CAPABILITY_TEXT,
   groupsOf,
+  namedIn,
   rankOf,
   SCOPES,
   type SeenPerson,
@@ -59,6 +60,7 @@ export function CheckTab({ policy, admin, clusters: contexts, index }: TabProps)
     (id) => policy.groups.find((g) => g.id === id)!.name,
   )
   const sent = sentGroups(person.groups)
+  const auditor = namedIn(admin.auditors, person)
   const count = (test: (d: (typeof everywhere)[number]['decision']) => boolean) =>
     everywhere.filter(({ decision: d }) => test(d)).length
   const nodeClusters = new Set(
@@ -240,8 +242,13 @@ export function CheckTab({ policy, admin, clusters: contexts, index }: TabProps)
             <tbody>
               {CAPABILITY_KEYS.map((key) => {
                 const d = decision[key]
-                const source = sourceParts(d.from)
-                const capped = d.from.kind === 'limit' && d.granted !== d.value
+                // The server's own setting: everyone's audit events, whatever access says.
+                const named = key === 'audit' && auditor
+                const value = named ? 'all' : d.value
+                const source = named
+                  ? { kind: 'Server', text: 'LUMOVI_AUDITORS names them' }
+                  : sourceParts(d.from)
+                const capped = !named && d.from.kind === 'limit' && d.granted !== d.value
                 return (
                   <tr key={key}>
                     <th
@@ -261,14 +268,14 @@ export function CheckTab({ policy, admin, clusters: contexts, index }: TabProps)
                       <span
                         className={cn(
                           'text-[13px] font-semibold',
-                          isSensitive(key, d.value)
+                          isSensitive(key, value)
                             ? 'text-warn-text'
-                            : rankOf(key, d.value as never) === 0
+                            : rankOf(key, value as never) === 0
                               ? 'text-ink-3'
                               : 'text-ink-1',
                         )}
                       >
-                        {levelLabel(key, d.value as never)}
+                        {levelLabel(key, value as never)}
                       </span>
                       {capped && (
                         <div className="text-xs text-ink-3">

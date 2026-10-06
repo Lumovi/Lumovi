@@ -4,9 +4,11 @@
  * (developers, on-call, contractors, and the limits that hold them back),
  * and who signed in lately, with the groups their sign-in sent.
  */
+import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { canonical } from '../../src/shared/access.ts'
 import type { AuditActor, AuditInput } from '../../src/shared/audit.ts'
 
 /** What the chart says (LUMOVI_ACCESS): admins see it, and change it only there. */
@@ -201,7 +203,9 @@ const KEPT = {
 /** A folder holding what the admins set, as LUMOVI_DATA_DIR. */
 export function accessData(): string {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-access-'))
-  writeFileSync(join(dir, 'access.json'), JSON.stringify({ version: 1, policy: KEPT }))
+  // Sealed, as Lumovi seals what it writes: not a change made outside it.
+  const seal = createHash('sha256').update(canonical(KEPT)).digest('hex')
+  writeFileSync(join(dir, 'access.json'), JSON.stringify({ version: 1, policy: KEPT, seal }))
   return dir
 }
 

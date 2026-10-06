@@ -23,7 +23,7 @@ import {
   OPEN_POLICY,
   ownPart,
   policyFor,
-  samePerson,
+  namedIn,
   SCOPES,
   usesLabels,
   type AccessDecision,
@@ -106,6 +106,8 @@ function pruned(
 interface Stored {
   policy: AccessPolicy
   sealed: boolean
+  /** As it was written (before what the chart no longer has was let go): what a seal is of. */
+  given?: unknown
 }
 
 const seal = (policy: unknown) => createHash('sha256').update(canonical(policy)).digest('hex')
@@ -126,7 +128,8 @@ function keptAs(base: BasePolicy | undefined): Kept<Stored> {
     what: 'access settings',
     key: 'access.json',
     empty: { policy: ownPart(OPEN_POLICY, base), sealed: true },
-    write: ({ policy }) => JSON.stringify({ version: 1, policy, seal: seal(policy) }),
+    write: ({ policy, given = policy }) =>
+      JSON.stringify({ version: 1, policy: given, seal: seal(given) }),
     read: (text, where) => {
       let parsed: { policy?: unknown; seal?: unknown } | null
       try {
@@ -139,12 +142,22 @@ function keptAs(base: BasePolicy | undefined): Kept<Stored> {
         return {
           policy: ownPart(checkedPolicy(pruned(given, base, tell), where), base),
           sealed: parsed?.seal === seal(given),
+          given,
         }
       } catch (error) {
         throw new ConfigError((error as Error).message, { cause: error })
       }
     },
   }
+}
+
+/** What a policy holds: "2 groups, 1 profile, 3 grants and no limits". */
+function counted(policy: AccessPolicy): string {
+  const parts = (['groups', 'profiles', 'grants', 'limits'] as const).map((part) => {
+    const count = policy[part].length
+    return count === 0 ? `no ${part}` : `${count} ${count === 1 ? part.slice(0, -1) : part}`
+  })
+  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
 }
 
 /** A refusal that the person's access says: what they may not do, where, and why not. */
@@ -172,6 +185,7 @@ export class ServerAccess {
     private readonly keeper: Keeper<Stored>,
     private readonly audit: AuditLog,
     private readonly provider: AdminAccess['provider'],
+    private readonly auditors: string[],
     own: AccessPolicy,
   ) {
     this.#policy = mergedPolicy(config.base, own)
@@ -183,6 +197,8 @@ export class ServerAccess {
     auth: AuthConfig,
     env: NodeJS.ProcessEnv,
     audit: AuditLog,
+    /** LUMOVI_AUDITORS, as it says: shown to admins, beside what access gives. */
+    auditors: string[],
   ): Promise<ServerAccess> {
     // With no admins, nobody sets anything: there's nothing to keep, nor say about it.
     const administered = config.admins.groups.length > 0 || config.admins.users.length > 0
@@ -195,7 +211,25 @@ export class ServerAccess {
         : auth.mode === 'proxy'
           ? { mode: 'proxy', name: 'your proxy', claim: auth.groupsHeader }
           : { mode: 'token', name: 'Kubernetes' }
-    const access = new ServerAccess(config, kept, audit, provider, (await kept.read()).policy)
+    const stored = await kept.read()
+    const access = new ServerAccess(config, kept, audit, provider, auditors, stored.policy)
+    // Changed where it's kept while no Lumovi ran: recorded now, though from what, nobody can say.
+    if (!stored.sealed) {
+      audit.record({
+        action: 'access.changed',
+        outcome: 'success',
+        actor: SERVER_ACTOR,
+        summary:
+          'Changed outside Lumovi, while it wasn’t running: what it was before can’t be known',
+        details: {
+          changes: [
+            `Changed while Lumovi wasn’t running, from what it can’t say: it now has ${counted(stored.policy)}`,
+          ],
+          outside: true,
+        },
+      })
+      await access.#seal(stored)
+    }
     await access.#seenLately()
     if (administered && kept.kept !== 'memory') {
       access.#refresher = setInterval(() => void access.#refresh(), REFRESH_MS)
@@ -209,11 +243,13 @@ export class ServerAccess {
   }
 
   isAdmin(user: SessionUser): boolean {
+    return namedIn(this.#admins, user)
+  }
+
+  /** LUMOVI_ADMINS, as it's written: groups, and `user:` names. */
+  get #admins(): string[] {
     const { admins } = this.config
-    return (
-      admins.users.some((name) => samePerson(name, user.name)) ||
-      user.groups.some((g) => admins.groups.includes(g))
-    )
+    return [...admins.groups, ...admins.users.map((user) => `user:${user}`)]
   }
 
   /** Tells `listener` whenever the policy changes (here, or as kept by someone else). */
@@ -312,10 +348,8 @@ export class ServerAccess {
       policy: this.#policy,
       version: this.keeper.version(),
       seen: [...this.#seen.values()].reverse(),
-      admins: [
-        ...this.config.admins.groups,
-        ...this.config.admins.users.map((user) => `user:${user}`),
-      ],
+      admins: this.#admins,
+      auditors: this.auditors,
       provider: this.provider,
       kept: this.keeper.kept,
     }
@@ -372,9 +406,29 @@ export class ServerAccess {
     })
   }
 
+  /**
+   * A change made outside Lumovi, once it's recorded, sealed as it is: so it's recorded once, by
+   * whichever replica (or start) read it first, and not again.
+   */
+  async #seal(stored: Stored): Promise<void> {
+    try {
+      await this.keeper.write(stored)
+      // The same policy, at a new version: what pages saving against it must say.
+      this.#tell()
+    } catch (error) {
+      log(
+        `Access: Lumovi recorded a change made outside it, and can’t seal it, so it’s recorded again as Lumovi starts: ${(error as Error).message}`,
+      )
+    }
+  }
+
   #use(own: AccessPolicy): void {
     this.#policy = mergedPolicy(this.config.base, own)
     this.#generation++
+    this.#tell()
+  }
+
+  #tell(): void {
     for (const listener of this.#listeners) listener()
   }
 
@@ -391,7 +445,10 @@ export class ServerAccess {
       if (this.keeper.version() !== was) {
         const before = this.#policy
         this.#use(stored.policy)
-        if (!stored.sealed) this.#record(before, SERVER_ACTOR)
+        if (!stored.sealed) {
+          this.#record(before, SERVER_ACTOR)
+          await this.#seal(stored)
+        }
       }
     } catch (error) {
       // What it last read still holds.
