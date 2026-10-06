@@ -14,7 +14,7 @@
 //   nothing is looked up or downloaded.
 // -r loads CommonJS.
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, session } = require('electron')
 const Module = require('node:module')
 const { EventEmitter } = require('node:events')
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -31,6 +31,11 @@ const updater = Object.assign(new EventEmitter(), {
   quitAndInstall() {
     this.installs++
   },
+})
+// Its own session, as electron-updater's: asked for once the app is ready (Object.assign
+// would ask as it copies).
+Object.defineProperty(updater, 'netSession', {
+  get: () => session.fromPartition('electron-updater'),
 })
 globalThis.__updater = updater
 const load = Module._load

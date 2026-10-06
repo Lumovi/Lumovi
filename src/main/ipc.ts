@@ -40,6 +40,8 @@ interface Dependencies extends Backend {
   send: (channel: string, ...args: unknown[]) => void
   /** Only frames showing this URL may call into the main process. */
   rendererUrl: string
+  /** What couldn't be set up as Lumovi started, once the network is. */
+  problems: () => Promise<string[]>
 }
 
 export function registerIpc(deps: Dependencies): void {
@@ -53,6 +55,7 @@ export function registerIpc(deps: Dependencies): void {
     forwards,
     updates,
     rendererUrl,
+    problems,
     audit,
     auditLog,
     send,
@@ -126,6 +129,7 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.helmValuesFile]: (path, file) => helm.valuesFile(path, file),
     [IPC.helmDependencies]: (path) => helm.updateDependencies(path),
     [IPC.updateState]: () => updates.state(),
+    [IPC.appProblems]: () => problems(),
     [IPC.updateCheck]: () => updates.check(true),
     [IPC.updateInstall]: () => updates.install(),
     // Terminals on this computer, besides the cluster's shells (each ignores the other's).
@@ -196,7 +200,7 @@ export function registerIpc(deps: Dependencies): void {
   function aiPermissions(): AiPermissionsView {
     return {
       mine: settings.aiPermissions(),
-      admin: [],
+      admin: settings.adminRules(),
       kept: 'settings',
       ...(settings.aiPermissionsUnreadable()
         ? {

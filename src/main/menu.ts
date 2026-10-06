@@ -13,6 +13,7 @@ export function buildMenu(
   win: BrowserWindow,
   { updates, settings }: { updates: Updates; settings: SettingsStore },
 ): Menu {
+  const managedUpdates = settings.get().managed?.updatesOff === true
   const command = (
     id: AppCommand,
     label: string,
@@ -83,9 +84,11 @@ export function buildMenu(
         link('issue', 'Report an Issue…', `${REPO_URL}/issues/new/choose`),
         link('sponsor', 'Sponsor Lumovi…', SPONSOR_URL),
         { type: 'separator' },
+        // Off, and locked, where the organization's policy deploys new versions.
         {
           id: 'check-updates',
-          label: 'Check for Updates…',
+          label: managedUpdates ? 'Updates Are Set by Your Organization' : 'Check for Updates…',
+          enabled: !managedUpdates,
           click: () => void updates.check(true),
         },
         {
@@ -93,6 +96,7 @@ export function buildMenu(
           label: 'Check for Updates Automatically',
           type: 'checkbox',
           checked: settings.get().autoUpdate,
+          enabled: !managedUpdates,
           click: ({ checked }) => {
             settings.update({ autoUpdate: checked })
             updates.setAuto(checked)
