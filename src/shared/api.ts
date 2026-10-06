@@ -63,7 +63,34 @@ export interface Settings {
   assistants?: AssistantsSetting
   /** What AI assistants may do, and where (the desktop app's; a server keeps each person's). */
   aiPermissions?: AiPermissions
+  /** What the organization's policy sets on this computer, which can't be changed here. */
+  managed?: ManagedSettings
 }
+
+/** What a company's policy sets on a computer (the desktop app's), locked; not stored. */
+export interface ManagedSettings {
+  /** Where the policy is. */
+  source: string
+  /** Every cluster read-only, or those whose names match (`*` for any characters). */
+  readOnly?: true | string[]
+  /** AI assistants can't be turned on. */
+  assistantsOff?: true
+  /** Lumovi doesn't update itself: the organization deploys new versions. */
+  updatesOff?: true
+  /** Why it can't be used: it locks the most it could, until it's put right. */
+  problem?: string
+}
+
+/** Whether the organization's policy makes a cluster read-only. */
+export function managedReadOnly(managed: ManagedSettings | undefined, context: string): boolean {
+  const readOnly = managed?.readOnly
+  if (readOnly === true) return true
+  return (readOnly ?? []).some((pattern) =>
+    new RegExp(`^${pattern.split('*').map(escaped).join('.*')}$`).test(context),
+  )
+}
+
+const escaped = (text: string) => text.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
 
 /** Where updating Lumovi to a new version is at. */
 export type UpdateState =
@@ -76,6 +103,8 @@ export type UpdateState =
   | { status: 'ready'; version: string }
   /** This copy can't update itself, e.g. while developing it. */
   | { status: 'unsupported' }
+  /** The organization's policy deploys new versions, not Lumovi. */
+  | { status: 'managed' }
   | { status: 'error'; message: string }
 
 export interface UpdateEvent {
@@ -711,6 +740,11 @@ export interface LumoviApi {
   app: {
     info(): Promise<AppInfo>
     settings(): Promise<Settings>
+    /**
+     * What Lumovi couldn't set up as it started (the desktop app): its organization's policy,
+     * a certificate authority's file, a proxy. Once the network is set up.
+     */
+    problems?(): Promise<string[]>
     setTheme(theme: ThemePreference): Promise<Settings>
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
@@ -893,6 +927,7 @@ export const IPC = {
   command: 'app:command',
   terminalFocus: 'terminal:focus',
   appInfo: 'app:info',
+  appProblems: 'app:problems',
   settings: 'app:settings',
   setTheme: 'app:set-theme',
   setReadOnly: 'app:set-read-only',

@@ -187,7 +187,7 @@ function ActionItems({
 /** Shown instead of working actions when the cluster is read-only, with a way to allow changes. */
 export function ReadOnlyBadge() {
   const { context } = useCluster()
-  const { locked, set } = useReadOnly()
+  const { locked, byPolicy, policyProblem, set } = useReadOnly()
   return (
     <Popover.Root>
       <Popover.Trigger className="flex h-7 items-center gap-1.5 rounded-lg bg-surface-3 px-2.5 text-xs font-medium text-ink-2 hover:text-ink-1">
@@ -197,9 +197,13 @@ export function ReadOnlyBadge() {
         <Popover.Content sideOffset={6} align="start" className={cn(menuContent, 'w-72 p-3')}>
           <p className="text-[13px] font-medium text-ink-1">Changes are off for {context}</p>
           <p className="mt-1 text-xs leading-relaxed text-ink-2">
-            {locked
-              ? 'LUMOVI_READ_ONLY is set, so Lumovi can’t change any cluster.'
-              : 'Lumovi won’t change anything in this cluster until you allow it.'}
+            {policyProblem
+              ? `Lumovi can’t use your organization’s policy (${policyProblem}), so it changes no cluster until it’s put right.`
+              : byPolicy
+                ? `Your organization’s policy makes ${context} read-only.`
+                : locked
+                  ? 'LUMOVI_READ_ONLY is set, so Lumovi can’t change any cluster.'
+                  : 'Lumovi won’t change anything in this cluster until you allow it.'}
           </p>
           {!locked && (
             <Button

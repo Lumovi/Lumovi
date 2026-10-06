@@ -314,7 +314,9 @@ function ClusterSwitcher() {
               <span className="block text-xs leading-snug text-ink-3">
                 {readOnly.locked
                   ? api.host === 'desktop'
-                    ? 'Set by LUMOVI_READ_ONLY'
+                    ? readOnly.byPolicy
+                      ? 'Set by your organization'
+                      : 'Set by LUMOVI_READ_ONLY'
                     : 'For everyone, on this server'
                   : `Lumovi won’t change ${context}`}
               </span>

@@ -20,7 +20,9 @@ import { registerIpc } from './ipc'
 import { runStdio, STDIO } from './mcp-stdio'
 import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
+import { chromiumProxy, proxyCredentials } from './chromium-proxy'
 import { buildMenu } from './menu'
+import { readPolicy } from './policy'
 import { SettingsStore } from './settings'
 import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
@@ -50,7 +52,16 @@ if (stdio) {
   void app.whenReady().then(async () => {
     // The app's own icon in the Dock, also when it runs as plain Electron (npm run dev).
     app.dock?.setIcon(icon)
-    const settings = new SettingsStore(app.getPath('userData'))
+    // What the organization's policy sets on this computer: locked, whatever was kept.
+    const policy = readPolicy()
+    // What couldn't be set up, for the page to say as well.
+    const problems: string[] = []
+    const problem = (message: string) => {
+      console.warn(message)
+      problems.push(message)
+    }
+    if (policy.managed?.problem) problem(policy.managed.problem)
+    const settings = new SettingsStore(app.getPath('userData'), process.env, policy)
     nativeTheme.themeSource = settings.get().theme
     // The page needs none of the browser's permissions (camera, notifications…), only to copy.
     const allowed = (permission: string) => permission === 'clipboard-sanitized-write'
@@ -65,7 +76,17 @@ if (stdio) {
     // certificate authorities trusted, the proxy gone through), and the kubeconfig read again
     // with it, before anything waiting for it connects.
     const envReady = shellReady.then(() => {
-      for (const said of setUpNetwork(process.env).said) console.warn(said)
+      // The organization's network, over what the login shell says.
+      const { proxy, noProxy, caFiles } = policy.network
+      if (proxy) {
+        for (const name of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) {
+          process.env[name] = proxy
+        }
+      }
+      if (noProxy !== undefined) process.env.NO_PROXY = process.env.no_proxy = noProxy
+      // What can't be used (a certificate authority's file, say) is said, and the rest set up.
+      const network = setUpNetwork(process.env, { caFiles, problem })
+      for (const said of network.said) console.warn(said)
       store.load()
     })
     const isReadOnly = (context: string) => settings.isReadOnly(context)
@@ -126,7 +147,22 @@ if (stdio) {
     const updates = new Updates(
       (event) => send(IPC.updateChanged, event),
       settings.get().autoUpdate!,
+      settings.get().managed?.updatesOff === true,
     )
+    // What Chromium fetches (the updater, in its own session) goes through the policy's proxy
+    // too, not the shell's; its credentials only for it.
+    const { proxy, noProxy } = policy.network
+    if (proxy) {
+      app.on('login', (event, _contents, _details, auth, callback) => {
+        const credentials = proxyCredentials(proxy, auth)
+        if (!credentials) return
+        event.preventDefault()
+        callback(...credentials)
+      })
+      updates.onLogin((auth) => proxyCredentials(proxy, auth))
+      // At once: it's the policy's alone, not waiting on the shell, before the first check.
+      void chromiumProxy(proxy, noProxy ?? '', [session.defaultSession, updates.session])
+    }
     // A focused terminal's ⌘ keys are its own, before the menu's.
     const terminalKeys = new TerminalKeys()
     win.webContents.on('before-input-event', (event, input) => {
@@ -198,6 +234,7 @@ if (stdio) {
     })
     void assistants.start()
     registerIpc({
+      problems: () => envReady.then(() => problems),
       assistants,
       kube,
       helm,

@@ -3,6 +3,7 @@ import { createBrowserRouter, createHashRouter, Navigate, type RouteObject } fro
 import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
+import { StartupProblems } from './components/StartupProblems'
 import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
 import { AccessPage } from './features/access/AccessPage'
@@ -129,6 +130,7 @@ export function App() {
         )}
         <Toaster />
         {api.updates && <UpdateNotice updates={api.updates} />}
+        {api.app.problems && <StartupProblems problems={api.app.problems} />}
       </TooltipProvider>
     </QueryClientProvider>
   )

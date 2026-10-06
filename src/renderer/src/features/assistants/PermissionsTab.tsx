@@ -35,7 +35,7 @@ import { Button } from '@renderer/components/Button'
 import { api } from '@renderer/lib/api'
 import { Loading } from '@renderer/components/States'
 import { useContexts } from '@renderer/hooks/queries'
-import { useSettings } from '@renderer/hooks/settings'
+import { readOnlyIn, useSettings } from '@renderer/hooks/settings'
 import { cn } from '@renderer/lib/cn'
 import { Card, Segmented } from './PageParts'
 import { useNamespaceIndex, type IndexedNamespace, type NamespaceIndex } from './namespaces'
@@ -133,8 +133,7 @@ function Editor({
     () => index.namespaces.map((ns) => ({ ns, decision: decide(targetOf(ns)) })),
     [index, decide],
   )
-  const readOnly = (cluster: string) =>
-    Boolean(settings?.readOnlyAll || settings?.readOnly?.includes(cluster))
+  const readOnly = (cluster: string) => readOnlyIn(settings, cluster)
 
   const setRules = (rules: AiRule[]) => setEdited({ ...mine, rules })
   const addRule = () => {

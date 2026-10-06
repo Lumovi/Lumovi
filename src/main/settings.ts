@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  managedReadOnly,
   NODE_SHELL_DEFAULTS,
   type MetricsSourceSetting,
   type NodeShellSetting,
@@ -20,6 +21,7 @@ import {
   isTheme,
   type SettingsAccess,
 } from '@backend/settings'
+import { NO_POLICY, type Policy } from './policy'
 
 const DEFAULTS: Settings = {
   theme: 'system',
@@ -49,6 +51,8 @@ export class SettingsStore implements SettingsAccess {
   constructor(
     private readonly dir: string,
     env: NodeJS.ProcessEnv = process.env,
+    /** What the organization's policy sets, which this computer's person can't change. */
+    private readonly policy: Policy = NO_POLICY,
   ) {
     this.#file = join(dir, 'settings.json')
     this.#settings = this.#read()
@@ -56,18 +60,39 @@ export class SettingsStore implements SettingsAccess {
   }
 
   get(): Settings {
+    const { managed } = this.policy
     return {
       ...this.#settings,
       nodeShellDefault: NODE_SHELL_DEFAULTS,
       ...(this.#readOnlyAll ? { readOnlyAll: true } : {}),
+      // As the policy sets them, whatever was kept.
+      ...(managed && {
+        managed,
+        ...(managed.updatesOff && { autoUpdate: false }),
+        ...(managed.assistantsOff && {
+          assistants: { ...this.#settings.assistants!, enabled: false },
+        }),
+      }),
     }
   }
 
   isReadOnly(context: string): boolean {
-    return this.#readOnlyAll || this.#settings.readOnly!.includes(context)
+    return (
+      this.#readOnlyAll ||
+      managedReadOnly(this.policy.managed, context) ||
+      this.#settings.readOnly!.includes(context)
+    )
+  }
+
+  /** What AI assistants may do at most, as the organization's policy says. */
+  adminRules(): AiRule[] {
+    return this.policy.assistantRules
   }
 
   setReadOnly(context: string, readOnly: boolean): Settings {
+    if (!readOnly && managedReadOnly(this.policy.managed, context)) {
+      throw new Error(`Your organization’s policy makes ${context} read-only.`)
+    }
     const others = this.#settings.readOnly!.filter((name) => name !== context)
     return this.update({ readOnly: readOnly ? [...others, context] : others })
   }
@@ -108,7 +133,14 @@ export class SettingsStore implements SettingsAccess {
   }
 
   update(patch: Partial<Omit<Settings, 'readOnlyAll' | 'nodeShellDefault'>>): Settings {
-    this.#settings = { ...this.#settings, ...patch }
+    // What the policy sets is shown, not kept: the person's own stays for when it's gone.
+    const managed = this.policy.managed
+    const { managed: _managed, ...given } = patch
+    if (managed?.updatesOff) delete given.autoUpdate
+    if (managed?.assistantsOff && given.assistants) {
+      given.assistants = { ...given.assistants, enabled: this.#settings.assistants!.enabled }
+    }
+    this.#settings = { ...this.#settings, ...given }
     mkdirSync(this.dir, { recursive: true })
     // Yours alone: it holds the token AI assistants connect with.
     // What couldn't be read stays as it was, until the person sets it again.

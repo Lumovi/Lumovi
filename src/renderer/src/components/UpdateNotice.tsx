@@ -30,6 +30,13 @@ function report(state: UpdateState) {
         },
       })
       break
+    case 'managed':
+      toast({
+        tone: 'success',
+        title: 'Your organization updates Lumovi',
+        description: 'Its policy deploys new versions to this computer.',
+      })
+      break
     case 'error':
       toast({ tone: 'error', title: 'Couldn’t check for updates', description: state.message })
       break

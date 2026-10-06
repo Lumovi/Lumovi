@@ -12,7 +12,7 @@ import { decider } from '@shared/ai-permissions'
 import type { LumoviApi } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { useContexts } from '@renderer/hooks/queries'
-import { useSettings } from '@renderer/hooks/settings'
+import { readOnlyIn, useSettings } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { serverUrl } from '@renderer/web/session'
@@ -125,9 +125,7 @@ function Summary({ permissions }: { permissions: NonNullable<LumoviApi['aiPermis
     if (!view) return undefined
     const decide = decider(view)
     const decided = index.namespaces.map((ns) => ({ ns, decision: decide(targetOf(ns)) }))
-    return tally(decided, (cluster) =>
-      Boolean(settings?.readOnlyAll || settings?.readOnly?.includes(cluster)),
-    )
+    return tally(decided, (cluster) => readOnlyIn(settings, cluster))
   }, [view, index, settings])
   if (!counts || index.counting.length) {
     return <p className="mt-3 text-xs text-ink-3">Counting what it may do…</p>
