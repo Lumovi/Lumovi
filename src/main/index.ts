@@ -2,6 +2,7 @@ import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { app, Menu, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC, type ShellExit } from '@shared/api'
+import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
 import icon from '../../build/icon.png?asset'
 import { AuditLog } from '@backend/audit/log'
 import { recorder } from '@backend/audit/recorder'
@@ -67,7 +68,9 @@ if (stdio) {
       sinks: [],
       level: 'access',
       scanLimit: 200_000,
-      warn: (message) => console.warn(message),
+      exportLimit: AUDIT_EXPORT_LIMIT,
+      // Its own history failing is said where the app says what goes wrong.
+      warn: console.warn,
     })
     const user = userInfo().username
     /** This computer's person, as each cluster knows them: its kubeconfig's user. */

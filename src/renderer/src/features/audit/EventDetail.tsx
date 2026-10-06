@@ -36,13 +36,13 @@ export function EventDetail({
   const action = ACTIONS[event.action]
   const outcome = OUTCOME_STYLES[event.outcome]
   const { actor, target, approval } = event
-  const contexts = useContexts().data?.contexts ?? []
+  const contexts = useContexts().data?.contexts
   const time = new Date(event.time)
   // Where it is now, in Lumovi: not what's gone (deleted, uninstalled).
   const open =
     target?.name &&
     event.cluster &&
-    contexts.some((c) => c.name === event.cluster) &&
+    contexts?.some((c) => c.name === event.cluster) &&
     !['resource.delete', 'helm.uninstall'].includes(event.action)
       ? target.kind === 'HelmRelease'
         ? helmPath(event.cluster)

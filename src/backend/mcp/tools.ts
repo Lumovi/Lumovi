@@ -167,15 +167,10 @@ const PROPOSAL_ACTIONS: Record<ChangeProposal['action'], AuditAction> = {
 function argumentsOf(input: Record<string, unknown>): Record<string, AuditDetail> {
   return Object.fromEntries(
     Object.entries(input)
-      // A manifest is what's applied: its own event says what, not its contents.
-      .filter(([key, value]) => key !== 'manifest' && value !== undefined)
-      .map(([key, value]): [string, AuditDetail] => [
-        key,
-        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-          ? value
-          : JSON.stringify(value),
-      ]),
-  )
+      // A manifest is what's applied: its own event says what, not its contents. (The rest are
+      // all text, numbers, and yes or no.)
+      .filter(([key, value]) => key !== 'manifest' && value !== undefined),
+  ) as Record<string, AuditDetail>
 }
 
 /** Who says it may not: the person's permissions, a rule of theirs, or the administrator's. */
@@ -517,7 +512,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           cluster,
           target: { kind: 'Secret', name, namespace: where, uid: object.metadata.uid },
           summary: `Read Secret ${name}’s values`,
-          details: { keys: Object.keys((object as KubeObject & { data?: object }).data ?? {}) },
+          details: { keys: Object.keys(Object((object as KubeObject & { data?: object }).data)) },
         })
       }
       return text(`${status ? `# Health: ${describeStatus(status)}\n` : ''}${yaml(shown)}`)

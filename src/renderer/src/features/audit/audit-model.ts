@@ -245,23 +245,12 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'audit.dropped': { label: 'Audit events lost', icon: TriangleAlert },
 }
 
-/** Who did it, as the list says: the person, or their assistant as them. */
-export const who = (event: AuditEvent) =>
-  event.actor.via === 'assistant'
-    ? `${event.actor.assistant}, as ${event.actor.user}`
-    : event.actor.via === 'server'
-      ? 'Lumovi'
-      : event.actor.user
-
-/** A person's initials, for their avatar. */
+/** A person's initial, for their avatar: their name's first letter (or digit). */
 export const initials = (name: string) =>
   name
-    .replace(/@.*$/, '')
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]!.toUpperCase())
-    .join('') || '?'
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .slice(0, 1)
+    .toUpperCase()
 
 /** A day's heading: Today, Yesterday, or its date. */
 export function dayOf(time: string, now: Date): string {

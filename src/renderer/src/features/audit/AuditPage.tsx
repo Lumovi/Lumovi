@@ -8,7 +8,7 @@
 import { ScrollText, SearchX, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import type { AuditEvent, AuditInfo, AuditVerification } from '@shared/audit'
+import { lostText, type AuditEvent, type AuditInfo, type AuditVerification } from '@shared/audit'
 import { EmptyState, Loading } from '@renderer/components/States'
 import { useContexts } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
@@ -41,7 +41,14 @@ export function AuditPage() {
 
   const setFilters = (next: AuditFilters) => setParams(paramsOf(next), { replace: true })
   const people = useMemo(
-    () => [...new Set([...filters.users, ...found.events.map((e) => e.actor.user)])].sort(),
+    // People: not Lumovi itself.
+    () =>
+      [
+        ...new Set([
+          ...filters.users,
+          ...found.events.flatMap((e) => (e.actor.via === 'server' ? [] : [e.actor.user])),
+        ]),
+      ].sort(),
     [filters.users, found.events],
   )
   const clusters = useMemo(
@@ -78,7 +85,9 @@ export function AuditPage() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {info?.everyone && <VerifyButton onResult={setVerified} />}
-                <ExportMenu query={query} range={filters.range} />
+                {info && (
+                  <ExportMenu query={query} range={filters.range} limit={info.exportLimit} />
+                )}
               </div>
             </div>
             {info && <Problems info={info} />}
@@ -216,12 +225,11 @@ function Problems({ info }: { info: AuditInfo }) {
         {failing.map((sink) => (
           <li key={sink.name} className="text-ink-1">
             <span className="font-semibold">
-              {sink.name === 'history' ? 'The history' : sink.name}
-            </span>
-            {sink.dropped > 0
-              ? `: ${sink.dropped.toLocaleString('en')} ${sink.dropped === 1 ? 'event' : 'events'} couldn’t be ${sink.name === 'history' ? 'kept' : 'sent'} since Lumovi started.`
-              : ': events are waiting to be sent.'}{' '}
-            {sink.problem && <span className="text-ink-2">{sink.problem}</span>}
+              {sink.dropped > 0
+                ? `${lostText(sink.dropped, sink.name)} since Lumovi started.`
+                : `Events are waiting to be sent to ${sink.name}.`}
+            </span>{' '}
+            <span className="text-ink-2">{sink.problem}</span>
           </li>
         ))}
       </ul>

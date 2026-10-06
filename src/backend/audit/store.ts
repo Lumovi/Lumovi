@@ -6,6 +6,7 @@
  * until the server stops.
  */
 import {
+  appendFileSync,
   closeSync,
   fstatSync,
   mkdirSync,
@@ -13,7 +14,6 @@ import {
   readdirSync,
   readSync,
   rmSync,
-  writeSync,
 } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -93,8 +93,8 @@ export class FileStore implements AuditStore {
   #last: AuditEvent | undefined
   /** The day files' days, oldest first. */
   #days: string[] = []
-  #fd: number | undefined
-  #fdDay: string | undefined
+  /** The day whose file was last written to: checked, as it was first, for a line left unfinished. */
+  #writing: string | undefined
 
   constructor(
     readonly dir: string,
@@ -135,17 +135,15 @@ export class FileStore implements AuditStore {
 
   append(event: AuditEvent) {
     const day = dayOf(event.time)
-    if (this.#fdDay !== day) {
-      if (this.#fd !== undefined) closeSync(this.#fd)
-      const path = this.#path(day)
-      this.#fd = openSync(path, 'a', 0o600)
-      this.#fdDay = day
+    const path = this.#path(day)
+    let line = `${JSON.stringify(event)}\n`
+    if (this.#writing !== day) {
+      this.#writing = day
       if (!this.#days.includes(day)) this.#days = [...this.#days, day].sort()
       // A line left unfinished (the computer stopped as it was written) stays as it is, on its own.
-      const size = fstatSync(this.#fd).size
-      if (size > 0 && lastByte(path, size) !== 0x0a) writeSync(this.#fd, '\n')
+      if (endsUnfinished(path)) line = `\n${line}`
     }
-    writeSync(this.#fd!, `${JSON.stringify(event)}\n`)
+    appendFileSync(path, line, { mode: 0o600 })
     this.#last = event
   }
 
@@ -201,24 +199,29 @@ export class FileStore implements AuditStore {
     )
     const newest = this.#last ? dayOf(this.#last.time) : this.#days.at(-1)
     for (const day of this.#days) {
-      if (day >= oldestKept || day === newest || day === this.#fdDay) continue
+      if (day >= oldestKept || day === newest) continue
       rmSync(this.#path(day), { force: true })
     }
     this.#days = this.#listDays()
   }
 
-  close() {
-    if (this.#fd !== undefined) closeSync(this.#fd)
-    this.#fd = this.#fdDay = undefined
-  }
+  // Nothing's kept open.
+  close() {}
 }
 
-const lastByte = (path: string, size: number) => {
-  const fd = openSync(path, 'r')
+/** Whether a file's last line is unfinished (it doesn't end in a newline); none, it isn't. */
+function endsUnfinished(path: string): boolean {
+  let fd: number
   try {
-    const byte = Buffer.alloc(1)
-    readSync(fd, byte, 0, 1, size - 1)
-    return byte[0]
+    fd = openSync(path, 'r')
+  } catch {
+    return false
+  }
+  try {
+    const size = fstatSync(fd).size
+    const last = Buffer.alloc(1)
+    readSync(fd, last, 0, 1, Math.max(size - 1, 0))
+    return size > 0 && last[0] !== 0x0a
   } finally {
     closeSync(fd)
   }

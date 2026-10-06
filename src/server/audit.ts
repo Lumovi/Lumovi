@@ -30,6 +30,7 @@ export function openAudit(config: AuditConfig): AuditLog {
     sinks,
     level: config.level,
     scanLimit: config.scanLimit,
+    exportLimit: config.exportLimit,
     warn: log,
   })
 }

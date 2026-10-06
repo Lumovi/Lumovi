@@ -37,13 +37,16 @@ interface Dependencies {
   audit: Recorder
 }
 
-/** How long something ran, as people say it: 45s, 3m 12s, 2h 5m. */
+const DURATION = new Intl.DurationFormat('en', { style: 'narrow', secondsDisplay: 'always' })
+
+/** How long something ran, as people say it: 45s, 3m 12s, 2h 5m 0s. */
 export function took(ms: number): string {
   const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+  return DURATION.format({
+    hours: Math.floor(seconds / 3600),
+    minutes: Math.floor(seconds / 60) % 60,
+    seconds: seconds % 60,
+  })
 }
 
 /** A shell, as the audit log has it: where, and what does the same. */
@@ -199,9 +202,9 @@ export class Terminals {
       return { ok: true, data: null }
     } catch (error) {
       const failure = { ok: false as const, error: toKubeError(error) }
-      // Recorded once it's one at all (a shell, somewhere).
-      const audited = typeof id === 'string' ? this.#audited.get(id) : undefined
-      if (audited && audited.since === undefined) {
+      // Recorded once it's one at all (a shell, somewhere): it fails before it begins, or not at all.
+      const audited = this.#audited.get(id as string)
+      if (audited) {
         this.#audited.delete(id as string)
         this.#record(audited, 'open', outcomeOf(failure))
       }
