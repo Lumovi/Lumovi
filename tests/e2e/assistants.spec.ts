@@ -30,6 +30,7 @@ import {
   openCluster,
   test,
 } from './fixtures.ts'
+import { addRule, openPermissions, rulesNow } from './ai-rules.ts'
 
 /** A port nothing listens on (for now). */
 const freePort = () =>
@@ -85,28 +86,40 @@ async function call(
 }
 
 const approval = (page: Page, title: string | RegExp) => page.getByRole('dialog', { name: title })
-const settingsDialog = (page: Page) => page.getByRole('dialog', { name: 'AI assistants' })
+/** The AI assistants page. */
+const assistantsPage = (page: Page) => page.getByRole('main')
 
 test('AI assistants are turned on, and connected, from Lumovi', async ({ lumovi }) => {
   const { page, app } = lumovi
-  // From the start screen, before a cluster is open.
+  // From the start screen, before a cluster is open: Back goes back there.
   await page.getByRole('button', { name: 'AI assistants' }).click()
-  const dialog = settingsDialog(page)
+  const dialog = assistantsPage(page)
+  const heading = page.getByRole('heading', { name: /^AI assistants/, level: 1 })
+  await expect(heading).toBeVisible()
+  await expect(page).toHaveTitle('AI assistants — Lumovi')
+  await expect(page.getByRole('link', { name: 'Connect' })).toHaveAttribute('aria-current', 'page')
   await expect(dialog).toContainText('They ask: Each change shows here')
-  await expect(dialog).toContainText('never Secrets’ values')
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
+  await expect(dialog).toContainText('as your AI permissions say')
+  await page.getByRole('button', { name: 'Back' }).click()
+  await expect(page.getByText('Choose a cluster to explore.')).toBeVisible()
 
   // From the command palette, and the menu.
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByRole('option', { name: 'AI assistants…' }).click()
-  await expect(dialog).toBeVisible()
-  await page.keyboard.press('Escape')
+  await expect(heading).toBeVisible()
+  await page.getByRole('button', { name: 'Back' }).click()
+  await expect(heading).toBeHidden()
   await app.evaluate(({ Menu }) =>
     Menu.getApplicationMenu()!.getMenuItemById('assistants')!.click(),
   )
-  await expect(dialog).toBeVisible()
+  await expect(heading).toBeVisible()
+  // An address of its own that isn't a tab: the first one.
+  await page.evaluate(() => (window.location.hash = '#/assistants/nowhere'))
+  await expect(page.getByRole('link', { name: 'Connect' })).toHaveAttribute('aria-current', 'page')
+  // Opened afresh (a reload), it waits for how things stand.
+  await page.reload()
+  await expect(dialog.getByRole('button', { name: 'Turn on' })).toBeVisible()
 
   // Turned on, at a port of its own.
   const port = await freePort()
@@ -169,9 +182,8 @@ test('AI assistants are turned on, and connected, from Lumovi', async ({ lumovi 
     'Acme Assistant',
   ])
   // The sidebar's button says one's connected.
-  await expect(
-    page.getByRole('button', { name: 'AI assistants (5 connected)', includeHidden: true }),
-  ).toBeAttached()
+  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByRole('button', { name: 'AI assistants (5 connected)' }).click()
   await leave(again)
   await leave(cursor)
   await leave(other)
@@ -203,7 +215,7 @@ test('Lumovi says when its port is taken, and takes another', async ({ page }) =
     taken.listen(0, '127.0.0.1', () => resolve((taken.address() as { port: number }).port)),
   )
   await page.getByRole('button', { name: /^AI assistants/ }).click()
-  const dialog = settingsDialog(page)
+  const dialog = assistantsPage(page)
   const port = dialog.getByRole('textbox', { name: 'Port' })
   await expect(port).toHaveValue(String(status.port))
   // Enter with the port it has: nothing to change.
@@ -729,27 +741,17 @@ test('Manifests are applied as kubectl apply --server-side does', async ({ page,
   await client.close()
 })
 
-test('Each cluster says whether assistants’ changes are asked about, made, or refused', async ({
+test('Rules say where assistants’ changes are asked about, made, or refused', async ({
   page,
   clusters,
 }) => {
   await openCluster(page)
   await page.evaluate(() => window.lumovi!.app.setReadOnly('large', true))
   const client = await connect(await turnOn(page), 'claude-ai')
-  await page.getByRole('button', { name: /^AI assistants/ }).click()
-  const dialog = settingsDialog(page)
-  const demo = dialog.getByRole('radiogroup', { name: 'Changes to demo' })
-  await expect(demo.getByRole('radio', { name: 'Ask' })).toBeChecked()
-  await demo.getByRole('radio', { name: 'Allow' }).click()
-  await expect(demo.getByRole('radio', { name: 'Allow' })).toBeChecked()
-  await dialog
-    .getByRole('radiogroup', { name: 'Changes to sandbox' })
-    .getByRole('radio', { name: 'Never' })
-    .click()
-  await expect(dialog.getByRole('listitem').filter({ hasText: 'large' })).toContainText(
-    'Read-only: no changes',
-  )
-  await page.keyboard.press('Escape')
+  await openPermissions(page)
+  await addRule(page, { name: 'Demo', clusters: ['demo'], set: { Changes: 'Without asking' } })
+  await addRule(page, { name: 'Sandbox', clusters: ['sandbox'], set: { Changes: 'Never' } })
+  await page.getByRole('button', { name: 'Back' }).click()
   expect(
     await call(client, 'list_clusters').then(({ text }) => text.match(/changes: \S+/g)),
   ).toEqual(expect.arrayContaining(['changes: allow', 'changes: never', 'changes: read-only']))
@@ -797,7 +799,7 @@ test('Each cluster says whether assistants’ changes are asked about, made, or 
     await call(client, 'apply_manifest', { cluster: 'sandbox', manifest: config, reason: 'Test.' }),
   ).toEqual({
     error: true,
-    text: 'Lumovi doesn’t let AI assistants change sandbox: its AI assistants settings say “Never”. Nothing was changed.',
+    text: 'Lumovi doesn’t let AI assistants change default in sandbox: the person’s AI permissions say so (“Sandbox”). Nothing was changed.',
   })
   // Read-only: Lumovi changes nothing there.
   const readOnly = await call(client, 'apply_manifest', {
@@ -842,13 +844,20 @@ test('Each cluster says whether assistants’ changes are asked about, made, or 
   })
   expect(rollout.text).toMatch(/^Scaled checkout-canary to 7 replicas\. /)
 
-  // Back to asking.
-  await page.getByRole('button', { name: /^AI assistants/ }).click()
-  await demo.getByRole('radio', { name: 'Ask' }).click()
-  await expect(demo.getByRole('radio', { name: 'Ask' })).toBeChecked()
-  expect((await page.evaluate(() => window.lumovi!.app.settings())).aiChanges).toEqual({
-    sandbox: 'never',
-  })
+  // Back to asking: the rule's gone.
+  await openPermissions(page)
+  await page.getByRole('button', { name: /^Demo/, expanded: false }).click()
+  await page.getByRole('button', { name: 'Delete rule' }).click()
+  await expect.poll(async () => (await rulesNow(page)).map((r) => r.name)).toEqual(['Sandbox'])
+  expect(await rulesNow(page)).toEqual([
+    {
+      id: expect.any(String),
+      name: 'Sandbox',
+      clusters: ['sandbox'],
+      namespaces: [],
+      set: { changes: 'never' },
+    },
+  ])
   await client.close()
 })
 
@@ -1035,7 +1044,7 @@ test('Lumovi sets Claude Desktop, Cursor and VS Code up', async ({ launch }) => 
   const opened = await mockOpenExternal(lumovi.app)
   const status = await turnOn(page)
   await page.getByRole('button', { name: /^AI assistants/ }).click()
-  const dialog = settingsDialog(page)
+  const dialog = assistantsPage(page)
 
   await dialog.getByRole('tab', { name: 'Claude Desktop' }).click()
   const add = dialog.getByRole('button', { name: 'Add to Claude Desktop' })
@@ -1334,12 +1343,30 @@ test('The window’s requests about assistants are checked', async ({ page }) =>
     await page.evaluate(async () => {
       const a = window.lumovi!.assistants!
       const approvals = window.lumovi!.approvals!
+      const permissions = window.lumovi!.aiPermissions!
+      const defaults = { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' }
+      const rule = { id: 'r', name: 'R', clusters: [], namespaces: [], set: {} }
+      const set = (given: unknown) => () => permissions.set(given as never)
       const tries: (() => Promise<unknown>)[] = [
         () => a.configure({ enabled: 'yes' as never }),
         () => a.configure({ port: 80 }),
         () => a.install('claude-code' as never),
-        () => a.setChanges('', 'ask'),
-        () => a.setChanges('demo', 'sometimes' as never),
+        set(5),
+        set({ rules: [] }),
+        set({ defaults: { ...defaults, logs: 'maybe' }, rules: [] }),
+        set({ defaults, rules: 'all' }),
+        set({ defaults, rules: [5] }),
+        set({ defaults, rules: [{ ...rule, name: ' ' }] }),
+        set({ defaults, rules: [{ ...rule, id: 'not valid!' }] }),
+        set({ defaults, rules: [{ ...rule, set: [] }] }),
+        set({ defaults, rules: [{ ...rule, set: { mood: 'happy' } }] }),
+        set({ defaults, rules: [{ ...rule, set: { logs: 'maybe' } }] }),
+        set({ defaults, rules: [{ ...rule, clusters: 'demo prod' }] }),
+        set({ defaults, rules: [{ ...rule, clusters: [5] }] }),
+        set({ defaults, rules: [{ ...rule, namespaces: Array(51).fill('x') }] }),
+        set({ defaults, rules: [rule, rule] }),
+        // One cluster or namespace may be given as itself, not a list.
+        set({ defaults, rules: [{ ...rule, clusters: 'demo' }] }),
         () => approvals.decide(5 as never, { approved: true }),
         () => approvals.decide('x', { approved: 'yes' } as never),
         () => approvals.decide('x', { approved: false, note: 5 } as never),
@@ -1390,8 +1417,21 @@ test('The window’s requests about assistants are checked', async ({ page }) =>
     'Expected whether assistants may connect, and a port from 1024 to 65535',
     'Expected whether assistants may connect, and a port from 1024 to 65535',
     'Lumovi can’t set claude-code up itself',
-    'Expected a context name, and ask, allow or never',
-    'Expected a context name, and ask, allow or never',
+    'Expected AI permissions.',
+    'AI permissions need their defaults.',
+    'The default for logs must be read, off.',
+    'AI permissions have up to 200 rules.',
+    'Rule 1 must be a rule: a name, where, and what it says.',
+    'Rule 1 needs a name, of up to 100 characters.',
+    'Rule 1 needs an id.',
+    'Rule 1 must say what assistants may do where it applies.',
+    'Rule 1 says “mood”, which isn’t a setting: visibility, changes, secrets, env, logs.',
+    'Rule 1’s logs must be read, off, not “maybe”.',
+    'Rule 1’s clusters[0] (“demo prod”): It has a space.',
+    'Rule 1’s clusters[0] must be text.',
+    'Rule 1’s namespaces must be a list of up to 50 names, patterns or labels.',
+    'Two rules have the same id.',
+    'ok',
     'Expected a change’s id, whether it’s approved, and a note',
     'Expected a change’s id, whether it’s approved, and a note',
     'Expected a change’s id, whether it’s approved, and a note',
@@ -1617,7 +1657,14 @@ test('Deletions, and fields taken over from others, ask even where assistants ma
   clusters,
 }) => {
   await openCluster(page)
-  await page.evaluate(() => window.lumovi!.assistants!.setChanges('demo', 'allow'))
+  await page.evaluate(() =>
+    window.lumovi!.aiPermissions!.set({
+      defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+      rules: [
+        { id: 'demo', name: 'Demo', clusters: ['demo'], namespaces: [], set: { changes: 'allow' } },
+      ],
+    }),
+  )
   const client = await connect(await turnOn(page))
 
   // A namespace: its name is typed to approve, as Lumovi's own Delete asks.

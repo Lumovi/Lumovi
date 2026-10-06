@@ -12,7 +12,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { IPC } from '@shared/api'
-import type { AiChanges, ProposalOutcome, ServerAssistantsStatus } from '@shared/assistants'
+import type { AiPermissionsView } from '@shared/ai-permissions'
+import type { ProposalOutcome, ServerAssistantsStatus } from '@shared/assistants'
 import { checkedDecision } from '@backend/mcp/approvals'
 import { assistantName, createMcpServer } from '@backend/mcp/server'
 import { KubeService } from '@backend/kube/service'
@@ -23,6 +24,7 @@ import { log } from '../log'
 import type { Sessions } from '../sessions'
 import { Grants, type Endpoints, type Grant, type Signer } from './oauth'
 import { People } from './people'
+import type { PermissionsStore } from './permissions'
 
 /** Paths below the server's base path. */
 const PATHS = {
@@ -86,6 +88,8 @@ export class ServerAssistants {
       version: string
       /** Nobody changes anything (LUMOVI_READ_ONLY). */
       readOnly: boolean
+      /** What each person lets their assistants do (none while assistants are off). */
+      permissions?: PermissionsStore
     },
   ) {
     this.#grants = new Grants({
@@ -116,10 +120,11 @@ export class ServerAssistants {
     return this.deps.config.assistants.enabled
   }
 
-  /** What assistants' changes to `context` do, as the administrator says. */
-  #changes(context: string): AiChanges {
-    const { changes } = this.deps.config.assistants
-    return changes.clusters[context] ?? changes.default
+  /** What `person` lets their assistants do, under the administrator's rules, and where it's kept. */
+  #permissions(person: string): AiPermissionsView {
+    const store = this.deps.permissions
+    if (!store) throw new Error('This server’s administrator has turned AI assistants off.')
+    return { mine: store.get(person), admin: this.deps.config.assistants.rules, kept: store.kept }
   }
 
   /** Where everything is, as the person (or their assistant) reached the server. */
@@ -227,7 +232,6 @@ export class ServerAssistants {
       enabled: this.enabled,
       url: this.endpoints(req).resource,
       clients: this.#grants.of(person),
-      changes: this.deps.config.assistants.changes,
     })
     const detach = this.#people.attach(person, {
       emit,
@@ -247,6 +251,15 @@ export class ServerAssistants {
         [IPC.assistantsPending]: () => approvals().pending(),
         [IPC.assistantsDecide]: (id: unknown, decision: unknown) =>
           approvals().decide(...checkedDecision(id, decision)),
+        [IPC.aiPermissionsGet]: () => this.#permissions(person),
+        // Kept for every page of theirs, and their assistants follow them at once.
+        [IPC.aiPermissionsSet]: async (given: unknown) => {
+          this.#permissions(person)
+          await this.deps.permissions!.set(person, given)
+          const view = this.#permissions(person)
+          this.#people.tell(person, IPC.aiPermissionsChanged, view)
+          return view
+        },
       },
     }
   }
@@ -308,7 +321,10 @@ export class ServerAssistants {
     this.#asked.set(grant.id, asked)
     const server = createMcpServer(version, {
       kube,
-      changes: (context) => this.#changes(context),
+      policy: () => {
+        const { mine, admin } = this.#permissions(person)
+        return { mine, admin }
+      },
       // Its person's, each kept as this assistant's, to be withdrawn when it's let go.
       approvals: {
         ask: (proposal, settle) => {

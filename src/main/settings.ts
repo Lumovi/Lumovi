@@ -7,12 +7,13 @@ import {
   type Settings,
 } from '@shared/api'
 import {
-  DEFAULT_ASSISTANTS_PORT,
-  isAiChanges,
-  isPort,
-  isToken,
-  type AiChanges,
-} from '@shared/assistants'
+  checkedPermissions,
+  NO_PERMISSIONS,
+  parseMatcher,
+  type AiPermissions,
+  type AiRule,
+} from '@shared/ai-permissions'
+import { DEFAULT_ASSISTANTS_PORT, isAiChanges, isPort, isToken } from '@shared/assistants'
 import {
   isMetricsSourceSetting,
   isNodeShellSetting,
@@ -27,7 +28,7 @@ const DEFAULTS: Settings = {
   nodeShell: {},
   autoUpdate: true,
   assistants: { enabled: false, port: DEFAULT_ASSISTANTS_PORT },
-  aiChanges: {},
+  aiPermissions: NO_PERMISSIONS,
 }
 
 /** Persists user preferences as JSON in the app's userData directory. */
@@ -83,16 +84,14 @@ export class SettingsStore implements SettingsAccess {
     return this.update({ nodeShell: setting ? { ...others, [context]: setting } : others })
   }
 
-  /** Whether AI assistants' changes to `context` are asked about (unless set otherwise). */
-  aiChanges(context: string): AiChanges {
-    return this.#settings.aiChanges![context] ?? 'ask'
+  /** What AI assistants may do, and where. */
+  aiPermissions(): AiPermissions {
+    return this.#settings.aiPermissions!
   }
 
-  setAiChanges(context: string, changes: AiChanges): Settings {
-    const { [context]: _previous, ...others } = this.#settings.aiChanges!
-    return this.update({
-      aiChanges: changes === 'ask' ? others : { ...others, [context]: changes },
-    })
+  /** Keeps them, once they're checked (a page sends them). */
+  setAiPermissions(given: unknown): AiPermissions {
+    return this.update({ aiPermissions: checkedPermissions(given) }).aiPermissions!
   }
 
   update(patch: Partial<Omit<Settings, 'readOnlyAll' | 'nodeShellDefault'>>): Settings {
@@ -136,13 +135,45 @@ export class SettingsStore implements SettingsAccess {
             ? { launch: stored.assistants.launch }
             : {}),
         },
-        aiChanges: Object.fromEntries(
-          Object.entries(stored.aiChanges ?? {}).filter(([, changes]) => isAiChanges(changes)),
-        ),
+        aiPermissions: storedPermissions(stored),
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.
       return { ...DEFAULTS }
     }
   }
+}
+
+/**
+ * What AI assistants may do, as kept: unless it was edited into something
+ * that doesn't make sense, then the defaults. Before them, each context's
+ * changes were asked about, made without asking or refused (aiChanges): those
+ * are rules now, a context each.
+ */
+function storedPermissions(stored: Partial<Settings> & { aiChanges?: unknown }): AiPermissions {
+  if (stored.aiPermissions !== undefined) {
+    try {
+      return checkedPermissions(stored.aiPermissions)
+    } catch {
+      return NO_PERMISSIONS
+    }
+  }
+  const rules: AiRule[] = Object.entries(Object(stored.aiChanges) as Record<string, unknown>)
+    .filter(([context, changes]) => {
+      const named = parseMatcher(context)
+      return (
+        isAiChanges(changes) &&
+        changes !== 'ask' &&
+        typeof named !== 'string' &&
+        named.kind === 'name'
+      )
+    })
+    .map(([context, changes], i) => ({
+      id: `context-${i + 1}`,
+      name: context,
+      clusters: [context],
+      namespaces: [],
+      set: { changes: changes as AiRule['set']['changes'] },
+    }))
+  return { ...NO_PERMISSIONS, rules }
 }

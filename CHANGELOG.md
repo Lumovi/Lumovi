@@ -6,6 +6,36 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- What AI assistants may do, and where: a Permissions tab, in the desktop app and on a server.
+  Defaults say whether their changes ask you, are made without asking, or never are; whether
+  they see Secrets' values, only their keys, or no Secrets; which env values they see (all,
+  all but sensitive ones, or none); and whether they read logs. Rules say otherwise for some
+  clusters and namespaces, by name, pattern (`tenant-*`) or label (`team=payments`), or leave
+  one out (`!kube-system`), so one rule covers thousands; where rules overlap, the strictest
+  wins. A namespace a rule hides isn't there for assistants. The tab counts what assistants
+  see, change and read over every namespace, checks any one (and which rule decided), and
+  shows what assistants are told as they start, and the tools keep to it all.
+- On a server, each person's are kept in a ConfigMap the Helm chart makes (or a file under
+  `LUMOVI_DATA_DIR`, or memory, said on the page), the same in every browser; and
+  administrators set rules that are limits nobody's own loosen (`LUMOVI_ASSISTANT_RULES`, the
+  chart's `assistants.rules`). The page that allows an assistant says what it will be able to
+  do.
+
+### Changed
+
+- AI assistants have a page of their own, in place of their dialog: Connect, your assistants
+  (on a server), Permissions, and what they did (Activity).
+- Env values that look sensitive (passwords, tokens, keys, URLs with credentials) are hidden
+  from assistants, unless you show them. A change that would read a Secret into a workload
+  (whose logs could show it) asks you, even where changes are made without asking, unless
+  assistants may read Secrets' values there.
+- The desktop app's Ask, Allow and Never for each cluster are rules now, as they were.
+- `LUMOVI_ASSISTANT_CHANGES` (the chart's `assistants.changes` and `assistants.clusters`) are
+  limits now: ask and never cap what people let their assistants do; allow leaves it to them,
+  and they ask unless people say otherwise. The chart no longer sets them unless you do.
+
 ## [1.4.0] - 2026-10-06
 
 AI assistants for your team: on a Lumovi server, and across a fleet, they sign in as each

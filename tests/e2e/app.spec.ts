@@ -267,7 +267,10 @@ test('recovers from unreadable settings', async ({ launch }) => {
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
     // How the app was started, for Claude Desktop's bridge to start it again.
     assistants: { enabled: false, port: 47830, launch: expect.any(Array) },
-    aiChanges: {},
+    aiPermissions: {
+      defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+      rules: [],
+    },
   })
 
   const unknown = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
@@ -309,7 +312,26 @@ test('recovers from unreadable settings', async ({ launch }) => {
     nodeShell: { demo: { namespace: 'ops', image: 'alpine:3.22' } },
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
     assistants: { enabled: false, port: 47830, launch: expect.any(Array) },
-    aiChanges: { demo: 'allow', large: 'never' },
+    // What each context's changes were: a rule each, those that make sense.
+    aiPermissions: {
+      defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+      rules: [
+        {
+          id: 'context-1',
+          name: 'demo',
+          clusters: ['demo'],
+          namespaces: [],
+          set: { changes: 'allow' },
+        },
+        {
+          id: 'context-2',
+          name: 'large',
+          clusters: ['large'],
+          namespaces: [],
+          set: { changes: 'never' },
+        },
+      ],
+    },
   })
 
   const odd = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
@@ -334,7 +356,10 @@ test('recovers from unreadable settings', async ({ launch }) => {
     nodeShell: {},
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
     assistants: { enabled: false, port: 47999, token, launch: expect.any(Array) },
-    aiChanges: {},
+    aiPermissions: {
+      defaults: { changes: 'ask', secrets: 'keys', env: 'sensitive', logs: 'read' },
+      rules: [],
+    },
   })
 })
 

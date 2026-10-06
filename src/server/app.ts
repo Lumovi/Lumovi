@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { ServerAssistants } from './assistants/assistants'
+import { PermissionsStore } from './assistants/permissions'
 import { Auth } from './auth'
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
@@ -45,6 +46,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
+  // What each person lets their AI assistants do: kept where the administrator says.
+  const permissions = config.assistants.enabled
+    ? await PermissionsStore.open(config.assistants.keep, options.env)
+    : undefined
   const sessions = new Sessions(config.sessionHours, (ended, how) => {
     for (const [socket, { session }] of sockets) {
       if (session === ended) socket.close(SESSION_ENDED, how)
@@ -58,6 +63,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     sessions,
     version: options.version,
     readOnly: ['1', 'true'].includes(options.env.LUMOVI_READ_ONLY ?? ''),
+    permissions,
   })
   const oidc =
     config.auth.mode === 'oidc'

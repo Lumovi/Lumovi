@@ -6,8 +6,8 @@
  * throwing, because errors that cross IPC or the network are flattened into
  * plain strings and we want the page to know *why* a request failed.
  */
+import type { AiPermissions, AiPermissionsView } from './ai-permissions'
 import type {
-  AiChanges,
   AssistantClient,
   AssistantsSetting,
   AssistantsStatus,
@@ -59,8 +59,8 @@ export interface Settings {
   autoUpdate?: boolean
   /** The desktop app's MCP server, for AI assistants. */
   assistants?: AssistantsSetting
-  /** Whether AI assistants' changes to each context are asked about (the default), or not. */
-  aiChanges?: Record<string, AiChanges>
+  /** What AI assistants may do, and where (the desktop app's; a server keeps each person's). */
+  aiPermissions?: AiPermissions
 }
 
 /** Where updating Lumovi to a new version is at. */
@@ -824,10 +824,20 @@ export interface LumoviApi {
     resetToken(): Promise<AssistantsStatus>
     /** Sets an assistant up: Claude Desktop's settings, or Cursor's or VS Code's install link. */
     install(client: AssistantClient): Promise<Result<string>>
-    setChanges(context: string, changes: AiChanges): Promise<Settings>
     onStatus(listener: (status: AssistantsStatus) => void): () => void
   }
-  /** A server's MCP server: where assistants connect, the person's, and what they may change. */
+  /**
+   * What AI assistants may do, and where: the person's own (the desktop app's, or theirs on a
+   * server), under a server's administrator's rules.
+   */
+  aiPermissions?: {
+    get(): Promise<AiPermissionsView>
+    /** Keeps them (they're checked first): what's kept, or why it couldn't be. */
+    set(permissions: AiPermissions): Promise<AiPermissionsView>
+    /** Another page (or window) changed them. */
+    onChanged(listener: (view: AiPermissionsView) => void): () => void
+  }
+  /** A server's MCP server: where assistants connect, and the person's. */
   serverAssistants?: {
     status(): Promise<ServerAssistantsStatus>
     /** Lets one of the person's assistants go: it signs in again to come back. */
@@ -910,7 +920,9 @@ export const IPC = {
   assistantsConfigure: 'assistants:configure',
   assistantsResetToken: 'assistants:reset-token',
   assistantsInstall: 'assistants:install',
-  assistantsSetChanges: 'assistants:set-changes',
+  aiPermissionsGet: 'ai-permissions:get',
+  aiPermissionsSet: 'ai-permissions:set',
+  aiPermissionsChanged: 'ai-permissions:changed',
   assistantsDecide: 'assistants:decide',
   assistantsPending: 'assistants:pending',
   assistantsStatusChanged: 'assistants:status-changed',
