@@ -6,7 +6,13 @@ import {
   type NodeShellSetting,
   type Settings,
 } from '@shared/api'
-import { DEFAULT_ASSISTANTS_PORT, isAiChanges, isPort, type AiChanges } from '@shared/assistants'
+import {
+  DEFAULT_ASSISTANTS_PORT,
+  isAiChanges,
+  isPort,
+  isToken,
+  type AiChanges,
+} from '@shared/assistants'
 import {
   isMetricsSourceSetting,
   isNodeShellSetting,
@@ -23,9 +29,6 @@ const DEFAULTS: Settings = {
   assistants: { enabled: false, port: DEFAULT_ASSISTANTS_PORT },
   aiChanges: {},
 }
-
-/** What a token looks like (a random one, URL-safe). */
-const TOKEN = /^[\w-]{32,}$/
 
 /** Persists user preferences as JSON in the app's userData directory. */
 export class SettingsStore implements SettingsAccess {
@@ -127,9 +130,7 @@ export class SettingsStore implements SettingsAccess {
         assistants: {
           enabled: stored.assistants?.enabled === true,
           port: isPort(stored.assistants?.port) ? stored.assistants.port : DEFAULT_ASSISTANTS_PORT,
-          ...(TOKEN.test(String(stored.assistants?.token))
-            ? { token: stored.assistants!.token }
-            : {}),
+          ...(isToken(stored.assistants?.token) ? { token: stored.assistants.token } : {}),
           ...(Array.isArray(stored.assistants?.launch) &&
           stored.assistants.launch.every((arg) => typeof arg === 'string')
             ? { launch: stored.assistants.launch }
