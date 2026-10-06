@@ -389,7 +389,7 @@ export const SCREENS: Screen[] = [
     name: 'audit-checked',
     title: 'The audit log, checked',
     description:
-      'The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.',
+      'The audit log’s changes, checked: each one follows from the one before it, and the newest’s hash is there to compare with a copy kept elsewhere.',
     app: 'server',
     server: 'audit',
     path: '/audit?category=change',

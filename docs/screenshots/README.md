@@ -213,11 +213,11 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### The audit log, checked
 
-`audit-checked`, served from a cluster: The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.
+`audit-checked`, served from a cluster: The audit log’s changes, checked: each one follows from the one before it, and the newest’s hash is there to compare with a copy kept elsewhere.
 
-| Light                                                                                                                                                                                 | Dark                                                                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.](audit-checked-light-1x.webp)](audit-checked-light.webp) | [![The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.](audit-checked-dark-1x.webp)](audit-checked-dark.webp) |
+| Light                                                                                                                                                                                                        | Dark                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![The audit log’s changes, checked: each one follows from the one before it, and the newest’s hash is there to compare with a copy kept elsewhere.](audit-checked-light-1x.webp)](audit-checked-light.webp) | [![The audit log’s changes, checked: each one follows from the one before it, and the newest’s hash is there to compare with a copy kept elsewhere.](audit-checked-dark-1x.webp)](audit-checked-dark.webp) |
 
 ### Access, for admins
 
