@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { canonical } from '../../src/shared/access.ts'
 import type { AuditActor, AuditInput } from '../../src/shared/audit.ts'
 
 /** What the chart says (LUMOVI_ACCESS): admins see it, and change it only there. */
@@ -203,8 +202,13 @@ const KEPT = {
 /** A folder holding what the admins set, as LUMOVI_DATA_DIR. */
 export function accessData(): string {
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-access-'))
-  // Sealed, as Lumovi seals what it writes: not a change made outside it.
-  const seal = createHash('sha256').update(canonical(KEPT)).digest('hex')
+  // Sealed, as Lumovi seals what it writes (its JSON, keys in order): not a change made outside it.
+  const canonical = JSON.stringify(KEPT, (_key, inner: unknown) =>
+    inner && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : inner,
+  )
+  const seal = createHash('sha256').update(canonical).digest('hex')
   writeFileSync(join(dir, 'access.json'), JSON.stringify({ version: 1, policy: KEPT, seal }))
   return dir
 }
