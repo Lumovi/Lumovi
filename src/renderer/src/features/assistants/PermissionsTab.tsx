@@ -18,6 +18,7 @@ import {
   decider,
   parseMatcher,
   ruleTest,
+  stricter,
   type AiAccess,
   type AiDecision,
   type AiDefaults,
@@ -179,10 +180,12 @@ function Editor({
                 {scope === 'desktop' ? 'contexts and ' : scope === 'fleet' ? 'clusters and ' : ''}
                 namespaces by name, pattern or label, so one rule covers thousands. Where rules
                 overlap, the strictest wins, setting by setting. A rule that names namespaces is
-                about what’s in them: a cluster’s own objects (nodes, custom resource definitions,
-                cluster roles…) follow the rules that name none.
+                about what’s in them; a cluster’s own objects (nodes, custom resource definitions,
+                cluster roles…) are read as the rules that name none say, and changing one can reach
+                every namespace, so it’s only as allowed as every namespace is.
                 {view.admin.length > 0 && ' Your administrator’s always win.'}
               </p>
+              <ClusterWide decided={decided} decide={decide} />
             </div>
             <Saving state={saving} onRetry={() => edited && setEdited({ ...edited })} />
             <Button variant="primary" onClick={addRule}>
@@ -233,6 +236,44 @@ function Editor({
         <Told policy={policy} contexts={contexts} decide={decide} readOnly={readOnly} />
       </aside>
     </div>
+  )
+}
+
+/**
+ * The clusters whose own objects assistants can't change: a change to one
+ * reaches every namespace, and some of theirs are hidden, refused, or hide
+ * their Secrets.
+ */
+function ClusterWide({
+  decided,
+  decide,
+}: {
+  decided: Decided
+  decide: (target: AiTarget) => AiDecision
+}) {
+  const everywhere = new Map<string, AiDecision>()
+  for (const { ns, decision } of decided) {
+    const cluster = ns.cluster.name
+    everywhere.set(
+      cluster,
+      stricter(everywhere.get(cluster) ?? decide({ cluster: ns.cluster }), decision),
+    )
+  }
+  const blocked = [...everywhere]
+    .filter(
+      ([, d]) =>
+        d.visibility.value === 'hidden' ||
+        d.changes.value === 'never' ||
+        d.secrets.value === 'hidden',
+    )
+    .map(([cluster]) => cluster)
+  if (!blocked.length) return null
+  return (
+    <p className="mt-1.5 flex max-w-[640px] items-start gap-1.5 text-xs text-warn-text">
+      <Lock className="mt-0.5 size-3 shrink-0" />
+      Assistants can’t change the cluster’s own objects in {blocked.join(', ')}: some of their
+      namespaces are hidden, refused, or hide their Secrets.
+    </p>
   )
 }
 
