@@ -164,7 +164,7 @@
     {
       "name": "audit-checked",
       "title": "The audit log, checked",
-      "description": "The audit log’s changes, each one following from the one before it: none changed, removed or added since it was recorded.",
+      "description": "The audit log’s changes, checked: each one follows from the one before it, and the newest’s hash is there to compare with a copy kept elsewhere.",
       "app": "server",
       "light": { "2x": "audit-checked-light.webp", "1x": "audit-checked-light-1x.webp" },
       "dark": { "2x": "audit-checked-dark.webp", "1x": "audit-checked-dark-1x.webp" }
