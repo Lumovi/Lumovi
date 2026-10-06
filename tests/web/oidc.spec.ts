@@ -202,6 +202,33 @@ test('signing in that doesn’t work says so, and the server’s log says why', 
   await oidc.close()
 })
 
+test('a way back from the provider is taken once, and what it says is kept short and plain', async ({
+  page,
+  serve,
+}) => {
+  const { oidc, served } = await withProvider(serve)
+  // A provider (or whoever made the way back) saying more than an error code.
+  oidc.refuse = `access_denied\u0007${'x'.repeat(300)}`
+  const callback = page.waitForRequest((r) => r.url().includes('/auth/callback'))
+  await page.goto(`${served.url}auth/sign-in`)
+  const back = (await callback).url()
+  await expect(notice(page, 'Signing in was cancelled, or the provider said no.')).toBeVisible()
+  // Taken again, with its cookie: as one that took too long, and not recorded again.
+  await page.goto(back)
+  await expect(
+    notice(page, 'That sign-in took too long, or started in another browser. Try again.'),
+  ).toBeVisible()
+  expect(signIns(served)).toEqual([
+    [
+      'session.sign-in',
+      'refused',
+      'Sign in with single sign-on',
+      '(unknown)',
+      `The provider said access_denied${'x'.repeat(87)}.`,
+    ],
+  ])
+})
+
 test('a sign-in only finishes where it started, and only goes to the app', async ({
   page,
   serve,

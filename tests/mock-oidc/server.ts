@@ -45,7 +45,8 @@ export interface MockOidc {
   /** The claims of whoever signs in next. */
   person: Record<string, unknown>
   /** Whether the authorization endpoint says no (access_denied) next. */
-  refuse: boolean
+  /** Says no, once: access_denied, or what it's given. */
+  refuse: boolean | string
   tamper?: Tamper
   /** Endpoints that answer 500 until removed. */
   failing: Set<'discovery' | 'jwks' | 'token'>
@@ -173,8 +174,8 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
       const back = new URL(params.get('redirect_uri')!)
       back.searchParams.set('state', params.get('state')!)
       if (provider.refuse) {
+        back.searchParams.set('error', provider.refuse === true ? 'access_denied' : provider.refuse)
         provider.refuse = false
-        back.searchParams.set('error', 'access_denied')
       } else {
         const code = randomBytes(16).toString('base64url')
         codes.set(code, {
