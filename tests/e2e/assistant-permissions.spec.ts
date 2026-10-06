@@ -802,7 +802,13 @@ test('The Permissions tab: defaults, rules where they apply, and any namespace c
   await expect(search).toHaveValue('')
 
   // Hidden: nothing else to say there.
+  const clusterWide = page.getByText(/^Assistants can’t change the cluster’s own objects in /)
+  await expect(clusterWide).toHaveCount(0)
   await addRule(page, { name: 'Shop', namespaces: ['shop'], set: { Visibility: 'Hidden' } })
+  // A namespace hidden: none of demo's own objects may be changed.
+  await expect(clusterWide).toHaveText(
+    'Assistants can’t change the cluster’s own objects in demo: some of their namespaces are hidden, refused, or hide their Secrets.',
+  )
   await search.fill('shop')
   await search.press('Enter')
   await expect(decision).toHaveText([
