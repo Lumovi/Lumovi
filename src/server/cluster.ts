@@ -143,12 +143,19 @@ export class HostedCluster implements Hosted {
     /** The server's own credentials. */
     private readonly account: User,
     private readonly prefixes: { user: string; groups: string },
+    /** What it's labelled with (LUMOVI_CLUSTER_LABELS): AI assistants' rules match them. */
+    private readonly labels: Record<string, string>,
   ) {}
 
   /** The cluster the server runs in, or, given a KUBECONFIG, a context of it. */
   static fromEnvironment(
     env: NodeJS.ProcessEnv,
-    settings: { name?: string; usernamePrefix: string; groupsPrefix: string },
+    settings: {
+      name?: string
+      usernamePrefix: string
+      groupsPrefix: string
+      labels: Record<string, string>
+    },
   ): HostedCluster {
     const found = env.KUBECONFIG ? fromKubeconfig(env) : inCluster(env)
     return new HostedCluster(
@@ -157,6 +164,7 @@ export class HostedCluster implements Hosted {
       found.cluster,
       found.account,
       { user: settings.usernamePrefix, groups: settings.groupsPrefix },
+      settings.labels,
     )
   }
 
@@ -183,6 +191,7 @@ export class HostedCluster implements Hosted {
           cluster: this.name,
           user: identity.user.name,
           server: this.server,
+          labels: this.labels,
         },
       ],
     }

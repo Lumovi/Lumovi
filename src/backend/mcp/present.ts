@@ -55,16 +55,42 @@ export const involved = (event: KubeObject) =>
 /** In place of what an assistant may not read: a Secret's values, env values. */
 export const HIDDEN = '(hidden by Lumovi)'
 
-/** Env names that usually hold what shouldn't be read: passwords, tokens, keys… */
-const SENSITIVE_NAME =
-  /pass|secret|token|key|cred|auth|private|cert|dsn|conn|session|cookie|salt|sig/i
-/** A URL that carries its credentials: postgres://user:password@db. */
-const CREDENTIALS_IN_URL = /:\/\/[^/\s:@]+:[^/\s@]+@/
+/** Words in env names that say they hold what shouldn't be read: passwords, tokens, keys… */
+const SENSITIVE_WORDS = new Set(
+  [
+    'pass password passwd passphrase pwd pw secret secrets token tokens key keys apikey',
+    'credential credentials cred creds auth authorization private cert certificate dsn',
+    'jwt bearer pat sk session cookie salt sig signature hmac conn connstr',
+  ]
+    .join(' ')
+    .split(' '),
+)
+/** The same, run together in a name: DBPASSWORD, GITHUBTOKEN… */
+const SENSITIVE_RUN = /password|passwd|secret|token|apikey|privatekey|credential|connectionstring/
+/**
+ * Values that carry credentials: a URL with a password (postgres://app:pw@db,
+ * redis://:pw@cache), one with a token in its query (?access_token=…, &sig=…),
+ * or a webhook's address, which is its own secret.
+ */
+const CREDENTIAL_VALUES = [
+  /:\/\/[^/\s@]*:[^/\s@]+@/,
+  /[?&][^=&\s]*(token|key|secret|sig|signature|password|passwd|pass|auth|code|credential)[^=&\s]*=[^&\s]/i,
+  /^https:\/\/(hooks\.slack\.com|discord(app)?\.com\/api\/webhooks|[^/\s]*\.webhook\.office\.com)\//i,
+]
+
+/** Whether an env var's name says it holds what shouldn't be read: by its words (DB_PASSWORD, apiKey), or run together. */
+function sensitiveName(name: string): boolean {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+  return words.some((word) => SENSITIVE_WORDS.has(word)) || SENSITIVE_RUN.test(words.join(''))
+}
 
 /**
  * Hides env values, wherever an object has containers (pods, workloads'
- * templates, custom resources' too): sensitive ones (by their name, or a URL
- * with credentials), or all.
+ * templates, custom resources' too): sensitive ones (by their name, or a
+ * value that carries credentials), or all.
  */
 export function hideEnv(object: KubeObject, which: EnvAccess): void {
   if (which === 'show') return
@@ -80,7 +106,11 @@ export function hideEnv(object: KubeObject, which: EnvAccess): void {
   const hide = (variable: unknown) => {
     const { name, value } = Object(variable) as { name?: unknown; value?: unknown }
     if (typeof name !== 'string' || typeof value !== 'string') return
-    if (which === 'all' || SENSITIVE_NAME.test(name) || CREDENTIALS_IN_URL.test(value)) {
+    if (
+      which === 'all' ||
+      sensitiveName(name) ||
+      CREDENTIAL_VALUES.some((pattern) => pattern.test(value))
+    ) {
       ;(variable as { value: string }).value = HIDDEN
     }
   }

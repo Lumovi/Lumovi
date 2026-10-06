@@ -169,7 +169,9 @@ function Editor({
                 A rule matches{' '}
                 {scope === 'desktop' ? 'contexts and ' : scope === 'fleet' ? 'clusters and ' : ''}
                 namespaces by name, pattern or label, so one rule covers thousands. Where rules
-                overlap, the strictest wins, setting by setting.
+                overlap, the strictest wins, setting by setting. A rule that names namespaces is
+                about what’s in them: a cluster’s own objects (nodes, custom resource definitions,
+                cluster roles…) follow the rules that name none.
                 {view.admin.length > 0 && ' Your administrator’s always win.'}
               </p>
             </div>

@@ -114,6 +114,15 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
                 { name: 'LOG_LEVEL', value: 'debug' },
                 { name: 'DB_PASSWORD', value: 'hunter2' },
                 { name: 'DATABASE_URL', value: 'postgres://app:hunter2@db:5432/app' },
+                // Words that only look like secrets' are shown; those that are, hidden.
+                { name: 'MONKEY', value: 'banana' },
+                { name: 'CONNECTION_TIMEOUT', value: '30' },
+                { name: 'PWD', value: 'hunter2' },
+                { name: 'apiKey', value: 'hunter2' },
+                { name: 'GITHUBTOKEN', value: 'hunter2' },
+                { name: 'CACHE', value: 'redis://:hunter2@cache:6379' },
+                { name: 'ALERTS', value: 'https://hooks.slack.com/services/T0/B0/hunter2' },
+                { name: 'CALLBACK', value: 'https://example.com/back?access_token=hunter2' },
                 {
                   name: 'TOKEN',
                   valueFrom: { secretKeyRef: { name: 'postgres-credentials', key: 'password' } },
@@ -162,6 +171,7 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
     rule('Batch', { changes: 'allow' }, { namespaces: ['batch'] }),
     rule('Monitoring', { changes: 'never' }, { namespaces: ['monitoring'] }),
     rule('Payments', { logs: 'off', changes: 'never' }, { namespaces: ['team=payments'] }),
+    rule('Vaulted', { visibility: 'hidden' }, { namespaces: ['tier=secret'] }),
   ])
   const client = await connect(page)
 
@@ -275,6 +285,12 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
   expect(api.text).toMatch(/- name: DB_PASSWORD\n\s+value: \(hidden by Lumovi\)\n/)
   expect(api.text).toMatch(/- name: DATABASE_URL\n\s+value: \(hidden by Lumovi\)\n/)
   expect(api.text).not.toContain('hunter2')
+  for (const [name, value] of [
+    ['MONKEY', 'banana'],
+    ['CONNECTION_TIMEOUT', '"30"'],
+  ]) {
+    expect(api.text).toMatch(new RegExp(`- name: ${name}\\n\\s+value: ${value}\\n`))
+  }
   const postgres = await call(client, 'get_resource', {
     cluster: 'demo',
     kind: 'statefulset',
@@ -371,6 +387,12 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
       '      envFrom:',
       '        - secretRef:',
       '            name: credentials',
+      '  volumes:',
+      '    - name: vault',
+      '      csi:',
+      '        driver: secrets-store.csi.k8s.io',
+      '        nodePublishSecretRef:',
+      '          name: vault-credentials',
     ].join('\n'),
   })
   const asked = page.getByRole('dialog', { name: 'Create Pod worker' })
@@ -380,6 +402,73 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
   expect((await reading).text).toBe(
     'The person rejected it in Lumovi, saying: “Not with credentials.”. Nothing was changed.',
   )
+  // One that reads a Secret already, restarted: it reads nothing new, so it's made.
+  demo.upsert({
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: { name: 'reader', namespace: 'batch', creationTimestamp: ago(600), uid: 'reader-1' },
+    spec: {
+      replicas: 1,
+      selector: { matchLabels: { app: 'reader' } },
+      template: {
+        metadata: { labels: { app: 'reader' } },
+        spec: {
+          containers: [
+            {
+              name: 'reader',
+              image: 'acme/reader:1',
+              envFrom: [{ secretRef: { name: 'credentials' } }],
+            },
+          ],
+        },
+      },
+    },
+    status: { replicas: 1, readyReplicas: 1 },
+  })
+  expect(
+    (
+      await call(client, 'restart', {
+        cluster: 'demo',
+        kind: 'deploy',
+        namespace: 'batch',
+        name: 'reader',
+        reason: 'Stuck.',
+      })
+    ).text,
+  ).toMatch(/^Restarted reader\. /)
+  // A Namespace, as it would be labelled: hidden there, it isn't; refused there, it is.
+  expect(
+    await call(client, 'apply_manifest', {
+      cluster: 'demo',
+      manifest:
+        'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: vaulted\n  labels:\n    tier: secret',
+      reason: 'Test.',
+    }),
+  ).toEqual({ error: true, text: 'namespaces "vaulted" not found' })
+  expect(
+    await call(client, 'apply_manifest', {
+      cluster: 'demo',
+      manifest:
+        'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: payments-two\n  labels:\n    team: payments',
+      reason: 'Test.',
+    }),
+  ).toEqual({
+    error: true,
+    text: 'Lumovi doesn’t let AI assistants change payments-two in demo: the person’s AI permissions say so (“Payments”). Nothing was changed.',
+  })
+  // A custom resource definition's deletion deletes its objects in every namespace: not while
+  // some are hidden, or refused.
+  expect(
+    await call(client, 'delete_resource', {
+      cluster: 'demo',
+      kind: 'crd',
+      name: 'rollouts.argoproj.io',
+      reason: 'Unused.',
+    }),
+  ).toEqual({
+    error: true,
+    text: 'Deleting rollouts.argoproj.io deletes its objects in every namespace, and the person’s AI permissions don’t let assistants change all of them. Nothing was changed.',
+  })
   // A cluster's own object, changed: as the cluster's rules say (ask).
   const deleting = call(client, 'delete_resource', {
     cluster: 'demo',
@@ -443,6 +532,22 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
   ).toBe(
     'Lumovi doesn’t let AI assistants read logs in default: the person’s AI permissions say so.',
   )
+  // Every namespace may be changed now: the definition's deletion is asked about.
+  const crd = { cluster: 'demo', kind: 'crd', name: 'rollouts.argoproj.io', reason: 'Unused.' }
+  const deletingCrd = call(client, 'delete_resource', crd)
+  const crdDialog = page.getByRole('dialog', {
+    name: 'Delete CustomResourceDefinition rollouts.argoproj.io',
+  })
+  await crdDialog.getByRole('button', { name: 'Reject…' }).click()
+  await crdDialog.getByRole('button', { name: 'Reject', exact: true }).click()
+  expect((await deletingCrd).text).toBe('The person rejected it in Lumovi. Nothing was changed.')
+  // Where it would reach can't be told: refused.
+  const blind = demo.fail(/\/api\/v1\/namespaces(\?.*)?$/, { status: 403 })
+  expect(await call(client, 'delete_resource', crd)).toEqual({
+    error: true,
+    text: expect.stringMatching(/^Lumovi can’t tell which namespaces that would reach: /),
+  })
+  blind()
 
   // Changed while it's connected: at once.
   await permit(page, [rule('Hidden', { visibility: 'hidden' }, { clusters: ['demo'] })])
@@ -752,16 +857,18 @@ test('Kept with the app’s settings, and what each context’s changes were, as
     [
       rule('context-1', { changes: 'allow' }, { clusters: ['demo'] }),
       rule('context-2', { changes: 'never' }, { clusters: ['sandbox'] }),
-    ].map((r, i) => ({ ...r, name: ['demo', 'sandbox'][i]! })),
+      // A name that reads as a pattern: only where that's stricter.
+      rule('context-3', { changes: 'never' }, { clusters: ['p*'] }),
+    ].map((r, i) => ({ ...r, name: ['demo', 'sandbox', 'p*'][i]! })),
   )
   await migrated.app.close()
 
-  // Edited into something that doesn't make sense: the defaults.
+  // Edited into something that doesn't make sense: nothing at all, until set again.
   mkdirSync(first.userDataDir, { recursive: true })
   writeFileSync(settings, JSON.stringify({ aiPermissions: { defaults: 'all' } }))
   const reset = await launch({ userDataDir: first.userDataDir })
   expect(await reset.page.evaluate(() => window.lumovi!.aiPermissions!.get())).toEqual({
-    mine: { defaults: DEFAULTS, rules: [] },
+    mine: { defaults: { changes: 'never', secrets: 'hidden', env: 'all', logs: 'off' }, rules: [] },
     admin: [],
     kept: 'settings',
   })

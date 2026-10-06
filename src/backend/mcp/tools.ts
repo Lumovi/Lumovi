@@ -21,6 +21,7 @@ import { z } from 'zod'
 import {
   clusterForAssistant,
   decider,
+  stricter,
   type AiDecision,
   type AiPolicy,
   type AiSource,
@@ -35,7 +36,7 @@ import {
   type ResourceKind,
 } from '@shared/resources'
 import type { KubeService } from '../kube/service'
-import { NamespaceLabels, readsSecrets } from './access'
+import { addsSecretReads, NamespaceLabels } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
 import { findProblems } from './problems'
 import { age, changesOf, describeStatus, involved, readable, row, statusOf, yaml } from './present'
@@ -89,6 +90,9 @@ const SHORT_NAMES: Record<string, string[]> = {
   PriorityClass: ['pc'],
   ReplicationController: ['rc'],
 }
+
+/** A custom resource definition's kind, as discovery names it. */
+const CRD = 'CustomResourceDefinition.apiextensions.k8s.io'
 
 /** The field manager Lumovi applies manifests as. */
 export const FIELD_MANAGER = 'lumovi'
@@ -624,7 +628,9 @@ export function registerTools(server: McpServer, t: ToolContext): void {
    */
   const propose = async (c: Change, extra: Extra): Promise<CallToolResult> => {
     const policy = c.access.changes.value
-    const place = c.target.namespace ? `${c.target.namespace} in ${c.context}` : c.context
+    // Where: its namespace (a Namespace's own), or the cluster.
+    const scope = c.target.kind === 'Namespace' ? c.target.name : c.target.namespace
+    const place = scope ? `${scope} in ${c.context}` : c.context
     if (policy === 'never') {
       return failed(
         `Lumovi doesn’t let AI assistants change ${place}: ${because(c.access.changes.from)}. Nothing was changed.`,
@@ -693,7 +699,8 @@ export function registerTools(server: McpServer, t: ToolContext): void {
 
     // A workload that would read a Secret could show it in its logs: the person sees it first,
     // unless assistants may read Secrets' values there anyway.
-    const readsHidden = c.access.secrets.value !== 'values' && readsSecrets(dryRun.data!)
+    const readsHidden =
+      c.access.secrets.value !== 'values' && addsSecretReads(c.before, dryRun.data!)
     if (policy === 'allow' && c.action !== 'delete' && !c.takesOver && !readsHidden) {
       return make(true)
     }
@@ -737,22 +744,49 @@ export function registerTools(server: McpServer, t: ToolContext): void {
     definition: ResourceDefinition,
     name: string,
     namespace?: string,
+    /** A Namespace's labels as the change would leave them: it's decided as it is, and as that. */
+    labelled?: Record<string, string>,
   ) => {
     const scope = scopeOf(definition, name, namespace)
-    const decision =
-      scope === undefined
-        ? await access(context)
-        : await inNamespace(
-            context,
-            scope,
-            definition.kind === 'Namespace'
-              ? `${definition.plural} "${name}" not found`
-              : `namespaces "${namespace}" not found`,
-          )
+    const missing =
+      definition.kind === 'Namespace'
+        ? `${definition.plural} "${name}" not found`
+        : `namespaces "${namespace}" not found`
+    let decision =
+      scope === undefined ? await access(context) : await inNamespace(context, scope, missing)
+    if (labelled) {
+      const now = await labels.of(context, name)
+      const after = decider(t.policy())({
+        cluster: clusterOf(context),
+        namespace: { name, labels: { ...now, ...labelled } },
+      })
+      if (after.visibility.value === 'hidden') throw new Error(missing)
+      decision = stricter(decision, after)
+    }
     if (definition.kind === 'Secret' && decision.secrets.value === 'hidden') {
       throw new Error(secretsHidden(namespace!, decision))
     }
     return decision
+  }
+
+  /**
+   * Whether assistants may change every namespace of a cluster (none hidden
+   * from them, or refused): what a change that reaches into all of them
+   * needs, as deleting a CustomResourceDefinition does.
+   */
+  const everyNamespace = async (context: string) => {
+    const list = await kube.list({ context, kind: 'Namespace' })
+    if (!list.ok) {
+      throw new Error(`Lumovi can’t tell which namespaces that would reach: ${list.error.message}`)
+    }
+    const decide = accessIn(context)
+    for (const ns of list.data.items) {
+      const decision = await decide(ns.metadata.name)
+      if (decision.visibility.value === 'hidden' || decision.changes.value === 'never') {
+        return false
+      }
+    }
+    return true
   }
 
   /** The waiting, said in each change tool's description. */
@@ -787,7 +821,13 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       const definition = await resolveKind(cluster, kindFor(object.apiVersion, object.kind))
       const namespace = namespaceFor(definition, object.metadata.namespace)
       const { name } = object.metadata
-      const decision = await changeAccess(cluster, definition, name, namespace)
+      const decision = await changeAccess(
+        cluster,
+        definition,
+        name,
+        namespace,
+        definition.kind === 'Namespace' ? (object.metadata.labels ?? {}) : undefined,
+      )
       const before = await current(cluster, definition.kind, name, namespace)
       const verb = before ? 'Change' : 'Create'
       const request = (force: boolean): ChangeRequest => ({
@@ -992,6 +1032,11 @@ export function registerTools(server: McpServer, t: ToolContext): void {
       const definition = await resolveKind(cluster, kind)
       const where = namespaceFor(definition, namespace)
       const decision = await changeAccess(cluster, definition, name, where)
+      if (definition.kind === CRD && !(await everyNamespace(cluster))) {
+        return failed(
+          `Deleting ${name} deletes its objects in every namespace, and the person’s AI permissions don’t let assistants change all of them. Nothing was changed.`,
+        )
+      }
       const before = data(
         await kube.get({ context: cluster, kind: definition.kind, name, namespace: where }),
       )

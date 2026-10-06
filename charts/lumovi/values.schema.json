@@ -24,6 +24,12 @@
       "type": "string",
       "pattern": "^[^/\\s]+$"
     },
+    "clusterLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "fleet": {
       "type": "object",
       "properties": {
@@ -208,19 +214,19 @@
                 ]
               },
               "visibility": {
-                "enum": ["visible", "hidden"]
+                "enum": ["hidden"]
               },
               "changes": {
-                "enum": ["allow", "ask", "never"]
+                "enum": ["ask", "never"]
               },
               "secrets": {
-                "enum": ["values", "keys", "hidden"]
+                "enum": ["keys", "hidden"]
               },
               "env": {
-                "enum": ["show", "sensitive", "all"]
+                "enum": ["sensitive", "all"]
               },
               "logs": {
-                "enum": ["read", "off"]
+                "enum": ["off"]
               }
             }
           }

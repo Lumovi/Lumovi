@@ -370,6 +370,14 @@ test('settings for assistants’ rules that don’t make sense stop the server',
       'LUMOVI_ASSISTANT_RULES[0]’s logs must be read, off, not “maybe”.',
     ],
     [
+      '[{name: x, logs: read}]',
+      'LUMOVI_ASSISTANT_RULES[0] (x) says logs: read, which limits nothing: it’s the loosest there is.',
+    ],
+    [
+      '[{name: Production, clusters: [env=production], changes: ask}]',
+      'The AI rule “Production” matches clusters by the label env, which this server’s cluster doesn’t have: give it its labels (LUMOVI_CLUSTER_LABELS, the chart’s clusterLabels), or name it.',
+    ],
+    [
       '[{name: x, colour: red}]',
       'LUMOVI_ASSISTANT_RULES[0] says “colour”, which isn’t a setting: visibility, changes, secrets, env, logs.',
     ],
@@ -498,4 +506,28 @@ test('LUMOVI_ASSISTANT_CHANGES, as limits: a cluster’s never refuses its chang
   await expect(
     page.getByRole('article', { name: 'Changes to demo (LUMOVI_ASSISTANT_CHANGES)' }),
   ).toContainText('No changes')
+})
+
+test('one cluster, labelled: rules match it by its labels', async ({ page, serve }) => {
+  const served = await serve({
+    env: {
+      LUMOVI_CLUSTER_LABELS: 'env=production',
+      LUMOVI_ASSISTANT_RULES: '[{name: Production, clusters: [env=production], changes: never}]',
+    },
+  })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  expect(
+    (
+      await call(client, 'restart', {
+        cluster: 'demo',
+        kind: 'deploy',
+        namespace: 'shop',
+        name: DEMO.deployments.cart,
+        reason: 'Stale.',
+      })
+    ).text,
+  ).toBe(
+    'Lumovi doesn’t let AI assistants change shop in demo: this server’s administrator says so (“Production”). Nothing was changed.',
+  )
 })
