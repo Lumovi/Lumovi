@@ -33,6 +33,11 @@ import {
 } from './fixtures.ts'
 
 const POD = DEMO.pods.storefront[0]!
+/**
+ * Whether a server the tests stop stops as Kubernetes stops it (SIGTERM): recording that it
+ * stopped, and sending what's waiting. Windows can only end it at once.
+ */
+const GRACEFUL = process.platform !== 'win32'
 const { version: VERSION } = JSON.parse(readFileSync('package.json', 'utf8')) as {
   version: string
 }
@@ -595,17 +600,20 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   await serve({ env, port: served.port })
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
-  const again = await query(page, { limit: 3 })
-  expect(said(again.events)).toEqual([
+  const resumed = [
     { action: 'server.started', outcome: 'success', summary: `Lumovi ${VERSION} started` },
-    { action: 'server.stopped', outcome: 'success', summary: `Lumovi ${VERSION} stopped` },
+    ...(GRACEFUL
+      ? [{ action: 'server.stopped', outcome: 'success', summary: `Lumovi ${VERSION} stopped` }]
+      : []),
     done.at(-1),
-  ])
+  ]
+  const again = await query(page, { limit: resumed.length })
+  expect(said(again.events)).toEqual(resumed)
   expect(again.events[0]!.seq).toBe(again.events[1]!.seq + 1)
   expect(again.events[0]!.prev).toBe(again.events[1]!.hash)
-  expect(again.next).toBe(String(again.events[2]!.seq))
+  expect(again.next).toBe(String(again.events.at(-1)!.seq))
   expect(await page.evaluate(() => window.lumovi!.audit.verify())).toEqual({
-    checked: history.length + 2,
+    checked: history.length + (GRACEFUL ? 2 : 1),
     from: history[0]!.time,
     to: again.events[0]!.time,
   })
@@ -951,7 +959,7 @@ test('a history that was changed shows where, and how', async ({ page, context, 
   )
   const file = dayFile(dir)
   const kept = eventsIn(file)
-  expect(kept.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5])
+  expect(kept.map((e) => e.seq)).toEqual(GRACEFUL ? [1, 2, 3, 4, 5] : [1, 2, 3, 4])
   // Each holds the one before it's hash, and its own is what anyone works out.
   for (const [i, event] of kept.entries()) {
     expect(event.hash).toBe(hashOf(event))
@@ -1022,14 +1030,16 @@ test('a history that was changed shows where, and how', async ({ page, context, 
     expect((await query(page, { limit: 1 })).events[0]!.seq).toBe(2)
   })
   // A line left unfinished (the computer stopped as it was written) stays as it was, on its own.
-  write(file, [...kept, '{"type":"lumovi.audit","seq":6,"summa'], '')
+  const next = kept.length + 1
+  const unfinished = `{"type":"lumovi.audit","seq":${next},"summa`
+  write(file, [...kept, unfinished], '')
   await running(async () => {
     expect(
-      await broken(6, `Line 6 of audit-${today()}.jsonl can’t be read as an audit event.`),
-    ).toMatchObject({ checked: 5 })
-    expect((await query(page, { limit: 1 })).events[0]!.seq).toBe(6)
+      await broken(next, `Line ${next} of audit-${today()}.jsonl can’t be read as an audit event.`),
+    ).toMatchObject({ checked: kept.length })
+    expect((await query(page, { limit: 1 })).events[0]!.seq).toBe(next)
   })
-  expect(linesOf(file)[5]).toBe('{"type":"lumovi.audit","seq":6,"summa')
+  expect(linesOf(file)[kept.length]).toBe(unfinished)
 })
 
 test('the history is kept as long as it’s set to, and found where it is', async ({
@@ -1299,6 +1309,7 @@ test('a webhook that can’t be reached: what waits for it is said', async ({
 })
 
 test('what the webhook still has waiting is sent as the server stops', async ({ serve }) => {
+  test.skip(!GRACEFUL, 'Windows ends a server at once: Kubernetes, where servers run, stops them')
   const hook = await webhook()
   // Slow to answer at first: the server stops before its second second.
   const served = await serve({
