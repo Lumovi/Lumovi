@@ -3,8 +3,8 @@ name: lumovi
 description: A fast, beautiful Kubernetes dashboard, served from your cluster to everyone who signs in.
 type: application
 # Released with Lumovi itself: the chart's version is the app's.
-version: 1.5.0
-appVersion: 1.5.0
+version: 1.6.0
+appVersion: 1.6.0
 home: https://lumovi.dev
 icon: https://raw.githubusercontent.com/Lumovi/Lumovi/main/build/icon.png
 sources:
