@@ -95,9 +95,15 @@ export async function launchApp(
     LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
     // Never the developer's own views.
     LUMOVI_VIEWS_DIR: join(userDataDir, 'views'),
-    // Keep tests independent of the developer's login shell.
+    // Keep tests independent of the developer's login shell, and their proxy.
     SHELL: undefined,
     ELECTRON_RENDERER_URL: undefined,
+    HTTPS_PROXY: undefined,
+    https_proxy: undefined,
+    HTTP_PROXY: undefined,
+    http_proxy: undefined,
+    NO_PROXY: undefined,
+    no_proxy: undefined,
     ...options.env,
   }
   for (const [key, value] of Object.entries(merged)) {

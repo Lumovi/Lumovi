@@ -23,6 +23,7 @@ import type {
   LocalChart,
   Result,
 } from '@shared/api'
+import { fetchFailure } from '../network'
 import { KubeRequestError, toKubeError } from '../kube/errors'
 import type { AccessGuard } from '@shared/access'
 import type { KubeService } from '../kube/service'
@@ -606,7 +607,7 @@ async function writeChart(chart: StoredRelease['chart'], directory: string): Pro
 async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }).catch(
     (error: Error) => {
-      throw new KubeRequestError('unreachable', `Couldn’t reach ${url}: ${error.message}`)
+      throw new KubeRequestError('unreachable', `Couldn’t reach ${url}: ${fetchFailure(error)}`)
     },
   )
   if (!response.ok) {

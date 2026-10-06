@@ -27,6 +27,8 @@ interface Secret {
 /** Argo CD's description of a cluster's credentials (its Secret's `config`). */
 interface ArgoConfig {
   bearerToken?: string
+  /** The proxy it's reached through (Argo CD's own setting). */
+  proxyUrl?: string
   username?: string
   password?: string
   tlsClientConfig?: {
@@ -100,6 +102,7 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
         caData: tlsConfig.caData,
         skipTLSVerify: tlsConfig.insecure === true,
         tlsServerName: tlsConfig.serverName,
+        proxyUrl: config.proxyUrl,
       },
       {
         name,

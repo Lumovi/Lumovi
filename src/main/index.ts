@@ -13,6 +13,7 @@ import { LogStreams } from '@backend/kube/logs'
 import { KubeService } from '@backend/kube/service'
 import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
+import { setUpNetwork } from '@backend/network'
 import { viewsDirectory } from '@backend/views'
 import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
@@ -21,7 +22,7 @@ import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
 import { buildMenu } from './menu'
 import { SettingsStore } from './settings'
-import { loadLoginShellPath } from './shell-env'
+import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
 import { createMainWindow, rendererUrl } from './window'
 
@@ -42,7 +43,7 @@ if (stdio) {
   // Another Lumovi window is already open; it will be focused instead.
   app.quit()
 } else {
-  const envReady = loadLoginShellPath()
+  const shellReady = loadLoginShellEnv()
 
   app.on('window-all-closed', () => app.quit())
 
@@ -60,6 +61,13 @@ if (stdio) {
 
     const url = rendererUrl()
     const store = new KubeConfigStore()
+    // Once the login shell's PATH and proxy are known: the network set up (the system's
+    // certificate authorities trusted, the proxy gone through), and the kubeconfig read again
+    // with it, before anything waiting for it connects.
+    const envReady = shellReady.then(() => {
+      for (const said of setUpNetwork(process.env).said) console.warn(said)
+      store.load()
+    })
     const isReadOnly = (context: string) => settings.isReadOnly(context)
     const kube = new KubeService(store, envReady, isReadOnly)
     // What's done through Lumovi on this computer: kept in its folder, for the Audit page.

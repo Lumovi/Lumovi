@@ -10,6 +10,8 @@
  * LUMOVI_AGENT_NAME    the cluster's name, as the hub's LUMOVI_FLEET_AGENTS has it
  * LUMOVI_AGENT_TOKEN   its token there
  * LUMOVI_AGENT_HEALTH_PORT  where GET /healthz says whether it's connected (8081; 0: nowhere)
+ * LUMOVI_CA_FILE       certificate authorities to trust as well (a proxy's that inspects HTTPS)
+ * HTTPS_PROXY, HTTP_PROXY, NO_PROXY   the proxy it reaches the hub through
  */
 import { existsSync, readFileSync } from 'node:fs'
 import http from 'node:http'
@@ -17,6 +19,7 @@ import { connect } from 'node:net'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
 import { version } from '../../package.json'
+import { setUpNetwork, tunnelingAgent, type Network } from '@backend/network'
 import { log } from './log'
 import { AGENT_REPLACED } from './fleet/agents'
 import { ignore, Tunnel } from './fleet/tunnel'
@@ -66,6 +69,23 @@ if (!existsSync(join(accountDir, 'token'))) {
   process.exit(1)
 }
 
+// Before it connects: the certificate authorities trusted, and the proxy, if any. Its own API
+// server is reached directly.
+let network: Network
+try {
+  network = setUpNetwork(process.env, {
+    caFiles: (process.env.LUMOVI_CA_FILE ?? '').split(',').filter(Boolean),
+    direct: [apiHost],
+    // It runs nothing (and has nowhere to write).
+    children: false,
+  })
+} catch (error) {
+  console.error((error as Error).message)
+  process.exit(1)
+}
+for (const said of network.said) log(said)
+const proxy = network.proxyFor(hub.href)
+
 let connected = false
 let attempts = 0
 let socket: WebSocket
@@ -83,6 +103,8 @@ function hello() {
 function dial(): void {
   const ws = new WebSocket(hub, {
     headers: { Authorization: `Bearer ${token}`, 'Lumovi-Agent': name },
+    // Through the proxy, if it goes through one (a WebSocket picks its own connection).
+    ...(proxy ? { agent: tunnelingAgent(proxy, hub.protocol === 'wss:') } : {}),
     // What it carries is encrypted already.
     perMessageDeflate: false,
   })

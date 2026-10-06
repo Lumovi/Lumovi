@@ -16,6 +16,7 @@ import {
   type Agent,
   type Served,
 } from './fixtures.ts'
+import { startMockProxy } from '../mock-proxy/server.ts'
 import { as, card } from './fleet.ts'
 
 /** The agent's version, as it says it: the app's. */
@@ -67,6 +68,28 @@ function reached(served: Served): { args: string[]; status: number | string }[] 
     return []
   }
 }
+
+test('an agent reaches its hub through the proxy the environment says', async ({
+  serve,
+  clusters,
+}) => {
+  const account = inCluster(clusters)
+  const port = await freePort()
+  const proxy = await startMockProxy()
+  const served = await serve({ port, env: HUB })
+  // The hub by a name only the proxy knows (its own API server, directly).
+  const agent = agentOf(`http://hub.test:${port}`, account, { HTTP_PROXY: proxy.url })
+  await expect
+    .poll(() => served.log())
+    .toContain(`The agent of ${NAME} connected (Lumovi ${VERSION})`)
+  expect(proxy.seen).toEqual([`CONNECT hub.test:${port}`])
+  expect(agent.log()).toContain(
+    `Lumovi’s own connections go through the proxy ${proxy.url} for http, except to`,
+  )
+  await agent.stop()
+  await served.stop()
+  await proxy.close()
+})
 
 test('a cluster behind its agent', async ({ page, context, serve, clusters, request }) => {
   test.setTimeout(90_000)

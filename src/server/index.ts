@@ -4,6 +4,7 @@
  * https://docs.lumovi.dev/server/overview).
  */
 import { version } from '../../package.json'
+import { setUpNetwork } from '@backend/network'
 import { startServer } from './app'
 import { HostedCluster, type Hosted } from './cluster'
 import { readConfig, RENDERER_DIR } from './config'
@@ -14,6 +15,15 @@ const SIGN_IN = { token: 'a token', oidc: 'single sign-on', proxy: 'the proxy in
 
 try {
   const config = readConfig(process.env, RENDERER_DIR)
+  // Before anything connects anywhere: the certificate authorities trusted, and the proxy.
+  const network = setUpNetwork(process.env, {
+    caFiles: config.caFiles,
+    // In a cluster, its API server and its services are reached directly.
+    direct: process.env.KUBERNETES_SERVICE_HOST
+      ? [process.env.KUBERNETES_SERVICE_HOST, 'kubernetes.default.svc', '.svc', '.cluster.local']
+      : [],
+  })
+  for (const said of network.said) log(said)
   const hosted: Hosted = config.fleet
     ? await HostedFleet.start(config.fleet, process.env, config)
     : HostedCluster.fromEnvironment(process.env, {

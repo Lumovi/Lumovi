@@ -71,8 +71,8 @@ export class LogStreams {
 
       asked = r
       await this.deps.guard?.require(r.context, 'logs', 'on', r.namespace, 'read logs')
-      const kc = this.deps.store.forContext(r.context)
       await this.deps.envReady
+      const kc = this.deps.store.forContext(r.context)
       const { body, abort } = await kubeStream(kc, path, { timeoutMs: this.deps.timeoutMs })
       this.#read(r, { outcome: 'success' })
       this.#streams.set(id, abort)

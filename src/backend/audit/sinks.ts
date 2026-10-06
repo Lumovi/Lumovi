@@ -5,6 +5,7 @@
  * takes them. What can't be sent is counted, and said, never lost quietly.
  */
 import type { AuditEvent } from '@shared/audit'
+import { networkFailure } from '../network'
 
 export interface AuditSink {
   /** What the Audit page calls it: "the server’s output", "https://siem.example.com/…". */
@@ -192,7 +193,8 @@ export class WebhookSink implements AuditSink {
       return [400, 413, 422].includes(response.status) ? 'rejected' : 'retry'
     } catch (error) {
       // Said as what went wrong, not what was sent (a header's value can be a token).
-      this.#problem = `It can’t be reached: ${reasonOf(error)}.`
+      // (A reason that's a sentence of its own ends as one already.)
+      this.#problem = `It can’t be reached: ${reasonOf(error).replace(/\.$/, '')}.`
       return 'retry'
     }
   }
@@ -229,5 +231,8 @@ function reasonOf(error: unknown): string {
   const { name, cause } = error as Error & { cause?: { code?: string } }
   if (name === 'TimeoutError') return `it didn’t answer within ${ANSWER_MS / SECOND} seconds`
   if (name === 'AbortError') return 'Lumovi stopped as it was sending'
-  return cause?.code ? `the connection failed (${cause.code})` : 'the request failed'
+  return (
+    networkFailure(error) ??
+    (cause?.code ? `the connection failed (${cause.code})` : 'the request failed')
+  )
 }

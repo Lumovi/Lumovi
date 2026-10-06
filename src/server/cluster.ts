@@ -112,6 +112,8 @@ export function helmCluster(
     'certificate-authority-data': cluster.caData,
     'insecure-skip-tls-verify': cluster.skipTLSVerify || undefined,
     'tls-server-name': tlsServerName,
+    // Through the proxy Lumovi reaches it through: helm, as Lumovi does.
+    'proxy-url': cluster.proxyUrl,
   }
 }
 

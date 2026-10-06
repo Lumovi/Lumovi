@@ -2,6 +2,7 @@
  * A fleet's clusters, from where they're described: a kubeconfig's contexts,
  * each with Lumovi's settings for it in a `lumovi.dev` extension.
  */
+import { withProxy } from '@backend/network'
 import { KubeConfig, type Cluster, type User } from '@kubernetes/client-node'
 import { parse } from 'yaml'
 import { ConfigError, stringMap, strings } from '../config'
@@ -78,7 +79,14 @@ export function described(
   cluster: Cluster | undefined,
   account: User | undefined,
 ): FleetCluster {
-  const found: FleetCluster = { name, source, ...settings, cluster, account }
+  // Through the proxy the environment says, as kubectl would, unless its own says otherwise.
+  const found: FleetCluster = {
+    name,
+    source,
+    ...settings,
+    cluster: cluster && withProxy(cluster, process.env),
+    account,
+  }
   if (!cluster) return { ...found, problem: 'Its kubeconfig names a cluster it doesn’t have.' }
   if (!settings.forwardToken && !hasCredentials(account)) {
     return {
