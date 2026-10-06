@@ -7,7 +7,6 @@
  */
 import {
   closeSync,
-  existsSync,
   fstatSync,
   mkdirSync,
   openSync,
@@ -114,7 +113,13 @@ export class FileStore implements AuditStore {
 
   oldest(): string | undefined {
     for (const day of this.#days) {
-      const first = firstEventIn(this.#path(day))
+      // One that can't be read is skipped here: searching it says why.
+      let first: AuditEvent | undefined
+      try {
+        first = firstEventIn(this.#path(day))
+      } catch {
+        continue
+      }
       if (first) return first.time
     }
     return undefined
@@ -221,7 +226,6 @@ const lastByte = (path: string, size: number) => {
 
 /** A file's events from its end, read a piece at a time: its last that can be read. */
 function lastEventIn(path: string): AuditEvent | undefined {
-  if (!existsSync(path)) return undefined
   const fd = openSync(path, 'r')
   try {
     let end = fstatSync(fd).size
@@ -251,7 +255,6 @@ function lastEventIn(path: string): AuditEvent | undefined {
 }
 
 function firstEventIn(path: string): AuditEvent | undefined {
-  if (!existsSync(path)) return undefined
   const fd = openSync(path, 'r')
   try {
     const piece = Buffer.alloc(Math.min(fstatSync(fd).size, 65_536))
