@@ -42,6 +42,8 @@ class PagePreferences implements SettingsAccess {
     private readonly readOnlyAll: boolean,
     private readonly defaultSource: MetricsSourceSetting,
     private readonly nodeShells: ServerConfig['nodeShell'],
+    /** The clusters made read-only, each time that changes. */
+    private readonly readOnlyChanged: (contexts: string[]) => void,
   ) {}
 
   /** The browser's, as it sent them; anything that doesn't make sense is left out. */
@@ -50,6 +52,7 @@ class PagePreferences implements SettingsAccess {
     this.#readOnly = Array.isArray(readOnly)
       ? readOnly.filter((name) => typeof name === 'string')
       : []
+    this.readOnlyChanged(this.#readOnly)
     this.#metricsSource = Object.fromEntries(
       Object.entries(metricsSource ?? {}).filter(([, setting]) => isMetricsSourceSetting(setting)),
     )
@@ -88,6 +91,7 @@ class PagePreferences implements SettingsAccess {
   setReadOnly(context: string, readOnly: boolean): Settings {
     const others = this.#readOnly.filter((name) => name !== context)
     this.#readOnly = readOnly ? [...others, context] : others
+    this.readOnlyChanged(this.#readOnly)
     return this.get()
   }
 
@@ -113,8 +117,15 @@ export interface ConnectionOptions {
    * fleet, one cluster refusing it is that cluster's error.)
    */
   rejected: () => void
-  /** The person's AI assistants: their changes, shown on this page, and its calls about them. */
-  assistants: { invoke: Record<string, Handler>; detach(): void }
+  /**
+   * The person's AI assistants: their changes, shown on this page, and its calls about them. They
+   * keep to the clusters the person made read-only.
+   */
+  assistants: {
+    invoke: Record<string, Handler>
+    readOnly(contexts: string[]): void
+    detach(): void
+  }
 }
 
 /** Whether an answer is the cluster refusing the credentials (401). */
@@ -160,6 +171,7 @@ export class PageConnection {
       ['1', 'true'].includes(env.LUMOVI_READ_ONLY ?? ''),
       config.metricsSource,
       config.nodeShell,
+      (contexts) => assistants.readOnly(contexts),
     )
     const isReadOnly = (context: string) => preferences.isReadOnly(context)
     const ready = Promise.resolve()

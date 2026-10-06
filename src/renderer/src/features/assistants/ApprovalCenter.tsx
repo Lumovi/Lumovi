@@ -95,6 +95,7 @@ function notify({ client, context, title }: ChangeProposal) {
   if (
     api.host !== 'server' ||
     document.visibilityState === 'visible' ||
+    !('Notification' in window) ||
     Notification.permission !== 'granted'
   ) {
     return

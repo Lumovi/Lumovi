@@ -103,8 +103,11 @@ export interface ServerConfig {
   viewsDir: string
   /** Where the page's files are: the renderer's build, next to the server's. */
   rendererDir: string
-  /** AI assistants over MCP: whether they may connect, and what their changes do. */
-  assistants: { enabled: boolean; changes: AiChangesPolicy }
+  /**
+   * AI assistants over MCP: whether they may connect, what their changes do, and the sites
+   * (host names) they may be sent back to over https, besides the person's computer and apps.
+   */
+  assistants: { enabled: boolean; changes: AiChangesPolicy; redirectHosts: string[] }
 }
 
 export class ConfigError extends Error {}
@@ -221,9 +224,10 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
 }
 
 /**
- * AI assistants: on unless LUMOVI_ASSISTANTS is off, and what their changes
- * do (LUMOVI_ASSISTANT_CHANGES): ask (the default), allow or never, with
- * clusters' own after it, like ask,staging=allow,production=never.
+ * AI assistants: on unless LUMOVI_ASSISTANTS is off, what their changes do
+ * (LUMOVI_ASSISTANT_CHANGES): ask (the default), allow or never, with
+ * clusters' own after it, like ask,staging=allow,production=never; and the
+ * sites they may be sent back to (LUMOVI_ASSISTANT_REDIRECT_HOSTS).
  */
 function assistantsConfig(value: (name: string) => string | undefined): ServerConfig['assistants'] {
   const switched = value('LUMOVI_ASSISTANTS') ?? 'on'
@@ -243,7 +247,14 @@ function assistantsConfig(value: (name: string) => string | undefined): ServerCo
     if (name === undefined) changes.default = policy!.trim() as AiChanges
     else changes.clusters[name] = policy!.trim() as AiChanges
   }
-  return { enabled: switched === 'on', changes }
+  const hosts = value('LUMOVI_ASSISTANT_REDIRECT_HOSTS')
+  const redirectHosts = list(hosts).map((host) => host.toLowerCase())
+  if (!redirectHosts.every((host) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host))) {
+    throw new ConfigError(
+      `LUMOVI_ASSISTANT_REDIRECT_HOSTS must be host names, like assistant.example.com, not "${hosts}".`,
+    )
+  }
+  return { enabled: switched === 'on', changes, redirectHosts }
 }
 
 /** A fleet's sources, when any is set. */

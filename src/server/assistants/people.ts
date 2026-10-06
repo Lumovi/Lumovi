@@ -17,6 +17,8 @@ export class People {
   readonly #approvals = new Map<string, Approvals>()
   /** Everyone's open pages, with whose each is. */
   readonly #pages = new Set<{ person: string; page: PersonsPage }>()
+  /** The clusters each person made read-only for themselves, as their latest page said. */
+  readonly #readOnly = new Map<string, string[]>()
 
   /** `person`'s changes waiting for approval, shown on their pages. */
   approvals(person: string): Approvals {
@@ -38,6 +40,16 @@ export class People {
   /** Tells each of `person`'s open pages. */
   tell(person: string, channel: string, ...args: unknown[]): void {
     for (const entry of this.#pages) if (entry.person === person) entry.page.emit(channel, ...args)
+  }
+
+  /** Whether `person` made `context` read-only for themselves: their assistants change nothing there. */
+  isReadOnly(person: string, context: string): boolean {
+    return this.#readOnly.get(person)?.includes(context) === true
+  }
+
+  /** What `person`'s page says they made read-only (each page says it as it opens, and as it changes). */
+  setReadOnly(person: string, contexts: string[]): void {
+    this.#readOnly.set(person, contexts)
   }
 
   /** `person`'s assistants changed. */

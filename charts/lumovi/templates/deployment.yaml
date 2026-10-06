@@ -4,6 +4,9 @@
 {{- if and (eq .Values.auth.mode "oidc") (not .Values.url) }}
 {{- fail "url must be set for single sign-on (auth.mode oidc): the provider sends people back there" }}
 {{- end }}
+{{- if and .Values.assistants.enabled (gt (int .Values.replicaCount) 1) }}
+{{- fail "AI assistants need a single replica (replicaCount 1): what they're allowed lives in its memory, and their requests carry no cookies to stick to one. Set assistants.enabled false to run more" }}
+{{- end }}
 {{- if and $fleet (eq .Values.auth.mode "token") }}
 {{- fail "A fleet needs single sign-on or a proxy (auth.mode oidc or proxy): a pasted token only says who someone is to one cluster" }}
 {{- end }}
@@ -122,6 +125,10 @@ spec:
               value: {{ ternary "on" "off" .Values.assistants.enabled | quote }}
             - name: LUMOVI_ASSISTANT_CHANGES
               value: {{ include "lumovi.assistantChanges" . | quote }}
+            {{- with .Values.assistants.redirectHosts }}
+            - name: LUMOVI_ASSISTANT_REDIRECT_HOSTS
+              value: {{ join "," . | quote }}
+            {{- end }}
             - name: LUMOVI_METRICS_SOURCE
               value: {{ .Values.metrics.source | quote }}
             - name: LUMOVI_ALLOW_PRIVATE_CHARTS

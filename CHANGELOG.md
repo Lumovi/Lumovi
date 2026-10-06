@@ -12,12 +12,16 @@ All notable changes to Lumovi are documented here. The format follows
   MCP clients connect at the server's address (`/mcp`) and sign in through Lumovi, as MCP's
   OAuth has them: Lumovi opens in the browser, the person signs in as they always do (a
   token, single sign-on or a proxy), and allows the assistant. It then acts as them, with
-  their RBAC on every cluster, until they disconnect it in Lumovi or their session ends. The
-  changes it asks for wait on their own pages for their answer, with a browser notification
-  when the tab is elsewhere, and the server's log records each outcome. Administrators turn
-  assistants off (`LUMOVI_ASSISTANTS`, the chart's `assistants.enabled`), and say what their
-  changes do, for every cluster or each one (`LUMOVI_ASSISTANT_CHANGES`, like
-  `ask,staging=allow,production=never`). Below a base path, the chart's ingress routes the
+  their RBAC on every cluster and none of the clusters they made read-only, until they
+  disconnect it in Lumovi or their session ends. The changes it asks for wait on their own
+  pages for their answer, with a browser notification when the tab is elsewhere, and the
+  server's log records each outcome. Assistants are on after upgrading, and each needs
+  someone to allow it: administrators turn them off (`LUMOVI_ASSISTANTS`, the chart's
+  `assistants.enabled`), and say what their changes do, for every cluster or each one
+  (`LUMOVI_ASSISTANT_CHANGES`, like `ask,staging=allow,production=never`). Assistants are
+  sent back only to the person's computer or an app, unless the administrator names sites
+  (`LUMOVI_ASSISTANT_REDIRECT_HOSTS`). What they're allowed lives in the server's memory,
+  so the chart keeps one replica while they're on; below a base path, its ingress routes the
   addresses assistants look for how to sign in at.
 
 ## [1.3.0] - 2026-10-06
