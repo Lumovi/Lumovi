@@ -92,7 +92,8 @@ record of that. With the [GitHub CLI](https://cli.github.com) and
 signer=(--repo Lumovi/Lumovi --signer-workflow Lumovi/Lumovi/.github/workflows/release.yml
   --source-ref refs/heads/main)
 
-# An installer: built there, and what it's made of (the release's Lumovi-<version>.cdx.json).
+# An installer: built there, and what it's made of (the release's Lumovi-<version>.cdx.json,
+# with the helm it ships and the Go modules that helm is built from).
 gh attestation verify Lumovi-1.7.0-mac-arm64.dmg "${signer[@]}"
 gh attestation verify Lumovi-1.7.0-mac-arm64.dmg "${signer[@]}" \
   --predicate-type https://cyclonedx.org/bom
@@ -108,10 +109,14 @@ cosign verify ghcr.io/lumovi/charts/lumovi:1.7.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # What the image is made of: its JavaScript's packages (CycloneDX, also in the image as
-# /app/licenses/sbom.cdx.json), and its system's (SPDX, made as it's built).
+# /app/licenses/sbom.cdx.json), and its system's (SPDX, made as it's built, helm's Go modules
+# among them).
 gh attestation verify oci://ghcr.io/lumovi/lumovi:1.7.0 "${signer[@]}" \
   --predicate-type https://cyclonedx.org/bom
 docker buildx imagetools inspect ghcr.io/lumovi/lumovi:1.7.0 --format '{{ json .SBOM }}'
+
+# Known vulnerabilities in what an installer is made of, helm's Go modules included.
+grype sbom:Lumovi-1.7.0.cdx.json
 ```
 
 An admission controller ([Kyverno](https://kyverno.io/docs/writing-policies/verify-images/),
