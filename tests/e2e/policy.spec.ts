@@ -130,10 +130,13 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
     [twice, 'a key is given twice'],
     // Where it isn't JSON, never what's there.
     [policyFile('{\n  "readOnly": true,\n}'), 'it isn’t JSON (at line 3 column 1).'],
-    [
-      policyFile({ kubectl: 'ftp://mirror.corp.example.com' }),
-      'kubectl must be true, false, or the http or https URL of a mirror of dl.k8s.io.',
-    ],
+    // A mirror over plain http: what it downloads could be changed on the way.
+    ...['ftp://mirror.corp.example.com', 'http://mirror.corp.example.com'].map(
+      (kubectl): [string, string] => [
+        policyFile({ kubectl }),
+        'kubectl must be true, false, or the https URL of a mirror of dl.k8s.io',
+      ],
+    ),
   ]
   if (process.platform !== 'win32') cases.push([fifo, `${fifo} must be a file.`])
   for (const [path, problem] of cases) {

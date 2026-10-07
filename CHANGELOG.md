@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A mirror terminals get kubectl from (an organization's policy, or `LUMOVI_KUBECTL_MIRROR`) is
+  used only over HTTPS, or on this computer: over plain http, kubectl's checksum comes from the
+  same place, and both could be changed on the way.
+
 ## [1.9.0] - 2026-10-07
 
 The desktop app brings its own tools: the helm its Helm actions run, and in each terminal, a
