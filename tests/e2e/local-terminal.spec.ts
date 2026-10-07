@@ -607,12 +607,16 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
     mkdirSync(kept(userDataDir, version), { recursive: true })
     writeFileSync(join(kept(userDataDir, version), WINDOWS ? 'kubectl.exe' : 'kubectl'), '')
   }
+  // And one a crash cut short.
+  const partial = join(kept(userDataDir, 'v1.34.7'), '.kubectl.99999')
+  writeFileSync(partial, 'half')
   downloads.fail = 'lookup'
   const second = await launch({ env: SHELL, userDataDir })
   await openCluster(second.page)
   await terminal(second.page)
   await shows(second.page, 'It’s v1.34.7, to match the cluster.')
   expect(existsSync(kept(userDataDir, 'v1.34.5'))).toBe(false)
+  expect(existsSync(partial)).toBe(false)
   expect(kubectls(downloads.requests)).toEqual([])
   await second.close()
 
@@ -664,6 +668,38 @@ test('a terminal waits for neither a cluster that doesn’t answer nor a long do
   await expect(tabs.getByRole('tab')).toHaveCount(3)
   await shows(page, 'It’s v1.34.9, to match the cluster.')
   expect(kubectls(downloads.requests)).toHaveLength(1)
+})
+
+test('what a cluster says can’t write over a terminal, nor choose an old kubectl', async ({
+  launch,
+  clusters,
+  downloads,
+}) => {
+  // A version with a terminal's control sequences: clear the screen, go home, set the title.
+  const version = (gitVersion: string) =>
+    clusters.demo.fail('/version', {
+      status: 200,
+      body: JSON.stringify({ gitVersion, platform: 'linux/amd64' }),
+    })
+  const answers = version('x\u001b[2J\u001b[H\u001b]0;pwned\u0007 Everything is fine.')
+  const { page } = await launch({ env: SHELL })
+  await openCluster(page)
+  await terminal(page)
+  // Said as text, with what makes it act left out: nothing was cleared.
+  await shows(page, 'Lumovi can’t tell which kubectl matches x[2J[H]0;pwned Everything')
+  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.')
+  answers()
+
+  // One older than Lumovi's oldest isn't downloaded: kubectl that old lacks years of fixes.
+  version('v1.13.12')
+  await dock(page)
+    .getByRole('button', { name: /^New terminal/ })
+    .click()
+  await shows(
+    page,
+    'It’s the one on your PATH: the cluster says it’s Kubernetes 1.13, and Lumovi gets kubectl for 1.25 or later.',
+  )
+  expect(downloads.requests).toEqual([])
 })
 
 test('kubectl matching each cluster can be turned off, and an organization can', async ({

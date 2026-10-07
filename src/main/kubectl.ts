@@ -31,6 +31,12 @@ const GOARCH: Partial<Record<string, string>> = { x64: 'amd64', arm64: 'arm64' }
 const EXE = process.platform === 'win32' ? 'kubectl.exe' : 'kubectl'
 /** A version as the folder keeps it: v1.34.3. */
 const VERSION = /^v(\d+\.\d+)\.(\d+)$/
+/**
+ * The oldest minor version it gets kubectl for: Lumovi's own oldest (see the README). Older
+ * kubectl lacks years of fixes, some to how it handles what a cluster sends it, and a cluster
+ * mustn't choose that for the person whose terminal runs it.
+ */
+const OLDEST = '1.25'
 
 /**
  * Whether kubectl can come from `url`: over HTTPS, or from this computer. Over plain HTTP, its
@@ -88,6 +94,11 @@ export class Kubectls {
     } catch (error) {
       return { problem: message(error) }
     }
+    if (older(minor, OLDEST)) {
+      return {
+        problem: `the cluster says it’s Kubernetes ${minor}, and Lumovi gets kubectl for ${OLDEST} or later`,
+      }
+    }
     let downloading: string | undefined
     const matching = async () => {
       const version = await this.#newestOf(minor)
@@ -131,7 +142,7 @@ export class Kubectls {
     const asking = this.deps.clusterVersion(context).then(
       (said) => {
         const minor = /^v?(\d+\.\d+)\./.exec(said)?.[1]
-        if (!minor) throw new Error(`Lumovi can’t tell which kubectl matches ${said}`)
+        if (!minor) throw new Error(`Lumovi can’t tell which kubectl matches ${said.slice(0, 40)}`)
         this.#minors.set(context, minor)
         return minor
       },
@@ -223,13 +234,21 @@ export class Kubectls {
       })
   }
 
-  /** Keeps only each minor version's newest patch (as Lumovi starts, before any terminal). */
+  /**
+   * Keeps only each minor version's newest patch, and nothing half-written (a download a crash
+   * cut short): as Lumovi starts, before any terminal.
+   */
   async #prune(): Promise<void> {
     const seen = new Set<string>()
     for (const version of await this.#versions()) {
       const minor = VERSION.exec(version)![1]!
+      const dir = join(this.deps.dir, version)
       if (seen.has(minor)) {
-        await rm(join(this.deps.dir, version), { recursive: true, force: true }).catch(() => {})
+        await rm(dir, { recursive: true, force: true }).catch(() => {})
+      } else {
+        for (const name of await readdir(dir).catch(() => [])) {
+          if (name.startsWith('.')) await rm(join(dir, name), { force: true }).catch(() => {})
+        }
       }
       seen.add(minor)
     }
@@ -263,8 +282,15 @@ async function get(url: string, timeoutMs = LOOKUP_TIMEOUT_MS): Promise<Buffer> 
 
 const host = (url: string) => new URL(url).host
 
-/** An error's own words: a failed fetch's are its cause's. */
+/** Whether minor version `a` (1.24) is older than `b` (1.25). */
+function older(a: string, b: string): boolean {
+  const [majorA, minorA] = a.split('.').map(Number)
+  const [majorB, minorB] = b.split('.').map(Number)
+  return majorA! < majorB! || (majorA === majorB && minorA! < minorB!)
+}
+
+/** An error's own words (a failed fetch's are its cause's), as much as a terminal's line needs. */
 function message(error: unknown): string {
   const { message, cause } = error as Error & { cause?: Error }
-  return cause?.message ?? message
+  return (cause?.message ?? message).slice(0, 200)
 }

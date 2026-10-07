@@ -175,8 +175,17 @@ export function localShell(
   }
 }
 
+/**
+ * Text for a terminal's own lines, which can carry what a cluster, a mirror or a kubeconfig
+ * says: without control characters (a terminal would act on them: clear the screen, move the
+ * cursor, write over Lumovi's words) or the marks that reorder text.
+ */
+const plain = (text: string) =>
+  // eslint-disable-next-line no-control-regex
+  text.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+
 /** A line of the terminal's own, before the shell's: dim, like a comment. */
-const note = (text: string) => `\x1b[2m› ${text}\x1b[0m\r\n`
+const note = (text: string) => `\x1b[2m› ${plain(text)}\x1b[0m\r\n`
 
 /** Each terminal's kubeconfig is in a folder of its own: lumovi-terminal-<the app's pid>-…. */
 const PREFIX = 'lumovi-terminal-'
@@ -265,7 +274,9 @@ export class LocalTerminals {
         ...(this.deps.isReadOnly(context.name)
           ? ['Lumovi’s read-only switch doesn’t apply to what you run here.']
           : []),
-      ].join(' ')
+      ]
+        .map(plain)
+        .join(' ')
       const shellFile = localShell(env, first).file
       if (!existsSync(shellFile)) {
         throw new KubeRequestError(
