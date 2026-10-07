@@ -17,6 +17,9 @@ All notable changes to Lumovi are documented here. The format follows
   used only over HTTPS, or on this computer: over plain http, kubectl's checksum comes from the
   same place, and both could be changed on the way.
 - A kubectl download a crash cut short is cleaned up as Lumovi starts.
+- A terminal for a cluster that can't be reached as Lumovi starts gets the kubectl kept for it:
+  each cluster's version is remembered across restarts, not only while Lumovi runs. An empty
+  `LUMOVI_KUBECTL_MIRROR` is as good as none.
 
 ## [1.9.0] - 2026-10-07
 
