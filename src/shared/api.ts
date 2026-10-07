@@ -59,6 +59,8 @@ export interface Settings {
   nodeShellsOff?: boolean
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
   autoUpdate?: boolean
+  /** Whether terminals get a kubectl matching each cluster's version (View → Match kubectl to Each Cluster). */
+  matchingKubectl?: boolean
   /** The desktop app's MCP server, for AI assistants. */
   assistants?: AssistantsSetting
   /** What AI assistants may do, and where (the desktop app's; a server keeps each person's). */
@@ -77,6 +79,10 @@ export interface ManagedSettings {
   assistantsOff?: true
   /** Lumovi doesn't update itself: the organization deploys new versions. */
   updatesOff?: true
+  /** Terminals use the kubectl installed: Lumovi gets none to match a cluster. */
+  kubectlOff?: true
+  /** Where Lumovi gets kubectl from: a mirror of dl.k8s.io. */
+  kubectlMirror?: string
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }

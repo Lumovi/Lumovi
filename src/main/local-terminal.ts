@@ -12,12 +12,13 @@
  */
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { spawn, type IPty } from 'node-pty'
 import type { LocalShellRequest, Result, ShellExit } from '@shared/api'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
 import { kubeconfigPaths, type KubeConfigStore } from '@backend/kube/kubeconfig'
 import { assertQuery, assertString, invalid } from '@backend/kube/validate'
+import type { MatchingKubectl } from './kubectl'
 
 interface Session {
   pty: IPty
@@ -26,19 +27,89 @@ interface Session {
 }
 
 /**
+ * The startup files that put a folder (LUMOVI_KUBECTL's) first on a shell's PATH after yours
+ * have run, as they may put their own first (macOS's path_helper does). Each runs yours as the
+ * shell would, then hands back what it changed to get there.
+ */
+const STARTUP = {
+  // zsh reads its files from ZDOTDIR: these, which read yours from yours (LUMOVI_ZDOTDIR, or
+  // HOME), even when your .zshenv moves it, and give it back once the last has run.
+  zsh: {
+    '.zshenv': `lumovi_zdotdir=$ZDOTDIR
+ZDOTDIR=\${LUMOVI_ZDOTDIR:-$HOME}
+[[ -r $ZDOTDIR/.zshenv ]] && . $ZDOTDIR/.zshenv
+LUMOVI_ZDOTDIR=$ZDOTDIR
+ZDOTDIR=$lumovi_zdotdir
+`,
+    '.zprofile': `if [[ -r $LUMOVI_ZDOTDIR/.zprofile ]]; then
+  ZDOTDIR=$LUMOVI_ZDOTDIR; . $LUMOVI_ZDOTDIR/.zprofile; ZDOTDIR=$lumovi_zdotdir
+fi
+`,
+    '.zshrc': `if [[ -r $LUMOVI_ZDOTDIR/.zshrc ]]; then
+  ZDOTDIR=$LUMOVI_ZDOTDIR; . $LUMOVI_ZDOTDIR/.zshrc; ZDOTDIR=$lumovi_zdotdir
+fi
+path=($LUMOVI_KUBECTL \${path:#\${(b)LUMOVI_KUBECTL}})
+[[ -o login ]] || . $lumovi_zdotdir/.lumovi-done
+`,
+    '.zlogin': `if [[ -r $LUMOVI_ZDOTDIR/.zlogin ]]; then
+  ZDOTDIR=$LUMOVI_ZDOTDIR; . $LUMOVI_ZDOTDIR/.zlogin; ZDOTDIR=$lumovi_zdotdir
+fi
+path=($LUMOVI_KUBECTL \${path:#\${(b)LUMOVI_KUBECTL}})
+. $lumovi_zdotdir/.lumovi-done
+`,
+    '.lumovi-done': `if [[ -n $LUMOVI_ZDOTDIR_UNSET && $LUMOVI_ZDOTDIR == $HOME ]]; then
+  unset ZDOTDIR
+else
+  export ZDOTDIR=$LUMOVI_ZDOTDIR
+fi
+unset LUMOVI_ZDOTDIR LUMOVI_ZDOTDIR_UNSET LUMOVI_KUBECTL lumovi_zdotdir
+`,
+  },
+  // bash, given this file to start with, reads none of its own: yours, as a login shell (on
+  // macOS, as Terminal starts it) or another reads them.
+  bash: {
+    bashrc: `if [ -n "$LUMOVI_LOGIN" ]; then
+  [ -r /etc/profile ] && . /etc/profile
+  for lumovi_file in ~/.bash_profile ~/.bash_login ~/.profile; do
+    if [ -r "$lumovi_file" ]; then . "$lumovi_file"; break; fi
+  done
+else
+  [ -r /etc/bash.bashrc ] && . /etc/bash.bashrc
+  [ -r ~/.bashrc ] && . ~/.bashrc
+fi
+case ":$PATH:" in ":$LUMOVI_KUBECTL:"*) ;; *) PATH="$LUMOVI_KUBECTL:$PATH" ;; esac
+unset LUMOVI_LOGIN LUMOVI_KUBECTL lumovi_file
+`,
+  },
+  // sh, dash, ksh and the like run ENV's file last: this, which runs yours.
+  sh: {
+    'env.sh': `if [ -n "$LUMOVI_ENV" ]; then ENV=$LUMOVI_ENV; [ -r "$ENV" ] && . "$ENV"; else unset ENV; fi
+case ":$PATH:" in ":$LUMOVI_KUBECTL:"*) ;; *) PATH="$LUMOVI_KUBECTL:$PATH" ;; esac
+unset LUMOVI_ENV LUMOVI_KUBECTL
+`,
+  },
+}
+
+/**
  * The shell to start: yours (a login shell on macOS, as Terminal starts it),
  * or PowerShell. PowerShell says the terminal's first line itself (`says`):
  * Windows' console host clears what's written before the shell starts.
+ *
+ * With `kubectl`, that folder is first on its PATH once your startup files have
+ * run, by startup files of its own in `files` (or, for fish and PowerShell,
+ * what it's started with). Other shells have it first as they start.
  */
 export function localShell(
   env: NodeJS.ProcessEnv,
   first: string,
-): { file: string; args: string[]; says: boolean } {
+  kubectl?: { dir: string; files: string },
+): { file: string; args: string[]; says: boolean; env: Record<string, string> } {
+  const vars: Record<string, string> = kubectl ? { LUMOVI_KUBECTL: kubectl.dir } : {}
   if (process.platform === 'win32') {
     // Encoded, so that nothing in it (a context's name) is read as PowerShell; in its quotes,
-    // each of PowerShell's single quotes (’ and ‘ are, too) doubled.
-    const quoted = first.replace(/['\u2018\u2019\u201A\u201B]/g, (quote) => quote + quote)
-    const script = `Write-Host ('› ' + '${quoted}') -ForegroundColor DarkGray`
+    // each of PowerShell's single quotes (’ and ‘ are, too) doubled. After your profile.
+    const quoted = first.replace(/['‘’‚‛]/g, (quote) => quote + quote)
+    const script = `${kubectl ? "$env:Path = $env:LUMOVI_KUBECTL + ';' + $env:Path; Remove-Item Env:LUMOVI_KUBECTL; " : ''}Write-Host ('› ' + '${quoted}') -ForegroundColor DarkGray`
     return {
       file: join(env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       args: [
@@ -48,12 +119,59 @@ export function localShell(
         Buffer.from(script, 'utf16le').toString('base64'),
       ],
       says: true,
+      env: vars,
     }
   }
-  return {
-    file: env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash'),
-    args: process.platform === 'darwin' ? ['-l'] : [],
-    says: false,
+  const file = env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+  const login = process.platform === 'darwin'
+  const args = login ? ['-l'] : []
+  if (!kubectl) return { file, args, says: false, env: vars }
+  const write = (files: Record<string, string>) => {
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(kubectl.files, name), text, { mode: 0o600 })
+    }
+  }
+  switch (basename(file)) {
+    case 'zsh':
+      write(STARTUP.zsh)
+      return {
+        file,
+        args,
+        says: false,
+        env: {
+          ...vars,
+          ZDOTDIR: kubectl.files,
+          LUMOVI_ZDOTDIR: env.ZDOTDIR ?? '',
+          ...(env.ZDOTDIR === undefined && { LUMOVI_ZDOTDIR_UNSET: '1' }),
+        },
+      }
+    case 'bash':
+      write(STARTUP.bash)
+      return {
+        file,
+        args: ['--init-file', join(kubectl.files, 'bashrc')],
+        says: false,
+        env: { ...vars, ...(login && { LUMOVI_LOGIN: '1' }) },
+      }
+    case 'fish':
+      return {
+        file,
+        args: [
+          ...args,
+          '--init-command',
+          'set -gx PATH $LUMOVI_KUBECTL $PATH; set -e LUMOVI_KUBECTL',
+        ],
+        says: false,
+        env: vars,
+      }
+    default:
+      write(STARTUP.sh)
+      return {
+        file,
+        args,
+        says: false,
+        env: { ...vars, ENV: join(kubectl.files, 'env.sh'), LUMOVI_ENV: env.ENV ?? '' },
+      }
   }
 }
 
@@ -97,6 +215,11 @@ export class LocalTerminals {
       version: string
       /** The helm Lumovi runs (LUMOVI_HELM, or the one it ships with). */
       helm: () => string
+      /** The kubectl matching a cluster, when terminals get one (`getting`: one's downloaded). */
+      kubectl?: (
+        context: string,
+        getting: (version: string) => void,
+      ) => Promise<MatchingKubectl> | undefined
     },
     private readonly emit: {
       data: (id: string, data: string) => void
@@ -129,15 +252,29 @@ export class LocalTerminals {
         )
       }
       const namespace = r.namespace ?? context.namespace
-      const first = `kubectl points at ${context.name}${namespace ? `, namespace ${namespace},` : ''} in this terminal.${this.deps.isReadOnly(context.name) ? ' Lumovi’s read-only switch doesn’t apply to what you run here.' : ''}`
-      const shell = localShell(env, first)
-      if (!existsSync(shell.file)) {
+      const kubectl = await this.deps.kubectl?.(context.name, (version) =>
+        this.emit.data(id, note(`Getting kubectl ${version}, to match the cluster…`)),
+      )
+      const matching = kubectl && 'dir' in kubectl ? kubectl : undefined
+      const first = [
+        `kubectl points at ${context.name}${namespace ? `, namespace ${namespace},` : ''} in this terminal.`,
+        ...(matching ? [`It’s ${matching.version}, to match the cluster.`] : []),
+        ...(kubectl && 'problem' in kubectl
+          ? [`It’s the one on your PATH: ${kubectl.problem}.`]
+          : []),
+        ...(this.deps.isReadOnly(context.name)
+          ? ['Lumovi’s read-only switch doesn’t apply to what you run here.']
+          : []),
+      ].join(' ')
+      const shellFile = localShell(env, first).file
+      if (!existsSync(shellFile)) {
         throw new KubeRequestError(
           'invalid',
-          `Your shell, ${shell.file}, isn’t there: set SHELL to one that is.`,
+          `Your shell, ${shellFile}, isn’t there: set SHELL to one that is.`,
         )
       }
       const dir = mkdtempSync(join(tmpdir(), `${PREFIX}${process.pid}-`))
+      const shell = localShell(env, first, matching && { dir: matching.dir, files: dir })
       const kubeconfig = join(dir, 'kubeconfig')
       writeFileSync(
         kubeconfig,
@@ -168,10 +305,12 @@ export class LocalTerminals {
           // Apps opened from the Dock have no LANG, which shells and kubectl need for UTF-8.
           LANG: 'en_US.UTF-8',
           ...Object.fromEntries(inherited),
-          // Then the folder of the helm Lumovi runs: yours first, where you have one.
-          ...(isAbsolute(helm) && {
-            [PATH]: [env[PATH], dirname(helm)].filter(Boolean).join(delimiter),
-          }),
+          // The kubectl matching the cluster first (as the shell starts, and after your startup
+          // files), and the folder of the helm Lumovi runs last: yours first, where you have one.
+          [PATH]: [matching?.dir, env[PATH], isAbsolute(helm) ? dirname(helm) : undefined]
+            .filter(Boolean)
+            .join(delimiter),
+          ...shell.env,
           // Yours as Lumovi read them: a relative one from where it started, not the shell.
           KUBECONFIG: [kubeconfig, ...kubeconfigPaths(env).map((path) => resolve(path))].join(
             delimiter,

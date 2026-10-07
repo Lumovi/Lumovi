@@ -17,6 +17,9 @@
  *     "assistants": false,               AI assistants can't be turned on
  *     "assistantRules": [ … ],           what they may do at most (as LUMOVI_ASSISTANT_RULES)
  *     "updates": false,                  Lumovi doesn't update itself: IT deploys new versions
+ *     "kubectl": false,                  terminals use the kubectl installed, not one Lumovi gets
+ *                                        to match each cluster; or a mirror of dl.k8s.io to get
+ *                                        it from ("https://artifacts.corp.example.com/k8s")
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -72,7 +75,7 @@ const POLICY_FILE: Partial<Record<NodeJS.Platform, string>> = {
 /** Where IT puts it on Windows: a value of the registry's policies, only administrators' to set. */
 export const POLICY_KEY = 'HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Lumovi'
 
-const KEYS = ['readOnly', 'assistants', 'assistantRules', 'updates', 'network']
+const KEYS = ['readOnly', 'assistants', 'assistantRules', 'updates', 'kubectl', 'network']
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
 
 /** A policy found: where, and its text (which throws, if it can't be used). */
@@ -310,7 +313,7 @@ function checked(given: unknown, path: string): Policy {
   if (unknown.length) {
     throw new Error(`it has ${unknown.join(', ')}, which Lumovi doesn’t know: ${KEYS.join(', ')}.`)
   }
-  const { readOnly, assistants, assistantRules, updates, network = {} } = policy
+  const { readOnly, assistants, assistantRules, updates, kubectl, network = {} } = policy
   if (
     readOnly !== undefined &&
     typeof readOnly !== 'boolean' &&
@@ -325,6 +328,15 @@ function checked(given: unknown, path: string): Policy {
     if (value !== undefined && typeof value !== 'boolean') {
       throw new Error(`${key} must be true or false.`)
     }
+  }
+  if (
+    kubectl !== undefined &&
+    typeof kubectl !== 'boolean' &&
+    !(typeof kubectl === 'string' && /^https?:\/\/[^\s]+$/i.test(kubectl))
+  ) {
+    throw new Error(
+      'kubectl must be true, false, or the http or https URL of a mirror of dl.k8s.io.',
+    )
   }
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
     throw new Error('network must be an object: proxy, noProxy and caFiles.')
@@ -353,6 +365,8 @@ function checked(given: unknown, path: string): Policy {
     ...(Array.isArray(readOnly) && readOnly.length ? { readOnly: readOnly as string[] } : {}),
     ...(assistants === false ? { assistantsOff: true } : {}),
     ...(updates === false ? { updatesOff: true } : {}),
+    ...(kubectl === false ? { kubectlOff: true } : {}),
+    ...(typeof kubectl === 'string' ? { kubectlMirror: kubectl } : {}),
   }
   return {
     managed,

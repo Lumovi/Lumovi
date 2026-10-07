@@ -1,0 +1,249 @@
+/**
+ * A kubectl for each cluster's terminals, as Kubernetes supports it: kubectl works with
+ * clusters a minor version either side of its own, so it's the newest patch of the cluster's
+ * own minor version (kubectl v1.34.3 for a v1.34.1 cluster). Downloaded from dl.k8s.io (or a
+ * mirror of it), checked against the SHA-256 published beside it, and kept in the app's folder
+ * (kubectl/v1.34.3/) for the terminals of every cluster on that version. As Lumovi starts, newer
+ * patches the folder has replace older ones: a terminal can be using one while it runs.
+ *
+ * A terminal is often opened because something's wrong, so it waits for none of this for long:
+ * a cluster that doesn't say its version at once, or a kubectl still downloading, and it starts
+ * with the one on the PATH. What comes later is there for the terminals opened after.
+ */
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
+/** Where Kubernetes publishes kubectl. */
+export const KUBECTL_MIRROR = 'https://dl.k8s.io'
+/** How long a minor version's newest patch is taken as known, and its not being known. */
+const KNOWN_MS = 6 * 60 * 60_000
+const UNKNOWN_MS = 10 * 60_000
+const LOOKUP_TIMEOUT_MS = 15_000
+const DOWNLOAD_TIMEOUT_MS = 5 * 60_000
+/** How long a terminal waits to learn its cluster's version, and then for its kubectl. */
+const VERSION_WAIT_MS = 3_000
+const KUBECTL_WAIT_MS = 10_000
+
+const GOOS: Partial<Record<string, string>> = { darwin: 'darwin', linux: 'linux', win32: 'windows' }
+const GOARCH: Partial<Record<string, string>> = { x64: 'amd64', arm64: 'arm64' }
+const EXE = process.platform === 'win32' ? 'kubectl.exe' : 'kubectl'
+/** A version as the folder keeps it: v1.34.3. */
+const VERSION = /^v(\d+\.\d+)\.(\d+)$/
+
+/** A terminal's kubectl: the folder it's in and its version, or why it's the one on the PATH. */
+export type MatchingKubectl = { dir: string; version: string } | { problem: string }
+
+export class Kubectls {
+  /** Each minor version's newest patch (1.34 → v1.34.3), or why it isn't known, for a while. */
+  readonly #newest = new Map<string, { until: number; version?: string; problem?: string }>()
+  /** Downloads under way, by version: terminals opened meanwhile wait for the same one. */
+  readonly #getting = new Map<string, Promise<void>>()
+  /** Each cluster's minor version, as it last said it. */
+  readonly #minors = new Map<string, string>()
+
+  constructor(
+    private readonly deps: {
+      /** Where they're kept: <dir>/v1.34.3/kubectl. */
+      dir: string
+      /** Where they come from: dl.k8s.io, or a mirror of it. */
+      mirror: () => string
+      /** A cluster's version, as it says it (v1.34.1-eks-…). */
+      clusterVersion: (context: string) => Promise<string>
+    },
+  ) {
+    void this.#prune()
+  }
+
+  /** The kubectl for a cluster's terminals; `getting` is told when one is to be downloaded. */
+  async for(context: string, getting: (version: string) => void): Promise<MatchingKubectl> {
+    const goos = GOOS[process.platform]
+    const goarch = GOARCH[process.arch]
+    if (!goos || !goarch) return { problem: `Kubernetes has no kubectl for ${process.arch}` }
+    let minor: string
+    try {
+      minor = await this.#minorOf(context)
+    } catch (error) {
+      return { problem: message(error) }
+    }
+    let downloading: string | undefined
+    const matching = async () => {
+      const version = await this.#newestOf(minor)
+      const dir = join(this.deps.dir, version)
+      if (!existsSync(join(dir, EXE))) {
+        downloading = version
+        getting(version)
+        await this.#download(version, `${goos}/${goarch}`)
+      }
+      return { dir, version }
+    }
+    try {
+      return await within(matching(), KUBECTL_WAIT_MS, () =>
+        downloading
+          ? `kubectl ${downloading} is still downloading, for the terminals opened once it’s done`
+          : `${host(this.#mirror)} didn’t answer within ${KUBECTL_WAIT_MS / 1000} seconds`,
+      )
+    } catch (error) {
+      // Not tried again for a while: terminals opened meanwhile don't wait for it to fail. (What
+      // only took long carries on.)
+      if (!(error instanceof Late)) {
+        this.#newest.set(minor, { until: Date.now() + UNKNOWN_MS, problem: message(error) })
+      }
+      // Offline, say: the newest one kept of that minor version will do.
+      const kept = await this.#kept(minor)
+      if (kept) return { dir: join(this.deps.dir, kept), version: kept }
+      return {
+        problem:
+          error instanceof Late
+            ? error.message
+            : `Lumovi couldn’t get kubectl ${minor} to match the cluster (${message(error)})`,
+      }
+    }
+  }
+
+  /**
+   * A cluster's minor version: as it last said it, or as it says it now if it does at once.
+   * It's asked each time, for the next terminal (it may have been upgraded).
+   */
+  async #minorOf(context: string): Promise<string> {
+    const asking = this.deps.clusterVersion(context).then(
+      (said) => {
+        const minor = /^v?(\d+\.\d+)\./.exec(said)?.[1]
+        if (!minor) throw new Error(`Lumovi can’t tell which kubectl matches ${said}`)
+        this.#minors.set(context, minor)
+        return minor
+      },
+      (error: unknown) => {
+        throw new Error(`Lumovi couldn’t ask the cluster its version (${message(error)})`)
+      },
+    )
+    // What comes too late is for the next terminal.
+    asking.catch(() => undefined)
+    const known = this.#minors.get(context)
+    if (known) return known
+    return within(
+      asking,
+      VERSION_WAIT_MS,
+      () =>
+        `Lumovi couldn’t ask the cluster its version (it didn’t answer within ${VERSION_WAIT_MS / 1000} seconds)`,
+    )
+  }
+
+  get #mirror(): string {
+    return this.deps.mirror().replace(/\/+$/, '')
+  }
+
+  async #newestOf(minor: string): Promise<string> {
+    const known = this.#newest.get(minor)
+    if (known && known.until > Date.now()) {
+      if (known.version) return known.version
+      throw new Error(known.problem)
+    }
+    try {
+      const said = (await get(`${this.#mirror}/release/stable-${minor}.txt`)).toString().trim()
+      if (VERSION.exec(said)?.[1] !== minor) {
+        throw new Error(`${host(this.#mirror)} says ${minor}’s newest is ${said.slice(0, 40)}`)
+      }
+      this.#newest.set(minor, { until: Date.now() + KNOWN_MS, version: said })
+      return said
+    } catch (error) {
+      this.#newest.set(minor, { until: Date.now() + UNKNOWN_MS, problem: message(error) })
+      throw error
+    }
+  }
+
+  #download(version: string, platform: string): Promise<void> {
+    let getting = this.#getting.get(version)
+    if (!getting) {
+      getting = this.#fetch(version, platform).finally(() => this.#getting.delete(version))
+      this.#getting.set(version, getting)
+    }
+    return getting
+  }
+
+  async #fetch(version: string, platform: string): Promise<void> {
+    const url = `${this.#mirror}/release/${version}/bin/${platform}/${EXE}`
+    const [kubectl, published] = await Promise.all([
+      get(url, DOWNLOAD_TIMEOUT_MS),
+      get(`${url}.sha256`),
+    ])
+    const sha256 = createHash('sha256').update(kubectl).digest('hex')
+    if (sha256 !== published.toString().trim().split(/\s+/)[0]) {
+      throw new Error(`what was downloaded isn’t what ${host(this.#mirror)} published`)
+    }
+    const dir = join(this.deps.dir, version)
+    await mkdir(dir, { recursive: true })
+    // Whole, or not there: a terminal never finds half of one.
+    const partial = join(dir, `.${EXE}.${process.pid}`)
+    await writeFile(partial, kubectl, { mode: 0o755 })
+    await rename(partial, join(dir, EXE))
+  }
+
+  /** The newest patch of a minor version the folder has. */
+  async #kept(minor: string): Promise<string | undefined> {
+    return (await this.#versions()).find(
+      (version) =>
+        VERSION.exec(version)?.[1] === minor && existsSync(join(this.deps.dir, version, EXE)),
+    )
+  }
+
+  /** The versions the folder has, newest first. */
+  async #versions(): Promise<string[]> {
+    const names = await readdir(this.deps.dir).catch(() => [])
+    return names
+      .filter((name) => VERSION.test(name))
+      .sort((a, b) => {
+        const [, minorA, patchA] = VERSION.exec(a)!
+        const [, minorB, patchB] = VERSION.exec(b)!
+        return minorA === minorB
+          ? Number(patchB) - Number(patchA)
+          : minorB!.localeCompare(minorA!, 'en', { numeric: true })
+      })
+  }
+
+  /** Keeps only each minor version's newest patch (as Lumovi starts, before any terminal). */
+  async #prune(): Promise<void> {
+    const seen = new Set<string>()
+    for (const version of await this.#versions()) {
+      const minor = VERSION.exec(version)![1]!
+      if (seen.has(minor)) {
+        await rm(join(this.deps.dir, version), { recursive: true, force: true }).catch(() => {})
+      }
+      seen.add(minor)
+    }
+  }
+}
+
+/** A wait that ran out: what it waited for carries on. */
+class Late extends Error {}
+
+/** What `promise` gives, unless `ms` go by first: then it's Late, and says `late()`. */
+async function within<T>(promise: Promise<T>, ms: number, late: () => string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, fail) => {
+        timer = setTimeout(() => fail(new Late(late())), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** What's at a URL, or why not. */
+async function get(url: string, timeoutMs = LOOKUP_TIMEOUT_MS): Promise<Buffer> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+  if (!response.ok) throw new Error(`${host(url)} answered ${response.status}`)
+  return Buffer.from(await response.arrayBuffer())
+}
+
+const host = (url: string) => new URL(url).host
+
+/** An error's own words: a failed fetch's are its cause's. */
+function message(error: unknown): string {
+  const { message, cause } = error as Error & { cause?: Error }
+  return cause?.message ?? message
+}
