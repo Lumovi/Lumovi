@@ -205,9 +205,20 @@
 }
 @keyframes pop-in {
   from {
-    transform: scale(0.97) translateY(-4px);
+    transform: scale(0.97) translateY(var(--pop-from, -4px));
     opacity: 0;
   }
+}
+/*
+ * A menu or popover grows from what opened it, and comes from its side: one that opens upward
+ * (a menu at the bottom of the sidebar, or one flipped to fit) rises, rather than dropping onto
+ * its button. Radix says where it opened, and from where it grows.
+ */
+.animate-pop-in[data-side] {
+  transform-origin: var(--radix-popper-transform-origin);
+}
+.animate-pop-in[data-side='top'] {
+  --pop-from: 4px;
 }
 @keyframes toast-in {
   from {
