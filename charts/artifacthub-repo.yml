@@ -1,7 +1,8 @@
 # Artifact Hub's metadata for Lumovi's chart repository, oci://ghcr.io/lumovi/charts/lumovi:
-# who owns it, so Artifact Hub shows it as from a verified publisher once repositoryID (which
-# Artifact Hub gives when the repository is added there) is set. The release workflow pushes
-# it with each release, as the repository's artifacthub.io tag.
+# who owns it, so Artifact Hub shows it as from a verified publisher (repositoryID is the one
+# Artifact Hub gave it). The release workflow pushes it with each release, as the repository's
+# artifacthub.io tag.
+repositoryID: 3a2e3145-d267-49c2-941e-1050ead3ff83
 owners:
   - name: Peter Kota
     email: kotapeter@gmail.com
