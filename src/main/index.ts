@@ -147,7 +147,12 @@ if (stdio) {
     const updates = new Updates(
       (event) => send(IPC.updateChanged, event),
       settings.get().autoUpdate!,
-      settings.get().managed?.updatesOff === true,
+      // The organization's, as its policy says; the Store's, for the copy it installed.
+      settings.get().managed?.updatesOff
+        ? 'organization'
+        : process.windowsStore
+          ? 'store'
+          : undefined,
     )
     // What Chromium fetches (the updater, in its own session) goes through the policy's proxy
     // too, not the shell's; its credentials only for it.
