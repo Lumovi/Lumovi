@@ -48,18 +48,30 @@ export async function signInWithToken(token: string): Promise<void> {
   )
 }
 
+/** Whether this page is signing out: then its sign-out's answer says how it ended, not the connection. */
+let signingOut = false
+export const isSigningOut = () => signingOut
+
 /**
  * Signs out; what the server couldn't keep of it, if anything (503: it's over there, but a
- * restart before it can keep it would bring it back).
+ * restart before it can keep it would bring it back). The connection ends with the session,
+ * maybe before the answer comes: it's the answer that's waited for, to say what wasn't kept.
  */
 export async function signOut(): Promise<string | undefined> {
-  const response = await fetch(serverUrl(PATHS.session), { method: 'DELETE' })
-  if (response.status === 503) {
-    const { error } = (await response.json().catch(() => ({}))) as { error?: string }
-    return error ?? 'Lumovi couldn’t keep that you signed out.'
+  signingOut = true
+  try {
+    const response = await fetch(serverUrl(PATHS.session), { method: 'DELETE' })
+    if (response.status === 503) {
+      const { error } = (await response.json().catch(() => ({}))) as { error?: string }
+      return error ?? 'Lumovi couldn’t keep that you signed out.'
+    }
+    await check(response)
+    return undefined
+  } catch (error) {
+    // Still signed in: the connection says when the session ends, as before.
+    signingOut = false
+    throw error
   }
-  await check(response)
-  return undefined
 }
 
 /** Single sign-on, coming back to the page that's open now. */

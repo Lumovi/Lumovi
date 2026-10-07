@@ -18,6 +18,9 @@ A signed Windows installer, and long text that stays in its place everywhere.
 
 ### Fixed
 
+- A sign-out the server couldn't keep says so on the sign-in page, however slow the server's
+  answer: the page no longer reloads as the connection ends with the session, before the answer
+  (and what it says wasn't kept) comes.
 - Long text stays in its place, everywhere: names, labels, annotations, images and messages as
   long as Kubernetes allows are cut short with an ellipsis (all of it on hover), or wrap where
   they have the room, and never run over what's beside them. Panels give a long name its own
