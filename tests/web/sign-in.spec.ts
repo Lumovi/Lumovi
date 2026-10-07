@@ -105,8 +105,10 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
   page,
   serve,
 }) => {
+  // A "minute" of 3 seconds: long enough for a burst of five sign-ins to fall in one, even on a
+  // slow runner (a second wasn't, on Windows), and short enough to wait for.
   const served = await serve({
-    env: { LUMOVI_SIGN_IN_RECORDED: '2', LUMOVI_SIGN_IN_WINDOW_MS: '1000' },
+    env: { LUMOVI_SIGN_IN_RECORDED: '2', LUMOVI_SIGN_IN_WINDOW_MS: '3000' },
   })
   await page.goto(served.url)
   await expect(page.getByPlaceholder('Paste a token')).toBeVisible()
@@ -153,7 +155,7 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
       '1 more sign-in didn’t succeed, each not recorded: more than 2 were tried in a minute',
     ])
   // A minute with none past that: nothing said.
-  await page.waitForTimeout(1500)
+  await page.waitForTimeout(3500)
   expect(audited(served, 'session.sign-in')).toHaveLength(6)
   // As the server stops, what's only been counted so far is said too.
   await page.evaluate(async () => {
