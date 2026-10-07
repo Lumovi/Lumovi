@@ -8,6 +8,17 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Fixed
 
+- Long text stays in its place, everywhere: names, labels, annotations, images and messages as
+  long as Kubernetes allows are cut short with an ellipsis (all of it on hover), or wrap where
+  they have the room, and never run over what's beside them. Panels give a long name its own
+  line (its status moves beside its actions), images are cut at their start so their tag shows,
+  and a list beside a panel says less in its footer rather than wrapping it. A check of every
+  page, panel, menu and dialog, with everything at its longest, keeps it so.
+- Where a component's look is set for one place (a smaller button, a narrower bar, a dimmer
+  label), it now takes: two classes setting the same thing no longer depend on the order the
+  stylesheet happens to have them in.
+- Menus and popovers grow from what opened them, and those that open upward (at the bottom of
+  the sidebar, or flipped to fit) rise rather than drop.
 - The stdio bridge AI assistants start follows no redirect: Lumovi's token goes nowhere else.
 - What Lumovi remembers of each cluster's version for terminals (`kubectl/clusters.json`, which
   names your contexts) is yours alone (0600), and written whole or not at all.

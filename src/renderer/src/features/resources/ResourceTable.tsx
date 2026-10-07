@@ -261,21 +261,26 @@ export function ResourceTable({
                   <button
                     type="button"
                     onClick={() => onSort(column.id)}
+                    // A header keeps to its line: cut short in a narrow column, its arrow kept.
                     className={cn(
-                      'flex items-center gap-1 text-2xs font-medium tracking-wider uppercase transition-colors hover:text-ink-1',
+                      'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1',
                       isSorted ? 'text-ink-1' : 'text-ink-3',
                     )}
+                    title={column.header}
                   >
-                    {column.header}
+                    <span className="truncate">{column.header}</span>
                     {isSorted &&
                       (sort.desc ? (
-                        <ArrowDown className="size-3" />
+                        <ArrowDown className="size-3 shrink-0" />
                       ) : (
-                        <ArrowUp className="size-3" />
+                        <ArrowUp className="size-3 shrink-0" />
                       ))}
                   </button>
                 ) : (
-                  <span className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                  <span
+                    className="truncate text-2xs font-medium tracking-wider whitespace-nowrap text-ink-3 uppercase"
+                    title={column.header}
+                  >
                     {column.header}
                   </span>
                 )}
@@ -335,8 +340,9 @@ export function ResourceTable({
                     <div
                       key={column.id}
                       role="gridcell"
+                      // What a column's cell can't fit is cut at its edge, never drawn over the next.
                       className={cn(
-                        'flex min-w-0 items-center px-3',
+                        'flex min-w-0 items-center overflow-hidden px-3',
                         column.align === 'right' && 'justify-end',
                       )}
                     >

@@ -109,7 +109,7 @@ export function releaseRecord(spec: ReleaseSpec, revision: Revision, now: number
   }
 }
 
-function release(b: Builder, now: number, spec: ReleaseSpec): void {
+export function release(b: Builder, now: number, spec: ReleaseSpec): void {
   for (const revision of spec.revisions) {
     const labels = {
       name: spec.name,

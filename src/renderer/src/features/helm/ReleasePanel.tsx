@@ -278,7 +278,7 @@ function ReleaseOverview({ release }: { release: HelmReleaseDetail }) {
       </Section>
       {latest.notes?.trim() && (
         <Section title="Notes">
-          <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 selectable">
+          <pre className="font-mono text-xs leading-relaxed wrap-anywhere whitespace-pre-wrap text-ink-2 selectable">
             {latest.notes.trim()}
           </pre>
         </Section>
@@ -439,7 +439,7 @@ function ReleaseHistory({ release }: { release: HelmReleaseDetail }) {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] text-ink-1">{r.description}</span>
-              <span className="block text-xs text-ink-3">
+              <span className="block text-xs wrap-anywhere text-ink-3">
                 Chart {r.chartVersion}
                 {r.appVersion && ` · app ${r.appVersion}`}
                 {r.updated && ` · ${age(r.updated)} ago`}

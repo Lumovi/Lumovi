@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Tail } from '@renderer/components/Tail'
 import { History } from 'lucide-react'
 import { useState } from 'react'
 import type { Revision, RolloutKind } from '@shared/api'
@@ -126,15 +127,17 @@ export function RollbackDialog({ object, onClose }: ActionProps) {
                       const differs = running.get(container) !== image
                       return (
                         <span key={container} className="flex min-w-0 gap-2 font-mono text-2xs">
-                          <span className="shrink-0 text-ink-3">{container}</span>
                           <span
-                            className={cn(
-                              'truncate',
-                              differs ? 'font-medium text-ink-1' : 'text-ink-3',
-                            )}
+                            className="max-w-[40%] shrink-0 truncate text-ink-3"
+                            title={container}
                           >
-                            {image}
+                            {container}
                           </span>
+                          {/* Its tag is what tells revisions apart: the start is what's cut. */}
+                          <Tail
+                            text={image}
+                            className={differs ? 'font-medium text-ink-1' : 'text-ink-3'}
+                          />
                         </span>
                       )
                     })}

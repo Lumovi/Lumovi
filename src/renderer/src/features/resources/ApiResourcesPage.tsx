@@ -151,10 +151,10 @@ function KindTable({
       <table className="w-full table-fixed border-separate border-spacing-0 text-[13px]">
         <thead className="text-left text-2xs font-medium tracking-wider text-ink-3 uppercase">
           <tr>
-            <th className="w-[34%] border-b border-line py-2 pl-3 font-medium">Kind</th>
-            <th className="w-[30%] border-b border-line py-2 font-medium">API version</th>
-            <th className="w-[12%] border-b border-line py-2 font-medium">Scope</th>
-            <th className="w-[16%] border-b border-line py-2 font-medium">View</th>
+            <th className="w-[34%] border-b border-line py-2 pr-3 pl-3 font-medium">Kind</th>
+            <th className="w-[30%] border-b border-line py-2 pr-3 font-medium">API version</th>
+            <th className="w-[13%] border-b border-line py-2 pr-3 font-medium">Scope</th>
+            <th className="w-[15%] border-b border-line py-2 pr-3 font-medium">View</th>
             <th className="w-[8%] border-b border-line py-2">
               <span className="sr-only">Pin</span>
             </th>
@@ -182,12 +182,13 @@ function KindTable({
                 const isPinned = pinned.includes(resource.kind)
                 return (
                   <tr key={resource.kind} className="group hover:bg-surface-2">
-                    <td className="border-b border-line py-1.5 pl-3">
+                    <td className="border-b border-line py-1.5 pr-3 pl-3">
+                      {/* As wide as its cell, no wider: a long kind or short name is cut short. */}
                       <button
                         type="button"
                         data-kind-link
                         onClick={() => go(kindPath(context, resource.kind))}
-                        className="flex min-w-0 items-center gap-2.5 text-left font-medium text-ink-1 hover:text-accent-strong"
+                        className="flex w-full min-w-0 items-center gap-2.5 text-left font-medium text-ink-1 hover:text-accent-strong"
                       >
                         <Icon className="size-4 shrink-0 text-ink-3" />
                         <span className="truncate">{resource.label}</span>
@@ -198,13 +199,13 @@ function KindTable({
                         )}
                       </button>
                     </td>
-                    <td className="truncate border-b border-line py-1.5 font-mono text-xs text-ink-2">
+                    <td className="truncate border-b border-line py-1.5 pr-3 font-mono text-xs text-ink-2">
                       {resource.group ? `${resource.group}/${resource.version}` : resource.version}
                     </td>
-                    <td className="border-b border-line py-1.5 text-ink-2">
+                    <td className="truncate border-b border-line py-1.5 pr-3 text-ink-2">
                       {resource.namespaced ? 'Namespaced' : 'Cluster'}
                     </td>
-                    <td className="truncate border-b border-line py-1.5 text-xs text-ink-2">
+                    <td className="truncate border-b border-line py-1.5 pr-3 text-xs text-ink-2">
                       {view?.source ?? '—'}
                     </td>
                     <td className="border-b border-line py-1 pr-2 text-right">
