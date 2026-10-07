@@ -64,7 +64,12 @@ export function trustedMirror(url: string): boolean {
 export type MatchingKubectl =
   { dir: string; version: string; unsigned?: string } | { problem: string }
 
-/** In a version's folder: the mirror it came from unsigned, if it did. */
+/**
+ * In a version's folder, how it was checked: against Kubernetes' signature (where it came from),
+ * or against its SHA-256 only (the mirror it came from unsigned). One without either was kept
+ * before Lumovi checked signatures (1.13.0): it's got again, as Lumovi starts.
+ */
+const SIGNED = 'signed'
 const UNSIGNED = 'unsigned'
 
 export class Kubectls {
@@ -123,7 +128,7 @@ export class Kubectls {
     const matching = async () => {
       const version = await this.#newestOf(minor)
       const dir = join(this.deps.dir, version)
-      if (!existsSync(join(dir, EXE))) {
+      if (!existsSync(join(dir, EXE)) || !checked(dir)) {
         downloading = version
         getting(version)
         await this.#download(version, `${goos}/${goarch}`)
@@ -276,7 +281,8 @@ export class Kubectls {
     // Kubernetes signs every kubectl Lumovi gets: from dl.k8s.io, one without a signature, or
     // with half of one, isn't taken (whoever could change it could take its signature away).
     // A mirror may keep no signatures: then the SHA-256 it publishes is all there is.
-    const official = mirror === this.deps.official.replace(/\/+$/, '')
+    // As its host says it, however it's spelled (DL.K8S.IO, dl.k8s.io:443, …).
+    const official = host(mirror) === host(this.deps.official)
     if (signature && certificate) {
       const why = whyNotKubernetes(kubectl, signature, certificate, this.deps.trust)
       if (why) throw new Error(`${host(mirror)}’s kubectl ${version} isn’t Kubernetes’ own: ${why}`)
@@ -289,10 +295,10 @@ export class Kubectls {
     }
     const dir = join(this.deps.dir, version)
     await mkdir(dir, { recursive: true })
-    // Whole, or not there: a terminal never finds half of one. Where it's unsigned, that's said
-    // before it's there (and where it's signed, not said, whatever a download cut short said).
-    if (signature) await rm(join(dir, UNSIGNED), { force: true })
-    else await writeFile(join(dir, UNSIGNED), host(mirror))
+    // Whole, or not there: a terminal never finds half of one. How it was checked is said before
+    // it's there (and not as a download a crash cut short said).
+    await rm(join(dir, signature ? UNSIGNED : SIGNED), { force: true })
+    await writeFile(join(dir, signature ? SIGNED : UNSIGNED), host(mirror))
     const partial = join(dir, `.${EXE}.${process.pid}`)
     await writeFile(partial, kubectl, { mode: 0o755 })
     await rename(partial, join(dir, EXE))
@@ -300,10 +306,10 @@ export class Kubectls {
 
   /** The newest patch of a minor version the folder has. */
   async #kept(minor: string): Promise<string | undefined> {
-    return (await this.#versions()).find(
-      (version) =>
-        VERSION.exec(version)?.[1] === minor && existsSync(join(this.deps.dir, version, EXE)),
-    )
+    return (await this.#versions()).find((version) => {
+      const dir = join(this.deps.dir, version)
+      return VERSION.exec(version)?.[1] === minor && existsSync(join(dir, EXE)) && checked(dir)
+    })
   }
 
   /** The versions the folder has, newest first. */
@@ -322,7 +328,7 @@ export class Kubectls {
 
   /**
    * Keeps only each minor version's newest patch, and nothing half-written (a download a crash
-   * cut short): as Lumovi starts, before any terminal.
+   * cut short), nor unchecked (kept before 1.13.0): as Lumovi starts, before any terminal.
    */
   async #prune(): Promise<void> {
     // clusters.json as a crash left it half-written; and as yours alone, as 1.9.1 didn't keep it.
@@ -336,6 +342,10 @@ export class Kubectls {
     for (const version of await this.#versions()) {
       const minor = VERSION.exec(version)![1]!
       const dir = join(this.deps.dir, version)
+      if (existsSync(join(dir, EXE)) && !checked(dir)) {
+        await rm(dir, { recursive: true, force: true }).catch(() => {})
+        continue
+      }
       if (seen.has(minor)) {
         await rm(dir, { recursive: true, force: true }).catch(() => {})
       } else {
@@ -347,6 +357,9 @@ export class Kubectls {
     }
   }
 }
+
+/** Whether a version's folder says how its kubectl was checked. */
+const checked = (dir: string) => existsSync(join(dir, SIGNED)) || existsSync(join(dir, UNSIGNED))
 
 /** A wait that ran out: what it waited for carries on. */
 class Late extends Error {}
