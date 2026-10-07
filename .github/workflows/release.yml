@@ -2,7 +2,7 @@ name: Release
 
 # Releases a version when it reaches main. Once CI passes on a commit whose
 # package.json version has no release yet, this builds the installers for every
-# platform (macOS signed and notarized), attaches them, their checksums and the
+# platform (macOS signed and notarized, Windows signed), attaches them, their checksums and the
 # software bill of materials (SBOM) to a GitHub release with the version's
 # CHANGELOG notes, and publishes it, which tags the commit. The image and Helm
 # chart for running Lumovi in a cluster go to GitHub's container registry,
@@ -109,7 +109,7 @@ jobs:
           ---
 
           **Downloads** are below: \`.dmg\` for macOS (signed and notarized by Apple), \`.exe\`
-          for Windows, \`.AppImage\`, \`.deb\` and \`.rpm\` for Linux. \`SHA256SUMS.txt\` lists
+          for Windows (signed), \`.AppImage\`, \`.deb\` and \`.rpm\` for Linux. \`SHA256SUMS.txt\` lists
           their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
           that a file was built by this repository's release workflow.
           \`Lumovi-$VERSION.cdx.json\` is the software bill of materials (CycloneDX): the
@@ -159,6 +159,10 @@ jobs:
       # For the build provenance attestation.
       id-token: write
       attestations: write
+    env:
+      # Windows' certificate (Certum's, renewed each year): its thumbprint. Its name is
+      # electron-builder.yml's publisherName.
+      WIN_CERTIFICATE_SHA1: 4E6B3A2AEE86A28EABC65C90C1FE1E85D6756FB8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -219,6 +223,15 @@ jobs:
             printf '%s\n' "$KEY" > "$RUNNER_TEMP/apple-api-key.p8"
             echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key.p8" >> "$GITHUB_ENV"
           fi
+      # Windows' key is Certum's, in its cloud: SimplySign Desktop, logged in, shows it to signtool
+      # as a smart card, with the certificate in the user's store (scripts/simplysign.ts).
+      - name: Log in to SimplySign
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WIN_SIMPLYSIGN_ID: ${{ secrets.WIN_SIMPLYSIGN_ID }}
+          WIN_SIMPLYSIGN_OTP_URI: ${{ secrets.WIN_SIMPLYSIGN_OTP_URI }}
+        run: if [ -n "$WIN_SIMPLYSIGN_ID" ]; then node scripts/simplysign.ts; fi
       - name: Package and upload the installers
         shell: bash
         env:
@@ -226,15 +239,38 @@ jobs:
           # Optional: builds are signed (and macOS builds notarized) when these secrets are set.
           SIGN: >-
             ${{ (runner.os == 'macOS' && secrets.MAC_CSC_LINK != '') ||
-            (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
-          WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
-          WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+            (runner.os == 'Windows' && secrets.WIN_SIMPLYSIGN_ID != '') }}
           APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
         run: |
           # Unsigned builds shouldn't go looking for a certificate in a keychain.
           if [ "$SIGN" != true ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
-          npx electron-builder --publish always ${{ matrix.only }}
+          # Windows signs with the certificate SimplySign put in the user's store.
+          certificate=()
+          if [ "$SIGN" = true ] && [ "$RUNNER_OS" = Windows ]; then
+            certificate=("-c.win.signtoolOptions.certificateSha1=$WIN_CERTIFICATE_SHA1")
+          fi
+          npx electron-builder --publish always ${{ matrix.only }} "${certificate[@]}"
+      # Each signed with the certificate, and timestamped: the installer, and every program and
+      # library it installs.
+      - name: Check the Windows signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SIGNED: ${{ secrets.WIN_SIMPLYSIGN_ID != '' }}
+        run: |
+          if ($env:SIGNED -ne 'true') { exit 0 }
+          $files = @(Get-ChildItem release -Filter 'Lumovi-*-win.exe') + @(
+            Get-ChildItem release\win-unpacked, release\win-arm64-unpacked -Recurse -File -Include *.exe, *.dll, *.node)
+          $wrong = foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate -or
+                $signature.SignerCertificate.Thumbprint -ne $env:WIN_CERTIFICATE_SHA1) {
+              "$($file.FullName): $($signature.Status), $($signature.SignerCertificate.Subject)"
+            }
+          }
+          if ($wrong) { $wrong; throw "$($wrong.Count) of $($files.Count) aren't signed as they should be." }
+          "All $($files.Count) are signed by $env:WIN_CERTIFICATE_SHA1, and timestamped."
       # The Microsoft Store's packages (Microsoft signs them): for Partner Center, not the release.
       - name: Build the Microsoft Store packages
         if: runner.os == 'Windows'
