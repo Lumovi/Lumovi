@@ -13,7 +13,12 @@ export function buildMenu(
   win: BrowserWindow,
   { updates, settings }: { updates: Updates; settings: SettingsStore },
 ): Menu {
-  const managedUpdates = settings.get().managed?.updatesOff === true
+  // Brought by someone else: the organization's policy, or the Microsoft Store.
+  const managedUpdates = settings.get().managed?.updatesOff
+    ? 'Updates Are Set by Your Organization'
+    : process.windowsStore
+      ? 'Updates Come from the Microsoft Store'
+      : undefined
   const command = (
     id: AppCommand,
     label: string,
@@ -87,7 +92,7 @@ export function buildMenu(
         // Off, and locked, where the organization's policy deploys new versions.
         {
           id: 'check-updates',
-          label: managedUpdates ? 'Updates Are Set by Your Organization' : 'Check for Updates…',
+          label: managedUpdates ?? 'Check for Updates…',
           enabled: !managedUpdates,
           click: () => void updates.check(true),
         },

@@ -92,6 +92,9 @@ export function managedReadOnly(managed: ManagedSettings | undefined, context: s
 
 const escaped = (text: string) => text.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
 
+/** Who brings new versions of Lumovi, when it doesn't update itself. */
+export type UpdatesBy = 'organization' | 'store'
+
 /** Where updating Lumovi to a new version is at. */
 export type UpdateState =
   /** Nothing to tell: no check yet. */
@@ -103,8 +106,8 @@ export type UpdateState =
   | { status: 'ready'; version: string }
   /** This copy can't update itself, e.g. while developing it. */
   | { status: 'unsupported' }
-  /** The organization's policy deploys new versions, not Lumovi. */
-  | { status: 'managed' }
+  /** Someone else brings new versions: the organization's policy deploys them ('organization'), or the Microsoft Store ('store'). */
+  | { status: 'managed'; by: UpdatesBy }
   | { status: 'error'; message: string }
 
 export interface UpdateEvent {

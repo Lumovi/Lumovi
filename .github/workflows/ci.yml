@@ -317,6 +317,51 @@ jobs:
           else
             npx playwright test "${specs[@]}"
           fi
+      # The Microsoft Store's package: built, then installed and started as the Store would.
+      - name: Build the Microsoft Store package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Windows' own SDK's makeappx and makepri (the runner's newest), which know the manifest's
+          # desktop6: electron-builder's bundled ones are older.
+          $kit = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Directory |
+            Where-Object Name -like '10.*' | Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64' } |
+            Where-Object { Test-Path (Join-Path $_ 'makeappx.exe') } | Select-Object -First 1
+          if (-not $kit) { throw 'No Windows SDK with makeappx.exe' }
+          $env:ELECTRON_BUILDER_WINDOWS_KITS_PATH = $kit
+          npx electron-builder --win appx --x64 --publish never
+      - name: Install and start the Microsoft Store package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # What it says it is: the Store's identity, and what it writes to AppData not redirected.
+          $appx = Get-ChildItem release -Filter 'Lumovi-*-store-x64.appx' | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP 'store'
+          Copy-Item $appx.FullName "$dir.zip"
+          Expand-Archive "$dir.zip" $dir
+          [xml]$manifest = Get-Content (Join-Path $dir 'AppxManifest.xml')
+          $package = $manifest.Package
+          if ($package.Identity.Name -ne 'PeterKota.Lumovi') { throw "Its identity is $($package.Identity.Name)" }
+          if ($package.Identity.Publisher -ne 'CN=1A1E4958-8136-4D23-A653-58BADF043EA0') { throw "Not the Store's publisher" }
+          if ($package.Properties.FileSystemWriteVirtualization -ne 'disabled') { throw 'What it writes is redirected' }
+          if (-not ($package.Capabilities.Capability | Where-Object Name -eq 'unvirtualizedResources')) { throw 'No unvirtualizedResources' }
+          # Installed as it is, as developer mode allows (the Store signs it), and started from Start.
+          reg add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' /t REG_DWORD /f /v AllowDevelopmentWithoutDevLicense /d 1
+          Add-AppxPackage -Register (Join-Path $dir 'AppxManifest.xml')
+          $installed = Get-AppxPackage PeterKota.Lumovi
+          if ($installed.PackageFamilyName -ne 'PeterKota.Lumovi_kjge0drhgcaep') { throw "Its family is $($installed.PackageFamilyName)" }
+          Start-Process "shell:AppsFolder\$($installed.PackageFamilyName)!Lumovi"
+          # It writes its settings as it starts: where everything else sees them, not in a copy.
+          $settings = Join-Path $env:APPDATA 'Lumovi\settings.json'
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path $settings) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          if (-not (Test-Path $settings)) { throw "It didn't start, or wrote elsewhere: no $settings" }
+          $copy = Join-Path $env:LOCALAPPDATA "Packages\$($installed.PackageFamilyName)\LocalCache\Roaming\Lumovi"
+          if (Test-Path $copy) { throw "What it writes was redirected to $copy" }
+          Get-Process Lumovi | Stop-Process -Force
+          Remove-AppxPackage $installed.PackageFullName
 
   integration:
     name: Integration (kind)

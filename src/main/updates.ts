@@ -5,7 +5,7 @@
  */
 import { createRequire } from 'node:module'
 import type { AuthInfo, Session } from 'electron'
-import type { UpdateEvent, UpdateState } from '@shared/api'
+import type { UpdateEvent, UpdatesBy, UpdateState } from '@shared/api'
 
 // CommonJS, so loaded with require (where the e2e tests stand in for it).
 const { autoUpdater } = createRequire(import.meta.url)(
@@ -27,8 +27,11 @@ export class Updates {
   constructor(
     private readonly emit: (event: UpdateEvent) => void,
     auto: boolean,
-    /** The organization's policy deploys new versions: Lumovi neither looks nor installs. */
-    private readonly managed = false,
+    /**
+     * Who brings new versions instead (the organization's policy, the Microsoft Store): then
+     * Lumovi neither looks for them nor installs them.
+     */
+    private readonly managed?: UpdatesBy,
   ) {
     autoUpdater.autoDownload = !managed
     autoUpdater.autoInstallOnAppQuit = !managed
@@ -76,7 +79,7 @@ export class Updates {
     // A check in the background doesn't take the answer from one the user asked for.
     if (manual) this.#manual = true
     if (this.managed) {
-      this.#set({ status: 'managed' })
+      this.#set({ status: 'managed', by: this.managed })
       return
     }
     // A version downloading or downloaded already is the answer.
