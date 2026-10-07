@@ -20,6 +20,9 @@ blob-report/
 *.tsbuildinfo
 .nyc_output-*/
 
+# The helm the app ships with, as scripts/before-pack.mjs downloads it.
+build/helm/
+
 # The integration tests' kind cluster (its own kubeconfig).
 .kind/
 playwright-report-integration/

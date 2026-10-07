@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { HELM_VERSION } from './helm.ts'
 
 interface Package {
   name: string
@@ -83,7 +84,18 @@ write(
     'renderer/packages.json',
     'main/dependencies.json',
   ),
-  [component({ ...electron, license: electron.license ?? 'MIT' }, 'framework')],
+  [
+    component({ ...electron, license: electron.license ?? 'MIT' }, 'framework'),
+    // The helm it ships with (scripts/helm.mjs).
+    {
+      type: 'application',
+      'bom-ref': `pkg:golang/helm.sh/helm/v4@v${HELM_VERSION}`,
+      name: 'helm',
+      version: HELM_VERSION,
+      purl: `pkg:golang/helm.sh/helm/v4@v${HELM_VERSION}`,
+      ...licenses('Apache-2.0'),
+    },
+  ],
 )
 write(
   'image.cdx.json',

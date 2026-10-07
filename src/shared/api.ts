@@ -361,7 +361,7 @@ export interface ChartSource {
 /** The user's helm, which makes the changes. */
 export interface HelmCli {
   available: boolean
-  /** What runs: LUMOVI_HELM, or helm on the PATH. */
+  /** What runs: LUMOVI_HELM, the helm Lumovi ships with, or helm on the PATH. */
   command: string
   version?: string
 }
