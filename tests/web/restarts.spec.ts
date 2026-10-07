@@ -1,10 +1,13 @@
 /**
  * A restart signs nobody out: sessions and the AI assistants people allowed are kept (in a
- * file under LUMOVI_DATA_DIR, or a Secret of the cluster Lumovi runs in), and nothing kept is
- * a credential anyone could use: cookies and tokens by their hash, and a person's own token
- * sealed with a key only their cookie gives.
+ * file under LUMOVI_DATA_DIR, or a Secret of the cluster Lumovi runs in). What's kept says
+ * nothing to whoever reads it, can't be made, changed or moved by whoever writes it (each entry
+ * sealed with a key kept apart from it), and holds no credential anyone could use: cookies and
+ * tokens by their hash, and a person's own token sealed again with a key only their cookie gives.
+ * What mustn't be lost (a sign-out, an assistant let go) is kept before it's answered.
  */
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { createCipheriv, createHash, createHmac, hkdfSync, randomBytes } from 'node:crypto'
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -23,24 +26,25 @@ import {
 } from './fixtures.ts'
 
 const SIGNED_IN = /^Signed in as/
+const signedIn = (page: Page) => page.getByRole('button', { name: SIGNED_IN })
+const signInPage = (page: Page) => page.getByPlaceholder('Paste a token')
 
 /** What a server kept in its folder. */
 const kept = (dir: string) => readFileSync(join(dir, 'state.json'), 'utf8')
+const entries = (dir: string): Record<string, string> => {
+  try {
+    return JSON.parse(kept(dir)).entries
+  } catch {
+    return {}
+  }
+}
+const count = (dir: string) => Object.keys(entries(dir)).length
 
 /**
- * Once what's kept has this many in a section: it's written a little after a change, and a
- * server stopped on Windows (no SIGTERM to finish on) writes nothing more.
+ * Once what's kept has this many entries: it's written a little after a change, and a server
+ * stopped on Windows (no SIGTERM to finish on) writes nothing more.
  */
-const written = (dir: string, section: string, count: number) =>
-  expect
-    .poll(() => {
-      try {
-        return Object.keys(JSON.parse(kept(dir))[section]).length
-      } catch {
-        return 0
-      }
-    })
-    .toBe(count)
+const written = (dir: string, entries: number) => expect.poll(() => count(dir)).toBe(entries)
 
 /** The session cookie a browser holds. */
 async function sessionCookie(context: BrowserContext): Promise<string> {
@@ -56,9 +60,24 @@ async function reconnect(served: Served, assistant: Assistant): Promise<Client> 
   return client
 }
 
-const signedIn = (page: Page) => page.getByRole('button', { name: SIGNED_IN })
+/** A sign-in with a token, as the page makes one: its cookie. */
+async function tokenSignIn(served: Served, token: string): Promise<string> {
+  const response = await fetch(new URL('api/session', served.url), {
+    method: 'POST',
+    headers: { Origin: new URL(served.url).origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  expect(response.status).toBe(200)
+  return /lumovi-session=([^;]+)/.exec(response.headers.get('set-cookie')!)![1]!
+}
 
-test('a restart signs nobody out, and keeps no one’s token or cookie as it is', async ({
+/** Whether a cookie is signed in. */
+const signedInWith = (served: Served, cookie: string) =>
+  fetch(new URL('api/session', served.url), {
+    headers: { Cookie: `lumovi-session=${cookie}` },
+  }).then((response) => response.status === 200)
+
+test('a restart signs nobody out, and what’s kept says nothing of who', async ({
   page,
   context,
   serve,
@@ -69,23 +88,17 @@ test('a restart signs nobody out, and keeps no one’s token or cookie as it is'
   const served = await serve({ env })
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   const cookie = await sessionCookie(context)
-  await written(dir, 'sessions', 1)
+  await written(dir, 1)
   await served.stop()
-  // Her session is kept, its token sealed: neither her token nor her cookie is there.
+  // Neither her token, nor her cookie, nor even her name is there; its key is beside it, its
+  // folder's alone.
   const text = kept(dir)
-  expect(text).not.toContain(PEOPLE.alice.token)
-  expect(text).not.toContain(cookie)
-  const sessions = Object.values(JSON.parse(text).sessions) as { user: unknown; sealed?: string }[]
-  expect(sessions).toEqual([
-    {
-      user: {
-        name: 'alice@example.com',
-        groups: ['developers', 'on-call', 'system:authenticated'],
-      },
-      expires: expect.any(Number),
-      sealed: expect.any(String),
-    },
-  ])
+  for (const secret of [PEOPLE.alice.token, cookie, 'alice@example.com', 'developers']) {
+    expect(text).not.toContain(secret)
+  }
+  if (process.platform !== 'win32') {
+    expect(statSync(join(dir, 'state.key')).mode & 0o777).toBe(0o600)
+  }
 
   // The next server: she's still signed in, and acts with her own token, unsealed by her cookie.
   const again = await serve({ env, port: served.port })
@@ -99,19 +112,112 @@ test('a restart signs nobody out, and keeps no one’s token or cookie as it is'
   await context.clearCookies()
   await context.addCookies([{ name: 'lumovi-session', value: 'forged', url: again.url }])
   await page.goto(`${again.url}cluster/demo`)
-  await expect(page.getByPlaceholder('Paste a token')).toBeVisible()
+  await expect(signInPage(page)).toBeVisible()
 
-  // Signed in again, then out: she stays signed out across the next restart.
+  // Signed in again, then out: kept so before it's answered, so even a server stopped at once
+  // (as on Windows) doesn't bring it back.
   await signIn(page, `${again.url}cluster/demo`, PEOPLE.alice.token)
+  await written(dir, 2)
   await page.getByRole('button', { name: SIGNED_IN }).click()
-  await written(dir, 'sessions', 2)
   await page.getByRole('button', { name: 'Sign out' }).click()
-  await written(dir, 'sessions', 1)
+  await expect(signInPage(page)).toBeVisible()
+  expect(count(dir)).toBe(1)
   await again.stop()
   const third = await serve({ env, port: served.port })
   await page.goto(`${third.url}cluster/demo`)
-  await expect(page.getByPlaceholder('Paste a token')).toBeVisible()
+  await expect(signInPage(page)).toBeVisible()
   await third.stop()
+})
+
+test('whoever can write what’s kept can’t make, change or move an entry in it', async ({
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const env = { LUMOVI_DATA_DIR: dir }
+  const served = await serve({ env })
+  const alice = await tokenSignIn(served, PEOPLE.alice.token)
+  const bob = await tokenSignIn(served, PEOPLE.bob.token)
+  await written(dir, 2)
+  await served.stop()
+  // Which is whose, nobody can tell: one is changed, the other moved.
+  const pair = Object.entries(entries(dir))
+  const [oneName, oneSealed] = pair[0]!
+  const [otherName, otherSealed] = pair[1]!
+
+  // Made: a session as Ana, for a cookie of one's own, sealed as Lumovi seals, with any key
+  // but its own.
+  const mine = randomBytes(32).toString('base64url')
+  const key = randomBytes(32)
+  const id = createHash('sha256').update(mine).digest('base64url')
+  const name = createHmac(
+    'sha256',
+    Buffer.from(hkdfSync('sha256', key, 'lumovi', 'state names', 32)),
+  )
+    .update(`sessions\0${id}`)
+    .digest('base64url')
+  const nonce = randomBytes(12)
+  const cipher = createCipheriv(
+    'aes-256-gcm',
+    Buffer.from(hkdfSync('sha256', key, 'lumovi', 'state seal', 32)),
+    nonce,
+  )
+  cipher.setAAD(Buffer.from(name))
+  const value = {
+    section: 'sessions',
+    key: id,
+    value: {
+      user: { name: 'ana@example.com', groups: ['platform-admins'] },
+      expires: Date.now() + 3_600_000,
+    },
+  }
+  const sealed = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()])
+  const forged = Buffer.concat([nonce, cipher.getAuthTag(), sealed]).toString('base64url')
+  writeFileSync(
+    join(dir, 'state.json'),
+    JSON.stringify({
+      entries: {
+        [name]: forged,
+        // Changed: a character off.
+        [oneName]: `${oneSealed.slice(0, 40)}${oneSealed[40] === 'A' ? 'B' : 'A'}${oneSealed.slice(41)}`,
+        // Moved: under another name.
+        [`${otherName.slice(0, -1)}${otherName.endsWith('x') ? 'y' : 'x'}`]: otherSealed,
+      },
+    }),
+  )
+  const again = await serve({ env, port: served.port })
+  expect(again.log()).toContain('3 of what Lumovi kept doesn’t open with its key')
+  // Nobody's signed in: not Ana, nor Alice, nor Bob.
+  for (const cookie of [mine, alice, bob]) expect(await signedInWith(again, cookie)).toBe(false)
+  await again.stop()
+})
+
+test('past what it may hold, the sessions that end soonest make way, never a sign-out', async ({
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const env = { LUMOVI_DATA_DIR: dir, LUMOVI_STATE_MAX_BYTES: '3000' }
+  const served = await serve({ env })
+  const cookies: string[] = []
+  for (let i = 0; i < 16; i++) cookies.push(await tokenSignIn(served, PEOPLE.bob.token))
+  await expect.poll(() => served.log()).toMatch(/the \d+ sessions that end soonest aren’t kept/)
+  await expect.poll(() => kept(dir).length).toBeLessThanOrEqual(3000)
+  // A sign-out is kept, before it's answered, all the same.
+  const newest = cookies.at(-1)!
+  const before = count(dir)
+  const out = await fetch(new URL('api/session', served.url), {
+    method: 'DELETE',
+    headers: { Origin: new URL(served.url).origin, Cookie: `lumovi-session=${newest}` },
+  })
+  expect(out.status).toBe(204)
+  expect(count(dir)).toBe(before - 1)
+  await served.stop()
+  // After a restart: the oldest sign in again, the newest still kept is signed in, and the one
+  // signed out isn't.
+  const again = await serve({ env, port: served.port })
+  expect(await signedInWith(again, cookies[0]!)).toBe(false)
+  expect(await signedInWith(again, cookies.at(-2)!)).toBe(true)
+  expect(await signedInWith(again, newest)).toBe(false)
+  await again.stop()
 })
 
 test('behind a proxy, assistants carry on across a restart, and what their person made read-only holds', async ({
@@ -133,14 +239,13 @@ test('behind a proxy, assistants carry on across a restart, and what their perso
   await page.keyboard.press('Escape')
   await expect.poll(async () => (await call(client, 'list_clusters')).text).toMatch(/read-only/)
   await page.close()
-  await written(dir, 'grants', 1)
-  await written(dir, 'readOnly', 1)
+  // Its grant, its refresh token, its access token, and what he made read-only.
+  await written(dir, 4)
   await served.stop()
-  // Its tokens are kept by their hash alone.
-  const text = kept(dir)
   const tokens = assistant.tokens()!
-  expect(text).not.toContain(tokens.access_token)
-  expect(text).not.toContain(tokens.refresh_token!)
+  for (const secret of [tokens.access_token, tokens.refresh_token!, 'frank@example.com']) {
+    expect(kept(dir)).not.toContain(secret)
+  }
 
   // The next server: its session there is new, but it's still allowed (nobody's asked again),
   // and demo is still read-only for it, before Frank opens a page.
@@ -158,17 +263,24 @@ test('behind a proxy, assistants carry on across a restart, and what their perso
   }
   expect((await call(next, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
   // Its refresh token still renews it, once.
-  const renew = () =>
+  const token = (refresh: string) =>
     fetch(new URL('oauth/token', again.url), {
       method: 'POST',
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: tokens.refresh_token!,
-      }),
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refresh }),
     })
-  expect((await renew()).status).toBe(200)
-  expect((await renew()).status).toBe(400)
+  const renewed = (await (await token(tokens.refresh_token!)).json()) as { refresh_token: string }
+  expect((await token(tokens.refresh_token!)).status).toBe(400)
+  // Revoked (it signs out): kept so before it's answered, so a restart doesn't bring it back.
+  const revoked = await fetch(new URL('oauth/revoke', again.url), {
+    method: 'POST',
+    body: new URLSearchParams({ token: renewed.refresh_token }),
+  })
+  expect(revoked.status).toBe(200)
+  expect(count(dir)).toBe(1)
   await again.stop()
+  const third = await serve({ env, port: served.port })
+  expect((await token(renewed.refresh_token)).status).toBe(400)
+  await third.stop()
 })
 
 test('an assistant that passes its person’s own token on waits for them after a restart', async ({
@@ -180,7 +292,8 @@ test('an assistant that passes its person’s own token on waits for them after 
   const served = await serve({ env })
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   const { assistant } = await connect(page, served)
-  await written(dir, 'grants', 1)
+  // Her session, and its grant, refresh token and access token.
+  await written(dir, 4)
   await served.stop()
 
   // Her token is sealed with her cookie: until her browser's back, it can't act as her.
@@ -193,12 +306,24 @@ test('an assistant that passes its person’s own token on waits for them after 
   await expect(signedIn(page)).toBeVisible()
   const next = await reconnect(again, assistant)
   expect((await call(next, 'list_resources', { cluster: 'demo', kind: 'ns' })).error).toBe(false)
+  // She lets it go: kept so before her page hears it's done.
+  await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
+  await page.getByRole('link', { name: /^Your assistants/ }).click()
+  const yours = page.getByRole('region', { name: 'Your assistants' })
+  await yours.getByRole('button', { name: 'Disconnect' }).click()
+  await expect(yours).toContainText('None yet')
+  expect(count(dir)).toBe(1)
   await again.stop()
 })
 
-test('in the cluster Lumovi runs in: kept in its Secret', async ({ page, serve, clusters }) => {
+test('in the cluster Lumovi runs in: kept in its Secret, sealed with a key apart from it', async ({
+  page,
+  serve,
+  clusters,
+}) => {
   const sa = inCluster(clusters)
-  const env = { ...sa.env, LUMOVI_STATE_SECRET: 'lumovi-state' }
+  const key = randomBytes(32).toString('base64url')
+  const env = { ...sa.env, LUMOVI_STATE_SECRET: 'lumovi-state', LUMOVI_STATE_KEY: key }
   // As the chart makes it: empty.
   const secret = () => clusters.demo.object('Secret', 'lumovi', 'lumovi-state')
   clusters.demo.upsert({
@@ -210,22 +335,21 @@ test('in the cluster Lumovi runs in: kept in its Secret', async ({ page, serve, 
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   const state = () => {
     const data = (secret() as { data?: Record<string, string> }).data?.['state.json']
-    return data ? Buffer.from(data, 'base64').toString('utf8') : ''
+    return data ? Buffer.from(data, 'base64').toString('utf8') : '{"entries":{}}'
   }
-  await expect
-    .poll(() => Object.keys(JSON.parse(state() || '{"sessions":{}}').sessions))
-    .toHaveLength(1)
-  expect(state()).not.toContain(PEOPLE.alice.token)
+  await expect.poll(() => Object.keys(JSON.parse(state()).entries)).toHaveLength(1)
+  for (const secret of [PEOPLE.alice.token, 'alice@example.com', key]) {
+    expect(state()).not.toContain(secret)
+  }
   await served.stop()
   const again = await serve({ env, port: served.port })
   await page.goto(`${again.url}cluster/demo`)
   await expect(signedIn(page)).toBeVisible()
   await again.stop()
 
-  // One that isn't there, or isn't a name, or outside a cluster: it doesn't start, and says why.
-  expect(
-    await refusedConfig(clusters, { ...sa.env, LUMOVI_STATE_SECRET: 'lumovi-gone' }),
-  ).toContain(
+  // One that isn't there, or isn't a name, or outside a cluster, or without its key, or with
+  // one too short: it doesn't start, and says why.
+  expect(await refusedConfig(clusters, { ...env, LUMOVI_STATE_SECRET: 'lumovi-gone' })).toContain(
     'Lumovi can’t read Secret lumovi/lumovi-gone, where it keeps who’s signed in and the AI assistants they allowed',
   )
   expect(await refusedConfig(clusters, { LUMOVI_STATE_SECRET: 'Not_Valid' })).toContain(
@@ -233,5 +357,11 @@ test('in the cluster Lumovi runs in: kept in its Secret', async ({ page, serve, 
   )
   expect(await refusedConfig(clusters, { LUMOVI_STATE_SECRET: 'lumovi-state' })).toContain(
     'LUMOVI_STATE_SECRET keeps who’s signed in in the cluster Lumovi runs in, and it isn’t running in one',
+  )
+  expect(await refusedConfig(clusters, { ...env, LUMOVI_STATE_KEY: undefined })).toContain(
+    'LUMOVI_STATE_SECRET needs LUMOVI_STATE_KEY',
+  )
+  expect(await refusedConfig(clusters, { ...env, LUMOVI_STATE_KEY: 'short' })).toContain(
+    'LUMOVI_STATE_KEY must be at least 32 characters',
   )
 })

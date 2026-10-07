@@ -117,6 +117,10 @@ auth:
   # restart (an upgrade, say) signs nobody out. No credential is kept as it is. false: in
   # Lumovi's memory, so a restart signs everyone out.
   keepSessions: true
+  # What they're sealed with, apart from them: the chart makes a Secret with a random key (and
+  # keeps it). Where the chart is rendered with helm template (Argo CD), which can't keep it,
+  # name a Secret of yours with at least 32 random characters under `key`.
+  stateKeySecret: ''
 
 # Nobody changes anything through Lumovi, whatever their RBAC allows.
 readOnly: false

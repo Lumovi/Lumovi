@@ -59,10 +59,12 @@ export class Sessions {
     /** Called with each session that ends (and why, when it expired early), so its pages can be told. */
     private readonly ended: (session: StoredSession, how: SessionEnd, why: string) => void,
     private readonly state?: ServerState,
+    /** Why someone can't be signed in, if they can't (Kubernetes' own users): checked again. */
+    refuses: (user: SessionUser) => string | undefined = () => undefined,
   ) {
     // Those kept, as they were: the credentials of those that have any, sealed.
     for (const [id, kept] of state?.entries<KeptSession>('sessions') ?? []) {
-      if (!isKept(kept) || kept.expires <= Date.now()) continue
+      if (!isKept(kept) || kept.expires <= Date.now() || refuses(kept.user)) continue
       this.#sessions.set(id, {
         id,
         identity: { user: kept.user },
@@ -105,7 +107,7 @@ export class Sessions {
     const key = keyOf(cookie)
     let credentials: Credentials
     try {
-      credentials = JSON.parse(unseal(live.sealed, key)) as Credentials
+      credentials = JSON.parse(unseal(live.sealed, key, live.id)) as Credentials
     } catch {
       // Not what this cookie sealed: it isn't this session's.
       return undefined
@@ -140,6 +142,11 @@ export class Sessions {
     this.#keep(live, { ...live.credentials, ...credentials })
   }
 
+  /** Once what changed (a sign-out, say) is kept: throws if it can't be. */
+  async kept(): Promise<void> {
+    await this.state?.flush({ strict: true })
+  }
+
   end(id: string, how: SessionEnd, why: string): void {
     const live = this.#sessions.get(id)
     if (!live) return
@@ -163,7 +170,7 @@ export class Sessions {
     const kept: KeptSession = {
       user: live.identity.user,
       expires: live.expires,
-      ...(has && live.key ? { sealed: seal(JSON.stringify(credentials), live.key) } : {}),
+      ...(has && live.key ? { sealed: seal(JSON.stringify(credentials), live.key, live.id) } : {}),
     }
     this.state?.set('sessions', live.id, kept)
   }
@@ -186,17 +193,19 @@ function keyOf(cookie: string): Buffer {
   return Buffer.from(hkdfSync('sha256', cookie, 'lumovi', 'session credentials', 32))
 }
 
-/** AES-256-GCM: its nonce, its tag, and what it seals, together. */
-function seal(text: string, key: Buffer): string {
+/** AES-256-GCM, bound to its session: its nonce, its tag, and what it seals, together. */
+function seal(text: string, key: Buffer, id: string): string {
   const nonce = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, nonce)
+  cipher.setAAD(Buffer.from(id))
   const sealed = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()])
   return Buffer.concat([nonce, cipher.getAuthTag(), sealed]).toString('base64url')
 }
 
-function unseal(sealed: string, key: Buffer): string {
+function unseal(sealed: string, key: Buffer, id: string): string {
   const bytes = Buffer.from(sealed, 'base64url')
   const decipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12))
+  decipher.setAAD(Buffer.from(id))
   decipher.setAuthTag(bytes.subarray(12, 28))
   return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8')
 }

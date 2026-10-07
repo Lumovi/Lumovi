@@ -105,6 +105,11 @@ export interface ServerConfig {
    * or only in memory.
    */
   state: Keeping
+  /**
+   * What it's sealed with (LUMOVI_STATE_KEY: from a Secret of its own, which the chart makes);
+   * without it, a file beside state.json, or (in memory) a key of the moment.
+   */
+  stateKey?: string
   /** How often pages' connections are checked, so proxies don't close quiet ones. */
   heartbeatSeconds: number
   /** The metrics source pages start with. */
@@ -297,6 +302,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     groupsPrefix: value('LUMOVI_GROUPS_PREFIX') ?? '',
     sessionHours: number('LUMOVI_SESSION_HOURS', 12, MAX_SESSION_HOURS),
     state: stateKeeping(env, value),
+    stateKey: stateKeyOf(value('LUMOVI_STATE_KEY')),
     heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
     nodeShell: nodeShell(value),
@@ -565,6 +571,14 @@ function adminRules(setting: string | undefined): AiRule[] {
   }
 }
 
+/** LUMOVI_STATE_KEY: long enough to be a key, at least. */
+function stateKeyOf(given: string | undefined): string | undefined {
+  if (given !== undefined && given.length < 32) {
+    throw new ConfigError('LUMOVI_STATE_KEY must be at least 32 characters, random ones.')
+  }
+  return given
+}
+
 /** Where what a restart mustn't lose is kept: see ServerConfig.state. */
 function stateKeeping(
   env: NodeJS.ProcessEnv,
@@ -580,6 +594,11 @@ function stateKeeping(
     if (!env.KUBERNETES_SERVICE_HOST) {
       throw new ConfigError(
         'LUMOVI_STATE_SECRET keeps who’s signed in in the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
+      )
+    }
+    if (!value('LUMOVI_STATE_KEY')) {
+      throw new ConfigError(
+        'LUMOVI_STATE_SECRET needs LUMOVI_STATE_KEY: the key what’s kept is sealed with, from a Secret of its own (the chart makes one).',
       )
     }
     return { kind: 'secret', name: secret }

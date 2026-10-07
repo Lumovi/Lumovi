@@ -270,9 +270,9 @@ export class ServerAssistants {
       readOnly: (contexts: string[]) => this.#people.setReadOnly(person, contexts),
       invoke: {
         [IPC.serverAssistantsStatus]: status,
-        [IPC.serverAssistantsRevoke]: (id: unknown) => {
+        [IPC.serverAssistantsRevoke]: async (id: unknown) => {
           if (typeof id !== 'string') throw new Error('Expected an assistant’s id')
-          this.#grants.letGo(person, id)
+          await this.#grants.letGo(person, id)
           return status()
         },
         [IPC.assistantsPending]: () => approvals().pending(),
@@ -308,6 +308,7 @@ export class ServerAssistants {
     }
     // Its session waits for its person: Lumovi restarted, and it passes their own token on.
     if ('waiting' in signedIn) {
+      res.setHeader('Retry-After', '30')
       return this.#refuse(
         res,
         503,

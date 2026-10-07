@@ -439,11 +439,25 @@ export class Grants {
     try {
       const form = await readForm(req)
       const kind = form.get('grant_type')
-      if (kind === 'authorization_code') sendOAuth(res, 200, this.#exchange(form))
-      else if (kind === 'refresh_token') sendOAuth(res, 200, this.#renew(form))
+      let tokens: unknown
+      if (kind === 'authorization_code') tokens = this.#exchange(form)
+      else if (kind === 'refresh_token') tokens = this.#renew(form)
       else throw new OAuthProblem('unsupported_grant_type', 'Only codes and refresh tokens.')
+      // Kept before they're given (if keeping fails, they work until a restart all the same).
+      await this.deps.state?.flush()
+      sendOAuth(res, 200, tokens)
     } catch (error) {
       const { error: code, message, status } = error as OAuthProblem
+      // A refresh token used twice let its assistant go: kept so, before it's refused.
+      try {
+        await this.deps.state?.flush({ strict: true })
+      } catch {
+        sendOAuth(res, 503, {
+          error: 'temporarily_unavailable',
+          error_description: 'Lumovi can’t keep what changed: try again shortly.',
+        })
+        return
+      }
       sendOAuth(res, status, { error: code, error_description: message })
     }
   }
@@ -529,13 +543,28 @@ export class Grants {
 
   /** `POST oauth/revoke` (RFC 7009): an assistant signing out. Answered alike, whatever it sent. */
   async revoke(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    let form: URLSearchParams | undefined
     try {
-      const given = digest((await readForm(req)).get('token') ?? '')
-      const id = this.#access.get(given)?.grant ?? this.#refresh.get(given)
-      const grant = id === undefined ? undefined : this.#grants.get(id)
-      if (grant) this.#end(grant, 'signed out')
+      form = await readForm(req)
     } catch {
       // Not a form: there's nothing to revoke.
+    }
+    const given = digest(form?.get('token') ?? '')
+    const id = this.#access.get(given)?.grant ?? this.#refresh.get(given)
+    const grant = id === undefined ? undefined : this.#grants.get(id)
+    if (grant) {
+      this.#end(grant, 'signed out')
+      // Kept so before it's said done: a restart mustn't bring it back. Not kept: said, to be
+      // asked again.
+      try {
+        await this.deps.state?.flush({ strict: true })
+      } catch {
+        sendOAuth(res, 503, {
+          error: 'temporarily_unavailable',
+          error_description: 'Lumovi can’t keep what changed: try again shortly.',
+        })
+        return
+      }
     }
     res.writeHead(200, { ...SECURITY_HEADERS, 'Cache-Control': 'no-store' }).end()
   }
@@ -645,10 +674,19 @@ export class Grants {
       }))
   }
 
-  /** `person` lets one of theirs go. */
-  letGo(person: string, id: string): void {
+  /** `person` lets one of theirs go: once it's kept so (throws if it can't be). */
+  async letGo(person: string, id: string): Promise<void> {
     const grant = this.#grants.get(id)
-    if (grant?.person === person) this.#end(grant, 'let go')
+    if (grant?.person !== person) return
+    this.#end(grant, 'let go')
+    try {
+      await this.deps.state?.flush({ strict: true })
+    } catch (error) {
+      throw new Error(
+        `${grant.name} is let go here, but Lumovi couldn’t keep it so (${(error as Error).message}): a restart before it can would bring it back. Try again shortly.`,
+        { cause: error },
+      )
+    }
   }
 
   /** Renames an assistant, as it calls itself once it connects ("Claude Code"). */
