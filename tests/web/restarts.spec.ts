@@ -140,6 +140,14 @@ test('a sign-out that can’t be kept says so, and signs out all the same', asyn
   await written(dir, 1)
   // Where it's kept can't be written now.
   chmodSync(dir, 0o500)
+  // The answer comes after the connection ends with the session, as it can on a slow
+  // computer: the page waits for it, to say what wasn't kept.
+  await page.route('**/api/session', async (route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    const response = await route.fetch()
+    await new Promise((done) => setTimeout(done, 1_500))
+    await route.fulfill({ response })
+  })
   try {
     await page.getByRole('button', { name: SIGNED_IN }).click()
     await page.getByRole('button', { name: 'Sign out' }).click()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { SessionContext } from '@renderer/state/session'
 import { useConnection } from '@renderer/web/connection'
-import { loadSession, sessionEnded, type SessionState } from '@renderer/web/session'
+import { isSigningOut, loadSession, sessionEnded, type SessionState } from '@renderer/web/session'
 import { SignInPage, Unavailable } from './SignInPage'
 
 /**
@@ -18,7 +18,8 @@ export function SessionGate({ children }: { children: ReactNode }) {
 
   useEffect(load, [load])
   useEffect(() => {
-    if (connection.state === 'ended') sessionEnded(connection.ended!)
+    // Signing out here, its answer reloads the page (with what the server couldn't keep).
+    if (connection.state === 'ended' && !isSigningOut()) sessionEnded(connection.ended!)
   }, [connection])
 
   // A moment, with the page's background, rather than a spinner that flashes.
