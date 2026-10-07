@@ -131,10 +131,13 @@ export function ActionDialog({
 
               {typeToConfirm !== undefined && (
                 <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-2">
-                    {production && <TriangleAlert className="size-3.5 text-critical-text" />}
+                  {/* One sentence, however long the name: it wraps within it. */}
+                  <span className="mb-1.5 block text-xs text-ink-2">
+                    {production && (
+                      <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
+                    )}
                     Type{' '}
-                    <span className="font-mono font-medium text-ink-1 select-all">
+                    <span className="font-mono font-medium wrap-anywhere text-ink-1 select-all">
                       {typeToConfirm}
                     </span>{' '}
                     to confirm

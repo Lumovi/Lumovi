@@ -41,10 +41,16 @@ export function EventsTab({ object }: { object: KubeObject }) {
               }
             />
             <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="font-semibold text-ink-1">{event.reason as string}</span>
+              {/* A long reason is cut short (it's all on hover): when it was keeps its place. */}
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span
+                  className="min-w-0 truncate font-semibold text-ink-1"
+                  title={event.reason as string}
+                >
+                  {event.reason as string}
+                </span>
                 {(event.count as number) > 1 && (
-                  <span className="rounded-full bg-surface-3 px-1.5 text-2xs font-medium text-ink-2 tabular-nums">
+                  <span className="shrink-0 rounded-full bg-surface-3 px-1.5 text-2xs font-medium text-ink-2 tabular-nums">
                     ×{event.count as number}
                   </span>
                 )}
@@ -57,10 +63,10 @@ export function EventsTab({ object }: { object: KubeObject }) {
                   {age(lastSeen(event))} ago
                 </time>
               </div>
-              <p className="mt-0.5 text-[13px] leading-relaxed break-words text-ink-2 selectable">
+              <p className="mt-0.5 text-[13px] leading-relaxed wrap-anywhere text-ink-2 selectable">
                 {event.message as string}
               </p>
-              <p className="mt-0.5 text-xs text-ink-3">
+              <p className="mt-0.5 text-xs wrap-anywhere text-ink-3">
                 {(event.source as { component?: string } | undefined)?.component}
               </p>
             </div>

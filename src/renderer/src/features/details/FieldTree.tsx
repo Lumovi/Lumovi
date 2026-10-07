@@ -86,7 +86,10 @@ function Field({
     return (
       <div role="treeitem" aria-label={name} className="flex min-w-0 gap-3">
         {/* Narrower as it's nested deeper, so values line up in one column. */}
-        <span className="shrink-0" style={{ width: `max(6rem, ${11 - depth * INDENT}rem)` }}>
+        <span
+          className="min-w-0 shrink-0 truncate"
+          style={{ width: `max(6rem, ${11 - depth * INDENT}rem)` }}
+        >
           {key}
         </span>
         <span className="min-w-0 flex-1">
@@ -105,7 +108,7 @@ function Field({
       : 'fields'
   return (
     <div role="treeitem" aria-label={name} aria-expanded={open}>
-      <span className="flex items-center gap-1">
+      <span className="flex min-w-0 items-center gap-1">
         <button
           type="button"
           aria-label={open ? `Fold ${name}` : `Unfold ${name}`}
@@ -114,9 +117,9 @@ function Field({
         >
           <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
         </button>
-        {key}
+        <span className="min-w-0 truncate">{key}</span>
         {!open && (
-          <span className="text-xs text-ink-3">
+          <span className="shrink-0 text-xs whitespace-nowrap text-ink-3">
             {count} {noun}
           </span>
         )}
@@ -139,7 +142,11 @@ function Field({
 
 /** A field's name, with its description in a tooltip when the schema has one. */
 function FieldName({ name, description }: { name: string; description?: string }): ReactNode {
-  const text = <span className="font-mono text-xs text-ink-2">{name}</span>
+  const text = (
+    <span title={name} className="font-mono text-xs text-ink-2">
+      {name}
+    </span>
+  )
   if (!description) return text
   const short =
     description.length > MAX_DESCRIPTION ? `${description.slice(0, MAX_DESCRIPTION)}…` : description
@@ -164,7 +171,7 @@ function Scalar({ value }: { value: unknown }) {
         {value.map((item, i) => (
           <span
             key={i}
-            className="rounded bg-surface-3 px-1.5 font-mono text-xs text-ink-1 selectable"
+            className="max-w-full rounded bg-surface-3 px-1.5 font-mono text-xs wrap-anywhere text-ink-1 selectable"
           >
             {String(item)}
           </span>

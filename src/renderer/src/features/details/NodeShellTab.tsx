@@ -8,6 +8,7 @@ import {
   SquareTerminal,
 } from 'lucide-react'
 import { useState } from 'react'
+import { Tail } from '@renderer/components/Tail'
 import { IMAGE_REFERENCE, isNodeShellSetting, NAMESPACE_NAME } from '@shared/node-shell'
 import type { KubeObject, NodeShellRequest, NodeShellSetting } from '@shared/api'
 import { nodeStatus } from '@shared/health'
@@ -217,7 +218,9 @@ function Explainer({
         <dt className="text-ink-3">Pod</dt>
         <dd className="truncate font-mono text-ink-1">{setting.namespace}/lumovi-node-shell-…</dd>
         <dt className="text-ink-3">Image</dt>
-        <dd className="truncate font-mono text-ink-1">{setting.image}</dd>
+        <dd className="min-w-0 font-mono text-ink-1">
+          <Tail text={setting.image} />
+        </dd>
         <dt className="text-ink-3">Access</dt>
         <dd className="text-ink-1">Privileged, with the node’s processes, network and files</dd>
       </dl>

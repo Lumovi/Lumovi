@@ -23,13 +23,14 @@ export function Pagination({
   const from = (page - 1) * size + 1
   const to = Math.min(page * size, count)
   return (
+    // What it says fits its width (a list beside a panel is narrow): less, never wrapped.
     <nav
       aria-label="Pagination"
-      className="flex h-11 shrink-0 items-center gap-4 border-t border-line px-5 text-xs text-ink-2"
+      className="@container flex h-11 shrink-0 items-center gap-3 border-t border-line px-5 text-xs whitespace-nowrap text-ink-2"
     >
       {onSize && (
         <label className="flex items-center gap-2">
-          Rows per page
+          <span className="hidden @[34rem]:inline">Rows per page</span>
           <select
             aria-label="Rows per page"
             value={size}
@@ -45,13 +46,15 @@ export function Pagination({
         </label>
       )}
       <span className="flex-1" />
-      <span className="tabular-nums">
+      <span className="hidden tabular-nums @[26rem]:inline">
         {number.format(from)}–{number.format(to)} of {number.format(count)}
       </span>
       <span className="flex items-center gap-0.5">
-        <IconButton label="First page" disabled={page <= 1} onClick={() => onPage(1)}>
-          <ChevronsLeft />
-        </IconButton>
+        <span className="hidden @[20rem]:contents">
+          <IconButton label="First page" disabled={page <= 1} onClick={() => onPage(1)}>
+            <ChevronsLeft />
+          </IconButton>
+        </span>
         <IconButton label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           <ChevronLeft />
         </IconButton>
@@ -61,9 +64,11 @@ export function Pagination({
         <IconButton label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}>
           <ChevronRight />
         </IconButton>
-        <IconButton label="Last page" disabled={page >= pages} onClick={() => onPage(pages)}>
-          <ChevronsRight />
-        </IconButton>
+        <span className="hidden @[20rem]:contents">
+          <IconButton label="Last page" disabled={page >= pages} onClick={() => onPage(pages)}>
+            <ChevronsRight />
+          </IconButton>
+        </span>
       </span>
     </nav>
   )

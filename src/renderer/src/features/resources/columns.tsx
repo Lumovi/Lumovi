@@ -4,6 +4,7 @@ import type { KubeObject, TableColumn, UsageSample } from '@shared/api'
 import type { BuiltinKind, ResourceKind } from '@shared/resources'
 import { Meter } from '@renderer/components/Meter'
 import { StatusPill } from '@renderer/components/Status'
+import { Tail } from '@renderer/components/Tail'
 import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, formatDateTime, percent } from '@renderer/lib/format'
 import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@renderer/lib/health'
@@ -40,9 +41,20 @@ export function metricsKey(namespace: string | undefined, name: string): string 
 const usageOf = (object: KubeObject, ctx: CellContext) =>
   ctx.metrics?.get(metricsKey(object.metadata.namespace, object.metadata.name))
 
-const muted = (text: ReactNode) => <span className="text-ink-3">{text}</span>
+const muted = (text: ReactNode) => <span className="truncate text-ink-3">{text}</span>
+/** Text a cell may cut short, with all of it on hover. */
+const plain = (text: string) => (
+  <span className="truncate text-ink-2" title={text}>
+    {text}
+  </span>
+)
 const mono = (text: ReactNode) => (
-  <span className="truncate font-mono text-xs text-ink-2">{text}</span>
+  <span
+    className="truncate font-mono text-xs text-ink-2"
+    title={typeof text === 'string' ? text : undefined}
+  >
+    {text}
+  </span>
 )
 const none = muted('—')
 
@@ -108,7 +120,8 @@ const imagesColumn: Column = {
     const images: string[] = o.spec.template.spec.containers.map((c: { image: string }) => c.image)
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        {mono(images[0])}
+        {/* Its tag is what tells images apart: the start is what's cut. */}
+        <Tail text={images[0]!} className="font-mono text-xs text-ink-2" />
         {images.length > 1 && muted(`+${images.length - 1}`)}
       </span>
     )
@@ -387,7 +400,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'type',
       header: 'Type',
       width: '112px',
-      cell: (o) => <span className="text-ink-2">{o.spec.type}</span>,
+      cell: (o) => plain(o.spec.type),
     },
     {
       id: 'clusterIP',
@@ -419,7 +432,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'class',
       header: 'Class',
       width: '96px',
-      cell: (o) => <span className="text-ink-2">{o.spec.ingressClassName}</span>,
+      cell: (o) => plain(o.spec.ingressClassName),
     },
     {
       id: 'hosts',
@@ -450,7 +463,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'types',
       header: 'Policy types',
       width: '140px',
-      cell: (o) => <span className="text-ink-2">{o.spec.policyTypes.join(', ')}</span>,
+      cell: (o) => plain(o.spec.policyTypes.join(', ')),
     },
   ],
   ConfigMap: [
@@ -492,7 +505,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'class',
       header: 'Storage class',
       width: '120px',
-      cell: (o) => <span className="text-ink-2">{o.spec.storageClassName}</span>,
+      cell: (o) => plain(o.spec.storageClassName),
     },
     {
       id: 'volume',
@@ -519,13 +532,13 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'class',
       header: 'Storage class',
       width: '120px',
-      cell: (o) => <span className="text-ink-2">{o.spec.storageClassName}</span>,
+      cell: (o) => plain(o.spec.storageClassName),
     },
     {
       id: 'reclaim',
       header: 'Reclaim',
       width: '90px',
-      cell: (o) => <span className="text-ink-2">{o.spec.persistentVolumeReclaimPolicy}</span>,
+      cell: (o) => plain(o.spec.persistentVolumeReclaimPolicy),
     },
   ],
   StorageClass: [
@@ -545,13 +558,13 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'reclaim',
       header: 'Reclaim',
       width: '90px',
-      cell: (o) => <span className="text-ink-2">{o.reclaimPolicy as string}</span>,
+      cell: (o) => plain(o.reclaimPolicy as string),
     },
     {
       id: 'binding',
       header: 'Binding',
       width: '150px',
-      cell: (o) => <span className="text-ink-2">{o.volumeBindingMode as string}</span>,
+      cell: (o) => plain(o.volumeBindingMode as string),
     },
   ],
 }

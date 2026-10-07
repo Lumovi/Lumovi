@@ -74,7 +74,9 @@ export function StatusPill({ status, className }: { status: Status; className?: 
       )}
     >
       <Icon className="size-3.5 shrink-0" strokeWidth={2.25} />
-      <span className="truncate">{status.label}</span>
+      <span className="truncate" title={status.label}>
+        {status.label}
+      </span>
     </span>
   )
 }

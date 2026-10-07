@@ -1,4 +1,5 @@
 import { ArrowRight, Box } from 'lucide-react'
+import { Tail } from '@renderer/components/Tail'
 import { useId, useRef, useState, type FocusEvent } from 'react'
 import type { KubeObject } from '@shared/api'
 import { useChange } from '@renderer/hooks/change'
@@ -172,9 +173,10 @@ export function SetImageDialog({ object, onClose }: ActionProps) {
               />
               {edited && (
                 <span className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-2xs text-ink-3">
-                  <span className="truncate line-through decoration-ink-3/60">{c.image}</span>
+                  {/* Tags are what change: each is cut at its start. */}
+                  <Tail text={c.image} className="flex-1 line-through decoration-ink-3/60" />
                   <ArrowRight className="size-3 shrink-0" />
-                  <span className="truncate text-ink-1">{next(c) || '—'}</span>
+                  <Tail text={next(c) || '—'} className="flex-1 text-ink-1" />
                 </span>
               )}
             </label>

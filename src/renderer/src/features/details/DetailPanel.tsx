@@ -92,7 +92,7 @@ function Detail({
             {object.data && <span> · {age(object.data.metadata.creationTimestamp!)} old</span>}
           </p>
           <div className="flex min-w-0 items-start gap-1">
-            <h2 className="line-clamp-2 text-[17px] leading-snug font-semibold tracking-[-0.01em] break-all selectable">
+            <h2 className="line-clamp-2 text-[17px] leading-snug font-semibold tracking-[-0.01em] wrap-anywhere selectable">
               {/* Events have hashed names; their reason and subject say more. */}
               {involved
                 ? `${object.data!.reason as string} · ${involved.kind}/${involved.name}`
@@ -100,13 +100,20 @@ function Detail({
             </h2>
             <CopyButton text={target.name} label="Copy name" />
           </div>
-          {object.data && !gone && actionsFor(object.data).length > 0 && (
-            <div className="mt-2.5">
-              <ActionBar object={object.data} />
+          {/* Its status, then what can be done: under the name, which has the line to itself. */}
+          {(status || (object.data && !gone && actionsFor(object.data).length > 0)) && (
+            <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+              {status && (
+                <div className="max-w-full min-w-0">
+                  <StatusPill status={status} />
+                </div>
+              )}
+              {object.data && !gone && actionsFor(object.data).length > 0 && (
+                <ActionBar object={object.data} />
+              )}
             </div>
           )}
         </div>
-        {status && <StatusPill status={status} className="mt-2.5 shrink-0" />}
         <IconButton
           label={expanded ? 'Restore panel' : 'Expand panel'}
           onClick={onExpand}

@@ -1,4 +1,5 @@
 import { Check, CircleHelp, Eye, EyeOff, Lock, TriangleAlert } from 'lucide-react'
+import { Tail } from '@renderer/components/Tail'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { ContainerUsage, KubeObject } from '@shared/api'
@@ -26,8 +27,9 @@ export function KeyValueGrid({ entries }: { entries: { label: string; value: Rea
     <dl className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-6 gap-y-2 text-[13px]">
       {entries.map((entry) => (
         <div key={entry.label} className="contents">
-          <dt className="text-ink-3">{entry.label}</dt>
-          <dd className="min-w-0 break-words text-ink-1 selectable">{entry.value}</dd>
+          {/* A long label (a container's name, an annotation's key) wraps: the value keeps room. */}
+          <dt className="max-w-64 wrap-anywhere text-ink-3">{entry.label}</dt>
+          <dd className="min-w-0 wrap-anywhere text-ink-1 selectable">{entry.value}</dd>
         </div>
       ))}
     </dl>
@@ -108,23 +110,18 @@ export function Containers({ pod, usage }: { pod: KubeObject; usage?: ContainerU
           >
             <header className="flex items-center gap-2.5">
               <StatusDot health={state.health} />
-              <h4 className="font-semibold text-ink-1">{spec.name}</h4>
+              <h4 className="min-w-0 font-semibold wrap-anywhere text-ink-1">{spec.name}</h4>
               {spec.init && (
                 <span className="rounded bg-surface-3 px-1.5 text-2xs font-medium text-ink-2">
                   init
                 </span>
               )}
               <span className="flex-1" />
-              <span className="text-xs text-ink-3 tabular-nums">
+              <span className="shrink-0 text-xs whitespace-nowrap text-ink-3 tabular-nums">
                 {status?.restartCount ?? 0} restarts
               </span>
             </header>
-            <p
-              className="mt-1.5 truncate font-mono text-xs text-ink-2 selectable"
-              title={spec.image}
-            >
-              {spec.image}
-            </p>
+            <Tail text={spec.image} className="mt-1.5 font-mono text-xs text-ink-2 selectable" />
             <p className="mt-2 text-[13px] text-ink-1">{state.text}</p>
             {state.detail && (
               <p className="mt-0.5 text-xs leading-relaxed text-ink-2 selectable">{state.detail}</p>
@@ -265,8 +262,10 @@ export function IngressRules({ ingress }: { ingress: KubeObject }) {
 
 function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-line">
-      <table className="w-full text-left text-[13px]">
+    // Columns share the width alike (a long host doesn't squeeze its path to nothing), and a
+    // panel too narrow for them scrolls them sideways.
+    <div className="overflow-x-auto rounded-xl border border-line">
+      <table className="w-full min-w-[36rem] table-fixed text-left text-[13px]">
         <thead className="bg-surface-2 text-2xs tracking-wider text-ink-3 uppercase">
           <tr>
             {headers.map((h) => (
@@ -280,7 +279,10 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][]
           {rows.map((row, i) => (
             <tr key={i}>
               {row.map((cell, j) => (
-                <td key={j} className="px-3 py-2 font-mono text-xs text-ink-1 selectable">
+                <td
+                  key={j}
+                  className="px-3 py-2 font-mono text-xs wrap-anywhere text-ink-1 selectable"
+                >
                   {cell}
                 </td>
               ))}
