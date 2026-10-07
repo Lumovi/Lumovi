@@ -6,10 +6,12 @@
  * its token) in Lumovi's settings, and starts Lumovi when it isn't running.
  */
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { isPort, isToken } from '@shared/assistants'
+import { CHALLENGE, PROOF, proves } from './assistant-proof'
 
 interface Message {
   jsonrpc: '2.0'
@@ -102,15 +104,33 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     throw new Error('Lumovi didn’t start: open it, and check that AI assistants are on.')
   }
 
-  const post = (message: Message) => {
+  /**
+   * That what listens at `url` is Lumovi, before it's given the token: asked before each request,
+   * as Lumovi may have quit since, and something else taken its port.
+   */
+  const prove = async (url: string, token: string) => {
+    const challenge = randomBytes(16).toString('hex')
+    const answer = await fetch(url, { method: 'HEAD', headers: { [CHALLENGE]: challenge } })
+    if (!proves(answer.headers.get(PROOF), token, challenge)) {
+      throw new Unproven(
+        `What listens on Lumovi’s port (${new URL(url).port}) can’t show it’s Lumovi, so Lumovi’s token isn’t sent to it: open Lumovi, and set this assistant up again.`,
+      )
+    }
+  }
+
+  const post = async (message: Message) => {
     const { url, token } = endpoint()
-    return fetch(url, {
-      method: 'POST',
-      headers: headers(token),
-      body: JSON.stringify(message),
-    }).catch(() => {
-      throw new Error('Lumovi isn’t answering: open it, and try again.')
-    })
+    try {
+      await prove(url, token)
+      return await fetch(url, {
+        method: 'POST',
+        headers: headers(token),
+        body: JSON.stringify(message),
+      })
+    } catch (error) {
+      if (error instanceof Unproven) throw error
+      throw new Error('Lumovi isn’t answering: open it, and try again.', { cause: error })
+    }
   }
 
   /** Sends `message`, and passes on what comes back. */
@@ -118,7 +138,9 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     let response: Response
     try {
       response = await post(message)
-    } catch {
+    } catch (error) {
+      // Something that isn't Lumovi listens where it would: it isn't started over it.
+      if (error instanceof Unproven) throw error
       // Not running: started, then asked again. (The first message is the assistant's
       // initialize, which it waits for: nothing else waits with it.)
       await start()
@@ -166,12 +188,16 @@ export async function runStdio(o: StdioOptions): Promise<void> {
   if (session) {
     try {
       const { url, token } = endpoint()
+      await prove(url, token)
       await fetch(url, { method: 'DELETE', headers: headers(token) })
     } catch {
       // Lumovi has gone too.
     }
   }
 }
+
+/** What listens on Lumovi's port couldn't show it's Lumovi. */
+class Unproven extends Error {}
 
 /** The messages in a response: a stream of events, a refusal, or none (a notification's). */
 async function* replies(response: Response): AsyncGenerator<Message> {
