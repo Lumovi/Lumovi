@@ -338,6 +338,9 @@ jobs:
         env:
           TOKEN: ${{ github.token }}
         run: |
+          # The image it runs, for Artifact Hub to show (and scan) with the chart.
+          yq -i '.annotations."artifacthub.io/images" = "- name: lumovi\n  image: " + strenv(IMAGE) + ":" + strenv(VERSION) + "\n"' \
+            charts/lumovi/Chart.yaml
           helm package charts/lumovi --version "$VERSION" --app-version "$VERSION"
           printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           helm push "lumovi-$VERSION.tgz" "oci://$CHARTS" 2>&1 | tee push.log
@@ -348,6 +351,13 @@ jobs:
           subject-name: ${{ env.CHARTS }}/lumovi
           subject-digest: ${{ steps.chart.outputs.digest }}
           push-to-registry: true
+      # Who owns the chart repository, for Artifact Hub: as its artifacthub.io tag.
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
+      - name: Push Artifact Hub's metadata
+        run: |
+          oras push "$CHARTS/lumovi:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            charts/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
       - name: Sign the chart
         env:
           DIGEST: ${{ steps.chart.outputs.digest }}
@@ -391,3 +401,69 @@ jobs:
         run: |
           if [ "$PRERELEASE" = true ]; then kind=--prerelease; else kind=--latest; fi
           gh release edit "$TAG" --draft=false "$kind" --verify-tag
+
+  aur:
+    name: AUR (lumovi-bin)
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    # makepkg, to write the .SRCINFO the AUR needs.
+    container: archlinux:latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      # Published once AUR_SSH_PRIVATE_KEY is set: the key of the AUR account that maintains
+      # lumovi-bin.
+      - name: Whether it's published
+        id: key
+        run: |
+          if [ -z "$AUR_KEY" ]; then
+            echo "AUR_SSH_PRIVATE_KEY isn't set: lumovi-bin isn't updated." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.key.outputs.set
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - name: The package, on this release
+        if: steps.key.outputs.set
+        env:
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # pacman's own download sandbox can't be set up in a container.
+          sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+          pacman -Syu --noconfirm --needed base-devel git openssh >/dev/null
+          sums=$(curl -fsSL "https://github.com/$GH_REPO/releases/download/v$VERSION/SHA256SUMS.txt")
+          sum() { awk -v f="Lumovi-$VERSION-linux-$1.deb" '$2 == f { print $1 }' <<<"$sums"; }
+          amd=$(sum amd64) arm=$(sum arm64)
+          [ -n "$amd" ] && [ -n "$arm" ] || { echo "::error::SHA256SUMS.txt has no .deb files"; exit 1; }
+          cd packaging/aur
+          sed -i -e "s/^pkgver=.*/pkgver=$VERSION/" -e 's/^pkgrel=.*/pkgrel=1/' \
+            -e "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$amd')/" \
+            -e "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$arm')/" PKGBUILD
+          # makepkg won't run as root.
+          useradd -m builder && chown -R builder .
+          su builder -c 'makepkg --printsrcinfo' > .SRCINFO
+          grep -E '^(pkgver|pkgrel|sha256sums)' PKGBUILD
+      - name: Published
+        if: steps.key.outputs.set
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes'
+          git clone ssh://aur@aur.archlinux.org/lumovi-bin.git "$RUNNER_TEMP/aur"
+          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO "$RUNNER_TEMP/aur/"
+          cd "$RUNNER_TEMP/aur"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then echo "lumovi-bin is on $VERSION already."; exit 0; fi
+          git -c user.name='Peter Kota' -c user.email='kotapeter@gmail.com' \
+            commit --quiet --message "lumovi-bin $VERSION"
+          git push --quiet origin HEAD:master

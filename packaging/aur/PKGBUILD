@@ -1,0 +1,36 @@
+# Maintainer: Peter Kota <kotapeter@gmail.com>
+#
+# Lumovi for Arch Linux, from its own .deb (the AUR's lumovi-bin). Kept here and published to
+# the AUR by the release workflow.
+pkgname=lumovi-bin
+pkgver=1.7.0
+pkgrel=1
+pkgdesc='A beautiful, fast Kubernetes dashboard for the desktop'
+arch=('x86_64' 'aarch64')
+url='https://lumovi.dev'
+license=('Apache-2.0')
+depends=('alsa-lib' 'at-spi2-core' 'gtk3' 'libnotify' 'libsecret' 'libxss' 'libxtst' 'nss'
+         'util-linux-libs' 'xdg-utils')
+optdepends=('kubectl: terminals with kubectl pointed at the cluster you are looking at'
+            'helm: Helm charts on this computer'
+            'libappindicator-gtk3: the icon in the system tray')
+provides=('lumovi')
+conflicts=('lumovi')
+options=('!strip' '!debug')
+source_x86_64=("https://github.com/Lumovi/Lumovi/releases/download/v${pkgver}/Lumovi-${pkgver}-linux-amd64.deb")
+source_aarch64=("https://github.com/Lumovi/Lumovi/releases/download/v${pkgver}/Lumovi-${pkgver}-linux-arm64.deb")
+sha256sums_x86_64=('86da36471aaf3ac311a6ca060fc57a470a6b2cafcec58bdf1023c423cdeb44f0')
+sha256sums_aarch64=('53adbae80b568ad109e7892e2b601082b62187ffa3c3c54c9022d1c9b060f7d1')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  # pacman updates it, not Lumovi itself (it would install a .deb): without a package type,
+  # it says it doesn't update itself.
+  rm "$pkgdir/opt/Lumovi/resources/package-type"
+  # Arch has user namespaces: Chromium's sandbox needs no setuid helper.
+  chmod 755 "$pkgdir/opt/Lumovi/chrome-sandbox"
+  install -d "$pkgdir/usr/bin"
+  ln -s /opt/Lumovi/lumovi "$pkgdir/usr/bin/lumovi"
+  install -Dm644 "$pkgdir/opt/Lumovi/LICENSE.electron.txt" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE.electron.txt"
+}
