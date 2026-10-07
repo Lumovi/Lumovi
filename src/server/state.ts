@@ -23,13 +23,14 @@
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { KubeRequestError } from '@backend/kube/errors'
 import { ConfigError } from './config'
 import { keeper, MAX_KEPT_BYTES, type Keeper, type Keeping, type Kept } from './kept'
 import { log } from './log'
 
 /** What's kept, each a map of its own. */
-export const SECTIONS = ['sessions', 'grants', 'access', 'refresh', 'spent', 'readOnly'] as const
+export const SECTIONS = ['sessions', 'grants', 'access', 'refresh', 'spent', 'clusters'] as const
 export type Section = (typeof SECTIONS)[number]
 
 /** As it's kept: each entry by its name (an HMAC), sealed. */
@@ -151,6 +152,41 @@ export class ServerState {
   /** A section as it was when the server started (and as it's changed here since). */
   entries<T>(section: Section): [string, T][] {
     return [...this.#open.get(section)!] as [string, T][]
+  }
+
+  /** An entry of a section, as it is here. */
+  get<T>(section: Section, key: string): T | undefined {
+    return this.#open.get(section)!.get(key) as T | undefined
+  }
+
+  /**
+   * A section as it's kept now, read again (another replica may have changed it), with what's
+   * changed here and not yet written over it. Whether it changed.
+   */
+  refresh(section: Section): Promise<boolean> {
+    const reading = this.#writing.then(async () => {
+      const document = await this.keeper.read()
+      // What's written next is over what's there now.
+      this.#document = document
+      const fresh = new Map<string, unknown>()
+      for (const [name, sealed] of Object.entries(document.entries)) {
+        const entry = this.#opened(name, sealed)
+        if (entry?.section === section) fresh.set(entry.key, entry.value)
+      }
+      for (const change of this.#changes.values()) {
+        if (change.section !== section) continue
+        if (change.value === undefined) fresh.delete(change.key)
+        else fresh.set(change.key, change.value)
+      }
+      const before = this.#open.get(section)!
+      this.#open.set(section, fresh)
+      return !isDeepStrictEqual(before, fresh)
+    })
+    this.#writing = reading.then(
+      () => undefined,
+      () => undefined,
+    )
+    return reading
   }
 
   set(section: Section, key: string, value: unknown): void {

@@ -31,7 +31,7 @@ import {
 import type { AccessGuard, Levels } from '@shared/access'
 import { kubeRequest, type RequestOptions } from './client'
 import { discover } from './discovery'
-import { KubeRequestError, toKubeError } from './errors'
+import { KubeRequestError, readOnlyRefusal, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
 import { Limiter } from './limiter'
 import { schemaOf, type DocumentCache } from './schemas'
@@ -127,8 +127,8 @@ export class KubeService {
     private readonly store: ClusterConfigs,
     /** Resolves once the environment (login shell PATH) is ready for credential plugins. */
     private readonly envReady: Promise<void>,
-    /** Whether the user made a context read-only; changes to it are refused. */
-    readonly isReadOnly: (context: string) => boolean,
+    /** Whether the user made a context read-only; changes to it are refused (saying why). */
+    readonly isReadOnly: ReadOnlyCheck,
     env: NodeJS.ProcessEnv = process.env,
     /** A server's: what its person may do, asked before acting (the desktop app has none). */
     private readonly guard?: AccessGuard,
@@ -396,12 +396,8 @@ export class KubeService {
           }
         }
       }
-      if (this.isReadOnly(r.context)) {
-        throw new KubeRequestError(
-          'read-only',
-          `${r.context} is read-only in Lumovi. Allow changes to it to continue.`,
-        )
-      }
+      const readOnly = this.isReadOnly(r.context)
+      if (readOnly) throw readOnlyRefusal(r.context, readOnly)
       const dryRun = r.dryRun === true ? '?dryRun=All' : ''
       const path = resourcePath(resource, r.namespace, r.name)
       const send = async (target: string, options: Omit<RequestOptions, 'timeoutMs'>) => {

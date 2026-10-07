@@ -246,6 +246,11 @@ export class ServerAccess {
     return namedIn(this.#admins, user)
   }
 
+  /** Whether Lumovi has admins (LUMOVI_ADMINS): with none, nobody's set apart to administer it. */
+  get administered(): boolean {
+    return this.#admins.length > 0
+  }
+
   /** LUMOVI_ADMINS, as it's written: groups, and `user:` names. */
   get #admins(): string[] {
     const { admins } = this.config

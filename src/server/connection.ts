@@ -16,7 +16,7 @@ import {
   type Result,
   type Settings,
 } from '@shared/api'
-import type { ClientMessage, PageSettings, ServerMessage } from '@shared/server'
+import type { ClientMessage, ServerMessage, SessionUser } from '@shared/server'
 import type { AuditActor } from '@shared/audit'
 import { auditHandlers } from '@backend/audit/handlers'
 import type { AuditLog } from '@backend/audit/log'
@@ -24,90 +24,97 @@ import { recorder } from '@backend/audit/recorder'
 import { handlers, type Handler } from '@backend/handlers'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
+import { KubeRequestError } from '@backend/kube/errors'
+import type { ClusterConfigs } from '@backend/kube/kubeconfig'
 import { KubeService } from '@backend/kube/service'
 import { clusterSummary } from '@backend/kube/summary'
 import { Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
-import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from '@backend/settings'
+import type { SettingsAccess } from '@backend/settings'
 import { accessHandlers, type ServerAccess } from './access'
 import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
+import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
 import { checkChartUrl } from './network'
 
 /**
- * A page's preferences: its browser's, over the server's defaults,
- * LUMOVI_READ_ONLY and LUMOVI_NODE_SHELL.
+ * A page's preferences: the server's, the same for everyone on it (its clusters' settings, which
+ * Lumovi's admins change, or anyone where there are none), over its defaults, LUMOVI_READ_ONLY
+ * and LUMOVI_NODE_SHELL. Changed as the page's person.
  */
 class PagePreferences implements SettingsAccess {
-  #readOnly: string[] = []
-  #metricsSource: Record<string, MetricsSourceSetting> = {}
-  #nodeShell: Record<string, NodeShellSetting> = {}
-
   constructor(
     private readonly readOnlyAll: boolean,
     private readonly defaultSource: MetricsSourceSetting,
     private readonly nodeShells: ServerConfig['nodeShell'],
-    /** The clusters made read-only, each time that changes. */
-    private readonly readOnlyChanged: (contexts: string[]) => void,
+    private readonly clusters: ClusterSettings,
+    private readonly user: SessionUser,
+    /** The clusters the server shows: only theirs are set (what's kept is kept small). */
+    private readonly configs: ClusterConfigs,
   ) {}
 
-  /** The browser's, as it sent them; anything that doesn't make sense is left out. */
-  replace(settings: PageSettings): void {
-    const { readOnly, metricsSource, nodeShell } = settings
-    this.#readOnly = Array.isArray(readOnly)
-      ? readOnly.filter((name) => typeof name === 'string')
-      : []
-    this.readOnlyChanged(this.#readOnly)
-    this.#metricsSource = Object.fromEntries(
-      Object.entries(metricsSource ?? {}).filter(([, setting]) => isMetricsSourceSetting(setting)),
-    )
-    this.#nodeShell = Object.fromEntries(
-      Object.entries(nodeShell ?? {}).filter(([, setting]) => isNodeShellSetting(setting)),
-    )
-  }
-
   get(): Settings {
+    const readOnlyBy = this.clusters.readOnlyBy()
     return {
       // The browser keeps the theme itself.
       theme: 'system',
-      readOnly: this.#readOnly,
-      metricsSource: this.#metricsSource,
-      nodeShell: this.#nodeShell,
+      readOnly: Object.keys(readOnlyBy),
+      readOnlyBy,
+      metricsSource: this.clusters.metricsSources(),
+      nodeShell: this.clusters.nodeShells(),
       nodeShellDefault: this.nodeShells.setting,
+      shared: { mayChange: !this.clusters.whyNot(this.user) },
       ...(this.readOnlyAll ? { readOnlyAll: true } : {}),
       ...(this.nodeShells.off ? { nodeShellsOff: true } : {}),
     }
   }
 
   nodeShell(context: string): NodeShellSetting | null {
-    return this.nodeShells.off ? null : (this.#nodeShell[context] ?? this.nodeShells.setting)
+    return this.nodeShells.off
+      ? null
+      : (this.clusters.nodeShells()[context] ?? this.nodeShells.setting)
   }
 
   setNodeShell(context: string, setting: NodeShellSetting | null): Settings {
-    const { [context]: _previous, ...others } = this.#nodeShell
-    this.#nodeShell = setting ? { ...others, [context]: setting } : others
+    this.#known(context)
+    this.clusters.setNodeShell(context, setting, this.user)
     return this.get()
   }
 
   isReadOnly(context: string): boolean {
-    return this.readOnlyAll || this.#readOnly.includes(context)
+    return this.readOnlyAll || this.clusters.isReadOnly(context)
+  }
+
+  /** Whether changes to `context` are refused, and why where it's the server's setting. */
+  readOnly(context: string): boolean | string {
+    return this.readOnlyAll || readOnlyWhy(this.clusters.readOnly(context), context) || false
   }
 
   setReadOnly(context: string, readOnly: boolean): Settings {
-    const others = this.#readOnly.filter((name) => name !== context)
-    this.#readOnly = readOnly ? [...others, context] : others
-    this.readOnlyChanged(this.#readOnly)
+    this.#known(context)
+    this.clusters.setReadOnly(context, readOnly, this.user)
     return this.get()
   }
 
+  /** Refuses a cluster the server doesn't show this person. */
+  #known(context: string): void {
+    if (!this.configs.load().contexts.some((c) => c.name === context)) {
+      throw new KubeRequestError(
+        'not-found',
+        `This server has no cluster called “${context}” that you can see.`,
+      )
+    }
+  }
+
   metricsSource(context: string): MetricsSourceSetting {
-    return this.#metricsSource[context] ?? this.defaultSource
+    return this.clusters.metricsSources()[context] ?? this.defaultSource
   }
 
   setMetricsSource(context: string, setting: MetricsSourceSetting): Settings {
     // Kept even when it's detection: the server's default may be a service.
-    this.#metricsSource = { ...this.#metricsSource, [context]: setting }
+    this.#known(context)
+    this.clusters.setMetricsSource(context, setting, this.user)
     return this.get()
   }
 }
@@ -125,18 +132,16 @@ export interface ConnectionOptions {
   auditor: () => boolean
   /** Who may do what: Lumovi's services ask before they act as the page's person. */
   access: ServerAccess
+  /** The clusters' settings, everyone's on this server. */
+  clusters: ClusterSettings
   /**
    * Called when the cluster refuses the person's own token: it expired, or was revoked. (In a
    * fleet, one cluster refusing it is that cluster's error.)
    */
   rejected: () => void
-  /**
-   * The person's AI assistants: their changes, shown on this page, and its calls about them. They
-   * keep to the clusters the person made read-only.
-   */
+  /** The person's AI assistants: their changes, shown on this page, and its calls about them. */
   assistants: {
     invoke: Record<string, Handler>
-    readOnly(contexts: string[]): void
     detach(): void
   }
 }
@@ -148,16 +153,8 @@ const isRejection = (value: unknown) =>
 
 /** What a message from a page must look like; anything else ends the connection. */
 function isMessage(value: unknown): value is ClientMessage {
-  const message = value as Partial<{
-    type: unknown
-    id: unknown
-    channel: unknown
-    args: unknown
-    settings: unknown
-  }>
+  const message = value as Partial<{ type: unknown; id: unknown; channel: unknown; args: unknown }>
   if (typeof message !== 'object' || message === null) return false
-  if (message.type === 'settings')
-    return typeof message.settings === 'object' && message.settings !== null
   return (
     (message.type === 'send' || (message.type === 'invoke' && Number.isInteger(message.id))) &&
     typeof message.channel === 'string' &&
@@ -170,7 +167,6 @@ export class PageConnection {
   readonly ended: Promise<void>
   readonly #invoke: Record<string, Handler>
   readonly #send: Record<string, Handler>
-  readonly #preferences: PagePreferences
   readonly #rejected: () => void
 
   constructor(
@@ -187,6 +183,7 @@ export class PageConnection {
       actor,
       auditor,
       access,
+      clusters,
     }: ConnectionOptions,
   ) {
     const recording = recorder(audit, () => actor)
@@ -197,9 +194,11 @@ export class PageConnection {
       ['1', 'true'].includes(env.LUMOVI_READ_ONLY ?? ''),
       config.metricsSource,
       config.nodeShell,
-      (contexts) => assistants.readOnly(contexts),
+      clusters,
+      identity.user,
+      configs,
     )
-    const isReadOnly = (context: string) => preferences.isReadOnly(context)
+    const isReadOnly = (context: string) => preferences.readOnly(context)
     const ready = Promise.resolve()
     // What the person may do: asked with namespaces' labels as they may read them.
     const guard = access.guard(identity.user, new KubeService(configs, ready, isReadOnly))
@@ -292,10 +291,12 @@ export class PageConnection {
         : {}),
     }
     this.#send = shared.send
-    this.#preferences = preferences
     socket.on('message', (data) => void this.#receive(data))
+    // Someone changed the clusters' settings (here, or on another replica): the page reads them again.
+    const unlisten = clusters.onChange(() => this.emit(IPC.settingsChanged))
     this.ended = new Promise((resolve) => {
       socket.on('close', () => {
+        unlisten()
         auditing.stop()
         accessing.stop()
         assistants.detach()
@@ -314,10 +315,6 @@ export class PageConnection {
     }
     if (!isMessage(message)) {
       this.socket.close(1008, 'Not a Lumovi message')
-      return
-    }
-    if (message.type === 'settings') {
-      this.#preferences.replace(message.settings)
       return
     }
     // JSON has no undefined: arguments left out arrive as null.

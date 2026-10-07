@@ -41,7 +41,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   // Until the pod shows it, a new container is listed, and waited for.
   const choices = containers.includes(container) ? containers : [...containers, container]
   const [attempt, setAttempt] = useState(0)
-  const { readOnly } = useReadOnly()
+  const { readOnly, said } = useReadOnly()
   const [allowed] = useAccess([
     { verb: 'create', kind: 'Pod', namespace, name, subresource: 'exec' },
   ])
@@ -58,7 +58,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   } else if (readOnly) {
     body = (
       <EmptyState icon={SquareTerminal} title="Shells are off">
-        {context} is read-only in Lumovi, and a shell can change a container.
+        {said}, and a shell can change a container.
       </EmptyState>
     )
   } else if (allowed === false) {

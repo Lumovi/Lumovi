@@ -15,7 +15,12 @@ import { nodeStatus } from '@shared/health'
 import { Button } from '@renderer/components/Button'
 import { EmptyState } from '@renderer/components/States'
 import { useAccess } from '@renderer/hooks/access'
-import { useNodeShellSetting, useReadOnly } from '@renderer/hooks/settings'
+import {
+  ADMINS_ONLY,
+  useNodeShellSetting,
+  useReadOnly,
+  useSharedSettings,
+} from '@renderer/hooks/settings'
 import { kubectl } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
@@ -72,7 +77,7 @@ function debugCommand(context: string, node: string, setting: NodeShellSetting, 
 export function NodeShellTab({ node }: { node: KubeObject }) {
   const { context } = useCluster()
   const name = node.metadata.name
-  const { readOnly } = useReadOnly()
+  const { readOnly, said } = useReadOnly()
   const { setting, off } = useNodeShellSetting()
   const [mode, setMode] = useState<Mode>('node')
   // A started shell (each start a new one), or none yet.
@@ -106,7 +111,7 @@ export function NodeShellTab({ node }: { node: KubeObject }) {
   } else if (readOnly) {
     body = (
       <EmptyState icon={SquareTerminal} title="Shells are off">
-        {context} is read-only in Lumovi, and a node shell can change the node.
+        {said}, and a node shell can change the node.
       </EmptyState>
     )
   } else if (windows) {
@@ -359,14 +364,22 @@ function NodeShellDialog({
 }) {
   const { context } = useCluster()
   const { setting, defaults, custom, set } = useNodeShellSetting()
+  const { shared, mayChange } = useSharedSettings()
   const [namespace, setNamespace] = useState(setting.namespace)
   const [image, setImage] = useState(setting.image)
   const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
   const next = { namespace: namespace.trim(), image: image.trim() }
   const valid = isNodeShellSetting(next)
   const save = async (value: NodeShellSetting | null) => {
     setPending(true)
-    await set(value)
+    try {
+      await set(value)
+    } catch (e) {
+      setError((e as Error).message)
+      setPending(false)
+      return
+    }
     toast({ tone: 'success', title: 'Node shell settings saved' })
     onClose(true)
   }
@@ -380,14 +393,15 @@ function NodeShellDialog({
       subject="Settings"
       command={debugCommand(context, node, valid ? next : setting, mode)}
       confirmLabel="Save"
-      ready={valid}
+      ready={valid && mayChange}
       pending={pending}
+      error={mayChange ? error : ADMINS_ONLY}
       onClose={() => onClose(false)}
       onSubmit={() => void save(next)}
     >
       <p className="text-[13px] leading-relaxed text-ink-2">
         A node shell runs in a privileged pod Lumovi starts on the node. Here’s where it’s created,
-        and what it runs.
+        and what it runs{shared ? ', the same for everyone on this server' : ''}.
       </p>
       <label className="block space-y-1.5">
         <span className="text-xs font-medium text-ink-2">Namespace</span>
@@ -418,7 +432,7 @@ function NodeShellDialog({
           can’t pull from Docker Hub, a copy in your own registry.
         </span>
       </label>
-      {custom && (
+      {custom && mayChange && (
         <button
           type="button"
           onClick={() => void save(null)}

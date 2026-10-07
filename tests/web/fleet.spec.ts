@@ -202,8 +202,10 @@ test('opening a cluster, switching to another, and back to them all', async ({
     FLEET.edge,
     'All clusters',
   ])
-  // The read-only switch is the person's own, in this browser.
-  await expect(switcher).toContainText(`Lumovi won’t change ${FLEET.prodEu}`)
+  // The read-only switch is everyone's, on this server.
+  await expect(switcher).toContainText(
+    `Lumovi won’t change ${FLEET.prodEu} for anyone on this server`,
+  )
   await switcher.getByRole('option', { name: FLEET.prodUs }).click()
   await expect(page).toHaveURL(`${served.url}cluster/${FLEET.prodUs}`)
 

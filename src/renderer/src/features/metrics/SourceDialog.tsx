@@ -4,7 +4,7 @@ import type { HistorySource, KubeObject, MetricsService, MetricsSourceSetting } 
 import { Button } from '@renderer/components/Button'
 import { useHistorySource, useResetSource } from '@renderer/hooks/history'
 import { useList } from '@renderer/hooks/queries'
-import { useSettings } from '@renderer/hooks/settings'
+import { ADMINS_ONLY, useSettings, useSharedSettings } from '@renderer/hooks/settings'
 import { api, unwrap } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { kubectl } from '@renderer/lib/kubectl'
@@ -42,6 +42,8 @@ function Dialog({ onClose }: { onClose: () => void }) {
   )
   const [test, setTest] = useState<HistorySource | 'testing'>()
   const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const { shared, mayChange } = useSharedSettings()
   const change = (patch: Partial<MetricsService>) => {
     setService({ ...service, ...patch })
     setTest(undefined)
@@ -66,7 +68,13 @@ function Dialog({ onClose }: { onClose: () => void }) {
       setPending(false)
       return
     }
-    await reset(mode === 'service' ? { mode, service } : { mode })
+    try {
+      await reset(mode === 'service' ? { mode, service } : { mode })
+    } catch (e) {
+      setError((e as Error).message)
+      setPending(false)
+      return
+    }
     toast({ tone: 'success', title: 'Metrics source saved' })
     onClose()
   }
@@ -88,11 +96,17 @@ function Dialog({ onClose }: { onClose: () => void }) {
       command={command}
       confirmLabel="Save"
       wide
-      ready={mode !== 'service' || complete}
+      ready={mayChange && (mode !== 'service' || complete)}
       pending={pending}
+      error={mayChange ? error : ADMINS_ONLY}
       onClose={onClose}
       onSubmit={() => void save()}
     >
+      {shared && (
+        <p className="mb-3 text-xs leading-relaxed text-ink-3">
+          The same for everyone on this server.
+        </p>
+      )}
       <div role="radiogroup" aria-label="Metrics source" className="space-y-2">
         <Option
           mode="auto"
