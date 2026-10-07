@@ -42,7 +42,7 @@ suits you:
 | **Signing in** | Your kubeconfig's credentials                 | A token, single sign-on (OpenID Connect) or an authenticating proxy, with each person's own RBAC |
 | **Install**    | Installers for macOS, Windows and Linux       | A Helm chart, or the container image                                                             |
 | **Updates**    | Updates itself                                | `helm upgrade`                                                                                   |
-| **Only here**  | Port forwarding, terminals, local Helm charts | Links to any page that the whole team can open, and nothing to install                           |
+| **Only here**  | Port forwarding, terminals, local Helm charts | Who may do what (Access), links to any page the whole team can open, and nothing to install      |
 
 ## Features
 
@@ -89,6 +89,12 @@ suits you:
   once. Every change checks your permissions first, shows the equivalent `kubectl` command,
   and can be undone from its notification where that makes sense. Clusters can be made
   read-only.
+- **AI assistants, with you in charge.** Lumovi is an MCP server, so any AI agent can work
+  through it: Claude Code, Codex, Cursor, VS Code, Claude Desktop and the rest look at your
+  clusters and change them with your own permissions. Their changes ask you first unless you
+  let them go ahead, and what they may see, change and read (Secrets, env values, logs) is
+  yours to set, everywhere or cluster by cluster and namespace by namespace. On a team's
+  Lumovi, people allow each assistant themselves, and its admins set limits.
 - **Built for big clusters.** Lists load in chunks, paginated and virtualized, so thousands of
   pods stay smooth.
 - **Keyboard first.** Every view is a shortcut away, and `⌘K` / `Ctrl+K` jumps to any view,
@@ -100,18 +106,29 @@ suits you:
   attention first, with labels to filter and group by and a search for workloads across all
   of them. It runs in a cluster, on a VM or on a platform like Sevalla, and reaches private
   clusters through an agent that dials out.
+- **Access for your team.** On a team's Lumovi, its admins decide who may do what through
+  it, within Kubernetes RBAC and never more: profiles of changes, shells, logs, Secrets, Helm
+  and AI assistants, granted to groups in some clusters and namespaces, and limits that hold
+  anyone back. The server enforces it, and everyone sees what they may do, and why.
+- **An audit log.** What was done through Lumovi, by whom, from where and how it went:
+  changes with how each was approved, shells, logs and Secrets read, sign-ins and settings.
+  Each event holds the hash of the one before it, so anyone can check the log with `jq`; on a
+  server it also goes to the cluster's log collector and a webhook, and auditors see
+  everyone's.
 - **Light and dark.** Follows your system, or pick one.
 
-|                                                                            |                                                                                |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| ![Every workload in one list](docs/screenshots/workloads-dark-1x.webp)     | ![A pod's details](docs/screenshots/pod-light-1x.webp)                         |
-| ![A shell in a pod](docs/screenshots/shell-dark-1x.webp)                   | ![Scaling a deployment](docs/screenshots/scale-light-1x.webp)                  |
-| ![Several pods selected](docs/screenshots/bulk-dark-1x.webp)               | ![Create from YAML](docs/screenshots/create-light-1x.webp)                     |
-| ![The Metrics page](docs/screenshots/metrics-dark-1x.webp)                 | ![A pod's usage history](docs/screenshots/pod-metrics-light-1x.webp)           |
-| ![Logs](docs/screenshots/logs-dark-1x.webp)                                | ![Overview in light mode](docs/screenshots/overview-light-1x.webp)             |
-| ![A custom resource](docs/screenshots/custom-resource-dark-1x.webp)        | ![Every kind the cluster serves](docs/screenshots/api-resources-light-1x.webp) |
-| ![A Helm release's history](docs/screenshots/helm-dark-1x.webp)            | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light-1x.webp)       |
-| ![A YAML edit, checked by the cluster](docs/screenshots/yaml-dark-1x.webp) | ![The command palette](docs/screenshots/command-palette-light-1x.webp)         |
+|                                                                                                     |                                                                                               |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| ![Every workload in one list](docs/screenshots/workloads-dark-1x.webp)                              | ![A pod's details](docs/screenshots/pod-light-1x.webp)                                        |
+| ![A shell in a pod](docs/screenshots/shell-dark-1x.webp)                                            | ![Scaling a deployment](docs/screenshots/scale-light-1x.webp)                                 |
+| ![Several pods selected](docs/screenshots/bulk-dark-1x.webp)                                        | ![Create from YAML](docs/screenshots/create-light-1x.webp)                                    |
+| ![The Metrics page](docs/screenshots/metrics-dark-1x.webp)                                          | ![A pod's usage history](docs/screenshots/pod-metrics-light-1x.webp)                          |
+| ![Logs](docs/screenshots/logs-dark-1x.webp)                                                         | ![Overview in light mode](docs/screenshots/overview-light-1x.webp)                            |
+| ![A custom resource](docs/screenshots/custom-resource-dark-1x.webp)                                 | ![Every kind the cluster serves](docs/screenshots/api-resources-light-1x.webp)                |
+| ![A Helm release's history](docs/screenshots/helm-dark-1x.webp)                                     | ![Upgrading a Helm release](docs/screenshots/helm-upgrade-light-1x.webp)                      |
+| ![A YAML edit, checked by the cluster](docs/screenshots/yaml-dark-1x.webp)                          | ![The command palette](docs/screenshots/command-palette-light-1x.webp)                        |
+| ![An AI assistant's change, waiting for approval](docs/screenshots/assistant-approval-dark-1x.webp) | ![What AI assistants may do, and where](docs/screenshots/assistant-permissions-light-1x.webp) |
+| ![Who may do what: grants and limits](docs/screenshots/access-rules-dark-1x.webp)                   | ![The audit log](docs/screenshots/audit-light-1x.webp)                                        |
 
 More, light and dark: [docs/screenshots](docs/screenshots).
 
@@ -195,13 +212,13 @@ through an agent that dials out (`mode: agent`) when Lumovi can't reach it.
 
 The documentation is at **[docs.lumovi.dev](https://docs.lumovi.dev)**:
 
-| Guide                                                                 | What it covers                                                           |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [Get started](https://docs.lumovi.dev/get-started/desktop)            | Installing the desktop app or Lumovi in your cluster, and a tour         |
-| [Using Lumovi](https://docs.lumovi.dev/explore/overview)              | Finding your way, changing things safely, logs, shells, metrics and Helm |
-| [Custom resources](https://docs.lumovi.dev/custom-resources/overview) | The views Lumovi comes with, and writing your own                        |
-| [In your cluster](https://docs.lumovi.dev/server/overview)            | Installing with Helm, signing in, security and configuration             |
-| [Reference](https://docs.lumovi.dev/reference/keyboard-shortcuts)     | Shortcuts, settings, the view format, troubleshooting and FAQ            |
+| Guide                                                                 | What it covers                                                                                         |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [Get started](https://docs.lumovi.dev/get-started/desktop)            | Installing the desktop app or Lumovi in your cluster, and a tour                                       |
+| [Using Lumovi](https://docs.lumovi.dev/explore/overview)              | Finding your way, changing things safely, logs, shells, metrics, Helm, AI assistants and the audit log |
+| [Custom resources](https://docs.lumovi.dev/custom-resources/overview) | The views Lumovi comes with, and writing your own                                                      |
+| [In your cluster](https://docs.lumovi.dev/server/overview)            | Installing with Helm, signing in, who may do what, security and configuration                          |
+| [Reference](https://docs.lumovi.dev/reference/keyboard-shortcuts)     | Shortcuts, settings, the view format, troubleshooting and FAQ                                          |
 
 In this repository: [Development](docs/development.md) (building, architecture and testing),
 and the [Changelog](CHANGELOG.md).
@@ -213,8 +230,11 @@ and the [Changelog](CHANGELOG.md).
   keeps nothing but a session cookie, and Lumovi never acts as Kubernetes' own users or
   groups.
 - **No telemetry, no accounts.** The desktop app connects only to your clusters (and through
-  them to Prometheus), to [Artifact Hub](https://artifacthub.io) when you search it for
-  charts, and to GitHub to look for new versions, which you can turn off.
+  them to Prometheus), to the chart repositories and registries you install or upgrade from,
+  to [Artifact Hub](https://artifacthub.io) when you search it for charts, to
+  [dl.k8s.io](https://dl.k8s.io) for the kubectl each terminal gets, and to GitHub to look
+  for new versions. Both of the last two can be turned off. See
+  [what it connects to](https://docs.lumovi.dev/reference/privacy-and-security#what-it-connects-to).
 - **Verifiable releases.** Every installer, the image and the chart carry a signed build
   provenance attestation (`gh attestation verify <file> --repo Lumovi/Lumovi`) and a
   software bill of materials; the image and the chart are signed with cosign; and each
