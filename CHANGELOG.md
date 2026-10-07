@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-07
+
+Lumovi where people get their software (Homebrew, the AUR, the Microsoft Store and Artifact
+Hub), and Lumovi in a cluster that a restart signs nobody out of.
+
 ### Added
 
 - A restart (an upgrade, say) signs nobody out: sessions, the AI assistants people allowed
@@ -482,7 +487,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/Lumovi/Lumovi/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/Lumovi/Lumovi/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Lumovi/Lumovi/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Lumovi/Lumovi/compare/v1.4.0...v1.5.0
