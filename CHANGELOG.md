@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-07
+
+Lumovi in a company: behind its proxy and its own certificate authorities, rolled out to its
+computers with a policy IT locks, and released so its security team can check what it runs.
+
 ### Added
 
 - Behind a company's proxy: Lumovi's own connections (to clusters, single sign-on, Helm
@@ -446,7 +451,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/Lumovi/Lumovi/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Lumovi/Lumovi/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Lumovi/Lumovi/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Lumovi/Lumovi/compare/v1.3.0...v1.4.0
