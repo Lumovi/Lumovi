@@ -6,6 +6,10 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-08
+
+Any AI assistant that speaks MCP, and a Codex tab to connect it.
+
 ### Changed
 
 - The AI assistants page says what Lumovi is to them, an MCP server, rather than naming a few:
@@ -591,7 +595,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/Lumovi/Lumovi/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/Lumovi/Lumovi/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/Lumovi/Lumovi/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/Lumovi/Lumovi/compare/v1.9.0...v1.9.1
