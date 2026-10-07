@@ -35,6 +35,8 @@ export type CertificateFault =
   | 'foreign-log'
   /** Logged after it expired. */
   | 'logged-late'
+  /** For something other than signing code. */
+  | 'usage'
 
 const ALGORITHM = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' }
 const DAY = 86_400_000
@@ -147,7 +149,9 @@ export async function startMockSigstore(): Promise<MockSigstore> {
       fault === 'issuer' ? 'https://token.actions.githubusercontent.com' : KUBERNETES_SIGNER.issuer
     const extensions = [
       new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
-      new x509.ExtendedKeyUsageExtension(['1.3.6.1.5.5.7.3.3']),
+      new x509.ExtendedKeyUsageExtension([
+        fault === 'usage' ? '1.3.6.1.5.5.7.3.1' : '1.3.6.1.5.5.7.3.3',
+      ]),
       new x509.SubjectAlternativeNameExtension(
         [
           {

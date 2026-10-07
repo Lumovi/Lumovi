@@ -26,6 +26,9 @@ export const KUBERNETES_SIGNER = {
   issuer: 'https://accounts.google.com',
 }
 
+/** What a certificate may be used for (extended key usage), and signing code. */
+const OID_EXTENDED_KEY_USAGE = '2.5.29.37'
+const OID_CODE_SIGNING = '1.3.6.1.5.5.7.3.3'
 /** The OIDC issuer Fulcio writes into a certificate: as it once did, and as it does now. */
 const OID_ISSUER_V1 = '1.3.6.1.4.1.57264.1.1'
 const OID_ISSUER_V2 = '1.3.6.1.4.1.57264.1.8'
@@ -65,8 +68,10 @@ export function whyNotKubernetes(
     check(binary, signature, certificate, root, signer)
     return undefined
   } catch (error) {
-    if (error instanceof SignatureError) return error.message
-    throw error
+    // What can't be read isn't Kubernetes' either.
+    return error instanceof SignatureError
+      ? error.message
+      : `its certificate couldn’t be read (${(error as Error).message})`
   }
 }
 
@@ -90,6 +95,13 @@ function check(
   }
   if (!fromFulcio(leaf, issued, root)) {
     throw new SignatureError('its certificate isn’t from Sigstore’s certificate authority')
+  }
+  // (Its value: a sequence of what it may be used for.)
+  const usages = leaf
+    .extension(OID_EXTENDED_KEY_USAGE)
+    ?.valueObj.subs[0]?.subs.map((usage) => usage.toOID())
+  if (!usages?.includes(OID_CODE_SIGNING)) {
+    throw new SignatureError('its certificate isn’t for signing code')
   }
   const issuer =
     leaf.extension(OID_ISSUER_V2)?.valueObj.subs[0]?.value.toString('ascii') ??

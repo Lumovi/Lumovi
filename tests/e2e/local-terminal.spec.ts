@@ -608,6 +608,8 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
   for (const version of ['v1.34.5', 'v1.34.7']) {
     mkdirSync(kept(userDataDir, version), { recursive: true })
     writeFileSync(join(kept(userDataDir, version), WINDOWS ? 'kubectl.exe' : 'kubectl'), '')
+    // As checked against Kubernetes' signature, when it was downloaded.
+    writeFileSync(join(kept(userDataDir, version), 'signed'), 'dl.k8s.io')
   }
   // And one a crash cut short.
   const partial = join(kept(userDataDir, 'v1.34.7'), '.kubectl.99999')
@@ -656,6 +658,8 @@ test('kubectl that isn’t Kubernetes’ own is refused, however its signature i
     ['forged-log', notKubernetes('its certificate wasn’t logged where Sigstore logs them')],
     ['foreign-log', notKubernetes('its certificate wasn’t logged where Sigstore logs them')],
     ['logged-late', notKubernetes('its certificate wasn’t valid when it was logged')],
+    // For something other than signing code.
+    ['usage', notKubernetes('its certificate isn’t for signing code')],
     // Half a signature, or none: from dl.k8s.io, where every kubectl Lumovi gets is signed.
     ['no-certificate', `${host} published kubectl v1.34.9’s signature without its certificate`],
     ['no-signature', `${host} published kubectl v1.34.9’s certificate without its signature`],
@@ -674,14 +678,55 @@ test('kubectl that isn’t Kubernetes’ own is refused, however its signature i
     expect(existsSync(kept(lumovi.userDataDir, 'v1.34.9'))).toBe(false)
     await lumovi.close()
   }
+
+  // dl.k8s.io however it's spelled (here, its scheme's case and a trailing slash): not a mirror,
+  // so a kubectl without its signature is still refused.
+  downloads.reset()
+  downloads.signing = 'unsigned'
+  const url = new URL(downloads.url)
+  const spelled = await launch({
+    env: {
+      ...SHELL,
+      LUMOVI_KUBECTL_MIRROR: `HTTP://${url.hostname}:${url.port}/`,
+    },
+  })
+  await openCluster(spelled.page)
+  await terminal(spelled.page)
+  await shows(spelled.page, `(${host} published no signature for kubectl v1.34.9).`)
+})
+
+test('kubectl kept from before Lumovi checked signatures is got again, checked', async ({
+  launch,
+  downloads,
+}) => {
+  // Kept by 1.12 or earlier: it says nothing of how it was checked.
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  mkdirSync(kept(userDataDir, 'v1.34.9'), { recursive: true })
+  writeFileSync(
+    join(kept(userDataDir, 'v1.34.9'), WINDOWS ? 'kubectl.exe' : 'kubectl'),
+    'unchecked',
+  )
+  const lumovi = await launch({ env: SHELL, userDataDir })
+  await openCluster(lumovi.page)
+  await terminal(lumovi.page)
+  await shows(lumovi.page, 'It’s v1.34.9, to match the cluster.')
+  // Downloaded again, and checked against Kubernetes' signature this time.
+  expect(kubectls(downloads.requests)).toEqual([expect.stringMatching(/\/v1\.34\.9\//)])
+  expect(downloads.requests).toContainEqual(expect.stringMatching(/kubectl(\.exe)?\.sig$/))
+  expect(readFileSync(join(kept(userDataDir, 'v1.34.9'), 'signed'), 'utf8')).toBe(
+    new URL(downloads.url).host,
+  )
 })
 
 test('a mirror’s kubectl: checked against Kubernetes’ signature, or said to have none', async ({
   launch,
   downloads,
 }) => {
-  const env = { ...SHELL, LUMOVI_KUBECTL_MIRROR: `${downloads.url}/mirror` }
-  const host = new URL(downloads.url).host
+  // A host of its own (the stand-in for dl.k8s.io's, by another name): a mirror is by its host.
+  const mirror = new URL('/mirror', downloads.url)
+  mirror.hostname = 'localhost'
+  const env = { ...SHELL, LUMOVI_KUBECTL_MIRROR: mirror.href }
+  const host = mirror.host
   const unsigned = `${host} has no Kubernetes signature for it, so Lumovi checked it against its SHA-256 only.`
   // A mirror that keeps no signatures: its SHA-256 is all there is, as every terminal says.
   downloads.signing = 'unsigned'
