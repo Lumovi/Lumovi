@@ -6,6 +6,10 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-07
+
+Security fixes: what an AI assistant's bridge, a cluster or a kubectl mirror can do is narrower.
+
 ### Fixed
 
 - The stdio bridge AI assistants such as Claude Desktop start no longer gives Lumovi's token to
@@ -528,7 +532,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/Lumovi/Lumovi/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/Lumovi/Lumovi/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/Lumovi/Lumovi/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/Lumovi/Lumovi/compare/v1.6.0...v1.7.0
