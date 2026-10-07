@@ -3,7 +3,7 @@
  * where the files live (docs/screenshots/<name>-<theme>.webp), and the docs
  * and website link to them: keep names once published.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { DEMO } from '../../tests/mock-cluster/kubeconfig.ts'
@@ -41,6 +41,16 @@ const moreActions = async (page: Page, action: string) => {
   await page.getByRole('button', { name: 'More actions' }).click()
   await page.getByRole('menuitem', { name: action }).click()
 }
+/** Scrolls until all of `locator` is in view, at the top or the bottom, with a little room. */
+const reveal = (locator: Locator, at: 'start' | 'end' = 'end') =>
+  locator.evaluate((element, at) => {
+    element.scrollIntoView({ block: at })
+    let scroller = element.parentElement
+    while (scroller && scroller.scrollHeight <= scroller.clientHeight) {
+      scroller = scroller.parentElement
+    }
+    scroller?.scrollBy(0, at === 'end' ? 24 : -24)
+  }, at)
 /** How long each cluster takes to answer, as the desktop's screenshots show it (see harness.cjs). */
 const LATENCY_MS: Record<string, number> = { production: 18, staging: 9, 'load-test': 24 }
 
@@ -178,9 +188,18 @@ export const SCREENS: Screen[] = [
     name: 'overview',
     title: 'Overview',
     description:
-      "A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention.",
+      "A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.",
     app: 'desktop',
     path: cluster,
+  },
+  {
+    name: 'overview-attention',
+    title: 'What needs attention',
+    description:
+      "Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.",
+    app: 'desktop',
+    path: cluster,
+    steps: (page) => reveal(page.getByRole('region', { name: 'Needs attention' }), 'start'),
   },
   {
     name: 'workloads',
@@ -215,7 +234,8 @@ export const SCREENS: Screen[] = [
     title: 'Logs',
     description: 'The logs of every pod of a deployment, merged as they happened.',
     app: 'desktop',
-    path: `${cluster}/deployments?open=Deployment/shop/${DEMO.deployments.checkout}`,
+    // Its three pods, all running, write as often as each other.
+    path: `${cluster}/deployments?open=Deployment/shop/${DEMO.deployments.storefront}`,
     steps: (page) => tab(page, 'Logs'),
   },
   {
@@ -358,6 +378,8 @@ export const SCREENS: Screen[] = [
       await check.getByRole('searchbox', { name: 'Namespace' }).fill('data')
       await check.getByRole('button', { name: /^data/ }).first().click()
       await check.getByText('Database', { exact: true }).first().waitFor()
+      // Every rule in view, the last at the bottom.
+      await reveal(page.getByRole('article', { name: 'Database' }))
     },
     after: resetPermissions,
   },
@@ -585,9 +607,11 @@ export const SCREENS: Screen[] = [
   {
     name: 'node',
     title: 'A node',
-    description: 'A node under memory pressure, with what runs on it and ways to drain it.',
+    description:
+      'Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.',
     app: 'desktop',
     path: `${cluster}/nodes?open=Node//${DEMO.nodes.worker2}`,
+    steps: (page) => moreActions(page, 'Drain…'),
   },
   {
     name: 'events',
