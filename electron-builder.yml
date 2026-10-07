@@ -38,9 +38,14 @@ extraResources:
   - LICENSE
   - from: out/THIRD_PARTY_NOTICES.txt
     to: THIRD_PARTY_NOTICES.txt
+  # helm, which Lumovi's Helm actions run (and its license): scripts/before-pack.mjs puts the
+  # platform's and architecture's there.
+  - from: build/helm/${platform}-${arch}
+    to: helm
 
 # Turn off what only a debugger or another program would use to run code as the app. Running it
 # as Node is each platform's own (scripts/after-pack.mjs): off, except on Windows.
+beforePack: scripts/before-pack.mjs
 afterPack: scripts/after-pack.mjs
 electronFuses:
   enableNodeOptionsEnvironmentVariable: false

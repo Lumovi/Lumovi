@@ -22,6 +22,7 @@ RUN mkdir -p /data/lumovi/audit
 FROM --platform=$BUILDPLATFORM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS helm
 ARG TARGETOS
 ARG TARGETARCH
+# The desktop app's too: scripts/helm.ts (CI checks they're the same).
 ARG HELM_VERSION=4.3.0
 RUN apk add --no-cache curl \
  && file="helm-v${HELM_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz" \

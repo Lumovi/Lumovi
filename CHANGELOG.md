@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app ships with helm (4.3.0, the image's), which its Helm actions run: installing,
+  upgrading, rolling back and uninstalling releases need no helm of your own. `LUMOVI_HELM`
+  still names another. Its terminals have it last on their PATH, for when you have none.
+
 ## [1.8.0] - 2026-10-07
 
 Lumovi where people get their software (Homebrew, the AUR, the Microsoft Store and Artifact

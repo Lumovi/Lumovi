@@ -5,10 +5,11 @@
  */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { dialog, open, writes } from './action-helpers.ts'
 import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import { HELM_VERSION } from '../../scripts/helm.ts'
 
 const WINDOWS = process.platform === 'win32'
 const MAC = process.platform === 'darwin'
@@ -63,6 +64,12 @@ async function focused(page: Page) {
     .toBe(true)
 }
 
+/** What the report says in brackets after `said`, its lines' wrapping undone. */
+async function reported(page: Page, said: 'kubeconfig: ' | 'path: last=') {
+  const text = (await screen(page).innerText()).replace(/\s*\n\s*/g, '')
+  return new RegExp(`${said}\\[(.+?)\\]`).exec(text)?.[1]
+}
+
 /** Runs the report of what kubectl uses, in the terminal that has focus. */
 async function report(page: Page) {
   const command = WINDOWS
@@ -71,6 +78,25 @@ async function report(page: Page) {
   await page.keyboard.type(command)
   await page.keyboard.press('Enter')
 }
+
+test('the helm Lumovi ships with: its Helm actions run it, and terminals have it', async ({
+  launch,
+}) => {
+  test.skip(!process.env.LUMOVI_E2E_EXECUTABLE, 'A packaged app has it (see scripts/helm.ts).')
+  const { page } = await launch({ env: { ...SHELL, LUMOVI_HELM: '' } })
+  const cli = await page.evaluate(() => window.lumovi!.helm.cli())
+  expect(cli).toMatchObject({
+    available: true,
+    version: expect.stringContaining(`v${HELM_VERSION}+`),
+  })
+  expect(cli.command).toMatch(/[\\/]helm[\\/]helm(\.exe)?$/)
+  await openCluster(page)
+  await page.keyboard.press('Control+Backquote')
+  await ready(page)
+  await report(page)
+  await expect(screen(page)).toContainText('path: last=')
+  expect(await reported(page, 'path: last=')).toBe(dirname(cli.command))
+})
 
 test('a terminal on this computer, with kubectl pointed at the cluster', async ({ launch }) => {
   const { page } = await launch({ env: SHELL })
@@ -87,8 +113,9 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
   await expect(screen(page)).toContainText(
     'kubectl: context=demo namespace=- then=1 file(s) found=1 term=Lumovi',
   )
-  const text = await screen(page).innerText()
-  const kubeconfig = /kubeconfig: \[(.+?)\]/.exec(text.replace(/\s*\n\s*/g, ''))?.[1]
+  const kubeconfig = await reported(page, 'kubeconfig: ')
+  // Last on its PATH, for when there's none of your own: the helm Lumovi runs (the tests').
+  expect(await reported(page, 'path: last=')).toBe(resolve('tests/e2e/helm'))
 
   // Each terminal is its own: in the namespace picked, it's that namespace's.
   await page.getByRole('button', { name: 'Namespace' }).click()

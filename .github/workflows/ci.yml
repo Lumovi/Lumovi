@@ -33,6 +33,14 @@ jobs:
       - run: npm run typecheck
       # Lumovi's views against the CRDs of the operators they're for (tests/views).
       - run: npm run views:check
+      # The app ships the helm the server's image has (scripts/helm.ts, and the Dockerfile's).
+      - name: One helm for the app and the image
+        run: |
+          version=$(node -e "import('./scripts/helm.ts').then((helm) => console.log(helm.HELM_VERSION))")
+          grep -qx "ARG HELM_VERSION=$version" Dockerfile || {
+            echo "::error file=Dockerfile::The image's helm isn't $version, the app's (scripts/helm.ts)."
+            exit 1
+          }
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Helm chart
         run: |
