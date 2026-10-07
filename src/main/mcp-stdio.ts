@@ -95,7 +95,7 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     while (Date.now() < until) {
       await new Promise((resolve) => setTimeout(resolve, 250))
       try {
-        await fetch(endpoint().url, { method: 'HEAD' })
+        await fetch(endpoint().url, { method: 'HEAD', redirect: 'error' })
         return
       } catch {
         // Not yet.
@@ -110,7 +110,11 @@ export async function runStdio(o: StdioOptions): Promise<void> {
    */
   const prove = async (url: string, token: string) => {
     const challenge = randomBytes(16).toString('hex')
-    const answer = await fetch(url, { method: 'HEAD', headers: { [CHALLENGE]: challenge } })
+    const answer = await fetch(url, {
+      method: 'HEAD',
+      headers: { [CHALLENGE]: challenge },
+      redirect: 'error',
+    })
     if (!proves(answer.headers.get(PROOF), token, challenge)) {
       throw new Unproven(
         `What listens on Lumovi’s port (${new URL(url).port}) can’t show it’s Lumovi, so Lumovi’s token isn’t sent to it: open Lumovi, and set this assistant up again.`,
@@ -122,7 +126,9 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     const { url, token } = endpoint()
     try {
       await prove(url, token)
+      // Never on to somewhere else: the token's for Lumovi alone.
       return await fetch(url, {
+        redirect: 'error',
         method: 'POST',
         headers: headers(token),
         body: JSON.stringify(message),
@@ -189,7 +195,7 @@ export async function runStdio(o: StdioOptions): Promise<void> {
     try {
       const { url, token } = endpoint()
       await prove(url, token)
-      await fetch(url, { method: 'DELETE', headers: headers(token) })
+      await fetch(url, { method: 'DELETE', headers: headers(token), redirect: 'error' })
     } catch {
       // Lumovi has gone too.
     }
