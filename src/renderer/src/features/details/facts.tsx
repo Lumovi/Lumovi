@@ -43,13 +43,11 @@ function replicas(o: KubeObject): ReactNode {
   const { ready, desired } = replicaCounts(o)
   return (
     <span className="flex items-center gap-3">
-      <Meter
-        value={desired ? ready / desired : 1}
-        label="Ready replicas"
-        variant="readiness"
-        className="w-24"
-      />
-      <span className="tabular-nums">
+      {/* A short bar, its count on one line beside it. */}
+      <span className="w-24 shrink-0">
+        <Meter value={desired ? ready / desired : 1} label="Ready replicas" variant="readiness" />
+      </span>
+      <span className="whitespace-nowrap tabular-nums">
         {ready} of {desired} ready
       </span>
     </span>

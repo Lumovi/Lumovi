@@ -25,13 +25,13 @@ export function ObjectLink({
   const target = apiVersion ? kindFor(apiVersion, kind) : kind
   const label = `${apiKindOf(target)}/${name}`
   if (!isBuiltinKind(target) && !resourceFor(target)) {
-    return <span className="font-mono text-xs text-ink-2">{label}</span>
+    return <span className="font-mono text-xs wrap-anywhere text-ink-2">{label}</span>
   }
   return (
     <button
       type="button"
       onClick={() => open(target, name, namespace)}
-      className="font-mono text-xs text-accent-strong hover:underline"
+      className="text-left font-mono text-xs wrap-anywhere text-accent-strong hover:underline"
     >
       {label}
     </button>
