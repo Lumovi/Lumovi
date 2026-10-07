@@ -530,3 +530,27 @@ jobs:
           git -c user.name='Peter Kota' -c user.email='kotapeter@gmail.com' \
             commit --quiet --message "lumovi-bin $VERSION"
           git push --quiet origin HEAD:master
+
+  homebrew:
+    name: Homebrew tap
+    needs: [preflight, publish]
+    # The cask follows the latest release, never a prerelease.
+    if: needs.preflight.outputs.prerelease != 'true'
+    runs-on: ubuntu-latest
+    # The token is main's alone, as the signing keys are.
+    environment: release
+    permissions: {}
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      # May start Lumovi/homebrew-tap's workflows (its Actions, read and write), and nothing else.
+      GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      # Its own schedule is the tap's fallback: GitHub drops scheduled runs when it's busy.
+      - name: The tap, told
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN isn't set: the tap follows on its own schedule." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run update.yml --repo Lumovi/homebrew-tap
+          echo "The Homebrew tap is updating to Lumovi $VERSION." >> "$GITHUB_STEP_SUMMARY"
