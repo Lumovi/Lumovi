@@ -44,6 +44,7 @@ const KEPT: Kept<Document> = {
   write: (document) => JSON.stringify(document),
   // What can't be read is what was lost: people sign in again, rather than the server stop.
   read: (text, where) => {
+    let problem = 'it isn’t what Lumovi keeps'
     try {
       const { entries } = JSON.parse(text) as Partial<Document>
       if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
@@ -53,10 +54,10 @@ const KEPT: Kept<Document> = {
           ) as Record<string, string>,
         }
       }
-    } catch {
-      // Said below.
+    } catch (error) {
+      problem = (error as Error).message.split('\n')[0]!
     }
-    log(`What ${where} kept can’t be read: everyone signs in again.`)
+    log(`What ${where} kept can’t be read (${problem}): everyone signs in again.`)
     return { entries: {} }
   },
 }
