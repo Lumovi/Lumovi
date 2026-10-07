@@ -714,6 +714,17 @@ test('kubectl matching each cluster can be turned off, and an organization can',
   await openCluster(mirrored.page)
   await terminal(mirrored.page)
   await shows(mirrored.page, 'It’s v1.34.9, to match the cluster.')
+
+  // Only over HTTPS (or from this computer): over plain http, its checksum could be changed too.
+  const plain = await launch({
+    env: { ...SHELL, LUMOVI_KUBECTL_MIRROR: 'http://mirror.corp.example.com/k8s' },
+  })
+  await openCluster(plain.page)
+  await terminal(plain.page)
+  await shows(
+    plain.page,
+    'It’s the one on your PATH: Lumovi gets kubectl only over HTTPS, and http://mirror.corp.example.com/k8s isn’t (LUMOVI_KUBECTL_MIRROR).',
+  )
 })
 
 // Your startup files run, and the kubectl matching the cluster is still first: theirs put a

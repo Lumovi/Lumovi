@@ -19,7 +19,7 @@
  *     "updates": false,                  Lumovi doesn't update itself: IT deploys new versions
  *     "kubectl": false,                  terminals use the kubectl installed, not one Lumovi gets
  *                                        to match each cluster; or a mirror of dl.k8s.io to get
- *                                        it from ("https://artifacts.corp.example.com/k8s")
+ *                                        it from, over HTTPS ("https://artifacts.corp.example.com/k8s")
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -53,6 +53,7 @@ import { dirname, join } from 'node:path'
 import { parseDocument } from 'yaml'
 import { checkedLimits, type AiRule } from '@shared/ai-permissions'
 import type { ManagedSettings } from '@shared/api'
+import { trustedMirror } from './kubectl'
 
 export interface Policy {
   /** What the page shows as set by the organization (none: there's no policy). */
@@ -332,10 +333,10 @@ function checked(given: unknown, path: string): Policy {
   if (
     kubectl !== undefined &&
     typeof kubectl !== 'boolean' &&
-    !(typeof kubectl === 'string' && /^https?:\/\/[^\s]+$/i.test(kubectl))
+    !(typeof kubectl === 'string' && trustedMirror(kubectl))
   ) {
     throw new Error(
-      'kubectl must be true, false, or the http or https URL of a mirror of dl.k8s.io.',
+      'kubectl must be true, false, or the https URL of a mirror of dl.k8s.io (over plain http, what it downloads could be changed on the way).',
     )
   }
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
