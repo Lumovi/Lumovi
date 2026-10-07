@@ -90,8 +90,8 @@ export function Frame({
   )
 }
 
-function NoticeBar({ notice }: { notice: Notice }) {
-  const { text, problem } = NOTICES[notice]
+function NoticeBar({ notice }: { notice: Notice | { text: string; problem: boolean } }) {
+  const { text, problem } = typeof notice === 'string' ? NOTICES[notice] : notice
   const Icon = problem ? CircleAlert : Info
   return (
     <p
@@ -138,6 +138,7 @@ export function SignInPage({
   return (
     <Frame title={signIn.auth === 'proxy' ? undefined : 'Sign in to Lumovi'}>
       {notice && <NoticeBar notice={notice} />}
+      {signIn.unkept && <NoticeBar notice={{ text: signIn.unkept, problem: true }} />}
       {signIn.auth === 'token' && <TokenForm />}
       {signIn.auth === 'oidc' && (
         <div className={card}>

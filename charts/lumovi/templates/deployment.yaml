@@ -35,6 +35,12 @@ spec:
         # A change to the views rolls out a new pod, which reads them. (A fleet's kubeconfig is
         # read again as it changes.)
         checksum/views: {{ toJson .Values.views | sha256sum }}
+        {{- if .Values.auth.keepSessions }}
+        {{- $keySecret := .Values.auth.stateKeySecret | default (printf "%s-state-key" (include "lumovi.fullname" .)) }}
+        {{- $key := lookup "v1" "Secret" .Release.Namespace $keySecret }}
+        # A new state key (rotated after a leak, say) rolls out a new pod, which seals with it.
+        checksum/state-key: {{ get (get $key "data" | default dict) "key" | default "" | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

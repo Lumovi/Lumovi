@@ -67,7 +67,10 @@ is Kubernetes RBAC's to say.
   bound to an HMAC of what it is: reading the state shows nothing, and writing it can't make a
   session or grant that opens. Nothing in it is a credential: cookies and assistants' tokens are
   kept by their hash, and a token a session passes on (its person's own) is sealed again with a
-  key only its cookie gives. Sign-outs and revocations are kept before they're answered.
+  key only its cookie gives. Sign-outs and revocations are kept before they're answered. If a
+  cookie or token may have leaked, signing out or letting the assistant go ends it; so that no
+  copy of the Secret can bring anything back, rotate the key too: delete `<release>-state-key`
+  and `helm upgrade` (a new key rolls out a new pod, and everyone signs in again).
 - What's done through Lumovi is audited, and can be sent to a webhook or a SIEM as it happens.
 - The chart runs it as a non-root user, with a read-only root filesystem, no capabilities and
   the runtime's default seccomp profile, and it works under OpenShift's `restricted-v2`. A
