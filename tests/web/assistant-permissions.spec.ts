@@ -213,9 +213,11 @@ test('each person’s rules are theirs, on every page of theirs, and kept in a f
   })
   if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
   await served.stop()
-  // Sessions don't outlive the server: she signs in again, and finds them.
+  // Her session outlives the server too (it's kept beside them): she's still signed in, her
+  // own token unsealed with her cookie, and finds them.
   const again = await serve({ env, port: served.port })
-  await signIn(page, `${again.url}cluster/demo`, PEOPLE.alice.token)
+  await page.goto(`${again.url}cluster/demo`)
+  await expect(page.getByRole('button', { name: /^Signed in as/ })).toBeVisible()
   expect((await rulesNow(page)).map((r) => r.name)).toEqual(['Shop'])
   expect((await page.evaluate(() => window.lumovi!.aiPermissions!.get())).kept).toBe('file')
   await again.stop()

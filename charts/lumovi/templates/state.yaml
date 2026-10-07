@@ -1,0 +1,42 @@
+{{- if and (include "lumovi.dashboard" .) .Values.auth.keepSessions }}
+# What a restart (an upgrade, say) mustn't lose: who's signed in, and the AI assistants they
+# allowed. No credential is kept as it is: cookies and tokens by their hash, and a person's own
+# token sealed with a key only their cookie gives. Lumovi reads and writes this Secret (and
+# nothing else here); upgrades leave what's in it.
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: {{ include "lumovi.fullname" . }}-state
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+{{- if .Values.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "lumovi.fullname" . }}-state
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ include "lumovi.fullname" . }}-state]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "lumovi.fullname" . }}-state
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "lumovi.fullname" . }}-state
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

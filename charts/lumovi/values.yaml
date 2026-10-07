@@ -111,8 +111,12 @@ auth:
   usernamePrefix: ''
   groupsPrefix: ''
 
-  # How long a session lasts. Sessions live in Lumovi's memory: a restart signs people out.
+  # How long a session lasts.
   sessionHours: 12
+  # Sessions, and the AI assistants people allowed, kept in a Secret of the chart's, so a
+  # restart (an upgrade, say) signs nobody out. No credential is kept as it is. false: in
+  # Lumovi's memory, so a restart signs everyone out.
+  keepSessions: true
 
 # Nobody changes anything through Lumovi, whatever their RBAC allows.
 readOnly: false
@@ -261,9 +265,10 @@ rbac:
   # admins can exec into, and use auth.usernamePrefix and auth.groupsPrefix.
   create: true
 
-# Sessions live in each replica's memory: more than one needs sticky sessions, AI assistants
-# off (their requests carry no cookies to stick to one replica), and the audit history off its
-# volume (audit.persistence.enabled false: it's one chain, kept by one replica).
+# Each replica knows the sessions it started (they're kept for a restart, not shared as they
+# change): more than one needs sticky sessions, AI assistants off (their requests carry no
+# cookies to stick to one replica), and the audit history off its volume
+# (audit.persistence.enabled false: it's one chain, kept by one replica).
 replicaCount: 1
 
 service:

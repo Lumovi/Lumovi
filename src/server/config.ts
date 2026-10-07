@@ -13,7 +13,7 @@ import { checkedPolicy, type BasePolicy } from '@shared/access'
 import { AUDIT_EXPORT_LIMIT, isAuditLevel, type AuditLevel } from '@shared/audit'
 import type { AuthMode } from '@shared/server'
 import type { WebhookFormat } from '@backend/audit/sinks'
-import type { Keeping } from './kept'
+import type { Keeping, SettingsKeeping } from './kept'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { MAX_SESSION_HOURS } from './sessions'
 
@@ -99,6 +99,12 @@ export interface ServerConfig {
   usernamePrefix: string
   groupsPrefix: string
   sessionHours: number
+  /**
+   * Where what a restart mustn't lose is kept (who's signed in, the assistants they allowed): a
+   * Secret of the namespace Lumovi runs in (LUMOVI_STATE_SECRET), a file under LUMOVI_DATA_DIR,
+   * or only in memory.
+   */
+  state: Keeping
   /** How often pages' connections are checked, so proxies don't close quiet ones. */
   heartbeatSeconds: number
   /** The metrics source pages start with. */
@@ -137,7 +143,7 @@ export interface ServerConfig {
 export interface AccessConfig {
   admins: { groups: string[]; users: string[] }
   base?: BasePolicy
-  keep: Keeping
+  keep: SettingsKeeping
 }
 
 /** The audit log: how much it records, where it keeps and sends it, and who reads everyone's. */
@@ -169,7 +175,7 @@ export interface AuditConfig {
  * Where people's own AI rules are kept: in a ConfigMap of the namespace
  * Lumovi runs in (the chart's), a file, or only in memory.
  */
-export type RulesKeeping = Keeping
+export type RulesKeeping = SettingsKeeping
 
 export class ConfigError extends Error {}
 
@@ -290,6 +296,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     usernamePrefix: value('LUMOVI_USERNAME_PREFIX') ?? '',
     groupsPrefix: value('LUMOVI_GROUPS_PREFIX') ?? '',
     sessionHours: number('LUMOVI_SESSION_HOURS', 12, MAX_SESSION_HOURS),
+    state: stateKeeping(env, value),
     heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
     nodeShell: nodeShell(value),
@@ -556,6 +563,29 @@ function adminRules(setting: string | undefined): AiRule[] {
   } catch (error) {
     throw new ConfigError((error as Error).message, { cause: error })
   }
+}
+
+/** Where what a restart mustn't lose is kept: see ServerConfig.state. */
+function stateKeeping(
+  env: NodeJS.ProcessEnv,
+  value: (name: string) => string | undefined,
+): Keeping {
+  const secret = value('LUMOVI_STATE_SECRET')
+  if (secret) {
+    if (!/^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/.test(secret)) {
+      throw new ConfigError(
+        `LUMOVI_STATE_SECRET must name a Secret, like lumovi-state, not "${secret}".`,
+      )
+    }
+    if (!env.KUBERNETES_SERVICE_HOST) {
+      throw new ConfigError(
+        'LUMOVI_STATE_SECRET keeps who’s signed in in the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
+      )
+    }
+    return { kind: 'secret', name: secret }
+  }
+  const dir = value('LUMOVI_DATA_DIR')
+  return dir ? { kind: 'file', path: join(dir, 'state.json') } : { kind: 'memory' }
 }
 
 /** Where people's own AI rules are kept: see RulesKeeping. */

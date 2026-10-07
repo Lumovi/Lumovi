@@ -2,6 +2,9 @@
  * Single sign-on (OpenID Connect): the provider says who someone is, and the
  * server acts as them in the cluster, impersonating them with its own credentials.
  */
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { request as http, type Page } from '@playwright/test'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { startMockOidc, type MockOidc, type MockOidcOptions } from '../mock-oidc/server.ts'
@@ -493,5 +496,48 @@ test('the server won’t act as Kubernetes’ own users, nor put anyone in their
     'system:admin',
     'Lumovi doesn’t act as system:admin: names starting with system: are Kubernetes’ own.',
   ])
+  await oidc.close()
+})
+
+test('after a restart, a session that passes its person’s own token on carries on, renewed', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const forwarding = {
+    LUMOVI_OIDC_FORWARD_TOKEN: 'id',
+    LUMOVI_OIDC_SCOPES: 'openid email offline_access',
+    LUMOVI_DATA_DIR: dir,
+  }
+  // Tokens renewed every two seconds (see above).
+  const { oidc, served } = await withProvider(serve, { lifetime: 62 }, forwarding)
+  trust(oidc, clusters.demo)
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await served.stop()
+  const renewals = () =>
+    oidc.tokenRequests.filter((r) => r.body.get('grant_type') === 'refresh_token').length
+  const before = renewals()
+
+  // The next server: her token, and what renews it, unsealed as her browser comes back.
+  const again = await serve({
+    port: served.port,
+    env: {
+      LUMOVI_AUTH: 'oidc',
+      LUMOVI_URL: `http://127.0.0.1:${served.port}`,
+      LUMOVI_OIDC_ISSUER: `${oidc.issuer}/`,
+      LUMOVI_OIDC_CLIENT_ID: 'lumovi',
+      LUMOVI_OIDC_CLIENT_SECRET: 's3cret',
+      ...forwarding,
+    },
+  })
+  await page.goto(`${again.url}cluster/demo/pods`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  await expect
+    .poll(() => clusters.demo.requests.findLast((r) => r.path === '/api/v1/pods'))
+    .toMatchObject({ user: 'oidc:alice@example.com' })
+  await expect.poll(renewals, { timeout: 15_000 }).toBeGreaterThan(before)
+  await again.stop()
   await oidc.close()
 })

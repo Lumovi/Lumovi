@@ -13,7 +13,7 @@ import {
 } from '@shared/ai-permissions'
 import { toKubeError } from '@backend/kube/errors'
 import { ConfigError } from '../config'
-import { keeper, MAX_KEPT_BYTES, type Keeper, type Keeping } from '../kept'
+import { keeper, MAX_KEPT_BYTES, type Keeper, type SettingsKeeping } from '../kept'
 
 type People = Record<string, AiPermissions>
 
@@ -48,10 +48,10 @@ function peopleOf(text: string, where: string): People {
 export class PermissionsStore {
   #people: People = {}
 
-  private constructor(private readonly keeper: Keeper<People>) {}
+  private constructor(private readonly keeper: Keeper<People, SettingsKeeping['kind']>) {}
 
   /** Opens where they're kept, and reads what's there: it can't be read, the server doesn't start. */
-  static async open(keep: Keeping, env: NodeJS.ProcessEnv): Promise<PermissionsStore> {
+  static async open(keep: SettingsKeeping, env: NodeJS.ProcessEnv): Promise<PermissionsStore> {
     const store = new PermissionsStore(
       keeper(
         keep,

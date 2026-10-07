@@ -158,6 +158,9 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 168
+        },
+        "keepSessions": {
+          "type": "boolean"
         }
       }
     },
