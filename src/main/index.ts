@@ -19,6 +19,7 @@ import { viewsDirectory } from '@backend/views'
 import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
 import { runStdio, STDIO } from './mcp-stdio'
+import { KUBECTL_MIRROR, Kubectls } from './kubectl'
 import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
 import { chromiumProxy, proxyCredentials } from './chromium-proxy'
@@ -144,10 +145,23 @@ if (stdio) {
       { ...deps, nodeShell: (context) => settings.nodeShell(context), timeoutMs: kube.timeoutMs },
       shellEvents,
     )
+    // Terminals' kubectl, matching each cluster's version, from the policy's mirror if it says.
+    const kubectls = new Kubectls({
+      dir: join(app.getPath('userData'), 'kubectl'),
+      mirror: () =>
+        policy.managed?.kubectlMirror ?? process.env.LUMOVI_KUBECTL_MIRROR ?? KUBECTL_MIRROR,
+      clusterVersion: async (context) => {
+        const version = await kube.version(context)
+        if (!version.ok) throw new Error(version.error.message)
+        return version.data.gitVersion
+      },
+    })
     const local = new LocalTerminals(
       {
         store,
         envReady,
+        kubectl: (context, getting) =>
+          settings.get().matchingKubectl ? kubectls.for(context, getting) : undefined,
         env: process.env,
         isReadOnly,
         version: app.getVersion(),

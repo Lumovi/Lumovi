@@ -19,6 +19,7 @@ import {
   type TestInfo,
 } from '@playwright/test'
 import { CONTEXTS, startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
+import { startMockDownloads, type MockDownloads } from '../mock-downloads/server.ts'
 
 export { CONTEXTS, expect }
 export { DEMO, LARGE, SANDBOX, DEMO_TOKEN, MISSING_PLUGIN } from '../mock-cluster/kubeconfig.ts'
@@ -213,6 +214,8 @@ export async function launchApp(
 
 interface Fixtures {
   clusters: TestClusters
+  /** The stand-in for dl.k8s.io terminals get kubectl from (LUMOVI_KUBECTL_MIRROR). */
+  downloads: MockDownloads
   launch: (options?: LaunchOptions) => Promise<Lumovi>
   lumovi: Lumovi
   page: Page
@@ -322,7 +325,10 @@ async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]
   writeFileSync(path, lines.join('\n'))
 }
 
-export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
+export const test = base.extend<
+  Fixtures,
+  { workerClusters: TestClusters; workerDownloads: MockDownloads }
+>({
   workerClusters: [
     // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
@@ -334,6 +340,19 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     },
     { scope: 'worker' },
   ],
+  workerDownloads: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      const downloads = await startMockDownloads()
+      await use(downloads)
+      await downloads.close()
+    },
+    { scope: 'worker' },
+  ],
+  downloads: async ({ workerDownloads }, use) => {
+    await use(workerDownloads)
+    workerDownloads.reset()
+  },
   clusters: async ({ workerClusters }, use) => {
     await use(workerClusters)
     // Undo faults and object changes a test made.
@@ -341,7 +360,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     workerClusters.sandbox.reset()
     workerClusters.large.reset()
   },
-  launch: async ({ clusters }, use, testInfo) => {
+  launch: async ({ clusters, downloads }, use, testInfo) => {
     const launched: Lumovi[] = []
     // On CI, failures keep a trace (DOM snapshots, actions, console) to see what happened.
     const trace = Boolean(process.env.CI)
@@ -350,7 +369,13 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       const helmDir = mkdtempSync(join(tmpdir(), 'lumovi-helm-'))
       const instance = await launchApp(clusters.kubeconfigPath, {
         ...options,
-        env: { LUMOVI_HELM: FAKE_HELM, FAKE_HELM_DIR: helmDir, ...options.env },
+        env: {
+          LUMOVI_HELM: FAKE_HELM,
+          FAKE_HELM_DIR: helmDir,
+          // Never dl.k8s.io itself.
+          LUMOVI_KUBECTL_MIRROR: downloads.url,
+          ...options.env,
+        },
       })
       instance.helmDir = helmDir
       if (trace) {

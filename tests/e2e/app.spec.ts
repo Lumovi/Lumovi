@@ -264,6 +264,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,
+    matchingKubectl: true,
     nodeShell: {},
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
     // How the app was started, for Claude Desktop's bridge to start it again.
@@ -310,6 +311,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
     autoUpdate: false,
+    matchingKubectl: true,
     nodeShell: { demo: { namespace: 'ops', image: 'alpine:3.22' } },
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
     assistants: { enabled: false, port: 47830, launch: expect.any(Array) },
@@ -354,6 +356,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,
+    matchingKubectl: true,
     nodeShell: {},
     nodeShellDefault: { namespace: 'kube-system', image: 'alpine:3.22' },
     assistants: { enabled: false, port: 47999, token, launch: expect.any(Array) },
