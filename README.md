@@ -138,8 +138,9 @@ Open it and pick a cluster: Lumovi reads them from the same place `kubectl` does
 (`KUBECONFIG`, or `~/.kube/config`), credential plugins included. It keeps itself up to date:
 a new version downloads in the background and installs when you restart the app.
 
-> The macOS app is signed and notarized by Apple. Windows builds aren't code-signed yet: if
-> Windows says it protected your PC, choose **More info → Run anyway**.
+> The macOS app is signed and notarized by Apple, and the Windows installer is signed by
+> Open Source Developer Péter Kóta (Certum). Until enough people have installed it, Windows
+> may still say it protected your PC: choose **More info → Run anyway**.
 
 To build it yourself: `npm ci && npm run dist` (Node.js 24 or later) puts the installers for
 your platform in `release/`. More in

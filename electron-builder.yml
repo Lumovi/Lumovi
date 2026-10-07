@@ -83,6 +83,15 @@ win:
   target:
     - target: nsis
       arch: [x64, arm64]
+  # Signed by the release (release.yml gives it the certificate): its libraries too, which Smart
+  # App Control runs only signed, with SHA-256 alone, timestamped so the signatures outlive the
+  # certificate.
+  signExts: [.dll, .node]
+  signtoolOptions:
+    # The certificate's name (its CN). Installed versions take only updates signed by it.
+    publisherName: Open Source Developer Péter Kóta
+    signingHashAlgorithms: [sha256]
+    rfc3161TimeStampServer: http://time.certum.pl
 
 nsis:
   # One installer for x64 and arm64, which installs the one the computer needs.

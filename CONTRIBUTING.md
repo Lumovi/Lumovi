@@ -136,9 +136,9 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
 3. Commit and push to `main`.
 
 When CI passes on that commit, the _Release_ workflow sees a version without a release, and
-builds the installers for every platform (signing and notarizing the macOS app), and the
-image (`ghcr.io/lumovi/lumovi`) and Helm chart (`oci://ghcr.io/lumovi/charts`),
-which it pushes to GitHub's container registry with provenance attestations and signs
+builds the installers for every platform (signing and notarizing the macOS app, signing the
+Windows one), and the image (`ghcr.io/lumovi/lumovi`) and Helm chart
+(`oci://ghcr.io/lumovi/charts`), which it pushes to GitHub's container registry with provenance attestations and signs
 with cosign (keyless). It attaches the installers, a `SHA256SUMS.txt` and a bill of
 materials (`Lumovi-<version>.cdx.json`) to a GitHub release, with the version's CHANGELOG
 section as
@@ -155,4 +155,10 @@ use:
 - macOS: `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate,
   exported as a base64-encoded `.p12`), plus an App Store Connect API key to notarize:
   `APPLE_API_KEY_P8` (the `.p8` file's contents), `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
-- Windows: `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
+- Windows: `WIN_SIMPLYSIGN_ID` and `WIN_SIMPLYSIGN_OTP_URI`, the email and the QR code's
+  `otpauth://` link of the Certum SimplySign account whose cloud holds the code signing
+  certificate's key. The release logs in with them (`scripts/simplysign.ts` makes the codes
+  the SimplySign app shows), and signs with the certificate `release.yml`'s
+  `WIN_CERTIFICATE_SHA1` names. A renewed certificate's thumbprint goes there; its name,
+  `electron-builder.yml`'s `publisherName`, mustn't change: installed versions take only
+  updates signed by it.

@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The Windows installer is signed, and so is everything it installs: by Open Source Developer
+  Péter Kóta, with Certum's certificate. Windows says who it's from, and Lumovi installs only
+  updates signed the same way.
+
 ### Fixed
 
 - Long text stays in its place, everywhere: names, labels, annotations, images and messages as
