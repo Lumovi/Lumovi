@@ -372,8 +372,10 @@ export const test = base.extend<
         env: {
           LUMOVI_HELM: FAKE_HELM,
           FAKE_HELM_DIR: helmDir,
-          // Never dl.k8s.io itself.
+          // Never dl.k8s.io itself, nor Sigstore's trust root: their stand-ins.
           LUMOVI_KUBECTL_MIRROR: downloads.url,
+          LUMOVI_KUBECTL_OFFICIAL: downloads.url,
+          LUMOVI_SIGSTORE_ROOT: downloads.sigstoreRoot,
           ...options.env,
         },
       })
