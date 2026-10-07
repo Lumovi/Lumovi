@@ -6,6 +6,13 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The desktop app's bill of materials (`Lumovi-<version>.cdx.json`) lists the Go modules the
+  helm it ships is built from, and the Go it's built with, as helm itself records them: a
+  scanner such as grype now sees a vulnerability in any of them. (The image's bill, made as
+  it's built, already did.)
+
 ## [1.12.0] - 2026-10-08
 
 Any AI assistant that speaks MCP, and a Codex tab to connect it.

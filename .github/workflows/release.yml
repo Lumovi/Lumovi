@@ -113,7 +113,8 @@ jobs:
           their checksums, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks
           that a file was built by this repository's release workflow.
           \`Lumovi-$VERSION.cdx.json\` is the software bill of materials (CycloneDX): the
-          packages Lumovi is made of. How to check a release, the image and the chart:
+          packages Lumovi is made of, and the helm it ships with the Go modules it's built
+          from. How to check a release, the image and the chart:
           [SECURITY.md](https://github.com/$GITHUB_REPOSITORY/blob/main/SECURITY.md#checking-a-release).
 
           **In your cluster** ([documentation](https://docs.lumovi.dev/server/install)):
@@ -177,7 +178,8 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
       # It writes what the installers are made of, too: every package bundled into the app or
-      # shipped beside it, and Electron (out/sbom.cdx.json, CycloneDX), attested with them below.
+      # shipped beside it, Electron, and helm with its Go modules (out/sbom.cdx.json,
+      # CycloneDX), attested with them below.
       - run: npm run build
       - name: Keep the software bill of materials
         shell: bash

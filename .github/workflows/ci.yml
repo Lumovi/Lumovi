@@ -304,6 +304,11 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run build
+      # Its bill of materials lists the helm it ships, the Go modules that helm is built from
+      # (as helm itself says, from the binary pinned in scripts/helm.ts), and its Go.
+      - name: Helm, in the bill of materials
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/helm-modules.ts --check
       # Playwright drives the app through the Node.js inspector, which release builds turn off.
       # (In bash: PowerShell would split the -c.… argument.)
       - run: npx electron-builder --dir ${{ matrix.only }} -c.electronFuses.enableNodeCliInspectArguments=true
