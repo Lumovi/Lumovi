@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /** Where Kubernetes publishes kubectl. */
@@ -63,6 +63,8 @@ export class Kubectls {
   /** Downloads under way, by version: terminals opened meanwhile wait for the same one. */
   readonly #getting = new Map<string, Promise<void>>()
   /** Each cluster's minor version, as it last said it. */
+  /** Done once the folder's been tidied, as Lumovi starts: terminals wait for it. */
+  readonly #pruned: Promise<void>
   /** Each cluster's minor version, as it last said it (kept, for when it can't be reached). */
   readonly #minors: Map<string, string>
 
@@ -77,11 +79,13 @@ export class Kubectls {
     },
   ) {
     this.#minors = this.#knownMinors()
-    void this.#prune()
+    this.#pruned = this.#prune()
   }
 
   /** The kubectl for a cluster's terminals; `getting` is told when one is to be downloaded. */
   async for(context: string, getting: (version: string) => void): Promise<MatchingKubectl> {
+    // (Or the tidying could take away what this terminal's download is writing.)
+    await this.#pruned
     const goos = GOOS[process.platform]
     const goarch = GOARCH[process.arch]
     if (!goos || !goarch) return { problem: `Kubernetes has no kubectl for ${process.arch}` }
@@ -186,11 +190,16 @@ export class Kubectls {
     }
   }
 
+  /** Kept as yours alone (context names can name customers), and whole or not at all. */
   async #keepMinors(): Promise<void> {
-    await mkdir(this.deps.dir, { recursive: true }).catch(() => {})
-    await writeFile(this.#minorsFile, JSON.stringify(Object.fromEntries(this.#minors))).catch(
-      () => {},
-    )
+    const partial = `${this.#minorsFile}.${process.pid}`
+    try {
+      await mkdir(this.deps.dir, { recursive: true })
+      await writeFile(partial, JSON.stringify(Object.fromEntries(this.#minors)), { mode: 0o600 })
+      await rename(partial, this.#minorsFile)
+    } catch {
+      await rm(partial, { force: true }).catch(() => {})
+    }
   }
 
   get #mirror(): string {
@@ -270,6 +279,13 @@ export class Kubectls {
    * cut short): as Lumovi starts, before any terminal.
    */
   async #prune(): Promise<void> {
+    // clusters.json as a crash left it half-written; and as yours alone, as 1.9.1 didn't keep it.
+    for (const name of await readdir(this.deps.dir).catch(() => [])) {
+      if (name.startsWith('clusters.json.')) {
+        await rm(join(this.deps.dir, name), { force: true }).catch(() => {})
+      }
+    }
+    await chmod(this.#minorsFile, 0o600).catch(() => {})
     const seen = new Set<string>()
     for (const version of await this.#versions()) {
       const minor = VERSION.exec(version)![1]!
