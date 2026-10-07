@@ -48,8 +48,6 @@ export class Connection {
 
   constructor(
     private readonly url: string,
-    /** The first message on each connection. */
-    private readonly greeting: () => ClientMessage,
     /** Whether the session is still on, asked when the server refuses a connection. */
     private readonly signedIn: () => Promise<boolean>,
     /** Called when the connection drops: whatever streamed over it has stopped. */
@@ -94,11 +92,6 @@ export class Connection {
     this.#listeners.get(channel)?.forEach((listener) => listener(...args))
   }
 
-  /** Tells the server again what the greeting says (another tab changed the preferences). */
-  greet(): void {
-    this.#writeIfOpen(this.greeting())
-  }
-
   #connect(): void {
     if (this.#socket || useConnection.getState().state === 'ended') return
     const socket = new WebSocket(this.url)
@@ -107,7 +100,6 @@ export class Connection {
     socket.onopen = () => {
       opened = true
       useConnection.setState({ state: 'open', failures: 0 })
-      this.#write(this.greeting())
       const queued = this.#queued
       this.#queued = []
       for (const send of queued) send()

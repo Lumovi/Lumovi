@@ -242,6 +242,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'access.changed': { label: 'Changed access', icon: ShieldCheck },
   'read-only.changed': { label: 'Changed read-only', icon: Lock },
   'node-shell.changed': { label: 'Changed node shells', icon: SlidersHorizontal },
+  'metrics-source.changed': { label: 'Changed where metrics come from', icon: SlidersHorizontal },
   'assistants.changed': { label: 'Changed AI assistants', icon: SlidersHorizontal },
   'server.started': { label: 'Lumovi started', icon: Power },
   'server.stopped': { label: 'Lumovi stopped', icon: PowerOff },

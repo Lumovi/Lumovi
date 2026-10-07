@@ -251,7 +251,7 @@ test('past what it may hold, the sessions that end soonest make way, never a sig
   await again.stop()
 })
 
-test('behind a proxy, assistants carry on across a restart, and what their person made read-only holds', async ({
+test('behind a proxy, assistants carry on across a restart, and a cluster made read-only stays so', async ({
   page,
   context,
   serve,
@@ -263,14 +263,14 @@ test('behind a proxy, assistants carry on across a restart, and what their perso
   await page.goto(`${served.url}cluster/demo`)
   const { client, assistant } = await connect(page, served)
   expect((await call(client, 'list_resources', { cluster: 'demo', kind: 'ns' })).error).toBe(false)
-  // He makes demo read-only for himself (and his assistants).
+  // He makes demo read-only, for everyone (and every assistant).
   await page.goto(`${served.url}cluster/demo`)
   await page.getByRole('button', { name: 'Cluster', exact: true }).click()
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.keyboard.press('Escape')
   await expect.poll(async () => (await call(client, 'list_clusters')).text).toMatch(/read-only/)
   await page.close()
-  // Its grant, its refresh token, its access token, and what he made read-only.
+  // Its grant, its refresh token, its access token, and demo's settings.
   await written(dir, 4)
   await served.stop()
   const tokens = assistant.tokens()!
@@ -292,7 +292,9 @@ test('behind a proxy, assistants carry on across a restart, and what their perso
     replicas: 3,
     reason: 'Busy.',
   }
-  expect((await call(next, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
+  expect((await call(next, 'scale', scale)).text).toMatch(
+    /demo is read-only for everyone on this server: frank@example\.com made it so on /,
+  )
   // Its refresh token still renews it, once.
   const token = (refresh: string) =>
     fetch(new URL('oauth/token', again.url), {

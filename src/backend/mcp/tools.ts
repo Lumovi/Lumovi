@@ -422,7 +422,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
         yaml({
           ...(shown.some((c) => c.name === currentContext) ? { current: currentContext } : {}),
           clusters: shown.map((c) => ({
-            ...clusterForAssistant(policy, c, kube.isReadOnly(c.name)),
+            ...clusterForAssistant(policy, c, Boolean(kube.isReadOnly(c.name))),
             ...(t.access
               ? {
                   access:

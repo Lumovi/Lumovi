@@ -418,7 +418,7 @@ function AdviceTable({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [applying, setApplying] = useState<Advised>()
   const [page, setPage] = useState(1)
-  const { readOnly } = useReadOnly()
+  const { readOnly, why: readOnlyWhy } = useReadOnly()
   // A page at a time: a big cluster has thousands of workloads.
   const current = Math.min(page, Math.max(1, Math.ceil(rows.length / PAGE_SIZE)))
   const shown = rows.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE)
@@ -437,7 +437,7 @@ function AdviceTable({
   const access = useAccess(checks)
   const here = useAccessHere()
   const refusal = ({ workload: w }: Advised) => {
-    if (readOnly) return 'Changes are turned off for this cluster.'
+    if (readOnly) return readOnlyWhy
     const i = checks.findIndex((c) => c.kind === w.kind && c.namespace === w.metadata.namespace)
     return (
       here.whyNot('changes', 'write', w.metadata.namespace) ??

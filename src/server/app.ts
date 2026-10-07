@@ -19,6 +19,7 @@ import { log } from './log'
 import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
+import { ClusterSettings } from './cluster-settings'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -91,8 +92,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // Kubernetes' own users, refused at sign-in, are refused as they're restored too.
     (user) => hosted.refuses(user),
   )
+  // Its clusters' settings (read-only, metrics, node shells), the same for everyone.
+  const clusters = new ClusterSettings(state, access)
   const assistants = new ServerAssistants({
     state,
+    clusters,
     config,
     hosted,
     sessions,
@@ -241,6 +245,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         auditor: () =>
           isAuditor(config.audit, caller.identity) || access.readsEveryone(caller.identity.user),
         access,
+        clusters,
         rejected: () =>
           sessions.end(
             caller.session!,
@@ -294,6 +299,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     async close() {
       clearInterval(heartbeat)
       access.close()
+      clusters.close()
       const ending = [...connections]
       hosted.close()
       await assistants.close()

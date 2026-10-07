@@ -49,6 +49,13 @@ export interface Settings {
   readOnly?: string[]
   /** Every context is read-only (LUMOVI_READ_ONLY is set); not stored. */
   readOnlyAll?: boolean
+  /** A server's: who made each cluster read-only for everyone on it, and when; not stored. */
+  readOnlyBy?: Record<string, { by: string; at: string }>
+  /**
+   * A server's: its clusters' settings (read-only, metrics, node shells) are everyone's, changed by
+   * Lumovi's admins, or by anyone where there are none. Whether this person may; not stored.
+   */
+  shared?: { mayChange: boolean }
   /** Where each context's metrics history comes from, when not detected automatically. */
   metricsSource?: Record<string, MetricsSourceSetting>
   /** Where each context's node shells run, when not where they do by default. */
@@ -938,6 +945,8 @@ export const IPC = {
   appInfo: 'app:info',
   appProblems: 'app:problems',
   settings: 'app:settings',
+  /** A server's: someone changed its clusters' settings (everyone's pages read them again). */
+  settingsChanged: 'app:settings-changed',
   setTheme: 'app:set-theme',
   setReadOnly: 'app:set-read-only',
   setMetricsSource: 'app:set-metrics-source',

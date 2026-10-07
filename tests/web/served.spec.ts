@@ -1,8 +1,9 @@
 /** The app as a Lumovi server serves it: one cluster, at addresses that can be shared. */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
+import { audited, DEMO, DEMO_TOKEN, expect, PEOPLE, signIn, test } from './fixtures.ts'
 
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
@@ -142,38 +143,63 @@ test('the theme a browser chose, from the first paint', async ({ page, serve }) 
   await expect(page.getByRole('button', { name: 'Theme' })).toBeVisible()
 })
 
-test('read-only, as each browser chooses, and for everyone', async ({
+test('read-only for everyone on the server: one turns it on, and another sees why', async ({
   page,
-  context,
+  browser,
   serve,
   clusters,
 }) => {
-  const served = await serve()
-  await signIn(page, `${served.url}cluster/demo/workloads`, DEMO_TOKEN)
-  const other = await context.newPage()
-  await other.goto(`${served.url}cluster/demo/workloads`)
-  await expect(heading(other)).toHaveText('Workloads')
+  const data = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const env = { LUMOVI_DATA_DIR: data }
+  const served = await serve({ env })
+  await signIn(page, `${served.url}cluster/demo/workloads`, PEOPLE.alice.token)
+  // Bob, in a browser of his own.
+  const elsewhere = await browser.newContext()
+  const bob = await elsewhere.newPage()
+  await signIn(bob, `${served.url}cluster/demo/workloads`, PEOPLE.bob.token)
 
+  // Alice makes demo read-only, for everyone: with no admins named, anyone may.
   await page.getByRole('button', { name: 'Cluster', exact: true }).click()
+  const switcher = page.getByRole('dialog')
+  await expect(switcher).toContainText('Lumovi won’t change demo for anyone on this server')
   await page.getByRole('switch', { name: 'Read-only' }).click()
-  await expect(page.getByLabel('Read-only', { exact: true }).first()).toBeVisible()
+  await expect(switcher).toContainText('Turned on by alice@example.com')
   await page.keyboard.press('Escape')
-  // The other tab knows at once.
-  await expect(
-    other.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
-  ).toBeVisible()
-  // The server refuses changes from both.
-  const writes = clusters.demo.requests.filter((r) => r.method !== 'GET').length
-  await page.getByRole('button', { name: 'Create from YAML', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('Changes are turned off for this cluster.')
-  await page.keyboard.press('Escape')
-  expect(clusters.demo.requests.filter((r) => r.method !== 'GET').length).toBe(writes)
 
-  // Kept by the browser for its next pages; corrupted, it's forgotten.
-  await page.reload()
+  // Bob's page knows at once, and says who.
   await expect(
-    page.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
+    bob.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
   ).toBeVisible()
+  const writes = clusters.demo.requests.filter((r) => r.method !== 'GET').length
+  await bob.getByRole('button', { name: 'Create from YAML', exact: true }).click()
+  await expect(bob.getByRole('dialog')).toContainText(
+    'Changes are turned off for this cluster: alice@example.com made it read-only for everyone.',
+  )
+  await bob.keyboard.press('Escape')
+  // And the server refuses him, whatever his page asks.
+  expect(
+    await bob.evaluate(async (name) => {
+      const result = await window.lumovi!.kube.change({
+        context: 'demo',
+        kind: 'Deployment',
+        namespace: 'shop',
+        name,
+        change: { action: 'patch', patchType: 'merge', patch: { spec: { replicas: 3 } } },
+      })
+      return result.ok ? 'changed' : result.error.message
+    }, DEMO.deployments.cart),
+  ).toMatch(/^demo is read-only for everyone on this server: alice@example\.com made it so on /)
+  expect(clusters.demo.requests.filter((r) => r.method !== 'GET').length).toBe(writes)
+  await bob.goto(
+    `${served.url}cluster/demo/deployments?open=Deployment/shop/${DEMO.deployments.cart}`,
+  )
+  await bob.getByRole('button', { name: 'Read-only' }).first().click()
+  await expect(bob.getByRole('dialog')).toContainText(
+    'alice@example.com made it read-only for everyone on this server on',
+  )
+  await expect(bob.getByRole('button', { name: 'Allow changes' })).toBeVisible()
+  await bob.keyboard.press('Escape')
+
   // What the server is asked is checked there.
   expect(
     await page.evaluate(() =>
@@ -183,21 +209,36 @@ test('read-only, as each browser chooses, and for everyone', async ({
       ),
     ),
   ).toBe('Expected a context name and whether it is read-only')
-  // Off again, then on for good measure.
-  await page.getByRole('button', { name: 'Cluster', exact: true }).click()
-  await page.getByRole('switch', { name: 'Read-only' }).click()
-  await page.getByRole('switch', { name: 'Read-only' }).click()
-  await page.keyboard.press('Escape')
-  // (Once that's kept: kept after, it'd be read again.)
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('lumovi:settings')))
-    .toContain('"readOnly":["demo"]')
-  await page.evaluate(() => localStorage.setItem('lumovi:settings', '{'))
+
+  // A restart changes nothing, and the audit log says who made it so.
+  await expect.poll(() => readdirSync(data)).toContain('state.json')
+  await served.stop()
+  const again = await serve({ env, port: served.port })
   await page.reload()
-  await expect(heading(page)).toHaveText('Workloads')
   await expect(
     page.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
+  ).toBeVisible()
+  expect(audited(served, 'read-only.changed')).toEqual([
+    expect.objectContaining({
+      outcome: 'success',
+      actor: expect.objectContaining({ user: 'alice@example.com' }),
+      cluster: 'demo',
+      summary: 'Made demo read-only for everyone on this server',
+    }),
+  ])
+  // Allowed again, for everyone.
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click()
+  await page.getByRole('switch', { name: 'Read-only' }).click()
+  await page.keyboard.press('Escape')
+  await bob.reload()
+  await expect(bob.getByRole('heading', { level: 1 })).toHaveText('Deployments')
+  await expect(
+    bob.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
   ).toHaveCount(0)
+  expect(audited(again, 'read-only.changed')).toEqual([
+    expect.objectContaining({ summary: 'Made demo changeable for everyone on this server' }),
+  ])
+  await elsewhere.close()
 
   // For everyone, when the server says so.
   const locked = await serve({ env: { LUMOVI_READ_ONLY: '1' } })
@@ -205,6 +246,72 @@ test('read-only, as each browser chooses, and for everyone', async ({
   await page.getByRole('button', { name: 'Cluster', exact: true }).click()
   await expect(page.getByRole('switch', { name: 'Read-only' })).toBeDisabled()
   await expect(page.getByRole('dialog')).toContainText('For everyone, on this server')
+})
+
+test('where Lumovi has admins, only they change what’s set for everyone', async ({
+  page,
+  browser,
+  serve,
+}) => {
+  const data = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const served = await serve({
+    env: { LUMOVI_ADMINS: 'user:alice@example.com', LUMOVI_DATA_DIR: data },
+  })
+  const elsewhere = await browser.newContext()
+  const bob = await elsewhere.newPage()
+  await signIn(bob, `${served.url}cluster/demo/workloads`, PEOPLE.bob.token)
+  await bob.getByRole('button', { name: 'Cluster', exact: true }).click()
+  await expect(bob.getByRole('switch', { name: 'Read-only' })).toBeDisabled()
+  await expect(bob.getByRole('dialog')).toContainText('Only Lumovi’s admins change it')
+  await bob.keyboard.press('Escape')
+  // His page can't do it for him: it's refused, and recorded.
+  expect(
+    await bob.evaluate(() =>
+      window.lumovi!.app.setReadOnly('demo', true).then(
+        () => 'changed',
+        (error: Error) => error.message,
+      ),
+    ),
+  ).toBe('Only Lumovi’s admins change what’s set for everyone on this server.')
+  await expect
+    .poll(() => audited(served, 'read-only.changed'))
+    .toEqual([
+      expect.objectContaining({
+        outcome: 'refused',
+        actor: expect.objectContaining({ user: 'bob@example.com' }),
+        error: 'Only Lumovi’s admins change what’s set for everyone on this server.',
+      }),
+    ])
+  // Nor where node shells run, or where metrics come from.
+  await bob.goto(`${served.url}cluster/demo/metrics`)
+  await bob.getByRole('button', { name: /^Prometheus 3\.5\.0/ }).click()
+  await expect(bob.getByRole('dialog')).toContainText('The same for everyone on this server.')
+  await expect(bob.getByRole('dialog')).toContainText(
+    'Only Lumovi’s admins change what’s set for everyone on this server.',
+  )
+  await expect(bob.getByRole('button', { name: 'Save' })).toBeDisabled()
+  await bob.keyboard.press('Escape')
+
+  // Alice, an admin, may; Bob's page shows it.
+  await signIn(page, `${served.url}cluster/demo/workloads`, PEOPLE.alice.token)
+  await page.getByRole('button', { name: 'Cluster', exact: true }).click()
+  await page.getByRole('switch', { name: 'Read-only' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Turned on by alice@example.com')
+  await expect(
+    bob.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
+  ).toBeVisible()
+  await bob.goto(
+    `${served.url}cluster/demo/deployments?open=Deployment/shop/${DEMO.deployments.cart}`,
+  )
+  await bob.getByRole('button', { name: 'Read-only' }).first().click()
+  await expect(bob.getByRole('dialog')).toContainText(
+    'alice@example.com made it read-only for everyone on this server on',
+  )
+  await expect(bob.getByRole('button', { name: 'Allow changes' })).toHaveCount(0)
+  await expect(bob.getByRole('dialog')).toContainText(
+    'Only Lumovi’s admins change what’s set for everyone on this server.',
+  )
+  await elsewhere.close()
 })
 
 test('views this server has, and where its metrics come from', async ({ page, serve }) => {
@@ -226,7 +333,7 @@ test('views this server has, and where its metrics come from', async ({ page, se
     page.getByText(/views from Lumovi, 1 from this server\. This server’s are in/),
   ).toBeVisible()
 
-  // Each browser can choose for itself, and keeps its choice.
+  // Chosen for everyone on the server, and kept.
   await page.goto(`${views.url}cluster/demo/metrics`)
   await page.getByRole('button', { name: /^Prometheus 3\.5\.0/ }).click()
   await page.getByRole('radio', { name: /Don’t use history/ }).check()

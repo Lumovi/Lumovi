@@ -74,13 +74,13 @@ export function useObjectActions(object: KubeObject): AvailableAction[] {
   const actions = actionsFor(object)
   const checks = actions.map((action) => action.access(object))
   const access = useAccess(checks)
-  const { readOnly } = useReadOnly()
+  const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
   return actions.map((action, i) => ({
     action,
     disabled:
       readOnly && !action.safe
-        ? 'Changes are turned off for this cluster.'
+        ? readOnlyWhy
         : (notAllowed(action, checks[i]!, object, here) ??
           (access[i] === false ? forbidden(checks[i]!) : undefined)),
   }))

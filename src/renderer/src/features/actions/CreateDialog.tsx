@@ -181,7 +181,7 @@ function Create({ onClose }: { onClose: () => void }) {
   const { context, namespace } = useCluster()
   const change = useChange()
   const openObject = useOpenObject()
-  const { readOnly } = useReadOnly()
+  const { readOnly, why: readOnlyWhy } = useReadOnly()
   const target = namespace ?? 'default'
   // What the cluster serves decides what can be created.
   useResources()
@@ -268,7 +268,7 @@ function Create({ onClose }: { onClose: () => void }) {
       wide
       ready={!readOnly}
       pending={pending}
-      error={readOnly ? 'Changes are turned off for this cluster.' : undefined}
+      error={readOnly ? readOnlyWhy : undefined}
       onClose={onClose}
       onSubmit={() => void create()}
     >

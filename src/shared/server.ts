@@ -2,7 +2,6 @@
  * How pages talk to a Lumovi server: who is signed in, over HTTP, and the
  * calls and events of the LumoviApi over one WebSocket per page.
  */
-import type { MetricsSourceSetting, NodeShellSetting } from './api'
 
 /**
  * How people sign in: with a token the cluster accepts, with single sign-on
@@ -43,16 +42,7 @@ export interface SignIn {
   problem?: SignInProblem
 }
 
-/** The preferences each browser keeps, and gives the server for its pages. */
-export interface PageSettings {
-  readOnly: string[]
-  metricsSource: Record<string, MetricsSourceSetting>
-  nodeShell: Record<string, NodeShellSetting>
-}
-
 export type ClientMessage =
-  /** The browser's preferences: first on every connection, then whenever another tab changes them. */
-  | { type: 'settings'; settings: PageSettings }
   | { type: 'invoke'; id: number; channel: string; args: unknown[] }
   | { type: 'send'; channel: string; args: unknown[] }
 

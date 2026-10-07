@@ -13,6 +13,7 @@ import {
   type HelmUninstall,
   type KubeObject,
   type Result,
+  type Settings,
 } from '@shared/api'
 import {
   describeChange,
@@ -23,9 +24,10 @@ import {
   malformed,
   outcomeOf,
 } from './audit/describe'
-import type { Recorder } from './audit/recorder'
+import type { Recorded, Recorder } from './audit/recorder'
 import type { HelmService } from './helm/service'
 import type { LogStreams } from './kube/logs'
+import { KubeRequestError } from './kube/errors'
 import type { KubeService } from './kube/service'
 import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
@@ -99,6 +101,27 @@ export function handlers({
       ...(kept ? { details: { keys: kept } } : {}),
     })
   }
+  /** Whether the clusters' settings are everyone's (on a server), rather than this person's. */
+  const forEveryone = () => settings.get().shared !== undefined
+  /**
+   * A cluster's setting changed, recorded: or, where this person may not change it (on a server,
+   * only Lumovi's admins may, where it has them, and only for the clusters it shows), its refusal.
+   */
+  const changeSetting = (input: Omit<Recorded, 'outcome'>, change: () => Settings) => {
+    try {
+      const updated = change()
+      audit.record({ ...input, outcome: 'success' })
+      return updated
+    } catch (error) {
+      if (
+        error instanceof KubeRequestError &&
+        (error.code === 'not-allowed' || error.code === 'not-found')
+      ) {
+        audit.record({ ...input, outcome: 'refused', error: error.message })
+      }
+      throw error
+    }
+  }
   return {
     invoke: {
       [IPC.settings]: () => settings.get(),
@@ -106,21 +129,41 @@ export function handlers({
         if (typeof context !== 'string' || context === '' || typeof readOnly !== 'boolean') {
           throw new Error('Expected a context name and whether it is read-only')
         }
-        const updated = settings.setReadOnly(context, readOnly)
-        audit.record({
-          action: 'read-only.changed',
-          outcome: 'success',
-          cluster: context,
-          summary: `Made ${context} ${readOnly ? 'read-only' : 'changeable'} in Lumovi`,
-          details: { readOnly },
-        })
-        return updated
+        return changeSetting(
+          {
+            action: 'read-only.changed',
+            cluster: context,
+            summary: `Made ${context} ${readOnly ? 'read-only' : 'changeable'} ${forEveryone() ? 'for everyone on this server' : 'in Lumovi'}`,
+            details: { readOnly },
+          },
+          () => settings.setReadOnly(context, readOnly),
+        )
       },
       [IPC.setMetricsSource]: (context, setting) => {
         if (typeof context !== 'string' || context === '' || !isMetricsSourceSetting(setting)) {
           throw new Error('Expected a context name and a metrics source')
         }
-        const updated = settings.setMetricsSource(context, setting)
+        const updated = changeSetting(
+          {
+            action: 'metrics-source.changed',
+            cluster: context,
+            summary:
+              setting.mode === 'service'
+                ? `Made ${context}’s metrics come from ${setting.service.namespace}/${setting.service.service}`
+                : setting.mode === 'off'
+                  ? `Turned off ${context}’s metrics history`
+                  : `Made Lumovi find ${context}’s metrics`,
+            details:
+              setting.mode === 'service'
+                ? {
+                    mode: setting.mode,
+                    namespace: setting.service.namespace,
+                    service: setting.service.service,
+                  }
+                : { mode: setting.mode },
+          },
+          () => settings.setMetricsSource(context, setting),
+        )
         usage.forget(context)
         return updated
       },
@@ -134,18 +177,18 @@ export function handlers({
         ) {
           throw new Error('Expected a context name and where its node shells run')
         }
-        const updated = settings.setNodeShell(context, reset ? null : setting)
         // Where privileged pods are made, and from what: who changed it.
-        audit.record({
-          action: 'node-shell.changed',
-          outcome: 'success',
-          cluster: context,
-          summary: reset
-            ? `Made node shells in ${context} run as Lumovi’s defaults`
-            : `Made node shells in ${context} run ${setting.image} in ${setting.namespace}`,
-          ...(reset ? {} : { details: { namespace: setting.namespace, image: setting.image } }),
-        })
-        return updated
+        return changeSetting(
+          {
+            action: 'node-shell.changed',
+            cluster: context,
+            summary: reset
+              ? `Made node shells in ${context} run as Lumovi’s defaults`
+              : `Made node shells in ${context} run ${setting.image} in ${setting.namespace}`,
+            ...(reset ? {} : { details: { namespace: setting.namespace, image: setting.image } }),
+          },
+          () => settings.setNodeShell(context, reset ? null : setting),
+        )
       },
       [IPC.views]: () => readViews(viewsDirectory),
 

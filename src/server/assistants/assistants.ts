@@ -28,6 +28,7 @@ import type { ServerConfig } from '../config'
 import { readJson, sameOrigin, secure, sendJson } from '../http'
 import { log } from '../log'
 import type { Sessions } from '../sessions'
+import { readOnlyWhy, type ClusterSettings } from '../cluster-settings'
 import type { ServerState } from '../state'
 import { Grants, type Endpoints, type Grant, type Signer } from './oauth'
 import { People } from './people'
@@ -107,9 +108,11 @@ export class ServerAssistants {
       access: ServerAccess
       /** Where what a restart mustn't lose is kept: who allowed which assistant, and more. */
       state?: ServerState
+      /** The clusters' settings, everyone's: assistants change nothing where they're read-only. */
+      clusters?: ClusterSettings
     },
   ) {
-    this.#people = new People(deps.state)
+    this.#people = new People()
     this.#grants = new Grants({
       audit: deps.audit,
       sessions: deps.sessions,
@@ -267,7 +270,6 @@ export class ServerAssistants {
     const approvals = () => this.#people.approvals(person)
     return {
       detach,
-      readOnly: (contexts: string[]) => this.#people.setReadOnly(person, contexts),
       invoke: {
         [IPC.serverAssistantsStatus]: status,
         [IPC.serverAssistantsRevoke]: async (id: unknown) => {
@@ -354,7 +356,8 @@ export class ServerAssistants {
     if (!kube) {
       // Changing nothing where nobody may, nor where its person said not to (nor may).
       const configs = hosted.configsFor(identity)
-      const isReadOnly = (context: string) => readOnly || this.#people.isReadOnly(person, context)
+      const isReadOnly = (context: string) =>
+        readOnly || readOnlyWhy(this.deps.clusters?.readOnly(context), context) || false
       const { access } = this.deps
       kube = new KubeService(
         configs,

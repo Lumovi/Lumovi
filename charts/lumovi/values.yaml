@@ -113,9 +113,10 @@ auth:
 
   # How long a session lasts.
   sessionHours: 12
-  # Sessions, and the AI assistants people allowed, kept in a Secret of the chart's, so a
-  # restart (an upgrade, say) signs nobody out. No credential is kept as it is. false: in
-  # Lumovi's memory, so a restart signs everyone out.
+  # Sessions, the AI assistants people allowed, and what's set for each cluster (read-only,
+  # say), kept in a Secret of the chart's, so a restart (an upgrade, say) signs nobody out and
+  # changes nothing. No credential is kept as it is. false: in Lumovi's memory, so a restart
+  # signs everyone out, and the clusters' settings start over.
   keepSessions: true
   # What they're sealed with, apart from them: the chart makes a Secret with a random key (and
   # keeps it). Where the chart is rendered with helm template (Argo CD), which can't keep it,

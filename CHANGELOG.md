@@ -8,6 +8,14 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Changed
 
+- On a server, a cluster made read-only is read-only for everyone on it, and their AI
+  assistants: the switch says who turned it on, and when, and so does every change it refuses.
+  Where its metrics come from and where its node shells run are the server's too. Lumovi's
+  admins change them, or anyone where it has none, and each change is in the audit log
+  (`read-only.changed`, `metrics-source.changed`, `node-shell.changed`, refusals included). They
+  survive a restart where the server keeps its state (the chart's `auth.keepSessions`, or
+  `LUMOVI_DATA_DIR`). On the desktop they stay your own, and changing where metrics come from
+  is now in its audit log too.
 - The Homebrew tap updates as soon as a release is published, rather than on a schedule GitHub
   often skips.
 

@@ -13,13 +13,7 @@ import {
 } from '@shared/api'
 import { PATHS } from '@shared/server'
 import { Connection, LOST, useConnection } from './connection'
-import {
-  onStoredSettings,
-  storedSettings,
-  storedTheme,
-  storeSettings,
-  storeTheme,
-} from './preferences'
+import { storedTheme, storeTheme } from './preferences'
 import { serverUrl, stillSignedIn } from './session'
 
 /** Dispatched when another tab changes the preferences, for this page to read them again. */
@@ -53,18 +47,13 @@ export function createWebApi(): LumoviApi {
   const streams = new Set<string>()
   const socketUrl = serverUrl(PATHS.socket)
   socketUrl.protocol = socketUrl.protocol.replace('http', 'ws')
-  const connection = new Connection(
-    socketUrl.href,
-    () => ({ type: 'settings', settings: storedSettings() }),
-    stillSignedIn,
-    () => {
-      for (const id of shells)
-        connection.emit(IPC.terminalExit, id, { message: LOST } satisfies ShellExit)
-      for (const id of streams) {
-        connection.emit(IPC.logsEnd, id, { code: 'unreachable', message: LOST } satisfies KubeError)
-      }
-    },
-  )
+  const connection = new Connection(socketUrl.href, stillSignedIn, () => {
+    for (const id of shells)
+      connection.emit(IPC.terminalExit, id, { message: LOST } satisfies ShellExit)
+    for (const id of streams) {
+      connection.emit(IPC.logsEnd, id, { code: 'unreachable', message: LOST } satisfies KubeError)
+    }
+  })
   // Audit events come while a page listens: asked for again on each connection (a new server
   // knows nothing of the last one's).
   let auditListeners = 0
@@ -75,10 +64,8 @@ export function createWebApi(): LumoviApi {
   })
   connection.on(IPC.terminalExit, (id) => shells.delete(id as string))
   connection.on(IPC.logsEnd, (id) => streams.delete(id as string))
-  onStoredSettings(() => {
-    connection.greet()
-    dispatchEvent(new Event(SETTINGS_CHANGED))
-  })
+  // Someone changed the clusters' settings, which are everyone's on a server: read them again.
+  connection.on(IPC.settingsChanged, () => dispatchEvent(new Event(SETTINGS_CHANGED)))
 
   const invoke =
     <T>(channel: string) =>
@@ -88,12 +75,11 @@ export function createWebApi(): LumoviApi {
     <A extends unknown[]>(channel: string) =>
     (listener: (...args: A) => void) =>
       connection.on(channel, listener as (...args: unknown[]) => void)
-  /** The server's preferences for this page, kept by the browser, with its theme. */
-  const settings = async (pending: Promise<unknown>): Promise<Settings> => {
-    const current = (await pending) as Settings
-    storeSettings(current)
-    return { ...current, theme: storedTheme() }
-  }
+  /** The server's settings for this page, with the browser's theme. */
+  const settings = async (pending: Promise<unknown>): Promise<Settings> => ({
+    ...((await pending) as Settings),
+    theme: storedTheme(),
+  })
   /** Starts a stream, and keeps track of it while it runs. */
   const started = (ids: Set<string>) => async (id: string, pending: Promise<unknown>) => {
     const result = (await pending) as Result<null>
