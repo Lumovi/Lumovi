@@ -17,6 +17,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { IPC, type Result } from '@shared/api'
+import { CHALLENGE, isChallenge, PROOF, proofOf } from './assistant-proof'
 import type {
   AssistantClient,
   AssistantsStatus,
@@ -241,6 +242,9 @@ export class Assistants {
     if (req.headers.origin !== undefined) {
       return refuse(res, 403, 'Web pages may not connect to Lumovi.')
     }
+    // The stdio bridge's question, before it sends the token: whether this is Lumovi.
+    const challenge = req.headers[CHALLENGE]
+    if (token && isChallenge(challenge)) res.setHeader(PROOF, proofOf(token, challenge))
     if (!matches(req.headers.authorization, `Bearer ${token}`)) {
       return refuse(res, 401, 'Lumovi needs its token: set this assistant up again from Lumovi.')
     }

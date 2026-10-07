@@ -6,9 +6,9 @@
  * the bridge Claude Desktop starts.
  */
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { request } from 'node:http'
-import { createServer } from 'node:net'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createServer as createHttpServer, request } from 'node:http'
+import { createServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -1322,16 +1322,41 @@ test('Claude Desktop talks to Lumovi through a bridge, which starts Lumovi when 
     id: 1,
     error: { code: -32000, message: 'Lumovi isn’t running: open it, and try again.' },
   })
+  // A token Lumovi doesn't have: Lumovi can't show it holds it, so it isn't sent.
+  const unproven = (port: number) =>
+    `What listens on Lumovi’s port (${port}) can’t show it’s Lumovi, so Lumovi’s token isn’t sent to it: open Lumovi, and set this assistant up again.`
   expect(
     (await answer({ enabled: true, port: status.port, token: 'x'.repeat(43), launch: [] }))[1],
-  ).toEqual({
-    jsonrpc: '2.0',
-    id: 1,
-    error: {
-      code: -32000,
-      message: 'Lumovi needs its token: set this assistant up again from Lumovi.',
-    },
+  ).toEqual({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: unproven(status.port) } })
+
+  // Something else on Lumovi's port, while Lumovi isn't running: it's asked to show it's Lumovi,
+  // can't, and is given no token; nor is Lumovi started over it.
+  const heard: { method?: string; authorization?: string }[] = []
+  const squatter = createHttpServer((req, res) => {
+    heard.push({ method: req.method, authorization: req.headers.authorization })
+    res.end()
   })
+  await new Promise<void>((done) => squatter.listen(0, '127.0.0.1', done))
+  const squatted = (squatter.address() as AddressInfo).port
+  const marker = join(home, 'lumovi-started')
+  expect(
+    (
+      await answer({
+        enabled: true,
+        port: squatted,
+        token: status.token,
+        launch: [
+          process.execPath,
+          '-e',
+          `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '')`,
+        ],
+      })
+    )[1],
+  ).toEqual({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: unproven(squatted) } })
+  squatter.close()
+  expect(heard.length).toBeGreaterThan(0)
+  expect(heard.every(({ method, authorization }) => method === 'HEAD' && !authorization)).toBe(true)
+  expect(existsSync(marker)).toBe(false)
   expect(
     (
       await answer(

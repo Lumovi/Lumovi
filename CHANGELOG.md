@@ -8,6 +8,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Fixed
 
+- The stdio bridge AI assistants such as Claude Desktop start no longer gives Lumovi's token to
+  whatever listens on Lumovi's port: while Lumovi isn't running, another program (another
+  person's, on a shared computer) could listen there and be given it. The bridge now asks for
+  proof that it's Lumovi first (a keyed hash of a challenge, which only what holds the token can
+  make), before every request, and doesn't start Lumovi over something else.
 - What a cluster says (its version, an error) can no longer write over a terminal's first line:
   Lumovi's own lines leave out control characters, which a terminal would act on (clearing the
   screen, say, or writing over "Lumovi's read-only switch doesn't apply to what you run here").
