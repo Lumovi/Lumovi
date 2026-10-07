@@ -252,7 +252,8 @@ jobs:
           fi
           npx electron-builder --publish always ${{ matrix.only }} "${certificate[@]}"
       # Each signed with the certificate, and timestamped: the installer, and every program and
-      # library it installs.
+      # library it installs. Their own signatures: for Microsoft's libraries, Get-AuthenticodeSignature
+      # would give the catalog of this Windows, which has the same ones.
       - name: Check the Windows signatures
         if: runner.os == 'Windows'
         shell: pwsh
@@ -260,13 +261,18 @@ jobs:
           SIGNED: ${{ secrets.WIN_SIMPLYSIGN_ID != '' }}
         run: |
           if ($env:SIGNED -ne 'true') { exit 0 }
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\signtool.exe' |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
           $files = @(Get-ChildItem release -Filter 'Lumovi-*-win.exe') + @(
             Get-ChildItem release\win-unpacked, release\win-arm64-unpacked -Recurse -File -Include *.exe, *.dll, *.node)
           $wrong = foreach ($file in $files) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-            if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate -or
-                $signature.SignerCertificate.Thumbprint -ne $env:WIN_CERTIFICATE_SHA1) {
-              "$($file.FullName): $($signature.Status), $($signature.SignerCertificate.Subject)"
+            $signer = try {
+              [Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($file.FullName).GetCertHashString()
+            } catch { 'no one' }
+            # Valid, and (/tw) timestamped.
+            & $signtool.FullName verify /pa /tw /q $file.FullName *> $null
+            if ($LASTEXITCODE -ne 0 -or $signer -ne $env:WIN_CERTIFICATE_SHA1) {
+              "$($file.FullName): signtool verify exited with $LASTEXITCODE, signed by $signer"
             }
           }
           if ($wrong) { $wrong; throw "$($wrong.Count) of $($files.Count) aren't signed as they should be." }
