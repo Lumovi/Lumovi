@@ -14,10 +14,18 @@
     {
       "name": "overview",
       "title": "Overview",
-      "description": "A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention.",
+      "description": "A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.",
       "app": "desktop",
       "light": { "2x": "overview-light.webp", "1x": "overview-light-1x.webp" },
       "dark": { "2x": "overview-dark.webp", "1x": "overview-dark-1x.webp" }
+    },
+    {
+      "name": "overview-attention",
+      "title": "What needs attention",
+      "description": "Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.",
+      "app": "desktop",
+      "light": { "2x": "overview-attention-light.webp", "1x": "overview-attention-light-1x.webp" },
+      "dark": { "2x": "overview-attention-dark.webp", "1x": "overview-attention-dark-1x.webp" }
     },
     {
       "name": "workloads",
@@ -260,7 +268,7 @@
     {
       "name": "node",
       "title": "A node",
-      "description": "A node under memory pressure, with what runs on it and ways to drain it.",
+      "description": "Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.",
       "app": "desktop",
       "light": { "2x": "node-light.webp", "1x": "node-light-1x.webp" },
       "dark": { "2x": "node-dark.webp", "1x": "node-dark-1x.webp" }
