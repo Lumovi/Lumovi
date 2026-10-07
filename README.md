@@ -127,6 +127,12 @@ Download the installer for your platform from the
 | Windows (x64 & arm64)         | `.exe` installer            |
 | Linux (x64 & arm64)           | `.AppImage`, `.deb`, `.rpm` |
 
+On a Mac, Homebrew installs it too:
+
+```sh
+brew install --cask lumovi/tap/lumovi
+```
+
 Open it and pick a cluster: Lumovi reads them from the same place `kubectl` does
 (`KUBECONFIG`, or `~/.kube/config`), credential plugins included. It keeps itself up to date:
 a new version downloads in the background and installs when you restart the app.
@@ -221,7 +227,7 @@ and the [Changelog](CHANGELOG.md).
 
 - **Kubernetes** 1.25 or later. Fields are explained from the cluster's OpenAPI schema from
   1.27, and signing in to Lumovi in a cluster with a token needs 1.28.
-- **Desktop:** macOS 12 or later, Windows 10 or later, or a recent 64-bit Linux. `kubectl`
+- **Desktop:** macOS 13 or later, Windows 10 or later, or a recent 64-bit Linux. `kubectl`
   isn't needed, and [Helm](https://helm.sh) is only needed to change Helm releases.
 - **In a cluster:** Helm 3.8 or later to install the chart, on `linux/amd64` or
   `linux/arm64` nodes. The image includes everything else.
