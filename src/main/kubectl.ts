@@ -11,7 +11,7 @@
  * with the one on the PATH. What comes later is there for the terminals opened after.
  */
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -63,7 +63,8 @@ export class Kubectls {
   /** Downloads under way, by version: terminals opened meanwhile wait for the same one. */
   readonly #getting = new Map<string, Promise<void>>()
   /** Each cluster's minor version, as it last said it. */
-  readonly #minors = new Map<string, string>()
+  /** Each cluster's minor version, as it last said it (kept, for when it can't be reached). */
+  readonly #minors: Map<string, string>
 
   constructor(
     private readonly deps: {
@@ -75,6 +76,7 @@ export class Kubectls {
       clusterVersion: (context: string) => Promise<string>
     },
   ) {
+    this.#minors = this.#knownMinors()
     void this.#prune()
   }
 
@@ -143,7 +145,10 @@ export class Kubectls {
       (said) => {
         const minor = /^v?(\d+\.\d+)\./.exec(said)?.[1]
         if (!minor) throw new Error(`Lumovi can’t tell which kubectl matches ${said.slice(0, 40)}`)
-        this.#minors.set(context, minor)
+        if (this.#minors.get(context) !== minor) {
+          this.#minors.set(context, minor)
+          void this.#keepMinors()
+        }
         return minor
       },
       (error: unknown) => {
@@ -159,6 +164,32 @@ export class Kubectls {
       VERSION_WAIT_MS,
       () =>
         `Lumovi couldn’t ask the cluster its version (it didn’t answer within ${VERSION_WAIT_MS / 1000} seconds)`,
+    )
+  }
+
+  /** clusters.json: each cluster's minor version, by its context's name. */
+  get #minorsFile(): string {
+    return join(this.deps.dir, 'clusters.json')
+  }
+
+  #knownMinors(): Map<string, string> {
+    try {
+      const kept = JSON.parse(readFileSync(this.#minorsFile, 'utf8')) as Record<string, unknown>
+      return new Map(
+        Object.entries(kept).filter(
+          (entry): entry is [string, string] =>
+            typeof entry[1] === 'string' && /^\d+\.\d+$/.test(entry[1]),
+        ),
+      )
+    } catch {
+      return new Map()
+    }
+  }
+
+  async #keepMinors(): Promise<void> {
+    await mkdir(this.deps.dir, { recursive: true }).catch(() => {})
+    await writeFile(this.#minorsFile, JSON.stringify(Object.fromEntries(this.#minors))).catch(
+      () => {},
     )
   }
 

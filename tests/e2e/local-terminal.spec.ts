@@ -670,6 +670,23 @@ test('a terminal waits for neither a cluster that doesn’t answer nor a long do
   expect(kubectls(downloads.requests)).toHaveLength(1)
 })
 
+test('a cluster that can’t be reached as Lumovi starts gets the kubectl it had', async ({
+  launch,
+  clusters,
+}) => {
+  const first = await launch({ env: SHELL })
+  await openCluster(first.page)
+  await terminal(first.page)
+  await shows(first.page, 'It’s v1.34.9, to match the cluster.')
+  await first.close()
+  // Its version was kept with it: no waiting for a cluster that doesn't answer.
+  clusters.demo.fail('/version', { hang: true })
+  const again = await launch({ env: SHELL, userDataDir: first.userDataDir })
+  await openCluster(again.page)
+  await terminal(again.page)
+  await shows(again.page, 'It’s v1.34.9, to match the cluster.')
+})
+
 test('what a cluster says can’t write over a terminal, nor choose an old kubectl', async ({
   launch,
   clusters,
