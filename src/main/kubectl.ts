@@ -2,7 +2,9 @@
  * A kubectl for each cluster's terminals, as Kubernetes supports it: kubectl works with
  * clusters a minor version either side of its own, so it's the newest patch of the cluster's
  * own minor version (kubectl v1.34.3 for a v1.34.1 cluster). Downloaded from dl.k8s.io (or a
- * mirror of it), checked against the SHA-256 published beside it, and kept in the app's folder
+ * mirror of it), checked against the SHA-256 published beside it and against Kubernetes' own
+ * signature (kubectl-signature.ts: dl.k8s.io has one for every kubectl Lumovi gets; a mirror
+ * that has none is said to, in each terminal that uses its kubectl), and kept in the app's folder
  * (kubectl/v1.34.3/) for the terminals of every cluster on that version. As Lumovi starts, newer
  * patches the folder has replace older ones: a terminal can be using one while it runs.
  *
@@ -14,6 +16,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { chmod, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { whyNotKubernetes, type TrustRoot } from './kubectl-signature'
 
 /** Where Kubernetes publishes kubectl. */
 export const KUBECTL_MIRROR = 'https://dl.k8s.io'
@@ -54,8 +57,15 @@ export function trustedMirror(url: string): boolean {
   }
 }
 
-/** A terminal's kubectl: the folder it's in and its version, or why it's the one on the PATH. */
-export type MatchingKubectl = { dir: string; version: string } | { problem: string }
+/**
+ * A terminal's kubectl: the folder it's in and its version (and `unsigned`, the mirror's host,
+ * where it came with no signature to check), or why it's the one on the PATH.
+ */
+export type MatchingKubectl =
+  { dir: string; version: string; unsigned?: string } | { problem: string }
+
+/** In a version's folder: the mirror it came from unsigned, if it did. */
+const UNSIGNED = 'unsigned'
 
 export class Kubectls {
   /** Each minor version's newest patch (1.34 → v1.34.3), or why it isn't known, for a while. */
@@ -74,6 +84,10 @@ export class Kubectls {
       dir: string
       /** Where they come from: dl.k8s.io, or a mirror of it. */
       mirror: () => string
+      /** dl.k8s.io: what's from it must be signed (a mirror's may not be). */
+      official: string
+      /** What a signature is checked against: Sigstore's trust root, as Lumovi ships it. */
+      trust: TrustRoot
       /** A cluster's version, as it says it (v1.34.1-eks-…). */
       clusterVersion: (context: string) => Promise<string>
     },
@@ -114,7 +128,7 @@ export class Kubectls {
         getting(version)
         await this.#download(version, `${goos}/${goarch}`)
       }
-      return { dir, version }
+      return this.#found(version)
     }
     try {
       return await within(matching(), KUBECTL_WAIT_MS, () =>
@@ -130,7 +144,7 @@ export class Kubectls {
       }
       // Offline, say: the newest one kept of that minor version will do.
       const kept = await this.#kept(minor)
-      if (kept) return { dir: join(this.deps.dir, kept), version: kept }
+      if (kept) return this.#found(kept)
       return {
         problem:
           error instanceof Late
@@ -138,6 +152,18 @@ export class Kubectls {
             : `Lumovi couldn’t get kubectl ${minor} to match the cluster (${message(error)})`,
       }
     }
+  }
+
+  /** A version the folder has, and whether it came unsigned (from which mirror). */
+  #found(version: string): MatchingKubectl {
+    const dir = join(this.deps.dir, version)
+    let unsigned: string | undefined
+    try {
+      unsigned = readFileSync(join(dir, UNSIGNED), 'utf8').trim() || undefined
+    } catch {
+      unsigned = undefined
+    }
+    return { dir, version, ...(unsigned ? { unsigned } : {}) }
   }
 
   /**
@@ -235,18 +261,38 @@ export class Kubectls {
   }
 
   async #fetch(version: string, platform: string): Promise<void> {
-    const url = `${this.#mirror}/release/${version}/bin/${platform}/${EXE}`
-    const [kubectl, published] = await Promise.all([
+    const mirror = this.#mirror
+    const url = `${mirror}/release/${version}/bin/${platform}/${EXE}`
+    const [kubectl, published, signature, certificate] = await Promise.all([
       get(url, DOWNLOAD_TIMEOUT_MS),
       get(`${url}.sha256`),
+      getIfThere(`${url}.sig`),
+      getIfThere(`${url}.cert`),
     ])
     const sha256 = createHash('sha256').update(kubectl).digest('hex')
     if (sha256 !== published.toString().trim().split(/\s+/)[0]) {
-      throw new Error(`what was downloaded isn’t what ${host(this.#mirror)} published`)
+      throw new Error(`what was downloaded isn’t what ${host(mirror)} published`)
+    }
+    // Kubernetes signs every kubectl Lumovi gets: from dl.k8s.io, one without a signature, or
+    // with half of one, isn't taken (whoever could change it could take its signature away).
+    // A mirror may keep no signatures: then the SHA-256 it publishes is all there is.
+    const official = mirror === this.deps.official.replace(/\/+$/, '')
+    if (signature && certificate) {
+      const why = whyNotKubernetes(kubectl, signature, certificate, this.deps.trust)
+      if (why) throw new Error(`${host(mirror)}’s kubectl ${version} isn’t Kubernetes’ own: ${why}`)
+    } else if (signature || certificate) {
+      throw new Error(
+        `${host(mirror)} published kubectl ${version}’s ${signature ? 'signature without its certificate' : 'certificate without its signature'}`,
+      )
+    } else if (official) {
+      throw new Error(`${host(mirror)} published no signature for kubectl ${version}`)
     }
     const dir = join(this.deps.dir, version)
     await mkdir(dir, { recursive: true })
-    // Whole, or not there: a terminal never finds half of one.
+    // Whole, or not there: a terminal never finds half of one. Where it's unsigned, that's said
+    // before it's there (and where it's signed, not said, whatever a download cut short said).
+    if (signature) await rm(join(dir, UNSIGNED), { force: true })
+    else await writeFile(join(dir, UNSIGNED), host(mirror))
     const partial = join(dir, `.${EXE}.${process.pid}`)
     await writeFile(partial, kubectl, { mode: 0o755 })
     await rename(partial, join(dir, EXE))
@@ -323,6 +369,14 @@ async function within<T>(promise: Promise<T>, ms: number, late: () => string): P
 /** What's at a URL, or why not. */
 async function get(url: string, timeoutMs = LOOKUP_TIMEOUT_MS): Promise<Buffer> {
   const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+  if (!response.ok) throw new Error(`${host(url)} answered ${response.status}`)
+  return Buffer.from(await response.arrayBuffer())
+}
+
+/** What's at a URL, nothing where it isn't (404), or why not. */
+async function getIfThere(url: string): Promise<Buffer | undefined> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) })
+  if (response.status === 404) return undefined
   if (!response.ok) throw new Error(`${host(url)} answered ${response.status}`)
   return Buffer.from(await response.arrayBuffer())
 }

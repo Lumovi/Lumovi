@@ -8,6 +8,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Changed
 
+- The kubectl a terminal downloads is checked against Kubernetes' own signature, not only the
+  SHA-256 published beside it: from dl.k8s.io, a kubectl without Kubernetes' signature isn't
+  used, and its terminal says why and uses yours. From a mirror that keeps no signatures, the
+  terminal says it was checked against its SHA-256 only. Checked on the computer, against
+  Sigstore's trust root as Lumovi ships it: no new connection.
 - The desktop app's bill of materials (`Lumovi-<version>.cdx.json`) lists the Go modules the
   helm it ships is built from, and the Go it's built with, as helm itself records them: a
   scanner such as grype now sees a vulnerability in any of them. (The image's bill, made as
