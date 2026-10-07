@@ -61,13 +61,27 @@ const settledFleet = async (page: Page) => {
   }, LATENCY_MS)
 }
 
-/** Waits for a terminal (by its region's name) to show `text`. */
-const terminalText = (page: Page, terminal: string | RegExp, text: string) =>
-  page
-    .getByRole('region', { name: terminal, exact: true })
-    .locator('.xterm-rows')
-    .filter({ hasText: text })
-    .waitFor()
+/**
+ * Waits for a terminal (by its region's name) to show `text`; when it doesn't, says what it
+ * shows instead (a command that isn't there, say).
+ */
+async function terminalText(page: Page, terminal: string | RegExp, text: string) {
+  const rows = page.getByRole('region', { name: terminal, exact: true }).locator('.xterm-rows')
+  try {
+    await rows.filter({ hasText: text }).waitFor()
+  } catch (error) {
+    const shown = (await rows.innerText().catch(() => ''))
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-4)
+      .join(' ⏎ ')
+    const [first, ...rest] = (error as Error).message.split('\n')
+    throw new Error([`${first} The terminal shows: ${shown || '(nothing)'}`, ...rest].join('\n'), {
+      cause: error,
+    })
+  }
+}
 
 /** Claude Code, as far as Lumovi can tell, connected while a screen needs it. */
 let assistant: Client | undefined

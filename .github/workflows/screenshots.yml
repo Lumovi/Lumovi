@@ -44,11 +44,22 @@ jobs:
           path: ~/Library/Caches/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install chromium
+      # The terminal's screenshot runs kubectl, which GitHub's Macs don't have.
+      - uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5
       - name: Take screenshots
         env:
           SCREENS: ${{ inputs.screens }}
+          # Where a screen that couldn't be taken is shown as it was (uploaded below).
+          TMPDIR: ${{ runner.temp }}
         # Unquoted: a name each.
         run: npm run screenshots -- $SCREENS
+      - name: Keep how the screens that failed looked
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: failed-screens
+          path: ${{ runner.temp }}/lumovi-screenshot-*.png
+          if-no-files-found: ignore
       - name: Propose the ones that changed
         env:
           GH_TOKEN: ${{ github.token }}
