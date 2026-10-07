@@ -55,6 +55,15 @@ export function buildMenu(
         command('filter', 'Filter List'),
         command('terminal', 'Terminal', 'Ctrl+`'),
         command('new-terminal', 'New Terminal', 'Ctrl+Shift+`'),
+        // For terminals opened from now on; off, and locked, where the organization's policy says.
+        {
+          id: 'matching-kubectl',
+          label: 'Match kubectl to Each Cluster',
+          type: 'checkbox',
+          checked: settings.get().matchingKubectl,
+          enabled: !settings.get().managed?.kubectlOff,
+          click: ({ checked }) => settings.update({ matchingKubectl: checked }),
+        },
         { type: 'separator' },
         command('assistants', 'AI Assistants…'),
         { type: 'separator' },

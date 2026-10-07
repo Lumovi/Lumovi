@@ -9,4 +9,8 @@ console.log(
   `kubectl: context=${config['current-context']} namespace=${context.namespace ?? '-'} then=${yours.length} file(s) found=${yours.filter((file) => existsSync(file)).length} term=${process.env.TERM_PROGRAM}`,
 )
 console.log(`kubeconfig: [${own}]`)
-console.log(`path: last=[${(process.env.PATH ?? process.env.Path ?? '').split(delimiter).at(-1)}]`)
+const path = (process.env.PATH ?? process.env.Path ?? '').split(delimiter)
+console.log(`path: first=[${path[0]}]`)
+console.log(`path: last=[${path.at(-1)}]`)
+// What the tests' own startup files say they've run (tests/e2e/local-terminal.spec.ts).
+console.log(`startup: [${process.env.LUMOVI_TEST_STARTUP ?? '-'}]`)

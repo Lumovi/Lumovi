@@ -29,6 +29,7 @@ const DEFAULTS: Settings = {
   metricsSource: {},
   nodeShell: {},
   autoUpdate: true,
+  matchingKubectl: true,
   assistants: { enabled: false, port: DEFAULT_ASSISTANTS_PORT },
   aiPermissions: NO_PERMISSIONS,
 }
@@ -69,6 +70,7 @@ export class SettingsStore implements SettingsAccess {
       ...(managed && {
         managed,
         ...(managed.updatesOff && { autoUpdate: false }),
+        ...(managed.kubectlOff && { matchingKubectl: false }),
         ...(managed.assistantsOff && {
           assistants: { ...this.#settings.assistants!, enabled: false },
         }),
@@ -137,6 +139,7 @@ export class SettingsStore implements SettingsAccess {
     const managed = this.policy.managed
     const { managed: _managed, ...given } = patch
     if (managed?.updatesOff) delete given.autoUpdate
+    if (managed?.kubectlOff) delete given.matchingKubectl
     if (managed?.assistantsOff && given.assistants) {
       given.assistants = { ...given.assistants, enabled: this.#settings.assistants!.enabled }
     }
@@ -178,6 +181,7 @@ export class SettingsStore implements SettingsAccess {
         ),
         // On unless turned off.
         autoUpdate: stored.autoUpdate !== false,
+        matchingKubectl: stored.matchingKubectl !== false,
         assistants: {
           enabled: stored.assistants?.enabled === true,
           port: isPort(stored.assistants?.port) ? stored.assistants.port : DEFAULT_ASSISTANTS_PORT,

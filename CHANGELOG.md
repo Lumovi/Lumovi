@@ -8,6 +8,16 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Added
 
+- Terminals get a kubectl matching their cluster: the newest patch of its Kubernetes version
+  (kubectl works a minor version either side of its cluster), downloaded from dl.k8s.io once,
+  checked against the SHA-256 published beside it, and kept for every cluster on that version.
+  It's first on the terminal's PATH even after your startup files put theirs first (zsh, bash,
+  fish, sh and PowerShell). Offline, the newest one kept does; without one, the terminal says
+  why and uses yours. A terminal never waits long for it: a cluster that doesn't say its version
+  within 3 seconds (its VPN is off, say), or a kubectl still downloading after 10, and it starts
+  with yours; the terminals opened after get it. View → Match kubectl to Each Cluster turns it
+  off; an organization's policy can too (`"kubectl": false`), or name a mirror of dl.k8s.io to
+  get it from.
 - The desktop app ships with helm (4.3.0, the image's), which its Helm actions run: installing,
   upgrading, rolling back and uninstalling releases need no helm of your own. `LUMOVI_HELM`
   still names another. Its terminals have it last on their PATH, for when you have none.

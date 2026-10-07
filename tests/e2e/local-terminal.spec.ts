@@ -3,7 +3,15 @@
  * shell with kubectl pointed at a cluster (in that terminal only), and the
  * commands Lumovi shows pasted in to run.
  */
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -13,6 +21,8 @@ import { HELM_VERSION } from '../../scripts/helm.ts'
 
 const WINDOWS = process.platform === 'win32'
 const MAC = process.platform === 'darwin'
+/** This computer, as Kubernetes names platforms in its downloads. */
+const GO_PLATFORM = `${WINDOWS ? 'windows' : process.platform}/${process.arch === 'x64' ? 'amd64' : process.arch}`
 
 /**
  * A key as the system sends it, before the menu has it (as Playwright's keys
@@ -55,17 +65,23 @@ async function ready(page: Page) {
   await focused(page)
 }
 
-/** Waits for a terminal to have focus. */
+/** Waits for the terminal shown to have focus: not one in a tab that's hidden. */
 async function focused(page: Page) {
   await expect
     .poll(() =>
-      page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea')),
+      page.evaluate(() => {
+        const focus = document.activeElement
+        return focus?.classList.contains('xterm-helper-textarea') && !focus.closest('[hidden]')
+      }),
     )
     .toBe(true)
 }
 
 /** What the report says in brackets after `said`, its lines' wrapping undone. */
-async function reported(page: Page, said: 'kubeconfig: ' | 'path: last=') {
+async function reported(
+  page: Page,
+  said: 'kubeconfig: ' | 'path: first=' | 'path: last=' | 'startup: ',
+) {
   const text = (await screen(page).innerText()).replace(/\s*\n\s*/g, '')
   return new RegExp(`${said}\\[(.+?)\\]`).exec(text)?.[1]
 }
@@ -98,8 +114,44 @@ test('the helm Lumovi ships with: its Helm actions run it, and terminals have it
   expect(await reported(page, 'path: last=')).toBe(dirname(cli.command))
 })
 
-test('a terminal on this computer, with kubectl pointed at the cluster', async ({ launch }) => {
-  const { page } = await launch({ env: SHELL })
+/** Where terminals' kubectl matching a cluster on `version` is kept. */
+const kept = (userDataDir: string, version: string) => join(userDataDir, 'kubectl', version)
+
+/** That the terminal's PATH starts with the kubectl kept for `version` (Electron's path to it). */
+async function firstOnPath(page: Page, userDataDir: string, version: string) {
+  const first = await reported(page, 'path: first=')
+  expect(first && realpathSync.native(first)).toBe(realpathSync.native(kept(userDataDir, version)))
+}
+
+/** The stand-in's kubectl downloads (not their checksums'). */
+const kubectls = (requests: string[]) => requests.filter((path) => /\/kubectl(\.exe)?$/.test(path))
+
+/** A policy file, as IT would deploy it (LUMOVI_POLICY points at it). */
+function policyFile(policy: unknown): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'lumovi-policy-')), 'policy.json')
+  writeFileSync(path, JSON.stringify(policy))
+  return path
+}
+
+/** Waits for the terminal to show `text`, however its lines wrap. */
+async function shows(page: Page, text: string, timeout?: number) {
+  const squeezed = (text: string) => text.replace(/\s+/g, '')
+  await expect
+    .poll(async () => squeezed(await screen(page).innerText()), { timeout })
+    .toContain(squeezed(text))
+}
+
+/** Opens the terminal of the open cluster, and waits for its shell. */
+async function terminal(page: Page) {
+  await page.keyboard.press('Control+Backquote')
+  await ready(page)
+}
+
+test('a terminal on this computer, with kubectl pointed at the cluster', async ({
+  launch,
+  downloads,
+}) => {
+  const { page, userDataDir } = await launch({ env: SHELL })
   await openCluster(page)
   // ⌃` opens it, with a terminal for the cluster that's open.
   const bar = dock(page).getByRole('button', { name: 'Terminal', exact: true })
@@ -107,12 +159,22 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
   await expect(bar).toHaveAttribute('aria-expanded', 'true')
   const tabs = dock(page).getByRole('tablist', { name: 'Terminals' })
   await expect(tabs.getByRole('tab')).toHaveText(['demo'])
-  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.')
+  // Its kubectl is the newest of the cluster's minor version (v1.34.1's), first on its PATH.
+  await shows(
+    page,
+    '› kubectl points at demo in this terminal. It’s v1.34.9, to match the cluster.',
+  )
   await ready(page)
   await report(page)
   await expect(screen(page)).toContainText(
     'kubectl: context=demo namespace=- then=1 file(s) found=1 term=Lumovi',
   )
+  await firstOnPath(page, userDataDir, 'v1.34.9')
+  if (!WINDOWS) {
+    await page.keyboard.type('kubectl')
+    await page.keyboard.press('Enter')
+    await expect(screen(page)).toContainText("kubectl v1.34.9, the tests' stand-in")
+  }
   const kubeconfig = await reported(page, 'kubeconfig: ')
   // Last on its PATH, for when there's none of your own: the helm Lumovi runs (the tests').
   expect(await reported(page, 'path: last=')).toBe(resolve('tests/e2e/helm'))
@@ -126,12 +188,14 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
     .click()
   await expect(tabs.getByRole('tab')).toHaveText(['demo', 'demoshop'])
   await expect(tabs.getByRole('tab').last()).toHaveAccessibleName('demo, namespace shop')
-  await expect(screen(page)).toContainText(
-    '› kubectl points at demo, namespace shop, in this terminal.',
-  )
+  await shows(page, '› kubectl points at demo, namespace shop, in this terminal. It’s v1.34.9')
   await ready(page)
   await report(page)
   await expect(screen(page)).toContainText('context=demo namespace=shop')
+  // The same one: downloaded once.
+  expect(kubectls(downloads.requests)).toEqual([
+    `/release/v1.34.9/bin/${GO_PLATFORM}/kubectl${WINDOWS ? '.exe' : ''}`,
+  ])
   // The first one's still there, as it was.
   await tabs.getByRole('tab', { name: 'demo', exact: true }).click()
   await expect(screen(page)).toContainText('namespace=-')
@@ -508,3 +572,185 @@ test('on the start screen, ⌃` has nothing to point a terminal at', async ({ pa
   await page.keyboard.press('Control+Backquote')
   await expect(dock(page)).toHaveCount(0)
 })
+
+test('kubectl matching the cluster: kept for next time, and yours when it can’t be had', async ({
+  launch,
+  downloads,
+}) => {
+  // What was downloaded isn't what was published: it's not used, nor kept.
+  downloads.fail = 'checksum'
+  const first = await launch({ env: SHELL })
+  await openCluster(first.page)
+  await terminal(first.page)
+  await shows(
+    first.page,
+    `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (what was downloaded isn’t what ${new URL(downloads.url).host} published).`,
+  )
+  await report(first.page)
+  await expect(screen(first.page)).toContainText('path: first=')
+  expect(await reported(first.page, 'path: first=')).not.toContain('v1.34.9')
+  expect(existsSync(kept(first.userDataDir, 'v1.34.9'))).toBe(false)
+  // Nor tried again at once, by the terminals opened meanwhile.
+  const asked = downloads.requests.length
+  await dock(first.page)
+    .getByRole('button', { name: /^New terminal/ })
+    .click()
+  await shows(first.page, 'It’s the one on your PATH')
+  expect(downloads.requests.length).toBe(asked)
+  await first.close()
+
+  // Offline, the newest one kept of the cluster's minor version does; older ones went as Lumovi
+  // started.
+  downloads.reset()
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  for (const version of ['v1.34.5', 'v1.34.7']) {
+    mkdirSync(kept(userDataDir, version), { recursive: true })
+    writeFileSync(join(kept(userDataDir, version), WINDOWS ? 'kubectl.exe' : 'kubectl'), '')
+  }
+  downloads.fail = 'lookup'
+  const second = await launch({ env: SHELL, userDataDir })
+  await openCluster(second.page)
+  await terminal(second.page)
+  await shows(second.page, 'It’s v1.34.7, to match the cluster.')
+  expect(existsSync(kept(userDataDir, 'v1.34.5'))).toBe(false)
+  expect(kubectls(downloads.requests)).toEqual([])
+  await second.close()
+
+  // With none kept, it says why.
+  const third = await launch({ env: SHELL })
+  await openCluster(third.page)
+  await terminal(third.page)
+  await shows(
+    third.page,
+    `Lumovi couldn’t get kubectl 1.34 to match the cluster (${new URL(downloads.url).host} answered 503).`,
+  )
+})
+
+test('a terminal waits for neither a cluster that doesn’t answer nor a long download', async ({
+  launch,
+  clusters,
+  downloads,
+}) => {
+  // A cluster that doesn't say its version (its VPN is off, say): the terminal starts at once.
+  const answers = clusters.demo.fail('/version', { hang: true })
+  const { page, userDataDir } = await launch({ env: SHELL })
+  await openCluster(page)
+  await terminal(page)
+  await shows(
+    page,
+    'It’s the one on your PATH: Lumovi couldn’t ask the cluster its version (it didn’t answer within 3 seconds).',
+  )
+  answers()
+
+  // A kubectl that takes long: the terminal starts with yours, and the next has it.
+  downloads.delayMs = 11_000
+  const tabs = dock(page).getByRole('tablist', { name: 'Terminals' })
+  await dock(page)
+    .getByRole('button', { name: /^New terminal/ })
+    .click()
+  await expect(tabs.getByRole('tab')).toHaveCount(2)
+  await shows(page, 'Getting kubectl v1.34.9, to match the cluster…')
+  // (After the 10 seconds a terminal waits for it.)
+  await shows(
+    page,
+    'It’s the one on your PATH: kubectl v1.34.9 is still downloading, for the terminals opened once it’s done.',
+    20_000,
+  )
+  const kubectl = join(kept(userDataDir, 'v1.34.9'), WINDOWS ? 'kubectl.exe' : 'kubectl')
+  await expect.poll(() => existsSync(kubectl), { timeout: 15_000 }).toBe(true)
+  await dock(page)
+    .getByRole('button', { name: /^New terminal/ })
+    .click()
+  await expect(tabs.getByRole('tab')).toHaveCount(3)
+  await shows(page, 'It’s v1.34.9, to match the cluster.')
+  expect(kubectls(downloads.requests)).toHaveLength(1)
+})
+
+test('kubectl matching each cluster can be turned off, and an organization can', async ({
+  launch,
+  downloads,
+}) => {
+  const { page, app, userDataDir } = await launch({ env: SHELL })
+  const item = () =>
+    app.evaluate(({ Menu }) => {
+      const { enabled, checked } = Menu.getApplicationMenu()!.getMenuItemById('matching-kubectl')!
+      return { enabled, checked }
+    })
+  expect(await item()).toEqual({ enabled: true, checked: true })
+  await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()!.getMenuItemById('matching-kubectl')!.click(),
+  )
+  expect(await item()).toEqual({ enabled: true, checked: false })
+  expect(JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8'))).toMatchObject({
+    matchingKubectl: false,
+  })
+  await openCluster(page)
+  await terminal(page)
+  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.')
+  await expect(screen(page)).not.toContainText('It’s')
+  expect(downloads.requests).toEqual([])
+
+  // The organization's policy: off, and locked.
+  const off = await launch({ env: { ...SHELL, LUMOVI_POLICY: policyFile({ kubectl: false }) } })
+  expect(
+    await off.app.evaluate(({ Menu }) => {
+      const { enabled, checked } = Menu.getApplicationMenu()!.getMenuItemById('matching-kubectl')!
+      return { enabled, checked }
+    }),
+  ).toEqual({ enabled: false, checked: false })
+  await openCluster(off.page)
+  await terminal(off.page)
+  await expect(screen(off.page)).not.toContainText('It’s')
+  expect(downloads.requests).toEqual([])
+
+  // Or from its own mirror, whatever else is set.
+  const mirrored = await launch({
+    env: {
+      ...SHELL,
+      LUMOVI_KUBECTL_MIRROR: 'http://127.0.0.1:9',
+      LUMOVI_POLICY: policyFile({ kubectl: `${downloads.url}/` }),
+    },
+  })
+  await openCluster(mirrored.page)
+  await terminal(mirrored.page)
+  await shows(mirrored.page, 'It’s v1.34.9, to match the cluster.')
+})
+
+// Your startup files run, and the kubectl matching the cluster is still first: theirs put a
+// folder first, as macOS's path_helper and version managers do.
+for (const shell of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
+  test(`${shell}: your startup files, then kubectl matching the cluster first`, async ({
+    launch,
+  }) => {
+    test.skip(WINDOWS || !existsSync(shell), `There’s no ${shell} here.`)
+    const name = shell.split('/').at(-1)!
+    const home = mkdtempSync(join(tmpdir(), 'lumovi-home-'))
+    // (And a prompt ready() knows: zsh's own ends in %.)
+    const yours = `export LUMOVI_TEST_STARTUP=${name}\nPATH="/startup-first:$PATH"\nPS1='$ '\n`
+    for (const file of ['.zshrc', '.bashrc', '.bash_profile', 'shrc']) {
+      writeFileSync(join(home, file), yours)
+    }
+    const { page, userDataDir } = await launch({
+      env: {
+        SHELL: shell,
+        ...(name === 'zsh' && { ZDOTDIR: home }),
+        ...(name === 'bash' && { HOME: home }),
+        ...(name === 'sh' && { ENV: join(home, 'shrc') }),
+      },
+    })
+    await openCluster(page)
+    await terminal(page)
+    await shows(page, 'It’s v1.34.9, to match the cluster.')
+    await report(page)
+    await expect(screen(page)).toContainText('startup: ')
+    expect(await reported(page, 'startup: ')).toBe(name)
+    await firstOnPath(page, userDataDir, 'v1.34.9')
+    // And what it changed to get there is as it was.
+    const variable = { zsh: 'ZDOTDIR', bash: 'LUMOVI_LOGIN', sh: 'ENV' }[name]!
+    await page.keyboard.type(`echo "${variable}=[$${variable}] [$LUMOVI_KUBECTL]"`)
+    await page.keyboard.press('Enter')
+    await expect(screen(page)).toContainText(
+      `${variable}=[${{ zsh: home, bash: '', sh: join(home, 'shrc') }[name]}] []`,
+    )
+  })
+}
