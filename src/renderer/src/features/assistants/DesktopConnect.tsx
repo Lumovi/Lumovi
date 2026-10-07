@@ -79,8 +79,8 @@ export function DesktopConnectTab({ assistants }: { assistants: AssistantsApi })
         <div className="min-w-0 flex-1">
           <h2 className="text-[15px] leading-snug font-semibold text-ink-1">On this computer</h2>
           <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
-            Claude Code, Claude Desktop, Cursor and VS Code read your clusters through Lumovi, and
-            ask you before they change anything.
+            AI assistants read your clusters through Lumovi, and ask you before they change
+            anything.
           </p>
         </div>
         <span className="mt-2 flex items-center gap-2 text-xs text-ink-2">
@@ -253,9 +253,10 @@ function Endpoint({
   )
 }
 
-const TABS: { value: AssistantClient | 'other'; label: string }[] = [
+const TABS: { value: AssistantClient | 'codex' | 'other'; label: string }[] = [
   { value: 'claude-code', label: 'Claude Code' },
   { value: 'claude-desktop', label: 'Claude Desktop' },
+  { value: 'codex', label: 'Codex' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'vscode', label: 'VS Code' },
   { value: 'other', label: 'Other' },
@@ -281,6 +282,11 @@ function Connect({
     null,
     2,
   )
+  const codex = [
+    '[mcp_servers.lumovi]',
+    `url = "${url}"`,
+    `http_headers = { Authorization = "Bearer ${token}" }`,
+  ].join('\n')
   const installable = (client: AssistantClient) => status.installable.includes(client)
   return (
     <section aria-label="Connect an assistant" className="border-t border-line pt-3">
@@ -319,6 +325,20 @@ function Connect({
                 Claude Desktop isn’t made for Linux. Other assistants connect as shown under Other.
               </p>
             )}
+          </TabContent>
+          <TabContent value="codex" className="space-y-2.5">
+            <p>
+              Add this to <code className="font-mono">~/.codex/config.toml</code>:
+            </p>
+            <Snippet
+              text={codex}
+              shown={masked(codex)}
+              label="Codex settings"
+              copy="Copy Codex’s settings"
+            />
+            <p className="text-xs text-ink-3">
+              Codex connects to Lumovi as each of its sessions starts.
+            </p>
           </TabContent>
           <TabContent value="cursor" className="space-y-2.5">
             <Install assistants={assistants} client="cursor">

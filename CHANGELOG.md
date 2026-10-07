@@ -6,6 +6,13 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The AI assistants page says what Lumovi is to them, an MCP server, rather than naming a few:
+  any assistant or agent that speaks MCP works through it. Connect has a Codex tab, on the
+  desktop (its `config.toml`, with Lumovi's token) and on a server (one command, then it signs in
+  with OAuth); both checked with Codex 0.161.
+
 ## [1.11.0] - 2026-10-07
 
 On a server, a cluster made read-only is read-only for everyone.

@@ -62,6 +62,7 @@ export function ServerConnectTab({ url }: { url: string }) {
 
 const TABS = [
   { value: 'claude-code', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'vscode', label: 'VS Code' },
   { value: 'other', label: 'Other' },
@@ -88,6 +89,18 @@ function Connect({ url }: { url: string }) {
             />
             <p className="text-xs text-ink-3">
               Then sign in with /mcp in Claude Code: Lumovi opens here, and asks you to allow it.
+            </p>
+          </TabContent>
+          <TabContent value="codex" className="space-y-2.5">
+            <p>Run this once, in a terminal:</p>
+            <Snippet
+              text={`codex mcp add lumovi --url ${url}`}
+              label="Command"
+              copy="Copy command"
+            />
+            <p className="text-xs text-ink-3">
+              Codex opens Lumovi here to sign in, and Lumovi asks you to allow it. To sign in again
+              later: <code className="font-mono">codex mcp login lumovi</code>.
             </p>
           </TabContent>
           <TabContent value="cursor" className="space-y-2.5">
