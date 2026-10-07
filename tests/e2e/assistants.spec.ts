@@ -1,5 +1,5 @@
 /**
- * AI assistants (Claude Code, Claude Desktop, Cursor, VS Code…) use Lumovi
+ * AI assistants (Claude Code, Claude Desktop, Codex, Cursor, VS Code…) use Lumovi
  * through MCP: they read clusters with its tools, and the changes they ask for
  * wait in Lumovi for the person to approve. These tests are the assistant:
  * the MCP SDK's own client, over HTTP as most connect, and over stdio through
@@ -159,6 +159,13 @@ test('AI assistants are turned on, and connected, from Lumovi', async ({ lumovi 
   expect(JSON.parse(await clipboardText(page))).toEqual({
     mcpServers: { lumovi: { url, headers: { Authorization: `Bearer ${token}` } } },
   })
+  // Codex's, as its config.toml takes them (checked with Codex 0.161).
+  await dialog.getByRole('tab', { name: 'Codex' }).click()
+  const codex = (token: string) =>
+    `[mcp_servers.lumovi]\nurl = "${url}"\nhttp_headers = { Authorization = "Bearer ${token}" }`
+  await expect(dialog.getByLabel('Codex settings')).toHaveText(codex(`${token!.slice(0, 4)}…`))
+  await dialog.getByRole('button', { name: 'Copy Codex’s settings' }).click()
+  await expect.poll(() => clipboardText(page)).toBe(codex(token!))
 
   // Connected assistants show by the names they give, once each.
   const connected = dialog.getByRole('region', { name: 'Connected now' })

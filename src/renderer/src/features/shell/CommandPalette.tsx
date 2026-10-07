@@ -340,7 +340,7 @@ function Palette({ onDone }: { onDone: () => void }) {
           {(api.assistants || api.serverAssistants) && (
             <Item
               icon={<Sparkles />}
-              value="AI assistants MCP Claude Code Desktop Cursor VS Code connect"
+              value="AI assistants agents MCP Claude Code Desktop Codex Cursor VS Code connect"
               onSelect={run(() => go('/assistants'))}
             >
               AI assistants…

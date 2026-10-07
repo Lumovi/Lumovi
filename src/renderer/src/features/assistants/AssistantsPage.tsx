@@ -143,8 +143,8 @@ function Page({
             </h1>
             <p className="max-w-[520px] flex-[1_1_360px] pt-0.5 text-[13px] text-ink-2">
               {api.host === 'desktop'
-                ? 'Claude Code, Claude Desktop, Cursor, VS Code and other assistants use your clusters through Lumovi. They never get more than your kubeconfig allows, and your permissions narrow it further.'
-                : 'Claude Code, Cursor, VS Code and other assistants act as you through Lumovi. They never get more than your own access, and your permissions narrow it further.'}
+                ? 'Lumovi is an MCP server, so any AI assistant or agent that speaks MCP can use your clusters through it. Assistants never get more than your kubeconfig allows, and your permissions narrow it further.'
+                : 'Lumovi is an MCP server, so any AI assistant or agent that speaks MCP can act as you through it. Assistants never get more than your own access, and your permissions narrow it further.'}
             </p>
           </div>
           {tabs.length === 0 ? (
