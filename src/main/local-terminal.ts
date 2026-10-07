@@ -268,6 +268,11 @@ export class LocalTerminals {
       const first = [
         `kubectl points at ${context.name}${namespace ? `, namespace ${namespace},` : ''} in this terminal.`,
         ...(matching ? [`It’s ${matching.version}, to match the cluster.`] : []),
+        ...(matching?.unsigned
+          ? [
+              `${matching.unsigned} has no Kubernetes signature for it, so Lumovi checked it against its SHA-256 only.`,
+            ]
+          : []),
         ...(kubectl && 'problem' in kubectl
           ? [`It’s the one on your PATH: ${kubectl.problem}.`]
           : []),

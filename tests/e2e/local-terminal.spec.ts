@@ -19,6 +19,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { dialog, open, writes } from './action-helpers.ts'
 import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
 import { HELM_VERSION } from '../../scripts/helm.ts'
+import type { MockDownloads } from '../mock-downloads/server.ts'
 
 const WINDOWS = process.platform === 'win32'
 const MAC = process.platform === 'darwin'
@@ -629,6 +630,95 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
     third.page,
     `Lumovi couldn’t get kubectl 1.34 to match the cluster (${new URL(downloads.url).host} answered 503).`,
   )
+})
+
+test('kubectl that isn’t Kubernetes’ own is refused, however its signature is wrong', async ({
+  launch,
+  downloads,
+}) => {
+  const host = new URL(downloads.url).host
+  const notKubernetes = (why: string) => `${host}’s kubectl v1.34.9 isn’t Kubernetes’ own: ${why}`
+  const refusals: [NonNullable<MockDownloads['signing']>, string][] = [
+    // What was downloaded, and its SHA-256, changed together: only the signature says so.
+    ['tampered', notKubernetes('its signature isn’t for what was downloaded')],
+    // Signed, but not by Kubernetes' release, or not as it signs in.
+    ['identity', notKubernetes('it’s signed by someone@example.com, not Kubernetes’ release')],
+    [
+      'issuer',
+      notKubernetes(
+        'its signer signed in with https://token.actions.githubusercontent.com, not as Kubernetes’ release does',
+      ),
+    ],
+    // A certificate Sigstore's authority didn't issue, though logged as if it had.
+    ['authority', notKubernetes('its certificate isn’t from Sigstore’s certificate authority')],
+    // Its certificate's timestamp: none, forged, from a log Sigstore doesn't run, or too late.
+    ['unlogged', notKubernetes('its certificate wasn’t logged')],
+    ['forged-log', notKubernetes('its certificate wasn’t logged where Sigstore logs them')],
+    ['foreign-log', notKubernetes('its certificate wasn’t logged where Sigstore logs them')],
+    ['logged-late', notKubernetes('its certificate wasn’t valid when it was logged')],
+    // Half a signature, or none: from dl.k8s.io, where every kubectl Lumovi gets is signed.
+    ['no-certificate', `${host} published kubectl v1.34.9’s signature without its certificate`],
+    ['no-signature', `${host} published kubectl v1.34.9’s certificate without its signature`],
+    ['unsigned', `${host} published no signature for kubectl v1.34.9`],
+  ]
+  for (const [signing, why] of refusals) {
+    downloads.reset()
+    downloads.signing = signing
+    const lumovi = await launch({ env: SHELL })
+    await openCluster(lumovi.page)
+    await terminal(lumovi.page)
+    await shows(
+      lumovi.page,
+      `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${why}).`,
+    )
+    expect(existsSync(kept(lumovi.userDataDir, 'v1.34.9'))).toBe(false)
+    await lumovi.close()
+  }
+})
+
+test('a mirror’s kubectl: checked against Kubernetes’ signature, or said to have none', async ({
+  launch,
+  downloads,
+}) => {
+  const env = { ...SHELL, LUMOVI_KUBECTL_MIRROR: `${downloads.url}/mirror` }
+  const host = new URL(downloads.url).host
+  const unsigned = `${host} has no Kubernetes signature for it, so Lumovi checked it against its SHA-256 only.`
+  // A mirror that keeps no signatures: its SHA-256 is all there is, as every terminal says.
+  downloads.signing = 'unsigned'
+  const first = await launch({ env })
+  await openCluster(first.page)
+  await terminal(first.page)
+  await shows(first.page, `It’s v1.34.9, to match the cluster. ${unsigned}`)
+  await first.close()
+  // Kept: the next start's terminals say so too.
+  downloads.reset()
+  const again = await launch({ env, userDataDir: first.userDataDir })
+  await openCluster(again.page)
+  await terminal(again.page)
+  await shows(again.page, `It’s v1.34.9, to match the cluster. ${unsigned}`)
+  await again.close()
+
+  // One with a signature that isn't Kubernetes' is refused: not taken as one with none.
+  downloads.signing = 'tampered'
+  const tampered = await launch({ env })
+  await openCluster(tampered.page)
+  await terminal(tampered.page)
+  await shows(
+    tampered.page,
+    `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${host}’s kubectl v1.34.9 isn’t Kubernetes’ own: its signature isn’t for what was downloaded).`,
+  )
+  await tampered.close()
+
+  // And one signed as dl.k8s.io's are is checked, and said no more of.
+  downloads.reset()
+  const signed = await launch({ env })
+  await openCluster(signed.page)
+  await terminal(signed.page)
+  await shows(signed.page, 'It’s v1.34.9, to match the cluster.')
+  await expect(screen(signed.page)).not.toContainText('SHA-256 only')
+  expect(kubectls(downloads.requests)).toEqual([
+    expect.stringMatching(/^\/mirror\/release\/v1\.34\.9\//),
+  ])
 })
 
 test('a terminal waits for neither a cluster that doesn’t answer nor a long download', async ({

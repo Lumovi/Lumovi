@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { app, Menu, nativeTheme, Notification, session, shell } from 'electron'
@@ -20,6 +20,8 @@ import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
 import { runStdio, STDIO } from './mcp-stdio'
 import { KUBECTL_MIRROR, Kubectls } from './kubectl'
+import type { TrustRoot } from './kubectl-signature'
+import SIGSTORE_ROOT from './sigstore-root.json'
 import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
 import { chromiumProxy, proxyCredentials } from './chromium-proxy'
@@ -151,6 +153,12 @@ if (stdio) {
       mirror: () =>
         // (An empty one is as good as none.)
         policy.managed?.kubectlMirror || process.env.LUMOVI_KUBECTL_MIRROR || KUBECTL_MIRROR,
+      // The e2e tests' stand-ins for dl.k8s.io and Sigstore's trust root: never a packaged app's.
+      official: (!app.isPackaged && process.env.LUMOVI_KUBECTL_OFFICIAL) || KUBECTL_MIRROR,
+      trust:
+        !app.isPackaged && process.env.LUMOVI_SIGSTORE_ROOT
+          ? (JSON.parse(readFileSync(process.env.LUMOVI_SIGSTORE_ROOT, 'utf8')) as TrustRoot)
+          : SIGSTORE_ROOT,
       clusterVersion: async (context) => {
         const version = await kube.version(context)
         if (!version.ok) throw new Error(version.error.message)
