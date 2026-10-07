@@ -17,6 +17,16 @@ All notable changes to Lumovi are documented here. The format follows
   back, and renewed from then on; until then, its person's assistants say Lumovi restarted
   and to open it, and carry on once they do. Assistants behind a proxy, or whose sessions pass
   no token on, carry on at once.
+- Homebrew: `brew install --cask lumovi/tap/lumovi`, from Lumovi's own tap, which follows each
+  release once GitHub attests the release workflow built its installers.
+- Arch Linux: `lumovi-bin` on the AUR, published with each release (once its maintainer's key
+  is set), from Lumovi's own `.deb`; pacman updates it, not Lumovi itself.
+- Artifact Hub: the chart names the image it runs (so Artifact Hub can scan it), and each release
+  pushes the repository's ownership metadata, for a verified publisher.
+
+### Fixed
+
+- The README said the desktop app runs on macOS 12; it needs macOS 13 or later, as Electron does.
 
 ## [1.7.0] - 2026-10-07
 
