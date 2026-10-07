@@ -91,7 +91,7 @@ export class Kubectls {
     if (!goos || !goarch) return { problem: `Kubernetes has no kubectl for ${process.arch}` }
     if (!trustedMirror(this.#mirror)) {
       return {
-        problem: `Lumovi gets kubectl only over HTTPS, and ${this.#mirror} isn’t (LUMOVI_KUBECTL_MIRROR)`,
+        problem: `Lumovi gets kubectl only over HTTPS, and ${shown(this.#mirror)} isn’t (LUMOVI_KUBECTL_MIRROR)`,
       }
     }
     let minor: string
@@ -328,6 +328,18 @@ async function get(url: string, timeoutMs = LOOKUP_TIMEOUT_MS): Promise<Buffer> 
 }
 
 const host = (url: string) => new URL(url).host
+
+/** A URL as a terminal's line may say it: without a user and password in it, and not too long. */
+function shown(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.username = ''
+    parsed.password = ''
+    return parsed.toString().slice(0, 60)
+  } catch {
+    return 'what it says'
+  }
+}
 
 /** Whether minor version `a` (1.24) is older than `b` (1.25). */
 function older(a: string, b: string): boolean {

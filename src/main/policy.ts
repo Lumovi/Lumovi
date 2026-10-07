@@ -336,7 +336,7 @@ function checked(given: unknown, path: string): Policy {
     !(typeof kubectl === 'string' && trustedMirror(kubectl))
   ) {
     throw new Error(
-      'kubectl must be true, false, or the https URL of a mirror of dl.k8s.io (over plain http, what it downloads could be changed on the way).',
+      'kubectl must be true, false, or the https URL of a mirror of dl.k8s.io, or an http one on this computer (over plain http elsewhere, what it downloads could be changed on the way).',
     )
   }
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
