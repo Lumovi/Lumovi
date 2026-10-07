@@ -63,9 +63,11 @@ is Kubernetes RBAC's to say.
 - The browser keeps only a session cookie (`HttpOnly`, `SameSite=Lax`, `Secure` behind
   HTTPS). Credentials stay on the server.
 - Sessions and the AI assistants people allowed are kept in a Secret of Lumovi's, so a restart
-  signs nobody out, but nothing in it acts as anyone: cookies and assistants' tokens are kept by
-  their hash, and a token a session passes on (its person's own) is sealed (AES-256-GCM) with a
-  key only its cookie gives.
+  signs nobody out. Each entry is sealed (AES-256-GCM) with a key kept in a Secret of its own,
+  bound to an HMAC of what it is: reading the state shows nothing, and writing it can't make a
+  session or grant that opens. Nothing in it is a credential: cookies and assistants' tokens are
+  kept by their hash, and a token a session passes on (its person's own) is sealed again with a
+  key only its cookie gives. Sign-outs and revocations are kept before they're answered.
 - What's done through Lumovi is audited, and can be sent to a webhook or a SIEM as it happens.
 - The chart runs it as a non-root user, with a read-only root filesystem, no capabilities and
   the runtime's default seccomp profile, and it works under OpenShift's `restricted-v2`. A

@@ -39,6 +39,8 @@ export interface Kept<T> {
   write(value: T): string
   /** From JSON, checked: what doesn't make sense is a ConfigError saying where. */
   read(text: string, where: string): T
+  /** How to keep it, said when it's only in memory (LUMOVI_DATA_DIR, or the Helm chart). */
+  howToKeep?: string
 }
 
 export interface Keeper<T, K extends Keeping['kind'] = Keeping['kind']> {
@@ -77,7 +79,7 @@ export function keeper<T, K extends Keeping>(
 function memoryKeeper<T>(kept: Kept<T>, quiet: boolean): Keeper<T> {
   if (!quiet)
     log(
-      `${kept.what[0]!.toUpperCase()}${kept.what.slice(1)} are kept in memory: they’re lost when Lumovi stops. Set LUMOVI_DATA_DIR, or install the Helm chart, to keep them.`,
+      `${kept.what[0]!.toUpperCase()}${kept.what.slice(1)} are kept in memory: they’re lost when Lumovi stops. ${kept.howToKeep ?? 'Set LUMOVI_DATA_DIR, or install the Helm chart, to keep them.'}`,
     )
   let writes = 0
   return {

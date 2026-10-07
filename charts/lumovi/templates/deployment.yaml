@@ -130,6 +130,11 @@ spec:
             {{- if .Values.auth.keepSessions }}
             - name: LUMOVI_STATE_SECRET
               value: {{ include "lumovi.fullname" . }}-state
+            - name: LUMOVI_STATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.stateKeySecret | default (printf "%s-state-key" (include "lumovi.fullname" .)) }}
+                  key: key
             {{- end }}
             - name: LUMOVI_READ_ONLY
               value: {{ .Values.readOnly | quote }}

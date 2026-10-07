@@ -161,6 +161,9 @@
         },
         "keepSessions": {
           "type": "boolean"
+        },
+        "stateKeySecret": {
+          "type": "string"
         }
       }
     },
