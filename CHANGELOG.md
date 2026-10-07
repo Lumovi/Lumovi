@@ -13,6 +13,9 @@ All notable changes to Lumovi are documented here. The format follows
   names your contexts) is yours alone (0600), and written whole or not at all.
 - A terminal opened as Lumovi starts waits for the kept kubectls to be tidied, which could
   otherwise take away the download it had begun.
+- A terminal saying it won't use `LUMOVI_KUBECTL_MIRROR` doesn't show a user and password the
+  URL had in it, and the policy's message about `kubectl` says what it takes: an https mirror,
+  or an http one on this computer.
 
 ## [1.9.1] - 2026-10-07
 
