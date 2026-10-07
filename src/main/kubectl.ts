@@ -32,6 +32,22 @@ const EXE = process.platform === 'win32' ? 'kubectl.exe' : 'kubectl'
 /** A version as the folder keeps it: v1.34.3. */
 const VERSION = /^v(\d+\.\d+)\.(\d+)$/
 
+/**
+ * Whether kubectl can come from `url`: over HTTPS, or from this computer. Over plain HTTP, its
+ * checksum (which comes from the same place) could be changed along with it.
+ */
+export function trustedMirror(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url)
+    return (
+      protocol === 'https:' ||
+      (protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(hostname))
+    )
+  } catch {
+    return false
+  }
+}
+
 /** A terminal's kubectl: the folder it's in and its version, or why it's the one on the PATH. */
 export type MatchingKubectl = { dir: string; version: string } | { problem: string }
 
@@ -61,6 +77,11 @@ export class Kubectls {
     const goos = GOOS[process.platform]
     const goarch = GOARCH[process.arch]
     if (!goos || !goarch) return { problem: `Kubernetes has no kubectl for ${process.arch}` }
+    if (!trustedMirror(this.#mirror)) {
+      return {
+        problem: `Lumovi gets kubectl only over HTTPS, and ${this.#mirror} isn’t (LUMOVI_KUBECTL_MIRROR)`,
+      }
+    }
     let minor: string
     try {
       minor = await this.#minorOf(context)
