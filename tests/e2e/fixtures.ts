@@ -58,6 +58,24 @@ const HARNESS = ['-r', resolve('tests/e2e/harness.cjs')]
 /** The stand-in for helm the e2e tests run, instead of a real one. */
 const FAKE_HELM = resolve('tests/e2e/helm', process.platform === 'win32' ? 'helm.cmd' : 'helm')
 
+/**
+ * A step of closing the app, given at most `ms`: past that, it's said (with what it was) and
+ * given up on, so a test that passed isn't failed by an app that's slow to go.
+ */
+async function within(what: string, ms: number, step: () => Promise<unknown>): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms)
+  })
+  try {
+    const done = await Promise.race([step().then(() => true as const), late])
+    if (!done) console.warn(`Closing the app: ${what} took more than ${ms / 1000} s.`)
+    return done
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function collectCoverage(app: ElectronApplication): Promise<void> {
   for (const window of app.windows()) {
     try {
@@ -176,9 +194,19 @@ export async function launchApp(
     async close() {
       if (closed) return
       closed = true
-      await collectCoverage(app)
+      await within('collecting coverage', 15_000, () => collectCoverage(app))
+      // What its main process has running as it's asked to quit, to say if it doesn't (once
+      // it's asked, it can't be asked anything else).
+      let running = '(it doesn’t answer)'
+      await within('asking what it has running', 5_000, async () => {
+        running = (await app.evaluate(() => process.getActiveResourcesInfo())).join(', ')
+      }).catch(() => undefined)
       // The app may already have quit on its own (e.g. a test closed its window).
-      await app.close().catch(() => undefined)
+      const quit = await within('quitting', 15_000, () => app.close().catch(() => undefined))
+      if (!quit) {
+        console.warn(`The app didn’t quit: it had ${running}. It’s stopped.`)
+        app.process().kill('SIGKILL')
+      }
     },
   }
 }
@@ -341,10 +369,12 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       if (trace) {
         const path = failed ? testInfo.outputPath(`trace-${i}.zip`) : undefined
         // The app may have quit already, taking its trace with it.
-        await instance.app
-          .context()
-          .tracing.stop({ path })
-          .catch(() => undefined)
+        await within('stopping the trace', 10_000, () =>
+          instance.app
+            .context()
+            .tracing.stop({ path })
+            .catch(() => undefined),
+        )
       }
       await instance.close()
     }
