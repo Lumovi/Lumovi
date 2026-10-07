@@ -75,6 +75,11 @@ test('assistants sign in as the person, and read what they may', async ({
   await expect(dialog.getByLabel('Command', { exact: true })).toHaveText(
     `claude mcp add --transport http lumovi ${served.url}mcp`,
   )
+  // Codex signs in with OAuth as it's added (checked with Codex 0.161).
+  await dialog.getByRole('tab', { name: 'Codex' }).click()
+  await expect(dialog.getByLabel('Command', { exact: true })).toHaveText(
+    `codex mcp add lumovi --url ${served.url}mcp`,
+  )
   await dialog.getByRole('tab', { name: 'Cursor' }).click()
   const cursor = new URL(
     (await dialog.getByRole('link', { name: 'Add to Cursor' }).getAttribute('href'))!,
