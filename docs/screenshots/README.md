@@ -38,7 +38,7 @@ To show the reader's theme, at their screen's density:
     "
     width="1440"
     height="900"
-    alt="A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention."
+    alt="A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage."
   />
 </picture>
 ```
@@ -69,11 +69,19 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### Overview
 
-`overview`: A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention.
+`overview`: A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.
 
-| Light                                                                                                                                                             | Dark                                                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention.](overview-light-1x.webp)](overview-light.webp) | [![A cluster's overview: nodes, pods and workloads, CPU and memory with their last hour, and what needs attention.](overview-dark-1x.webp)](overview-dark.webp) |
+| Light                                                                                                                                                                                             | Dark                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.](overview-light-1x.webp)](overview-light.webp) | [![A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.](overview-dark-1x.webp)](overview-dark.webp) |
+
+### What needs attention
+
+`overview-attention`: Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.
+
+| Light                                                                                                                                                                    | Dark                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.](overview-attention-light-1x.webp)](overview-attention-light.webp) | [![Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.](overview-attention-dark-1x.webp)](overview-attention-dark.webp) |
 
 ### Workloads
 
@@ -309,11 +317,11 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### A node
 
-`node`: A node under memory pressure, with what runs on it and ways to drain it.
+`node`: Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.
 
-| Light                                                                                                              | Dark                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| [![A node under memory pressure, with what runs on it and ways to drain it.](node-light-1x.webp)](node-light.webp) | [![A node under memory pressure, with what runs on it and ways to drain it.](node-dark-1x.webp)](node-dark.webp) |
+| Light                                                                                                                                                   | Dark                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.](node-light-1x.webp)](node-light.webp) | [![Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.](node-dark-1x.webp)](node-dark.webp) |
 
 ### Events
 
