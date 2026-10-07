@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The Homebrew tap updates as soon as a release is published, rather than on a schedule GitHub
+  often skips.
+
 ## [1.10.0] - 2026-10-07
 
 A signed Windows installer, and long text that stays in its place everywhere.
