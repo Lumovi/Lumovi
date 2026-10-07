@@ -1,6 +1,7 @@
 /**
  * Terminals on this computer: your own shell, with kubectl (and helm, k9s…)
- * pointed at the cluster you're looking at, in that terminal only.
+ * pointed at the cluster you're looking at, in that terminal only. The helm
+ * Lumovi runs is last on its PATH, for when you have none of your own.
  *
  * Nothing secret is copied. A small kubeconfig of the terminal's own comes
  * first in its KUBECONFIG, before yours: kubectl takes the current context,
@@ -11,7 +12,7 @@
  */
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, join, resolve } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { spawn, type IPty } from 'node-pty'
 import type { LocalShellRequest, Result, ShellExit } from '@shared/api'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
@@ -94,6 +95,8 @@ export class LocalTerminals {
       env: NodeJS.ProcessEnv
       isReadOnly: (context: string) => boolean
       version: string
+      /** The helm Lumovi runs (LUMOVI_HELM, or the one it ships with). */
+      helm: () => string
     },
     private readonly emit: {
       data: (id: string, data: string) => void
@@ -153,6 +156,9 @@ export class LocalTerminals {
       )
       // Electron's own variables aren't the shell's.
       const inherited = Object.entries(env).filter(([key]) => !key.startsWith('ELECTRON_'))
+      // Windows spells it Path, and has only one.
+      const PATH = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH'
+      const helm = this.deps.helm()
       const pty = spawn(shell.file, shell.args, {
         name: 'xterm-256color',
         cols: 80,
@@ -162,6 +168,10 @@ export class LocalTerminals {
           // Apps opened from the Dock have no LANG, which shells and kubectl need for UTF-8.
           LANG: 'en_US.UTF-8',
           ...Object.fromEntries(inherited),
+          // Then the folder of the helm Lumovi runs: yours first, where you have one.
+          ...(isAbsolute(helm) && {
+            [PATH]: [env[PATH], dirname(helm)].filter(Boolean).join(delimiter),
+          }),
           // Yours as Lumovi read them: a relative one from where it started, not the shell.
           KUBECONFIG: [kubeconfig, ...kubeconfigPaths(env).map((path) => resolve(path))].join(
             delimiter,

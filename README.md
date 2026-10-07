@@ -227,8 +227,8 @@ and the [Changelog](CHANGELOG.md).
 
 - **Kubernetes** 1.25 or later. Fields are explained from the cluster's OpenAPI schema from
   1.27, and signing in to Lumovi in a cluster with a token needs 1.28.
-- **Desktop:** macOS 13 or later, Windows 10 or later, or a recent 64-bit Linux. `kubectl`
-  isn't needed, and [Helm](https://helm.sh) is only needed to change Helm releases.
+- **Desktop:** macOS 13 or later, Windows 10 or later, or a recent 64-bit Linux. Neither
+  `kubectl` nor [Helm](https://helm.sh) is needed: Lumovi ships with the helm it runs.
 - **In a cluster:** Helm 3.8 or later to install the chart, on `linux/amd64` or
   `linux/arm64` nodes. The image includes everything else.
 

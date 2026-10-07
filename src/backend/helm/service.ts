@@ -1,8 +1,9 @@
 /**
  * Helm releases: read from the cluster, and changed with the user's own helm
  * so changes behave exactly as Helm's do (hooks, three-way merges, its record
- * of revisions). LUMOVI_HELM names the helm to run; otherwise it's helm on
- * the login shell's PATH (or, on the server, the one in its image).
+ * of revisions). LUMOVI_HELM names the helm to run; otherwise it's the one
+ * Lumovi ships with (the desktop app's, next to it), or helm on the login
+ * shell's PATH (a build from source; on the server, the one in its image).
  */
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -49,7 +50,6 @@ const CHART_NAME = /^[\w.-]+$/
 const PLAIN = /^[\w@+=:,./\\~-]+$/
 /** What the environment can change. */
 const DEFAULTS = {
-  LUMOVI_HELM: 'helm',
   LUMOVI_ARTIFACT_HUB_URL: 'https://artifacthub.io',
 }
 
@@ -64,6 +64,8 @@ export interface HelmTarget {
 export interface HelmOptions {
   /** Resolves once the environment (login shell PATH) is ready to run helm. */
   envReady: Promise<void>
+  /** The helm to run unless LUMOVI_HELM names another: the one Lumovi ships with. */
+  command?: string
   /** Whether a context is read-only; changes to it are refused. */
   isReadOnly: (context: string) => boolean
   /** The user's kubeconfig context, unless set otherwise. */
@@ -89,6 +91,7 @@ export class HelmService {
   readonly #localCharts: boolean
   readonly #checkUrl: (url: string) => Promise<void>
   readonly #guard?: AccessGuard
+  readonly #shipped: string
 
   constructor(
     private readonly kube: KubeService,
@@ -100,10 +103,12 @@ export class HelmService {
     this.#localCharts = options.localCharts
     this.#checkUrl = options.checkUrl ?? (async () => undefined)
     this.#guard = options.guard
+    this.#shipped = options.command ?? 'helm'
   }
 
-  get #command(): string {
-    return this.#setting('LUMOVI_HELM')
+  /** The helm that runs. */
+  get command(): string {
+    return this.env.LUMOVI_HELM || this.#shipped
   }
 
   #setting(name: keyof typeof DEFAULTS): string {
@@ -143,9 +148,9 @@ export class HelmService {
   async cli(): Promise<HelmCli> {
     try {
       const version = await this.#helm(['version', '--short'])
-      return { available: true, command: this.#command, version: version.trim() }
+      return { available: true, command: this.command, version: version.trim() }
     } catch {
-      return { available: false, command: this.#command }
+      return { available: false, command: this.command }
     }
   }
 
@@ -446,7 +451,7 @@ export class HelmService {
   /** Runs helm, resolving with how it ended and what it printed. */
   async #run(args: string[], env?: NodeJS.ProcessEnv): Promise<HelmRun> {
     await this.envReady
-    const command = this.#command
+    const command = this.command
     // A .cmd or .bat wrapper (on Windows) only runs through the shell.
     const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)
     if (shell && !args.every((arg) => PLAIN.test(arg))) {

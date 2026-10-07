@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { app, Menu, nativeTheme, Notification, session, shell } from 'electron'
@@ -114,7 +115,18 @@ if (stdio) {
       })
     const audit = recorder(auditLog, actor('ui'))
     const usage = new UsageHistory(kube, (context) => settings.metricsSource(context))
-    const helm = new HelmService(kube, { envReady, isReadOnly, localCharts: true })
+    // The helm Lumovi ships with, next to it (a build from source has none: helm on the PATH).
+    const shipped = join(
+      process.resourcesPath,
+      'helm',
+      process.platform === 'win32' ? 'helm.exe' : 'helm',
+    )
+    const helm = new HelmService(kube, {
+      envReady,
+      isReadOnly,
+      localCharts: true,
+      command: existsSync(shipped) ? shipped : undefined,
+    })
     // The page loads asynchronously, so the handlers below are in place before it can call them.
     const win = createMainWindow(url, settings.get().window, (window) =>
       settings.update({ window }),
@@ -133,7 +145,14 @@ if (stdio) {
       shellEvents,
     )
     const local = new LocalTerminals(
-      { store, envReady, env: process.env, isReadOnly, version: app.getVersion() },
+      {
+        store,
+        envReady,
+        env: process.env,
+        isReadOnly,
+        version: app.getVersion(),
+        helm: () => helm.command,
+      },
       shellEvents,
     )
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
