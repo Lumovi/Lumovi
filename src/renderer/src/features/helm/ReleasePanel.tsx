@@ -117,11 +117,11 @@ function ReleaseActions({
   onAction: (dialog: Dialog) => void
 }) {
   const cli = useHelmCli().data
-  const { readOnly } = useReadOnly()
+  const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
   const ns = release.namespace
   const disabledAll = readOnly
-    ? 'Changes are turned off for this cluster.'
+    ? readOnlyWhy
     : cli && !cli.available
       ? `Lumovi uses helm for this, and couldn’t run ${cli.command}. Install Helm, or set LUMOVI_HELM to where it is.`
       : here.whyNot('changes', 'write', ns)

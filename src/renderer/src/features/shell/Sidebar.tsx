@@ -35,6 +35,7 @@ import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
 import { useViews } from '@renderer/hooks/views'
 import { useReadOnly } from '@renderer/hooks/settings'
+import { formatDateTime } from '@renderer/lib/format'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
@@ -318,13 +319,25 @@ function ClusterSwitcher() {
                       ? 'Set by your organization'
                       : 'Set by LUMOVI_READ_ONLY'
                     : 'For everyone, on this server'
-                  : `Lumovi won’t change ${context}`}
+                  : readOnly.shared
+                    ? `Lumovi won’t change ${context} for anyone on this server`
+                    : `Lumovi won’t change ${context}`}
               </span>
+              {readOnly.by && (
+                <span className="block text-xs leading-snug text-ink-3">
+                  Turned on by {readOnly.by.by}, {formatDateTime(readOnly.by.at)}
+                </span>
+              )}
+              {readOnly.shared && !readOnly.locked && !readOnly.mayChange && (
+                <span className="block text-xs leading-snug text-ink-3">
+                  Only Lumovi’s admins change it
+                </span>
+              )}
             </span>
             <Switch
               label="Read-only"
               checked={readOnly.readOnly}
-              disabled={readOnly.locked}
+              disabled={!readOnly.mayChange}
               onCheckedChange={(checked) => void readOnly.set(checked)}
             />
           </div>

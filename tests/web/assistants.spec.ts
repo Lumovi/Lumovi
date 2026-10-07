@@ -783,17 +783,22 @@ test('behind a proxy, an assistant acts as who the proxy says its person is now'
   expect(await groups(again)).toBe('sre')
 })
 
-test('clusters a person made read-only are read-only for their assistants too', async ({
+test('a cluster made read-only for everyone is read-only for everyone’s assistants', async ({
   page,
+  browser,
   serve,
 }) => {
   const served = await serve()
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
   const { client } = await connect(page, served)
-  await page.goto(`${served.url}cluster/demo`)
-  await page.getByRole('button', { name: 'Cluster', exact: true }).click()
-  await page.getByRole('switch', { name: 'Read-only' }).click()
-  await page.keyboard.press('Escape')
+  // Bob, in a browser of his own, makes demo read-only.
+  const elsewhere = await browser.newContext()
+  const bob = await elsewhere.newPage()
+  await signIn(bob, `${served.url}cluster/demo`, PEOPLE.bob.token)
+  await bob.getByRole('button', { name: 'Cluster', exact: true }).click()
+  await bob.getByRole('switch', { name: 'Read-only' }).click()
+  await bob.keyboard.press('Escape')
+  // Alice's assistant is told, and refused.
   await expect
     .poll(async () => (await call(client, 'list_clusters')).text)
     .toMatch(/changes: read-only/)
@@ -805,19 +810,21 @@ test('clusters a person made read-only are read-only for their assistants too', 
     replicas: 3,
     reason: 'Busy.',
   }
-  expect((await call(client, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
+  expect((await call(client, 'scale', scale)).text).toMatch(
+    /demo is read-only for everyone on this server: bob@example\.com made it so on /,
+  )
+  await page.goto(`${served.url}cluster/demo`)
   await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
   await page.getByRole('link', { name: 'Permissions' }).click()
   await expect(page.getByLabel('What assistants are told')).toContainText('changes: read-only')
   await page.getByRole('button', { name: 'Back' }).click()
 
-  // Her next page says what her browser keeps: still read-only, until she allows changes.
-  await page.reload()
-  expect((await call(client, 'scale', scale)).text).toMatch(/demo is read-only in Lumovi/)
+  // Alice allows changes again, and her assistant may ask for them.
   await page.getByRole('button', { name: 'Cluster', exact: true }).click()
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.keyboard.press('Escape')
   await expect.poll(async () => (await call(client, 'list_clusters')).text).toMatch(/changes: ask/)
+  await elsewhere.close()
 })
 
 test('an administrator can turn assistants off', async ({ page, serve }) => {

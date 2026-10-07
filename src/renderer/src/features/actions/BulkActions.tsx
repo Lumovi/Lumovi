@@ -176,14 +176,14 @@ export function SelectionBar({
   noun: string
   onClear: () => void
 }) {
-  const { readOnly } = useReadOnly()
+  const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
   // What the dialog works on stays put while deleted rows leave the list.
   const [running, setRunning] = useState<{ action: BulkAction; objects: KubeObject[] } | null>(null)
   if (objects.length === 0) return null
   // All of them, or none: one the person's access doesn't let them change says so.
   const disabled = readOnly
-    ? 'Changes are turned off for this cluster.'
+    ? readOnlyWhy
     : objects
         .map((o) =>
           here.whyNot(

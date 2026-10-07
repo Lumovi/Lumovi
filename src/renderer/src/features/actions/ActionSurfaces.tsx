@@ -5,7 +5,8 @@ import type { KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { Tooltip } from '@renderer/components/Tooltip'
-import { useReadOnly } from '@renderer/hooks/settings'
+import { ADMINS_ONLY, useReadOnly } from '@renderer/hooks/settings'
+import { formatDateTime } from '@renderer/lib/format'
 import { cn } from '@renderer/lib/cn'
 import { keepFocusInActionDialog, useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
@@ -187,7 +188,7 @@ function ActionItems({
 /** Shown instead of working actions when the cluster is read-only, with a way to allow changes. */
 export function ReadOnlyBadge() {
   const { context } = useCluster()
-  const { locked, byPolicy, policyProblem, set } = useReadOnly()
+  const { locked, byPolicy, policyProblem, shared, by, mayChange, set } = useReadOnly()
   return (
     <Popover.Root>
       <Popover.Trigger className="flex h-7 items-center gap-1.5 rounded-lg bg-surface-3 px-2.5 text-xs font-medium text-ink-2 hover:text-ink-1">
@@ -203,9 +204,16 @@ export function ReadOnlyBadge() {
                 ? `Your organization’s policy makes ${context} read-only.`
                 : locked
                   ? 'LUMOVI_READ_ONLY is set, so Lumovi can’t change any cluster.'
-                  : 'Lumovi won’t change anything in this cluster until you allow it.'}
+                  : by
+                    ? `${by.by} made it read-only for everyone on this server on ${formatDateTime(by.at)}. Lumovi won’t change anything in it for anyone until it’s allowed again.`
+                    : shared
+                      ? 'Lumovi won’t change anything in this cluster for anyone on this server until it’s allowed again.'
+                      : 'Lumovi won’t change anything in this cluster until you allow it.'}
           </p>
-          {!locked && (
+          {shared && !locked && !mayChange && (
+            <p className="mt-2 text-xs leading-relaxed text-ink-3">{ADMINS_ONLY}</p>
+          )}
+          {mayChange && (
             <Button
               variant="secondary"
               className="mt-3 h-7 text-xs"

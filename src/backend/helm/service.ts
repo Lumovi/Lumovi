@@ -25,7 +25,7 @@ import type {
   Result,
 } from '@shared/api'
 import { fetchFailure } from '../network'
-import { KubeRequestError, toKubeError } from '../kube/errors'
+import { KubeRequestError, readOnlyRefusal, toKubeError, type ReadOnlyCheck } from '../kube/errors'
 import type { AccessGuard } from '@shared/access'
 import type { KubeService } from '../kube/service'
 import {
@@ -67,7 +67,7 @@ export interface HelmOptions {
   /** The helm to run unless LUMOVI_HELM names another: the one Lumovi ships with. */
   command?: string
   /** Whether a context is read-only; changes to it are refused. */
-  isReadOnly: (context: string) => boolean
+  isReadOnly: ReadOnlyCheck
   /** The user's kubeconfig context, unless set otherwise. */
   target?: (context: string) => Promise<HelmTarget>
   /** Whether charts can come from files, as on the desktop (a server only takes remote ones). */
@@ -85,7 +85,7 @@ const kubeContext = async (context: string): Promise<HelmTarget> => ({
 
 export class HelmService {
   private readonly envReady: Promise<void>
-  private readonly isReadOnly: (context: string) => boolean
+  private readonly isReadOnly: ReadOnlyCheck
   private readonly env = process.env
   readonly #target: (context: string) => Promise<HelmTarget>
   readonly #localCharts: boolean
@@ -433,11 +433,9 @@ export class HelmService {
     assertString(r.context, 'context')
     assertName(r.namespace, 'namespace')
     assertName(r.name, 'name')
-    if (this.isReadOnly(r.context)) {
-      throw new KubeRequestError(
-        'read-only',
-        `${r.context} is read-only in Lumovi. Allow changes to it to continue.`,
-      )
+    const readOnly = this.isReadOnly(r.context)
+    if (readOnly) {
+      throw readOnlyRefusal(r.context, readOnly)
     }
   }
 

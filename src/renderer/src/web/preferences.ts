@@ -1,39 +1,11 @@
 /**
- * What a browser keeps for itself when Lumovi is served: its theme (in a
- * cookie, so pages start in it), and which clusters are read-only, where
- * their metrics come from and where their node shells run (which its pages
- * give the server).
+ * What a browser keeps for itself when Lumovi is served: its theme, in a cookie, so pages start
+ * in it. (Its clusters' settings are the server's, the same for everyone.)
  */
-import type { Settings, ThemePreference } from '@shared/api'
-import { THEME_COOKIE, type PageSettings } from '@shared/server'
+import type { ThemePreference } from '@shared/api'
+import { THEME_COOKIE } from '@shared/server'
 
-const KEY = 'lumovi:settings'
 const YEAR = 365 * 24 * 3600
-
-export function storedSettings(): PageSettings {
-  try {
-    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<PageSettings>
-    return {
-      readOnly: stored.readOnly ?? [],
-      metricsSource: stored.metricsSource ?? {},
-      nodeShell: stored.nodeShell ?? {},
-    }
-  } catch {
-    return { readOnly: [], metricsSource: {}, nodeShell: {} }
-  }
-}
-
-/** Keeps what the server says the preferences now are (it always says them all). */
-export function storeSettings({ readOnly, metricsSource, nodeShell }: Settings): void {
-  localStorage.setItem(KEY, JSON.stringify({ readOnly, metricsSource, nodeShell }))
-}
-
-/** Called when another tab changes the preferences. */
-export function onStoredSettings(listener: () => void): void {
-  addEventListener('storage', (event) => {
-    if (event.key === KEY) listener()
-  })
-}
 
 export function storedTheme(): ThemePreference {
   const theme = document.documentElement.dataset.theme

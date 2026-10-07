@@ -95,11 +95,13 @@ const routes: RouteObject[] = [
   },
 ]
 
-// Another tab changed which clusters are read-only, or where metrics come from.
-addEventListener(
-  SETTINGS_CHANGED,
-  () => void queryClient.invalidateQueries({ queryKey: ['settings'] }),
-)
+// Someone changed the server's clusters' settings: which are read-only, or where their metrics
+// come from (and so their history).
+addEventListener(SETTINGS_CHANGED, () => {
+  void queryClient.invalidateQueries({ queryKey: ['settings'] })
+  void queryClient.invalidateQueries({ queryKey: ['usage-source'] })
+  void queryClient.invalidateQueries({ queryKey: ['usage'] })
+})
 
 // The desktop app's page is a file, so it keeps its place in the hash; a served page has real
 // addresses, below the server's base path, that can be shared.

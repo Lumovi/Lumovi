@@ -513,14 +513,22 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
       summary: 'Uninstalled web',
       command: 'helm uninstall web --namespace shop --kube-context demo',
     },
-    { action: 'read-only.changed', outcome: 'success', summary: 'Made demo read-only in Lumovi' },
+    {
+      action: 'read-only.changed',
+      outcome: 'success',
+      summary: 'Made demo read-only for everyone on this server',
+    },
     {
       action: 'resource.delete',
       outcome: 'refused',
       summary: 'Delete ConfigMap x',
       command: where('kubectl delete configmap/x'),
     },
-    { action: 'read-only.changed', outcome: 'success', summary: 'Made demo changeable in Lumovi' },
+    {
+      action: 'read-only.changed',
+      outcome: 'success',
+      summary: 'Made demo changeable for everyone on this server',
+    },
     { action: 'resource.create', outcome: 'failure', summary: 'Create ConfigMap (unnamed)' },
     { action: 'resource.patch', outcome: 'success', summary: 'Changed ConfigMap kube-root-ca.crt' },
     {
@@ -572,8 +580,8 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   // However long what it says, an event stays a line.
   expect(events[0]!.error).toHaveLength(4000)
   expect(events[0]!.error).toMatch(/^x+…$/)
-  expect(events.find((e) => e.outcome === 'refused')!.error).toBe(
-    'demo is read-only in Lumovi. Allow changes to it to continue.',
+  expect(events.find((e) => e.outcome === 'refused')!.error).toMatch(
+    /^demo is read-only for everyone on this server: .+ made it so on \d{4}-\d{2}-\d{2}\.$/,
   )
 
   // Found by where, what, through whom; one object's by its uid (and those that had none).
@@ -716,10 +724,13 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await expect(row(page, /Lumovi .* started$/)).toBeVisible()
   await expect(list(page)).toContainText('Today')
 
-  // What happens as the page is open comes in on top, marked new.
-  await bob.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
+  // What happens as the page is open comes in on top, marked new. (A setting that leaves demo
+  // changeable: read-only, it'd be so for Alice too.)
+  await bob.evaluate(() =>
+    window.lumovi!.app.setNodeShell('demo', { namespace: 'ops', image: 'alpine:3.22' }),
+  )
   await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
-    /Made demo read-only in Lumovi$/,
+    /Made node shells in demo run alpine:3\.22 in ops$/,
   )
   await expect(list(page).getByRole('option').first().getByLabel('New')).toBeVisible()
 
@@ -888,8 +899,8 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await event.getByRole('button', { name: 'Copy the event' }).click()
   const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText())) as AuditEvent
   expect(copied).toMatchObject({ action: 'helm.install', actor: { forwardedFor: '203.0.113.7' } })
-  await row(page, /Made demo read-only/).click()
-  await expect(event.getByRole('region', { name: 'Details' })).toContainText('readOnlyyes')
+  await row(page, /Made node shells in demo/).click()
+  await expect(event.getByRole('region', { name: 'Details' })).toContainText('namespaceops')
   await event.getByRole('button', { name: 'Close' }).click()
 
   // Checked: each event follows from the one before it.
@@ -912,7 +923,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await bob.reload()
   await bob.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
   await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
-    /Made demo changeable in Lumovi$/,
+    /Made demo changeable for everyone on this server$/,
   )
   await list(page).getByRole('option').first().click()
   await expect(event.getByRole('region', { name: 'Details' })).toContainText('readOnlyno')
@@ -921,7 +932,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await bob.evaluate(async () => {
     for (let i = 0; i < 12; i++) await window.lumovi!.app.setReadOnly('demo', i % 2 === 0)
   })
-  await expect(list(page).getByRole('option').first()).toHaveAccessibleName(/Lumovi$/)
+  await expect(list(page).getByRole('option').first()).toHaveAccessibleName(/on this server$/)
   // Scrolled down (the list hears of it a frame or two later).
   await list(page).evaluate(
     (el) =>
@@ -945,7 +956,7 @@ test('the Audit page finds what was done, follows it as it happens, and tells al
   await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
   await bob.evaluate(() => window.lumovi!.app.setReadOnly('demo', false))
   await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
-    /Made demo changeable in Lumovi$/,
+    /Made demo changeable for everyone on this server$/,
   )
   await expect(list(page).getByRole('option').filter({ hasText: 'alice@example.com' })).toHaveCount(
     0,
@@ -1465,8 +1476,11 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
   await as(context, 'alice@example.com', 'auditors')
   await page.goto(`${served.url}cluster/demo/pods`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
-  // DEL, which jq writes escaped; and half a pair, which no two tools read the same.
-  await page.evaluate(() => window.lumovi!.app.setReadOnly('a\u007fb\ud800c', true))
+  // DEL, which jq writes escaped; and half a pair, which no two tools read the same. (A cluster
+  // the server hasn't: refused, and recorded.)
+  await page.evaluate(() =>
+    window.lumovi!.app.setReadOnly('a\u007fb\ud800c', true).catch(() => undefined),
+  )
   // A name thousands of characters long, each written as six (the summary, the command and the
   // error all say it).
   await page.evaluate(() =>
@@ -1531,6 +1545,7 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
   })
   const odd = events.find((e) => e.action === 'read-only.changed')!
   expect(odd.cluster).toBe('a\u007fb\ufffdc')
+  expect(odd.outcome).toBe('refused')
   const huge = events.find((e) => e.action === 'resource.delete')!
   expect(huge.summary.length).toBeLessThanOrEqual(1000)
   expect(huge.details).toEqual({ truncated: true })
@@ -2372,13 +2387,13 @@ test('people see what they did, and only that, as it happens', async ({
     return got
   })
   expect(heard).toEqual([
-    'first Made demo changeable in Lumovi',
-    'second Made demo changeable in Lumovi',
-    'second Made demo read-only in Lumovi',
+    'first Made demo changeable for everyone on this server',
+    'second Made demo changeable for everyone on this server',
+    'second Made demo read-only for everyone on this server',
   ])
   await expect(list(page).getByRole('option')).toHaveCount(2)
   await expect(list(page).getByRole('option').first()).toHaveAccessibleName(
-    /Made demo read-only in Lumovi$/,
+    /Made demo read-only for everyone on this server$/,
   )
   await alices.close()
   // Exported, what could be a formula is text.

@@ -94,3 +94,19 @@ export function toKubeError(error: unknown): KubeError {
   if (refused) return { code: 'unreachable', message: proxyRefusal(refused) }
   return { code: 'unreachable', message }
 }
+
+/**
+ * Whether changes to a context are refused: no, yes, or yes and why (a server says who made it
+ * read-only for everyone, and when).
+ */
+export type ReadOnlyCheck = (context: string) => boolean | string
+
+/** What's said of a change refused where it's read-only. */
+export function readOnlyRefusal(context: string, why: boolean | string): KubeRequestError {
+  return new KubeRequestError(
+    'read-only',
+    typeof why === 'string'
+      ? why
+      : `${context} is read-only in Lumovi. Allow changes to it to continue.`,
+  )
+}

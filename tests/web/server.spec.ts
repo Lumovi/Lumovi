@@ -233,35 +233,42 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   // One-way messages for nothing are dropped.
   page.ws.send(JSON.stringify({ type: 'send', channel: 'kube:nope', args: [] }))
   page.ws.send(JSON.stringify({ type: 'send', channel: 'constructor', args: [] }))
-  // Preferences that make no sense are left out.
-  page.ws.send(
-    JSON.stringify({
-      type: 'settings',
-      settings: {
-        readOnly: ['demo', 7],
-        metricsSource: { demo: { mode: 'magic' }, other: { mode: 'off' } },
-        nodeShell: {
-          demo: { namespace: 'Not A Namespace', image: 'alpine' },
-          other: { namespace: 'ops', image: 'alpine:3.22' },
-        },
-      },
-    }),
-  )
+  // The clusters' settings are the server's: what makes no sense is refused.
+  expect(await page.call(11, IPC.setMetricsSource, 'demo', { mode: 'magic' })).toMatchObject({
+    error: 'Expected a context name and a metrics source',
+  })
+  expect(
+    await page.call(12, IPC.setNodeShell, 'demo', { namespace: 'Not A Namespace', image: 'a' }),
+  ).toMatchObject({ error: 'Expected a context name and where its node shells run' })
+  // Only for the clusters it shows: what's kept is kept small.
+  expect(await page.call(19, IPC.setReadOnly, 'elsewhere', true)).toMatchObject({
+    error: 'This server has no cluster called “elsewhere” that you can see.',
+  })
+  await page.call(13, IPC.setReadOnly, 'demo', true)
+  await page.call(14, IPC.setMetricsSource, 'demo', { mode: 'off' })
+  await page.call(15, IPC.setNodeShell, 'demo', { namespace: 'ops', image: 'alpine:3.22' })
   const defaults = { namespace: 'kube-system', image: 'alpine:3.22' }
   expect((await page.call(5, IPC.settings)).value).toEqual({
     theme: 'system',
     readOnly: ['demo'],
-    metricsSource: { other: { mode: 'off' } },
-    nodeShell: { other: { namespace: 'ops', image: 'alpine:3.22' } },
+    readOnlyBy: { demo: { by: 'lumovi-demo', at: expect.any(String) } },
+    metricsSource: { demo: { mode: 'off' } },
+    nodeShell: { demo: { namespace: 'ops', image: 'alpine:3.22' } },
     nodeShellDefault: defaults,
+    shared: { mayChange: true },
   })
-  page.ws.send(JSON.stringify({ type: 'settings', settings: { readOnly: 'demo' } }))
+  // Back to the defaults, they're kept no more.
+  await page.call(16, IPC.setReadOnly, 'demo', false)
+  await page.call(17, IPC.setMetricsSource, 'demo', { mode: 'auto' })
+  await page.call(18, IPC.setNodeShell, 'demo', null)
   expect((await page.call(6, IPC.settings)).value).toEqual({
     theme: 'system',
     readOnly: [],
-    metricsSource: {},
+    readOnlyBy: {},
+    metricsSource: { demo: { mode: 'auto' } },
     nodeShell: {},
     nodeShellDefault: defaults,
+    shared: { mayChange: true },
   })
   // A message too large to take ends the connection, and nothing else.
   const large = await socket(served, cookie)

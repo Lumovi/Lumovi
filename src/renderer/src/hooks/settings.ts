@@ -8,6 +8,7 @@ import {
 } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { useCluster } from '@renderer/state/cluster'
+import { toast } from '@renderer/state/toasts'
 
 export function useSettings() {
   return useQuery({
@@ -15,6 +16,22 @@ export function useSettings() {
     queryFn: () => api.app.settings(),
     staleTime: Infinity,
   })
+}
+
+/** Why someone may not change a server's clusters' settings (as the server says it too). */
+export const ADMINS_ONLY = 'Only Lumovi’s admins change what’s set for everyone on this server.'
+
+/**
+ * On a server, its clusters' settings are everyone's (`shared`), and only some may change them
+ * (`mayChange`: Lumovi's admins, or anyone where it has none). On the desktop, they're the
+ * person's own.
+ */
+export function useSharedSettings() {
+  const settings = useSettings().data
+  return {
+    shared: settings?.shared !== undefined,
+    mayChange: settings?.shared?.mayChange !== false,
+  }
 }
 
 export function useSetTheme() {
@@ -37,6 +54,10 @@ export function readOnlyIn(settings: Settings | undefined, context: string): boo
  * Whether changes to the current cluster are turned off. `locked` means they can't be turned
  * on here: LUMOVI_READ_ONLY turned them off everywhere, or the organization's policy did
  * (`byPolicy`, and `policyProblem` where it can't be used, so it locks every cluster).
+ *
+ * On a server it's everyone's (`shared`): `by` says who made it read-only, and when, and only
+ * some may change it (`mayChange`: Lumovi's admins, or anyone where there are none). `why` says,
+ * where changes are off, why.
  */
 export function useReadOnly() {
   const { context } = useCluster()
@@ -44,13 +65,30 @@ export function useReadOnly() {
   const queryClient = useQueryClient()
   const byPolicy = managedReadOnly(settings?.managed, context)
   const locked = settings?.readOnlyAll === true || byPolicy
+  const shared = settings?.shared !== undefined
+  const by = settings?.readOnlyBy?.[context]
   return {
     readOnly: readOnlyIn(settings, context),
     locked,
     byPolicy,
     policyProblem: settings?.managed?.problem,
+    shared,
+    by,
+    mayChange: !locked && settings?.shared?.mayChange !== false,
+    why: by
+      ? `Changes are turned off for this cluster: ${by.by} made it read-only for everyone.`
+      : 'Changes are turned off for this cluster.',
+    /** Why it's read-only, said of the cluster. */
+    said: by
+      ? `${by.by} made ${context} read-only for everyone on this server`
+      : `${context} is read-only in Lumovi`,
+    /** Says so where it can't be changed. */
     async set(readOnly: boolean) {
-      queryClient.setQueryData(['settings'], await api.app.setReadOnly(context, readOnly))
+      try {
+        queryClient.setQueryData(['settings'], await api.app.setReadOnly(context, readOnly))
+      } catch (error) {
+        toast({ tone: 'error', title: 'Couldn’t change it', description: (error as Error).message })
+      }
     },
   }
 }

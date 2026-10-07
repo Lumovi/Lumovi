@@ -20,7 +20,7 @@ import type { Recorder } from '../audit/recorder'
 import { kubectl } from '@shared/kubectl'
 import type { AccessGuard } from '@shared/access'
 import { authorize, kubeRequest, serverUrl } from './client'
-import { KubeRequestError, toKubeError } from './errors'
+import { KubeRequestError, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
 import { createNodeShell, deleteNodeShell, nodeShellCommand, waitForNodeShell } from './node-shell'
 import { assertIntegerInRange, assertOneOf, assertQuery, assertString, invalid } from './validate'
@@ -33,7 +33,7 @@ const TIMEOUT_MS = 20_000
 interface Dependencies {
   store: ClusterConfigs
   envReady: Promise<void>
-  isReadOnly: (context: string) => boolean
+  isReadOnly: ReadOnlyCheck
   /** The audit log, as the page's person records to it. */
   audit: Recorder
   /** A server's: what its person may do (the desktop app has none). */
@@ -183,10 +183,14 @@ export class Terminals {
       } else {
         await this.deps.guard?.require(r.context, 'shells', 'on', r.namespace, 'open shells')
       }
-      if (this.deps.isReadOnly(r.context)) {
+      const readOnly = this.deps.isReadOnly(r.context)
+      if (readOnly) {
+        const changes = r.target === 'node' ? 'nodes' : 'containers'
         throw new KubeRequestError(
           'read-only',
-          `${r.context} is read-only in Lumovi, so shells, which can change ${r.target === 'node' ? 'nodes' : 'containers'}, are turned off.`,
+          typeof readOnly === 'string'
+            ? `${readOnly} Shells, which can change ${changes}, are turned off.`
+            : `${r.context} is read-only in Lumovi, so shells, which can change ${changes}, are turned off.`,
         )
       }
       const setting = this.deps.nodeShell(r.context)
