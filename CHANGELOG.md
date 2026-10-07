@@ -6,6 +6,10 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-07
+
+On a server, a cluster made read-only is read-only for everyone.
+
 ### Changed
 
 - On a server, a cluster made read-only is read-only for everyone on it, and their AI
@@ -16,8 +20,8 @@ All notable changes to Lumovi are documented here. The format follows
   survive a restart where the server keeps its state (the chart's `auth.keepSessions`, or
   `LUMOVI_DATA_DIR`). On the desktop they stay your own, and changing where metrics come from
   is now in its audit log too.
-- The Homebrew tap updates as soon as a release is published, rather than on a schedule GitHub
-  often skips.
+- A release can start the Homebrew tap's update itself, rather than wait for the tap's own
+  schedule, which GitHub often skips.
 
 ## [1.10.0] - 2026-10-07
 
@@ -580,7 +584,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/Lumovi/Lumovi/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/Lumovi/Lumovi/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/Lumovi/Lumovi/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/Lumovi/Lumovi/compare/v1.8.0...v1.9.0
