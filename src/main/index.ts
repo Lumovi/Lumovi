@@ -149,7 +149,8 @@ if (stdio) {
     const kubectls = new Kubectls({
       dir: join(app.getPath('userData'), 'kubectl'),
       mirror: () =>
-        policy.managed?.kubectlMirror ?? process.env.LUMOVI_KUBECTL_MIRROR ?? KUBECTL_MIRROR,
+        // (An empty one is as good as none.)
+        policy.managed?.kubectlMirror || process.env.LUMOVI_KUBECTL_MIRROR || KUBECTL_MIRROR,
       clusterVersion: async (context) => {
         const version = await kube.version(context)
         if (!version.ok) throw new Error(version.error.message)
