@@ -19,7 +19,7 @@ import { log } from './log'
 import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
-import { ServerState } from './state'
+import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
 const CLEANUP_MS = 10_000
@@ -63,7 +63,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     ? await PermissionsStore.open(config.assistants.keep, options.env)
     : undefined
   // What a restart mustn't lose: who's signed in, and the assistants they allowed.
-  const state = await ServerState.open(config.state, options.env)
+  const state = await ServerState.open(
+    config.state,
+    options.env,
+    stateKey(config.state, config.stateKey),
+  )
   const sessions = new Sessions(
     config.sessionHours,
     (ended, how, why) => {
@@ -84,6 +88,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       }
     },
     state,
+    // Kubernetes' own users, refused at sign-in, are refused as they're restored too.
+    (user) => hosted.refuses(user),
   )
   const assistants = new ServerAssistants({
     state,
@@ -135,7 +141,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     } else if (route === `POST ${PATHS.session}` && config.auth.mode === 'token') {
       await auth.signInWithToken(req, res)
     } else if (route === `DELETE ${PATHS.session}`) {
-      auth.signOut(req, res)
+      await auth.signOut(req, res)
     } else if (route === `GET ${PATHS.signIn}` && oidc) {
       await auth.startSignIn(req, res, url!)
     } else if (route === `GET ${PATHS.callback}` && oidc) {

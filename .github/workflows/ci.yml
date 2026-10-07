@@ -86,6 +86,14 @@ jobs:
           # Sessions kept for a restart: a Secret Lumovi may read and write, and nothing else; none
           # when they're kept in memory, or for an agent.
           helm template lumovi charts/lumovi | grep -q 'resourceNames: \[lumovi-state\]'
+          # What it's sealed with: a Secret of its own, given to Lumovi (its Role doesn't name it);
+          # or one of yours.
+          helm template lumovi charts/lumovi | grep -q 'name: lumovi-state-key$'
+          (! helm template lumovi charts/lumovi | grep -q 'resourceNames: \[lumovi-state-key\]')
+          helm template lumovi charts/lumovi | grep -A4 'name: LUMOVI_STATE_KEY' | grep -q 'name: lumovi-state-key'
+          helm template lumovi charts/lumovi --set auth.stateKeySecret=mine \
+            | grep -A4 'name: LUMOVI_STATE_KEY' | grep -q 'name: mine'
+          (! helm template lumovi charts/lumovi --set auth.stateKeySecret=mine | grep -q 'lumovi-state-key')
           helm template lumovi charts/lumovi | grep -A1 'name: LUMOVI_STATE_SECRET' | grep -q 'value: lumovi-state'
           (! helm template lumovi charts/lumovi --set auth.keepSessions=false | grep -q 'lumovi-state')
           (! helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=https://hub.example.com \

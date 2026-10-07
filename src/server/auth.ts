@@ -182,8 +182,11 @@ export class Auth {
     sendJson(res, 200, this.#session(user), { 'Set-Cookie': this.#sessionCookie(req, id) })
   }
 
-  /** `DELETE api/session`: ends the session, and every page of it. */
-  signOut(req: IncomingMessage, res: ServerResponse): void {
+  /**
+   * `DELETE api/session`: ends the session, and every page of it; once it's kept so, so that a
+   * restart can't bring it back.
+   */
+  async signOut(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!sameOrigin(req, this.config.publicUrl)) {
       sendJson(res, 403, { error: 'Sign out from Lumovi’s own page.' })
       return
@@ -196,6 +199,18 @@ export class Auth {
         session: caller.session,
       })
       this.sessions.end(caller.session!, 'signed-out', 'They signed out.')
+      try {
+        await this.sessions.kept()
+      } catch (error) {
+        const said = `Lumovi couldn’t keep that you signed out (${(error as Error).message}): it’s over here, but a restart before it can would bring it back.`
+        this.#record(req, 'failure', 'Signed out', {
+          user: caller.identity.user,
+          session: caller.session,
+          error: said,
+        })
+        sendJson(res, 503, { error: said }, { 'Set-Cookie': this.#sessionCookie(req, '', 0) })
+        return
+      }
     }
     res.writeHead(204, { 'Set-Cookie': this.#sessionCookie(req, '', 0) })
     res.end()

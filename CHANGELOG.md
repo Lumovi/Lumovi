@@ -11,9 +11,14 @@ All notable changes to Lumovi are documented here. The format follows
 - A restart (an upgrade, say) signs nobody out: sessions, the AI assistants people allowed
   (their tokens), and what each person made read-only for their assistants are kept, in a
   Secret the chart makes (`auth.keepSessions`, on by default; `LUMOVI_STATE_SECRET`) or under
-  `LUMOVI_DATA_DIR`. Nothing kept can be used as anyone: cookies and tokens by their hash, and
-  a token a session passes on (its person's own, with a token or single sign-on that forwards
-  theirs) sealed with a key only its cookie gives. That one's unsealed as its browser comes
+  `LUMOVI_DATA_DIR`. Each entry is sealed (AES-256-GCM), and filed under an HMAC of what it is,
+  with a key kept apart from it (`LUMOVI_STATE_KEY`, from a Secret of its own the chart makes, or
+  `auth.stateKeySecret`; beside `state.json` without Kubernetes): whoever can read the state
+  learns nothing from it, and whoever can write it can't make, change or move an entry that
+  opens. No credential is in it either: cookies and tokens by their hash, and a token a session
+  passes on (its person's own, with a token or single sign-on that forwards theirs) sealed again
+  with a key only its cookie gives. A sign-out, an assistant let go or revoked, is kept before
+  it's answered; past what a Secret holds, the sessions that end soonest make way. That one's unsealed as its browser comes
   back, and renewed from then on; until then, its person's assistants say Lumovi restarted
   and to open it, and carry on once they do. Assistants behind a proxy, or whose sessions pass
   no token on, carry on at once.
