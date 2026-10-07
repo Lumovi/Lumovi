@@ -31,11 +31,19 @@ function report(state: UpdateState) {
       })
       break
     case 'managed':
-      toast({
-        tone: 'success',
-        title: 'Your organization updates Lumovi',
-        description: 'Its policy deploys new versions to this computer.',
-      })
+      toast(
+        state.by === 'store'
+          ? {
+              tone: 'success',
+              title: 'The Microsoft Store updates Lumovi',
+              description: 'New versions come to this computer through it.',
+            }
+          : {
+              tone: 'success',
+              title: 'Your organization updates Lumovi',
+              description: 'Its policy deploys new versions to this computer.',
+            },
+      )
       break
     case 'error':
       toast({ tone: 'error', title: 'Couldn’t check for updates', description: state.message })

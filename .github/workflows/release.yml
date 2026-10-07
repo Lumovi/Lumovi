@@ -235,6 +235,27 @@ jobs:
           # Unsigned builds shouldn't go looking for a certificate in a keychain.
           if [ "$SIGN" != true ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --publish always ${{ matrix.only }}
+      # The Microsoft Store's packages (Microsoft signs them): for Partner Center, not the release.
+      - name: Build the Microsoft Store packages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Windows' own SDK's makeappx and makepri (the runner's newest), which know the manifest's
+          # desktop6: electron-builder's bundled ones are older.
+          $kit = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Directory |
+            Where-Object Name -like '10.*' | Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64' } |
+            Where-Object { Test-Path (Join-Path $_ 'makeappx.exe') } | Select-Object -First 1
+          if (-not $kit) { throw 'No Windows SDK with makeappx.exe' }
+          $env:ELECTRON_BUILDER_WINDOWS_KITS_PATH = $kit
+          npx electron-builder --win appx --x64 --arm64 --publish never
+      - name: Keep the Microsoft Store packages
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: microsoft-store-${{ needs.preflight.outputs.version }}
+          path: release/Lumovi-*-store-*.appx
+          if-no-files-found: error
       # A signed record that these files were built here, from this commit.
       - name: Attest the installers' provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4

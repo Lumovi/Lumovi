@@ -26,6 +26,10 @@ All notable changes to Lumovi are documented here. The format follows
   release once GitHub attests the release workflow built its installers.
 - Arch Linux: `lumovi-bin` on the AUR, published with each release (once its maintainer's key
   is set), from Lumovi's own `.deb`; pacman updates it, not Lumovi itself.
+- Windows: a Microsoft Store package (MSIX), built with each release for Partner Center:
+  Microsoft signs it, and the Store updates it (Lumovi's own updater stays off in it). What it
+  writes to AppData isn't redirected into a copy of its own, so kubectl, credential plugins and
+  terminals run from it see the same files they do anywhere else.
 - Artifact Hub: the chart names the image it runs (so Artifact Hub can scan it), and each release
   pushes the repository's ownership metadata, for a verified publisher.
 

@@ -87,6 +87,25 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
 
+# The Microsoft Store's package (npx electron-builder --win appx): Microsoft signs it, and the
+# Store updates it. Its identity is the Store's (Partner Center → Product identity); its images
+# are build/appx/ (Lumovi-design's icons/app/windows/store/), and its manifest
+# build/appxmanifest.xml.
+appx:
+  identityName: PeterKota.Lumovi
+  publisher: CN=1A1E4958-8136-4D23-A653-58BADF043EA0
+  publisherDisplayName: Peter Kota
+  applicationId: Lumovi
+  displayName: Lumovi
+  backgroundColor: transparent
+  languages: [en-US]
+  # What it writes to AppData isn't redirected (see the manifest): Windows 10 2004 and later.
+  capabilities: [runFullTrust, unvirtualizedResources]
+  customManifestPath: appxmanifest.xml
+  minVersion: 10.0.19041.0
+  maxVersionTested: 10.0.26100.0
+  artifactName: ${productName}-${version}-store-${arch}.${ext}
+
 linux:
   executableName: lumovi
   category: Development
