@@ -26,8 +26,8 @@ export function AccountMenu({ session }: { session: Session }) {
   const leave = async () => {
     setLeaving(true)
     try {
-      await signOut()
-      sessionEnded('signed-out')
+      // Signed out all the same where the server couldn't keep it: said on the next page.
+      sessionEnded('signed-out', await signOut())
     } catch (error) {
       setLeaving(false)
       toast({ tone: 'error', title: 'Couldn’t sign out', description: (error as Error).message })

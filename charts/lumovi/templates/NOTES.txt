@@ -76,3 +76,9 @@ directly can say they're anyone, in any group (an admin's, an auditor's). Make s
 authenticating proxy can reach it{{ if not .Values.networkPolicy.enabled }} (networkPolicy.enabled keeps everything else out){{ end }}.
 {{- end }}
 {{- end }}
+{{- if and (include "lumovi.dashboard" .) .Values.auth.keepSessions (not .Values.auth.stateKeySecret) (not (lookup "v1" "Namespace" "" .Release.Namespace)) }}
+
+Rendered without the cluster (helm template, --dry-run=client): the key sessions are sealed with
+is a new one each time, so each sync would sign everyone out. Where the chart is rendered so
+(Argo CD, say), give auth.stateKeySecret a Secret of yours with the key.
+{{- end }}

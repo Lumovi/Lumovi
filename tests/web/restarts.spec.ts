@@ -7,7 +7,7 @@
  * What mustn't be lost (a sign-out, an assistant let go) is kept before it's answered.
  */
 import { createCipheriv, createHash, createHmac, hkdfSync, randomBytes } from 'node:crypto'
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -127,6 +127,29 @@ test('a restart signs nobody out, and what’s kept says nothing of who', async 
   await page.goto(`${third.url}cluster/demo`)
   await expect(signInPage(page)).toBeVisible()
   await third.stop()
+})
+
+test('a sign-out that can’t be kept says so, and signs out all the same', async ({
+  page,
+  serve,
+}) => {
+  test.skip(process.platform === 'win32', 'a folder that can’t be written to, as POSIX has it')
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const served = await serve({ env: { LUMOVI_DATA_DIR: dir } })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await written(dir, 1)
+  // Where it's kept can't be written now.
+  chmodSync(dir, 0o500)
+  try {
+    await page.getByRole('button', { name: SIGNED_IN }).click()
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    await expect(signInPage(page)).toBeVisible()
+    await expect(page.getByRole('alert')).toContainText('Lumovi couldn’t keep that you signed out')
+    expect(served.log()).toContain('Lumovi can’t keep who’s signed in')
+  } finally {
+    chmodSync(dir, 0o700)
+  }
+  await served.stop()
 })
 
 test('whoever can write what’s kept can’t make, change or move an entry in it', async ({
