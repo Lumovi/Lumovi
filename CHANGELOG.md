@@ -6,6 +6,14 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The stdio bridge AI assistants start follows no redirect: Lumovi's token goes nowhere else.
+- What Lumovi remembers of each cluster's version for terminals (`kubectl/clusters.json`, which
+  names your contexts) is yours alone (0600), and written whole or not at all.
+- A terminal opened as Lumovi starts waits for the kept kubectls to be tidied, which could
+  otherwise take away the download it had begun.
+
 ## [1.9.1] - 2026-10-07
 
 Security fixes: what an AI assistant's bridge, a cluster or a kubectl mirror can do is narrower.

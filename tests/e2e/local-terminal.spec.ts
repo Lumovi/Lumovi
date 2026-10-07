@@ -10,6 +10,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -679,6 +680,10 @@ test('a cluster that can’t be reached as Lumovi starts gets the kubectl it had
   await terminal(first.page)
   await shows(first.page, 'It’s v1.34.9, to match the cluster.')
   await first.close()
+  // Kept as the person's alone: context names can name customers.
+  const remembered = join(first.userDataDir, 'kubectl', 'clusters.json')
+  expect(JSON.parse(readFileSync(remembered, 'utf8'))).toEqual({ demo: '1.34' })
+  if (!WINDOWS) expect(statSync(remembered).mode & 0o777).toBe(0o600)
   // Its version was kept with it: no waiting for a cluster that doesn't answer.
   clusters.demo.fail('/version', { hang: true })
   const again = await launch({ env: SHELL, userDataDir: first.userDataDir })
