@@ -39,7 +39,7 @@ import type { AuditActor } from '@shared/audit'
 import type { SessionUser } from '@shared/server'
 import { SERVER_ACTOR } from './audit'
 import { ConfigError, type AccessConfig, type AuthConfig } from './config'
-import { keeper, MAX_KEPT_BYTES, type Keeper, type Kept } from './kept'
+import { keeper, MAX_KEPT_BYTES, type Keeper, type Kept, type SettingsKeeping } from './kept'
 import { log } from './log'
 
 /** How far back the people seen are found, when the server starts: in its audit history. */
@@ -182,7 +182,7 @@ export class ServerAccess {
 
   private constructor(
     private readonly config: AccessConfig,
-    private readonly keeper: Keeper<Stored>,
+    private readonly keeper: Keeper<Stored, SettingsKeeping['kind']>,
     private readonly audit: AuditLog,
     private readonly provider: AdminAccess['provider'],
     private readonly auditors: string[],

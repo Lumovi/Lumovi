@@ -28,6 +28,7 @@ import type { ServerConfig } from '../config'
 import { readJson, sameOrigin, secure, sendJson } from '../http'
 import { log } from '../log'
 import type { Sessions } from '../sessions'
+import type { ServerState } from '../state'
 import { Grants, type Endpoints, type Grant, type Signer } from './oauth'
 import { People } from './people'
 import type { ServerAccess } from '../access'
@@ -82,7 +83,7 @@ interface Session {
 }
 
 export class ServerAssistants {
-  readonly #people = new People()
+  readonly #people: People
   readonly #grants: Grants
   readonly #sessions = new Map<string, Session>()
   /** Each grant's connection to its person's clusters. */
@@ -104,11 +105,15 @@ export class ServerAssistants {
       audit: AuditLog
       /** Who may do what: assistants never do more than their person may. */
       access: ServerAccess
+      /** Where what a restart mustn't lose is kept: who allowed which assistant, and more. */
+      state?: ServerState
     },
   ) {
+    this.#people = new People(deps.state)
     this.#grants = new Grants({
       audit: deps.audit,
       sessions: deps.sessions,
+      state: deps.state,
       sessionHours: deps.config.sessionHours,
       redirectHosts: deps.config.assistants.redirectHosts,
       changed: (grant) => this.#people.changed(grant.person),
@@ -300,6 +305,14 @@ export class ServerAssistants {
         },
       )
       return
+    }
+    // Its session waits for its person: Lumovi restarted, and it passes their own token on.
+    if ('waiting' in signedIn) {
+      return this.#refuse(
+        res,
+        503,
+        `Lumovi restarted since ${signedIn.grant.person} last used it: open Lumovi in your browser, and ${signedIn.grant.name} picks up where it left off.`,
+      )
     }
     const { grant, identity } = signedIn
     // Their access changed since they allowed it: it can't act as them now.

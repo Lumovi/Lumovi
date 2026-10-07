@@ -15,8 +15,8 @@ import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { cookie, cookies, readJson, redirect, sameOrigin, secure, sendJson } from './http'
 import { log } from './log'
-import type { Forwarded, OidcClient, PendingSignIn, SignedIn } from './oidc'
-import type { Sessions, StoredSession } from './sessions'
+import type { OidcClient, PendingSignIn, SignedIn } from './oidc'
+import type { Sessions } from './sessions'
 
 export const SESSION_COOKIE = 'lumovi-session'
 /**
@@ -133,6 +133,8 @@ export class Auth {
       return this.hosted.refuses(user) ? { refused: true } : { identity: { user } }
     }
     const session = this.sessions.get(cookies(req)[SESSION_COOKIE])
+    // Back after a restart: what renews its token (single sign-on) starts again.
+    if (session?.resumed) this.#keepFresh(session.id)
     return session && { identity: session.identity, session: session.id }
   }
 
@@ -174,10 +176,10 @@ export class Auth {
       sendJson(res, 401, { error: said })
       return
     }
-    const session = this.sessions.create({ user, token })
+    const { cookie: id, session } = this.sessions.create({ user, token })
     log(`${user.name} signed in with a token`)
     this.#record(req, 'success', 'Signed in with a token', { user, session: session.id })
-    sendJson(res, 200, this.#session(user), { 'Set-Cookie': this.#sessionCookie(req, session.id) })
+    sendJson(res, 200, this.#session(user), { 'Set-Cookie': this.#sessionCookie(req, id) })
   }
 
   /** `DELETE api/session`: ends the session, and every page of it. */
@@ -267,8 +269,11 @@ export class Auth {
       return
     }
     // Their own token, when the API server trusts the provider; otherwise they're impersonated.
-    const session = this.sessions.create({ user, token })
-    this.#keepFresh(session, signedIn)
+    const { cookie: id, session } = this.sessions.create(
+      { user, token },
+      { tokenExpires: signedIn.expires, refreshToken: signedIn.refreshToken },
+    )
+    this.#keepFresh(session.id)
     log(`${user.name} signed in`)
     this.#record(
       req,
@@ -281,7 +286,7 @@ export class Auth {
     )
     redirect(res, `${this.config.basePath}${pending.then.slice(1)}`, {
       'Set-Cookie': [
-        this.#sessionCookie(req, session.id),
+        this.#sessionCookie(req, id),
         cookie(SIGN_IN_COOKIE, '', { path: this.config.basePath, maxAge: 0, secure: false }),
       ],
     })
@@ -292,26 +297,29 @@ export class Auth {
    * long as the session lasts. Without a way to (no refresh token), the
    * cluster refusing it ends the session.
    */
-  #keepFresh(session: StoredSession, { expires, refreshToken }: Forwarded): void {
-    if (!refreshToken) return
+  #keepFresh(id: string): void {
+    const { refreshToken, tokenExpires } = this.sessions.credentials(id) ?? {}
+    if (!refreshToken || !this.oidc) return
     const renew = async () => {
       // Signed out meanwhile.
-      if (!this.sessions.get(session.id)) return
+      const session = this.sessions.byId(id)
+      if (!session) return
       try {
         const next = await this.oidc!.renew(refreshToken)
-        session.identity.token = next.token
         // Providers that don't rotate refresh tokens keep taking the same one.
-        this.#keepFresh(session, { ...next, refreshToken: next.refreshToken ?? refreshToken })
+        this.sessions.renewed(id, {
+          token: next.token,
+          tokenExpires: next.expires,
+          refreshToken: next.refreshToken ?? refreshToken,
+        })
+        this.#keepFresh(id)
       } catch (error) {
         log(`Renewing ${session.identity.user.name}’s token failed: ${(error as Error).message}`)
-        this.sessions.end(
-          session.id,
-          'expired',
-          `Renewing its token failed: ${(error as Error).message}`,
-        )
+        this.sessions.end(id, 'expired', `Renewing its token failed: ${(error as Error).message}`)
       }
     }
-    setTimeout(() => void renew(), Math.max(0, expires! - Date.now() - RENEW_EARLY_MS)).unref()
+    const wait = Math.max(0, (tokenExpires ?? Date.now()) - Date.now() - RENEW_EARLY_MS)
+    setTimeout(() => void renew(), wait).unref()
   }
 
   /** What a sign-in with the provider is, before it's known whose it is. */

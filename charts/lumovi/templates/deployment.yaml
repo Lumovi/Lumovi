@@ -127,6 +127,10 @@ spec:
             {{- end }}
             - name: LUMOVI_SESSION_HOURS
               value: {{ .Values.auth.sessionHours | quote }}
+            {{- if .Values.auth.keepSessions }}
+            - name: LUMOVI_STATE_SECRET
+              value: {{ include "lumovi.fullname" . }}-state
+            {{- end }}
             - name: LUMOVI_READ_ONLY
               value: {{ .Values.readOnly | quote }}
             - name: LUMOVI_ASSISTANTS

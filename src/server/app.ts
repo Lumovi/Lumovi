@@ -19,6 +19,7 @@ import { log } from './log'
 import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
+import { ServerState } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
 const CLEANUP_MS = 10_000
@@ -61,24 +62,31 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const permissions = config.assistants.enabled
     ? await PermissionsStore.open(config.assistants.keep, options.env)
     : undefined
-  const sessions = new Sessions(config.sessionHours, (ended, how, why) => {
-    for (const [socket, { session }] of sockets) {
-      if (session === ended.id) socket.close(SESSION_ENDED, how)
-    }
-    // The assistants allowed in it can't act as its person any more.
-    assistants.sessionEnded(ended.id)
-    // Signing out is recorded as it's asked for, from where.
-    if (how === 'expired') {
-      audit.record({
-        action: 'session.expired',
-        outcome: 'success',
-        actor: sessionActor(ended.identity.user, ended.id),
-        summary: 'Signed out by Lumovi: the session ended',
-        details: { why },
-      })
-    }
-  })
+  // What a restart mustn't lose: who's signed in, and the assistants they allowed.
+  const state = await ServerState.open(config.state, options.env)
+  const sessions = new Sessions(
+    config.sessionHours,
+    (ended, how, why) => {
+      for (const [socket, { session }] of sockets) {
+        if (session === ended.id) socket.close(SESSION_ENDED, how)
+      }
+      // The assistants allowed in it can't act as its person any more.
+      assistants.sessionEnded(ended.id)
+      // Signing out is recorded as it's asked for, from where.
+      if (how === 'expired') {
+        audit.record({
+          action: 'session.expired',
+          outcome: 'success',
+          actor: sessionActor(ended.identity.user, ended.id),
+          summary: 'Signed out by Lumovi: the session ended',
+          details: { why },
+        })
+      }
+    },
+    state,
+  )
   const assistants = new ServerAssistants({
+    state,
     config,
     hosted,
     sessions,
@@ -303,6 +311,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         Promise.all(ending.map((connection) => connection.ended)),
         new Promise((resolve) => setTimeout(resolve, CLEANUP_MS).unref()),
       ])
+      // What changed last is kept, for the next server.
+      await state.flush()
       // Sign-ins only counted, said before it stops.
       auth.close()
       audit.record({

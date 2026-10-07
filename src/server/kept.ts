@@ -1,8 +1,10 @@
 /**
  * Where a server keeps what people set on its pages (their AI rules, who
- * may do what): in a ConfigMap of the namespace Lumovi runs in (the chart
- * makes it, and lets Lumovi read and write it, and nothing else), in a file
- * under LUMOVI_DATA_DIR, or, with neither, in memory until the server stops.
+ * may do what), and what it keeps so a restart signs nobody out: in a
+ * ConfigMap (or, for that, a Secret) of the namespace Lumovi runs in (the
+ * chart makes it, and lets Lumovi read and write it, and nothing else), in a
+ * file under LUMOVI_DATA_DIR, or, with neither, in memory until the server
+ * stops.
  */
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -15,9 +17,15 @@ import { inCluster } from './cluster'
 import { ConfigError } from './config'
 import { log } from './log'
 
-/** Where it's kept: a ConfigMap of the namespace Lumovi runs in, a file, or only in memory. */
+/** Where it's kept: a ConfigMap or Secret of the namespace Lumovi runs in, a file, or only in memory. */
 export type Keeping =
-  { kind: 'configmap'; name: string } | { kind: 'file'; path: string } | { kind: 'memory' }
+  | { kind: 'configmap'; name: string }
+  | { kind: 'secret'; name: string }
+  | { kind: 'file'; path: string }
+  | { kind: 'memory' }
+
+/** Where what people set is kept: not a Secret (that's for what a restart mustn't lose). */
+export type SettingsKeeping = Exclude<Keeping, { kind: 'secret' }>
 
 /** What's kept, and how it reads and writes. */
 export interface Kept<T> {
@@ -33,8 +41,8 @@ export interface Kept<T> {
   read(text: string, where: string): T
 }
 
-export interface Keeper<T> {
-  kept: Keeping['kind']
+export interface Keeper<T, K extends Keeping['kind'] = Keeping['kind']> {
+  kept: K
   read(): Promise<T>
   /** Refused (a conflict) when someone else wrote it since it was last read or written here. */
   write(value: T): Promise<void>
@@ -51,17 +59,19 @@ export const MAX_KEPT_BYTES = 1_000_000
 const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16)
 
 /** `quiet`: nothing's said of keeping it in memory (there's nothing to keep). */
-export function keeper<T>(
-  keeping: Keeping,
+export function keeper<T, K extends Keeping>(
+  keeping: K,
   kept: Kept<T>,
   env: NodeJS.ProcessEnv,
   { quiet = false } = {},
-): Keeper<T> {
-  return keeping.kind === 'configmap'
-    ? configMapKeeper(keeping.name, kept, env)
-    : keeping.kind === 'file'
-      ? fileKeeper(keeping.path, kept)
-      : memoryKeeper(kept, quiet)
+): Keeper<T, K['kind']> {
+  return (
+    keeping.kind === 'configmap' || keeping.kind === 'secret'
+      ? objectKeeper(keeping.kind, keeping.name, kept, env)
+      : keeping.kind === 'file'
+        ? fileKeeper(keeping.path, kept)
+        : memoryKeeper(kept, quiet)
+  ) as Keeper<T, K['kind']>
 }
 
 function memoryKeeper<T>(kept: Kept<T>, quiet: boolean): Keeper<T> {
@@ -137,7 +147,13 @@ function fileKeeper<T>(path: string, kept: Kept<T>): Keeper<T> {
   }
 }
 
-function configMapKeeper<T>(name: string, kept: Kept<T>, env: NodeJS.ProcessEnv): Keeper<T> {
+/** A ConfigMap's or a Secret's: a Secret's data is base64, a ConfigMap's as it is. */
+function objectKeeper<T>(
+  kind: 'configmap' | 'secret',
+  name: string,
+  kept: Kept<T>,
+  env: NodeJS.ProcessEnv,
+): Keeper<T> {
   const found = inCluster(env)
   const kc = new KubeConfig()
   kc.loadFromOptions({
@@ -147,24 +163,27 @@ function configMapKeeper<T>(name: string, kept: Kept<T>, env: NodeJS.ProcessEnv)
     currentContext: 'in-cluster',
   })
   const namespace = readFileSync(join(found.source, 'namespace'), 'utf8').trim()
-  const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/configmaps/${encodeURIComponent(name)}`
-  const where = `ConfigMap ${namespace}/${name}`
+  const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/${kind}s/${encodeURIComponent(name)}`
+  const where = `${kind === 'secret' ? 'Secret' : 'ConfigMap'} ${namespace}/${name}`
+  const secret = kind === 'secret'
+  const encode = (text: string) => (secret ? Buffer.from(text).toString('base64') : text)
+  const decode = (text: string) => (secret ? Buffer.from(text, 'base64').toString('utf8') : text)
   /** The version last read or written: a write over another's is refused (a conflict). */
   let version = ''
   return {
-    kept: 'configmap',
+    kept: kind,
     read: async () => {
-      let configMap: { metadata: { resourceVersion: string }; data?: Record<string, string> }
+      let object: { metadata: { resourceVersion: string }; data?: Record<string, string> }
       try {
-        configMap = JSON.parse(await kubeRequest(kc, path, { timeoutMs: 20_000 }))
+        object = JSON.parse(await kubeRequest(kc, path, { timeoutMs: 20_000 }))
       } catch (error) {
         throw new ConfigError(
           `Lumovi can’t read ${where}, where it keeps ${kept.what}: ${toKubeError(error).message}`,
         )
       }
-      version = configMap.metadata.resourceVersion
-      const text = configMap.data?.[kept.key]
-      return text === undefined ? kept.empty : kept.read(text, where)
+      version = object.metadata.resourceVersion
+      const text = object.data?.[kept.key]
+      return text === undefined ? kept.empty : kept.read(decode(text), where)
     },
     // Its data alone, as of the version read: what the chart set on it (the annotation that keeps
     // it when Lumovi is uninstalled, its labels) stays, and someone else's write is refused.
@@ -176,7 +195,7 @@ function configMapKeeper<T>(name: string, kept: Kept<T>, env: NodeJS.ProcessEnv)
           timeoutMs: 20_000,
           body: {
             metadata: { resourceVersion: version },
-            data: { [kept.key]: kept.write(value) },
+            data: { [kept.key]: encode(kept.write(value)) },
           },
         }),
       ) as { metadata: { resourceVersion: string } }
