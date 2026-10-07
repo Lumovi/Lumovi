@@ -8,9 +8,15 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Fixed
 
+- What a cluster says (its version, an error) can no longer write over a terminal's first line:
+  Lumovi's own lines leave out control characters, which a terminal would act on (clearing the
+  screen, say, or writing over "Lumovi's read-only switch doesn't apply to what you run here").
+- A cluster can't choose how old a kubectl a terminal gets: none older than Kubernetes 1.25,
+  Lumovi's oldest, whose kubectl lacks years of fixes. Older clusters' terminals use yours.
 - A mirror terminals get kubectl from (an organization's policy, or `LUMOVI_KUBECTL_MIRROR`) is
   used only over HTTPS, or on this computer: over plain http, kubectl's checksum comes from the
   same place, and both could be changed on the way.
+- A kubectl download a crash cut short is cleaned up as Lumovi starts.
 
 ## [1.9.0] - 2026-10-07
 
