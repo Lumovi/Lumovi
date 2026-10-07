@@ -66,7 +66,7 @@ jobs:
           # administrator's, as JSON; nothing at all with assistants off.
           helm template lumovi charts/lumovi | grep -q 'resourceNames: \[lumovi-assistant-rules\]'
           # What the keeper sends (a GET, a merge PATCH): the mock cluster doesn't check RBAC.
-          [ "$(helm template lumovi charts/lumovi --set 'access.admins={a}' | grep -c 'verbs: \[get, patch\]')" = 2 ]
+          [ "$(helm template lumovi charts/lumovi --set 'access.admins={a}' | grep -c 'verbs: \[get, patch\]')" = 3 ]
           grep -q "method: 'PATCH'" src/server/kept.ts && ! grep -q "method: 'PUT'" src/server/kept.ts
           helm template lumovi charts/lumovi --set 'assistants.rules[0].name=System' \
             --set 'assistants.rules[0].namespaces={kube-*}' --set 'assistants.rules[0].visibility=hidden' \
@@ -83,6 +83,13 @@ jobs:
             | grep -q 'LUMOVI_ACCESS$'
           (! helm template lumovi charts/lumovi | grep -q 'lumovi-access')
           (! helm template lumovi charts/lumovi --set 'access.policy.everyone.changes=maybe' 2>/dev/null)
+          # Sessions kept for a restart: a Secret Lumovi may read and write, and nothing else; none
+          # when they're kept in memory, or for an agent.
+          helm template lumovi charts/lumovi | grep -q 'resourceNames: \[lumovi-state\]'
+          helm template lumovi charts/lumovi | grep -A1 'name: LUMOVI_STATE_SECRET' | grep -q 'value: lumovi-state'
+          (! helm template lumovi charts/lumovi --set auth.keepSessions=false | grep -q 'lumovi-state')
+          (! helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=https://hub.example.com \
+            --set agent.tokenSecret=t | grep -q 'lumovi-state')
           # The audit history: on a volume uninstalling keeps, one pod writing it at a time; a
           # claim of one's own, or none (memory); a webhook's headers from a Secret.
           helm template lumovi charts/lumovi | grep -q 'claimName: lumovi-audit'

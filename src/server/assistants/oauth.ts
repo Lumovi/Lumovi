@@ -6,9 +6,10 @@
  *
  * What it's allowed lasts as long as the session it was allowed in: it ends
  * when they sign out, their session expires, or they let it go. Behind a
- * proxy, which has no sessions, it lasts as long as one would. All of it lives
- * in the server's memory, as sessions do: after a restart, assistants sign in
- * again.
+ * proxy, which has no sessions, it lasts as long as one would. It's kept, as
+ * sessions are (see state.ts), so a restart lets go of nobody's: its tokens by
+ * their hash alone. One whose session passes its person's own token on waits,
+ * after a restart, until they open Lumovi again (its session is dormant).
  */
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -20,6 +21,7 @@ import type { Identity } from '../cluster'
 import { readJson, SECURITY_HEADERS, sendJson } from '../http'
 import { log } from '../log'
 import type { Sessions } from '../sessions'
+import type { ServerState } from '../state'
 
 /** How long an access token lasts (LUMOVI_ASSISTANT_TOKEN_SECONDS, for tests). */
 const ACCESS_SECONDS = Number(process.env.LUMOVI_ASSISTANT_TOKEN_SECONDS) || 3600
@@ -46,7 +48,7 @@ export interface Signer {
   session?: string
 }
 
-/** An assistant someone allowed. */
+/** An assistant someone allowed (as it's kept, too). */
 export interface Grant {
   id: string
   person: string
@@ -58,8 +60,35 @@ export interface Grant {
   session?: string
   identity?: Identity
   expires?: number
+  /** Its refresh token's hash. */
   refresh: string
 }
+
+/** A grant as it was kept, if it makes sense. */
+function isGrant(value: unknown): value is Grant {
+  const grant = value as Grant
+  return (
+    typeof grant === 'object' &&
+    grant !== null &&
+    typeof grant.id === 'string' &&
+    typeof grant.person === 'string' &&
+    typeof grant.name === 'string' &&
+    typeof grant.since === 'number' &&
+    typeof grant.refresh === 'string' &&
+    (typeof grant.session === 'string' ||
+      (typeof grant.identity?.user?.name === 'string' &&
+        Array.isArray(grant.identity.user.groups) &&
+        typeof grant.expires === 'number'))
+  )
+}
+
+/** What a token is known by here, and kept as: its hash. */
+const digest = (token: string) => createHash('sha256').update(token).digest('base64url')
+
+/** How long a used refresh token is remembered, so that using it again lets its assistant go. */
+const SPENT_MS = 24 * 3_600_000
+/** How often when it was last used is kept, at most: not on every request. */
+const LAST_USED_KEPT_MS = 10 * 60_000
 
 interface Code {
   clientId: string
@@ -181,16 +210,21 @@ export interface Endpoints {
 
 export class Grants {
   readonly #grants = new Map<string, Grant>()
+  /** Each by its token's hash. */
   readonly #access = new Map<string, { grant: string; expires: number }>()
   readonly #refresh = new Map<string, string>()
   /** Refresh tokens used already: whose, and when. */
   readonly #spent = new Map<string, { grant: string; at: number }>()
   readonly #codes = new Map<string, Code>()
   readonly #allowed: (uri: unknown) => uri is string
+  /** When each grant's last use was last kept. */
+  readonly #lastKept = new Map<string, number>()
 
   constructor(
     private readonly deps: {
       sessions: Sessions
+      /** Where they're kept, so a restart lets go of none. */
+      state?: ServerState
       /** How long an assistant allowed behind a proxy lasts. */
       sessionHours: number
       /** Sites assistants may be sent back to (https), besides the person's computer and apps. */
@@ -203,6 +237,33 @@ export class Grants {
     },
   ) {
     this.#allowed = redirectCheck(deps.redirectHosts)
+    const { state } = deps
+    if (!state) return
+    for (const [id, grant] of state.entries<Grant>('grants')) {
+      if (isGrant(grant) && grant.id === id) this.#grants.set(id, grant)
+    }
+    for (const [hash, access] of state.entries<{ grant: string; expires: number }>('access')) {
+      if (this.#grants.has(access?.grant) && typeof access.expires === 'number') {
+        this.#access.set(hash, access)
+      }
+    }
+    for (const [hash, id] of state.entries<string>('refresh')) {
+      if (this.#grants.get(id)?.refresh === hash) this.#refresh.set(hash, id)
+    }
+    for (const [hash, spent] of state.entries<{ grant: string; at: number }>('spent')) {
+      if (this.#grants.has(spent?.grant) && typeof spent.at === 'number') {
+        this.#spent.set(hash, spent)
+      }
+    }
+  }
+
+  /** A grant kept as it is now (behind a proxy, who it acts as, with no token of theirs). */
+  #keep(grant: Grant): void {
+    const { identity, ...rest } = grant
+    this.deps.state?.set('grants', grant.id, {
+      ...rest,
+      ...(identity ? { identity: { user: identity.user } } : {}),
+    })
   }
 
   // ——— Metadata ———
@@ -408,7 +469,7 @@ export class Grants {
       person,
       name: code.name,
       since: Date.now(),
-      refresh: token(),
+      refresh: '',
       ...(signer.session
         ? { session: signer.session }
         : {
@@ -416,15 +477,19 @@ export class Grants {
             expires: Date.now() + this.deps.sessionHours * 3_600_000,
           }),
     }
+    const refresh = token()
+    grant.refresh = digest(refresh)
     this.#grants.set(grant.id, grant)
     this.#refresh.set(grant.refresh, grant.id)
+    this.#keep(grant)
+    this.deps.state?.set('refresh', grant.refresh, grant.id)
     log(`${person} allowed ${grant.name} to use Lumovi as them`)
     this.deps.changed(grant)
-    return this.#tokens(grant)
+    return this.#tokens(grant, refresh)
   }
 
   #renew(form: URLSearchParams) {
-    const given = form.get('refresh_token') ?? ''
+    const given = digest(form.get('refresh_token') ?? '')
     const spent = this.#spent.get(given)
     // Used before, and not just now: someone else has a copy. (A grant takes its own with it.)
     if (spent && Date.now() - spent.at > REUSE_MS)
@@ -435,28 +500,37 @@ export class Grants {
       throw new OAuthProblem('invalid_grant', 'That refresh token has been used, or has ended.')
     }
     // Each is used once: the next comes with the new tokens.
+    const used = { grant: grant.id, at: Date.now() }
     this.#refresh.delete(grant.refresh)
-    this.#spent.set(grant.refresh, { grant: grant.id, at: Date.now() })
-    grant.refresh = token()
+    this.#spent.set(grant.refresh, used)
+    this.deps.state?.delete('refresh', grant.refresh)
+    this.deps.state?.set('spent', grant.refresh, used)
+    const refresh = token()
+    grant.refresh = digest(refresh)
     this.#refresh.set(grant.refresh, grant.id)
-    return this.#tokens(grant)
+    this.#keep(grant)
+    this.deps.state?.set('refresh', grant.refresh, grant.id)
+    return this.#tokens(grant, refresh)
   }
 
-  #tokens(grant: Grant) {
+  /** New tokens: given out, and known here by their hash. */
+  #tokens(grant: Grant, refresh: string) {
     const access = token()
-    this.#access.set(access, { grant: grant.id, expires: Date.now() + ACCESS_SECONDS * 1000 })
+    const known = { grant: grant.id, expires: Date.now() + ACCESS_SECONDS * 1000 }
+    this.#access.set(digest(access), known)
+    this.deps.state?.set('access', digest(access), known)
     return {
       access_token: access,
       token_type: 'Bearer',
       expires_in: ACCESS_SECONDS,
-      refresh_token: grant.refresh,
+      refresh_token: refresh,
     }
   }
 
   /** `POST oauth/revoke` (RFC 7009): an assistant signing out. Answered alike, whatever it sent. */
   async revoke(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const given = (await readForm(req)).get('token') ?? ''
+      const given = digest((await readForm(req)).get('token') ?? '')
       const id = this.#access.get(given)?.grant ?? this.#refresh.get(given)
       const grant = id === undefined ? undefined : this.#grants.get(id)
       if (grant) this.#end(grant, 'signed out')
@@ -468,24 +542,42 @@ export class Grants {
 
   // ——— Using ———
 
-  /** The grant a request's bearer token is for, and who it acts as; undefined unless it's live. */
-  verify(req: IncomingMessage): { grant: Grant; identity: Identity } | undefined {
-    const bearer = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
+  /**
+   * The grant a request's bearer token is for, and who it acts as; undefined unless it's live.
+   * `waiting`: its session is dormant (Lumovi restarted), until its person opens Lumovi.
+   */
+  verify(
+    req: IncomingMessage,
+  ): { grant: Grant; identity: Identity } | { grant: Grant; waiting: true } | undefined {
+    const bearer = digest(/^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '')
     const access = this.#access.get(bearer)
-    if (!access || access.expires < Date.now()) {
+    if (!access) return undefined
+    if (access.expires < Date.now()) {
       this.#access.delete(bearer)
+      this.deps.state?.delete('access', bearer)
       return undefined
     }
     // A token's grant is there until it ends, which takes its tokens with it.
     const grant = this.#grants.get(access.grant)!
     if (!this.#alive(grant)) return undefined
     grant.lastUsed = Date.now()
-    return { grant, identity: this.identity(grant)! }
+    if (grant.lastUsed - (this.#lastKept.get(grant.id) ?? 0) > LAST_USED_KEPT_MS) {
+      this.#lastKept.set(grant.id, grant.lastUsed)
+      this.#keep(grant)
+    }
+    const identity = this.identity(grant)
+    return identity ? { grant, identity } : { grant, waiting: true }
   }
 
-  /** Who a grant acts as now: its session's person (their token renewed as it is), or the proxy's. */
+  /**
+   * Who a grant acts as now: its session's person (their token renewed as it is), or the
+   * proxy's; nobody while its session is dormant.
+   */
   identity(grant: Grant): Identity | undefined {
-    return grant.session ? this.deps.sessions.get(grant.session)?.identity : grant.identity
+    if (!grant.session) return grant.identity
+    return this.deps.sessions.dormant(grant.session)
+      ? undefined
+      : this.deps.sessions.byId(grant.session)?.identity
   }
 
   /**
@@ -499,22 +591,40 @@ export class Grants {
         grant.person === identity.user.name &&
         !isDeepStrictEqual(grant.identity, identity),
     )
-    for (const grant of changed) grant.identity = identity
+    for (const grant of changed) {
+      grant.identity = identity
+      this.#keep(grant)
+    }
     return changed
   }
 
   /** Lets go of what has run out: codes and tokens never used in time, and grants that ended. */
   sweep(): void {
     const now = Date.now()
-    for (const expiring of [this.#codes, this.#access]) {
-      for (const [key, { expires }] of expiring) if (expires < now) expiring.delete(key)
+    for (const [key, { expires }] of this.#codes) if (expires < now) this.#codes.delete(key)
+    for (const [key, { expires }] of this.#access) {
+      if (expires < now) {
+        this.#access.delete(key)
+        this.deps.state?.delete('access', key)
+      }
+    }
+    // A used refresh token is remembered for a day: past that, it's merely not one.
+    for (const [key, { at }] of this.#spent) {
+      if (now - at > SPENT_MS) {
+        this.#spent.delete(key)
+        this.deps.state?.delete('spent', key)
+      }
     }
     for (const grant of this.#grants.values()) this.#alive(grant)
   }
 
-  /** Whether a grant still acts as someone: not once its session has, or its time is up (it ends). */
+  /**
+   * Whether a grant is still someone's: not once its session has ended, or its time is up (it
+   * ends). A dormant session's (Lumovi restarted) waits for its person.
+   */
   #alive(grant: Grant): boolean {
-    if ((grant.expires ?? Infinity) < Date.now() || !this.identity(grant)) {
+    const gone = grant.session ? !this.deps.sessions.byId(grant.session) : !grant.identity
+    if ((grant.expires ?? Infinity) < Date.now() || gone) {
       this.#end(grant, 'expired')
       return false
     }
@@ -545,6 +655,7 @@ export class Grants {
   rename(grant: Grant, name: string): void {
     if (grant.name === name) return
     grant.name = name
+    this.#keep(grant)
     this.deps.changed(grant)
   }
 
@@ -558,8 +669,19 @@ export class Grants {
   #end(grant: Grant, how: keyof typeof ENDED): void {
     this.#grants.delete(grant.id)
     this.#refresh.delete(grant.refresh)
-    for (const tokens of [this.#access, this.#spent]) {
-      for (const [token, { grant: id }] of tokens) if (id === grant.id) tokens.delete(token)
+    this.#lastKept.delete(grant.id)
+    const { state } = this.deps
+    state?.delete('grants', grant.id)
+    state?.delete('refresh', grant.refresh)
+    for (const [section, tokens] of [
+      ['access', this.#access],
+      ['spent', this.#spent],
+    ] as const) {
+      for (const [token, { grant: id }] of tokens) {
+        if (id !== grant.id) continue
+        tokens.delete(token)
+        state?.delete(section, token)
+      }
     }
     log(`${grant.person}’s ${grant.name} ${ENDED[how]}`)
     this.deps.audit.record({
