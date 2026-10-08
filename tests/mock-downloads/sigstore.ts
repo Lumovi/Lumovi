@@ -14,7 +14,7 @@ import {
 } from 'node:crypto'
 import { X509Certificate } from '@sigstore/core'
 import * as x509 from '@peculiar/x509'
-import { KUBERNETES_SIGNER } from '../../src/main/kubectl-signature.ts'
+import { KUBERNETES_SIGNER } from '../../src/main/kubernetes-signer.ts'
 
 const { subtle } = globalThis.crypto
 x509.cryptoProvider.set(globalThis.crypto)

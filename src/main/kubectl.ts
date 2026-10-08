@@ -91,6 +91,8 @@ export class Kubectls {
       mirror: () => string
       /** dl.k8s.io: what's from it must be signed (a mirror's may not be). */
       official: string
+      /** Whether a mirror's must be signed too (the organization's policy says). */
+      signaturesRequired: () => boolean
       /** What a signature is checked against: Sigstore's trust root, as Lumovi ships it. */
       trust: TrustRoot
       /** A cluster's version, as it says it (v1.34.1-eks-…). */
@@ -128,7 +130,7 @@ export class Kubectls {
     const matching = async () => {
       const version = await this.#newestOf(minor)
       const dir = join(this.deps.dir, version)
-      if (!existsSync(join(dir, EXE)) || !checked(dir)) {
+      if (!existsSync(join(dir, EXE)) || !this.#checked(dir)) {
         downloading = version
         getting(version)
         await this.#download(version, `${goos}/${goarch}`)
@@ -292,6 +294,10 @@ export class Kubectls {
       )
     } else if (official) {
       throw new Error(`${host(mirror)} published no signature for kubectl ${version}`)
+    } else if (this.deps.signaturesRequired()) {
+      throw new Error(
+        `${host(mirror)} published no signature for kubectl ${version}, and your organization’s policy requires one`,
+      )
     }
     const dir = join(this.deps.dir, version)
     await mkdir(dir, { recursive: true })
@@ -304,11 +310,24 @@ export class Kubectls {
     await rename(partial, join(dir, EXE))
   }
 
+  /**
+   * Whether a version's folder says how its kubectl was checked, in a way that does now: one
+   * taken unsigned from a mirror isn't used once the policy requires signatures.
+   */
+  #checked(dir: string): boolean {
+    return (
+      existsSync(join(dir, SIGNED)) ||
+      (existsSync(join(dir, UNSIGNED)) && !this.deps.signaturesRequired())
+    )
+  }
+
   /** The newest patch of a minor version the folder has. */
   async #kept(minor: string): Promise<string | undefined> {
     return (await this.#versions()).find((version) => {
       const dir = join(this.deps.dir, version)
-      return VERSION.exec(version)?.[1] === minor && existsSync(join(dir, EXE)) && checked(dir)
+      return (
+        VERSION.exec(version)?.[1] === minor && existsSync(join(dir, EXE)) && this.#checked(dir)
+      )
     })
   }
 
@@ -415,8 +434,12 @@ function older(a: string, b: string): boolean {
   return majorA! < majorB! || (majorA === majorB && minorA! < minorB!)
 }
 
-/** An error's own words (a failed fetch's are its cause's), as much as a terminal's line needs. */
+/**
+ * An error's own words (a failed fetch's are its cause's), as much as a terminal's line needs:
+ * Lumovi's own whole (the longest, a refused signature's, with a mirror's name), and another's,
+ * or a certificate's names, no longer than that.
+ */
 function message(error: unknown): string {
   const { message, cause } = error as Error & { cause?: Error }
-  return (cause?.message ?? message).slice(0, 200)
+  return (cause?.message ?? message).slice(0, 320)
 }

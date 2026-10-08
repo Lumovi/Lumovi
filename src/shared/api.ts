@@ -90,6 +90,8 @@ export interface ManagedSettings {
   kubectlOff?: true
   /** Where Lumovi gets kubectl from: a mirror of dl.k8s.io. */
   kubectlMirror?: string
+  /** A mirror's kubectl too only with Kubernetes' signature, as dl.k8s.io's always. */
+  kubectlSignatures?: 'required'
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
