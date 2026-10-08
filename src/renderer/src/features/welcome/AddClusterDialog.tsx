@@ -243,14 +243,20 @@ export function AddClusterDialog({
       })()
     : undefined
 
-  const allow = () => {
+  // Every context over plain HTTP without the flag: nothing Lumovi can check, so allowing its
+  // server is adding it anyway, in one step.
+  const kubectlOnly =
+    !!inspected && inspected.contexts.length > 0 && inspected.contexts.every(unreached)
+  const addsAtOnce = kubectlOnly && pending?.kind === 'servers'
+
+  const allow = (keepAnyway = anyway) => {
     if (!inspected || !pending) return
     const now = [...agreed, ...pending.consents]
     setAgreed(now)
     const { servers, rest } = consentsOf(inspected)
     // More to agree to: its panel next.
     if ([...servers, ...rest].some((consent) => !now.includes(consent))) return
-    if (anyway) {
+    if (keepAnyway) {
       const runId = ++runs.current
       setStage('checking')
       void keep({ inspected, agreed: now }, runId)
@@ -324,7 +330,7 @@ export function AddClusterDialog({
               Don’t add it
             </Button>
             <Button type="submit" variant="primary">
-              Allow and continue
+              {addsAtOnce ? 'Add it anyway' : 'Allow and continue'}
             </Button>
           </>
         )
@@ -385,7 +391,10 @@ export function AddClusterDialog({
       subtitle="Lumovi keeps it in its own folder. Your kubeconfig stays as it is."
       error={error}
       onSubmit={() => {
-        if (stage === 'agree') allow()
+        if (stage === 'agree' && addsAtOnce) {
+          setAnyway(true)
+          allow(true)
+        } else if (stage === 'agree') allow()
         else if (stage === 'failed' && onlyPlain) addAnyway()
         else if (stage === 'input' || stage === 'failed') void run(agreed)
       }}
@@ -421,7 +430,7 @@ export function AddClusterDialog({
             onName={(name, value) => setNames((now) => ({ ...now, [name]: value }))}
           />
           {stage === 'agree' && inspected && pending && (
-            <Agreement inspected={inspected} kind={pending.kind} />
+            <Agreement inspected={inspected} kind={pending.kind} addsAtOnce={addsAtOnce} />
           )}
         </>
       )}
@@ -874,7 +883,16 @@ function wordsOf(line: string): string[] {
  * What its credentials would do here, exactly, to be allowed or not: first a server not
  * verified, then the rest (a program run, a file sent, what Lumovi kept sent somewhere new).
  */
-function Agreement({ inspected, kind }: { inspected: PastedKubeconfig; kind: 'servers' | 'rest' }) {
+function Agreement({
+  inspected,
+  kind,
+  addsAtOnce,
+}: {
+  inspected: PastedKubeconfig
+  kind: 'servers' | 'rest'
+  /** Allowing it adds it, at once: there's nothing Lumovi can check. */
+  addsAtOnce: boolean
+}) {
   if (kind === 'servers') {
     // Plain HTTP isn't encrypted at all; the others only skip the certificate check.
     const http = inspected.unverified.filter(({ server }) => /^http:/i.test(server))
@@ -901,7 +919,7 @@ function Agreement({ inspected, kind }: { inspected: PastedKubeconfig; kind: 'se
             between can read {kubectlOnly ? 'what’s sent to it' : 'what Lumovi sends it'},
             credentials too.
             {kubectlOnly
-              ? ' Lumovi won’t connect to it like this, but kubectl will, in Lumovi’s terminals or from its kubectl line. Allow it only if that’s what you want.'
+              ? ` Lumovi won’t connect to it like this, but kubectl will, in Lumovi’s terminals or from its kubectl line. ${addsAtOnce ? 'Add' : 'Allow'} it only if that’s what you want.`
               : unchecked
                 ? ''
                 : ' Allow sends them now and each time Lumovi connects.'}

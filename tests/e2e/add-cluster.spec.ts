@@ -138,24 +138,31 @@ test('a server over plain HTTP that Lumovi won’t reach is kept, anyway, only o
   const { page } = await launch({ userDataDir })
   await expect(clusterOption(page, 'demo')).toBeVisible()
   // No insecure-skip-tls-verify: Lumovi won't connect, but kubectl would.
-  const dialog = await paste(page, config(server.url, undefined, { token: DEMO_TOKEN }, ['lab']))
+  let dialog = await paste(page, config(server.url, undefined, { token: DEMO_TOKEN }, ['lab']))
   await expect(dialog).toContainText('Its credentials would travel unencrypted')
   await expect(dialog).toContainText(
-    'Lumovi won’t connect to it like this, but kubectl will, in Lumovi’s terminals or from its kubectl line.',
+    'Lumovi won’t connect to it like this, but kubectl will, in Lumovi’s terminals or from its kubectl line. Add it only if that’s what you want.',
   )
-  await expect(dialog).not.toContainText('Allow sends them now')
-  await dialog.getByRole('button', { name: 'Allow and continue' }).click()
   await expect(dialog).toContainText('This cluster uses plain HTTP')
   await expect(dialog).toContainText(
     'Lumovi doesn’t connect over plain HTTP. Add it anyway to use it with kubectl.',
   )
-  // Trying again can't help: adding it anyway is the way on.
-  await expect(dialog.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  // Allowing it is adding it, in one step: there's nothing to check after.
+  await expect(dialog.getByRole('button', { name: 'Allow and continue' })).toHaveCount(0)
   expect(own(userDataDir)).toEqual([])
   await dialog.getByRole('button', { name: 'Add it anyway' }).click()
   await expect(page.getByRole('dialog', { name: 'lab is ready' })).toBeVisible()
   expect(own(userDataDir)).toHaveLength(1)
   expect(server.seen).toEqual([])
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).last().click()
+
+  // With no credentials, nothing to allow: said, and added anyway, without trying again.
+  dialog = await paste(page, config(server.url, undefined, {}, ['bare']))
+  await expect(dialog).toContainText('This cluster uses plain HTTP')
+  await expect(dialog.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Add it anyway' }).click()
+  await expect(page.getByRole('dialog', { name: 'bare is ready' })).toBeVisible()
+  expect(own(userDataDir)).toHaveLength(2)
   server.close()
 })
 
