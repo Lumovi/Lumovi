@@ -74,7 +74,8 @@ sponsor card, and a dialog's error is always in view.
 - A cluster can be added from a pasted kubeconfig, or a file: checked first (it reads, its server
   answers, its credentials work), then kept in Lumovi's own folder (only you can read it), never
   in your kubeconfig. A credential that runs a program on your computer, or sends a file to the
-  server, is shown exactly, and nothing runs or is sent until you allow it. Once added, it's named,
+  server, is shown exactly, and nothing runs or is sent until you allow it; so is sending its
+  credentials to a server Lumovi can't verify, or unencrypted over http://. Once added, it's named,
   colored and grouped, with the line to use it with kubectl. Its connection can be edited (its
   secrets stay in Lumovi), and it can be removed.
 - Each cluster's settings, kept in Lumovi (⌘I): its name, color, group and labels, the namespace
