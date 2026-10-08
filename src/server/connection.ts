@@ -34,7 +34,7 @@ import type { SettingsAccess } from '@backend/settings'
 import { accessHandlers, type ServerAccess } from './access'
 import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
-import type { ServerConfig } from './config'
+import { fingerprint, type ServerConfig } from './config'
 import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
 import { checkChartUrl } from './network'
 
@@ -290,13 +290,29 @@ export class PageConnection {
       ...(hosted.fleet
         ? {
             [IPC.fleetSummary]: (context: unknown) => clusterSummary(kube, context as string),
-            [IPC.fleetTrustAgent]: (name: unknown) => {
-              if (typeof name !== 'string' || !hosted.agents)
+            // An admin's: the agents, as sent and trusted; and one trusted with what it sends now,
+            // as the SHA-256 they give (from its cluster) says.
+            [IPC.fleetAgents]: () => {
+              if (!access.isAdmin(identity.user)) {
+                throw new KubeRequestError('not-allowed', 'Only Lumovi’s admins see its agents.')
+              }
+              return hosted.agents?.status() ?? []
+            },
+            [IPC.fleetTrustAgent]: (name: unknown, given: unknown) => {
+              if (typeof name !== 'string' || !hosted.agents) {
                 throw new Error('Expected an agent’s name')
+              }
               if (!access.isAdmin(identity.user)) {
                 throw new KubeRequestError('not-allowed', 'Only Lumovi’s admins trust an agent.')
               }
-              hosted.agents.trust(name, actor)
+              const sha256 = fingerprint(given)
+              if (!sha256) {
+                throw new KubeRequestError(
+                  'invalid',
+                  'Give the SHA-256 of its cluster’s certificate authority, as openssl x509 -noout -fingerprint -sha256 prints it.',
+                )
+              }
+              hosted.agents.trust(name, sha256, actor)
             },
           }
         : {}),

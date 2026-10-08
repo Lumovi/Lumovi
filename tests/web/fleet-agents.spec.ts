@@ -149,19 +149,25 @@ test('an agent is trusted with the certificate authority it’s named with, or f
   serve,
   clusters,
 }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(150_000)
   const account = inCluster(clusters)
-  // As openssl x509 -fingerprint -sha256 says it, colons and all.
-  const fingerprint = new X509Certificate(clusters.demo.caPem!).fingerprint256
-  const sha256 = fingerprint.replaceAll(':', '').toLowerCase()
+  // As openssl x509 -noout -fingerprint -sha256 prints it, prefix and colons and all.
+  const printed = (pem: string) => `sha256 Fingerprint=${new X509Certificate(pem).fingerprint256}`
+  const hex = (pem: string) =>
+    new X509Certificate(pem).fingerprint256.replaceAll(':', '').toLowerCase()
+  const sha256 = hex(clusters.demo.caPem!)
   const agents = (more = '') =>
     Buffer.from(`- name: ${NAME}\n  token: ${TOKEN}\n${more}`).toString('base64')
   await as(context, 'alice@example.com')
 
   // Named in LUMOVI_FLEET_AGENTS: trusted, with nothing else to keep.
   const named = await serve({
-    env: { ...HUB, LUMOVI_FLEET_AGENTS: agents(`  caSha256: "${fingerprint}"\n`) },
+    env: {
+      ...HUB,
+      LUMOVI_FLEET_AGENTS: agents(`  caSha256: "${printed(clusters.demo.caPem!)}"\n`),
+    },
   })
+  expect(named.log()).not.toContain('no caSha256')
   let agent = agentOf(named.url, account)
   await page.goto(named.url)
   await expect(card(page, NAME)).toContainText('Nodes')
@@ -169,13 +175,20 @@ test('an agent is trusted with the certificate authority it’s named with, or f
   await agent.stop()
   await named.stop()
 
-  // Another named: refused, as its card, the agent and the audit log say.
+  // Another named: refused, as its card, the agent's log and health, and the audit log say.
+  const health = await freePort()
   const wrong = await serve({
     env: { ...HUB, LUMOVI_FLEET_AGENTS: agents(`  caSha256: ${'ab'.repeat(32)}\n`) },
   })
-  agent = agentOf(wrong.url, account)
+  agent = agentOf(wrong.url, account, { LUMOVI_AGENT_HEALTH_PORT: String(health) })
   const notNamed = `Its agent sent a certificate authority (SHA-256 ${sha256.slice(0, 16)}…) other than the one LUMOVI_FLEET_AGENTS names for it.`
   await expect.poll(() => agent.log()).toContain(`The hub doesn’t trust this cluster: ${notNamed}`)
+  // Not ready: the hub doesn't use it.
+  const healthz = async () => {
+    const response = await fetch(`http://127.0.0.1:${health}/healthz`)
+    return `${response.status} ${await response.text()}`
+  }
+  expect(await healthz()).toBe(`503 connected, but refused: ${notNamed}`)
   await page.goto(wrong.url)
   await expect(card(page, NAME)).toContainText(notNamed)
   expect(audited(wrong, 'agent.refused')).toEqual([
@@ -184,7 +197,14 @@ test('an agent is trusted with the certificate authority it’s named with, or f
   await agent.stop()
   await wrong.stop()
 
-  // Named nowhere: the one it first sends is trusted, and kept, as the audit log says.
+  // Named nowhere, with nothing to keep what's trusted: said as it starts, as it matters more.
+  const memory = await serve({ env: { ...HUB, LUMOVI_FLEET_AGENTS: agents() } })
+  expect(memory.log()).toContain(
+    `${NAME} has no caSha256 in LUMOVI_FLEET_AGENTS: the hub trusts the certificate authority each first sends, from whoever has its token, and, as nothing keeps what it trusts (no LUMOVI_DATA_DIR, nor the chart’s auth.keepSessions), again after every restart. Give each its cluster’s.`,
+  )
+  await memory.stop()
+
+  // Kept: the one it first sends is trusted, and recorded; admins are asked to check it.
   const data = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
   const env = {
     ...HUB,
@@ -194,65 +214,96 @@ test('an agent is trusted with the certificate authority it’s named with, or f
   }
   const port = await freePort()
   const first = await serve({ port, env })
-  agent = agentOf(first.url, account)
+  expect(first.log()).toContain(
+    `${NAME} has no caSha256 in LUMOVI_FLEET_AGENTS: the hub trusts the certificate authority each first sends, from whoever has its token. Give each its cluster’s.`,
+  )
+  agent = agentOf(first.url, account, { LUMOVI_AGENT_HEALTH_PORT: String(health) })
   await expect
     .poll(() => audited(first, 'agent.pinned'))
     .toEqual([expect.objectContaining({ cluster: NAME, details: { sha256: [sha256] } })])
+  await expect.poll(healthz).toBe('200 connected')
+  await as(context, 'admin@example.com')
+  await page.goto(first.url)
+  const toCheck = page.getByRole('region', { name: 'Agents to check' })
+  await expect(toCheck).toContainText(
+    `${NAME}’s agent is trusted with the certificate authority it first sent, which nobody has checked.`,
+  )
+  // Checked, with its SHA-256 from the cluster: then nothing's left to check.
+  await toCheck.getByRole('button', { name: 'Check it…' }).click()
+  await toCheck
+    .getByLabel(`${NAME}’s certificate authority’s SHA-256`)
+    .fill(printed(clusters.demo.caPem!))
+  await toCheck.getByRole('button', { name: 'Trust it', exact: true }).click()
+  await expect(toCheck).toHaveCount(0)
+  expect(audited(first, 'agent.trusted')).toEqual([
+    expect.objectContaining({ details: { was: [sha256], now: [sha256] } }),
+  ])
   await agent.stop()
   await first.stop()
 
-  // After a restart, an agent sending another is refused.
+  // After a restart, an agent sending another is refused (whoever has its token could).
   const other = await generate([{ name: 'commonName', value: 'someone else’s cluster' }], {
     keyType: 'ec',
     algorithm: 'sha256',
     extensions: [{ name: 'basicConstraints', cA: true }],
   })
   writeFileSync(join(account.dir, 'ca.crt'), other.cert)
-  const otherSha256 = new X509Certificate(other.cert).fingerprint256
-    .replaceAll(':', '')
-    .toLowerCase()
+  const otherSha256 = hex(other.cert)
   const restarted = await serve({ port, env })
-  agent = agentOf(restarted.url, account)
-  const changed = `Its agent sent a certificate authority (SHA-256 ${otherSha256.slice(0, 16)}…) other than the one it sent when it first connected. If its cluster’s changed, an admin can trust the new one.`
+  agent = agentOf(restarted.url, account, { LUMOVI_AGENT_HEALTH_PORT: String(health) })
+  const changed = `Its agent sent a certificate authority (SHA-256 ${otherSha256.slice(0, 16)}…) other than the one it’s trusted with. If its cluster’s changed, an admin can trust the new one, given its SHA-256 from the cluster itself.`
   await expect.poll(() => agent.log()).toContain(`The hub doesn’t trust this cluster: ${changed}`)
-  // Someone who isn't an admin can't trust it, nor ask the server to.
+  await expect.poll(healthz).toBe(`503 connected, but refused: ${changed}`)
+  // Someone who isn't an admin can't trust it, nor see what agents send.
+  await as(context, 'alice@example.com')
   await page.goto(restarted.url)
   await expect(card(page, NAME)).toContainText(changed)
-  await expect(page.getByRole('region', { name: 'Agents not trusted' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Agents to check' })).toHaveCount(0)
   expect(
     await page.evaluate(
-      (name) =>
-        window.lumovi!.fleet!.trustAgent(name).then(
-          () => 'trusted',
-          (error: Error) => error.message,
-        ),
+      (name) => window.lumovi!.fleet!.trustAgent(name, 'x').catch((e: Error) => e.message),
       NAME,
     ),
   ).toBe('Only Lumovi’s admins trust an agent.')
-  // An admin can: then the one it sends now is trusted.
+  expect(
+    await page.evaluate(() =>
+      window.lumovi!.fleet!.agents().then(
+        () => 'seen',
+        (e: Error) => e.message,
+      ),
+    ),
+  ).toBe('Only Lumovi’s admins see its agents.')
+  // An admin trusts it only with the SHA-256 they give, from its cluster: what it sends now.
   await as(context, 'admin@example.com')
   await page.reload()
-  const untrusted = page.getByRole('region', { name: 'Agents not trusted' })
-  await expect(untrusted).toContainText(
-    `${NAME}’s agent sent a certificate authority other than the one Lumovi trusts for it.`,
+  const refused = page.getByRole('region', { name: 'Agents to check' })
+  await expect(refused).toContainText(
+    `${NAME}’s agent sends a certificate authority other than the one it’s trusted with.`,
   )
-  await untrusted.getByRole('button', { name: 'Trust it…' }).click()
-  await expect(untrusted).toContainText(
-    `Trust the certificate authority ${NAME}’s agent sends now?`,
+  await refused.getByRole('button', { name: 'Trust it…' }).click()
+  await expect(refused).toContainText(`It sends${otherSha256}`)
+  await expect(refused).toContainText(`Trusted with${sha256}`)
+  const given = refused.getByLabel(`${NAME}’s certificate authority’s SHA-256`)
+  // Not the one it sends (the old one, say): refused.
+  await given.fill(sha256)
+  await refused.getByRole('button', { name: 'Trust it', exact: true }).click()
+  await expect(refused.getByRole('alert')).toHaveText(
+    `${NAME}’s agent doesn’t send a certificate authority with that SHA-256: it sends ${otherSha256}.`,
   )
-  await untrusted.getByRole('button', { name: 'Trust it', exact: true }).click()
+  await given.fill(printed(other.cert))
+  await refused.getByRole('button', { name: 'Trust it', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
     `Trusted ${NAME}’s agent`,
   )
-  await expect(untrusted).toHaveCount(0)
+  await expect(refused).toHaveCount(0)
+  await expect.poll(healthz).toBe('200 connected')
   expect(
     audited(restarted)
       .filter((e) => e.action.startsWith('agent.'))
-      .map((e) => [e.action, e.actor.user]),
+      .map((e) => [e.action, e.actor.user, e.details]),
   ).toEqual([
-    ['agent.refused', 'lumovi'],
-    ['agent.trusted', 'admin@example.com'],
-    ['agent.pinned', 'lumovi'],
+    ['agent.refused', 'lumovi', { sha256: [otherSha256] }],
+    ['agent.trusted', 'admin@example.com', { was: [sha256], now: [otherSha256] }],
   ])
   await agent.stop()
   await restarted.stop()

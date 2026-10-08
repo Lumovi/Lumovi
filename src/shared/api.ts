@@ -522,6 +522,22 @@ export interface Capacity {
  * person may list deployments but not nodes). Without a version, the cluster
  * didn't answer, and nothing else was asked.
  */
+/** A fleet's agent as its admins see it: its cluster's certificate authority, sent and trusted. */
+export interface AgentTrust {
+  name: string
+  connected: boolean
+  /** The SHA-256s (hex) of what it sends as its cluster's certificate authority now. */
+  sent: string[]
+  /** The SHA-256s the hub trusts it with: as LUMOVI_FLEET_AGENTS names them, or as kept. */
+  trusted: string[]
+  /** LUMOVI_FLEET_AGENTS names them: only changed there. */
+  named: boolean
+  /** Trusted as it first sent it, nobody having checked it. */
+  unconfirmed: boolean
+  /** What it sends isn't what it's trusted with. */
+  refused: boolean
+}
+
 export interface ClusterSummary {
   /** When it was taken. */
   at: number
@@ -867,8 +883,13 @@ export interface LumoviApi {
   /** A fleet's: each cluster summed up, for the page of every cluster (a server with a fleet). */
   fleet?: {
     summary(context: string): Promise<ClusterSummary>
-    /** An admin's: trusts the certificate authority an agent sends now (its cluster's changed). */
-    trustAgent(name: string): Promise<void>
+    /** An admin's: each agent's certificate authority, as it sends it and as it's trusted. */
+    agents(): Promise<AgentTrust[]>
+    /**
+     * An admin's: trusts an agent with the certificate authority it sends now, if it's the one
+     * whose SHA-256 they give (from its cluster itself).
+     */
+    trustAgent(name: string, sha256: string): Promise<void>
   }
   /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */
   approvals?: {
@@ -969,6 +990,7 @@ export const IPC = {
   can: 'kube:can',
   history: 'kube:history',
   fleetSummary: 'fleet:summary',
+  fleetAgents: 'fleet:agents',
   fleetTrustAgent: 'fleet:trust-agent',
   helmReleases: 'helm:releases',
   helmRelease: 'helm:release',

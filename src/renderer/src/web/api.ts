@@ -133,7 +133,11 @@ export function createWebApi(): LumoviApi {
       history: invoke(IPC.history),
     },
     // Answered by servers with a fleet: the page asks only when its session says it has one.
-    fleet: { summary: invoke(IPC.fleetSummary), trustAgent: invoke(IPC.fleetTrustAgent) },
+    fleet: {
+      summary: invoke(IPC.fleetSummary),
+      agents: invoke(IPC.fleetAgents),
+      trustAgent: invoke(IPC.fleetTrustAgent),
+    },
     // The signed-in person's AI assistants, and the changes they ask for.
     approvals: {
       decide: invoke(IPC.assistantsDecide),
