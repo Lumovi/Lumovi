@@ -352,9 +352,10 @@ test('the line for kubectl keeps a path whole, whatever it holds, and one in the
       config,
     )
     // Read as typed, in double quotes: nothing in it means more there.
+    const typed = `"$HOME${config.slice(home.length)}"`
     expect(fromHome).toEqual({
       ok: true,
-      data: `export KUBECONFIG="$HOME${config.slice(home.length)}"`,
+      data: posix ? `export KUBECONFIG=${typed}` : `$env:KUBECONFIG = ${typed}`,
     })
     expect(run((fromHome as { data: string }).data)).toBe(config)
   } finally {
