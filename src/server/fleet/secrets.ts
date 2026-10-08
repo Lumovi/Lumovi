@@ -17,7 +17,6 @@ interface Secret {
   metadata: {
     name: string
     namespace: string
-    uid?: string
     labels?: Record<string, string>
     annotations?: Record<string, string>
   }
@@ -221,10 +220,14 @@ export async function secretClusters(
           tool: kind,
           secret: secret.metadata.name,
           namespace,
-          uid: secret.metadata.uid,
         } as const
         try {
-          clusters.push(...READERS[kind](secret, source).map((cluster) => ({ ...cluster, origin })))
+          clusters.push(
+            ...READERS[kind](secret, source).map((cluster) => ({
+              ...cluster,
+              origin: { ...origin, server: cluster.cluster?.server },
+            })),
+          )
         } catch (error) {
           clusters.push({
             ...broken(secret.metadata.name, source, (error as Error).message),

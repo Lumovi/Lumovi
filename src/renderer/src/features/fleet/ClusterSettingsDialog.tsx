@@ -214,9 +214,11 @@ function SettingsForm({
           <p className="mt-1 text-xs text-ink-3">
             {settings.groups.managed && groups.length === 0
               ? 'Only admins see it: its source gives it no groups.'
-              : groups.length
-                ? 'Who sees it, besides admins. A change applies at once.'
-                : 'Who sees it, besides admins: with none, everyone signed in. A change applies at once.'}
+              : settings.adminsOnly && groups.length === 0
+                ? 'Only admins see it: what this page set was for another cluster by its name. Save to say who sees it.'
+                : groups.length
+                  ? 'Who sees it, besides admins. A change applies at once.'
+                  : 'Who sees it, besides admins: with none, everyone signed in. A change applies at once.'}
           </p>
         </div>
       </div>

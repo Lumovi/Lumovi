@@ -100,6 +100,7 @@ export class FleetSettings {
         ? { value: cluster.groups ?? [], managed: managed.groups }
         : { value: set.groups ?? cluster.groups ?? [] },
       origin: cluster.origin ?? { kind: 'this' },
+      ...(set.adminsOnly && !managed?.groups ? { adminsOnly: true as const } : {}),
       removable: cluster.origin?.kind === 'agent' && Boolean(cluster.origin.joined),
     }
   }
@@ -128,12 +129,19 @@ export class FleetSettings {
     }
     const cluster = this.#cluster(name)
     const { title, labels, groups } = (request ?? {}) as Partial<Record<string, unknown>>
-    const setting: FleetSetting = {}
+    // What's given, over what's set: a field not given is as it was; given empty, it's unset.
+    // (Saved, it's no longer admins' alone: they say who sees it now.)
+    const {
+      origin: _origin,
+      adminsOnly: _adminsOnly,
+      ...setting
+    }: FleetSetting = { ...this.#setFor(cluster) }
     if (title !== undefined) {
       if (typeof title !== 'string') throw invalid('Its name must be text.')
       const error = titleError(title.trim())
       if (error) throw invalid(`Its name: ${error}.`)
       if (title.trim() && title.trim() !== cluster.name) setting.title = title.trim()
+      else delete setting.title
     }
     for (const [field, given] of [
       ['labels', labels],
@@ -149,9 +157,11 @@ export class FleetSettings {
       if (field === 'labels') {
         const checked = checkedLabels(given)
         if (Object.keys(checked).length) setting.labels = checked
+        else delete setting.labels
       } else {
         const checked = checkedGroups(given)
         if (checked.length) setting.groups = checked
+        else delete setting.groups
       }
     }
     // Its name as shown is its own: not another's name, nor what another is shown by.
@@ -198,13 +208,19 @@ export class FleetSettings {
     const cluster = this.hosted.sourced?.(name)
     const set = this.clusters.fleetSettings()[name]
     if (!cluster?.origin || !set || set.origin === originKey(cluster.origin)) return
-    this.clusters.dropFleet(name)
+    // Who saw it was restricted: so it is still, to admins alone, until one of them says (it
+    // fails closed). Its source's groups, if it sets them, say already.
+    const closed = Boolean(set.groups?.length || set.adminsOnly) && !cluster.managed?.groups
+    this.clusters.setFleetAsLumovi(
+      name,
+      closed ? { origin: originKey(cluster.origin), adminsOnly: true } : undefined,
+    )
     this.audit.record({
       action: 'cluster-settings.changed',
       outcome: 'success',
       actor: SERVER_ACTOR,
       cluster: name,
-      summary: `Let go of what the Fleet page set for ${name}: it was set for another cluster by that name, and this one comes from elsewhere`,
+      summary: `Let go of what the Fleet page set for ${name}: it was set for another cluster by that name, and this one comes from elsewhere${closed ? '. Only admins see it until one of them saves its settings' : ''}`,
       details: {
         title: set.title ?? null,
         labels: Object.entries(set.labels ?? {}).map(([key, value]) => `${key}=${value}`),

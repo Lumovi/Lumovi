@@ -99,6 +99,11 @@ export const titleError = (title: string): string | undefined =>
 /** What the Fleet page sets for a cluster: what its source leaves unset. */
 export interface FleetSetting {
   /**
+   * Admins alone see it, until one saves its settings: what the page set restricted who sees a
+   * cluster of its name, and was let go (another cluster came by it).
+   */
+  adminsOnly?: true
+  /**
    * The cluster it was set for, by where it comes from (originKey): another of the same name,
    * from elsewhere, doesn't take it.
    */
@@ -113,15 +118,15 @@ export interface FleetSetting {
 /** Where a cluster in a fleet comes from. */
 export type ClusterOrigin =
   /** A kubeconfig's context: the fleet's setting (LUMOVI_FLEET_KUBECONFIG), or a file. */
-  | { kind: 'kubeconfig'; where: string; context: string }
+  | { kind: 'kubeconfig'; where: string; context: string; server?: string }
   /** A Secret of the cluster Lumovi runs in, each tool's way. */
   | {
       kind: 'secret'
       tool: 'lumovi' | 'cluster-api' | 'argocd'
       secret: string
       namespace: string
-      /** The Secret's UID: one made again is another. */
-      uid?: string
+      /** Its API server: one made again for the same is the same cluster, for another isn't. */
+      server?: string
     }
   /** The cluster Lumovi runs in. */
   | { kind: 'this' }
@@ -132,9 +137,9 @@ export type ClusterOrigin =
 export function originKey(origin: ClusterOrigin): string {
   switch (origin.kind) {
     case 'kubeconfig':
-      return `kubeconfig:${origin.where}:${origin.context}`
+      return `kubeconfig:${origin.where}:${origin.context}:${origin.server ?? ''}`
     case 'secret':
-      return `secret:${origin.tool}:${origin.namespace}/${origin.secret}:${origin.uid ?? ''}`
+      return `secret:${origin.tool}:${origin.namespace}/${origin.secret}:${origin.server ?? ''}`
     case 'this':
       return 'this'
     case 'agent':
@@ -176,4 +181,6 @@ export interface FleetClusterSettings {
   origin: ClusterOrigin
   /** Whether it can be removed from the page: it was added there. */
   removable: boolean
+  /** Admins alone see it, until one saves its settings (see FleetSetting). */
+  adminsOnly?: true
 }
