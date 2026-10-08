@@ -296,9 +296,12 @@ export class Joins {
   async spend(name: string, token: string): Promise<boolean> {
     const tokenSha256 = sha256(token)
     const use = { at: new Date().toISOString(), by: randomUUID() }
+    // Used only if it works still, as it's written: unused, and not yet expired.
     const used = (current: unknown) => {
       const kept = current as Kept | undefined
-      return kept && kept.tokenSha256 === tokenSha256 && !kept.used ? { ...kept, used: use } : kept
+      return kept && kept.tokenSha256 === tokenSha256 && !kept.used && kept.until >= Date.now()
+        ? { ...kept, used: use }
+        : kept
     }
     const kept = used(this.state.get<Kept>('joins', name))
     if (!kept) return false
