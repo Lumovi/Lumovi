@@ -67,8 +67,12 @@ export interface Settings {
   readOnly?: string[]
   /** Every context is read-only (LUMOVI_READ_ONLY is set); not stored. */
   readOnlyAll?: boolean
-  /** A server's: who made each cluster read-only for everyone on it, and when; not stored. */
-  readOnlyBy?: Record<string, { by: string; at: string }>
+  /**
+   * A server's: who made each cluster read-only for everyone on it, and when (`outside` where an
+   * older copy, put back outside Lumovi, made it so: then not who, as that's the copy's); not
+   * stored.
+   */
+  readOnlyBy?: Record<string, { by: string; at: string; outside?: true }>
   /**
    * A server's, for those who may change its settings: clusters whose settings were changed where
    * the server keeps them, outside Lumovi, as each was dealt with (until someone who may sets

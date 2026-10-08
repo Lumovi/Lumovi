@@ -325,7 +325,9 @@ function ClusterSwitcher() {
               </span>
               {readOnly.by && (
                 <span className="block text-xs leading-snug text-ink-3">
-                  Turned on by {readOnly.by.by}, {formatDateTime(readOnly.by.at)}
+                  {readOnly.by.outside
+                    ? 'Turned on outside Lumovi'
+                    : `Turned on by ${readOnly.by.by}, ${formatDateTime(readOnly.by.at)}`}
                 </span>
               )}
               {readOnly.shared && !readOnly.locked && !readOnly.mayChange && (

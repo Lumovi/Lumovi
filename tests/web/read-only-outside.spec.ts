@@ -80,7 +80,8 @@ test('read-only taken off where the server keeps it is put back, recorded, and s
         cluster: 'demo',
         summary:
           'Changed outside Lumovi: demo’s read-only was turned off, as its setting was deleted where Lumovi keeps it, and Lumovi made it read-only again',
-        details: { outside: true, how: 'deleted', readOnly: true },
+        // Deleted: no copy found.
+        details: { outside: true, how: 'deleted', found: null, readOnly: true },
       }),
     ])
   expect(served.log()).toContain(

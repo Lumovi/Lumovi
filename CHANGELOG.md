@@ -6,11 +6,6 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
-## [1.15.0] - 2026-10-08
-
-kubectl's signature checks keep working as Sigstore and Kubernetes change, and an organization's
-policy can require them from its mirror too.
-
 ### Added
 
 - On a server, a cluster's settings changed where the server keeps them, outside Lumovi (its
@@ -19,13 +14,8 @@ policy can require them from its mirror too.
   them. Lumovi's admins see it on the cluster's pages, on every replica, until one of them sets
   read-only again. Each setting carries a count that only grows, so that a running server tells
   its own changes from those made by hand, and replicas that haven't read each other's latest
-  don't undo them. Entries that don't open with a server's key (another replica's, while keys
-  are rotated) are left as they are.
-- A policy can require Kubernetes' signature from its mirror too,
-  `"kubectlSignatures": "required"`: a mirror's kubectl is then used only with it, as
-  dl.k8s.io's always is, and a terminal says when its mirror keeps none. One taken unsigned
-  before isn't used either. A policy that can't be used gets no kubectl at all: terminals use
-  the one installed, as with `"kubectl": false`.
+  don't undo them, whichever reads what first. Entries that don't open with a server's key
+  (another replica's, while keys are rotated) are left as they are for 15 minutes, then let go.
 
 ### Changed
 
@@ -35,6 +25,22 @@ policy can require them from its mirror too.
 - On a server, the command palette offers to make a cluster read-only only to those who may, and
   a refused change says who made it read-only, but no longer a date in UTC (the switch says
   when, in your time).
+
+## [1.15.0] - 2026-10-08
+
+kubectl's signature checks keep working as Sigstore and Kubernetes change, and an organization's
+policy can require them from its mirror too.
+
+### Added
+
+- A policy can require Kubernetes' signature from its mirror too,
+  `"kubectlSignatures": "required"`: a mirror's kubectl is then used only with it, as
+  dl.k8s.io's always is, and a terminal says when its mirror keeps none. One taken unsigned
+  before isn't used either. A policy that can't be used gets no kubectl at all: terminals use
+  the one installed, as with `"kubectl": false`.
+
+### Changed
+
 - Published releases are immutable: once a release is out, GitHub keeps its files and its tag
   from being changed or replaced, and shows it as immutable.
 - A terminal whose kubectl's signature is refused says it couldn't be verified as Kubernetes'
