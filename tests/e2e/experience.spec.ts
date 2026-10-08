@@ -273,7 +273,9 @@ test.describe('when things go wrong', () => {
     await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
   })
 
-  test('the window recovers when its page crashes', async ({ lumovi }) => {
+  test('the window reloads where it was when Electron says its page’s process is gone', async ({
+    lumovi,
+  }) => {
     const { app, page } = lumovi
     await openCluster(page)
     const contents = () =>
