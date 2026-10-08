@@ -138,7 +138,7 @@ stringData:
 {{- end }}
 {{- if .Values.rbac.create }}
 ---
-# That Secret alone: read, and changed to keep the token the hub gives it.
+# That Secret alone, changed to keep the token the hub gives it (it's read as the pod starts).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -149,7 +149,7 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     resourceNames: [{{ $secret }}]
-    verbs: [get, patch]
+    verbs: [patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

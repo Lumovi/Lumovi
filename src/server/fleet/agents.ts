@@ -252,6 +252,14 @@ export class Agents {
         forwardToken: config.forwardToken,
         agent: config.name,
       }
+      // Joined from the page: unchecked, until an admin checks its certificate authority.
+      if (
+        config.joined &&
+        !config.caSha256 &&
+        !this.#trust?.state.get<Pin>('agents', config.name)?.confirmed
+      ) {
+        cluster.unchecked = true
+      }
       const trusted = this.#connected.get(config.name)?.trusted
       if (!hello || !trusted) return { ...cluster, problem: 'Its agent isn’t connected.' }
       if ('refused' in trusted) {

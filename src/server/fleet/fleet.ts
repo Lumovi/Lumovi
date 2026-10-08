@@ -98,9 +98,12 @@ export class HostedFleet implements Hosted {
 
   configsFor(identity: Identity): ClusterConfigs {
     const configs = new WeakMap<FleetCluster, KubeConfig>()
+    // (One joined from the page, until its certificate authority is checked: nobody's yet.)
     const visible = () =>
       this.#clusters.filter(
-        (c) => !c.groups || c.groups.some((group) => identity.user.groups.includes(group)),
+        (c) =>
+          !c.unchecked &&
+          (!c.groups || c.groups.some((group) => identity.user.groups.includes(group))),
       )
     return {
       load: (): ContextsResult => ({

@@ -27,8 +27,9 @@ const field =
 const hubUrl = () => new URL('.', document.baseURI).href.replace(/\/$/, '')
 
 /**
- * The command that installs a cluster's agent: it asks for the join token first (not shown, nor
- * kept in the shell's history), and gives it to Helm on its standard input.
+ * The command that installs a cluster's agent, in bash or zsh: it asks for the join token first
+ * (not shown, nor kept in the shell's history), gives it to Helm on its standard input, and
+ * forgets it after.
  */
 export function agentCommand(name: string, version?: string): string {
   return [
@@ -39,6 +40,7 @@ export function agentCommand(name: string, version?: string): string {
     `  --set mode=agent --set clusterName=${name} \\`,
     `  --set agent.hubUrl=${hubUrl()} \\`,
     '  --set-file agent.joinToken=/dev/stdin',
+    'unset LUMOVI_JOIN_TOKEN',
   ].join('\n')
 }
 
@@ -275,20 +277,30 @@ function Waiting({
               Create a new command: the one before stops working.
             </p>
           )}
-          <Box label={`In ${name}`} copy={agentCommand(name, version)} copyLabel="Copy the command">
+          <Box
+            label={`In ${name}, with bash or zsh`}
+            copy={agentCommand(name, version)}
+            copyLabel="Copy the command"
+          >
             <code className="block font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 selectable">
               {agentCommand(name, version)}
             </code>
           </Box>
           {left ? (
-            <div
-              role="status"
-              className="flex items-center gap-2.5 rounded-[10px] border border-line px-3 py-2.5 text-[13px]"
-            >
-              <span className="size-2 rounded-full bg-neutral ring-4 ring-neutral/12" />
-              <span className="text-ink-1">Waiting for {name} to connect…</span>
-              <span className="ml-auto font-mono text-xs text-ink-3">{left}</span>
-            </div>
+            <>
+              <div
+                role="status"
+                className="flex items-center gap-2.5 rounded-[10px] border border-line px-3 py-2.5 text-[13px]"
+              >
+                <span className="size-2 rounded-full bg-neutral ring-4 ring-neutral/12" />
+                <span className="text-ink-1">Waiting for {name} to connect…</span>
+                <span className="ml-auto font-mono text-xs text-ink-3">{left}</span>
+              </div>
+              <p className="text-xs text-ink-3">
+                The first agent to use its token is the one trusted: only admins see the cluster
+                until its certificate authority is checked, once it’s connected.
+              </p>
+            </>
           ) : (
             join && (
               <div
@@ -329,7 +341,11 @@ function CheckCa({ name, onDone }: { name: string; onDone: () => void }) {
     setProblem(undefined)
     try {
       await api.fleet!.trustAgent(name, given)
-      await queryClient.invalidateQueries({ queryKey: ['fleet-agents'] })
+      // Checked, it's shown to those it's shared with.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['fleet-agents'] }),
+        queryClient.invalidateQueries({ queryKey: ['contexts'] }),
+      ])
       toast({ tone: 'success', title: `Trusted ${name}’s agent` })
       onDone()
     } catch (failed) {

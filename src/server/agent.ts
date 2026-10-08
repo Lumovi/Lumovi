@@ -113,6 +113,10 @@ let connected = false
  */
 let trust: { trusted: true } | { refused: string } | undefined
 let attempts = 0
+/** When it joined: for a while after, a replica that hasn't read its token yet may refuse it. */
+let joinedAt = 0
+/** How long after joining a refusal is taken for that, and tried again. */
+const JOINING_MS = 60_000
 let socket: WebSocket
 
 /** What the hub needs to reach the API server: its CA, and the service account's token. */
@@ -175,6 +179,7 @@ function joinHub(): void {
         token = credential
         // Used up: a token it's given is the one it joins with again, if it must.
         joinToken = undefined
+        joinedAt = Date.now()
         attempts = 0
         dial()
       },
@@ -323,6 +328,8 @@ function dial(): void {
         joinHub()
         return
       }
+      // Just joined: the replica it reached may not have read its token yet. Its close retries.
+      if (Date.now() - joinedAt < JOINING_MS) return
       stop('it doesn’t know this name and token')
     }
     // Otherwise its close follows, which retries.
