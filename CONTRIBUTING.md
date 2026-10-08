@@ -127,9 +127,10 @@ The mock clusters answer on ports 46443 to 46446, the addresses the screenshots 
 second run at the same time can't have them: it stops at once and says which run has them. To
 run them beside another (to check something while screenshots are taken, say), give the first of
 four other ports, `LUMOVI_MOCK_CLUSTER_PORTS=47443`, or `free` for any, and the addresses on
-screen differ. A run stops when whatever started it does; `npm run screenshots:stop` stops any
-left behind (each leaves a note of itself in `lumovi-mock-clusters`, in the system's temporary
-folder, while it runs).
+screen differ; none takes ports another run has. A run stops when whatever started it does;
+`npm run screenshots:stop -- <pid>` stops one left behind (the clash says which pid has the
+ports), and with no pid, every one (each leaves a note of itself, in a folder of your own in the
+system's temporary folder, while it runs).
 
 ## Releasing (maintainers)
 
