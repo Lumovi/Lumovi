@@ -733,17 +733,19 @@ function carriedConsents(stored: Raw, edited: Raw): string[] {
 const plain = (server: string) => /^http:/i.test(server)
 
 /**
- * The servers not verified (`insecure-skip-tls-verify`) that its credentials would go to:
- * whatever answers there gets them, so each is agreed to first, for that very server. Plain HTTP
- * is one of them: it's refused without that flag (serverUrl), and unencrypted with it.
+ * The servers not verified that its credentials would go to: whatever answers there gets them, so
+ * each is agreed to first, for that very server. That's one with `insecure-skip-tls-verify`, or
+ * one over plain HTTP, unencrypted, flag or not: Lumovi doesn't connect to it without the flag
+ * (serverUrl), but kubectl would, in its terminals or from its line.
  */
 function unverifiedOf(raw: Raw): { context: string; server: string; consent: string }[] {
   const seen = new Set<string>()
   return raw.contexts.flatMap(({ name, context }) => {
     const cluster = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
     const user = raw.users.find((entry) => entry.name === context.user)?.user
-    if (cluster?.['insecure-skip-tls-verify'] !== true || authOf(user) === 'none') return []
+    if (!cluster || authOf(user) === 'none') return []
     const server = String(cluster.server ?? '')
+    if (cluster['insecure-skip-tls-verify'] !== true && !plain(server)) return []
     const agreement = consent('unverified', server)
     if (seen.has(agreement)) return []
     seen.add(agreement)
