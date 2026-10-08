@@ -41,6 +41,16 @@ export interface WindowState {
   maximized: boolean
 }
 
+/** A cluster's read-only, changed where a server keeps it, outside Lumovi. */
+export interface ReadOnlyChangedOutside {
+  /** When the server found it. */
+  at: string
+  /** Its setting deleted, or replaced by an older copy of it. */
+  how: 'deleted' | 'replaced'
+  /** Whether it's read-only now. */
+  readOnly: boolean
+}
+
 export interface Settings {
   theme: ThemePreference
   /** Where the window was when it last closed. */
@@ -51,6 +61,12 @@ export interface Settings {
   readOnlyAll?: boolean
   /** A server's: who made each cluster read-only for everyone on it, and when; not stored. */
   readOnlyBy?: Record<string, { by: string; at: string }>
+  /**
+   * A server's, for those who may change its settings: clusters whose read-only was changed where
+   * the server keeps it, outside Lumovi, since it started (until someone who may sets it again);
+   * not stored.
+   */
+  readOnlyChangedOutside?: Record<string, ReadOnlyChangedOutside>
   /**
    * A server's: its clusters' settings (read-only, metrics, node shells) are everyone's, changed by
    * Lumovi's admins, or by anyone where there are none. Whether this person may; not stored.

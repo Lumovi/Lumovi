@@ -7,6 +7,9 @@
 {{- if and .Values.assistants.enabled (gt (int .Values.replicaCount) 1) }}
 {{- fail "AI assistants need a single replica (replicaCount 1): what they're allowed lives in its memory, and their requests carry no cookies to stick to one. Set assistants.enabled false to run more" }}
 {{- end }}
+{{- if and (not .Values.auth.keepSessions) (gt (int .Values.replicaCount) 1) }}
+{{- fail "More than one replica (replicaCount) needs auth.keepSessions: without it, each replica keeps who's signed in, and what's set for everyone (the clusters made read-only, say), in its own memory, and they don't agree" }}
+{{- end }}
 {{- if and .Values.audit.persistence.enabled (gt (int .Values.replicaCount) 1) }}
 {{- fail "The audit history on its volume needs a single replica (replicaCount 1): it's one chain, kept by one replica. Set audit.persistence.enabled false to run more (their events still go to their output and the webhook)" }}
 {{- end }}

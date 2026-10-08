@@ -96,6 +96,9 @@ jobs:
           (! helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false 2>/dev/null)
           helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false \
             --set audit.persistence.enabled=false >/dev/null
+          # Nor with what each keeps only in its memory: who's signed in, what's set for everyone.
+          (! helm template lumovi charts/lumovi --set replicaCount=2 --set assistants.enabled=false \
+            --set audit.persistence.enabled=false --set auth.keepSessions=false 2>/dev/null)
           (! helm template lumovi charts/lumovi --set assistants.chanegs=allow 2>/dev/null)
           helm template lumovi charts/lumovi --set 'assistants.redirectHosts={assistant.example.com}' \
             | grep -q 'value: "assistant.example.com"'
