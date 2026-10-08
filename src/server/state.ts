@@ -90,12 +90,16 @@ interface Change {
    * again): its value made again from theirs, not from what this server had read.
    */
   rebase?: (current: unknown) => unknown
+  /** How many times its rebase threw, and it was held back. */
+  held?: number
 }
 
 /** How long after a change it's written: changes made together are written together. */
 const WRITE_AFTER_MS = 50
 /** How often a write over someone else's is tried again, with what they wrote. */
 const ATTEMPTS = 5
+/** How many times a change whose rebase throws is held back, before it's written as it was made. */
+const HELD = 3
 /** After a write that failed, how long until it's tried again. */
 const RETRY_MS = 5_000
 /** The most it may be (LUMOVI_STATE_MAX_BYTES, for tests): a Secret holds a megabyte. */
@@ -224,15 +228,16 @@ export class ServerState {
   }
 
   /**
-   * Since when the entries that don't open with this server's key have been as they are: its
+   * Since when the entries that don't open with this server's key have been the same ones: its
    * key changed, or they were, or another replica seals with another key (while keys are
-   * rotated). They're left as they are (never taken for entries deleted) until they've been so
-   * for the grace period, then let go together: what an old key (a leaked one) opens doesn't
-   * outlive a rotation, while a key still in use, whose replicas write, keeps its own. Kept as one
-   * time and a digest of them, however many there are (sealed with this key, so that a restart
-   * doesn't put it off; deleted, it counts from this server's own sighting). When it runs out,
-   * it's written at once, which lets them go; so is anything not even shaped like an entry,
-   * which no key made.
+   * rotated). They're left as they are (never taken for entries deleted) until they've been the
+   * same for the grace period, then let go together: what an old key (a leaked one) opens doesn't
+   * outlive a rotation, while a key still in use, whose replicas add entries, keeps its own. By
+   * their names (what's in them changes as they're written again: two keys' replicas would put
+   * each other's off for ever). Kept as one time and a digest of the names, however many there
+   * are (sealed with this key, so that a restart doesn't put it off; deleted, it counts from this
+   * server's own sighting). When it runs out, it's written at once, which lets them go; so is
+   * anything not even shaped like an entry, which no key made.
    */
   #track(document: Document): void {
     const now = this.#now()
@@ -244,7 +249,7 @@ export class ServerState {
     let junk = 0
     for (const [name, sealed] of Object.entries(document.entries)) {
       if (!NAME.test(name) || !SEALED.test(sealed)) junk++
-      else if (!this.#opened(name, sealed)) unopened.push(`${name}\0${sealed}`)
+      else if (!this.#opened(name, sealed)) unopened.push(name)
     }
     const as =
       unopened.length > 0
@@ -460,29 +465,44 @@ export class ServerState {
     const changes = new Map(this.#changes)
     this.#changes.clear()
     let base = this.#document
+    const held = new Map<string, Change>()
+    let heldBack = false
     for (let attempt = 1; ; attempt++) {
       // Made again over the entry as it's there now, where a change says how: another replica
       // may have written it since this one read it (a write that met theirs reads it again).
-      const held = new Map<string, Change>()
       for (const [name, change] of changes) {
         if (!change.rebase) continue
         const sealed = base.entries[name]
         try {
           change.value = change.rebase(sealed ? this.#opened(name, sealed)?.value : undefined)
         } catch (error) {
-          // Not made again: held back to be tried again, not the rest with it (sign-outs, say).
-          log(
-            `Lumovi couldn’t make a change again over what’s kept (${(error as Error).message}): it’s tried again in a moment.`,
-          )
-          held.set(name, change)
-          continue
+          // Not made again: held back to be tried again (later and later), not the rest with it
+          // (sign-outs, say); after a few tries, written as it was made.
+          change.held = (change.held ?? 0) + 1
+          const why = (error as Error).message
+          if (change.held >= HELD) {
+            log(
+              `Lumovi couldn’t make a change again over what’s kept, ${HELD} times (${why}): it’s written as it was made.`,
+            )
+            delete change.rebase
+          } else {
+            if (change.held === 1) {
+              log(
+                `Lumovi couldn’t make a change again over what’s kept (${why}): it’s tried again.`,
+              )
+            }
+            held.set(name, change)
+            continue
+          }
         }
         if (!this.#changes.has(name)) this.#open.get(change.section)!.set(change.key, change.value)
       }
       if (held.size > 0) {
         for (const name of held.keys()) changes.delete(name)
-        this.#again(held)
-        if (changes.size === 0) return
+        this.#again(held, Math.max(...[...held.values()].map((change) => change.held!)))
+        held.clear()
+        heldBack = true
+        if (changes.size === 0) break
       }
       // What's there, with these changes: never another's written over.
       const next: Document = { entries: { ...base.entries } }
@@ -497,7 +517,7 @@ export class ServerState {
         await this.#seen(next)
         if (this.#failing) log('Lumovi keeps who’s signed in again.')
         this.#failing = undefined
-        return
+        break
       } catch (error) {
         if (error instanceof KubeRequestError && error.code === 'conflict' && attempt < ATTEMPTS) {
           this.#conflicts++
@@ -516,10 +536,16 @@ export class ServerState {
         throw error
       }
     }
+    // Said to whoever waits for it to be written (a strict flush): it isn't, all of it.
+    if (heldBack)
+      throw new Error('A change couldn’t be made again over what’s kept: it’s held back.')
   }
 
-  /** Changes not written, tried again later: before what's changed since, made from them. */
-  #again(changes: Map<string, Change>): void {
+  /**
+   * Changes not written, tried again later (the more often held back, the later): before what's
+   * changed since, made from them.
+   */
+  #again(changes: Map<string, Change>, held = 1): void {
     for (const [name, change] of changes) {
       const since = this.#changes.get(name)
       if (!since) this.#changes.set(name, change)
@@ -527,10 +553,11 @@ export class ServerState {
         const first = change.rebase
         const then = since.rebase
         since.rebase = (current) => then(first(current))
+        since.held = Math.max(since.held ?? 0, change.held ?? 0)
       }
     }
     clearTimeout(this.#timer)
-    this.#timer = setTimeout(() => void this.flush(), this.#retry)
+    this.#timer = setTimeout(() => void this.flush(), this.#retry * 2 ** (held - 1))
     this.#timer.unref()
   }
 
