@@ -1,0 +1,49 @@
+{{- if and (include "lumovi.fleet" .) .Values.fleet.addFromPage }}
+{{- $namespace := include "lumovi.addNamespace" . }}
+{{- if eq $namespace .Release.Namespace }}
+{{- fail "fleet.addNamespace must be a namespace of its own, not the release's: Lumovi may write Secrets there" }}
+{{- end }}
+{{- if .Values.fleet.createAddNamespace }}
+# Where the clusters added on the Fleet page are kept, as Secrets: kept when the release is
+# uninstalled, with them (delete it to let them go).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $namespace }}
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+---
+{{- end }}
+{{- if .Values.rbac.create }}
+# There alone may Lumovi write Secrets: the clusters added on its page.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "lumovi.fullname" . }}-fleet-added
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "lumovi.fullname" . }}-fleet-added
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "lumovi.fullname" . }}-fleet-added
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

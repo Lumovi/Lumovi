@@ -63,32 +63,3 @@ subjects:
     namespace: {{ $.Release.Namespace }}
 {{- end }}
 {{- end }}
-{{- if and .Values.rbac.create $fleet .Values.fleet.addFromPage }}
----
-# Clusters added on the Fleet page: kept as Secrets here, in this release's namespace alone.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ include "lumovi.fullname" . }}-fleet-added
-  labels:
-    {{- include "lumovi.labels" . | nindent 4 }}
-rules:
-  - apiGroups: [""]
-    resources: [secrets]
-    verbs: [list, create, delete]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "lumovi.fullname" . }}-fleet-added
-  labels:
-    {{- include "lumovi.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "lumovi.fullname" . }}-fleet-added
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "lumovi.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
-{{- end }}

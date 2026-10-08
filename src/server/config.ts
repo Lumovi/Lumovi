@@ -85,10 +85,12 @@ export interface FleetConfig {
   refreshSeconds: number
   /**
    * Whether admins add clusters from the Fleet page, by kubeconfig or token
-   * (LUMOVI_FLEET_ADD_FROM_PAGE, the chart's fleet.addFromPage): kept as Lumovi's Secrets in its
-   * own namespace, which it then reads too.
+   * (LUMOVI_FLEET_ADD_FROM_PAGE, the chart's fleet.addFromPage): kept as Lumovi's Secrets in a
+   * namespace of their own, which it then reads too.
    */
   addFromPage: boolean
+  /** Where (LUMOVI_FLEET_ADD_NAMESPACE): <its own namespace>-clusters unless set. */
+  addNamespace?: string
 }
 
 export interface ServerConfig {
@@ -671,8 +673,6 @@ function fleetConfig(
       'LUMOVI_FLEET_ADD_FROM_PAGE keeps the clusters added from the Fleet page as Secrets of the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
     )
   }
-  // What's added is kept as Lumovi's own Secrets: read.
-  if (addFromPage && !secrets.includes('lumovi')) secrets.push('lumovi')
   const localSetting = value('LUMOVI_FLEET_LOCAL')
   if (localSetting !== undefined && !['true', 'false'].includes(localSetting)) {
     throw new ConfigError(`LUMOVI_FLEET_LOCAL must be true or false, not "${localSetting}".`)
@@ -687,7 +687,13 @@ function fleetConfig(
       'LUMOVI_FLEET_SECRETS reads Secrets of the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
     )
   }
-  if (!kubeconfig && files.length === 0 && secrets.length === 0 && agents.length === 0) {
+  if (
+    !kubeconfig &&
+    files.length === 0 &&
+    secrets.length === 0 &&
+    agents.length === 0 &&
+    !addFromPage
+  ) {
     return localSetting === 'true' ? fleetOf({ local: true }) : undefined
   }
   const refreshSeconds = Number(value('LUMOVI_FLEET_REFRESH_SECONDS') ?? 30)
@@ -707,6 +713,7 @@ function fleetConfig(
     local: localSetting === undefined ? inKubernetes : localSetting === 'true',
     refreshSeconds,
     addFromPage,
+    addNamespace: value('LUMOVI_FLEET_ADD_NAMESPACE'),
   })
 }
 

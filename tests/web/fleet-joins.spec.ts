@@ -51,7 +51,9 @@ test('an admin makes a join token: shown once, kept by its hash, and recorded', 
   await as(context, 'admin@example.com')
   await page.goto(hub.url)
   await expect(card(page, FLEET.prodEu)).toBeVisible()
-  expect(await call(page, 'joins')).toEqual({ value: { joins: [] } })
+  expect(await call(page, 'joins')).toEqual({
+    value: { joins: [], addFromPage: false, added: [] },
+  })
 
   const request: FleetJoinRequest = {
     name: EDGE,
@@ -72,7 +74,9 @@ test('an admin makes a join token: shown once, kept by its hash, and recorded', 
   const { at, until } = made.join as { at: string; until: string }
   // It works for an hour.
   expect(Date.parse(until) - Date.parse(at)).toBe(3_600_000)
-  expect(await call(page, 'joins')).toEqual({ value: { joins: [made.join] } })
+  expect(await call(page, 'joins')).toEqual({
+    value: { joins: [made.join], addFromPage: false, added: [] },
+  })
   expect(audited(hub, 'agent.join-created')).toEqual([
     expect.objectContaining({
       outcome: 'success',
@@ -94,14 +98,16 @@ test('an admin makes a join token: shown once, kept by its hash, and recorded', 
   // Kept: a restart doesn't forget it.
   const again = await serve({ port, env })
   await page.goto(again.url)
-  expect(await call(page, 'joins')).toEqual({ value: { joins: [made.join] } })
+  expect(await call(page, 'joins')).toEqual({
+    value: { joins: [made.join], addFromPage: false, added: [] },
+  })
   // Made again (its command lost, say): a new token, and the old one no longer works.
   const remade = (await call(page, 'connect', { ...request, groups: [] })).value as {
     token: string
   }
   expect(remade.token).not.toBe(made.token)
   expect(await call(page, 'joins')).toEqual({
-    value: { joins: [{ ...joining, groups: [] }] },
+    value: { joins: [{ ...joining, groups: [] }], addFromPage: false, added: [] },
   })
   expect(audited(again, 'agent.join-created')).toEqual([
     expect.objectContaining({
@@ -114,7 +120,9 @@ test('an admin makes a join token: shown once, kept by its hash, and recorded', 
 
   // Cancelled: gone, and recorded.
   expect(await call(page, 'cancelJoin', EDGE)).toEqual({})
-  expect(await call(page, 'joins')).toEqual({ value: { joins: [] } })
+  expect(await call(page, 'joins')).toEqual({
+    value: { joins: [], addFromPage: false, added: [] },
+  })
   expect(audited(again, 'agent.join-cancelled')).toEqual([
     expect.objectContaining({
       cluster: EDGE,
@@ -189,7 +197,9 @@ test('only admins connect clusters, where the server keeps them, with names the 
   expect(await refused({ name: FLEET.prodEu })).toBe(
     `The fleet has a cluster called ${FLEET.prodEu} already: give this one another name.`,
   )
-  expect(await call(page, 'joins')).toEqual({ value: { joins: [] } })
+  expect(await call(page, 'joins')).toEqual({
+    value: { joins: [], addFromPage: false, added: [] },
+  })
   // (Only the refused try was recorded.)
   expect(audited(hub, 'agent.join-created')).toHaveLength(1)
   await hub.stop()
@@ -201,7 +211,9 @@ test('only admins connect clusters, where the server keeps them, with names the 
   await page.goto(forgets.url)
   const unkept =
     'This server keeps nothing when it restarts, so it would forget the clusters connected here: keep its state (the chart’s auth.keepSessions, or LUMOVI_DATA_DIR).'
-  expect(await call(page, 'joins')).toEqual({ value: { joins: [], whyNot: unkept } })
+  expect(await call(page, 'joins')).toEqual({
+    value: { joins: [], whyNot: unkept, addFromPage: false, added: [] },
+  })
   expect(await call(page, 'connect', request)).toEqual({ error: unkept })
   await forgets.stop()
 
