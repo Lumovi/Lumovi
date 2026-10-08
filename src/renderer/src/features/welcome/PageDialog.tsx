@@ -48,6 +48,13 @@ export function PageDialog({
               event.preventDefault()
             }
           }}
+          // Closed: back to the list's search, where its keys are (what opened it may be gone).
+          onCloseAutoFocus={(event) => {
+            const search = document.querySelector<HTMLElement>('[data-hotkey-target="filter"]')
+            if (!search) return
+            event.preventDefault()
+            search.focus()
+          }}
           onOpenAutoFocus={(event) => {
             // The first field, or what's marked to start on.
             event.preventDefault()
