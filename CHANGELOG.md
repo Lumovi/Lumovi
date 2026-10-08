@@ -6,13 +6,19 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-08
+
+The kubectl terminals download is checked against Kubernetes' signature, and the bill of
+materials lists what helm is built from.
+
 ### Changed
 
 - The kubectl a terminal downloads is checked against Kubernetes' own signature, not only the
   SHA-256 published beside it: from dl.k8s.io, a kubectl without Kubernetes' signature isn't
   used, and its terminal says why and uses yours. From a mirror that keeps no signatures, the
-  terminal says it was checked against its SHA-256 only. Checked on the computer, against
-  Sigstore's trust root as Lumovi ships it: no new connection.
+  terminal says it was checked against its SHA-256 only. One kept by an earlier Lumovi is
+  downloaded again, checked. Checked on the computer, against Sigstore's trust root as Lumovi
+  ships it: no new connection.
 - The desktop app's bill of materials (`Lumovi-<version>.cdx.json`) lists the Go modules the
   helm it ships is built from, and the Go it's built with, as helm itself records them: a
   scanner such as grype now sees a vulnerability in any of them. (The image's bill, made as
@@ -607,7 +613,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/Lumovi/Lumovi/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/Lumovi/Lumovi/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/Lumovi/Lumovi/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/Lumovi/Lumovi/compare/v1.9.1...v1.10.0
