@@ -149,14 +149,15 @@ export function registerIpc(deps: Dependencies): void {
       assertString(text, 'text')
       return addedClusters.inspect(text)
     },
-    [IPC.addedCheck]: (text, context, allowCommands) => {
+    [IPC.addedCheck]: (text, context, agreed) => {
       assertString(text, 'text')
       assertString(context, 'context')
-      return addedClusters.check(text, context, allowCommands === true)
+      if (!isStrings(agreed)) throw invalid('agreed must be what was agreed to')
+      return addedClusters.check(text, context, agreed)
     },
     [IPC.addedAdd]: (text, options) => {
       assertString(text, 'text')
-      const { contexts, names, allowCommands } = (options ?? {}) as Record<string, unknown>
+      const { contexts, names, agreed } = (options ?? {}) as Record<string, unknown>
       if (contexts !== undefined && !isStrings(contexts)) throw invalid('contexts must be names')
       if (
         names !== undefined &&
@@ -164,21 +165,22 @@ export function registerIpc(deps: Dependencies): void {
       ) {
         throw invalid('names must map names to names')
       }
+      if (!isStrings(agreed)) throw invalid('agreed must be what was agreed to')
       return addedClusters.add(text, {
         ...(contexts ? { contexts } : {}),
         ...(names ? { names: names as Record<string, string> } : {}),
-        // Only a yes is one.
-        allowCommands: allowCommands === true,
+        agreed,
       })
     },
     [IPC.addedRead]: (path) => {
       assertString(path, 'path')
       return addedClusters.read(path)
     },
-    [IPC.addedEdit]: (path, text, allowCommands) => {
+    [IPC.addedEdit]: (path, text, agreed) => {
       assertString(path, 'path')
       assertString(text, 'text')
-      return addedClusters.edit(path, text, allowCommands === true)
+      if (!isStrings(agreed)) throw invalid('agreed must be what was agreed to')
+      return addedClusters.edit(path, text, agreed)
     },
     [IPC.addedRemove]: (path) => {
       assertString(path, 'path')
