@@ -45,7 +45,7 @@ export function agentCommand(name: string, version?: string): string {
 }
 
 /** A time, as people read it here. */
-const timeOf = (iso: string) =>
+export const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
 /** What's left until `iso`, as mm:ss (none once it's past). */
@@ -181,8 +181,8 @@ function ConnectForm({
           />
           <p className="mt-1.5 text-xs text-ink-3">
             {groups.length
-              ? 'Who sees it, besides admins.'
-              : 'Who sees it, besides admins: with none, everyone signed in.'}
+              ? 'Who sees it, besides admins, once its certificate is checked.'
+              : 'Who sees it, besides admins: with none, everyone signed in, once its certificate is checked.'}
           </p>
         </div>
       </div>
@@ -221,6 +221,23 @@ function Waiting({
   const left = useLeft(join?.until)
   const connected = Boolean(join?.used)
   const queryClient = useQueryClient()
+  const [stopping, setStopping] = useState(false)
+  const [stopError, setStopError] = useState<string>()
+  // Its token revoked at once (if its agent hasn't used it meanwhile: then it says so).
+  const stop = async () => {
+    setStopping(true)
+    setStopError(undefined)
+    try {
+      await api.fleet!.cancelJoin(name)
+      toast({ tone: 'success', title: `Stopped connecting ${name}` })
+      await queryClient.invalidateQueries({ queryKey: ['fleet-joins'] })
+      onClose()
+    } catch (failed) {
+      setStopError((failed as Error).message)
+      setStopping(false)
+      await queryClient.invalidateQueries({ queryKey: ['fleet-joins'] })
+    }
+  }
   // Connected: its card lands on the page at once.
   useEffect(() => {
     if (connected) void queryClient.invalidateQueries({ queryKey: ['contexts'] })
@@ -239,11 +256,16 @@ function Waiting({
           : 'Run this where you reach the cluster, with your own access to it.'
       }
       top="top-[7vh]"
-      error={error}
+      error={stopError ?? error}
       onClose={onClose}
       footer={
         <>
           <AuditNote />
+          {!connected && join && (
+            <Button variant="ghost" disabled={stopping} onClick={() => void stop()}>
+              Cancel the command
+            </Button>
+          )}
           <Button variant={connected ? 'ghost' : 'secondary'} onClick={onClose}>
             {connected ? 'Later' : 'Leave it waiting'}
           </Button>

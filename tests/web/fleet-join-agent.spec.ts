@@ -319,6 +319,8 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   await group.evaluate((input: HTMLInputElement) => (input.value = 'platform'))
   await group.press('Enter')
   await expect(form.getByRole('button', { name: 'Remove platform' })).toBeVisible()
+  // Whoever its groups name sees it once it's trusted, not before.
+  await expect(form).toContainText('Who sees it, besides admins, once its certificate is checked.')
   await form.getByRole('button', { name: 'Create the command' }).click()
 
   // Its join token, once, and the command, which asks for it (it's not on the command line).
@@ -358,6 +360,10 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   // Closed, it waits on the page; shown again, without its token.
   await dialog.getByRole('button', { name: 'Leave it waiting' }).click()
   const waiting = page.getByRole('region', { name: `${EDGE}, Waiting for its agent…` })
+  await expect(waiting).toContainText('region=ap-south')
+  await expect(waiting).toContainText(
+    /Its command works until .+\. Run it in the cluster, and its card fills in\./,
+  )
   await waiting.getByRole('button', { name: 'Show the command' }).click()
   await expect(dialog).toContainText('Its join token was shown when the command was made')
   await expect(dialog.locator('code')).toHaveCount(1)
@@ -396,7 +402,22 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
     .getByRole('button', { name: 'Cancel it' })
     .click()
   await expect(page.getByRole('region', { name: /^lab, / })).toHaveCount(0)
+  // And one cancelled from its dialog, as soon as it's made: no card waits for it.
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  await page.getByRole('menuitem', { name: /^Connect with an agent…/ }).click()
+  await form.getByLabel('Name').fill('lab')
+  await form.getByRole('button', { name: 'Create the command' }).click()
+  await page
+    .getByRole('dialog', { name: 'Connect lab' })
+    .getByRole('button', { name: 'Cancel the command' })
+    .click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    'Stopped connecting lab',
+  )
+  await expect(page.getByRole('region', { name: /^lab, / })).toHaveCount(0)
   expect(audited(hub, 'agent.join-cancelled')).toEqual([
+    expect.objectContaining({ cluster: 'lab' }),
     expect.objectContaining({ cluster: 'lab' }),
   ])
 })

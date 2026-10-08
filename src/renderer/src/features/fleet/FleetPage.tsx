@@ -55,7 +55,7 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
-import { ConnectDialog, FINGERPRINT_COMMAND } from './ConnectDialog'
+import { ConnectDialog, FINGERPRINT_COMMAND, timeOf } from './ConnectDialog'
 
 /** How often each cluster is summed up again, while the page is open. */
 const REFRESH_MS = 30_000
@@ -450,9 +450,15 @@ function WaitingCards({
               />
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-semibold text-ink-1">{join.name}</p>
-                <p className="text-neutral-text truncate text-xs">{status}</p>
+                <p className="truncate text-xs text-neutral-text">{status}</p>
               </div>
             </div>
+            <LabelChips labels={join.labels} />
+            <p className="text-xs text-ink-3">
+              {expired
+                ? `Its command expired at ${timeOf(join.until)}. Show it to create a new one.`
+                : `Its command works until ${timeOf(join.until)}. Run it in the cluster, and its card fills in.`}
+            </p>
             <div className="mt-auto flex gap-2">
               <Button variant="secondary" className="h-7 text-xs" onClick={() => onShow(join)}>
                 Show the command
@@ -479,6 +485,23 @@ function Cards({ items, fresh }: { items: Item[]; fresh?: Set<string> }) {
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
         <ClusterCard key={item.context.name} {...item} fresh={fresh?.has(item.context.name)} />
+      ))}
+    </div>
+  )
+}
+
+/** A card's labels, as chips (none: nothing). */
+function LabelChips({ labels }: { labels: Record<string, string> }) {
+  if (Object.keys(labels).length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1">
+      {Object.entries(labels).map(([key, value]) => (
+        <span
+          key={key}
+          className="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs text-ink-2"
+        >
+          {labelText(key, value)}
+        </span>
       ))}
     </div>
   )
@@ -512,18 +535,7 @@ function ClusterCard({ context, summary, status, fresh }: Item & { fresh?: boole
           </span>
         )}
       </div>
-      {Object.keys(context.labels!).length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {Object.entries(context.labels!).map(([key, value]) => (
-            <span
-              key={key}
-              className="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs text-ink-2"
-            >
-              {labelText(key, value)}
-            </span>
-          ))}
-        </div>
-      )}
+      <LabelChips labels={context.labels!} />
       {!summary ? (
         <div aria-hidden className="grid grid-cols-2 gap-3 @md:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
