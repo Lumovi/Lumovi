@@ -46,6 +46,8 @@ export interface Hosted {
   allClusters?(): FleetCluster[]
   /** A fleet's: its sources read again now (a Secret added or removed from its page). */
   reread?(): Promise<void>
+  /** A fleet's: which Secrets, where what's added from its page is kept, Lumovi made. */
+  keepAddedWith?(added: (namespace: string, name: string, uid: string | undefined) => boolean): void
   /** A fleet's: what its page sets for its clusters, and who sees them all (its admins). */
   settleWith?(page: FleetPage): void
   /** What it shows, for the log: "demo (https://…)", "a fleet of 3 clusters". */

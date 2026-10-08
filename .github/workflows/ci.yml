@@ -86,6 +86,18 @@ jobs:
             --set agent.tokenSecret=agent 2>/dev/null)
           helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=http://localhost:8080 \
             --set agent.tokenSecret=agent >/dev/null
+          # Clusters added on the Fleet page: a namespace of their own, kept when the release is
+          # uninstalled, and the only one Lumovi may create and delete Secrets in (never the
+          # release's); none of it unless it's turned on.
+          add=(--namespace lumovi --set auth.mode=proxy --set fleet.addFromPage=true
+            --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy')
+          added=$(helm template lumovi charts/lumovi "${add[@]}" --show-only templates/fleet-added.yaml)
+          grep -q 'helm.sh/resource-policy: keep' <<<"$added"
+          [ "$(grep -c 'namespace: lumovi-clusters$' <<<"$added")" = 2 ]
+          [ "$(helm template lumovi charts/lumovi "${add[@]}" | grep -c 'verbs: \[list, create, delete\]')" = 1 ]
+          (! helm template lumovi charts/lumovi "${add[@]}" --set fleet.addNamespace=lumovi 2>/dev/null)
+          (! helm template lumovi charts/lumovi "${add[@]}" --set fleet.addFromPage=false \
+            --set 'fleet.secrets={lumovi}' | grep -q lumovi-clusters)
           # The notes helm install prints, with no cluster to install to: NOTES.txt is a template like
           # the others, so a copy of the chart can print it.
           notes() {

@@ -244,6 +244,8 @@ spec:
             {{- if .addFromPage }}
             - name: LUMOVI_FLEET_ADD_FROM_PAGE
               value: "true"
+            - name: LUMOVI_FLEET_ADD_NAMESPACE
+              value: {{ include "lumovi.addNamespace" $ | quote }}
             {{- end }}
             {{- end }}
             {{- with .Values.fleet.labels }}

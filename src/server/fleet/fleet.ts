@@ -104,6 +104,7 @@ export class HostedFleet implements Hosted {
   #sourced: FleetCluster[] = []
   #clusters: FleetCluster[] = []
   #page?: FleetPage
+  #added: (namespace: string, name: string, uid: string | undefined) => boolean = () => false
   /** What was last said about each source's problems, so each is said once. */
   readonly #said = new Map<string, string>()
   readonly #timer: NodeJS.Timeout
@@ -172,6 +173,13 @@ export class HostedFleet implements Hosted {
 
   reread(): Promise<void> {
     return this.#refresh()
+  }
+
+  /** Which Secrets, where what's added from the page is kept, Lumovi made: those alone are read. */
+  keepAddedWith(added: (namespace: string, name: string, uid: string | undefined) => boolean) {
+    this.#added = added
+    // (Read before it knew which: again, now.)
+    if (this.config.addFromPage) void this.#refresh()
   }
 
   settleWith(page: FleetPage): void {
@@ -327,8 +335,8 @@ export class HostedFleet implements Hosted {
         fromKubeconfig(readFileSync(file, 'utf8'), file, `the kubeconfig ${file}`, dirname(file)),
       )
     }
-    if (this.config.secrets.length > 0) {
-      const { lists, problems } = await secretClusters(this.env, this.config)
+    if (this.config.secrets.length > 0 || this.config.addFromPage) {
+      const { lists, problems } = await secretClusters(this.env, this.config, this.#added)
       for (const [list, clusters] of lists) this.#sources.set(list, clusters)
       this.#say('secrets', problems.join('\n'))
     }

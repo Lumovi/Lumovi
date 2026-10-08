@@ -56,6 +56,12 @@
         "addFromPage": {
           "type": "boolean"
         },
+        "addNamespace": {
+          "type": "string"
+        },
+        "createAddNamespace": {
+          "type": "boolean"
+        },
         "includeThisCluster": {
           "type": "boolean"
         },

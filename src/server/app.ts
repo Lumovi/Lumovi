@@ -26,6 +26,7 @@ import { Joins, type JoinRefusal } from './fleet/joins'
 import { AGENT_JOINED } from './fleet/agents'
 import { FleetSettings } from './fleet/settings'
 import { AddedClusters } from './fleet/added'
+import { addNamespace } from './fleet/secrets'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -113,6 +114,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     ? new AddedClusters(
         options.env,
         config.fleet?.addFromPage ?? false,
+        config.fleet?.addFromPage ? addNamespace(options.env, config.fleet) : undefined,
         state,
         access,
         audit,
@@ -120,6 +122,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         hosted,
       )
     : undefined
+  // Where those are kept, the hub reads only the Secrets it made.
+  hosted.keepAddedWith?.((namespace, name, uid) => added?.keeps(namespace, name, uid) ?? false)
   const fleetSettings = hosted.fleet
     ? new FleetSettings(hosted, clusters, access, audit, (name) => added?.addedOf(name))
     : undefined
@@ -397,6 +401,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       access.close()
       clusters.close()
       joins?.close()
+      added?.close()
       const ending = [...connections]
       hosted.close()
       await assistants.close()

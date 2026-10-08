@@ -17,6 +17,7 @@ interface Secret {
   metadata: {
     name: string
     namespace: string
+    uid?: string
     labels?: Record<string, string>
     annotations?: Record<string, string>
   }
@@ -139,6 +140,10 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
 export const ownNamespace = (env: NodeJS.ProcessEnv): string =>
   readFileSync(join(inCluster(env).source, 'namespace'), 'utf8').trim()
 
+/** Where the clusters added from the Fleet page are kept: a namespace of their own. */
+export const addNamespace = (env: NodeJS.ProcessEnv, config: FleetConfig): string =>
+  config.addNamespace ?? `${ownNamespace(env)}-clusters`
+
 /** A Secret's value, decoded. */
 function decoded(secret: Secret, key: string): string | undefined {
   const value = secret.data?.[key]
@@ -202,53 +207,67 @@ export function hubKubeConfig(env: NodeJS.ProcessEnv): KubeConfig {
 export async function secretClusters(
   env: NodeJS.ProcessEnv,
   config: FleetConfig,
+  /**
+   * Of the Secrets where what's added from the page is kept, those Lumovi made there (others,
+   * whoever wrote them, aren't read), unless LUMOVI_FLEET_SECRETS names that namespace itself.
+   */
+  added: (namespace: string, name: string, uid: string | undefined) => boolean = () => false,
 ): Promise<{ lists: Map<string, FleetCluster[]>; problems: string[] }> {
   const kc = hubKubeConfig(env)
-  const own = ownNamespace(env)
-  // Its own, where what's added from the page is kept, whichever others it reads.
-  const namespaces = config.secretNamespaces
-    ? [...new Set([...config.secretNamespaces, ...(config.addFromPage ? [own] : [])])]
-    : [own]
+  // Each kind it's told, where it's told (or its own namespace); and Lumovi's own where what's
+  // added from the page is kept (that alone, there).
+  const reads = [
+    ...(config.secrets.length
+      ? (config.secretNamespaces ?? [ownNamespace(env)]).flatMap((namespace) =>
+          config.secrets.map((kind) => ({ namespace, kind, onlyAdded: false })),
+        )
+      : []),
+    ...(config.addFromPage
+      ? [{ namespace: addNamespace(env, config), kind: 'lumovi' as const, onlyAdded: true }]
+      : []),
+  ].filter(
+    (read, i, all) =>
+      all.findIndex((r) => r.namespace === read.namespace && r.kind === read.kind) === i,
+  )
   const lists = new Map<string, FleetCluster[]>()
   const problems: string[] = []
-  for (const namespace of namespaces) {
-    for (const kind of config.secrets) {
-      const list = `Secrets for ${kind} in ${namespace}`
-      let secrets: Secret[]
-      try {
-        const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets?labelSelector=${encodeURIComponent(SELECTORS[kind])}`
-        secrets = (
-          JSON.parse(await kubeRequest(kc, path, { timeoutMs: 20_000 })) as { items: Secret[] }
-        ).items
-      } catch (error) {
-        problems.push(`${list} can’t be listed: ${toKubeError(error).message}`)
-        continue
-      }
-      const clusters: FleetCluster[] = []
-      for (const secret of secrets) {
-        const source = `Secret ${namespace}/${secret.metadata.name}`
-        const origin = {
-          kind: 'secret',
-          tool: kind,
-          secret: secret.metadata.name,
-          namespace,
-        } as const
-        try {
-          clusters.push(
-            ...READERS[kind](secret, source).map((cluster) => ({
-              ...cluster,
-              origin: { ...origin, server: cluster.cluster?.server },
-            })),
-          )
-        } catch (error) {
-          clusters.push({
-            ...broken(secret.metadata.name, source, (error as Error).message),
-            origin,
-          })
-        }
-      }
-      lists.set(list, clusters)
+  for (const { namespace, kind, onlyAdded } of reads) {
+    const list = `Secrets for ${kind} in ${namespace}`
+    let secrets: Secret[]
+    try {
+      const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets?labelSelector=${encodeURIComponent(SELECTORS[kind])}`
+      secrets = (
+        JSON.parse(await kubeRequest(kc, path, { timeoutMs: 20_000 })) as { items: Secret[] }
+      ).items
+    } catch (error) {
+      problems.push(`${list} can’t be listed: ${toKubeError(error).message}`)
+      continue
     }
+    const clusters: FleetCluster[] = []
+    for (const secret of secrets) {
+      if (onlyAdded && !added(namespace, secret.metadata.name, secret.metadata.uid)) continue
+      const source = `Secret ${namespace}/${secret.metadata.name}`
+      const origin = {
+        kind: 'secret',
+        tool: kind,
+        secret: secret.metadata.name,
+        namespace,
+      } as const
+      try {
+        clusters.push(
+          ...READERS[kind](secret, source).map((cluster) => ({
+            ...cluster,
+            origin: { ...origin, server: cluster.cluster?.server },
+          })),
+        )
+      } catch (error) {
+        clusters.push({
+          ...broken(secret.metadata.name, source, (error as Error).message),
+          origin,
+        })
+      }
+    }
+    lists.set(list, clusters)
   }
   return { lists, problems }
 }

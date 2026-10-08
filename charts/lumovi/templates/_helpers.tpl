@@ -153,3 +153,8 @@ user, group and fsGroup from the namespace's ranges (auto: where the cluster has
 {{- toYaml .Values.podSecurityContext }}
 {{- end }}
 {{- end }}
+
+{{/* Where a fleet keeps the clusters added on its page: a namespace of their own. */}}
+{{- define "lumovi.addNamespace" -}}
+{{- .Values.fleet.addNamespace | default (printf "%s-clusters" .Release.Namespace) }}
+{{- end }}

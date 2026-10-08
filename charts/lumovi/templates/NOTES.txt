@@ -56,6 +56,11 @@ Its log says when it's connected, and trusted:
 {{- else }}
 {{- if include "lumovi.fleet" . }}
 Lumovi shows a fleet of clusters to whoever signs in{{ if .Values.fleet.includeThisCluster }}, {{ .Values.clusterName }} among them{{ end }}.
+{{- if .Values.fleet.addFromPage }}
+Admins add clusters on the Fleet page by kubeconfig or token: they're kept as Secrets in the namespace
+{{ include "lumovi.addNamespace" . }}, the only one Lumovi may create and delete Secrets in. Uninstalling the release leaves it, with them:
+delete it to let them go.
+{{- end }}
 {{- if .Values.fleet.agentsSecret }}
 
 Agents connect as {{ .Values.fleet.agentsSecret }} lists them. Give each its cluster's caSha256: without

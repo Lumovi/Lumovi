@@ -33,7 +33,7 @@ import type { Hosted } from '../cluster'
 import type { ClusterSettings } from '../cluster-settings'
 import { log } from '../log'
 import type { ServerState } from '../state'
-import { hubKubeConfig, ownNamespace } from './secrets'
+import { hubKubeConfig } from './secrets'
 import { checkedGroups, checkedLabels } from './settings'
 
 /** A cluster added from the page, as kept (by its name): the Secret Lumovi made for it. */
@@ -136,17 +136,48 @@ function signInProblems({ cluster, user }: Read): FleetCheck[] {
   return problems
 }
 
+/** How often what's kept is read again (another replica may have added or removed one). */
+const REFRESH_MS = 10_000
+
+/** Where a namespace's Secrets are, in the API. */
+const secretsPath = (namespace: string) =>
+  `/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets`
+
 export class AddedClusters {
+  readonly #refresher?: NodeJS.Timeout
+
   constructor(
     private readonly env: NodeJS.ProcessEnv,
     /** Whether the server allows it (LUMOVI_FLEET_ADD_FROM_PAGE). */
     private readonly enabled: boolean,
+    /** Where they're kept: a namespace of their own (LUMOVI_FLEET_ADD_NAMESPACE). */
+    private readonly namespace: string | undefined,
     private readonly state: ServerState,
     private readonly access: ServerAccess,
     private readonly audit: AuditLog,
     private readonly clusters: ClusterSettings,
     private readonly hosted: Hosted,
-  ) {}
+  ) {
+    if (enabled && state.kept !== 'memory') {
+      this.#refresher = setInterval(() => void this.#read(), REFRESH_MS)
+      this.#refresher.unref()
+    }
+  }
+
+  close(): void {
+    clearInterval(this.#refresher)
+  }
+
+  /** Whether a Secret is one Lumovi made for a cluster added here: the hub reads those alone. */
+  keeps(namespace: string, name: string, uid: string | undefined): boolean {
+    return this.state
+      .entries<Kept>('added')
+      .some(([, kept]) => kept.namespace === namespace && kept.secret === name && kept.uid === uid)
+  }
+
+  async #read(): Promise<void> {
+    if (this.state.kept !== 'memory') await this.state.refresh('added')
+  }
 
   /** Why `user` may not add clusters here, or nothing when they may. */
   whyNot(user: SessionUser): string | undefined {
@@ -217,7 +248,7 @@ export class AddedClusters {
       const failed = checked.checks.find((check) => check.result === 'bad')
       throw invalid(`It can’t be added: ${failed?.title ?? 'it wasn’t checked'}.`)
     }
-    const namespace = ownNamespace(this.env)
+    const namespace = this.namespace!
     const secret = `lumovi-cluster-${name}`
     const { cluster, user: credentials } = read
     const kubeconfig = {
@@ -253,32 +284,36 @@ export class AddedClusters {
     let uid: string
     try {
       const made = JSON.parse(
-        await kubeRequest(
-          hubKubeConfig(this.env),
-          `/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets`,
-          {
-            method: 'POST',
-            body: {
-              apiVersion: 'v1',
-              kind: 'Secret',
-              metadata: {
-                name: secret,
-                namespace,
-                labels: { 'lumovi.dev/cluster': '', 'app.kubernetes.io/managed-by': 'lumovi' },
-              },
-              type: 'Opaque',
-              data: { kubeconfig: Buffer.from(JSON.stringify(kubeconfig)).toString('base64') },
+        await kubeRequest(hubKubeConfig(this.env), secretsPath(namespace), {
+          method: 'POST',
+          body: {
+            apiVersion: 'v1',
+            kind: 'Secret',
+            metadata: {
+              name: secret,
+              namespace,
+              labels: { 'lumovi.dev/cluster': '', 'app.kubernetes.io/managed-by': 'lumovi' },
             },
-            timeoutMs: CHECK_MS,
+            type: 'Opaque',
+            data: { kubeconfig: Buffer.from(JSON.stringify(kubeconfig)).toString('base64') },
           },
-        ),
+          timeoutMs: CHECK_MS,
+        }),
       ) as { metadata: { uid: string } }
       uid = made.metadata.uid
     } catch (error) {
       const failed = toKubeError(error)
       if (failed.code === 'conflict') {
+        await this.#read()
         throw invalid(
-          `A Secret called ${secret} is in the ${namespace} namespace already: Lumovi doesn’t replace one it didn’t make.`,
+          this.has(name)
+            ? `${name} was added meanwhile, from another of Lumovi’s replicas: it’s in the fleet.`
+            : `A Secret called ${secret} is in the ${namespace} namespace already: Lumovi doesn’t replace one it didn’t make.`,
+        )
+      }
+      if (failed.code === 'not-found') {
+        throw invalid(
+          `The namespace ${namespace}, where the clusters added here are kept, doesn’t exist: the chart makes it (fleet.createAddNamespace), or make it.`,
         )
       }
       throw new KubeRequestError(failed.code, `Its Secret couldn’t be made: ${failed.message}`)
@@ -292,7 +327,21 @@ export class AddedClusters {
       by: user.name,
       at,
     })
-    await this.state.flush({ strict: true })
+    try {
+      await this.state.flush({ strict: true })
+    } catch (error) {
+      // Not kept: its Secret goes too, or it'd be a cluster the page couldn't remove.
+      this.state.delete('added', name)
+      await kubeRequest(
+        hubKubeConfig(this.env),
+        `${secretsPath(namespace)}/${encodeURIComponent(secret)}`,
+        { method: 'DELETE', body: { preconditions: { uid } }, timeoutMs: CHECK_MS },
+      ).catch(() => undefined)
+      throw new KubeRequestError(
+        'server',
+        `It couldn’t be kept, so its Secret was deleted again: ${(error as Error).message}`,
+      )
+    }
     // What the page sets for it is the page's, for this cluster (as any page setting is).
     const setting: FleetSetting = {
       origin: originKey({
@@ -474,6 +523,16 @@ export class AddedClusters {
     } else {
       throw invalid('Give a kubeconfig, or a server, a token and its CA.')
     }
+    // A proxy it's reached through: shown, as it's kept (its server is still checked against its CA).
+    if (read.cluster.proxyUrl) {
+      checks.push({
+        result: 'warn',
+        title: 'It’s reached through a proxy',
+        // Where, never who it signs in to it as.
+        detail: URL.parse(read.cluster.proxyUrl)?.host ?? 'its proxy-url',
+        hint: 'Its server is still checked against its certificate authority, so the proxy sees only where it connects.',
+      })
+    }
     const problems = signInProblems(read)
     if (problems.length) {
       checks.push(...problems)
@@ -531,14 +590,16 @@ export class AddedClusters {
       }
       // (A cluster too old to say who it is.)
     }
-    const may = async (resource: string) => {
+    const may = async (verb: string, resource: string, group?: string) => {
       const review = JSON.parse(
         await kubeRequest(kc, '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', {
           method: 'POST',
           body: {
             apiVersion: 'authorization.k8s.io/v1',
             kind: 'SelfSubjectAccessReview',
-            spec: { resourceAttributes: { verb: 'impersonate', resource } },
+            spec: {
+              resourceAttributes: { verb, resource, ...(group === undefined ? {} : { group }) },
+            },
           },
           timeoutMs: CHECK_MS,
         }),
@@ -548,11 +609,21 @@ export class AddedClusters {
     const who = username ?? 'its user'
     const impersonates = await (async () => {
       try {
-        return (await may('users')) && (await may('groups'))
+        return (await may('impersonate', 'users')) && (await may('impersonate', 'groups'))
       } catch {
         return false
       }
     })()
+    // More than it needs (anything at all, as cluster-admin may): said, not refused.
+    const everything =
+      impersonates &&
+      (await (async () => {
+        try {
+          return await may('*', '*', '*')
+        } catch {
+          return false
+        }
+      })())
     checks.push(
       impersonates
         ? {
@@ -567,6 +638,13 @@ export class AddedClusters {
             hint: `Lumovi acts as whoever signs in, so their own access applies: give ${who} a ClusterRole that may impersonate users and groups, as Lumovi’s chart gives its own.`,
           },
     )
+    if (everything) {
+      checks.push({
+        result: 'warn',
+        title: 'It may do anything there, not only act as each person',
+        hint: 'Lumovi needs only that, and keeps the credentials: a service account that may only impersonate users and groups is safer.',
+      })
+    }
     return done(read)
   }
 }

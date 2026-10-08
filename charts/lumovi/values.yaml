@@ -50,10 +50,17 @@ fleet:
   # Whether this cluster is one of the fleet's (as clusterName).
   includeThisCluster: true
   # Whether admins may add clusters on the Fleet page by pasting a kubeconfig or a token. Each is
-  # kept as a Secret in this release's namespace (labelled lumovi.dev/cluster), so this lets Lumovi
-  # list, create and delete Secrets there, and nowhere else. Off: the hub holds no credentials it
-  # wasn't given here (connecting a cluster with its agent needs none).
+  # kept as a Secret (labelled lumovi.dev/cluster) in a namespace of their own, addNamespace, the
+  # only one where Lumovi may list, create and delete Secrets (never its own namespace). Off: the hub
+  # holds no credentials it wasn't given here (connecting a cluster with its agent needs none).
   addFromPage: false
+  # Where the clusters added on the Fleet page are kept: <release namespace>-clusters unless set.
+  # Lumovi reads there only the Secrets it made (unless secrets and secretNamespaces name it):
+  # someone else's, labelled lumovi.dev/cluster, aren't a cluster.
+  addNamespace: ''
+  # Whether the chart makes that namespace. It's kept when the release is uninstalled, with the
+  # clusters in it (delete it to let them go); unset, it must exist.
+  createAddNamespace: true
   # This cluster's labels in the fleet, like { env: production, region: eu-west }.
   labels: {}
 
