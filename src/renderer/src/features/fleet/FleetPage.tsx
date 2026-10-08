@@ -620,6 +620,12 @@ function CardMenu({
 }) {
   const navigate = useNavigate()
   const { name, title } = context
+  // A dialog it opens has the focus: the ⋯ doesn't take it back, late (it does after the rest).
+  const opening = useRef(false)
+  const open = (dialog: () => void) => () => {
+    opening.current = true
+    dialog()
+  }
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -631,11 +637,19 @@ function CardMenu({
         </IconButton>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={4} className={menuContent}>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          className={menuContent}
+          onCloseAutoFocus={(event) => {
+            if (opening.current) event.preventDefault()
+            opening.current = false
+          }}
+        >
           <DropdownMenu.Item className={menuItem} onSelect={() => navigate(clusterPath(name))}>
             <ArrowRight className="size-4 text-ink-3" /> Open
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={onSettings}>
+          <DropdownMenu.Item className={menuItem} onSelect={open(onSettings)}>
             <Settings2 className="size-4 text-ink-3" /> Settings…
           </DropdownMenu.Item>
           <DropdownMenu.Item
@@ -651,7 +665,10 @@ function CardMenu({
           {onRemove && (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
-              <DropdownMenu.Item className={cn(menuItem, 'text-critical-text')} onSelect={onRemove}>
+              <DropdownMenu.Item
+                className={cn(menuItem, 'text-critical-text')}
+                onSelect={open(onRemove)}
+              >
                 <Trash2 className="size-4" /> Remove from the fleet…
               </DropdownMenu.Item>
             </>
