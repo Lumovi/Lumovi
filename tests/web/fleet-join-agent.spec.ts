@@ -307,8 +307,12 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   await form.getByLabel('Name').fill(EDGE)
   await form.getByRole('textbox', { name: 'Add a label' }).fill('region=ap-south')
   await form.getByRole('textbox', { name: 'Add a label' }).press('Enter')
-  await form.getByRole('textbox', { name: 'Add a group' }).fill('platform')
-  await form.getByRole('textbox', { name: 'Add a group' }).press('Enter')
+  // Enter adds what's typed, as the field has it as it's pressed, and doesn't create the command
+  // (however quickly it follows the typing).
+  const group = form.getByRole('textbox', { name: 'Add a group' })
+  await group.evaluate((input: HTMLInputElement) => (input.value = 'platform'))
+  await group.press('Enter')
+  await expect(form.getByRole('button', { name: 'Remove platform' })).toBeVisible()
   await form.getByRole('button', { name: 'Create the command' }).click()
 
   // Its join token, once, and the command, which asks for it (it's not on the command line).

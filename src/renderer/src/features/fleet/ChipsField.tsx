@@ -51,8 +51,9 @@ export function ChipsField({
 }) {
   const [text, setText] = useState('')
   const [problem, setProblem] = useState<string>()
-  const add = () => {
-    const value = text.trim()
+  // (What's typed, as the field has it now: a key pressed as it's typed is read with it.)
+  const add = (typed: string = text) => {
+    const value = typed.trim()
     if (!value) return
     const error = check(value)
     if (error) {
@@ -63,11 +64,12 @@ export function ChipsField({
     setText('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if ((event.key === 'Enter' || event.key === ',') && text.trim()) {
+    const typed = event.currentTarget.value
+    if ((event.key === 'Enter' || event.key === ',') && typed.trim()) {
       // Enter adds it, not saves (with nothing typed, it saves).
       event.preventDefault()
-      add()
-    } else if (event.key === 'Backspace' && text === '' && values.length > 0) {
+      add(typed)
+    } else if (event.key === 'Backspace' && typed === '' && values.length > 0) {
       onChange(values.slice(0, -1))
     }
   }
@@ -123,7 +125,7 @@ export function ChipsField({
               setProblem(undefined)
             }}
             onKeyDown={onKeyDown}
-            onBlur={add}
+            onBlur={(event) => add(event.currentTarget.value)}
             className={cn(
               'h-5 min-w-28 flex-1 bg-transparent px-1 text-xs text-ink-1 outline-none placeholder:font-sans placeholder:text-xs placeholder:text-ink-3',
               mono && 'font-mono text-2xs',
