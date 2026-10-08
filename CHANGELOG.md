@@ -15,7 +15,8 @@ All notable changes to Lumovi are documented here. The format follows
   read-only again. Each setting carries a count that only grows, so that a running server tells
   its own changes from those made by hand, and replicas that haven't read each other's latest
   don't undo them, whichever reads what first. Entries that don't open with a server's key
-  (another replica's, while keys are rotated) are left as they are for 15 minutes, then let go.
+  (another replica's, while keys are rotated) are left as they are until they've been unchanged
+  for 15 minutes, then let go; anything else there, which no key made, at once.
 
 ### Changed
 
