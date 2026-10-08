@@ -4,8 +4,12 @@
  * after the rest. The person's own files are never written.
  *
  * A credential that runs a program on this computer (an exec plugin, or an auth provider's
- * cmd-path) is shown exactly as it would run, and runs only once the person agrees: neither to
- * check it nor to keep it before then. Kept, it runs as any kubeconfig's does.
+ * cmd-path), or sends a file of it to the server (a token file), is shown exactly as it would
+ * run or what it would send, and is used only once the person agrees to that very thing: neither
+ * to check it nor to keep it before then (the credentials aren't even read until then: a token
+ * file is read as they are). Kept, it's used as any kubeconfig's is.
+ *
+ * The page gets an added cluster's text back with its secrets as placeholders: they stay here.
  */
 import { randomBytes } from 'node:crypto'
 import {
@@ -101,14 +105,22 @@ export class AddedClusters {
             const user = raw.users.find((entry) => entry.name === context.user)?.user
             const server = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
               .server
+            const cluster = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
+            const proxy = cluster?.['proxy-url']
             return {
               name,
               ...(typeof server === 'string' ? { server } : {}),
               ...(context.namespace ? { namespace: context.namespace } : {}),
               auth: authOf(user),
+              // Its credentials would go to a server not verified, or everything through a proxy.
+              ...(cluster?.['insecure-skip-tls-verify'] === true
+                ? { insecure: true as const }
+                : {}),
+              ...(typeof proxy === 'string' ? { proxy } : {}),
             }
           }),
           commands: commandsOf(unique(users)),
+          tokenFiles: tokenFilesOf(unique(users)),
           files: filesOf(raw),
           conflicts: raw.contexts.map(({ name }) => name).filter((name) => taken.has(name)),
         },
@@ -118,18 +130,18 @@ export class AddedClusters {
     }
   }
 
-  /** Whether `context` can be used: its server answers, and (if agreed to) its credentials work. */
-  async check(
-    text: string,
-    context: string,
-    allowCommands: boolean,
-  ): Promise<Result<ClusterCheck>> {
+  /**
+   * Whether `context` can be used: its server answers, and its credentials work, if what they do
+   * here (`agreed`, as inspect gave it) is agreed to.
+   */
+  async check(text: string, context: string, agreed: string[]): Promise<Result<ClusterCheck>> {
     try {
       this.#mayChange()
       const raw = pick(read(text), [context], {}, { contexts: [], clusters: [], users: [] })
       refuseRelative(raw)
-      const kc = this.#kubeConfig(raw)
-      const cluster = kc.getCurrentCluster()!
+      refuseIrregular(raw)
+      // The server without credentials: none read yet.
+      const cluster = this.#kubeConfig({ ...raw, users: [] }).getCurrentCluster()!
 
       // Anyone may ask a server its version, mostly: no credentials, so nothing run yet.
       const anonymous = new KubeConfig()
@@ -160,9 +172,10 @@ export class AddedClusters {
       }
       if (!server.ok)
         return { ok: true, data: { server, credentials: { ok: false, notTried: 'server' } } }
-      if (commandsOf(raw.users).length > 0 && !allowCommands) {
-        return { ok: true, data: { server, credentials: { ok: false, notTried: 'commands' } } }
+      if (unagreed(raw, agreed).length > 0) {
+        return { ok: true, data: { server, credentials: { ok: false, notTried: 'agreement' } } }
       }
+      const kc = this.#kubeConfig(raw)
 
       let credentials: ClusterCheck['credentials']
       try {
@@ -189,7 +202,7 @@ export class AddedClusters {
   /** Kept as a file of Lumovi's own: its contexts (or those named), each named as `names` says. */
   add(
     text: string,
-    options: { contexts?: string[]; names?: Record<string, string>; allowCommands: boolean },
+    options: { contexts?: string[]; names?: Record<string, string>; agreed: string[] },
   ): Result<{ path: string; files: Files }> {
     try {
       this.#mayChange()
@@ -197,7 +210,10 @@ export class AddedClusters {
       const contexts = options.contexts?.length
         ? options.contexts
         : raw.contexts.map(({ name }) => name)
-      const kept = this.#checked(pick(raw, contexts, options.names ?? {}, this.#others()), options)
+      const kept = this.#checked(
+        pick(raw, contexts, options.names ?? {}, this.#others()),
+        options.agreed,
+      )
       mkdirSync(this.deps.folder, { recursive: true, mode: 0o700 })
       // Named after its first context, as it's known.
       const taken = new Set(readdirSync(this.deps.folder))
@@ -210,20 +226,25 @@ export class AddedClusters {
     }
   }
 
+  /** Its text, to edit: its secrets as placeholders, which stay here. */
   read(path: string): Result<string> {
     try {
-      return { ok: true, data: readFileSync(this.#own(path), 'utf8') }
+      return { ok: true, data: written(hidden(read(readFileSync(this.#own(path), 'utf8')))) }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
   }
 
-  /** One of Lumovi's own, written again: checked as when added. */
-  edit(path: string, text: string, allowCommands: boolean): Result<Files> {
+  /**
+   * One of Lumovi's own, written again: checked as when added. A placeholder left as it was keeps
+   * its secret; what it runs or sends, agreed to before, needn't be again.
+   */
+  edit(path: string, text: string, agreed: string[]): Result<Files> {
     try {
       this.#mayChange()
       const own = this.#own(path)
-      const raw = read(text)
+      const stored = read(readFileSync(own, 'utf8'))
+      const raw = restored(read(text), stored)
       const kept = this.#checked(
         pick(
           raw,
@@ -231,7 +252,7 @@ export class AddedClusters {
           {},
           this.#others(own),
         ),
-        { allowCommands },
+        [...agreed, ...consentsOf(stored.users)],
       )
       // Whole or not at all: written beside it, then put in its place.
       const next = `${own}.${randomBytes(3).toString('hex')}.tmp`
@@ -285,18 +306,21 @@ export class AddedClusters {
     }
   }
 
-  /** What's to be kept, if it can be: what it runs agreed to, and every file it names whole. */
-  #checked(raw: Raw, { allowCommands }: { allowCommands: boolean }): Raw {
+  /**
+   * What's to be kept, if it can be: what it runs or sends agreed to, every file it names whole
+   * and a file, and read as anything that reads it will.
+   */
+  #checked(raw: Raw, agreed: string[]): Raw {
     refuseRelative(raw)
-    const commands = commandsOf(raw.users)
-    if (commands.length > 0 && !allowCommands) {
+    refuseIrregular(raw)
+    const needed = unagreed(raw, agreed)
+    if (needed.length > 0) {
       throw new KubeRequestError(
         'not-allowed',
-        `Its credentials run ${commands.map(({ line }) => line).join(', ')} on this computer. Agree to that to keep it.`,
+        `Its credentials ${needed.join(', and ')} Agree to that to keep it.`,
         403,
       )
     }
-    // As anything that reads it will.
     this.#kubeConfig(raw)
     return raw
   }
@@ -385,9 +409,9 @@ function read(text: string): Raw {
 }
 
 /**
- * Those contexts, each named as `names` says, with their clusters and users named after them
- * (not to be taken for those of the same name read before, as kubectl would). Refused if a
- * context's name is taken.
+ * Those contexts, each named as `names` says, with their clusters and users named as nothing
+ * else is (not to be taken for those of the same name read before or after, as kubectl would:
+ * the person sees only the context's). Refused if a context's name is taken.
  */
 function pick(raw: Raw, contexts: string[], names: Record<string, string>, others: Raw): Raw {
   const taken = {
@@ -412,7 +436,7 @@ function pick(raw: Raw, contexts: string[], names: Record<string, string>, other
         `“${name}” is on cluster “${found.context.cluster}”, which it doesn’t have.`,
       )
     }
-    const clusterName = free(as, taken.clusters)
+    const clusterName = unnamed(taken.clusters)
     kept.clusters.push({ name: clusterName, cluster: cluster.cluster })
 
     let userName: string | undefined
@@ -424,7 +448,7 @@ function pick(raw: Raw, contexts: string[], names: Record<string, string>, other
           `“${name}” signs in as “${found.context.user}”, which it doesn’t have.`,
         )
       }
-      userName = free(as, taken.users)
+      userName = unnamed(taken.users)
       kept.users.push({ name: userName, user: user.user })
     }
     kept.contexts.push({
@@ -439,6 +463,15 @@ function pick(raw: Raw, contexts: string[], names: Record<string, string>, other
     )
   }
   return kept
+}
+
+/** A name for a cluster or user no kubeconfig of the person's will have; then taken. */
+function unnamed(taken: Set<string>): string {
+  let name: string
+  do name = `lumovi-${randomBytes(6).toString('hex')}`
+  while (taken.has(name))
+  taken.add(name)
+  return name
 }
 
 /** `name`, or the first `name-N` not taken; then taken. */
@@ -489,25 +522,134 @@ function commandsOf(users: Raw['users']): CredentialCommand[] {
             value: String(variable.value ?? ''),
           }))
         : []
-      commands.push({
-        user: name,
-        line: [String(exec.command ?? ''), ...args].map(quoted).join(' '),
-        env,
-      })
+      const line = [String(exec.command ?? ''), ...args].map(quoted).join(' ')
+      commands.push({ user: name, line, env, consent: consent('run', line, env) })
     }
     // GCP's and Azure's run their cmd-path through a shell, with cmd-args as written.
     const cmdPath = provider?.config?.['cmd-path']
     if ((provider?.name === 'gcp' || provider?.name === 'azure') && cmdPath) {
       const args = provider.config?.['cmd-args']
-      commands.push({
-        user: name,
-        line: `"${String(cmdPath)}"${args ? ` ${String(args)}` : ''}`,
-        shell: true,
-        env: [],
-      })
+      const line = `"${String(cmdPath)}"${args ? ` ${String(args)}` : ''}`
+      commands.push({ user: name, line, shell: true, env: [], consent: consent('shell', line) })
     }
     return commands
   })
+}
+
+/** The files on this computer whose text these users' credentials send to the server. */
+function tokenFilesOf(users: Raw['users']): PastedKubeconfig['tokenFiles'] {
+  return users.flatMap(({ name, user }) => {
+    const provider = user['auth-provider'] as { config?: Record<string, unknown> } | undefined
+    return [user['token-file'], user.tokenFile, provider?.config?.tokenFile]
+      .filter((path): path is string => typeof path === 'string' && !!path)
+      .map((path) => ({ user: name, path, consent: consent('send', path) }))
+  })
+}
+
+/** What's agreed to, when it is: one thing a credential does here, exactly as it was shown. */
+function consent(...what: unknown[]): string {
+  return JSON.stringify(what)
+}
+
+/** All these users' credentials do here that's agreed to first. */
+function consentsOf(users: Raw['users']): string[] {
+  return [...commandsOf(users), ...tokenFilesOf(users)].map(({ consent }) => consent)
+}
+
+/** What its credentials do here that isn't agreed to, as said to the person. */
+function unagreed(raw: Raw, agreed: string[]): string[] {
+  return [
+    ...commandsOf(raw.users)
+      .filter(({ consent }) => !agreed.includes(consent))
+      .map(({ line }) => `run ${line} on this computer.`),
+    ...tokenFilesOf(raw.users)
+      .filter(({ consent }) => !agreed.includes(consent))
+      .map(({ path }) => `send ${path} to its server.`),
+  ]
+}
+
+/** Where a user's secrets are, and what the page gets in their place. */
+const SECRETS = [
+  ['token'],
+  ['password'],
+  ['client-key-data'],
+  ['auth-provider', 'config', 'id-token'],
+  ['auth-provider', 'config', 'refresh-token'],
+  ['auth-provider', 'config', 'access-token'],
+  ['auth-provider', 'config', 'client-secret'],
+]
+const KEPT = '(kept by Lumovi)'
+
+/** `at` in `value`, if it's there. */
+function dig(value: unknown, at: string[]): unknown {
+  return at.reduce<unknown>(
+    (inside, key) =>
+      typeof inside === 'object' && inside !== null
+        ? (inside as Record<string, unknown>)[key]
+        : undefined,
+    value,
+  )
+}
+
+/** `at` in `value` set to `to` (where what holds it is there). */
+function put(value: Record<string, unknown>, at: string[], to: unknown): void {
+  const holder = dig(value, at.slice(0, -1))
+  if (typeof holder === 'object' && holder !== null) {
+    ;(holder as Record<string, unknown>)[at.at(-1)!] = to
+  }
+}
+
+/** Its users' secrets as placeholders. */
+function hidden(raw: Raw): Raw {
+  const users = raw.users.map(({ name, user }) => {
+    const copy = structuredClone(user)
+    for (const at of SECRETS) if (dig(copy, at) !== undefined) put(copy, at, KEPT)
+    return { name, user: copy }
+  })
+  return { ...raw, users }
+}
+
+/** Each placeholder left in `edited` as the secret `stored` keeps for it (by user, and where). */
+function restored(edited: Raw, stored: Raw): Raw {
+  const users = edited.users.map(({ name, user }) => {
+    const copy = structuredClone(user)
+    for (const at of SECRETS) {
+      if (dig(copy, at) !== KEPT) continue
+      const secret = dig(stored.users.find((entry) => entry.name === name)?.user, at)
+      if (typeof secret !== 'string') {
+        throw new KubeRequestError(
+          'invalid',
+          `“${name}”’s ${at.at(-1)} is ${KEPT} under another user: paste it again.`,
+        )
+      }
+      put(copy, at, secret)
+    }
+    return { name, user: copy }
+  })
+  return { ...edited, users }
+}
+
+/**
+ * Refused if a file it names isn't one, or is larger than any of its kind (a device's would be
+ * read for ever).
+ */
+function refuseIrregular(raw: Raw): void {
+  for (const file of filesOf(raw)) {
+    let stat
+    try {
+      stat = statSync(file)
+    } catch {
+      throw new KubeRequestError('invalid', `It names ${file}, which isn’t there.`)
+    }
+    if (!stat.isFile())
+      throw new KubeRequestError('invalid', `It names ${file}, which isn’t a file.`)
+    if (stat.size > MAX_TEXT) {
+      throw new KubeRequestError(
+        'invalid',
+        `It names ${file}, which is larger than any such file (over 1 MB).`,
+      )
+    }
+  }
 }
 
 /** The files on this computer these connections read. */
@@ -560,7 +702,10 @@ function quoted(word: string): string {
 
 /**
  * For a terminal here: POSIX shells', or PowerShell's on Windows; each path in the home folder
- * from `$HOME`, so it reads as it would be typed.
+ * from `$HOME`, so it reads as it would be typed. Nothing in a path is read as more than its
+ * text: in single quotes for POSIX shells (where a double-quoted `!` is history, in bash and
+ * zsh), and in double quotes with what ends or reads into them escaped for PowerShell (its
+ * curly quotes too).
  */
 export function kubeconfigLine(
   paths: string[],
@@ -568,18 +713,32 @@ export function kubeconfigLine(
   home = homedir(),
 ): string {
   const windows = platform === 'win32'
-  // In double quotes, as each shell reads them.
-  const escaped = (text: string) =>
-    windows ? text.replace(/[`"$]/g, '`$&') : text.replace(/[\\"$`]/g, '\\$&')
-  const value = paths
-    .map((path) =>
-      path.startsWith(home + (windows ? '\\' : '/'))
-        ? `$HOME${escaped(path.slice(home.length))}`
-        : escaped(path),
-    )
-    .join(windows ? ';' : ':')
-  return windows ? `$env:KUBECONFIG = "${value}"` : `export KUBECONFIG="${value}"`
+  const parts = paths.flatMap((path, index) => {
+    const separator = index > 0 ? [windows ? ';' : ':'] : []
+    return path.startsWith(home + (windows ? '\\' : '/'))
+      ? [...separator, HOME, path.slice(home.length)]
+      : [...separator, path]
+  })
+  if (windows) {
+    const text = parts
+      .map((part) => (part === HOME ? '$HOME' : part.replace(/[`"$“”„]/g, '`$&')))
+      .join('')
+    return `$env:KUBECONFIG = "${text}"`
+  }
+  // Runs of text, each in single quotes; $HOME, in double.
+  const runs: string[] = []
+  for (const part of parts) {
+    if (part === HOME || runs.length === 0 || runs.at(-1) === HOME) runs.push(part)
+    else runs[runs.length - 1] += part
+  }
+  const text = runs
+    .map((run) => (run === HOME ? '"$HOME"' : `'${run.replaceAll("'", `'\\''`)}'`))
+    .join('')
+  return `export KUBECONFIG=${text}`
 }
+
+/** Where `$HOME` goes in a line's parts. */
+const HOME = Symbol('home') as unknown as string
 
 /** A file's name from a context's: letters, digits and dashes. */
 function slug(name: string): string {

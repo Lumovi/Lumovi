@@ -67,10 +67,10 @@ const api: LumoviApi = {
   addedClusters: {
     import: () => invoke(IPC.addedImport),
     inspect: (text) => invoke(IPC.addedInspect, text),
-    check: (text, context, allowCommands) => invoke(IPC.addedCheck, text, context, allowCommands),
+    check: (text, context, agreed) => invoke(IPC.addedCheck, text, context, agreed),
     add: (text, options) => invoke(IPC.addedAdd, text, options),
     read: (path) => invoke(IPC.addedRead, path),
-    edit: (path, text, allowCommands) => invoke(IPC.addedEdit, path, text, allowCommands),
+    edit: (path, text, agreed) => invoke(IPC.addedEdit, path, text, agreed),
     remove: (path) => invoke(IPC.addedRemove, path),
     forKubectl: (path) => invoke(IPC.addedForKubectl, path),
   },
