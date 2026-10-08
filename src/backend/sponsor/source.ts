@@ -13,8 +13,11 @@ import { join } from 'node:path'
 import { LUMOVI_CARD, type SponsorCard, type SponsorPicture } from '@shared/sponsor'
 import { checkFile, checkPicture, endOf, LIMITS, type Picture, type SponsorFile } from './rules'
 
-/** Lumovi/main-sponsor's main branch, as GitHub serves its files. */
-export const SPONSOR_REPO = 'https://raw.githubusercontent.com/Lumovi/main-sponsor/main/'
+/**
+ * Lumovi/main-sponsor's main branch, as GitHub serves its files: named in full, since a tag
+ * called main would come before the branch.
+ */
+export const SPONSOR_REPO = 'https://raw.githubusercontent.com/Lumovi/main-sponsor/refs/heads/main/'
 
 /** How often it's read again, while Lumovi runs: a change shows within this. */
 export const SPONSOR_EVERY_MS = 60 * 60_000
@@ -43,17 +46,19 @@ const QUICKEST_MS = 1_000
  * LUMOVI_SPONSOR_REFRESH_MS says. Never anywhere else, and never an off switch.
  */
 export function sponsorSource(env: NodeJS.ProcessEnv): { base: string; everyMs: number } {
-  const given = LUMOVI_TEST_BUILD ? URL.parse(env.LUMOVI_SPONSOR_URL ?? '') : null
+  const github = { base: SPONSOR_REPO, everyMs: SPONSOR_EVERY_MS }
+  // (A release build ends here: what follows, and the variables it reads, are left out of it.)
+  if (!LUMOVI_TEST_BUILD) return github
+  const given = URL.parse(env.LUMOVI_SPONSOR_URL ?? '')
   const local =
     given !== null &&
     (given.protocol === 'http:' || given.protocol === 'https:') &&
     ['127.0.0.1', 'localhost', '[::1]'].includes(given.hostname)
-  return local
-    ? {
-        base: new URL('./', given).href,
-        everyMs: Math.max(QUICKEST_MS, Number(env.LUMOVI_SPONSOR_REFRESH_MS) || SPONSOR_EVERY_MS),
-      }
-    : { base: SPONSOR_REPO, everyMs: SPONSOR_EVERY_MS }
+  if (!local) return github
+  return {
+    base: new URL('./', given).href,
+    everyMs: Math.max(QUICKEST_MS, Number(env.LUMOVI_SPONSOR_REFRESH_MS) || SPONSOR_EVERY_MS),
+  }
 }
 
 export interface SponsorOptions {
@@ -92,8 +97,9 @@ export class SponsorSource {
   /** When a sponsor's `until` ends. */
   #expiry?: NodeJS.Timeout
   #stopped = false
-  /** What was kept last, so the same isn't written again. */
+  /** What was kept last, so the same isn't written again; and the write under way. */
   #kept?: string
+  #writing = Promise.resolve()
 
   constructor(private readonly options: SponsorOptions) {
     this.#loaded = this.#load()
@@ -148,7 +154,7 @@ export class SponsorSource {
     // (Not asked whether it changed: its pictures are, each time.)
     const got = await this.#get('sponsor.json', LIMITS.fileBytes)
     if (got === 'unreachable' || got === 'same') return false
-    const text = got === 'wrong' ? undefined : new TextDecoder().decode(got.bytes)
+    const text = got === 'wrong' ? undefined : utf8(got.bytes)
     const checked = text === undefined ? undefined : checkFile(text)
     const file = checked?.ok ? checked.value : undefined
     const names =
@@ -158,7 +164,7 @@ export class SponsorSource {
     this.#text = file && text
     this.#file = file
     this.#update()
-    await this.#keep()
+    this.#keep()
     return answered.every(Boolean)
   }
 
@@ -243,8 +249,11 @@ export class SponsorSource {
     }
   }
 
-  /** What was read last, for the next start: in one file, replaced whole. */
-  async #keep(): Promise<void> {
+  /**
+   * What was read last, for the next start: in one file, replaced whole, one write at a time. Never
+   * waited for: a slow disk (a virus scanner looking at each write) doesn't hold up the next read.
+   */
+  #keep(): void {
     const { dir } = this.options
     if (!dir) return
     const kept: Kept = {
@@ -257,16 +266,18 @@ export class SponsorSource {
       ),
     }
     const json = JSON.stringify(kept)
-    if (json === this.#kept) return
-    try {
-      await mkdir(dir, { recursive: true })
-      const file = join(dir, KEPT)
-      await writeFile(`${file}.new`, json)
-      await rename(`${file}.new`, file)
-      this.#kept = json
-    } catch {
-      // Read again next time.
-    }
+    this.#writing = this.#writing.then(async () => {
+      if (json === this.#kept) return
+      try {
+        await mkdir(dir, { recursive: true })
+        const file = join(dir, KEPT)
+        await writeFile(`${file}.new`, json)
+        await rename(`${file}.new`, file)
+        this.#kept = json
+      } catch {
+        // Read again next time.
+      }
+    })
   }
 
   /** What was kept last time, checked again as if just read: anything wrong in it is dropped. */
@@ -316,6 +327,15 @@ function shown({ bytes, picture }: Read): SponsorPicture {
   const url = (data: Uint8Array) =>
     `data:${picture.type};base64,${Buffer.from(data).toString('base64')}`
   return { src: url(bytes), ...(picture.still ? { still: url(picture.still) } : {}) }
+}
+
+/** Text that's UTF-8 throughout, or nothing (never with what isn't turned into U+FFFD). */
+function utf8(bytes: Uint8Array): string | undefined {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return undefined
+  }
 }
 
 /** A response's body, unless it's longer than `max` bytes (then it's not read on). */

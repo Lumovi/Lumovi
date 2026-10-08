@@ -107,8 +107,8 @@ export interface MockSponsor {
   url: string
   /** The files it serves, by name: sponsor.json and the pictures. */
   files: Map<string, string | Buffer>
-  /** What it was asked, oldest first. */
-  requests: { path: string; headers: IncomingHttpHeaders }[]
+  /** What it was asked, oldest first: when, and how it answered (0: it dropped the connection). */
+  requests: { path: string; headers: IncomingHttpHeaders; at: number; status?: number }[]
   /** How it fails: answering with an error (500), or not at all (the connection dropped). */
   fail?: 'error' | 'drop'
   /** Serves Acme's card, in light and dark. */
@@ -138,8 +138,11 @@ export async function startMockSponsor(): Promise<MockSponsor> {
   }
   const server = createServer((req, res) => {
     const path = new URL(req.url!, 'http://localhost').pathname
-    mock.requests.push({ path, headers: req.headers })
+    const request: MockSponsor['requests'][number] = { path, headers: req.headers, at: Date.now() }
+    mock.requests.push(request)
+    res.on('finish', () => (request.status = res.statusCode))
     if (mock.fail === 'drop') {
+      request.status = 0
       req.socket.destroy()
       return
     }
