@@ -23,6 +23,7 @@ import { isPort } from '@shared/assistants'
 import { checkedDecision } from '@backend/mcp/approvals'
 import type { SponsorSource } from '@backend/sponsor/source'
 import type { Assistants } from './assistants'
+import type { KubeconfigFiles } from './kubeconfig-files'
 import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
@@ -30,6 +31,8 @@ import type { Updates } from './updates'
 
 interface Dependencies extends Backend {
   assistants: Assistants
+  /** The kubeconfig files read: chosen here, or KUBECONFIG's. */
+  kubeconfigFiles: KubeconfigFiles
   settings: SettingsStore
   local: LocalTerminals
   terminalKeys: TerminalKeys
@@ -49,6 +52,7 @@ interface Dependencies extends Backend {
 export function registerIpc(deps: Dependencies): void {
   const {
     assistants,
+    kubeconfigFiles,
     helm,
     settings,
     terminals,
@@ -117,6 +121,20 @@ export function registerIpc(deps: Dependencies): void {
       } catch (error) {
         return { ok: false, error: toKubeError(error) }
       }
+    },
+    [IPC.kubeconfigFiles]: () => kubeconfigFiles.list(),
+    [IPC.kubeconfigChoose]: (how) => {
+      if (how !== 'replace' && how !== 'add') throw invalid('how must be replace or add')
+      return kubeconfigFiles.choose(how)
+    },
+    [IPC.kubeconfigRemove]: (path) => {
+      assertString(path, 'path')
+      return kubeconfigFiles.remove(path)
+    },
+    [IPC.kubeconfigUseDefault]: () => kubeconfigFiles.useDefault(),
+    [IPC.kubeconfigShow]: (path) => {
+      assertString(path, 'path')
+      kubeconfigFiles.show(path)
     },
     [IPC.helmChoose]: async (kind) => {
       const archive = kind === 'archive'
