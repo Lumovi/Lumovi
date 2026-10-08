@@ -1,6 +1,6 @@
 apiVersion: v2
 name: lumovi
-description: A fast, beautiful Kubernetes dashboard, served from your cluster to everyone who signs in.
+description: A calm, fast Kubernetes dashboard, on your desktop or in your cluster.
 type: application
 # Released with Lumovi itself: the chart's version is the app's.
 version: 1.15.0
