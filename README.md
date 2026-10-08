@@ -8,7 +8,7 @@
 <br />
 <br />
 
-**A beautiful, fast Kubernetes dashboard. On your desktop, or in your cluster.**
+**A calm, fast Kubernetes dashboard, on your desktop or in your cluster.**
 
 See what's healthy, what's struggling and where your capacity goes, and fix things safely
 when they need it. Use it as a desktop app for every cluster in your kubeconfig, or host it
