@@ -391,24 +391,26 @@ const FINGERPRINT_COMMAND =
   "kubectl get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\\.crt}' | openssl x509 -noout -fingerprint -sha256"
 
 /**
- * For an admin: agents whose certificate authority needs them, either refused (not the one it's
+ * For an admin (anyone, where Lumovi has none): agents whose certificate authority needs them, either refused (not the one it's
  * trusted with) or trusted as it was first sent, which nobody has checked. Either is trusted only
  * with the SHA-256 they give, from the agent's cluster itself: what the agent says isn't enough,
  * as whoever has its token could say it.
  */
 function AgentsToCheck() {
   const mine = useMyAccess()
+  // Lumovi's admins: or anyone signed in, where it has none (as for the clusters' settings).
+  const may = Boolean(mine && (mine.admin || mine.admins.length === 0))
   const agents = useQuery({
     queryKey: ['fleet-agents'],
     queryFn: () => api.fleet!.agents(),
-    enabled: Boolean(mine?.admin),
+    enabled: may,
     refetchInterval: REFRESH_MS,
   })
   const [asking, setAsking] = useState<string>()
   const toCheck = (agents.data ?? []).filter(
     (agent) => !agent.named && agent.connected && (agent.refused || agent.unconfirmed),
   )
-  if (!mine?.admin || toCheck.length === 0) return null
+  if (!may || toCheck.length === 0) return null
   return (
     <section
       aria-label="Agents to check"

@@ -75,8 +75,14 @@ function certificatesOf(bundle: string): { pem: string; sha256: string }[] {
   })
 }
 
-/** SHA-256s as people compare them: the start of each. */
-const shown = (sha256s: string[]) => sha256s.map((sha256) => `${sha256.slice(0, 16)}…`).join(', ')
+/**
+ * A SHA-256 as a page shows it: its start, enough to tell two apart, never all of it. All of what
+ * an agent sends, shown where its trust is asked for, could be given back as if it were its
+ * cluster's: whoever has its token chooses what it sends. Whole, they're in the hub's log and
+ * the audit log.
+ */
+export const prefix = (sha256: string) => `${sha256.slice(0, 8)}…`
+const prefixes = (sha256s: string[]) => sha256s.map(prefix).join(', ')
 
 export class Agents {
   readonly #connected = new Map<string, Connected>()
@@ -115,8 +121,8 @@ export class Agents {
       return {
         name: config.name,
         connected: Boolean(connected?.hello),
-        sent: connected?.hello ? this.#sent(connected).map((c) => c.sha256) : [],
-        trusted: config.caSha256 ?? pin?.ca ?? [],
+        sent: connected?.hello ? this.#sent(connected).map((c) => prefix(c.sha256)) : [],
+        trusted: (config.caSha256 ?? pin?.ca ?? []).map(prefix),
         named: Boolean(config.caSha256),
         unconfirmed: !config.caSha256 && Boolean(pin) && !pin?.confirmed,
         refused: Boolean(connected?.trusted && 'refused' in connected.trusted),
@@ -151,7 +157,7 @@ export class Agents {
     if (!sent.includes(sha256)) {
       throw new KubeRequestError(
         'invalid',
-        `${name}’s agent doesn’t send a certificate authority with that SHA-256: it sends ${sent.join(', ') || 'none Lumovi can read'}.`,
+        `${name}’s agent doesn’t send a certificate authority with that SHA-256: it sends ${prefixes(sent) || 'none Lumovi can read'}.`,
       )
     }
     const was = this.#trust?.state.get<Pin>('agents', name)?.ca ?? []
@@ -322,7 +328,7 @@ export class Agents {
           details: { sha256: trusted },
         })
         log(
-          `Trusting the certificate authority the agent of ${name} first sent (SHA-256 ${shown(trusted)})`,
+          `Trusting the certificate authority the agent of ${name} first sent (SHA-256 ${trusted.join(', ')})`,
         )
       }
     }
@@ -336,7 +342,7 @@ export class Agents {
     }
     const sha256s = sent.map((c) => c.sha256)
     const what = sent.length
-      ? `a certificate authority (SHA-256 ${shown(sha256s)})`
+      ? `a certificate authority (SHA-256 ${prefixes(sha256s)})`
       : 'no certificate authority Lumovi can read'
     const refused = config.caSha256
       ? `Its agent sent ${what} other than the one LUMOVI_FLEET_AGENTS names for it.`
@@ -354,7 +360,7 @@ export class Agents {
       details: { sha256: sha256s },
       error: refused,
     })
-    log(`The agent of ${name}: ${refused}`)
+    log(`The agent of ${name}: ${refused} (It sent ${sha256s.join(', ') || 'nothing readable'}.)`)
     connected.tunnel.say({ type: 'refused', message: refused })
   }
 }
