@@ -36,6 +36,7 @@
     "start": "electron-vite preview",
     "serve": "node out/server/index.js",
     "screenshots": "npm run build && node scripts/screenshots/index.ts",
+    "screenshots:stop": "node scripts/screenshots/clusters.ts stop",
     "dev:server": "node scripts/dev-server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint .",

@@ -41,6 +41,7 @@ npm run dev:server -- --fleet # a fleet of the demo clusters, signed in to as Al
 | `npm run package`                       | Build an unpacked app for this platform in `release/`         |
 | `npm run dist`                          | Build installers for this platform                            |
 | `npm run screenshots`                   | Take the screenshots in `docs/screenshots` again              |
+| `npm run screenshots:stop`              | Stop the screenshots' mock clusters, where a run left them    |
 
 ## How it's built
 

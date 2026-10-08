@@ -123,6 +123,14 @@ changed in a pull request. Taking them on another kind of machine changes every 
 drawn a little differently. To add a screen, describe it in `scripts/screenshots/screens.ts`:
 its name (keep it once published), what it shows, where it starts, and what to do there.
 
+The mock clusters answer on ports 46443 to 46446, the addresses the screenshots show, and a
+second run at the same time can't have them: it stops at once and says which run has them. To
+run them beside another (to check something while screenshots are taken, say), give the first of
+four other ports, `LUMOVI_MOCK_CLUSTER_PORTS=47443`, or `free` for any, and the addresses on
+screen differ. A run stops when whatever started it does; `npm run screenshots:stop` stops any
+left behind (each leaves a note of itself in `lumovi-mock-clusters`, in the system's temporary
+folder, while it runs).
+
 ## Releasing (maintainers)
 
 Releases are automatic: a version is released once it reaches `main` and CI passes. Versions
