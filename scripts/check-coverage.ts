@@ -3,14 +3,15 @@
  * than 95% of statements, branches, functions and lines must run.
  *
  * Reads the raw coverage in `.nyc_output/` (from one or several test runs, e.g.
- * the Linux, macOS and Windows CI jobs), lists exactly what wasn't run, and exits
- * non-zero if a file was never loaded, or any measure is 95% or less.
+ * the Linux, macOS and Windows CI jobs), or the files given (CI's: the report's
+ * one merged file), lists exactly what wasn't run, and exits non-zero if a file
+ * was never loaded, or any measure is 95% or less.
  */
 import { globSync, readFileSync } from 'node:fs'
 import libCoverage from 'istanbul-lib-coverage'
 
 const map = libCoverage.createCoverageMap({})
-const files = globSync('.nyc_output/**/*.json')
+const files = process.argv.length > 2 ? process.argv.slice(2) : globSync('.nyc_output/**/*.json')
 if (files.length === 0) {
   console.error('No coverage found in .nyc_output/. Run `npm run test:e2e` first.')
   process.exit(1)

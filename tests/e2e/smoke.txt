@@ -1,0 +1,10 @@
+# What macOS runs on a pull request that changes nothing macOS does differently (see
+# scripts/ci-changes.ts): the app starts, and its window, menus, terminals and updates work.
+# Main, and every release, run everything on macOS too.
+[desktop] › tests/e2e/welcome.spec.ts
+[desktop] › tests/e2e/app.spec.ts
+[desktop] › tests/e2e/terminal.spec.ts
+[desktop] › tests/e2e/shell.spec.ts
+[desktop] › tests/e2e/updates.spec.ts
+[desktop] › tests/e2e/overview.spec.ts
+[desktop] › tests/e2e/workloads.spec.ts
