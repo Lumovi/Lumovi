@@ -7,7 +7,9 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { WebSocket } from 'ws'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { WebSocket, WebSocketServer } from 'ws'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import type { TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { audited, expect, freePort, inCluster, startAgent, test } from './fixtures.ts'
@@ -293,6 +295,7 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   expect(token).toMatch(/^lumovi_join_/)
   const command = (await dialog.locator('code').nth(1).textContent())!
   expect(command).toContain('read -rs LUMOVI_JOIN_TOKEN')
+  expect(command).toContain('helm install lumovi oci://ghcr.io/lumovi/charts/lumovi')
   expect(command).toContain(`--set mode=agent --set clusterName=${EDGE}`)
   expect(command).toContain(`--set agent.hubUrl=${hub.url.replace(/\/$/, '')}`)
   expect(command).toContain('--set-file agent.joinToken=/dev/stdin')
@@ -347,4 +350,40 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   expect(audited(hub, 'agent.join-cancelled')).toEqual([
     expect.objectContaining({ cluster: 'lab' }),
   ])
+})
+
+test('an agent refused just after it joined (by a replica behind) tries again, not stops', async ({
+  clusters,
+}) => {
+  // A hub that gives a token for the join token, then doesn't know it twice, as a replica that
+  // hasn't read it yet wouldn't.
+  const seen: string[] = []
+  const sockets = new WebSocketServer({ noServer: true })
+  const hub = createServer()
+  hub.on('upgrade', (req, socket, head) => {
+    const joining = req.headers['lumovi-join'] === '1'
+    seen.push(joining ? 'join' : 'token')
+    if (!joining) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      return
+    }
+    sockets.handleUpgrade(req, socket, head, (ws) =>
+      ws.send(JSON.stringify({ type: 'credential', token: 'lumovi_agent_given' }), () =>
+        ws.close(4202, 'Connect with the credential you were given.'),
+      ),
+    )
+  })
+  await new Promise<void>((done) => hub.listen(0, '127.0.0.1', done))
+  const url = `http://127.0.0.1:${(hub.address() as AddressInfo).port}/`
+  agentSecret(clusters, { 'join-token': 'lumovi_join_given' })
+  const agent = agentOf(url, clusters, { LUMOVI_AGENT_JOIN_TOKEN: 'lumovi_join_given' })
+  try {
+    await expect.poll(() => seen).toEqual(['join', 'token', 'token'])
+    expect(kept(clusters).token).toBe('lumovi_agent_given')
+    expect(agent.log()).toContain('Connecting again in 2 s')
+    expect(agent.log()).not.toContain('refused this agent')
+  } finally {
+    await agent.stop()
+    hub.close()
+  }
 })
