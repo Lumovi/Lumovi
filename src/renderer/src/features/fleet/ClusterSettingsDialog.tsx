@@ -152,7 +152,8 @@ function SettingsForm({
         </DialogIcon>
       }
       title={shown}
-      subtitle={`Comes from ${originText(settings.origin)}`}
+      // (Added from here: its box names the Secret it's kept as.)
+      subtitle={`Comes from ${settings.added ? 'this page' : originText(settings.origin)}`}
       top="top-[7vh]"
       error={error}
       onSubmit={() => void save()}
