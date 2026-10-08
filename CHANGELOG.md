@@ -13,11 +13,12 @@ policy can require them from its mirror too.
 
 ### Added
 
-- On a server, a cluster's read-only turned off (or on) where the server keeps it, outside
-  Lumovi, by deleting its setting or putting an older copy back, is recorded in the audit log
-  (`read-only.changed`, as changed outside Lumovi), and Lumovi's admins see it on the cluster's
-  pages until one of them sets it again. Each setting counts Lumovi's own changes, so that a
-  running server tells them from those made by hand.
+- On a server, a cluster's settings changed where the server keeps them, outside Lumovi (its
+  setting deleted, or an older copy put back), are recorded in the audit log, and the stricter
+  is kept: read-only if either was, and its node shells and metrics source as Lumovi last set
+  them. Lumovi's admins see it on the cluster's pages, on every replica, until one of them sets
+  read-only again. Each setting carries a count that only grows, so that a running server tells
+  its own changes from those made by hand.
 - A policy can require Kubernetes' signature from its mirror too,
   `"kubectlSignatures": "required"`: a mirror's kubectl is then used only with it, as
   dl.k8s.io's always is, and a terminal says when its mirror keeps none. One taken unsigned

@@ -75,7 +75,7 @@ export function useReadOnly() {
     shared,
     by,
     /** Changed outside Lumovi, where the server keeps it: shown to those who may set it. */
-    outside: settings?.readOnlyChangedOutside?.[context],
+    outside: settings?.changedOutside?.[context],
     mayChange: !locked && settings?.shared?.mayChange !== false,
     why: by
       ? `Changes are turned off for this cluster: ${by.by} made it read-only for everyone.`

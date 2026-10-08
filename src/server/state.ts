@@ -76,6 +76,11 @@ interface Change {
   section: Section
   key: string
   value?: unknown
+  /**
+   * What it is over the entry as another wrote it meanwhile (a write that met theirs reads it
+   * again): its value made again from theirs, not from what this server had read.
+   */
+  rebase?: (current: unknown) => unknown
 }
 
 /** How long after a change it's written: changes made together are written together. */
@@ -202,9 +207,10 @@ export class ServerState {
     return reading
   }
 
-  set(section: Section, key: string, value: unknown): void {
+  /** `rebase` makes it again over another's write, if one met it (see Change). */
+  set(section: Section, key: string, value: unknown, rebase?: (current: unknown) => unknown): void {
     this.#open.get(section)!.set(key, value)
-    this.#change({ section, key, value })
+    this.#change({ section, key, value, ...(rebase ? { rebase } : {}) })
   }
 
   delete(section: Section, key: string): void {
@@ -239,7 +245,10 @@ export class ServerState {
     this.#timer.unref()
   }
 
-  #sealed(name: string, { section, key, value }: Change): string {
+  #sealed(
+    name: string,
+    { section, key, value }: Pick<Change, 'section' | 'key' | 'value'>,
+  ): string {
     const nonce = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', this.#seal, nonce)
     cipher.setAAD(Buffer.from(name))
@@ -288,6 +297,14 @@ export class ServerState {
       } catch (error) {
         if (error instanceof KubeRequestError && error.code === 'conflict' && attempt < ATTEMPTS) {
           base = await this.keeper.read().catch(() => base)
+          // Over what was written meanwhile: made again from it, where a change says how.
+          for (const [name, change] of changes) {
+            if (!change.rebase) continue
+            const sealed = base.entries[name]
+            change.value = change.rebase(sealed ? this.#opened(name, sealed)?.value : undefined)
+            if (!this.#changes.has(name))
+              this.#open.get(change.section)!.set(change.key, change.value)
+          }
           continue
         }
         const message = (error as Error).message
