@@ -18,13 +18,22 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { parse, stringify } from 'yaml'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { DEMO, expect, test } from './fixtures.ts'
 
 const posix = process.platform !== 'win32'
+/** A kubeconfig, as parsed. */
+interface Config {
+  clusters: { name: string; cluster: Record<string, unknown> }[]
+  users: { name: string; user: Record<string, unknown> }[]
+  contexts: { name: string; context: { cluster: string; user: string } }[]
+}
 /** A plugin's environment's value, as a secret might be: kept from the page once added. */
 const TEAM_SECRET = 'team-secret-4f2a9c'
 /** How the line for kubectl starts, in the shell here. */
@@ -119,6 +128,7 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
       contexts: [{ name: 'demo', server: clusters.demo.url, auth: 'token' }],
       commands: [],
       tokenFiles: [],
+      keptCredentials: [],
       files: [],
       conflicts: ['demo'],
     },
@@ -361,6 +371,23 @@ test('a check says what doesn’t work: the server, or the credentials; and what
       error: { code: 'invalid', message: expect.stringContaining(says) },
     })
   }
+
+  // Two of its contexts named the same: said so, not taken for one already read.
+  const two = parse(kubeconfig('one', clusters.demo.url, clusters.demo.caPem)) as Config
+  two.contexts.push({ name: 'two', context: { ...two.contexts[0]!.context } })
+  expect(
+    await page.evaluate(
+      (text) =>
+        window.lumovi!.addedClusters!.add(text, {
+          names: { one: 'same', two: 'same' },
+          agreed: [],
+        }),
+      stringify(two),
+    ),
+  ).toMatchObject({
+    ok: false,
+    error: { message: 'Two of its contexts would be named “same”: name them apart.' },
+  })
 
   // A file it names that isn't one (a folder, a device), or larger than any: never read.
   const big = join(mkdtempSync(join(tmpdir(), 'lumovi-big-')), 'token')
@@ -633,4 +660,138 @@ test('an organization’s policy that keeps Lumovi to the default locks adding, 
     await page.evaluate((text) => window.lumovi!.addedClusters!.check(text, 'after', []), text),
   ).toMatchObject({ ok: false, error: { code: 'not-allowed' } })
   expect(own(userDataDir)).toHaveLength(1)
+})
+
+test('an added cluster’s kept credentials go only where they were kept for, unless the person agrees', async ({
+  launch,
+  clusters,
+}) => {
+  // A stand-in server, which notes what credentials reach it.
+  const seen: string[] = []
+  const standIn = createServer((req, res) => {
+    if (req.headers.authorization) seen.push(req.headers.authorization)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(req.url === '/version' ? { gitVersion: 'v9.9.9' } : { items: [] }))
+  })
+  await new Promise<void>((done) => standIn.listen(0, '127.0.0.1', done))
+  const elsewhere = `http://127.0.0.1:${(standIn.address() as AddressInfo).port}`
+
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const { page } = await launch({ userDataDir })
+  expect(
+    await page.evaluate(
+      (text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }),
+      kubeconfig('kept', clusters.demo.url, clusters.demo.caPem),
+    ),
+  ).toMatchObject({ ok: true })
+  const [file] = own(userDataDir)
+  const read = async (file: string) =>
+    (
+      (await page.evaluate((file) => window.lumovi!.addedClusters!.read(file), file)) as {
+        data: string
+      }
+    ).data
+  const kept = await read(file!)
+
+  const inspect = (text: string) =>
+    page.evaluate(
+      ([text, file]) => window.lumovi!.addedClusters!.inspect(text!, file),
+      [text, file!],
+    )
+  const check = (text: string, context: string, agreed: string[] = []) =>
+    page.evaluate(
+      ([text, context, file, agreed]) =>
+        window.lumovi!.addedClusters!.check(
+          text as string,
+          context as string,
+          agreed as string[],
+          file as string,
+        ),
+      [text, context, file!, agreed] as const,
+    )
+  const edit = (text: string) =>
+    page.evaluate(
+      ([file, text]) => window.lumovi!.addedClusters!.edit(file!, text!, []),
+      [file!, text],
+    )
+
+  // Its server moved (not verified, nor proxied): the kept token isn't sent there, or kept so.
+  const moved = parse(kept) as Config
+  moved.clusters[0]!.cluster = { server: elsewhere, 'insecure-skip-tls-verify': true }
+  const movedText = stringify(moved)
+  const asked = (await inspect(movedText)) as {
+    data: { keptCredentials: { context: string; server: string; consent: string }[] }
+  }
+  expect(asked.data.keptCredentials).toEqual([
+    { context: 'kept', server: elsewhere, consent: expect.stringMatching(/^[0-9a-f]{64}$/) },
+  ])
+  expect(await check(movedText, 'kept')).toMatchObject({
+    ok: true,
+    data: { server: { ok: true, version: 'v9.9.9' }, credentials: { notTried: 'agreement' } },
+  })
+  expect(await edit(movedText)).toMatchObject({
+    ok: false,
+    error: {
+      code: 'not-allowed',
+      message: expect.stringContaining(`send its kept credentials to ${elsewhere}`),
+    },
+  })
+  expect(seen).toEqual([])
+  expect(readFileSync(file!, 'utf8')).toContain(clusters.demo.url)
+
+  // A context added under its user, to another cluster: the same, though its own is as it was.
+  const added = parse(kept) as Config
+  added.clusters.push({
+    name: 'elsewhere',
+    cluster: { server: elsewhere, 'insecure-skip-tls-verify': true },
+  })
+  added.contexts.push({
+    name: 'elsewhere',
+    context: { cluster: 'elsewhere', user: added.contexts[0]!.context.user },
+  })
+  const addedText = stringify(added)
+  expect(await check(addedText, 'elsewhere')).toMatchObject({
+    ok: true,
+    data: { credentials: { notTried: 'agreement' } },
+  })
+  expect(await check(addedText, 'kept')).toMatchObject({
+    ok: true,
+    data: { credentials: { ok: true } },
+  })
+  expect(await edit(addedText)).toMatchObject({ ok: false, error: { code: 'not-allowed' } })
+  expect(seen).toEqual([])
+
+  // Agreed to, for that very server: sent there.
+  const { consent } = asked.data.keptCredentials[0]!
+  expect(await check(movedText, 'kept', [consent])).toMatchObject({
+    ok: true,
+    data: { credentials: { ok: true } },
+  })
+  expect(seen).toContain(`Bearer ${DEMO_TOKEN}`)
+
+  // A proxy's password is kept from the page too, and kept only for that proxy.
+  const proxied = parse(kubeconfig('proxied', clusters.demo.url, clusters.demo.caPem)) as Config
+  proxied.clusters[0]!.cluster['proxy-url'] = 'http://someone:hunter2@127.0.0.1:9'
+  const add = (await page.evaluate(
+    (text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }),
+    stringify(proxied),
+  )) as { data: { path: string } }
+  const proxiedText = await read(add.data.path)
+  expect(proxiedText).not.toContain('hunter2')
+  expect(proxiedText).toContain('someone:(kept%20by%20Lumovi)@127.0.0.1')
+  const editProxied = (text: string) =>
+    page.evaluate(
+      ([file, text]) => window.lumovi!.addedClusters!.edit(file!, text!, []),
+      [add.data.path, text],
+    )
+  const reproxied = parse(proxiedText) as Config
+  reproxied.clusters[0]!.cluster['proxy-url'] = 'http://someone:(kept%20by%20Lumovi)@127.0.0.2:9'
+  expect(await editProxied(stringify(reproxied))).toMatchObject({
+    ok: false,
+    error: { message: expect.stringContaining('paste it again') },
+  })
+  // As it was, it keeps its password.
+  expect(await editProxied(proxiedText)).toMatchObject({ ok: true })
+  expect(readFileSync(add.data.path, 'utf8')).toContain('hunter2')
+  standIn.close()
 })
