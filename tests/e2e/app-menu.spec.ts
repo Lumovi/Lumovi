@@ -1,0 +1,115 @@
+/**
+ * The app's menu on Windows and Linux (LMV-20, LMV-133): their window hides its title bar, and with
+ * it the menu bar, so a button in its top left corner, at the same place in every view, opens the
+ * application menu under it; so do Alt on its own, and F10. macOS has its menu bar, and no button.
+ * The menu itself is the system's: what opens it is recorded here, not drawn.
+ */
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
+import { clusterOption, expect, hoverForTooltip, openCluster, test } from './fixtures.ts'
+
+const hasButton = process.platform !== 'darwin'
+
+/** Records where the application menu is opened, and with what, instead of opening it. */
+async function recordMenus(app: ElectronApplication) {
+  await app.evaluate(({ Menu }) => {
+    const menu = Menu.getApplicationMenu()!
+    const opened: { x?: number; y?: number; menus: string[] }[] = []
+    Object.assign(globalThis, { opened })
+    menu.popup = (options = {}) => {
+      opened.push({ x: options.x, y: options.y, menus: menu.items.map((item) => item.label) })
+      options.callback?.()
+    }
+  })
+  return () => app.evaluate(() => (globalThis as unknown as { opened: unknown[] }).opened.length)
+}
+
+/** Once the menu it opened is closed (it opens one at a time). */
+const closed = (button: Locator) => expect(button).not.toHaveAttribute('data-state', 'open')
+
+/** The button, where every view has it: 12 px in, centered in the window controls' 52 px band. */
+async function expectInTheCorner(page: Page) {
+  const button = page.getByRole('button', { name: 'Menu', exact: true })
+  await expect(button).toBeVisible()
+  expect(await button.boundingBox()).toEqual({ x: 12, y: 10, width: 32, height: 32 })
+  return button
+}
+
+test('on Windows and Linux, a button in the window’s corner opens the app’s menu, in every view', async ({
+  lumovi,
+}) => {
+  test.skip(!hasButton, 'macOS has its menu bar')
+  const { page, app } = lumovi
+  const opened = await recordMenus(app)
+  const zoom = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]!.webContents.getZoomFactor(),
+  )
+
+  // The start screen.
+  let button = await expectInTheCorner(page)
+  await hoverForTooltip(button, /Menu\s*Alt/)
+  await button.click()
+  // The whole menu, 4 px under the button's bottom left corner.
+  expect(
+    await app.evaluate(() => (globalThis as unknown as { opened: unknown[] }).opened.at(-1)),
+  ).toEqual({
+    x: Math.round(12 * zoom),
+    y: Math.round(46 * zoom),
+    // (macOS's has its app's own first.)
+    menus: [
+      ...(process.platform === 'darwin' ? ['Lumovi'] : []),
+      ...['File', 'Edit', 'View', 'Go', 'Window', 'Help'],
+    ],
+  })
+
+  // Alt on its own opens it; Alt with another key doesn't; F10 does.
+  await closed(button)
+  await page.keyboard.press('Alt')
+  await expect.poll(opened).toBe(2)
+  await closed(button)
+  await page.keyboard.press('Alt+KeyX')
+  await page.keyboard.press('F10')
+  await expect.poll(opened).toBe(3)
+
+  // In a cluster: the sidebar's top band, the cluster below it.
+  await openCluster(page)
+  button = await expectInTheCorner(page)
+  await button.click()
+  await expect.poll(opened).toBe(4)
+  const cluster = page.getByRole('button', { name: /^(Switch cluster|Cluster)$/ })
+  expect((await cluster.boundingBox())?.y).toBe(52 + 12)
+
+  // A page of its own.
+  await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()!.getMenuItemById('assistants')!.click(),
+  )
+  await expect(page.getByRole('heading', { name: /^AI assistants/ })).toBeVisible()
+  button = await expectInTheCorner(page)
+  await button.click()
+  await expect.poll(opened).toBe(5)
+})
+
+test('on macOS, the menu bar has it all: no button, and Alt is Option', async ({ lumovi }) => {
+  test.skip(hasButton, 'Windows and Linux have the button')
+  const { page, app } = lumovi
+  const opened = await recordMenus(app)
+  await expect(clusterOption(page, 'demo')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Menu', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Alt')
+  await page.keyboard.press('F10')
+  expect(await opened()).toBe(0)
+})
+
+test('the menu opens only at a point of the page', async ({ lumovi }) => {
+  const { page, app } = lumovi
+  const opened = await recordMenus(app)
+  for (const at of [
+    ['12', 46],
+    [12, Number.NaN],
+    [12, undefined],
+  ]) {
+    await expect(
+      page.evaluate((at) => window.lumovi!.desktop!.openMenu(...(at as [number, number])), at),
+    ).rejects.toThrow('two numbers')
+  }
+  expect(await opened()).toBe(0)
+})

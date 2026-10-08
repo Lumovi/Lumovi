@@ -92,9 +92,9 @@ export function buildMenu(
     {
       role: 'help',
       submenu: [
-        link('docs', 'Documentation', DOCS_URL),
         command('shortcuts', 'Keyboard Shortcuts', 'CmdOrCtrl+/'),
         { type: 'separator' },
+        link('docs', 'Documentation', DOCS_URL),
         link('github', 'Lumovi on GitHub', REPO_URL),
         link('issue', 'Report an Issue…', `${REPO_URL}/issues/new/choose`),
         link('sponsor', 'Sponsor Lumovi…', SPONSOR_URL),
@@ -121,4 +121,18 @@ export function buildMenu(
     },
   ]
   return Menu.buildFromTemplate(template)
+}
+
+/**
+ * The application menu, opened at a point of the page (in its CSS pixels): Windows and Linux reach
+ * it from a button, their window having no menu bar. Done once it closes.
+ */
+export function popupMenu(win: BrowserWindow, x: number, y: number): Promise<void> {
+  const menu = Menu.getApplicationMenu()
+  if (!menu) return Promise.resolve()
+  // The window's pixels are the page's, zoomed.
+  const zoom = win.webContents.getZoomFactor()
+  return new Promise((done) =>
+    menu.popup({ window: win, x: Math.round(x * zoom), y: Math.round(y * zoom), callback: done }),
+  )
 }

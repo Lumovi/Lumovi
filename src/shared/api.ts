@@ -922,6 +922,11 @@ export interface LumoviApi {
      * (⌘T, ⌘W…), not the menu's.
      */
     setTerminalFocus(focused: boolean): void
+    /**
+     * Opens the app's menu at a point of the page (its CSS pixels), for a window without a menu
+     * bar (Windows', Linux's); done once it closes.
+     */
+    openMenu(x: number, y: number): Promise<void>
   }
   app: {
     info(): Promise<AppInfo>
@@ -1195,6 +1200,7 @@ export interface LumoviApi {
 export const IPC = {
   command: 'app:command',
   terminalFocus: 'terminal:focus',
+  openMenu: 'app:open-menu',
   appInfo: 'app:info',
   appProblems: 'app:problems',
   settings: 'app:settings',

@@ -59,6 +59,7 @@ import { Sponsor, useSponsorShown } from './Sponsor'
 import { AssistantsButton } from '../assistants/DesktopConnect'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from './ThemeMenu'
+import { AppMenuButton, HAS_MENU_BUTTON } from './AppMenu'
 
 export const CATEGORY_LABELS: Record<ResourceCategory, string> = {
   cluster: 'Cluster',
@@ -159,8 +160,15 @@ export function Sidebar() {
   const fades = useSponsorShown() && (goesOn.up || goesOn.down)
   return (
     <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
-      {/* Room for macOS's window controls, which sit above the cluster. */}
-      <div aria-hidden className="traffic-lights h-10 shrink-0" />
+      {HAS_MENU_BUTTON ? (
+        // Windows' and Linux's menu, on their window controls' line.
+        <div className="flex h-[52px] shrink-0 items-center px-3">
+          <AppMenuButton />
+        </div>
+      ) : (
+        // Room for macOS's window controls, which sit above the cluster.
+        <div aria-hidden className="traffic-lights h-10 shrink-0" />
+      )}
       <div className="p-3">
         <ClusterSwitcher />
       </div>

@@ -21,6 +21,7 @@ const api: LumoviApi = {
     onCommand: (listener) => subscribe(IPC.command, listener),
     onFullScreen: (listener) => subscribe(IPC.fullScreen, listener),
     setTerminalFocus: (focused) => ipcRenderer.send(IPC.terminalFocus, focused),
+    openMenu: (x, y) => invoke(IPC.openMenu, x, y),
   },
   app: {
     info: () => invoke(IPC.appInfo),
