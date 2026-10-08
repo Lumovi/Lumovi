@@ -52,7 +52,7 @@ export const HEALTH_NAMES: Record<Health, string> = {
 const NAMES: Partial<Record<BuiltinKind, Partial<Record<Health, string>>>> = {
   Pod: { healthy: 'Running', progressing: 'Starting', neutral: 'Completed' },
   Event: { neutral: 'Normal' },
-  Job: { healthy: 'Complete', progressing: 'Running' },
+  Job: { healthy: 'Complete' },
   CronJob: { healthy: 'Scheduled', neutral: 'Suspended' },
   ReplicaSet: {
     healthy: 'Ready',

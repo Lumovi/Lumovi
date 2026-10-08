@@ -178,5 +178,5 @@ test('reloading the window keeps the current view', async ({ page }) => {
   await goTo(page, 'Jobs')
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jobs')
-  await expect(row(page, 'Jobs', DEMO.jobs.reindex)).toContainText('Running')
+  await expect(row(page, 'Jobs', DEMO.jobs.reindex)).toContainText('In progress')
 })
