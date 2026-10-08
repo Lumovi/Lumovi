@@ -164,7 +164,8 @@ export function Note({
       className={cn(
         'flex items-start gap-2.5 rounded-xl px-3.5 py-3 text-[13px]',
         tone === 'warn' && 'border border-warn/30 bg-warn/10',
-        tone === 'info' && 'border border-accent/25 bg-accent-soft',
+        // Only something to know, so not blue (blue is for what can be acted on): the surface's.
+        tone === 'info' && 'bg-surface-3 text-ink-2',
         tone === 'locked' && 'bg-surface-2 text-xs text-ink-2',
         className,
       )}
@@ -173,23 +174,14 @@ export function Note({
         aria-hidden
         className={cn(
           'mt-0.5 size-4 shrink-0',
-          tone === 'warn'
-            ? 'text-warn-text'
-            : tone === 'info'
-              ? 'text-accent-strong'
-              : 'text-ink-3',
+          tone === 'warn' ? 'text-warn-text' : tone === 'info' ? 'text-ink-2' : 'text-ink-3',
           tone === 'locked' && 'size-3.5',
         )}
       />
       <div className="min-w-0 flex-1">
         {/* (Only what's to know has a title: what's set elsewhere doesn't.) */}
         {title && (
-          <p
-            className={cn(
-              'font-semibold',
-              tone === 'warn' ? 'text-warn-text' : 'text-accent-strong',
-            )}
-          >
+          <p className={cn('font-semibold', tone === 'warn' ? 'text-warn-text' : 'text-ink-1')}>
             {title}
           </p>
         )}
