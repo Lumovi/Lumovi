@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/Lumovi/Lumovi/discussions/categories/q-a
+    about: About using or running Lumovi, in Discussions’ Q&A.
+  - name: Talk over an idea
+    url: https://github.com/Lumovi/Lumovi/discussions/categories/ideas
+    about: Something you’d like Lumovi to do, before it’s a feature request.
   - name: Report a security vulnerability
     url: https://github.com/Lumovi/Lumovi/security/advisories/new
     about: Please report vulnerabilities privately.

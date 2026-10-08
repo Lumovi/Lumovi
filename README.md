@@ -254,6 +254,14 @@ and the [Changelog](CHANGELOG.md).
 - **In a cluster:** Helm 3.8 or later to install the chart, on `linux/amd64` or
   `linux/arm64` nodes. The image includes everything else.
 
+## Questions and support
+
+Ask in [Discussions](https://github.com/Lumovi/Lumovi/discussions): questions in
+[Q&A](https://github.com/Lumovi/Lumovi/discussions/categories/q-a), ideas in
+[Ideas](https://github.com/Lumovi/Lumovi/discussions/categories/ideas). Bugs go to
+[issues](https://github.com/Lumovi/Lumovi/issues/new/choose), and security problems are
+reported privately, as [SECURITY.md](SECURITY.md) says.
+
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first, and
