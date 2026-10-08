@@ -297,12 +297,18 @@ test('in progress is neutral, and turns, unless less motion is asked for', async
     .locator('[data-health="progressing"]')
     .first()
   await expect(running).toHaveText('Running')
-  // Not blue: blue is for what can be acted on.
-  expect(await running.evaluate((pill) => getComputedStyle(pill).color)).not.toBe(
-    await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--accent-strong'),
-    ),
-  )
+  // Neutral, not blue: blue is for what can be acted on. (Each as the page computes it.)
+  const colour = (token: string) =>
+    page.evaluate((token) => {
+      const probe = document.body.appendChild(document.createElement('span'))
+      probe.style.color = `var(${token})`
+      const computed = getComputedStyle(probe).color
+      probe.remove()
+      return computed
+    }, token)
+  const shown = await running.evaluate((pill) => getComputedStyle(pill).color)
+  expect(shown).toBe(await colour('--neutral-text'))
+  expect(shown).not.toBe(await colour('--accent-strong'))
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await expect.poll(() => motion(running.locator('svg'))).toEqual(['turn', '3s', 'infinite'])
   // (The tests ask for less motion: then it's still.)
