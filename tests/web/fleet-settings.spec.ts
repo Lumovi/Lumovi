@@ -462,3 +462,38 @@ test('a cluster its source gives no groups is an admin’s alone, as its setting
     `NoneSet by the fleet’s kubeconfig, in the lumovi.dev extension of context ${FLEET.edge}. Change it there.Only admins see it: its source gives it no groups.`,
   )
 })
+
+test('a dialog opened from a menu keeps the focus: a card’s Settings, then Connect', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const hub = await serve({
+    env: {
+      ...fleetEnv(clusters),
+      LUMOVI_ADMINS: 'user:admin@example.com',
+      LUMOVI_DATA_DIR: mkdtempSync(join(tmpdir(), 'lumovi-fleet-settings-')),
+    },
+  })
+  await as(context, 'admin@example.com')
+  await page.goto(hub.url)
+  await expect(card(page, FLEET.prodEu)).toContainText('Nodes')
+  await page.getByRole('button', { name: `${FLEET.prodEu}’s actions` }).click()
+  await page.getByRole('menuitem', { name: 'Settings…' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Comes from')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  await page.getByRole('menuitem', { name: /^Connect with an agent…/ }).click()
+  const form = page.getByRole('dialog', { name: 'Connect a cluster' })
+  await form.getByLabel('Name').fill('edge-eu-north')
+  // Typed, then Enter: it's a group (a menu's button didn't take the focus meanwhile, making it
+  // one early), and the dialog waits for its button.
+  const group = form.getByRole('textbox', { name: 'Add a group' })
+  await group.fill('platform')
+  await expect(group).toBeFocused()
+  await expect(group).toHaveValue('platform')
+  await group.press('Enter')
+  await expect(form.getByRole('button', { name: 'Remove platform' })).toBeVisible()
+  await expect(form).toBeVisible()
+})
