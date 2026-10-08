@@ -886,22 +886,27 @@ test('the organization’s policy can require Kubernetes’ signature from its m
   expect(existsSync(kept(offline, 'v1.34.7'))).toBe(false)
   await cut.close()
 
-  // A policy that can't be used, as one meaning to require them would be by a slip: required too.
+  // A policy that can't be used, as one meaning to require them would be by a slip: no kubectl
+  // is got at all, from anywhere (whatever it meant, it didn't mean looser), and it's locked.
   downloads.reset()
   downloads.signing = 'unsigned'
   const slip = await launch({
     env: {
       ...SHELL,
       LUMOVI_KUBECTL_MIRROR: mirror.href,
-      LUMOVI_POLICY: policyFile({ kubectlSignatures: 'Required' }),
+      LUMOVI_POLICY: policyFile({ kubectl: false, kubectlSignatures: 'Required' }),
     },
   })
+  expect(
+    await slip.app.evaluate(({ Menu }) => {
+      const { enabled, checked } = Menu.getApplicationMenu()!.getMenuItemById('matching-kubectl')!
+      return { enabled, checked }
+    }),
+  ).toEqual({ enabled: false, checked: false })
   await openCluster(slip.page)
   await terminal(slip.page)
-  await shows(
-    slip.page,
-    `(${host} published no signature for kubectl v1.34.9, and your organization’s policy requires one).`,
-  )
+  await expect(screen(slip.page)).not.toContainText('It’s')
+  expect(downloads.requests).toEqual([])
 })
 
 test('a kept kubectl is used only as what was said of it says: of that kubectl', async ({

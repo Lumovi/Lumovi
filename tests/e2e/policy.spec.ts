@@ -105,8 +105,8 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       source: path,
       readOnly: true,
       assistantsOff: true,
-      // And kubectl only with Kubernetes' signature (local-terminal.spec.ts shows it).
-      kubectlSignatures: 'required',
+      // And no kubectl got to match a cluster (local-terminal.spec.ts shows it).
+      kubectlOff: true,
       problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, network.`,
     },
   })
@@ -153,7 +153,7 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
       managed: {
         readOnly: true,
         assistantsOff: true,
-        kubectlSignatures: 'required',
+        kubectlOff: true,
         problem: expect.stringContaining(problem),
       },
     })

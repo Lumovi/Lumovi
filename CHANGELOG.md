@@ -11,7 +11,8 @@ All notable changes to Lumovi are documented here. The format follows
 - A policy can require Kubernetes' signature from its mirror too,
   `"kubectlSignatures": "required"`: a mirror's kubectl is then used only with it, as
   dl.k8s.io's always is, and a terminal says when its mirror keeps none. One taken unsigned
-  before isn't used either. A policy that can't be used requires it too.
+  before isn't used either. A policy that can't be used gets no kubectl at all: terminals use
+  the one installed, as with `"kubectl": false`.
 
 ### Changed
 
