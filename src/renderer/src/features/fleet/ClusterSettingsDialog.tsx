@@ -134,6 +134,15 @@ function SettingsForm({
       setPending(false)
     }
   }
+  // Removing takes its place, one dialog at a time; Cancel brings it back as it was left.
+  if (removing) {
+    return (
+      <RemoveDialog
+        name={settings.name}
+        onDone={(removed) => (removed ? onClose() : setRemoving(false))}
+      />
+    )
+  }
   return (
     <PageDialog
       leading={
@@ -226,12 +235,6 @@ function SettingsForm({
         origin={settings.origin}
         trust={agents.data?.find((agent) => agent.name === settings.name)}
       />
-      {removing && (
-        <RemoveDialog
-          name={settings.name}
-          onDone={(removed) => (removed ? onClose() : setRemoving(false))}
-        />
-      )}
     </PageDialog>
   )
 }
