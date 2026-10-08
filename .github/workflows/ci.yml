@@ -63,18 +63,29 @@ jobs:
           (! helm template lumovi charts/lumovi --set auth.mode=proxy 2>/dev/null)
           helm template lumovi charts/lumovi --set auth.mode=proxy \
             --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' \
-            | grep -A12 'kind: NetworkPolicy' | grep -q 'app: oauth2-proxy'
+            --show-only templates/networkpolicy.yaml | grep -q 'app: oauth2-proxy'
           # An agent's hub only over https (but on the same machine, as the agent itself allows).
           (! helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=http://hub.example.com \
             --set agent.tokenSecret=agent 2>/dev/null)
           helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=http://localhost:8080 \
             --set agent.tokenSecret=agent >/dev/null
+          # The notes helm install prints, with no cluster to install to: NOTES.txt is a template like
+          # the others, so a copy of the chart can print it.
+          notes() {
+            local chart
+            chart=$(mktemp -d)
+            cp -R charts/lumovi "$chart/"
+            echo 'notes: {{ include "lumovi/templates/NOTES.txt" . | toJson }}' \
+              > "$chart/lumovi/templates/notes.yaml"
+            helm template lumovi "$chart/lumovi" --show-only templates/notes.yaml "$@"
+          }
           # Agents named without their cluster's certificate authority: the notes say what that means,
           # and more, where nothing keeps what the hub trusts.
-          helm install lumovi charts/lumovi --dry-run=client --set auth.mode=proxy \
-            --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' \
-            --set fleet.agentsSecret=agents --set auth.keepSessions=false \
-            | grep -q 'again after every restart'
+          fleet=(--set auth.mode=proxy --set fleet.agentsSecret=agents
+            --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy')
+          notes "${fleet[@]}" | grep -q 'Give each its cluster'
+          (! notes "${fleet[@]}" | grep -q 'again after every restart')
+          notes "${fleet[@]}" --set auth.keepSessions=false | grep -q 'again after every restart'
           # Single sign-on with people's own tokens: no impersonation, so no ClusterRole.
           (! helm template lumovi charts/lumovi --set auth.mode=oidc \
             --set url=https://lumovi.example.com --set auth.oidc.issuer=https://dex.example.com \
