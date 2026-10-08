@@ -124,6 +124,8 @@ export class ServerState {
   #timer?: NodeJS.Timeout
   /** What went wrong writing, said once until it's put right. */
   #failing?: string
+  /** How many of what's kept don't open with this server's key, as last said. */
+  #unopened = 0
   readonly #seal: Buffer
   readonly #name: Buffer
 
@@ -135,17 +137,29 @@ export class ServerState {
     this.#seal = Buffer.from(hkdfSync('sha256', key, 'lumovi', 'state seal', 32))
     this.#name = Buffer.from(hkdfSync('sha256', key, 'lumovi', 'state names', 32))
     this.#document = document
-    let unopened = 0
     for (const [name, sealed] of Object.entries(document.entries)) {
       const entry = this.#opened(name, sealed)
       if (entry) this.#open.get(entry.section)!.set(entry.key, entry.value)
-      else unopened++
     }
-    if (unopened > 0) {
+    this.#sayUnopened(document)
+  }
+
+  /**
+   * Entries that don't open with this server's key: its key changed, or they were, or another
+   * replica seals with another key (while keys are rotated). Left as they are, unused, and said
+   * once (until how many changes): never taken for entries deleted, nor let go while another may
+   * be using them, but to make room.
+   */
+  #sayUnopened(document: Document): void {
+    const unopened = Object.entries(document.entries).filter(
+      ([name, sealed]) => !this.#opened(name, sealed),
+    ).length
+    if (unopened > 0 && unopened !== this.#unopened) {
       log(
-        `${unopened} of what Lumovi kept doesn’t open with its key (it changed, or they were): they’re let go.`,
+        `${unopened} of what Lumovi kept doesn’t open with its key (it changed, they were, or another replica uses another): they’re left as they are, unused.`,
       )
     }
+    this.#unopened = unopened
   }
 
   static async open(keeping: Keeping, env: NodeJS.ProcessEnv, key: Buffer): Promise<ServerState> {
@@ -186,6 +200,7 @@ export class ServerState {
       const document = await this.keeper.read()
       // What's written next is over what's there now.
       this.#document = document
+      this.#sayUnopened(document)
       const fresh = new Map<string, unknown>()
       for (const [name, sealed] of Object.entries(document.entries)) {
         const entry = this.#opened(name, sealed)
@@ -281,6 +296,14 @@ export class ServerState {
     this.#changes.clear()
     let base = this.#document
     for (let attempt = 1; ; attempt++) {
+      // Made again over the entry as it's there now, where a change says how: another replica
+      // may have written it since this one read it (a write that met theirs reads it again).
+      for (const [name, change] of changes) {
+        if (!change.rebase) continue
+        const sealed = base.entries[name]
+        change.value = change.rebase(sealed ? this.#opened(name, sealed)?.value : undefined)
+        if (!this.#changes.has(name)) this.#open.get(change.section)!.set(change.key, change.value)
+      }
       // What's there, with these changes: never another's written over.
       const next: Document = { entries: { ...base.entries } }
       for (const [name, change] of changes) {
@@ -297,14 +320,6 @@ export class ServerState {
       } catch (error) {
         if (error instanceof KubeRequestError && error.code === 'conflict' && attempt < ATTEMPTS) {
           base = await this.keeper.read().catch(() => base)
-          // Over what was written meanwhile: made again from it, where a change says how.
-          for (const [name, change] of changes) {
-            if (!change.rebase) continue
-            const sealed = base.entries[name]
-            change.value = change.rebase(sealed ? this.#opened(name, sealed)?.value : undefined)
-            if (!this.#changes.has(name))
-              this.#open.get(change.section)!.set(change.key, change.value)
-          }
           continue
         }
         const message = (error as Error).message
@@ -333,24 +348,29 @@ export class ServerState {
   #prune(document: Document): void {
     const now = Date.now()
     const sessions: { name: string; expires: number }[] = []
+    // What doesn't open: let go first, but only to make room (another replica may use it).
+    const unopened: { name: string; expires: number }[] = []
     for (const [name, sealed] of Object.entries(document.entries)) {
       const entry = this.#opened(name, sealed)
       const expires = (entry?.value as { expires?: number } | undefined)?.expires
-      if (!entry || (expires ?? Infinity) < now) delete document.entries[name]
+      if (!entry) unopened.push({ name, expires: -Infinity })
+      else if ((expires ?? Infinity) < now) delete document.entries[name]
       else if (entry.section === 'sessions') sessions.push({ name, expires: expires ?? Infinity })
     }
     let size = Buffer.byteLength(KEPT.write(document))
     if (size <= MAX_BYTES) return
     sessions.sort((a, b) => a.expires - b.expires)
     let dropped = 0
-    for (const { name } of sessions) {
+    let unopenedDropped = 0
+    for (const { name, expires } of [...unopened, ...sessions]) {
       if (size <= MAX_BYTES) break
       size -= Buffer.byteLength(document.entries[name]!) + name.length + 6
       delete document.entries[name]
-      dropped++
+      if (expires === -Infinity) unopenedDropped++
+      else dropped++
     }
     log(
-      `What Lumovi keeps would be more than the ${Math.round(MAX_BYTES / 1000)} kB it may hold: the ${dropped} sessions that end soonest aren’t kept (they sign in again after a restart).`,
+      `What Lumovi keeps would be more than the ${Math.round(MAX_BYTES / 1000)} kB it may hold: ${unopenedDropped ? `${unopenedDropped} that don’t open with its key, and ` : ''}the ${dropped} sessions that end soonest aren’t kept (they sign in again after a restart).`,
     )
   }
 }
