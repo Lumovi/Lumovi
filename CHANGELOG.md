@@ -27,6 +27,14 @@ All notable changes to Lumovi are documented here. The format follows
   a refused change says who made it read-only, but no longer a date in UTC (the switch says
   when, in your time).
 
+### Fixed
+
+- A chart's reference lines (requests, limits, allocatable, what right-sizing recommends) say
+  what they are where their labels sit clear of the plotted lines, the other reference lines and
+  each other: at either end of their line, above or below it, or a little further off. A label
+  with no clear spot (a line the data crosses all along) sits beside its line on a background of
+  its own. A threshold above the chart is noted over it, no longer on it.
+
 ## [1.15.0] - 2026-10-08
 
 kubectl's signature checks keep working as Sigstore and Kubernetes change, and an organization's
