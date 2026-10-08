@@ -563,20 +563,26 @@ test('terminals read the kubeconfig files chosen in Lumovi', async ({ launch, cl
       name,
     ),
   )
+  // And one that can't be read: left out, as Lumovi leaves it out (kubectl would refuse all three).
+  const broken = join(dir, 'broken')
+  writeFileSync(broken, 'clusters: [unterminated\n')
   const { page, app } = await launch({ env: SHELL })
-  await app.evaluate(({ dialog }, filePaths) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths,
-    })) as unknown as typeof dialog.showOpenDialog
-  }, files)
+  await app.evaluate(
+    ({ dialog }, filePaths) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths,
+      })) as unknown as typeof dialog.showOpenDialog
+    },
+    [...files, broken],
+  )
   await page.evaluate(() => window.lumovi!.kubeconfigFiles!.choose('replace'))
   await page.reload()
   await openCluster(page, 'alpha')
   await page.keyboard.press('Control+Backquote')
   await ready(page)
   await report(page)
-  // Its own, then the two: not KUBECONFIG's.
+  // Its own, then the two read: not KUBECONFIG's, nor the one that can't be read.
   await expect(screen(page)).toContainText('then=2 file(s) found=2')
 })
 

@@ -125,8 +125,8 @@ export class AddedClusters {
             const server = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
               .server
             const cluster = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
-            // Its password is a secret: shown as kept.
-            const proxy = withoutPassword(cluster?.['proxy-url'])
+            // Its password is a secret: shown masked.
+            const proxy = masked(cluster?.['proxy-url'])
             return {
               name,
               ...(typeof server === 'string' ? { server } : {}),
@@ -140,10 +140,19 @@ export class AddedClusters {
               ...(typeof proxy === 'string' ? { proxy } : {}),
             }
           }),
-          commands: commandsOf(used(given)).map((command, index) => ({
-            ...command,
-            consent: agreeable[index]!.consent,
-          })),
+          commands: commandsOf(used(given)).map((command, index) => {
+            // A program for a context moved elsewhere: agreed to anew, for where it now goes.
+            const moved = stored
+              ? movedCommandsOf(raw, stored).find(
+                  ({ consent }) => consent === agreeable[index]!.consent,
+                )
+              : undefined
+            return {
+              ...command,
+              consent: agreeable[index]!.consent,
+              ...(moved ? { movedTo: moved.server } : {}),
+            }
+          }),
           tokenFiles: tokenFilesOf(raw),
           unverified: unverifiedOf(raw),
           keptCredentials: stored
@@ -347,7 +356,11 @@ export class AddedClusters {
   /** The line that has kubectl read the same: one of the files read, or all of them, in order. */
   forKubectl(path?: string): Result<string> {
     try {
-      const read = this.deps.files.list().files.map((file) => file.path)
+      // Those read as kubectl would read them: not one that can't be (it would refuse them all).
+      const read = this.deps.files
+        .list()
+        .files.filter((file) => !file.problem)
+        .map((file) => file.path)
       if (path !== undefined && !read.includes(path)) {
         throw new KubeRequestError('invalid', `${path} isn’t one of the kubeconfig files read.`)
       }
@@ -869,6 +882,19 @@ function withoutPassword(proxy: unknown): unknown {
     if (!url.password) return proxy
     url.password = KEPT
     return url.toString()
+  } catch {
+    return proxy
+  }
+}
+
+/** A proxy's address as shown: its password masked, kept or pasted. */
+function masked(proxy: unknown): string | undefined {
+  if (typeof proxy !== 'string') return undefined
+  try {
+    const url = new URL(proxy)
+    if (!url.password) return proxy
+    url.password = 'xxx'
+    return url.toString().replace(':xxx@', ':•••@')
   } catch {
     return proxy
   }

@@ -16,8 +16,14 @@ export function ManagedBadge({ reason }: { reason: string }) {
         <Lock className="size-3.5" /> Managed
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content sideOffset={6} align="end" className={cn(menuContent, 'w-[340px] p-3')}>
-          <p className="text-[13px] font-medium text-ink-1">Managed by your organization</p>
+        <Popover.Content
+          sideOffset={6}
+          align="end"
+          className={cn(menuContent, 'w-[340px] p-3')}
+          // Its keys are its own: not the list's it's in (React's events pass through portals).
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <p className="text-[13px] font-semibold text-ink-1">Managed by your organization</p>
           <p className="mt-1 text-xs leading-relaxed text-ink-2">
             {managed?.problem
               ? reason

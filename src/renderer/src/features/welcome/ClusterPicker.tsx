@@ -122,20 +122,21 @@ function grouped(clusters: Cluster[], grouping: string, hasRecent: boolean): Gro
   const all = (): Group[] => [
     { key: 'all', heading: hasRecent ? 'All clusters' : 'Clusters', clusters },
   ]
-  if (grouping.startsWith('label:')) {
-    const key = grouping.slice('label:'.length)
+  const key = grouping.startsWith('label:') ? grouping.slice('label:'.length) : undefined
+  // By a label no cluster has any more: by Lumovi's groups.
+  if (key && clusters.some((cluster) => cluster.labels.some(([k]) => k === key))) {
     const valueOf = (cluster: Cluster) => cluster.labels.find(([k]) => k === key)?.[1]
     const values = [...new Set(clusters.map(valueOf).filter((v) => v !== undefined))].sort()
     const without = clusters.filter((cluster) => valueOf(cluster) === undefined)
     return [
       ...values.map((value) => ({
-        key: `label ${value}`,
+        key: `label:${value}`,
         heading: `${key}=${value}`,
         mono: true,
         clusters: clusters.filter((cluster) => valueOf(cluster) === value),
       })),
       ...(without.length > 0
-        ? [{ key: 'label none', heading: `No ${key} label`, clusters: without }]
+        ? [{ key: 'no label', heading: `No ${key} label`, clusters: without }]
         : []),
     ]
   }
@@ -224,6 +225,15 @@ export function ClusterPicker({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const onKeyDown = (event: KeyboardEvent) => {
+    // Enter on a button in the list's bar or notices presses it, not opens the selected cluster.
+    const target = event.target as HTMLElement
+    if (event.key === 'Enter' && target.tagName === 'BUTTON') {
+      event.preventDefault()
+      target.click()
+      return
+    }
+    // A key in the search, not elsewhere (a menu's own keys reach here through its portal).
+    if (target.tagName !== 'INPUT') return
     // As the list shows it now: a key can come before the page is drawn again.
     const value = (event.currentTarget as HTMLElement)
       .querySelector('[cmdk-item][data-selected="true"]')
@@ -283,7 +293,9 @@ export function ClusterPicker({
       {files && <FileNotices files={files} />}
       <Command.List className="min-h-0 flex-1 overflow-y-auto p-1.5 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
         <Command.Empty className="px-4 py-10 text-center text-ink-3">
-          No clusters match.
+          {clusters.length === 0 && hidden > 0
+            ? 'Every cluster is hidden. Show them from the footer.'
+            : 'No clusters match.'}
         </Command.Empty>
         <Recent
           clusters={recent}
@@ -296,7 +308,8 @@ export function ClusterPicker({
           <Command.Group key={group.key} heading={<GroupHeading group={group} />}>
             {group.clusters.map((cluster) => (
               <ClusterRow
-                key={cluster.context.name}
+                // Found by what it's called and labelled now (cmdk reads them as it's made).
+                key={keywordsOf(cluster).join('\u0000')}
                 cluster={cluster}
                 isCurrent={cluster.context.name === current}
                 added={cluster.context.name === justAdded}
@@ -434,11 +447,21 @@ function GroupBy({ clusters }: { clusters: Cluster[] }) {
             grouping.startsWith('label:') && 'bg-surface-3 text-ink-1',
           )}
         >
-          <Layers /> Group by <ChevronDown />
+          <Layers />
+          {grouping.startsWith('label:') && keys.includes(grouping.slice('label:'.length))
+            ? `Grouped by ${grouping.slice('label:'.length)}`
+            : 'Group by'}
+          <ChevronDown />
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={6} className={cn(menuContent, 'w-56')}>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={6}
+          className={cn(menuContent, 'w-56')}
+          // Its keys are its own: not the list's it's in (React's events pass through portals).
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           <DropdownMenu.Label className="px-2 pt-1.5 pb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
             Group by
           </DropdownMenu.Label>
@@ -548,19 +571,20 @@ function ClusterRow({
           {cluster.readOnly && (
             <Lock aria-label="Read-only" className="size-3 shrink-0 text-ink-3" />
           )}
-          {cluster.hidden && (
-            <EyeOff aria-label="Hidden" className="size-3.5 shrink-0 text-ink-3" />
-          )}
           {isCurrent && (
-            <span className="shrink-0 rounded-full bg-surface-3 px-1.5 py-px text-2xs font-medium text-ink-2">
+            <span className="shrink-0 rounded-full bg-surface-3 px-1.5 py-px text-2xs font-medium text-ink-2 group-data-[selected=true]:bg-surface-2">
               current
             </span>
+          )}
+          {cluster.hidden && (
+            <EyeOff aria-label="Hidden" className="size-3.5 shrink-0 text-ink-3" />
           )}
         </span>
         {!recent && (
           <span className="mt-0.5 block truncate font-mono text-xs text-ink-3">
             {cluster.named
-              ? middle(context.name)
+              ? // Shorter beside the label a search found.
+                middle(context.name, label ? 34 : 46)
               : [hostOf(context.server) ?? 'No cluster defined', ownName(context.user)]
                   .filter(Boolean)
                   .join(' · ')}
@@ -573,7 +597,10 @@ function ClusterRow({
         </span>
       )}
       <span className="w-[116px] shrink-0 text-right text-xs">
-        {version.isPending ? null : version.isError ? (
+        {version.isPending ? (
+          // Being checked: a place for its version.
+          <span className="inline-block h-2.5 w-[72px] animate-shimmer rounded bg-surface-3 align-middle" />
+        ) : version.isError ? (
           <span className="text-critical-text" title={version.error.message}>
             {(code && PROBLEMS[code]) ?? ERROR_LABELS[code!]}
           </span>
@@ -584,16 +611,18 @@ function ClusterRow({
           </span>
         )}
       </span>
-      {actions && (
-        <ClusterActions
-          cluster={cluster}
-          actions={actions}
-          open={menuOpen}
-          onOpenChange={onMenu!}
-        />
-      )}
-      <span className="grid size-5 shrink-0 place-items-center rounded-md text-ink-3 opacity-0 transition-opacity group-data-[selected=true]:opacity-100">
-        <CornerDownLeft className="size-3.5" />
+      <span className="flex w-[52px] shrink-0 items-center justify-end gap-0.5">
+        {actions && (
+          <ClusterActions
+            cluster={cluster}
+            actions={actions}
+            open={menuOpen}
+            onOpenChange={onMenu!}
+          />
+        )}
+        <span className="grid size-5 shrink-0 place-items-center rounded-md text-ink-3 opacity-0 transition-opacity group-data-[selected=true]:opacity-100">
+          <CornerDownLeft className="size-3.5" />
+        </span>
       </span>
     </Command.Item>
   )

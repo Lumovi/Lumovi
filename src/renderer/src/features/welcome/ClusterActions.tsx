@@ -10,8 +10,8 @@ import {
   Eye,
   EyeOff,
   FolderOpen,
-  SlidersHorizontal,
-  SquareTerminal,
+  Settings2,
+  Terminal,
   Trash2,
 } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
@@ -60,7 +60,7 @@ export function ClusterActions({
     danger = false,
   ) => (
     <DropdownMenu.Item className={cn(menuItem, danger && 'text-critical-text')} onSelect={onSelect}>
-      <Icon className={cn('size-4', danger ? 'text-critical-text' : 'text-ink-2')} />
+      <Icon className={cn('size-4', danger ? 'text-critical-text' : 'text-ink-3')} />
       {label}
       {keys && <span className="ml-auto flex gap-1">{keys}</span>}
     </DropdownMenu.Item>
@@ -70,7 +70,7 @@ export function ClusterActions({
       <DropdownMenu.Trigger asChild onClick={kept} onPointerDown={kept}>
         <IconButton
           label={`Actions for ${cluster.name}`}
-          className="size-7 shrink-0 opacity-0 group-data-[selected=true]:opacity-100 data-[state=open]:opacity-100"
+          className="size-7 shrink-0 opacity-0 group-data-[selected=true]:opacity-100 data-[state=open]:bg-surface-2 data-[state=open]:text-ink-1 data-[state=open]:opacity-100 data-[state=open]:shadow-[inset_0_0_0_1px_var(--line-strong)]"
         >
           <Ellipsis />
         </IconButton>
@@ -83,6 +83,11 @@ export function ClusterActions({
           onClick={kept}
           onPointerDown={kept}
           onKeyDown={kept}
+          // Closed: back to the search, where the list's keys are (its ⋯ may be gone, hidden).
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            document.querySelector<HTMLElement>('[data-hotkey-target="filter"]')?.focus()
+          }}
         >
           {item(
             ArrowRight,
@@ -93,7 +98,7 @@ export function ClusterActions({
             </Kbd>,
           )}
           {item(
-            SlidersHorizontal,
+            Settings2,
             'Settings…',
             () => actions.settings(cluster),
             <>
@@ -101,8 +106,7 @@ export function ClusterActions({
               <Kbd>I</Kbd>
             </>,
           )}
-          {cluster.own &&
-            item(SquareTerminal, 'Copy for kubectl', () => actions.copyForKubectl(cluster))}
+          {cluster.own && item(Terminal, 'Copy for kubectl', () => actions.copyForKubectl(cluster))}
           {cluster.context.file && item(FolderOpen, REVEAL, () => actions.show(cluster))}
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
           {cluster.hidden

@@ -131,7 +131,8 @@ test('a file that can’t be read, or is gone, is said so, and the others still 
   const gone = page.getByRole('status').filter({ hasText: 'is gone' })
   await expect(gone).toContainText(basename(beta))
   await expect(clusterOption(page, 'beta')).toHaveCount(0)
-  await expect(filesButton(page).locator('svg').first()).toHaveClass(/text-critical-text/)
+  // A warning while others load (critical only when nothing does).
+  await expect(filesButton(page).locator('svg').first()).toHaveClass(/text-warn-text/)
 
   // Chosen again where it is now: in its place.
   await answer(app, [gamma])
@@ -260,7 +261,7 @@ test('a cluster’s settings: its name, color, group, labels and namespace, prod
   await page.getByRole('menuitem', { name: 'region' }).click()
   await expect(page.getByRole('group', { name: /^region=eu-west-1/ })).toContainText('Payments EU')
   await expect(page.getByRole('group', { name: /^No region label/ })).toBeVisible()
-  await page.getByRole('button', { name: 'Group by' }).click()
+  await page.getByRole('button', { name: 'Grouped by region' }).click()
   await page.getByRole('menuitem', { name: 'Nothing' }).click()
   await expect(page.getByRole('group', { name: /^Clusters/ })).toBeVisible()
 
@@ -349,6 +350,8 @@ test('a cluster is added from a pasted kubeconfig, checked, named, and used with
   await page.getByRole('menuitem', { name: 'Remove from Lumovi' }).click()
   dialog = page.getByRole('dialog', { name: 'Remove Pasted cluster from Lumovi?' })
   await expect(dialog).toContainText('Your own kubeconfig files aren’t touched.')
+  // Alone in its file: nothing else is removed with it.
+  await expect(dialog).not.toContainText('and with it')
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Remove' }).click()
   await expect(row).toHaveCount(0)
@@ -413,4 +416,103 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
   await expect(dialog).toContainText('like a VPN')
   await dialog.getByRole('button', { name: 'Add it anyway' }).click()
   await expect(page.getByRole('dialog', { name: 'vpn-only is ready' })).toBeVisible()
+})
+
+test('the list: found by a name or label just given, Enter on its buttons, its keys after a menu, and every cluster hidden', async ({
+  launch,
+}) => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const { page } = await launch({ userDataDir })
+  await expect(clusterOption(page, 'sandbox')).toBeVisible()
+  const search = page.getByPlaceholder('Search clusters and labels…')
+
+  // Named and labelled, with no group: found by both at once.
+  const dialog = await openSettings(page, 'sandbox')
+  await dialog.getByLabel('Name', { exact: true }).fill('Staging')
+  await dialog.getByLabel('Labels').fill('env=stage')
+  await dialog.getByLabel('Labels').press('Enter')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toBeHidden()
+  for (const words of ['Staging', 'env=stage']) {
+    await search.fill(words)
+    await expect(page.getByRole('option')).toHaveCount(1)
+    await expect(clusterOption(page, 'Staging')).toBeVisible()
+  }
+  await search.fill('')
+
+  // Grouped by a label: the button says so.
+  await page.getByRole('button', { name: 'Group by' }).click()
+  await page.getByRole('menuitem', { name: 'env' }).click()
+  await expect(page.getByRole('button', { name: 'Grouped by env' })).toBeVisible()
+  await expect(page.getByRole('group', { name: /^env=stage/ })).toBeVisible()
+
+  // Enter on a button in the list's bar presses it: not opens the selected cluster.
+  await page.getByRole('button', { name: 'Add cluster' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Add a cluster' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Switch cluster' })).toHaveCount(0)
+
+  // A cluster's actions closed: back in the search, where the keys are.
+  await search.click()
+  await page.keyboard.press('.')
+  await expect(page.getByRole('menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(search).toBeFocused()
+
+  // Every cluster hidden: said so, and where to show them.
+  const all = await page.evaluate(async () => (await window.lumovi!.kube.contexts()).contexts)
+  await page.evaluate(
+    async (names) => {
+      for (const name of names) await window.lumovi!.app.setCluster!(name, { hidden: true })
+    },
+    all.map((context) => context.name),
+  )
+  await page.reload()
+  await expect(page.getByText('Every cluster is hidden. Show them from the footer.')).toBeVisible()
+})
+
+test('a cluster’s settings: production back to Lumovi’s guess, and read-only kept by LUMOVI_READ_ONLY says so', async ({
+  launch,
+}) => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  writeFileSync(
+    join(userDataDir, 'settings.json'),
+    JSON.stringify({ clusters: { demo: { production: true } } }),
+  )
+  const { page } = await launch({ userDataDir, env: { LUMOVI_READ_ONLY: '1' } })
+  await expect(clusterOption(page, 'demo')).toContainText('Production')
+  const dialog = await openSettings(page, 'demo')
+  await expect(dialog).toContainText('Set by LUMOVI_READ_ONLY.')
+  await expect(dialog.getByRole('switch', { name: 'Read-only' })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Use Lumovi’s guess' }).click()
+  // demo doesn't look like production.
+  await expect(dialog.getByRole('switch', { name: 'Production' })).not.toBeChecked()
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(clusterOption(page, 'demo')).not.toContainText('Production')
+  expect(
+    await page.evaluate(async () => (await window.lumovi!.app.settings()).clusters?.demo),
+  ).toBeUndefined()
+
+  // The keys, in the shortcuts.
+  await page.getByPlaceholder('Search clusters and labels…').fill('')
+  await page.getByRole('button', { name: 'Kubeconfig files' }).focus()
+  await page.keyboard.press('?')
+  await expect(page.getByRole('dialog')).toContainText('Clusters page')
+  await expect(page.getByRole('dialog')).toContainText('Remove one added in Lumovi')
+})
+
+test('a kubeconfig that can’t be opened is left out, said so, and the others load', async ({
+  launch,
+  clusters,
+}) => {
+  const alpha = kubeconfigFor('alpha', clusters.demo.url, clusters.demo.caPem)
+  // A folder named as a kubeconfig.
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-folder-'))
+  const { page } = await launch({ env: { KUBECONFIG: [alpha, folder].join(delimiter) } })
+  await expect(clusterOption(page, 'alpha')).toContainText(DEMO.gitVersion)
+  await expect(page.getByRole('status').filter({ hasText: 'couldn’t be read' })).toContainText(
+    basename(folder),
+  )
 })
