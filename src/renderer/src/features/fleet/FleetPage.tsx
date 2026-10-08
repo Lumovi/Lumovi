@@ -14,7 +14,7 @@ import {
 import { useEffect, useState, type ReactNode } from 'react'
 import { Dialog, DropdownMenu } from 'radix-ui'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import type { ClusterSummary, KubeContext, KubeError, Result } from '@shared/api'
+import type { AgentTrust, ClusterSummary, KubeContext, KubeError, Result } from '@shared/api'
 import { REPO_URL } from '@shared/app'
 import type { Status } from '@shared/health'
 import { Button, IconButton } from '@renderer/components/Button'
@@ -176,11 +176,7 @@ export function FleetPage() {
                       : 'All healthy'}
                 </span>
               </h1>
-              <UntrustedAgents
-                names={items
-                  .filter(({ summary }) => untrusted(summary?.version))
-                  .map((i) => i.context.name)}
-              />
+              <AgentsToCheck />
               <div className="flex flex-wrap items-center gap-2">
                 <SearchInput
                   value={q}
@@ -390,70 +386,137 @@ function ClusterCard({ context, summary, status }: Item) {
   )
 }
 
-/** Whether a cluster's agent isn't trusted, as its version's answer says. */
-const untrusted = (version: ClusterSummary['version'] | undefined) =>
-  version?.ok === false && version.error.code === 'untrusted-agent'
+/** On the cluster an agent runs in: its certificate authority's SHA-256, to compare. */
+const FINGERPRINT_COMMAND =
+  "kubectl get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\\.crt}' | openssl x509 -noout -fingerprint -sha256"
 
 /**
- * For an admin: the agents the hub doesn't trust, as each sent a certificate authority other than
- * the one it's trusted with, and a way to trust each one's again (its cluster's changed).
+ * For an admin: agents whose certificate authority needs them, either refused (not the one it's
+ * trusted with) or trusted as it was first sent, which nobody has checked. Either is trusted only
+ * with the SHA-256 they give, from the agent's cluster itself: what the agent says isn't enough,
+ * as whoever has its token could say it.
  */
-function UntrustedAgents({ names }: { names: string[] }) {
+function AgentsToCheck() {
   const mine = useMyAccess()
-  const queryClient = useQueryClient()
+  const agents = useQuery({
+    queryKey: ['fleet-agents'],
+    queryFn: () => api.fleet!.agents(),
+    enabled: Boolean(mine?.admin),
+    refetchInterval: REFRESH_MS,
+  })
   const [asking, setAsking] = useState<string>()
-  if (!mine?.admin || names.length === 0) return null
-  const trust = async (name: string) => {
-    try {
-      await api.fleet!.trustAgent(name)
-      toast({ tone: 'success', title: `Trusted ${name}’s agent` })
-      setAsking(undefined)
-      await queryClient.invalidateQueries({ queryKey: ['fleet-summary', name] })
-    } catch (error) {
-      toast({ tone: 'error', title: 'Couldn’t trust it', description: (error as Error).message })
-    }
-  }
+  const toCheck = (agents.data ?? []).filter(
+    (agent) => !agent.named && agent.connected && (agent.refused || agent.unconfirmed),
+  )
+  if (!mine?.admin || toCheck.length === 0) return null
   return (
     <section
-      aria-label="Agents not trusted"
-      className="flex flex-col gap-2 rounded-xl border border-warn/25 bg-warn/10 px-4 py-3 text-[13px]"
+      aria-label="Agents to check"
+      className="flex flex-col gap-3 rounded-xl border border-warn/25 bg-warn/10 px-4 py-3 text-[13px]"
     >
-      {names.map((name) => (
-        <div key={name} className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <ShieldAlert className="size-4 shrink-0 text-warn-text" />
-          <p className="min-w-0 flex-1 text-ink-1">
-            {asking === name ? (
-              <>
-                Trust the certificate authority {name}’s agent sends now?{' '}
-                <span className="text-ink-2">
-                  Only if you know its cluster’s changed: whoever has its token could otherwise read
-                  what goes to it.
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="font-medium">{name}</span>’s agent sent a certificate authority
-                other than the one Lumovi trusts for it.
-              </>
+      {toCheck.map((agent) => (
+        <div key={agent.name} className="flex flex-col gap-2.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <ShieldAlert className="size-4 shrink-0 text-warn-text" />
+            <p className="min-w-0 flex-1 text-ink-1">
+              <span className="font-medium">{agent.name}</span>
+              {agent.refused
+                ? '’s agent sends a certificate authority other than the one it’s trusted with.'
+                : '’s agent is trusted with the certificate authority it first sent, which nobody has checked.'}
+            </p>
+            {asking !== agent.name && (
+              <Button
+                variant="secondary"
+                className="h-7 text-xs"
+                onClick={() => setAsking(agent.name)}
+              >
+                {agent.refused ? 'Trust it…' : 'Check it…'}
+              </Button>
             )}
-          </p>
-          {asking === name ? (
-            <span className="flex gap-1.5">
-              <Button variant="ghost" className="h-7 text-xs" onClick={() => setAsking(undefined)}>
-                Cancel
-              </Button>
-              <Button variant="primary" className="h-7 text-xs" onClick={() => void trust(name)}>
-                Trust it
-              </Button>
-            </span>
-          ) : (
-            <Button variant="secondary" className="h-7 text-xs" onClick={() => setAsking(name)}>
-              Trust it…
-            </Button>
+          </div>
+          {asking === agent.name && (
+            <TrustAgent agent={agent} onDone={() => setAsking(undefined)} />
           )}
         </div>
       ))}
     </section>
+  )
+}
+
+/** Trusting an agent with what it sends, given the SHA-256 its cluster says. */
+function TrustAgent({ agent, onDone }: { agent: AgentTrust; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [given, setGiven] = useState('')
+  const [problem, setProblem] = useState<string>()
+  const [pending, setPending] = useState(false)
+  const trust = async () => {
+    setPending(true)
+    setProblem(undefined)
+    try {
+      await api.fleet!.trustAgent(agent.name, given)
+      toast({ tone: 'success', title: `Trusted ${agent.name}’s agent` })
+      onDone()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['fleet-agents'] }),
+        queryClient.invalidateQueries({ queryKey: ['fleet-summary', agent.name] }),
+      ])
+    } catch (error) {
+      setProblem((error as Error).message)
+    } finally {
+      setPending(false)
+    }
+  }
+  const hashes = (sha256s: string[]) => sha256s.join(', ') || 'none'
+  return (
+    <form
+      className="flex flex-col gap-2.5 pl-7"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void trust()
+      }}
+    >
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-ink-3">It sends</dt>
+        <dd className="font-mono break-all text-ink-1 selectable">{hashes(agent.sent)}</dd>
+        <dt className="text-ink-3">Trusted with</dt>
+        <dd className="font-mono break-all text-ink-2 selectable">{hashes(agent.trusted)}</dd>
+      </dl>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs text-ink-2">
+          Its SHA-256, from the cluster itself (not from what its agent says):{' '}
+          <code className="font-mono [overflow-wrap:anywhere] text-ink-1 selectable">
+            {FINGERPRINT_COMMAND}
+          </code>
+        </span>
+        <input
+          value={given}
+          onChange={(event) => setGiven(event.target.value)}
+          placeholder="sha256 Fingerprint=AB:CD:…"
+          spellCheck={false}
+          autoComplete="off"
+          aria-label={`${agent.name}’s certificate authority’s SHA-256`}
+          className="h-8 rounded-lg border border-line-strong bg-surface px-2.5 font-mono text-xs text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft"
+        />
+      </label>
+      {problem && (
+        <p role="alert" className="text-xs break-words text-critical-text">
+          {problem}
+        </p>
+      )}
+      <span className="flex justify-end gap-1.5">
+        <Button variant="ghost" className="h-7 text-xs" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          className="h-7 text-xs"
+          disabled={!given.trim() || pending}
+        >
+          Trust it
+        </Button>
+      </span>
+    </form>
   )
 }
 

@@ -14,6 +14,7 @@ import https from 'node:https'
 import { createServer } from 'node:net'
 import tls from 'node:tls'
 import type { WebSocket } from 'ws'
+import type { AgentTrust } from '@shared/api'
 import type { AuditActor } from '@shared/audit'
 import type { AuditLog } from '@backend/audit/log'
 import { KubeRequestError } from '@backend/kube/errors'
@@ -50,10 +51,14 @@ interface Connected {
   refusedSent?: string
 }
 
-/** The certificate authority an agent first sent, as kept: its certificates' SHA-256. */
+/**
+ * The certificate authority an agent's trusted with, as kept: its certificates' SHA-256, and
+ * whether an admin gave it (or it's the one the agent first sent, nobody having checked it).
+ */
 interface Pin {
   ca: string[]
   at: string
+  confirmed?: boolean
 }
 
 /** The certificates in a PEM bundle, each with its SHA-256 (hex), as openssl's -fingerprint has it. */
@@ -86,36 +91,88 @@ export class Agents {
     private readonly changed: () => void,
   ) {}
 
-  /** Where what agents first sent is kept, and recorded: the server's, before agents connect. */
+  /**
+   * Where what agents are trusted with is kept, and recorded: the server's, before agents
+   * connect. Each agent LUMOVI_FLEET_AGENTS doesn't name a certificate authority for is said
+   * (whoever connects first with its token is trusted; and, where nothing keeps that, again
+   * after every restart).
+   */
   trustWith(trust: { state: ServerState; audit: AuditLog }): void {
     this.#trust = trust
+    const unnamed = this.configs.filter((c) => !c.caSha256).map((c) => c.name)
+    if (!unnamed.length) return
+    const kept = trust.state.kept !== 'memory'
+    log(
+      `${unnamed.join(', ')} ${unnamed.length === 1 ? 'has' : 'have'} no caSha256 in LUMOVI_FLEET_AGENTS: the hub trusts the certificate authority each first sends, from whoever has its token${kept ? '' : ', and, as nothing keeps what it trusts (no LUMOVI_DATA_DIR, nor the chart’s auth.keepSessions), again after every restart'}. Give each its cluster’s.`,
+    )
+  }
+
+  /** Each agent's certificate authority, as sent and as trusted: an admin's to see. */
+  status(): AgentTrust[] {
+    return this.configs.map((config) => {
+      const connected = this.#connected.get(config.name)
+      const pin = this.#trust?.state.get<Pin>('agents', config.name)
+      return {
+        name: config.name,
+        connected: Boolean(connected?.hello),
+        sent: connected?.hello ? this.#sent(connected).map((c) => c.sha256) : [],
+        trusted: config.caSha256 ?? pin?.ca ?? [],
+        named: Boolean(config.caSha256),
+        unconfirmed: !config.caSha256 && Boolean(pin) && !pin?.confirmed,
+        refused: Boolean(connected?.trusted && 'refused' in connected.trusted),
+      }
+    })
   }
 
   /**
-   * Lets `name`'s agent be trusted with a certificate authority other than the one it first
-   * sent: the one it's sending now (or the next it sends). An admin's, as `actor`.
+   * Trusts `name`'s agent with the certificate authority whose SHA-256 an admin gives (as
+   * `actor`), from that cluster itself: only if it's what the agent sends now. So an agent that
+   * isn't its cluster's (whoever has its token) can't be trusted on its own say.
    */
-  trust(name: string, actor: AuditActor): void {
+  trust(name: string, sha256: string, actor: AuditActor): void {
     const config = this.configs.find((c) => c.name === name)
-    if (!config)
+    if (!config) {
       throw new KubeRequestError('not-found', `This server has no agent called “${name}”.`)
+    }
     if (config.caSha256) {
       throw new KubeRequestError(
         'invalid',
         `LUMOVI_FLEET_AGENTS says which certificate authority ${name}’s agent must send: it’s changed there.`,
       )
     }
-    this.#trust?.state.delete('agents', name)
+    const connected = this.#connected.get(name)
+    if (!connected?.hello) {
+      throw new KubeRequestError(
+        'invalid',
+        `${name}’s agent isn’t connected: it can be trusted once it is, and says what it sends.`,
+      )
+    }
+    const sent = this.#sent(connected).map((c) => c.sha256)
+    if (!sent.includes(sha256)) {
+      throw new KubeRequestError(
+        'invalid',
+        `${name}’s agent doesn’t send a certificate authority with that SHA-256: it sends ${sent.join(', ') || 'none Lumovi can read'}.`,
+      )
+    }
+    const was = this.#trust?.state.get<Pin>('agents', name)?.ca ?? []
+    this.#trust?.state.set('agents', name, {
+      ca: [sha256],
+      at: new Date().toISOString(),
+      confirmed: true,
+    })
     void this.#trust?.state.flush()
     this.#trust?.audit.record({
       action: 'agent.trusted',
       outcome: 'success',
       actor,
       cluster: name,
-      summary: `Let the agent of ${name} be trusted with the certificate authority it sends now`,
+      summary: `Trusted the agent of ${name} with the certificate authority whose SHA-256 was given`,
+      details: { was, now: [sha256] },
     })
-    const connected = this.#connected.get(name)
-    if (connected?.hello) this.#check(config, connected)
+    log(
+      `The agent of ${name} is trusted with the certificate authority ${sha256}, as an admin said`,
+    )
+    this.#check(config, connected)
     this.changed()
   }
 
@@ -236,8 +293,13 @@ export class Agents {
    * LUMOVI_FLEET_AGENTS names, or those it sent first (as it first connects, they're kept, and
    * recorded). None: it's refused, which it and the audit log are told once.
    */
+  /** What an agent sends as its cluster's certificate authority: its certificates. */
+  #sent(connected: Connected): { pem: string; sha256: string }[] {
+    return certificatesOf(Buffer.from(connected.hello!.ca, 'base64').toString())
+  }
+
   #check(config: AgentConfig, connected: Connected): void {
-    const sent = certificatesOf(Buffer.from(connected.hello!.ca, 'base64').toString())
+    const sent = this.#sent(connected)
     const { name } = config
     let trusted = config.caSha256
     if (!trusted) {
@@ -245,7 +307,11 @@ export class Agents {
       trusted = pin?.ca
       if (!trusted && sent.length) {
         trusted = sent.map((c) => c.sha256)
-        this.#trust?.state.set('agents', name, { ca: trusted, at: new Date().toISOString() })
+        this.#trust?.state.set('agents', name, {
+          ca: trusted,
+          at: new Date().toISOString(),
+          confirmed: false,
+        })
         void this.#trust?.state.flush()
         this.#trust?.audit.record({
           action: 'agent.pinned',
@@ -264,6 +330,8 @@ export class Agents {
     if (kept.length) {
       connected.trusted = { ca: Buffer.from(kept.map((c) => c.pem).join('\n')).toString('base64') }
       connected.refusedSent = undefined
+      // So its health says it's used.
+      connected.tunnel.say({ type: 'trusted' })
       return
     }
     const sha256s = sent.map((c) => c.sha256)
@@ -272,7 +340,7 @@ export class Agents {
       : 'no certificate authority Lumovi can read'
     const refused = config.caSha256
       ? `Its agent sent ${what} other than the one LUMOVI_FLEET_AGENTS names for it.`
-      : `Its agent sent ${what} other than the one it sent when it first connected. If its cluster’s changed, an admin can trust the new one.`
+      : `Its agent sent ${what} other than the one it’s trusted with. If its cluster’s changed, an admin can trust the new one, given its SHA-256 from the cluster itself.`
     connected.trusted = { refused, untrusted: config.caSha256 ? 'named' : 'first' }
     const key = sha256s.join(',')
     if (connected.refusedSent === key) return

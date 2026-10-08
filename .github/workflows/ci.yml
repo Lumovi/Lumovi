@@ -64,9 +64,17 @@ jobs:
           helm template lumovi charts/lumovi --set auth.mode=proxy \
             --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' \
             | grep -A12 'kind: NetworkPolicy' | grep -q 'app: oauth2-proxy'
-          # An agent's hub only over https.
+          # An agent's hub only over https (but on the same machine, as the agent itself allows).
           (! helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=http://hub.example.com \
             --set agent.tokenSecret=agent 2>/dev/null)
+          helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=http://localhost:8080 \
+            --set agent.tokenSecret=agent >/dev/null
+          # Agents named without their cluster's certificate authority: the notes say what that means,
+          # and more, where nothing keeps what the hub trusts.
+          helm install lumovi charts/lumovi --dry-run=client --set auth.mode=proxy \
+            --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' \
+            --set fleet.agentsSecret=agents --set auth.keepSessions=false \
+            | grep -q 'again after every restart'
           # Single sign-on with people's own tokens: no impersonation, so no ClusterRole.
           (! helm template lumovi charts/lumovi --set auth.mode=oidc \
             --set url=https://lumovi.example.com --set auth.oidc.issuer=https://dex.example.com \

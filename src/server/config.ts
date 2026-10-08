@@ -766,19 +766,18 @@ function agentsConfig(setting: string | undefined): AgentConfig[] {
         `${at} (${entry.name}) needs a token of at least 32 characters, or its tokenSha256.`,
       )
     }
-    // Its cluster's certificate authority, as openssl x509 -fingerprint -sha256 says it (or a
-    // list, while it's rotated): colons or none, either case.
+    // Its cluster's certificate authority's SHA-256 (or a list, while it's rotated).
     let caSha256: string[] | undefined
     if (entry.caSha256 !== undefined) {
       const given = Array.isArray(entry.caSha256) ? entry.caSha256 : [entry.caSha256]
       caSha256 = given.map((value: unknown) => {
-        const hex = typeof value === 'string' ? value.replaceAll(':', '').toLowerCase() : ''
-        if (!/^[0-9a-f]{64}$/.test(hex)) {
+        const sha256 = fingerprint(value)
+        if (!sha256) {
           throw new ConfigError(
-            `${at}.caSha256 (${entry.name}) must be the SHA-256 of its cluster’s certificate authority, as openssl x509 -fingerprint -sha256 says it, or a list of them.`,
+            `${at}.caSha256 (${entry.name}) must be the SHA-256 of its cluster’s certificate authority, as openssl x509 -noout -fingerprint -sha256 prints it, or a list of them.`,
           )
         }
-        return hex
+        return sha256
       })
     }
     return {
@@ -790,6 +789,20 @@ function agentsConfig(setting: string | undefined): AgentConfig[] {
       ...(caSha256 ? { caSha256 } : {}),
     }
   })
+}
+
+/**
+ * A certificate's SHA-256, in hex, as people give it: as openssl x509 -fingerprint -sha256 prints
+ * it (sha256 Fingerprint=AB:CD:…), or just the hex, colons or none, either case.
+ */
+export function fingerprint(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const hex = value
+    .trim()
+    .replace(/^sha-?256 fingerprint=/i, '')
+    .replaceAll(':', '')
+    .toLowerCase()
+  return /^[0-9a-f]{64}$/.test(hex) ? hex : undefined
 }
 
 /** A map of text, as labels are; empty unless set. */
