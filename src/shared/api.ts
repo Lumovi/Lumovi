@@ -296,6 +296,12 @@ export interface PastedKubeconfig {
    * before the person agrees.
    */
   tokenFiles: { user: string; path: string; server: string; consent: string }[]
+  /**
+   * One added in Lumovi, edited: the contexts its kept credentials (placeholders left as they
+   * were) would go to that they weren't kept for (its server moved, or a context added), each to
+   * be agreed to before they're sent there.
+   */
+  keptCredentials: { context: string; server: string; consent: string }[]
   /** The files on this computer its connections read (a token file's text is sent to its server). */
   files: string[]
   /** Its contexts named as some already read are: kubectl would take those, not these. */

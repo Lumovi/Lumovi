@@ -45,7 +45,7 @@ const MAX_TEXT = 1024 * 1024
 const SERVER_WAIT_MS = 10_000
 const CREDENTIALS_WAIT_MS = 60_000
 
-/** Lumovi's own files, in the order they were added (none while the policy keeps to the default). */
+/** Lumovi's own files, by name (none while the policy keeps to the default). */
 export function ownKubeconfigs(folder: string, managed: ManagedSettings | undefined): string[] {
   if (lockedBy(managed)) return []
   try {
@@ -84,7 +84,10 @@ export class AddedClusters {
       this.#mayChange()
       const path = await this.deps.pick()
       if (!path) return { ok: true, data: null }
-      if (statSync(path).size > MAX_TEXT) throw tooLarge()
+      // A file, whole: a device's or a pipe's would be read for ever.
+      const stat = statSync(path)
+      if (!stat.isFile()) throw new KubeRequestError('invalid', `${path} isn’t a file.`)
+      if (stat.size > MAX_TEXT) throw tooLarge()
       return { ok: true, data: readFileSync(path, 'utf8') }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
@@ -98,8 +101,14 @@ export class AddedClusters {
   inspect(text: string, editing?: string): Result<PastedKubeconfig> {
     try {
       const given = read(text)
-      const raw = this.#restored(given, editing)
-      const taken = new Set(this.#others().contexts.map((context) => context.name))
+      const stored = this.#stored(editing)
+      const raw = stored ? restored(given, stored) : given
+      // Taken by what else is read: the one being edited is itself.
+      const taken = new Set(
+        this.#others(editing === undefined ? undefined : this.#own(editing)).contexts.map(
+          (context) => context.name,
+        ),
+      )
       const used = (raw: Raw) =>
         unique(
           raw.contexts.flatMap(({ context }) =>
@@ -134,6 +143,13 @@ export class AddedClusters {
             consent: agreeable[index]!.consent,
           })),
           tokenFiles: tokenFilesOf(raw),
+          keptCredentials: stored
+            ? keptSendsOf(given, raw, stored).map(({ context, server, consent }) => ({
+                context,
+                server,
+                consent,
+              }))
+            : [],
           files: filesOf(raw),
           conflicts: raw.contexts.map(({ name }) => name).filter((name) => taken.has(name)),
         },
@@ -155,16 +171,16 @@ export class AddedClusters {
   ): Promise<Result<ClusterCheck>> {
     try {
       this.#mayChange()
-      // One of Lumovi's own being edited: its placeholders as its secrets, and what it did before
-      // agreed to.
+      // One of Lumovi's own being edited: its placeholders as its secrets (where they were kept for,
+      // or agreed to send elsewhere), and what it did before agreed to (where it did it).
       const stored = this.#stored(editing)
-      if (stored) agreed = [...agreed, ...consentsOf(stored)]
-      const raw = pick(
-        this.#restored(read(text), editing),
-        [context],
-        {},
-        { contexts: [], clusters: [], users: [] },
-      )
+      const given = read(text)
+      const full = stored ? restored(given, stored) : given
+      if (stored) agreed = [...agreed, ...carriedConsents(stored, full)]
+      const sends = stored
+        ? keptSendsOf(given, full, stored).filter((send) => send.context === context)
+        : []
+      const raw = pick(full, [context], {}, { contexts: [], clusters: [], users: [] })
       refuseRelative(raw)
       refuseIrregular(raw)
       // The server without credentials: none read yet.
@@ -199,7 +215,10 @@ export class AddedClusters {
       }
       if (!server.ok)
         return { ok: true, data: { server, credentials: { ok: false, notTried: 'server' } } }
-      if (unagreed(raw, agreed).length > 0) {
+      if (
+        unagreed(raw, agreed).length > 0 ||
+        sends.some((send) => !agreed.includes(send.consent))
+      ) {
         return { ok: true, data: { server, credentials: { ok: false, notTried: 'agreement' } } }
       }
       const kc = this.#kubeConfig(raw)
@@ -271,7 +290,9 @@ export class AddedClusters {
       this.#mayChange()
       const own = this.#own(path)
       const stored = read(readFileSync(own, 'utf8'))
-      const raw = restored(read(text), stored)
+      const given = read(text)
+      const raw = restored(given, stored)
+      const agreedNow = [...agreed, ...carriedConsents(stored, raw)]
       const kept = this.#checked(
         pick(
           raw,
@@ -279,12 +300,19 @@ export class AddedClusters {
           {},
           this.#others(own),
         ),
-        [...agreed, ...consentsOf(stored)],
+        agreedNow,
+        keptSendsOf(given, raw, stored)
+          .filter((send) => !agreedNow.includes(send.consent))
+          .map((send) => `send its kept credentials to ${send.server}`),
       )
       // Whole or not at all: written beside it, then put in its place.
       const next = `${own}.${randomBytes(3).toString('hex')}.tmp`
-      writeFileSync(next, written(kept), { mode: 0o600, flag: 'wx' })
-      renameSync(next, own)
+      try {
+        writeFileSync(next, written(kept), { mode: 0o600, flag: 'wx' })
+        renameSync(next, own)
+      } finally {
+        rmSync(next, { force: true })
+      }
       return { ok: true, data: this.#reread() }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
@@ -337,10 +365,10 @@ export class AddedClusters {
    * What's to be kept, if it can be: what it runs or sends agreed to, every file it names whole
    * and a file, and read as anything that reads it will.
    */
-  #checked(raw: Raw, agreed: string[]): Raw {
+  #checked(raw: Raw, agreed: string[], alsoNeeded: string[] = []): Raw {
     refuseRelative(raw)
     refuseIrregular(raw)
-    const needed = unagreed(raw, agreed)
+    const needed = [...unagreed(raw, agreed), ...alsoNeeded]
     if (needed.length > 0) {
       throw new KubeRequestError(
         'not-allowed',
@@ -382,12 +410,6 @@ export class AddedClusters {
   /** One of Lumovi's own, as kept, if one's named. */
   #stored(editing: string | undefined): Raw | undefined {
     return editing === undefined ? undefined : read(readFileSync(this.#own(editing), 'utf8'))
-  }
-
-  /** `raw`, its placeholders as the secrets of the one it edits (if it edits one). */
-  #restored(raw: Raw, editing: string | undefined): Raw {
-    const stored = this.#stored(editing)
-    return stored ? restored(raw, stored) : raw
   }
 
   #reread(): Files {
@@ -464,6 +486,12 @@ function pick(raw: Raw, contexts: string[], names: Record<string, string>, other
     if (!found) throw new KubeRequestError('invalid', `It has no context named “${name}”.`)
     const as = (names[name] ?? name).trim()
     if (!as) throw new KubeRequestError('invalid', `“${name}” needs a name.`)
+    if (kept.contexts.some((context) => context.name === as)) {
+      throw new KubeRequestError(
+        'invalid',
+        `Two of its contexts would be named “${as}”: name them apart.`,
+      )
+    }
     if (taken.contexts.has(as)) conflicts.push(as)
     taken.contexts.add(as)
 
@@ -604,9 +632,92 @@ function consent(...what: unknown[]): string {
   return createHmac('sha256', CONSENT_KEY).update(JSON.stringify(what)).digest('hex')
 }
 
-/** All its credentials do here that's agreed to first. */
-function consentsOf(raw: Raw): string[] {
-  return [...commandsOf(raw.users), ...tokenFilesOf(raw)].map(({ consent }) => consent)
+/**
+ * What a cluster's connection is: where its credentials go, and how they're kept from anyone
+ * else on the way.
+ */
+const CONNECTION = [
+  'server',
+  'proxy-url',
+  'insecure-skip-tls-verify',
+  'certificate-authority',
+  'certificate-authority-data',
+  'tls-server-name',
+]
+function connectionOf(raw: Raw, cluster: string): string {
+  const found = raw.clusters.find((entry) => entry.name === cluster)?.cluster ?? {}
+  return JSON.stringify(CONNECTION.map((key) => found[key] ?? null))
+}
+
+/** The connections each user's contexts have. */
+function connectionsOf(raw: Raw): Map<string, Set<string>> {
+  const connections = new Map<string, Set<string>>()
+  for (const { context } of raw.contexts) {
+    if (!context.user) continue
+    const set = connections.get(context.user) ?? new Set<string>()
+    set.add(connectionOf(raw, context.cluster))
+    connections.set(context.user, set)
+  }
+  return connections
+}
+
+/**
+ * The users of a stored cluster whose contexts, as edited, go somewhere they weren't kept for: a
+ * context's connection that none of theirs had (a server moved, a context added).
+ */
+function movedUsers(edited: Raw, stored: Raw): Set<string> {
+  const kept = connectionsOf(stored)
+  const moved = new Set<string>()
+  for (const [user, connections] of connectionsOf(edited)) {
+    const was = kept.get(user)
+    if (was && [...connections].some((connection) => !was.has(connection))) moved.add(user)
+  }
+  return moved
+}
+
+/**
+ * What a stored cluster's credentials did that was agreed to, still agreed to as edited: but not
+ * for a user whose contexts go somewhere they didn't (it would send what the program gives there).
+ * A token file's is for the server it goes to anyway.
+ */
+function carriedConsents(stored: Raw, edited: Raw): string[] {
+  const moved = movedUsers(edited, stored)
+  return [
+    ...commandsOf(stored.users.filter(({ name }) => !moved.has(name))),
+    ...tokenFilesOf(stored),
+  ].map(({ consent }) => consent)
+}
+
+/** Whether a user, as given (before its placeholders are its secrets), keeps any of them. */
+function keepsSecrets(user: Record<string, unknown> | undefined): boolean {
+  return (
+    SECRETS.some((at) => dig(user, at) === KEPT) ||
+    envOf(user).some((variable) => variable.value === KEPT)
+  )
+}
+
+/**
+ * Where a kept user's secrets would go that they weren't kept for: each context whose connection
+ * none of its user's had, to be agreed to (for that very connection) before they're sent there.
+ */
+function keptSendsOf(
+  given: Raw,
+  edited: Raw,
+  stored: Raw,
+): { context: string; server: string; consent: string }[] {
+  const kept = connectionsOf(stored)
+  const seen = new Set<string>()
+  return edited.contexts.flatMap(({ name, context }) => {
+    const user = context.user
+    if (!user || !keepsSecrets(given.users.find((entry) => entry.name === user)?.user)) return []
+    const connection = connectionOf(edited, context.cluster)
+    if (kept.get(user)?.has(connection)) return []
+    const server = edited.clusters.find((entry) => entry.name === context.cluster)?.cluster.server
+    const agreement = consent('kept', user, connection)
+    if (seen.has(agreement)) return []
+    seen.add(agreement)
+    return [{ context: name, server: String(server ?? ''), consent: agreement }]
+  })
 }
 
 /** What its credentials do here that isn't agreed to, as said to the person. */
@@ -659,7 +770,29 @@ function envOf(user: Record<string, unknown> | undefined): { name?: unknown; val
   return Array.isArray(exec?.env) ? (exec.env as { name?: unknown; value?: unknown }[]) : []
 }
 
-/** Its users' secrets as placeholders: the program's environment's values too. */
+/** A proxy's address with its password as a placeholder (or as it is, without one). */
+function withoutPassword(proxy: unknown): unknown {
+  if (typeof proxy !== 'string') return proxy
+  try {
+    const url = new URL(proxy)
+    if (!url.password) return proxy
+    url.password = KEPT
+    return url.toString()
+  } catch {
+    return proxy
+  }
+}
+
+/** Whether a proxy's address has its password as a placeholder. */
+const keepsPassword = (proxy: unknown) => {
+  try {
+    return typeof proxy === 'string' && decodeURIComponent(new URL(proxy).password) === KEPT
+  } catch {
+    return false
+  }
+}
+
+/** Its users' secrets as placeholders: the program's environment's values, and proxies' passwords. */
 function hidden(raw: Raw): Raw {
   const users = raw.users.map(({ name, user }) => {
     const copy = structuredClone(user)
@@ -667,11 +800,32 @@ function hidden(raw: Raw): Raw {
     for (const variable of envOf(copy)) variable.value = KEPT
     return { name, user: copy }
   })
-  return { ...raw, users }
+  const clusters = raw.clusters.map(({ name, cluster }) =>
+    cluster['proxy-url'] === undefined
+      ? { name, cluster }
+      : { name, cluster: { ...cluster, 'proxy-url': withoutPassword(cluster['proxy-url']) } },
+  )
+  return { ...raw, users, clusters }
 }
 
-/** Each placeholder left in `edited` as the secret `stored` keeps for it (by user, and where). */
+/**
+ * Each placeholder left in `edited` as the secret `stored` keeps for it (by user, and where; a
+ * proxy's password for that very proxy). Where it may go is for keptSendsOf to say.
+ */
 function restored(edited: Raw, stored: Raw): Raw {
+  const clusters = edited.clusters.map(({ name, cluster }) => {
+    const proxy = cluster['proxy-url']
+    if (!keepsPassword(proxy)) return { name, cluster }
+    const was = stored.clusters.find((entry) => entry.name === name)?.cluster['proxy-url']
+    // The password, only for the proxy it was kept for.
+    if (typeof was !== 'string' || withoutPassword(was) !== withoutPassword(proxy)) {
+      throw new KubeRequestError(
+        'invalid',
+        `“${name}”’s proxy password is ${KEPT} for another proxy: paste it again.`,
+      )
+    }
+    return { name, cluster: { ...cluster, 'proxy-url': was } }
+  })
   const users = edited.users.map(({ name, user }) => {
     const copy = structuredClone(user)
     for (const at of SECRETS) {
@@ -699,7 +853,7 @@ function restored(edited: Raw, stored: Raw): Raw {
     }
     return { name, user: copy }
   })
-  return { ...edited, users }
+  return { ...edited, users, clusters }
 }
 
 /**
