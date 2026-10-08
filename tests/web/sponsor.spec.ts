@@ -24,7 +24,7 @@ test('the server reads the card, and serves it from its own origin', async ({
       env: {
         LUMOVI_AUTH: 'proxy',
         LUMOVI_SPONSOR_URL: sponsor.url,
-        LUMOVI_SPONSOR_REFRESH_MS: '250',
+        LUMOVI_SPONSOR_REFRESH_MS: '1000',
       },
     })
     const elsewhere: string[] = []

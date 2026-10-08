@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import {
   ACME,
+  CRAFTED,
   picture,
   sponsorJson,
   startMockSponsor,
@@ -23,7 +24,7 @@ import {
 
 const test = base.extend<{
   sponsor: MockSponsor
-  /** Lumovi, reading its sponsor card from the stand-in, every 250 ms. */
+  /** Lumovi, reading its sponsor card from the stand-in, every second (the quickest it reads). */
   launchSponsored: (options?: LaunchOptions) => Promise<Lumovi>
 }>({
   // eslint-disable-next-line no-empty-pattern
@@ -38,7 +39,7 @@ const test = base.extend<{
         ...options,
         env: {
           LUMOVI_SPONSOR_URL: sponsor.url,
-          LUMOVI_SPONSOR_REFRESH_MS: '250',
+          LUMOVI_SPONSOR_REFRESH_MS: '1000',
           ...options.env,
         },
       }),
@@ -54,8 +55,9 @@ const link = (page: Page) => card(page).getByRole('link')
 /** The card's picture that shows, in the mode in use. */
 const shownPicture = (page: Page) => card(page).locator('img:visible')
 
-/** What a picture's data: URL holds. */
-const dataOf = (src: string | null) => Buffer.from(src!.split(',')[1]!, 'base64')
+/** What a picture's data: URL holds (nothing, for Lumovi's own, which is a file of the app's). */
+const dataOf = (src: string | null) =>
+  src?.startsWith('data:') ? Buffer.from(src.split(',')[1]!, 'base64') : Buffer.alloc(0)
 
 /** The card leads to Lumovi's own GitHub Sponsors page, or where sponsor.json says. */
 async function expectLumovis(page: Page, to = BUILT_IN) {
@@ -264,9 +266,10 @@ test('pictures are taken by what they are: PNG, GIF or WebP, still or playing on
     ['apng.png', false],
     ['wrong-size.png', false],
   ]
+  for (const what of Object.keys(CRAFTED)) cases.push([what, false])
   for (const [name, taken] of cases) {
     await test.step(name, async () => {
-      sponsor.files.set('acme-light.png', picture(name))
+      sponsor.files.set('acme-light.png', CRAFTED[name]?.() ?? picture(name))
       if (taken) {
         await expect
           .poll(async () => dataOf(await shownPicture(page).getAttribute('src')))

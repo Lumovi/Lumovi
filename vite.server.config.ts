@@ -16,6 +16,8 @@ export default defineConfig({
   plugins: [...coverage('server', withCoverage), licenses('server')],
   // ws looks for optional native add-ons, which aren't bundled: it does without them.
   define: {
+    // The tests' stand-ins (backend/sponsor/source.ts) are in test builds only.
+    LUMOVI_TEST_BUILD: JSON.stringify(withCoverage),
     'process.env.WS_NO_BUFFER_UTIL': JSON.stringify('1'),
     'process.env.WS_NO_UTF_8_VALIDATE': JSON.stringify('1'),
   },

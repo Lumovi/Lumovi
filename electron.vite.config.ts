@@ -27,6 +27,8 @@ export default defineConfig({
   main: {
     resolve: { alias },
     plugins: [...coverage('main', withCoverage), licenses()],
+    // The tests' stand-ins (backend/sponsor/source.ts) are in test builds only.
+    define: { LUMOVI_TEST_BUILD: JSON.stringify(withCoverage) },
     build: {
       externalizeDeps: true,
       sourcemap: withCoverage ? false : 'hidden',
