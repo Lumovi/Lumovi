@@ -25,6 +25,8 @@ import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { DEMO, expect, test } from './fixtures.ts'
 
 const posix = process.platform !== 'win32'
+/** A plugin's environment's value, as a secret might be: kept from the page once added. */
+const TEAM_SECRET = 'team-secret-4f2a9c'
 /** How the line for kubectl starts, in the shell here. */
 const LINE = posix ? /^export KUBECONFIG=/ : /^\$env:KUBECONFIG = "/
 
@@ -478,7 +480,11 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
   )
   const text = kubeconfig('plugged', clusters.demo.url, clusters.demo.caPem, {
     name: '',
-    exec: { command: process.execPath, args: [plugin], env: [{ name: 'TEAM', value: 'a' }] },
+    exec: {
+      command: process.execPath,
+      args: [plugin],
+      env: [{ name: 'TEAM', value: TEAM_SECRET }],
+    },
   })
   const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   const { page } = await launch({ userDataDir })
@@ -492,7 +498,7 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
         {
           user: 'plugged',
           line: expect.stringContaining(plugin),
-          env: [{ name: 'TEAM', value: 'a' }],
+          env: [{ name: 'TEAM', value: TEAM_SECRET }],
           consent: expect.any(String),
         },
       ],
@@ -524,12 +530,16 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
       exec: {
         command: process.execPath,
         args: [plugin, '--more'],
-        env: [{ name: 'TEAM', value: 'a' }],
+        env: [{ name: 'TEAM', value: TEAM_SECRET }],
       },
     }),
     kubeconfig('plugged', clusters.demo.url, clusters.demo.caPem, {
       name: '',
-      exec: { command: process.execPath, args: [plugin], env: [{ name: 'TEAM', value: 'b' }] },
+      exec: {
+        command: process.execPath,
+        args: [plugin],
+        env: [{ name: 'TEAM', value: 'another' }],
+      },
     }),
   ]) {
     for (const result of [
@@ -576,24 +586,27 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
       data: string
     }
   ).data
-  expect(saved).not.toMatch(/value: a\b/)
+  expect(saved).not.toContain(TEAM_SECRET)
   expect(saved).toContain('value: (kept by Lumovi)')
-  expect(
-    await page.evaluate(
-      ([text, file]) => window.lumovi!.addedClusters!.inspect(text!, file),
-      [saved, file],
-    ),
-  ).toMatchObject({
+  // What's agreed to, as it'd run (its secret too), but nothing of the secret in what the page gets.
+  const editing = await page.evaluate(
+    ([text, file]) => window.lumovi!.addedClusters!.inspect(text!, file),
+    [saved, file],
+  )
+  expect(editing).toMatchObject({
     ok: true,
-    data: { commands: [{ consent, env: [{ name: 'TEAM', value: 'a' }] }] },
+    data: { commands: [{ consent, env: [{ name: 'TEAM', value: '(kept by Lumovi)' }] }] },
   })
+  expect(JSON.stringify(editing)).not.toContain(TEAM_SECRET)
+  expect(JSON.stringify(inspected)).toContain(TEAM_SECRET)
+  expect(consent).toMatch(/^[0-9a-f]{64}$/)
   expect(
     await page.evaluate(
       ([file, text]) => window.lumovi!.addedClusters!.edit(file!, text!, []),
       [file, saved],
     ),
   ).toMatchObject({ ok: true })
-  expect(readFileSync(file!, 'utf8')).toMatch(/value: a\b/)
+  expect(readFileSync(file!, 'utf8')).toContain(TEAM_SECRET)
 })
 
 test('an organization’s policy that keeps Lumovi to the default locks adding, and what was added isn’t read', async ({

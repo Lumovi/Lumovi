@@ -11,7 +11,7 @@
  *
  * The page gets an added cluster's text back with its secrets as placeholders: they stay here.
  */
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
   mkdirSync,
   readdirSync,
@@ -97,11 +97,17 @@ export class AddedClusters {
    */
   inspect(text: string, editing?: string): Result<PastedKubeconfig> {
     try {
-      const raw = this.#restored(read(text), editing)
+      const given = read(text)
+      const raw = this.#restored(given, editing)
       const taken = new Set(this.#others().contexts.map((context) => context.name))
-      const users = raw.contexts.flatMap(({ context }) =>
-        raw.users.filter((user) => user.name === context.user),
-      )
+      const used = (raw: Raw) =>
+        unique(
+          raw.contexts.flatMap(({ context }) =>
+            raw.users.filter((user) => user.name === context.user),
+          ),
+        )
+      // Agreed to as they'd run, with their secrets; shown as given, placeholders and all.
+      const agreeable = commandsOf(used(raw))
       return {
         ok: true,
         data: {
@@ -123,7 +129,10 @@ export class AddedClusters {
               ...(typeof proxy === 'string' ? { proxy } : {}),
             }
           }),
-          commands: commandsOf(unique(users)),
+          commands: commandsOf(used(given)).map((command, index) => ({
+            ...command,
+            consent: agreeable[index]!.consent,
+          })),
           tokenFiles: tokenFilesOf(raw),
           files: filesOf(raw),
           conflicts: raw.contexts.map(({ name }) => name).filter((name) => taken.has(name)),
@@ -584,9 +593,12 @@ function tokenFilesOf(raw: Raw): PastedKubeconfig['tokenFiles'] {
   })
 }
 
-/** What's agreed to, when it is: one thing a credential does here, exactly as it was shown. */
+/**
+ * What's agreed to, when it is: one thing a credential does here, exactly as it would do it
+ * (secrets and all), as a digest: the page gives it back, and learns nothing from it.
+ */
 function consent(...what: unknown[]): string {
-  return JSON.stringify(what)
+  return createHash('sha256').update(JSON.stringify(what)).digest('hex')
 }
 
 /** All its credentials do here that's agreed to first. */
