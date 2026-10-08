@@ -17,7 +17,8 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { KubeConfig } from '@kubernetes/client-node'
 import { parse, stringify } from 'yaml'
 import type {
@@ -139,6 +140,8 @@ export class AddedClusters {
         currentContext: 'check',
       })
       let server: ClusterCheck['server']
+      const asked = performance.now()
+      const latency = () => ({ latencyMs: Math.round(performance.now() - asked) })
       try {
         const answer = JSON.parse(
           await kubeRequest(anonymous, '/version', { timeoutMs: SERVER_WAIT_MS }),
@@ -146,12 +149,13 @@ export class AddedClusters {
         server = {
           ok: true,
           ...(typeof answer.gitVersion === 'string' ? { version: answer.gitVersion } : {}),
+          ...latency(),
         }
       } catch (error) {
         // Refused (401, 403…) is answered.
         server =
           error instanceof KubeRequestError && error.status !== undefined
-            ? { ok: true }
+            ? { ok: true, ...latency() }
             : { ok: false, message: toKubeError(error).message }
       }
       if (!server.ok)
@@ -175,7 +179,7 @@ export class AddedClusters {
             : { ok: false, message: toKubeError(error).message }
       }
       // A server that tells only those signed in its version.
-      if (credentials.ok && !server.version) server = { ok: true, ...(await versionOf(kc)) }
+      if (credentials.ok && !server.version) server = { ...server, ...(await versionOf(kc)) }
       return { ok: true, data: { server, credentials } }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
@@ -186,7 +190,7 @@ export class AddedClusters {
   add(
     text: string,
     options: { contexts?: string[]; names?: Record<string, string>; allowCommands: boolean },
-  ): Result<Files> {
+  ): Result<{ path: string; files: Files }> {
     try {
       this.#mayChange()
       const raw = read(text)
@@ -195,9 +199,12 @@ export class AddedClusters {
         : raw.contexts.map(({ name }) => name)
       const kept = this.#checked(pick(raw, contexts, options.names ?? {}, this.#others()), options)
       mkdirSync(this.deps.folder, { recursive: true, mode: 0o700 })
-      const name = `${Date.now()}-${slug(kept.contexts[0]!.name)}-${randomBytes(3).toString('hex')}.yaml`
-      writeFileSync(join(this.deps.folder, name), written(kept), { mode: 0o600, flag: 'wx' })
-      return { ok: true, data: this.#reread() }
+      // Named after its first context, as it's known.
+      const taken = new Set(readdirSync(this.deps.folder))
+      const name = `${free(slug(kept.contexts[0]!.name), new Set([...taken].map((file) => file.replace(/\.yaml$/, ''))))}.yaml`
+      const path = join(this.deps.folder, name)
+      writeFileSync(path, written(kept), { mode: 0o600, flag: 'wx' })
+      return { ok: true, data: { path, files: this.#reread() } }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
@@ -551,12 +558,27 @@ function quoted(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`
 }
 
-/** For a terminal here: POSIX shells', or PowerShell's on Windows. */
-export function kubeconfigLine(paths: string[], platform = process.platform): string {
-  const value = paths.join(platform === 'win32' ? ';' : delimiter)
-  return platform === 'win32'
-    ? `$env:KUBECONFIG = '${value.replaceAll("'", "''")}'`
-    : `export KUBECONFIG='${value.replaceAll("'", `'\\''`)}'`
+/**
+ * For a terminal here: POSIX shells', or PowerShell's on Windows; each path in the home folder
+ * from `$HOME`, so it reads as it would be typed.
+ */
+export function kubeconfigLine(
+  paths: string[],
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string {
+  const windows = platform === 'win32'
+  // In double quotes, as each shell reads them.
+  const escaped = (text: string) =>
+    windows ? text.replace(/[`"$]/g, '`$&') : text.replace(/[\\"$`]/g, '\\$&')
+  const value = paths
+    .map((path) =>
+      path.startsWith(home + (windows ? '\\' : '/'))
+        ? `$HOME${escaped(path.slice(home.length))}`
+        : escaped(path),
+    )
+    .join(windows ? ';' : ':')
+  return windows ? `$env:KUBECONFIG = "${value}"` : `export KUBECONFIG="${value}"`
 }
 
 /** A file's name from a context's: letters, digits and dashes. */

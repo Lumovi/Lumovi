@@ -293,7 +293,7 @@ export interface PastedKubeconfig {
 
 /** Whether a context of a pasted kubeconfig can be used: its server answers, and its credentials work. */
 export interface ClusterCheck {
-  server: { ok: true; version?: string } | { ok: false; message: string }
+  server: { ok: true; version?: string; latencyMs?: number } | { ok: false; message: string }
   /**
    * Signed in (and whether it may list namespaces), refused, or not tried: its credentials run a
    * program the person hasn't agreed to.
@@ -976,7 +976,7 @@ export interface LumoviApi {
     add(
       text: string,
       options: { contexts?: string[]; names?: Record<string, string>; allowCommands: boolean },
-    ): Promise<Result<KubeconfigFiles>>
+    ): Promise<Result<{ path: string; files: KubeconfigFiles }>>
     /** The text of one Lumovi keeps, to edit. */
     read(path: string): Promise<Result<string>>
     /** One Lumovi keeps, written again (checked as add checks it). */

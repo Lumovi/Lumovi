@@ -80,7 +80,7 @@ if (stdio) {
     const url = rendererUrl()
     // The kubeconfig files chosen in Lumovi, or else KUBECONFIG's, or ~/.kube/config; then those
     // added; then the clusters added in Lumovi, each a file of its own.
-    const kubeconfigs = join(app.getPath('userData'), 'kubeconfigs')
+    const kubeconfigs = join(app.getPath('userData'), 'clusters')
     const store = new KubeConfigStore(process.env, () => ({
       ...settings.kubeconfigFiles(),
       own: ownKubeconfigs(kubeconfigs, policy.managed),

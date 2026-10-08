@@ -11,16 +11,30 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { DEMO, expect, test } from './fixtures.ts'
 
 const posix = process.platform !== 'win32'
+/** How the line for kubectl starts, in the shell here. */
+const LINE = posix ? /^export KUBECONFIG="/ : /^\$env:KUBECONFIG = "/
+
+/** What KUBECONFIG is once `line` has run, in the shell it's for. */
+const run = (line: string) =>
+  posix
+    ? execFileSync('sh', ['-c', `${line}; printf %s "$KUBECONFIG"`], { encoding: 'utf8' })
+    : execFileSync(
+        'powershell',
+        ['-NoProfile', '-Command', `${line}; [Console]::Out.Write($env:KUBECONFIG)`],
+        { encoding: 'utf8' },
+      )
 
 /** A kubeconfig's text: one context (`name`) for the demo cluster, signing in as `user` says. */
 function kubeconfig(
@@ -46,7 +60,7 @@ const contexts = (page: Page) =>
   page.evaluate(async () => (await window.lumovi!.kube.contexts()).contexts.map((c) => c.name))
 /** Lumovi's own files, where it says they are (macOS's temporary folder is under /private). */
 const own = (userDataDir: string) => {
-  const folder = join(realpathSync(userDataDir), 'kubeconfigs')
+  const folder = join(realpathSync(userDataDir), 'clusters')
   return existsSync(folder) ? readdirSync(folder).map((name) => join(folder, name)) : []
 }
 
@@ -90,7 +104,7 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
   ).toEqual({
     ok: true,
     data: {
-      server: { ok: true, version: DEMO.gitVersion },
+      server: { ok: true, version: DEMO.gitVersion, latencyMs: expect.any(Number) },
       credentials: { ok: true, allowed: true },
     },
   })
@@ -112,12 +126,17 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
     text,
   )
   const [file] = own(userDataDir)
+  // Named after the cluster.
+  expect(file).toMatch(/[\\/]pasted\.yaml$/)
   expect(added).toMatchObject({
     ok: true,
-    data: { files: expect.arrayContaining([{ path: file, exists: true, own: true }]) },
+    data: {
+      path: file,
+      files: { files: expect.arrayContaining([{ path: file, exists: true, own: true }]) },
+    },
   })
   if (posix) expect(statSync(file!).mode & 0o777).toBe(0o600)
-  if (posix) expect(statSync(join(userDataDir, 'kubeconfigs')).mode & 0o777).toBe(0o700)
+  if (posix) expect(statSync(join(userDataDir, 'clusters')).mode & 0o777).toBe(0o700)
   expect((await contexts(page)).at(-1)).toBe('pasted')
   // Its cluster and user named after it: not taken for the fixture's "demo".
   expect(readFileSync(file!, 'utf8')).not.toMatch(/name: demo\b/)
@@ -143,15 +162,12 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
   expect(own(userDataDir)).toEqual([file])
   if (posix) expect(statSync(file!).mode & 0o777).toBe(0o600)
 
-  // The line for a terminal: everything read, in order, or one of them.
+  // The line for a terminal: everything read, in order, or one of them, as its shell reads it.
   const all = await page.evaluate(() => window.lumovi!.addedClusters!.forKubectl())
   const one = await page.evaluate((file) => window.lumovi!.addedClusters!.forKubectl(file), file!)
-  if (posix) {
-    expect(all).toEqual({ ok: true, data: `export KUBECONFIG='${kubeconfigEnv}:${file}'` })
-    expect(one).toEqual({ ok: true, data: `export KUBECONFIG='${file}'` })
-  } else {
-    expect(all).toEqual({ ok: true, data: `$env:KUBECONFIG = '${kubeconfigEnv};${file}'` })
-  }
+  expect(all).toMatchObject({ ok: true, data: expect.stringMatching(LINE) })
+  expect(run((all as { data: string }).data)).toBe([kubeconfigEnv, file].join(delimiter))
+  expect(run((one as { data: string }).data)).toBe(file)
 
   // Only Lumovi's own: not any file the page names.
   for (const call of ['read', 'edit', 'remove', 'forKubectl'] as const) {
@@ -187,6 +203,46 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
     text: readFileSync(kubeconfigEnv, 'utf8'),
     changed: statSync(kubeconfigEnv).mtimeMs,
   }).toEqual(before)
+})
+
+test('the line for kubectl keeps a path whole, whatever it holds, and one in the home folder from $HOME', async ({
+  launch,
+}) => {
+  const odd = join(
+    mkdtempSync(join(tmpdir(), 'lumovi-odd-')),
+    posix ? `a $dir "it's" \\ \`here\`` : `a $dir 'it''s' \`here\``,
+  )
+  mkdirSync(odd)
+  const file = join(odd, 'config')
+  writeFileSync(file, '')
+  const { page, app } = await launch()
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as never
+  }, file)
+  await page.evaluate(() => window.lumovi!.kubeconfigFiles!.choose('add'))
+  const line = await page.evaluate((file) => window.lumovi!.addedClusters!.forKubectl(file), file)
+  expect(line).toMatchObject({ ok: true, data: expect.stringMatching(LINE) })
+  expect(run((line as { data: string }).data)).toBe(file)
+
+  // In the home folder: from $HOME, as it'd be typed.
+  const home = await app.evaluate(({ app }) => app.getPath('home'))
+  const inHome = mkdtempSync(join(home, '.lumovi-test-'))
+  try {
+    const config = join(inHome, 'config')
+    writeFileSync(config, '')
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as never
+    }, config)
+    await page.evaluate(() => window.lumovi!.kubeconfigFiles!.choose('add'))
+    const fromHome = await page.evaluate(
+      (file) => window.lumovi!.addedClusters!.forKubectl(file),
+      config,
+    )
+    expect(fromHome).toMatchObject({ ok: true, data: expect.stringContaining('"$HOME') })
+    expect(run((fromHome as { data: string }).data)).toBe(config)
+  } finally {
+    rmSync(inHome, { recursive: true, force: true })
+  }
 })
 
 test('a check says what doesn’t work: the server, or the credentials; and what it can’t keep, why', async ({
@@ -291,7 +347,7 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
     ok: true,
     data: {
       // The mock tells its version only to those signed in.
-      server: { ok: true },
+      server: { ok: true, latencyMs: expect.any(Number) },
       credentials: { ok: false, notTried: 'commands' },
     },
   })
@@ -335,9 +391,9 @@ test('an organization’s policy that keeps Lumovi to the default locks adding, 
 }) => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   // Added before the policy came.
-  mkdirSync(join(userDataDir, 'kubeconfigs'))
+  mkdirSync(join(userDataDir, 'clusters'))
   writeFileSync(
-    join(userDataDir, 'kubeconfigs', '1-before.yaml'),
+    join(userDataDir, 'clusters', 'before.yaml'),
     kubeconfig('before', clusters.demo.url, clusters.demo.caPem),
   )
   const policy = join(mkdtempSync(join(tmpdir(), 'lumovi-policy-')), 'policy.json')
