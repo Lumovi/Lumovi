@@ -30,7 +30,13 @@ const closed = (button: Locator) => expect(button).not.toHaveAttribute('data-sta
 async function expectInTheCorner(page: Page) {
   const button = page.getByRole('button', { name: 'Menu', exact: true })
   await expect(button).toBeVisible()
-  expect(await button.boundingBox()).toEqual({ x: 12, y: 10, width: 32, height: 32 })
+  // (Zoomed to fit a small screen, a pixel comes out a hair off.)
+  expect(await button.boundingBox()).toEqual({
+    x: expect.closeTo(12, 0),
+    y: expect.closeTo(10, 0),
+    width: expect.closeTo(32, 0),
+    height: expect.closeTo(32, 0),
+  })
   return button
 }
 
@@ -50,18 +56,18 @@ test('on Windows and Linux, a button in the window’s corner opens the app’s 
   await expect(button).toHaveAttribute('aria-expanded', 'false')
   await hoverForTooltip(button, /Menu\s*Alt/)
   await button.click()
-  // The whole menu, 4 px under the button's bottom left corner.
-  expect(
-    await app.evaluate(() => (globalThis as unknown as { opened: unknown[] }).opened.at(-1)),
-  ).toEqual({
-    x: Math.round(12 * zoom),
-    y: Math.round(46 * zoom),
-    // (macOS's has its app's own first.)
-    menus: [
-      ...(process.platform === 'darwin' ? ['Lumovi'] : []),
-      ...['File', 'Edit', 'View', 'Go', 'Window', 'Help'],
-    ],
-  })
+  // The whole menu, 4 px under the button's bottom left corner (in the window's pixels, to the
+  // nearest one).
+  const last = (await app.evaluate(() =>
+    (globalThis as unknown as { opened: unknown[] }).opened.at(-1),
+  )) as { x: number; y: number; menus: string[] }
+  expect(Math.abs(last.x - 12 * zoom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(last.y - 46 * zoom)).toBeLessThanOrEqual(1)
+  // (macOS's has its app's own first.)
+  expect(last.menus).toEqual([
+    ...(process.platform === 'darwin' ? ['Lumovi'] : []),
+    ...['File', 'Edit', 'View', 'Go', 'Window', 'Help'],
+  ])
 
   // Alt on its own opens it; Alt with another key doesn't; F10 does.
   await closed(button)
@@ -78,7 +84,7 @@ test('on Windows and Linux, a button in the window’s corner opens the app’s 
   await button.click()
   await expect.poll(opened).toBe(4)
   const cluster = page.getByRole('button', { name: /^(Switch cluster|Cluster)$/ })
-  expect((await cluster.boundingBox())?.y).toBe(52 + 12)
+  expect((await cluster.boundingBox())?.y).toBeCloseTo(52 + 12, 0)
 
   // In a terminal, F10 and Alt are its program's (F10 quits htop): the menu stays shut.
   await closed(button)
