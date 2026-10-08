@@ -369,6 +369,18 @@ test('what the page set for a cluster isn’t another’s that comes by its name
     )
   expect(await lab()).toMatchObject({ title: 'Lab', labels: { env: 'staging' } })
 
+  // A cluster that comes by the name it's shown by: lab is shown by its own again.
+  await call(page, 'saveSettings', 'lab', { title: 'Later' })
+  expect((await lab())?.title).toBe('Later')
+  writeFileSync(second, kubeconfig(['other', 'later']))
+  await expect.poll(async () => (await lab())?.title).toBeUndefined()
+  await call(page, 'saveSettings', 'lab', {
+    title: 'Lab',
+    labels: { env: 'staging' },
+    groups: ['qa'],
+  })
+  expect(await lab()).toMatchObject({ title: 'Lab', labels: { env: 'staging' } })
+
   // Another lab, from the other file: none of it is its.
   writeFileSync(first, kubeconfig([]))
   writeFileSync(second, kubeconfig(['other', 'lab']))
@@ -393,4 +405,30 @@ test('what the page set for a cluster isn’t another’s that comes by its name
   await as(context, 'alice@example.com')
   await page.reload()
   expect(await lab()).toBeDefined()
+})
+
+test('a cluster its source gives no groups is an admin’s alone, as its settings say', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const hub = await serve({
+    env: {
+      ...fleetEnv(clusters, { [FLEET.edge]: { groups: [] } }),
+      LUMOVI_ADMINS: 'user:admin@example.com',
+    },
+  })
+  await as(context, 'alice@example.com')
+  await page.goto(hub.url)
+  await expect(card(page, FLEET.prodEu)).toBeVisible()
+  await expect(card(page, FLEET.edge)).toHaveCount(0)
+  await as(context, 'admin@example.com')
+  await page.reload()
+  await page.getByRole('button', { name: `${FLEET.edge}’s actions` }).click()
+  await page.getByRole('menuitem', { name: 'Settings…' }).click()
+  const dialog = page.getByRole('dialog', { name: FLEET.edge })
+  await expect(dialog).toContainText(
+    `NoneSet by the fleet’s kubeconfig, in the lumovi.dev extension of context ${FLEET.edge}. Change it there.Only admins see it: its source gives it no groups.`,
+  )
 })
