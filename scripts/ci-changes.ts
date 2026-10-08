@@ -12,6 +12,8 @@
  * Main, a release's pull request (`release-*`) and a run by hand run everything.
  *
  *   node scripts/ci-changes.ts [changed files...]   (by default, HEAD's against its first parent)
+ *
+ * tests/web/ci-changes.spec.ts tries it on changes of each kind.
  */
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
@@ -19,15 +21,14 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'] as const
 const SHARDS = 4
 
-/** What only explains the app: docs, Markdown, and images that aren't the app's. */
+/** What only explains the app: Markdown, and images that aren't the app's (in docs/, say). */
 const isDocs = (path: string) =>
-  path.startsWith('docs/') ||
-  (path.endsWith('.md') && !path.startsWith('src/')) ||
+  (path.endsWith('.md') && !/^(src|tests)\//.test(path)) ||
   (/\.(png|jpe?g|gif|webp|svg)$/i.test(path) && !/^(src|build|packaging|charts|tests)\//.test(path))
 
 /** What macOS does differently, or what decides how the app is built and tested. */
 const MACOS = [
-  /^src\/(main|preload|backend)\//,
+  /^src\/(main|preload|backend|shared)\//,
   /^(build|packaging)\//,
   /^electron(-builder\.yml|\.vite\.config\.ts)$/,
   /^package(-lock)?\.json$/,
@@ -37,45 +38,81 @@ const MACOS = [
   /^tests\/e2e\/(fixtures|global-setup)\.ts$/,
   /^scripts\/(ci-changes|e2e-shard)\.ts$/,
 ]
-const PLATFORM = /process\.platform|navigator\.(platform|userAgent)|\bdarwin\b|\bisMac\b/
-const isMacos = (path: string) =>
-  MACOS.some((pattern) => pattern.test(path)) ||
-  (/^src\/.*\.tsx?$/.test(path) && existsSync(path) && PLATFORM.test(readFileSync(path, 'utf8')))
-
-const event = process.env.GITHUB_EVENT_NAME
-const branch = process.env.GITHUB_HEAD_REF ?? ''
-const everything = event !== 'pull_request' || branch.startsWith('release-')
-const changed =
-  process.argv.length > 2
-    ? process.argv.slice(2)
-    : execFileSync('git', ['diff', '--name-only', 'HEAD^1', 'HEAD'], { encoding: 'utf8' })
-        .split('\n')
-        .filter(Boolean)
-
-const docs = !everything && changed.length > 0 && changed.every(isDocs)
-const macos = everything || changed.some(isMacos)
-const e2e = OSES.flatMap((os) =>
-  os === 'macos-latest' && !macos
-    ? [{ os, shard: 'smoke', part: 'smoke' }]
-    : Array.from({ length: SHARDS }, (_, i) => ({
-        os,
-        shard: `${i + 1}/${SHARDS}`,
-        part: String(i + 1),
-      })),
-)
-
-const said = [
-  everything
-    ? `Everything runs (${event === 'pull_request' ? `a release's pull request` : event}).`
-    : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
-  docs ? 'Docs only: no E2E, packaging or integration tests.' : '',
-  !docs && !macos ? 'Nothing macOS does differently: macOS runs the smoke set.' : '',
-]
-  .filter(Boolean)
-  .join(' ')
-console.log(said)
-const output = process.env.GITHUB_OUTPUT
-if (output) {
-  appendFileSync(output, `docs=${docs}\ne2e=${JSON.stringify({ include: e2e })}\n`)
+/** Code that asks which platform it's on, or does differently there (⌘ for Ctrl, a draggable bar). */
+const PLATFORM =
+  /\.platform\b|navigator\.userAgent|userAgentData|\bdarwin\b|\bwin32\b|\bisMac\b|metaKey|MOD_KEY|CTRL_KEY|app-region/
+/** A source file as it is now, and as it was (deleted or moved, it's only what it was). */
+const versionsOf = (path: string): string[] => {
+  const was = (() => {
+    try {
+      return execFileSync('git', ['show', `HEAD^1:${path}`], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+    } catch {
+      return ''
+    }
+  })()
+  return [existsSync(path) ? readFileSync(path, 'utf8') : '', was]
 }
-if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${said}\n`)
+/** What the run needs, from the event, the pull request's branch and what it changes. */
+export function plan({
+  event,
+  branch = '',
+  changed,
+  versions = versionsOf,
+}: {
+  event: string | undefined
+  branch?: string
+  changed: string[]
+  versions?: (path: string) => string[]
+}) {
+  const everything = event !== 'pull_request' || branch.startsWith('release-')
+  const isMacos = (path: string) =>
+    MACOS.some((pattern) => pattern.test(path)) ||
+    (/^src\/.*\.(tsx?|css)$/.test(path) && versions(path).some((text) => PLATFORM.test(text)))
+  const docs = !everything && changed.length > 0 && changed.every(isDocs)
+  const macos = everything || changed.some(isMacos)
+  const e2e = OSES.flatMap((os) =>
+    os === 'macos-latest' && !macos
+      ? [{ os, shard: 'smoke', part: 'smoke' }]
+      : Array.from({ length: SHARDS }, (_, i) => ({
+          os,
+          shard: `${i + 1}/${SHARDS}`,
+          part: String(i + 1),
+        })),
+  )
+  const said = [
+    everything
+      ? `Everything runs (${event === 'pull_request' ? `a release's pull request` : event}).`
+      : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
+    docs ? 'Docs only: no E2E, packaging or integration tests.' : '',
+    !docs && !macos ? 'Nothing macOS does differently: macOS runs the smoke set.' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return { everything, docs, macos, e2e, said }
+}
+
+if (import.meta.main) {
+  const changed =
+    process.argv.length > 2
+      ? process.argv.slice(2)
+      : // A file moved is where it was and where it is: both count.
+        execFileSync('git', ['diff', '--name-only', '--no-renames', 'HEAD^1', 'HEAD'], {
+          encoding: 'utf8',
+        })
+          .split('\n')
+          .filter(Boolean)
+  const { docs, e2e, said } = plan({
+    event: process.env.GITHUB_EVENT_NAME,
+    branch: process.env.GITHUB_HEAD_REF,
+    changed,
+  })
+  console.log(said)
+  const output = process.env.GITHUB_OUTPUT
+  if (output) appendFileSync(output, `docs=${docs}\ne2e=${JSON.stringify({ include: e2e })}\n`)
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${said}\n`)
+  }
+}
