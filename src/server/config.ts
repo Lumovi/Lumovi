@@ -83,6 +83,12 @@ export interface FleetConfig {
   local: boolean
   /** How often files and Secrets are read again. */
   refreshSeconds: number
+  /**
+   * Whether admins add clusters from the Fleet page, by kubeconfig or token
+   * (LUMOVI_FLEET_ADD_FROM_PAGE, the chart's fleet.addFromPage): kept as Lumovi's Secrets in its
+   * own namespace, which it then reads too.
+   */
+  addFromPage: boolean
 }
 
 export interface ServerConfig {
@@ -655,6 +661,18 @@ function fleetConfig(
   }
   const agents = agentsConfig(value('LUMOVI_FLEET_AGENTS'))
   const inKubernetes = Boolean(env.KUBERNETES_SERVICE_HOST)
+  const addSetting = value('LUMOVI_FLEET_ADD_FROM_PAGE')
+  if (addSetting !== undefined && !['true', 'false'].includes(addSetting)) {
+    throw new ConfigError(`LUMOVI_FLEET_ADD_FROM_PAGE must be true or false, not "${addSetting}".`)
+  }
+  const addFromPage = addSetting === 'true'
+  if (addFromPage && !inKubernetes) {
+    throw new ConfigError(
+      'LUMOVI_FLEET_ADD_FROM_PAGE keeps the clusters added from the Fleet page as Secrets of the cluster Lumovi runs in, and it isn’t running in one (KUBERNETES_SERVICE_HOST isn’t set).',
+    )
+  }
+  // What's added is kept as Lumovi's own Secrets: read.
+  if (addFromPage && !secrets.includes('lumovi')) secrets.push('lumovi')
   const localSetting = value('LUMOVI_FLEET_LOCAL')
   if (localSetting !== undefined && !['true', 'false'].includes(localSetting)) {
     throw new ConfigError(`LUMOVI_FLEET_LOCAL must be true or false, not "${localSetting}".`)
@@ -688,6 +706,7 @@ function fleetConfig(
     agents,
     local: localSetting === undefined ? inKubernetes : localSetting === 'true',
     refreshSeconds,
+    addFromPage,
   })
 }
 
@@ -697,6 +716,7 @@ const fleetOf = (settings: Partial<FleetConfig>): FleetConfig => ({
   agents: [],
   local: false,
   refreshSeconds: 30,
+  addFromPage: false,
   ...settings,
 })
 

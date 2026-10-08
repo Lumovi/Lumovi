@@ -166,7 +166,7 @@ export class Joins {
   }
 
   /** An admin's: the clusters being connected (and those connected a little while ago). */
-  list(user: SessionUser): FleetJoins {
+  list(user: SessionUser): Omit<FleetJoins, 'addFromPage' | 'added'> {
     this.#allowed(user)
     const joins = this.state
       .entries<Kept>('joins')

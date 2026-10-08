@@ -170,6 +170,10 @@ export class HostedFleet implements Hosted {
     return this.#clusters
   }
 
+  reread(): Promise<void> {
+    return this.#refresh()
+  }
+
   settleWith(page: FleetPage): void {
     this.#page = page
     page.onChange(() => this.#merge())

@@ -49,6 +49,11 @@ fleet:
   agentsSecret: ''
   # Whether this cluster is one of the fleet's (as clusterName).
   includeThisCluster: true
+  # Whether admins may add clusters on the Fleet page by pasting a kubeconfig or a token. Each is
+  # kept as a Secret in this release's namespace (labelled lumovi.dev/cluster), so this lets Lumovi
+  # list, create and delete Secrets there, and nowhere else. Off: the hub holds no credentials it
+  # wasn't given here (connecting a cluster with its agent needs none).
+  addFromPage: false
   # This cluster's labels in the fleet, like { env: production, region: eu-west }.
   labels: {}
 

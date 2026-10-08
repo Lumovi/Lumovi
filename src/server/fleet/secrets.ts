@@ -135,6 +135,10 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
   },
 }
 
+/** The namespace the server runs in: its service account's. */
+export const ownNamespace = (env: NodeJS.ProcessEnv): string =>
+  readFileSync(join(inCluster(env).source, 'namespace'), 'utf8').trim()
+
 /** A Secret's value, decoded. */
 function decoded(secret: Secret, key: string): string | undefined {
   const value = secret.data?.[key]
@@ -182,10 +186,8 @@ function annotated(cluster: FleetCluster, secret: Secret): FleetCluster {
  * (Secrets for argocd in argocd, say), and what couldn't be listed (said in
  * the log): a list that can't be read now is left out, so it keeps what it had.
  */
-export async function secretClusters(
-  env: NodeJS.ProcessEnv,
-  config: FleetConfig,
-): Promise<{ lists: Map<string, FleetCluster[]>; problems: string[] }> {
+/** The cluster the server runs in, as its own service account reaches it. */
+export function hubKubeConfig(env: NodeJS.ProcessEnv): KubeConfig {
   const found = inCluster(env)
   const kc = new KubeConfig()
   kc.loadFromOptions({
@@ -194,9 +196,19 @@ export async function secretClusters(
     contexts: [{ name: 'in-cluster', cluster: found.cluster.name, user: found.account.name }],
     currentContext: 'in-cluster',
   })
-  const namespaces = config.secretNamespaces ?? [
-    readFileSync(join(found.source, 'namespace'), 'utf8').trim(),
-  ]
+  return kc
+}
+
+export async function secretClusters(
+  env: NodeJS.ProcessEnv,
+  config: FleetConfig,
+): Promise<{ lists: Map<string, FleetCluster[]>; problems: string[] }> {
+  const kc = hubKubeConfig(env)
+  const own = ownNamespace(env)
+  // Its own, where what's added from the page is kept, whichever others it reads.
+  const namespaces = config.secretNamespaces
+    ? [...new Set([...config.secretNamespaces, ...(config.addFromPage ? [own] : [])])]
+    : [own]
   const lists = new Map<string, FleetCluster[]>()
   const problems: string[] = []
   for (const namespace of namespaces) {

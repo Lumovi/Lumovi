@@ -20,6 +20,9 @@ import type {
 } from './assistants'
 import type { AuditEvent, AuditInfo, AuditPage, AuditQuery, AuditVerification } from './audit'
 import type {
+  FleetAddRequest,
+  FleetAddSource,
+  FleetChecked,
   FleetClusterSettings,
   FleetJoinRequest,
   FleetJoins,
@@ -1134,10 +1137,15 @@ export interface LumoviApi {
     /** An admin's: stops connecting a cluster, whose token no longer works. */
     cancelJoin(name: string): Promise<void>
     /**
-     * An admin's: removes a cluster connected from the page: its agent is let go at once by the
-     * replica that's asked, and by the others as they next read (within 10 s).
+     * An admin's: removes a cluster connected or added from the page: an agent is let go at once
+     * by the replica that's asked, and by the others as they next read (within 10 s); a cluster
+     * added by kubeconfig or token, its Secret deleted.
      */
     remove(name: string): Promise<void>
+    /** An admin's, where the server allows it: a cluster to add by kubeconfig or token, checked. */
+    check(source: FleetAddSource): Promise<FleetChecked>
+    /** An admin's, where the server allows it: a cluster added, kept as Lumovi's Secret. */
+    add(request: FleetAddRequest): Promise<void>
     /** An admin's: a cluster's settings, each with what sets it, where that isn't the page. */
     settings(name: string): Promise<FleetClusterSettings>
     /**
@@ -1272,6 +1280,8 @@ export const IPC = {
   fleetConnect: 'fleet:connect',
   fleetCancelJoin: 'fleet:cancel-join',
   fleetRemove: 'fleet:remove',
+  fleetCheck: 'fleet:check',
+  fleetAdd: 'fleet:add',
   fleetSettings: 'fleet:settings',
   fleetSaveSettings: 'fleet:save-settings',
   helmReleases: 'helm:releases',
