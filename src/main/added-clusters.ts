@@ -131,6 +131,7 @@ export class AddedClusters {
               name,
               ...(typeof server === 'string' ? { server } : {}),
               ...(context.namespace ? { namespace: context.namespace } : {}),
+              ...(context.user ? { user: context.user } : {}),
               auth: authOf(user),
               // Its credentials would go to a server not verified, or everything through a proxy.
               ...(cluster?.['insecure-skip-tls-verify'] === true

@@ -54,6 +54,9 @@
   --series-7: #4a3aa7;
   --series-8: #e34948;
   --series-other: #a3a29d;
+  /* A cluster's tile: its color, faint behind its letters and deep in them. */
+  --tile-tint: 16%;
+  --tile-ink: black 28%;
   --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.12);
   --shadow-pop: 0 12px 40px -8px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(0 0 0 / 0.06);
 
@@ -112,6 +115,8 @@
     --series-7: #9085e9;
     --series-8: #e66767;
     --series-other: #5f5e5a;
+    --tile-tint: 22%;
+    --tile-ink: white 30%;
     --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.02), 0 8px 24px -12px rgb(0 0 0 / 0.6);
     --shadow-pop: 0 16px 48px -8px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
     --good: #009e00;
@@ -161,6 +166,12 @@
   --color-accent-track: var(--accent-track);
   --color-series-1: var(--series-1);
   --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
+  --color-series-7: var(--series-7);
+  --color-series-8: var(--series-8);
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-critical: var(--critical);
@@ -190,6 +201,7 @@
   /* Progressing's dashed icon: a turn every 3 s (stopped, like every animation, under reduced
      motion). */
   --animate-turn: turn 3s linear infinite;
+  --animate-added: added 1200ms ease-out;
 }
 
 @keyframes slide-in {
@@ -403,5 +415,12 @@
     /* Endless animations (pulses, shimmers, spinners) would otherwise repaint every frame. */
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+}
+
+/* A cluster just added: its row tinted, fading. */
+@keyframes added {
+  from {
+    background-color: var(--accent-soft);
   }
 }

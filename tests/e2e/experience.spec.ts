@@ -105,7 +105,7 @@ test.describe('keyboard shortcuts', () => {
   })
 
   test('on the start screen', async ({ page }) => {
-    const search = page.getByPlaceholder('Search clusters…')
+    const search = page.getByPlaceholder('Search clusters and labels…')
     await search.blur()
     await page.keyboard.press('Meta+k')
     await expect(search).toBeFocused()
@@ -183,10 +183,10 @@ test('the native menu runs the same commands', async ({ lumovi, clusters }) => {
     ])
 
   await menu(app, 'clusters')
-  await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+  await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
   // The start screen has no views to go to.
   await menu(app, 'go:Pod')
-  await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+  await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
 })
 
 test('the header navigates back and forward', async ({ page }) => {
@@ -228,7 +228,7 @@ test.describe('when things go wrong', () => {
     await alert.getByRole('button', { name: 'Reload' }).click()
     await expect(page.getByRole('alert')).toContainText('Something went wrong')
     await page.getByRole('button', { name: 'Back to clusters' }).click()
-    await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+    await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
   })
 
   test('an object that fails to render keeps the rest of the app usable', async ({
@@ -266,11 +266,11 @@ test.describe('when things go wrong', () => {
     await banner.getByRole('button', { name: 'Retry now' }).click()
     await expect(banner).toBeVisible()
     await page.getByRole('alert').getByRole('button', { name: 'Choose another cluster' }).click()
-    await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+    await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
 
     await openCluster(page, CONTEXTS.offline)
     await page.getByRole('status').getByRole('button', { name: 'All clusters' }).click()
-    await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+    await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
   })
 
   test('the window reloads where it was when Electron says its page’s process is gone', async ({
@@ -738,5 +738,5 @@ test('the palette opens shortcuts and all clusters, even while clusters load', a
   await expect(palette.getByRole('option', { name: /^sandbox/ })).toBeVisible()
   await input.fill('all clusters')
   await palette.getByRole('option', { name: 'All clusters' }).click()
-  await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+  await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
 })

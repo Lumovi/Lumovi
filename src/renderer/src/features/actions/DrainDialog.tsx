@@ -7,7 +7,7 @@ import { useChange } from '@renderer/hooks/change'
 import { useList } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
 import { kubectl } from '@renderer/lib/kubectl'
-import { looksLikeProduction } from '@renderer/lib/production'
+import { useProduction } from '@renderer/hooks/settings'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog } from './ActionDialog'
 import { count, subjectOf, target, type ActionProps } from './common'
@@ -40,6 +40,7 @@ function planFor(pod: KubeObject): Plan {
 
 export function DrainDialog({ object, onClose }: ActionProps) {
   const { context } = useCluster()
+  const production = useProduction(context)
   const change = useChange()
   const node = object.metadata.name
   const pods = useList('Pod', { namespace: null, fieldSelector: `spec.nodeName=${node}` }).data
@@ -127,7 +128,7 @@ export function DrainDialog({ object, onClose }: ActionProps) {
       command={command}
       confirmLabel="Drain"
       wide
-      typeToConfirm={looksLikeProduction(context) && phase === 'review' ? node : undefined}
+      typeToConfirm={production && phase === 'review' ? node : undefined}
       ready={pods !== undefined && blocked.length === 0}
       pending={phase === 'running'}
       error={error}

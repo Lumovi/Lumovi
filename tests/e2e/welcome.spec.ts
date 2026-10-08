@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { basename, delimiter, dirname, join, sep } from 'node:path'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import {
   clusterOption,
@@ -21,19 +21,21 @@ test('lists every context with its connection status', async ({ page, clusters }
   await expect(clusterRow(page, CONTEXTS.demo)).toContainText('current')
   await expect(clusterRow(page, CONTEXTS.sandbox)).toContainText('v1.33.4')
   await expect(clusterRow(page, CONTEXTS.offline)).toContainText('Unreachable')
-  await expect(clusterRow(page, CONTEXTS.expired)).toContainText('Unauthorized')
+  await expect(clusterRow(page, CONTEXTS.expired)).toContainText('Couldn’t sign in')
   await expect(clusterRow(page, CONTEXTS.untrusted)).toContainText('Certificate error')
-  await expect(clusterRow(page, CONTEXTS.execMissing)).toContainText('Credentials failed')
+  await expect(clusterRow(page, CONTEXTS.execMissing)).toContainText('Couldn’t sign in')
   await expect(clusterRow(page, CONTEXTS.execMissing).getByTitle(/wasn’t found/)).toBeAttached()
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('No cluster defined')
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('Misconfigured')
   await expect(clusterRow(page, CONTEXTS.plainHttp)).toContainText('Plain HTTP blocked')
-  await expect(page.getByTitle(clusters.kubeconfigPath)).toContainText(clusters.kubeconfigPath)
+  await expect(page.getByRole('button', { name: 'Kubeconfig files' })).toContainText(
+    clusters.kubeconfigPath,
+  )
   await expect(page).toHaveTitle('Lumovi')
 })
 
 test('the cluster search is focused and driven by the keyboard', async ({ page }) => {
-  const search = page.getByPlaceholder('Search clusters…')
+  const search = page.getByPlaceholder('Search clusters and labels…')
   await expect(search).toBeFocused()
   await page.keyboard.type('EXPIRED')
   await expect(page.getByRole('option')).toHaveCount(1)
@@ -57,7 +59,7 @@ test('recently opened clusters come first', async ({ page }) => {
   const recent = page.getByRole('group', { name: 'Recent' })
   await expect(recent.getByRole('option')).toHaveCount(1)
   await expect(recent).toContainText(CONTEXTS.sandbox)
-  await expect(page.getByRole('group', { name: 'All clusters' })).toBeVisible()
+  await expect(page.getByRole('group', { name: /^All clusters/ })).toBeVisible()
 })
 
 test('reload picks up kubeconfig changes', async ({ launch, clusters }) => {
@@ -81,14 +83,20 @@ test('explains how to add clusters when there is no kubeconfig', async ({ launch
   const { page } = await launch({
     env: { KUBECONFIG: join(tmpdir(), 'lumovi-does-not-exist', 'config') },
   })
-  await expect(page.getByRole('heading', { name: 'No clusters found' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'No clusters yet' })).toBeVisible()
+  await expect(page.getByText('Choose the file you use with kubectl')).toBeVisible()
+  // What to do first has the focus.
+  await expect(page.getByRole('button', { name: 'Choose a kubeconfig…' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Kubeconfig files' })).toContainText(
+    'No kubeconfig',
+  )
 })
 
 test('treats an empty kubeconfig file as having no clusters', async ({ launch }) => {
   const path = join(mkdtempSync(join(tmpdir(), 'lumovi-kc-')), 'config')
   writeFileSync(path, '\n')
   const { page } = await launch({ env: { KUBECONFIG: path } })
-  await expect(page.getByRole('heading', { name: 'No clusters found' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'No clusters yet' })).toBeVisible()
 })
 
 test('reports a kubeconfig that cannot be parsed', async ({ launch }) => {
@@ -98,8 +106,12 @@ test('reports a kubeconfig that cannot be parsed', async ({ launch }) => {
   await expect(
     page.getByRole('heading', { name: 'Your kubeconfig couldn’t be read' }),
   ).toBeVisible()
-  await expect(page.getByText(`Could not read ${path}`)).toBeVisible()
-  await expect(page.getByText('Fix the file, then choose Reload.')).toBeVisible()
+  await expect(page.getByText('Fix it and reload, or choose another file.')).toBeVisible()
+  // Where it is (from ~, where the temporary folder's in the home folder).
+  await expect(page.getByRole('alert')).toContainText(basename(dirname(path)))
+  // The parser's own words.
+  await expect(page.getByRole('alert').getByText(/indentation|end of|flow/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Choose a kubeconfig…' })).toBeFocused()
 })
 
 test('falls back to ~/.kube/config when KUBECONFIG is not set', async ({ launch, clusters }) => {
@@ -108,7 +120,10 @@ test('falls back to ~/.kube/config when KUBECONFIG is not set', async ({ launch,
   writeFileSync(join(home, '.kube', 'config'), readFileSync(clusters.kubeconfigPath))
   const { page } = await launch({ env: { KUBECONFIG: undefined, HOME: home, USERPROFILE: home } })
   await expect(clusterRow(page, CONTEXTS.demo)).toContainText(DEMO.gitVersion)
-  await expect(page.getByTitle(join(home, '.kube', 'config'))).toBeVisible()
+  // In the home folder: from ~, as people write it.
+  await expect(page.getByRole('button', { name: 'Kubeconfig files' })).toContainText(
+    `~${sep}.kube${sep}config`,
+  )
 })
 
 test('merges several kubeconfig files the way kubectl does', async ({ launch, clusters }) => {

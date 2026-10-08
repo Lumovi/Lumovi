@@ -431,9 +431,11 @@ export async function openCluster(page: Page, context: string = CONTEXTS.demo): 
   await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText(context)
 }
 
-/** A cluster on the start screen. */
+/** A cluster on the start screen, in the list (Recent has some again). */
 export function clusterOption(page: Page, context: string) {
-  return page.getByRole('option', { name: new RegExp(`^${context}\\b`) })
+  return page
+    .getByRole('group', { name: /^(?!Recent$)/ })
+    .getByRole('option', { name: new RegExp(`^${context}\\b`) })
 }
 
 /** The kinds of workload, each a tab of Workloads. */
