@@ -2,6 +2,7 @@
  * The sidebar's sponsor card, as Lumovi/main-sponsor's sponsor.json says: Lumovi's own, a
  * sponsor's, or nothing; and Lumovi's own whenever what it says can't be read or doesn't pass.
  */
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -81,6 +82,14 @@ const shownPicture = (page: Page) => card(page).locator('img:visible')
 const dataOf = (src: string | null) =>
   src?.startsWith('data:') ? Buffer.from(src.split(',')[1]!, 'base64') : Buffer.alloc(0)
 
+/**
+ * A picture's SHA-256, to compare by: comparing the bytes themselves, a poll that's still waiting
+ * builds a diff of tens of thousands of them each time, which holds up this process, and with it
+ * the stand-in serving the app the picture it's waiting for.
+ */
+const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+const shownDigest = async (src: Promise<string | null>) => digest(dataOf(await src))
+
 /** The card leads to Lumovi's own GitHub Sponsors page, or where sponsor.json says. */
 async function expectLumovis(page: Page, to = BUILT_IN) {
   await expect(link(page)).toHaveAccessibleName('Lumovi Help keep Lumovi free.')
@@ -148,9 +157,9 @@ test('a sponsor’s card: its picture for each mode, its line, and its link in t
   await expect(link(page)).toHaveAccessibleDescription('acme.example')
   // Lumovi's own copy of each picture, as it was read.
   const src = () => shownPicture(page).getAttribute('src')
-  await expect.poll(async () => dataOf(await src())).toEqual(picture('example-light.png'))
+  await expect.poll(() => shownDigest(src())).toBe(digest(picture('example-light.png')))
   await page.evaluate(() => window.lumovi!.app.setTheme('dark'))
-  await expect.poll(async () => dataOf(await src())).toEqual(picture('example-dark.png'))
+  await expect.poll(() => shownDigest(src())).toBe(digest(picture('example-dark.png')))
 
   // With the keyboard too: the domain shows with its focus (back from the footer).
   await page.getByRole('button', { name: 'Theme' }).focus()
@@ -298,8 +307,8 @@ test('pictures are taken by what they are: PNG, GIF or WebP, still or playing on
       sponsor.files.set('acme-light.png', CRAFTED[name]?.() ?? picture(name))
       if (taken) {
         await expect
-          .poll(async () => dataOf(await shownPicture(page).getAttribute('src')))
-          .toEqual(picture(name))
+          .poll(() => shownDigest(shownPicture(page).getAttribute('src')))
+          .toBe(digest(picture(name)))
       } else {
         await expectLumovis(page, lumovi.link)
       }
@@ -356,10 +365,10 @@ test('an animated picture plays once; for less motion, its first frame, still', 
   expect(still).toMatch(/^data:image\/webp;base64,/)
   expect(dataOf(still).length).toBeLessThan(picture('animated.webp').length)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  await expect.poll(async () => dataOf(await shown())).toEqual(picture('animated.webp'))
+  await expect.poll(() => shownDigest(shown())).toBe(digest(picture('animated.webp')))
 
   await page.evaluate(() => window.lumovi!.app.setTheme('dark'))
-  await expect.poll(async () => dataOf(await shown())).toEqual(picture('animated.gif'))
+  await expect.poll(() => shownDigest(shown())).toBe(digest(picture('animated.gif')))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect.poll(shown).toMatch(/^data:image\/gif;base64,/)
   expect(dataOf(await shown()).length).toBeLessThan(picture('animated.gif').length)
