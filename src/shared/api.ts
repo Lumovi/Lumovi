@@ -93,6 +93,11 @@ export interface Settings {
   nodeShellDefault?: NodeShellSetting
   /** Node shells are turned off (on a server, LUMOVI_NODE_SHELL=off); not stored. */
   nodeShellsOff?: boolean
+  /**
+   * The desktop app's: the kubeconfig files chosen in Lumovi, in the order kubectl would merge
+   * them (none: KUBECONFIG's, or ~/.kube/config). Read, never written.
+   */
+  kubeconfigFiles?: string[]
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
   autoUpdate?: boolean
   /** Whether terminals get a kubectl matching each cluster's version (View → Match kubectl to Each Cluster). */
@@ -121,6 +126,8 @@ export interface ManagedSettings {
   kubectlMirror?: string
   /** A mirror's kubectl too only with Kubernetes' signature, as dl.k8s.io's always. */
   kubectlSignatures?: 'required'
+  /** Only KUBECONFIG's kubeconfig, or ~/.kube/config: none can be chosen in Lumovi. */
+  kubeconfigFilesLocked?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -234,6 +241,16 @@ export interface KubeContext {
   server?: string
   /** A fleet's: what the cluster is labelled with (env, region…), to filter and group by. */
   labels?: Record<string, string>
+}
+
+/** The kubeconfig files the desktop app reads, merged as kubectl would (the first to name a thing wins). */
+export interface KubeconfigFiles {
+  /** Each, in order; one that isn't there is skipped, as kubectl does. */
+  files: { path: string; exists: boolean }[]
+  /** Where the list comes from: chosen in Lumovi, KUBECONFIG, or the default (~/.kube/config). */
+  from: 'chosen' | 'env' | 'default'
+  /** Why it can't be changed in Lumovi (the organization's policy), if it can't. */
+  locked?: string
 }
 
 export interface ContextsResult {
@@ -869,6 +886,24 @@ export interface LumoviApi {
     search(query: string): Promise<Result<ChartSearchResult[]>>
   }
   /** Helm charts on this computer: the desktop app's. */
+  /**
+   * The desktop app's kubeconfig files: which it reads, chosen here or by KUBECONFIG. Lumovi
+   * never writes them. Each change reads them again (kube.contexts says what they hold).
+   */
+  kubeconfigFiles?: {
+    list(): Promise<KubeconfigFiles>
+    /**
+     * Asks for kubeconfig files: in place of those read (`replace`) or after them (`add`); null
+     * if the user cancels.
+     */
+    choose(how: 'replace' | 'add'): Promise<Result<KubeconfigFiles | null>>
+    /** No longer read (the file itself is left as it is). */
+    remove(path: string): Promise<Result<KubeconfigFiles>>
+    /** Back to KUBECONFIG's, or ~/.kube/config. */
+    useDefault(): Promise<Result<KubeconfigFiles>>
+    /** Shows one of them in Finder or Explorer. */
+    show(path: string): Promise<void>
+  }
   localCharts?: {
     /** Asks for a chart folder or a packaged chart; null if the user cancels. */
     choose(kind: 'folder' | 'archive'): Promise<string | null>
@@ -1019,6 +1054,11 @@ export const IPC = {
   saveFile: 'app:save-file',
   views: 'app:views',
   contexts: 'kube:contexts',
+  kubeconfigFiles: 'kubeconfig:files',
+  kubeconfigChoose: 'kubeconfig:choose',
+  kubeconfigRemove: 'kubeconfig:remove',
+  kubeconfigUseDefault: 'kubeconfig:use-default',
+  kubeconfigShow: 'kubeconfig:show',
   version: 'kube:version',
   resources: 'kube:resources',
   schema: 'kube:schema',

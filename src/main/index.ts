@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { app, Menu, nativeTheme, Notification, session, shell } from 'electron'
+import { app, dialog, Menu, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC, type ShellExit } from '@shared/api'
 import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
 import icon from '../../build/icon.png?asset'
@@ -19,6 +19,7 @@ import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { viewsDirectory } from '@backend/views'
 import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
+import { KubeconfigFiles } from './kubeconfig-files'
 import { runStdio, STDIO } from './mcp-stdio'
 import { KUBECTL_MIRROR, Kubectls } from './kubectl'
 import type { TrustRoot } from './kubectl-signature'
@@ -76,7 +77,23 @@ if (stdio) {
     session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission))
 
     const url = rendererUrl()
-    const store = new KubeConfigStore()
+    // The kubeconfig files chosen in Lumovi, or else KUBECONFIG's, or ~/.kube/config.
+    const store = new KubeConfigStore(process.env, () => settings.kubeconfigFiles())
+    const kubeconfigFiles = new KubeconfigFiles({
+      settings,
+      store,
+      managed: policy.managed,
+      pick: async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+          title: 'Choose a kubeconfig',
+          defaultPath: join(homedir(), '.kube'),
+          // A kubeconfig's often a dotfile, or has no extension.
+          properties: ['openFile', 'multiSelections', 'showHiddenFiles'],
+        })
+        return canceled ? null : filePaths
+      },
+      reveal: (path) => shell.showItemInFolder(path),
+    })
     // Once the login shell's PATH and proxy are known: the network set up (the system's
     // certificate authorities trusted, the proxy gone through), and the kubeconfig read again
     // with it, before anything waiting for it connects.
@@ -297,6 +314,7 @@ if (stdio) {
     void assistants.start()
     registerIpc({
       problems: () => envReady.then(() => problems),
+      kubeconfigFiles,
       assistants,
       kube,
       helm,

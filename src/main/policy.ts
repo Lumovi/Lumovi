@@ -22,6 +22,8 @@
  *                                        it from, over HTTPS ("https://artifacts.corp.example.com/k8s")
  *     "kubectlSignatures": "required",   a mirror's kubectl too only with Kubernetes' signature, as
  *                                        dl.k8s.io's always: one keeping none isn't used
+ *     "kubeconfigFiles": "locked",       only KUBECONFIG's kubeconfig, or ~/.kube/config: the one
+ *                                        IT manages, none chosen in Lumovi
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -30,7 +32,8 @@
  *   }
  *
  * One that can't be used locks the most it could: every cluster read-only, AI assistants off,
- * and no kubectl got to match a cluster (terminals use the one installed), until it's put right.
+ * no kubectl got to match a cluster (terminals use the one installed), and only the default
+ * kubeconfig, until it's put right.
  *
  * readOnly's names are kubeconfig contexts', which the person names: a list keeps them from
  * changing those clusters by mistake, `true` from changing any.
@@ -85,6 +88,7 @@ const KEYS = [
   'updates',
   'kubectl',
   'kubectlSignatures',
+  'kubeconfigFiles',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -115,12 +119,14 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
     const problem = `${found.source} can’t be used: ${(error as Error).message}`
     return {
       // And no kubectl got to match a cluster (terminals use the one installed): stricter than any
-      // the policy could have meant, off, from its own mirror, or only signed.
+      // the policy could have meant, off, from its own mirror, or only signed. Only the default
+      // kubeconfig: none chosen in Lumovi.
       managed: {
         source: found.source,
         readOnly: true,
         assistantsOff: true,
         kubectlOff: true,
+        kubeconfigFilesLocked: true,
         problem,
       },
       assistantRules: [],
@@ -339,6 +345,7 @@ function checked(given: unknown, path: string): Policy {
     updates,
     kubectl,
     kubectlSignatures,
+    kubeconfigFiles,
     network = {},
   } = policy
   if (
@@ -368,6 +375,11 @@ function checked(given: unknown, path: string): Policy {
   if (kubectlSignatures !== undefined && kubectlSignatures !== 'required') {
     throw new Error(
       'kubectlSignatures must be "required": a mirror’s kubectl is then used only with Kubernetes’ signature, as dl.k8s.io’s always is.',
+    )
+  }
+  if (kubeconfigFiles !== undefined && kubeconfigFiles !== 'locked') {
+    throw new Error(
+      'kubeconfigFiles must be "locked": only KUBECONFIG’s kubeconfig, or ~/.kube/config, none chosen in Lumovi.',
     )
   }
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
@@ -400,6 +412,7 @@ function checked(given: unknown, path: string): Policy {
     ...(kubectl === false ? { kubectlOff: true } : {}),
     ...(typeof kubectl === 'string' ? { kubectlMirror: kubectl } : {}),
     ...(kubectlSignatures === 'required' ? { kubectlSignatures: 'required' as const } : {}),
+    ...(kubeconfigFiles === 'locked' ? { kubeconfigFilesLocked: true as const } : {}),
   }
   return {
     managed,

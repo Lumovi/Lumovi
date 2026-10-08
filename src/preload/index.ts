@@ -57,6 +57,13 @@ const api: LumoviApi = {
     versions: (repository, chart) => invoke(IPC.helmVersions, repository, chart),
     search: (query) => invoke(IPC.helmSearch, query),
   },
+  kubeconfigFiles: {
+    list: () => invoke(IPC.kubeconfigFiles),
+    choose: (how) => invoke(IPC.kubeconfigChoose, how),
+    remove: (path) => invoke(IPC.kubeconfigRemove, path),
+    useDefault: () => invoke(IPC.kubeconfigUseDefault),
+    show: (path) => invoke(IPC.kubeconfigShow, path),
+  },
   localCharts: {
     choose: (kind) => invoke(IPC.helmChoose, kind),
     read: (path) => invoke(IPC.helmLocal, path),
