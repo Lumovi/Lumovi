@@ -9,7 +9,8 @@
  * LUMOVI_HUB_URL       the hub's address (https://lumovi.example.com/; http only on this computer)
  * LUMOVI_AGENT_NAME    the cluster's name, as the hub's LUMOVI_FLEET_AGENTS has it
  * LUMOVI_AGENT_TOKEN   its token there
- * LUMOVI_AGENT_HEALTH_PORT  where GET /healthz says whether it's connected (8081; 0: nowhere)
+ * LUMOVI_AGENT_HEALTH_PORT  where GET /healthz says whether it's connected, and trusted
+ *                           (8081; 0: nowhere)
  * LUMOVI_CA_FILE       certificate authorities to trust as well (a proxy's that inspects HTTPS)
  * HTTPS_PROXY, HTTP_PROXY, NO_PROXY   the proxy it reaches the hub through
  */
@@ -97,6 +98,11 @@ for (const said of network.said) log(said)
 const proxy = network.proxyFor(hub.href)
 
 let connected = false
+/**
+ * What the hub said of the certificate authority it sent: it trusts it, or why not (until an
+ * admin does). Nothing yet, until it's said.
+ */
+let trust: { trusted: true } | { refused: string } | undefined
 let attempts = 0
 let socket: WebSocket
 
@@ -142,9 +148,16 @@ function dial(): void {
           heartbeatSeconds: number
           message?: string
         }
-        // Refused: the hub doesn't trust the certificate authority it sent (until an admin does).
+        // What the hub says of the certificate authority it sent: trusted, or refused (until an
+        // admin trusts it). Ready only once it's trusted.
+        if (said.type === 'trusted') {
+          if (!trust || 'refused' in trust) log('The hub trusts this cluster')
+          trust = { trusted: true }
+          return
+        }
         if (said.type === 'refused') {
           log(`The hub doesn’t trust this cluster: ${said.message}`)
+          trust = { refused: said.message ?? '' }
           return
         }
         connected = true
@@ -175,6 +188,7 @@ function dial(): void {
     clearInterval(check)
     clearTimeout(silence)
     connected = false
+    trust = undefined
     if (code === AGENT_REPLACED) {
       stop('another agent connected as it (do two clusters use the same name and token?)')
     }
@@ -212,8 +226,18 @@ if (healthPort > 0) {
         res.writeHead(404).end()
         return
       }
-      res.writeHead(connected ? 200 : 503, { 'Content-Type': 'text/plain' })
-      res.end(connected ? 'connected' : 'not connected')
+      // Ready only when the hub uses it: connected, and its cluster trusted.
+      const ready = connected && trust !== undefined && 'trusted' in trust
+      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'text/plain' })
+      res.end(
+        ready
+          ? 'connected'
+          : !connected
+            ? 'not connected'
+            : trust && 'refused' in trust
+              ? `connected, but refused: ${trust.refused}`
+              : 'connected, not yet trusted',
+      )
     })
     .listen(healthPort)
 }
