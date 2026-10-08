@@ -278,6 +278,17 @@ export function AddClusterDialog({
   }
 
   const serverFailed = Object.values(checks).some(({ result }) => !result.server.ok)
+  // Held back only by plain HTTP, which Lumovi won't connect over: trying again can't help, adding
+  // it anyway (for kubectl) can.
+  const onlyPlain =
+    serverFailed &&
+    !readError &&
+    !error &&
+    Object.entries(checks).every(([name, { result }]) =>
+      result.server.ok
+        ? result.credentials.ok
+        : unreached(inspected?.contexts.find((context) => context.name === name) ?? {}),
+    )
   const footer = (() => {
     const cancel = (
       <Button variant="ghost" onClick={onClose}>
@@ -318,6 +329,19 @@ export function AddClusterDialog({
           </>
         )
       case 'failed':
+        if (onlyPlain) {
+          return (
+            <>
+              <span className="ml-auto" />
+              <Button variant="secondary" onClick={backToInput}>
+                Back
+              </Button>
+              <Button type="submit" variant="primary">
+                Add it anyway
+              </Button>
+            </>
+          )
+        }
         return (
           <>
             {serverFailed && !readError && !error && (
@@ -362,6 +386,7 @@ export function AddClusterDialog({
       error={error}
       onSubmit={() => {
         if (stage === 'agree') allow()
+        else if (stage === 'failed' && onlyPlain) addAnyway()
         else if (stage === 'input' || stage === 'failed') void run(agreed)
       }}
       onClose={() => {
@@ -708,6 +733,8 @@ function Steps({
             : context.insecure
               ? 'warn'
               : 'ok'
+        // Not tried at all: Lumovi won't, though kubectl will.
+        const refused = server === 'failed' && unreached(context)
         const credentials: StepState =
           !result || !checked.credentialsShown
             ? result?.server.ok && stage === 'checking'
@@ -731,33 +758,42 @@ function Steps({
               state={server}
               // Its address and version; what went wrong, as a sentence.
               mono={server !== 'failed'}
-              title={server === 'failed' ? 'The server didn’t answer' : 'The server answers'}
+              title={
+                refused
+                  ? 'This cluster uses plain HTTP'
+                  : server === 'failed'
+                    ? 'The server didn’t answer'
+                    : 'The server answers'
+              }
               detail={
-                result && !result.server.ok
-                  ? result.server.message
-                  : result?.server.ok
-                    ? [
-                        [
-                          host,
-                          result.server.version,
-                          result.server.latencyMs !== undefined && `${result.server.latencyMs} ms`,
+                refused
+                  ? 'Lumovi doesn’t connect over plain HTTP. Add it anyway to use it with kubectl.'
+                  : result && !result.server.ok
+                    ? result.server.message
+                    : result?.server.ok
+                      ? [
+                          [
+                            host,
+                            result.server.version,
+                            result.server.latencyMs !== undefined &&
+                              `${result.server.latencyMs} ms`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · '),
+                          // What isn't safe about it, as a sentence.
+                          (plain || context.insecure) && (
+                            <span key="unsafe" className="font-sans">
+                              {' · '}
+                              {plain ? 'not encrypted' : 'its certificate isn’t checked'}
+                            </span>
+                          ),
                         ]
-                          .filter(Boolean)
-                          .join(' · '),
-                        // What isn't safe about it, as a sentence.
-                        (plain || context.insecure) && (
-                          <span key="unsafe" className="font-sans">
-                            {' · '}
-                            {plain ? 'not encrypted' : 'its certificate isn’t checked'}
-                          </span>
-                        ),
-                      ]
-                    : server === 'checking'
-                      ? `Asking ${host}…`
-                      : undefined
+                      : server === 'checking'
+                        ? `Asking ${host}…`
+                        : undefined
               }
               hint={
-                server === 'failed'
+                server === 'failed' && !refused
                   ? 'Is it on a network you’re not on, like a VPN? Connect to it and try again.'
                   : undefined
               }
@@ -824,6 +860,11 @@ export function Visible({ text }: { text: string }) {
 /** A word of a command, kept whole on its line (one longer than the line, broken within). */
 const WORD = 'inline-block max-w-full [overflow-wrap:anywhere]'
 
+/** Over plain HTTP without insecure-skip-tls-verify: Lumovi won't connect to it; kubectl will. */
+function unreached(context: { server?: string; insecure?: boolean }): boolean {
+  return /^http:/i.test(context.server ?? '') && !context.insecure
+}
+
 /** A command's words, as a shell would split them (each kept whole when shown). */
 function wordsOf(line: string): string[] {
   return line.match(/'[^']*'|"[^"]*"|\S+/g) ?? [line]
@@ -836,8 +877,15 @@ function wordsOf(line: string): string[] {
 function Agreement({ inspected, kind }: { inspected: PastedKubeconfig; kind: 'servers' | 'rest' }) {
   if (kind === 'servers') {
     // Plain HTTP isn't encrypted at all; the others only skip the certificate check.
-    const plain = inspected.unverified.some(({ server }) => /^http:/i.test(server))
-    const unchecked = inspected.unverified.some(({ server }) => !/^http:/i.test(server))
+    const http = inspected.unverified.filter(({ server }) => /^http:/i.test(server))
+    const plain = http.length > 0
+    const unchecked = inspected.unverified.length > http.length
+    // Without insecure-skip-tls-verify, Lumovi won't connect to it; kubectl will.
+    const kubectlOnly =
+      plain &&
+      http.every(
+        ({ context }) => !inspected.contexts.find(({ name }) => name === context)?.insecure,
+      )
     return (
       <Panel
         icon={ShieldAlert}
@@ -850,8 +898,13 @@ function Agreement({ inspected, kind }: { inspected: PastedKubeconfig; kind: 'se
         {plain && (
           <p>
             The server’s address starts with http://, not https://, so anyone on the network in
-            between can read what Lumovi sends it, credentials too.
-            {unchecked ? '' : ' Allow sends them now and each time Lumovi connects.'}
+            between can read {kubectlOnly ? 'what’s sent to it' : 'what Lumovi sends it'},
+            credentials too.
+            {kubectlOnly
+              ? ' Lumovi won’t connect to it like this, but kubectl will, in Lumovi’s terminals or from its kubectl line. Allow it only if that’s what you want.'
+              : unchecked
+                ? ''
+                : ' Allow sends them now and each time Lumovi connects.'}
           </p>
         )}
         {unchecked && (
