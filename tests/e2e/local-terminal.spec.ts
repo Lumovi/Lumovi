@@ -30,6 +30,7 @@ import {
   test,
 } from './fixtures.ts'
 import { HELM_VERSION } from '../../scripts/helm.ts'
+import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import type { MockDownloads } from '../mock-downloads/server.ts'
 
 const WINDOWS = process.platform === 'win32'
@@ -545,6 +546,38 @@ test('a KUBECONFIG relative to where Lumovi started', async ({ launch, clusters 
   await ready(page)
   await report(page)
   await expect(screen(page)).toContainText('then=1 file(s) found=1')
+})
+
+test('terminals read the kubeconfig files chosen in Lumovi', async ({ launch, clusters }) => {
+  // Two, each with a context for the demo cluster, chosen in place of KUBECONFIG's.
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-chosen-'))
+  const files = ['alpha', 'beta'].map((name) =>
+    writeKubeconfig(
+      dir,
+      {
+        currentContext: name,
+        clusters: [{ name, server: clusters.demo.url, caPem: clusters.demo.caPem }],
+        users: [{ name, token: DEMO_TOKEN }],
+        contexts: [{ name, cluster: name, user: name }],
+      },
+      name,
+    ),
+  )
+  const { page, app } = await launch({ env: SHELL })
+  await app.evaluate(({ dialog }, filePaths) => {
+    dialog.showOpenDialog = (async () => ({
+      canceled: false,
+      filePaths,
+    })) as unknown as typeof dialog.showOpenDialog
+  }, files)
+  await page.evaluate(() => window.lumovi!.kubeconfigFiles!.choose('replace'))
+  await page.reload()
+  await openCluster(page, 'alpha')
+  await page.keyboard.press('Control+Backquote')
+  await ready(page)
+  await report(page)
+  // Its own, then the two: not KUBECONFIG's.
+  await expect(screen(page)).toContainText('then=2 file(s) found=2')
 })
 
 test('kubeconfigs a Lumovi that’s gone left behind are swept on start', async ({ launch }) => {

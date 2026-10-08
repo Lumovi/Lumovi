@@ -65,18 +65,31 @@ export interface ClusterConfigs {
   forContext(name: string): KubeConfig
 }
 
-/** Holds the merged kubeconfig and hands out per-context views of it. */
+/**
+ * Holds the merged kubeconfig and hands out per-context views of it: the files chosen in Lumovi
+ * (`chosen`, on the desktop), or else KUBECONFIG's, or ~/.kube/config. Read, never written.
+ */
 export class KubeConfigStore implements ClusterConfigs {
   #base = new KubeConfig()
   #perContext = new Map<string, KubeConfig>()
 
-  constructor(private readonly env: NodeJS.ProcessEnv = process.env) {
+  constructor(
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly chosen: () => string[] = () => [],
+  ) {
     this.load()
+  }
+
+  /** The files read, in order, and where the list comes from. */
+  paths(): { paths: string[]; from: 'chosen' | 'env' | 'default' } {
+    const chosen = this.chosen()
+    if (chosen.length > 0) return { paths: chosen, from: 'chosen' }
+    return { paths: kubeconfigPaths(this.env), from: this.env.KUBECONFIG ? 'env' : 'default' }
   }
 
   /** Re-reads the kubeconfig from disk. */
   load(): ContextsResult {
-    const paths = kubeconfigPaths(this.env)
+    const { paths } = this.paths()
     const source = paths.join(delimiter)
     this.#perContext.clear()
     try {

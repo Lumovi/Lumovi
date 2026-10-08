@@ -16,7 +16,7 @@ import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:pa
 import { spawn, type IPty } from 'node-pty'
 import type { LocalShellRequest, Result, ShellExit } from '@shared/api'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
-import { kubeconfigPaths, type KubeConfigStore } from '@backend/kube/kubeconfig'
+import type { KubeConfigStore } from '@backend/kube/kubeconfig'
 import { assertQuery, assertString, invalid } from '@backend/kube/validate'
 import type { MatchingKubectl } from './kubectl'
 
@@ -327,10 +327,12 @@ export class LocalTerminals {
             .filter(Boolean)
             .join(delimiter),
           ...shell.env,
-          // Yours as Lumovi read them: a relative one from where it started, not the shell.
-          KUBECONFIG: [kubeconfig, ...kubeconfigPaths(env).map((path) => resolve(path))].join(
-            delimiter,
-          ),
+          // Yours as Lumovi reads them (those chosen in it, or KUBECONFIG's): a relative one from
+          // where it started, not the shell.
+          KUBECONFIG: [
+            kubeconfig,
+            ...this.deps.store.paths().paths.map((path) => resolve(path)),
+          ].join(delimiter),
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           TERM_PROGRAM: 'Lumovi',

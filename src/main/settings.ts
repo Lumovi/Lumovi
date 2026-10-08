@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import {
   managedReadOnly,
   NODE_SHELL_DEFAULTS,
@@ -134,6 +134,14 @@ export class SettingsStore implements SettingsAccess {
     return this.update({ aiPermissions: checkedPermissions(given) }).aiPermissions!
   }
 
+  /**
+   * The kubeconfig files chosen in Lumovi (none: KUBECONFIG's, or ~/.kube/config), unless the
+   * organization's policy keeps to those.
+   */
+  kubeconfigFiles(): string[] {
+    return this.policy.managed?.kubeconfigFilesLocked ? [] : (this.#settings.kubeconfigFiles ?? [])
+  }
+
   update(patch: Partial<Omit<Settings, 'readOnlyAll' | 'nodeShellDefault'>>): Settings {
     // What the policy sets is shown, not kept: the person's own stays for when it's gone.
     const managed = this.policy.managed
@@ -179,6 +187,11 @@ export class SettingsStore implements SettingsAccess {
             isNodeShellSetting(setting),
           ),
         ),
+        // Where each is (they're read where they are, never written).
+        ...(Array.isArray(stored.kubeconfigFiles) &&
+        stored.kubeconfigFiles.every((file) => typeof file === 'string' && isAbsolute(file))
+          ? { kubeconfigFiles: stored.kubeconfigFiles }
+          : {}),
         // On unless turned off.
         autoUpdate: stored.autoUpdate !== false,
         matchingKubectl: stored.matchingKubectl !== false,
