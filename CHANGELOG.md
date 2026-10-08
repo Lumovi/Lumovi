@@ -27,8 +27,9 @@ All notable changes to Lumovi are documented here. The format follows
   a refused change says who made it read-only, but no longer a date in UTC (the switch says
   when, in your time).
 - Lumovi says what it is in one line, the same everywhere: "A calm, fast Kubernetes dashboard,
-  on your desktop or in your cluster." In its README, its package, the image's description, the
-  chart's (and so Artifact Hub's), and the Linux and Arch packages'.
+  on your desktop or in your cluster." In its README, its package, the image's description and the
+  chart's (and so Artifact Hub's); the Linux and Arch packages' summaries say it as their tools
+  want, with no article or full stop.
 
 ### Fixed
 
