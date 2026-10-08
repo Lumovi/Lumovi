@@ -246,8 +246,11 @@ test('explains YAML that can’t be created', async ({ page }) => {
 
 test('create from the header, the palette and the File menu', async ({ page, lumovi }) => {
   const { app } = lumovi
-  // Not before a cluster is open.
+  // Before a cluster is open, File → New is the clusters page's: adding a cluster (once it can).
+  await expect(page.getByRole('button', { name: 'Add cluster' })).toBeVisible()
   await menu(app, 'create')
+  await expect(dialog(page)).toContainText('Add a cluster')
+  await page.keyboard.press('Escape')
   await expect(dialog(page)).toHaveCount(0)
 
   await openCluster(page)
