@@ -21,6 +21,7 @@ import { isTheme } from '@backend/settings'
 import type { AiPermissionsView } from '@shared/ai-permissions'
 import { isPort } from '@shared/assistants'
 import { checkedDecision } from '@backend/mcp/approvals'
+import type { SponsorSource } from '@backend/sponsor/source'
 import type { Assistants } from './assistants'
 import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
@@ -34,6 +35,7 @@ interface Dependencies extends Backend {
   terminalKeys: TerminalKeys
   forwards: Forwards
   updates: Updates
+  sponsor: SponsorSource
   /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
   auditLog: AuditLog
   /** Tells the page of something. */
@@ -54,6 +56,7 @@ export function registerIpc(deps: Dependencies): void {
     terminalKeys,
     forwards,
     updates,
+    sponsor,
     rendererUrl,
     problems,
     audit,
@@ -132,6 +135,7 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.appProblems]: () => problems(),
     [IPC.updateCheck]: () => updates.check(true),
     [IPC.updateInstall]: () => updates.install(),
+    [IPC.sponsorCard]: () => sponsor.card(),
     // Terminals on this computer, besides the cluster's shells (each ignores the other's).
     [IPC.terminalOpen]: (id, request) =>
       LocalTerminals.handles(request) ? local.open(id, request) : terminals.open(id, request),

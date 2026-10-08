@@ -20,6 +20,7 @@ import type {
 import type { AuditEvent, AuditInfo, AuditPage, AuditQuery, AuditVerification } from './audit'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
+import type { SponsorCard } from './sponsor'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 
@@ -985,6 +986,11 @@ export interface LumoviApi {
     revoke(id: string): Promise<ServerAssistantsStatus>
     onStatus(listener: (status: ServerAssistantsStatus) => void): () => void
   }
+  /** The sidebar's sponsor card, from Lumovi/main-sponsor (see shared/sponsor). */
+  sponsor: {
+    card(): Promise<SponsorCard>
+    onChange(listener: (card: SponsorCard) => void): () => void
+  }
   /** New versions of the desktop app, from its GitHub releases. */
   updates?: {
     state(): Promise<UpdateEvent>
@@ -1062,6 +1068,8 @@ export const IPC = {
   updateCheck: 'update:check',
   updateInstall: 'update:install',
   updateChanged: 'update:changed',
+  sponsorCard: 'sponsor:card',
+  sponsorChanged: 'sponsor:changed',
   assistantsStatus: 'assistants:status',
   assistantsConfigure: 'assistants:configure',
   assistantsResetToken: 'assistants:reset-token',

@@ -31,6 +31,7 @@ import { clusterSummary } from '@backend/kube/summary'
 import { Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import type { SettingsAccess } from '@backend/settings'
+import type { SponsorSource } from '@backend/sponsor/source'
 import { accessHandlers, type ServerAccess } from './access'
 import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
@@ -143,6 +144,8 @@ export interface ConnectionOptions {
    * fleet, one cluster refusing it is that cluster's error.)
    */
   rejected: () => void
+  /** The sidebar's sponsor card, the same for every page. */
+  sponsor: SponsorSource
   /** The person's AI assistants: their changes, shown on this page, and its calls about them. */
   assistants: {
     invoke: Record<string, Handler>
@@ -188,6 +191,7 @@ export class PageConnection {
       auditor,
       access,
       clusters,
+      sponsor,
     }: ConnectionOptions,
   ) {
     const recording = recorder(audit, () => actor)
@@ -289,6 +293,7 @@ export class PageConnection {
       ...accessing.invoke,
       ...assistants.invoke,
       [IPC.appInfo]: () => info,
+      [IPC.sponsorCard]: () => sponsor.card(),
       // A fleet's page sums each cluster up; and an admin trusts an agent again, whose cluster's
       // certificate authority changed.
       ...(hosted.fleet
@@ -326,9 +331,11 @@ export class PageConnection {
     socket.on('message', (data) => void this.#receive(data))
     // Someone changed the clusters' settings (here, or on another replica): the page reads them again.
     const unlisten = clusters.onChange(() => this.emit(IPC.settingsChanged))
+    const unsponsor = sponsor.onChange((card) => this.emit(IPC.sponsorChanged, card))
     this.ended = new Promise((resolve) => {
       socket.on('close', () => {
         unlisten()
+        unsponsor()
         auditing.stop()
         accessing.stop()
         assistants.detach()
