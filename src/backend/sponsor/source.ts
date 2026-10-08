@@ -29,15 +29,21 @@ const RETRY_MS = 5 * 60_000
 const LONGEST_WAIT_MS = 2 ** 31 - 1
 
 /**
- * Where the card is read from, and how often: Lumovi/main-sponsor, every hour. Or, for the tests
- * and where `standIns` allows one, a stand-in on this computer that LUMOVI_SPONSOR_URL gives, as
- * often as LUMOVI_SPONSOR_REFRESH_MS says. Never anywhere else.
+ * Whether this is a test build (`npm run build:coverage`, which nothing ships): a release build
+ * is built with it false, which leaves the stand-ins below out of it.
  */
-export function sponsorSource(
-  env: NodeJS.ProcessEnv,
-  standIns: boolean,
-): { base: string; everyMs: number } {
-  const given = standIns ? URL.parse(env.LUMOVI_SPONSOR_URL ?? '') : null
+declare const LUMOVI_TEST_BUILD: boolean
+
+/** The quickest a test build reads it again, however often it's asked to. */
+const QUICKEST_MS = 1_000
+
+/**
+ * Where the card is read from, and how often: Lumovi/main-sponsor, every hour. Or, in a test build
+ * only, a stand-in on this computer that LUMOVI_SPONSOR_URL gives, as often as
+ * LUMOVI_SPONSOR_REFRESH_MS says. Never anywhere else, and never an off switch.
+ */
+export function sponsorSource(env: NodeJS.ProcessEnv): { base: string; everyMs: number } {
+  const given = LUMOVI_TEST_BUILD ? URL.parse(env.LUMOVI_SPONSOR_URL ?? '') : null
   const local =
     given !== null &&
     (given.protocol === 'http:' || given.protocol === 'https:') &&
@@ -45,7 +51,7 @@ export function sponsorSource(
   return local
     ? {
         base: new URL('./', given).href,
-        everyMs: Number(env.LUMOVI_SPONSOR_REFRESH_MS) || SPONSOR_EVERY_MS,
+        everyMs: Math.max(QUICKEST_MS, Number(env.LUMOVI_SPONSOR_REFRESH_MS) || SPONSOR_EVERY_MS),
       }
     : { base: SPONSOR_REPO, everyMs: SPONSOR_EVERY_MS }
 }
@@ -112,9 +118,10 @@ export class SponsorSource {
       if (this.#stopped) return
       this.#timer = setTimeout(
         () =>
-          void this.refresh().then((answered) =>
-            next(answered ? everyMs : Math.min(everyMs, RETRY_MS)),
-          ),
+          void this.refresh()
+            // (Whatever goes wrong, it's read again: a read that threw got no answer.)
+            .catch(() => false)
+            .then((answered) => next(answered ? everyMs : Math.min(everyMs, RETRY_MS))),
         ms,
       )
       // It never keeps Lumovi running.
@@ -190,10 +197,8 @@ export class SponsorSource {
       }
       const bytes = await upTo(response, max)
       if (!bytes) return 'wrong'
-      return {
-        bytes,
-        ...(response.headers.has('etag') ? { etag: response.headers.get('etag')! } : {}),
-      }
+      const given = response.headers.get('etag')
+      return { bytes, ...(isEtag(given) ? { etag: given } : {}) }
     } catch {
       return 'unreachable'
     }
@@ -277,7 +282,11 @@ export class SponsorSource {
         const bytes = new Uint8Array(Buffer.from(data, 'base64'))
         const picture = checkPicture(bytes)
         if (picture.ok) {
-          this.#pictures.set(name, { bytes, picture: picture.value, ...(etag ? { etag } : {}) })
+          this.#pictures.set(name, {
+            bytes,
+            picture: picture.value,
+            ...(isEtag(etag) ? { etag } : {}),
+          })
         }
       }
       this.#text = kept.text!
@@ -289,6 +298,10 @@ export class SponsorSource {
     }
   }
 }
+
+/** An ETag as HTTP has it (`"…"`, or weak, `W/"…"`), and not long: anything else isn't sent back. */
+const isEtag = (value: unknown): value is string =>
+  typeof value === 'string' && value.length <= 200 && /^(W\/)?"[\x21\x23-\x7e]*"$/.test(value)
 
 /** The file it's kept in, in the desktop app's folder. */
 const KEPT = 'kept.json'

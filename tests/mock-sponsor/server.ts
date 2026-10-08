@@ -20,6 +20,76 @@ const FIXTURES = join(import.meta.dirname, 'fixtures')
 /** A picture the tests serve, by its name in fixtures/. */
 export const picture = (name: string): Buffer => readFileSync(join(FIXTURES, name))
 
+/** A RIFF file's chunks (a WebP's), as fourcc and data, and put together again. */
+const riff = {
+  chunks(file: Buffer): [string, Buffer][] {
+    const chunks: [string, Buffer][] = []
+    for (let at = 12; at < file.length;) {
+      const size = file.readUInt32LE(at + 4)
+      chunks.push([file.toString('latin1', at, at + 4), file.subarray(at + 8, at + 8 + size)])
+      at += 8 + size + (size % 2)
+    }
+    return chunks
+  },
+  join(chunks: [string, Buffer][]): Buffer {
+    const body = Buffer.concat(
+      chunks.map(([type, data]) => {
+        const head = Buffer.alloc(8)
+        head.write(type, 'latin1')
+        head.writeUInt32LE(data.length, 4)
+        return Buffer.concat([head, data, Buffer.alloc(data.length % 2)])
+      }),
+    )
+    const head = Buffer.from('RIFF\0\0\0\0WEBP', 'latin1')
+    head.writeUInt32LE(body.length + 4, 4)
+    return Buffer.concat([head, body])
+  },
+}
+
+/** animated.gif's first frame's descriptor (after its header, palette and timing). */
+const FIRST_FRAME = 6 + 7 + 4 * 3 + 8
+
+/**
+ * Pictures whose structure is wrong where only reading it all finds it: each must be refused,
+ * not read past its end or taken for what it says.
+ */
+export const CRAFTED: Record<string, () => Buffer> = {
+  'a PNG cut short': () => picture('example-light.png').subarray(0, 200),
+  'a PNG chunk longer than the file': () => {
+    const png = Buffer.from(picture('example-light.png'))
+    // The first chunk after the header (IHDR's 25 bytes).
+    png.writeUInt32BE(0x7fffffff, 8 + 25)
+    return png
+  },
+  'a WebP whose size isn’t its length': () => {
+    const webp = Buffer.from(picture('still-lossless.webp'))
+    webp.writeUInt32LE(webp.readUInt32LE(4) + 2, 4)
+    return webp
+  },
+  'a GIF without its trailer': () => picture('animated.gif').subarray(0, -1),
+  'a GIF frame larger than the picture': () => {
+    const gif = Buffer.from(picture('animated.gif'))
+    if (gif[FIRST_FRAME] !== 0x2c) throw new Error('animated.gif changed')
+    gif.writeUInt16LE(60_000, FIRST_FRAME + 5)
+    return gif
+  },
+  'a GIF frame with nothing in it': () => {
+    const gif = Buffer.from(picture('animated.gif'))
+    gif.writeUInt16LE(0, FIRST_FRAME + 5)
+    return gif
+  },
+  'a WebP frame too short to be one': () =>
+    riff.join(
+      riff
+        .chunks(picture('animated.webp'))
+        .map(([type, data], i, all) =>
+          type === 'ANMF' && all.findIndex(([t]) => t === 'ANMF') === i
+            ? [type, Buffer.alloc(8)]
+            : [type, data],
+        ),
+    ),
+}
+
 /** Acme, a placeholder sponsor (acme.example is a domain for examples), as sponsor.json says it. */
 export const ACME = {
   name: 'Acme',

@@ -97,7 +97,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   )
   // The sidebar's sponsor card, from Lumovi/main-sponsor: read for every page, in the background
   // (a cluster with no way out shows Lumovi's own), and again every hour.
-  const sponsor = new SponsorSource({ ...sponsorSource(options.env, true), firstMs: 0 })
+  const sponsor = new SponsorSource({ ...sponsorSource(options.env), firstMs: 0 })
   sponsor.start()
   // Its clusters' settings (read-only, metrics, node shells), the same for everyone.
   const clusters = new ClusterSettings(state, access, audit)

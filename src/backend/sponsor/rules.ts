@@ -70,11 +70,14 @@ function checkText(value: unknown, field: string, max: number): string | undefin
   if (typeof value !== 'string' || value.trim() === '') return `${field} must be some text`
   if (value !== value.trim()) return `${field} has spaces around it`
   if ([...value].length > max) return `${field} is longer than ${max} characters`
-  // Control and format characters (bidi marks, zero-width ones, the emoji selector), line and
-  // paragraph separators, private use and lone surrogates.
-  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cs}]/u.test(value)) {
+  // Control and format characters (bidi marks, zero-width ones), line and paragraph separators,
+  // private use and lone surrogates; and what shows as nothing (variation selectors, the combining
+  // grapheme joiner, Hangul fillers, the blank Braille pattern).
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u.test(value)) {
     return `${field} has a line break, or a control or invisible character`
   }
+  // A letter takes a mark or two (é, ệ); a pile of them spills over the lines around it.
+  if (/\p{M}{3}/u.test(value)) return `${field} has more than two marks on a letter`
   if (/\p{Emoji_Presentation}/u.test(value)) return `${field} has an emoji`
   if (/[a-z][a-z0-9+.-]*:\/\/|\bwww\./i.test(value)) return `${field} has a link`
   return undefined
@@ -326,6 +329,8 @@ function png(bytes: Bytes): Parsed {
   return { type: 'image/png', width, height, frames: 1, ms: 0, loops: false }
 }
 
+type Quad = [number, number, number, number]
+
 /** A GIF: its size, its frames and how long they show, and whether it says to loop. */
 function gif(bytes: Bytes): Parsed {
   const width = bytes.u16le(6)
@@ -357,6 +362,10 @@ function gif(bytes: Bytes): Parsed {
       if (label === 0xf9) delay = bytes.u16le(offset + 4) * 10
       offset = skipBlocks(offset + 2)
     } else if (block === 0x2c) {
+      // Where the frame is, and its size: something, and inside the picture.
+      const [x, y, w, h] = [1, 3, 5, 7].map((at) => bytes.u16le(offset + at)) as Quad
+      if (w === 0 || h === 0) throw new Bad('it has an empty frame')
+      if (x + w > width || y + h > height) throw new Bad('a frame goes past its edges')
       const local = bytes.u8(offset + 9)
       offset += 10 + (local & 0x80 ? 3 * 2 ** ((local & 7) + 1) : 0)
       offset = skipBlocks(offset + 1)
@@ -388,6 +397,10 @@ function webp(bytes: Bytes): Parsed {
   }
   const first = chunks[0]
   if (!first) throw new Bad('it has nothing in it')
+  /** A chunk at least this long, so what's read of it is its own. */
+  const atLeast = (chunk: (typeof chunks)[number], size: number) => {
+    if (chunk.size < size) throw new Bad(`its ${chunk.type.trim()} is too short`)
+  }
   const still = (width: number, height: number): Parsed => ({
     type: 'image/webp',
     width,
@@ -397,15 +410,18 @@ function webp(bytes: Bytes): Parsed {
     loops: false,
   })
   if (first.type === 'VP8 ') {
+    atLeast(first, 10)
     if (bytes.text(first.data + 3, 3) !== '\x9d\x01\x2a') throw new Bad('its frame is broken')
     return still(bytes.u16le(first.data + 6) & 0x3fff, bytes.u16le(first.data + 8) & 0x3fff)
   }
   if (first.type === 'VP8L') {
+    atLeast(first, 5)
     if (bytes.u8(first.data) !== 0x2f) throw new Bad('its frame is broken')
     const bits = bytes.u32le(first.data + 1)
     return still((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1)
   }
   if (first.type !== 'VP8X') throw new Bad('it doesn’t start as WebP does')
+  atLeast(first, 10)
   const flags = bytes.u8(first.data)
   const width = bytes.u24le(first.data + 4) + 1
   const height = bytes.u24le(first.data + 7) + 1
@@ -418,6 +434,16 @@ function webp(bytes: Bytes): Parsed {
   const anim = chunks.find((c) => c.type === 'ANIM')
   const frames = chunks.filter((c) => c.type === 'ANMF')
   if (!anim || frames.length === 0) throw new Bad('it says it’s animated, but has no frames')
+  atLeast(anim, 6)
+  for (const frame of frames) {
+    // ANMF: x and y (halved), width and height (less one), 3 bytes each; then the frame itself.
+    atLeast(frame, 24)
+    const x = bytes.u24le(frame.data) * 2
+    const y = bytes.u24le(frame.data + 3) * 2
+    const w = bytes.u24le(frame.data + 6) + 1
+    const h = bytes.u24le(frame.data + 9) + 1
+    if (x + w > width || y + h > height) throw new Bad('a frame goes past its edges')
+  }
   // ANMF: x, y, width and height (3 bytes each), then the duration (3 bytes, ms).
   const ms = frames.reduce((sum, frame) => sum + shown(bytes.u24le(frame.data + 12)), 0)
   // 0 is forever; 1 plays once.

@@ -201,7 +201,7 @@ if (stdio) {
     )
     // The sidebar's sponsor card, from Lumovi/main-sponsor: what was read last time at once, read
     // again soon after starting (once the network is set up, as the updater does) and every hour.
-    const { base, everyMs } = sponsorSource(process.env, !app.isPackaged)
+    const { base, everyMs } = sponsorSource(process.env)
     const sponsor = new SponsorSource({
       base,
       dir: join(app.getPath('userData'), 'sponsor'),
