@@ -296,9 +296,15 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   // (In the group it's shared with.)
   await as(context, 'admin@example.com', 'platform')
   await page.reload()
-  await page.getByRole('button', { name: 'Add cluster' }).click()
+  // Opened and left with Escape, the menu gives the focus back to its button.
+  const addCluster = page.getByRole('button', { name: 'Add cluster' })
+  await addCluster.click()
+  await page.keyboard.press('Escape')
+  await expect(addCluster).toBeFocused()
+  await addCluster.click()
   await page.getByRole('menuitem', { name: /^Connect with an agent…/ }).click()
   const form = page.getByRole('dialog', { name: 'Connect a cluster' })
+  await expect(form.getByLabel('Name')).toBeFocused()
   await form.getByLabel('Name').fill('Edge AP')
   await expect(form).toContainText(
     'Up to 63 lowercase letters, digits or “-”, starting and ending with a letter or digit.',
