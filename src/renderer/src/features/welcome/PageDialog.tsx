@@ -42,6 +42,12 @@ export function PageDialog({
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
           aria-describedby={undefined}
+          // Escape in the editor's search closes the search, not the dialog (and what was pasted).
+          onEscapeKeyDown={(event) => {
+            if ((event.target as HTMLElement | null)?.closest?.('.cm-panel')) {
+              event.preventDefault()
+            }
+          }}
           onOpenAutoFocus={(event) => {
             // The first field, or what's marked to start on.
             event.preventDefault()

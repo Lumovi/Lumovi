@@ -79,6 +79,8 @@ export function KubeconfigFilesButton({ files }: { files: Files }) {
   const first = shown.find((file) => file.exists || trouble(file)) ?? shown[0]
   const others = shown.filter((file) => file !== first && (file.exists || trouble(file))).length
   const wrong = shown.some((file) => trouble(file))
+  // Some can't be read: a warning; none can (nothing loads): critical.
+  const nothing = wrong && shown.every((file) => trouble(file) || !file.exists)
   const Icon = wrong ? FileWarning : FileText
   return (
     <Popover.Root>
@@ -86,7 +88,12 @@ export function KubeconfigFilesButton({ files }: { files: Files }) {
         aria-label="Kubeconfig files"
         className="-ml-2 flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-ink-3 no-drag hover:bg-surface-3 data-[state=open]:bg-surface-3"
       >
-        <Icon className={cn('size-3.5 shrink-0', wrong && 'text-critical-text')} />
+        <Icon
+          className={cn(
+            'size-3.5 shrink-0',
+            nothing ? 'text-critical-text' : wrong && 'text-warn-text',
+          )}
+        />
         {first?.exists || (first && trouble(first)) ? (
           // Cut from the start, so the file's name stays.
           <span className="min-w-0 truncate font-mono text-xs text-ink-2 [direction:rtl]">

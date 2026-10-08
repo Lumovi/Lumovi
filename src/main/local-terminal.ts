@@ -328,11 +328,11 @@ export class LocalTerminals {
             .join(delimiter),
           ...shell.env,
           // Yours as Lumovi reads them (those chosen in it, or KUBECONFIG's): a relative one from
-          // where it started, not the shell.
-          KUBECONFIG: [
-            kubeconfig,
-            ...this.deps.store.paths().paths.map((path) => resolve(path)),
-          ].join(delimiter),
+          // where it started, not the shell. Not one that can't be read: kubectl would refuse
+          // them all for it, where Lumovi leaves it out.
+          KUBECONFIG: [kubeconfig, ...this.deps.store.readable().map((path) => resolve(path))].join(
+            delimiter,
+          ),
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           TERM_PROGRAM: 'Lumovi',

@@ -35,7 +35,14 @@ export function useClusterActions({
 
   const copyForKubectl = async (cluster: Cluster) => {
     const line = await api.addedClusters?.forKubectl(cluster.context.file)
-    if (!line?.ok) return
+    if (!line?.ok) {
+      toast({
+        tone: 'error',
+        title: 'The line for kubectl couldn’t be made',
+        description: line?.error.message,
+      })
+      return
+    }
     await navigator.clipboard.writeText(line.data)
     toast({ tone: 'success', title: 'Copied for kubectl', description: line.data })
   }
@@ -46,6 +53,13 @@ export function useClusterActions({
       const current = settings?.clusters?.[cluster.context.name] ?? {}
       const result = await api.app.setCluster!(cluster.context.name, { ...current, hidden })
       if (result.ok) queryClient.setQueryData(['settings'], result.data)
+      else {
+        toast({
+          tone: 'error',
+          title: `${cluster.name} couldn’t be ${hidden ? 'hidden' : 'shown'}`,
+          description: result.error.message,
+        })
+      }
     },
     show: (cluster) => void api.kubeconfigFiles?.show(cluster.context.file!),
     copyForKubectl: (cluster) => void copyForKubectl(cluster),
@@ -79,7 +93,9 @@ export function useClusterActions({
         <RemoveDialog
           cluster={removing}
           others={clusters.filter(
-            (cluster) => cluster !== removing && cluster.context.file === removing.context.file,
+            (cluster) =>
+              cluster.context.name !== removing.context.name &&
+              cluster.context.file === removing.context.file,
           )}
           files={files}
           onClose={() => setRemoving(undefined)}

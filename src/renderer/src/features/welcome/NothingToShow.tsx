@@ -91,6 +91,11 @@ function Why({
     )
   }
 
+  // Nothing read, for a reason no one file says: said as it is.
+  if (contexts.error) {
+    return <Unreadable message={contexts.error}>{!files.locked && choose}</Unreadable>
+  }
+
   const gone = files.files.filter((file) => trouble(file) === 'gone')
   if (files.from === 'chosen' && gone.length > 0) {
     return (

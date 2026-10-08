@@ -1,9 +1,11 @@
 /**
  * Adding a cluster (⌘N, or Add cluster), or editing one added in Lumovi: a kubeconfig pasted, or
- * a file dropped or chosen, then checked (it reads as a kubeconfig, the server answers, the
- * credentials work), then kept in Lumovi's own folder. What its credentials run here, or send,
- * is shown, and nothing is until the person allows it. Done, it's named, colored and grouped, and
- * the line for kubectl given.
+ * a file dropped or chosen, then checked (it reads as a kubeconfig; each context's server
+ * answers, and its credentials work), then kept in Lumovi's own folder. What its credentials
+ * would do here that the person agrees to first (go to a server not verified, run a program,
+ * send a file, or send what Lumovi kept to somewhere new) is shown exactly, and nothing is done
+ * until the person allows it. Done, it's named, colored and grouped, and the line for kubectl
+ * given.
  */
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -17,19 +19,23 @@ import {
   Pencil,
   Plus,
   RotateCw,
+  ShieldAlert,
   TriangleAlert,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import type { ClusterCheck, PastedKubeconfig } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { CopyButton } from '@renderer/components/CopyButton'
+import { useGo } from '@renderer/hooks/go'
 import { useSettings } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { hostOf } from '@renderer/lib/format'
-import { DialogIcon, PageDialog } from './PageDialog'
+import { clusterPath } from '@renderer/lib/routes'
+import { toast } from '@renderer/state/toasts'
 import { Combo, Swatches } from './ClusterSettingsDialog'
+import { DialogIcon, PageDialog } from './PageDialog'
 
 /** How Lumovi names the clusters and users in its own files. */
 const OWN_NAME = /^lumovi-[0-9a-f]{12}$/
@@ -37,7 +43,37 @@ const OWN_NAME = /^lumovi-[0-9a-f]{12}$/
 /** The largest kubeconfig read (as the main process reads it). */
 const MAX_TEXT = 1024 * 1024
 
+/** How long a credentials step shows its spinner, at least, and between one step and the next. */
+const CREDENTIALS_SHOWN_MS = 300
+const STEP_MS = 80
+
 type Stage = 'input' | 'checking' | 'agree' | 'failed' | 'done'
+
+/** A context's check, as shown: the server's first, then (a moment later) the credentials'. */
+interface Checked {
+  result: ClusterCheck
+  credentialsShown: boolean
+}
+
+/** What a run of the check came to, kept for what follows it. */
+interface Run {
+  inspected: PastedKubeconfig
+  agreed: string[]
+}
+
+const wait = (ms: number) => new Promise((done) => setTimeout(done, ms))
+
+/** Everything its credentials would do that's agreed to first: the server's, then the rest. */
+function consentsOf(inspected: PastedKubeconfig) {
+  return {
+    servers: inspected.unverified.map(({ consent }) => consent),
+    rest: [
+      ...inspected.commands.map(({ consent }) => consent),
+      ...inspected.tokenFiles.map(({ consent }) => consent),
+      ...inspected.keptCredentials.map(({ consent }) => consent),
+    ],
+  }
+}
 
 export function AddClusterDialog({
   editing,
@@ -48,7 +84,7 @@ export function AddClusterDialog({
   /** One added in Lumovi, its connection edited: its file, and the context it was opened for. */
   editing?: { path: string; context: string }
   groups: string[]
-  /** Added (or saved): its first context, and whether to open it. */
+  /** Added (or saved): the context to show, and whether to open it. */
   onDone: (context: string, open: boolean) => void
   onClose: () => void
 }) {
@@ -59,12 +95,28 @@ export function AddClusterDialog({
   const [stage, setStage] = useState<Stage>('input')
   const [inspected, setInspected] = useState<PastedKubeconfig>()
   const [readError, setReadError] = useState<string>()
-  const [check, setCheck] = useState<ClusterCheck>()
+  const [checks, setChecks] = useState<Record<string, Checked>>({})
+  const [checking, setChecking] = useState<string>()
   const [agreed, setAgreed] = useState<string[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
   const [anyway, setAnyway] = useState(false)
-  const [added, setAdded] = useState<{ path: string; line?: string }>()
+  const [added, setAdded] = useState<{ path: string; context: string; line?: string }>()
   const [error, setError] = useState<string>()
+  // Each run of the check, and whether the dialog's still open: a late answer is dropped.
+  const runs = useRef(0)
+  const open = useRef(true)
+  // The names as typed now: one typed while it's checked is the one it's added as.
+  const namesNow = useRef(names)
+  useEffect(() => {
+    namesNow.current = names
+  })
+  useEffect(
+    () => () => {
+      open.current = false
+    },
+    [],
+  )
+  const current = (run: number) => open.current && runs.current === run
 
   // Editing: its kubeconfig as kept (its secrets as placeholders, which stay as they were).
   useEffect(() => {
@@ -75,25 +127,40 @@ export function AddClusterDialog({
     })
   }, [editing])
 
-  const first = inspected?.contexts[0]
-  const firstName = first ? (names[first.name] ?? first.name) : undefined
+  // The context shown and opened: the one being edited, or the first added (as named).
+  const shownContext = (found: PastedKubeconfig, renamed: Record<string, string>) => {
+    const name =
+      editing && found.contexts.some((context) => context.name === editing.context)
+        ? editing.context
+        : found.contexts[0]!.name
+    return renamed[name] ?? name
+  }
 
-  const keep = async (agreedNow: string[]) => {
+  const keep = async (run: Run, runId: number) => {
     setError(undefined)
-    if (editing) {
-      const result = await api.addedClusters!.edit(editing.path, text, agreedNow)
-      if (!result.ok) return void setError(result.error.message)
-      setAdded({ path: editing.path })
-    } else {
-      const renamed = Object.fromEntries(
-        Object.entries(names).filter(([name]) => inspected?.conflicts.includes(name)),
-      )
-      const result = await api.addedClusters!.add(text, { names: renamed, agreed: agreedNow })
-      if (!result.ok) return void setError(result.error.message)
-      setAdded({ path: result.data.path })
+    const result = editing
+      ? await api.addedClusters!.edit(editing.path, text, run.agreed)
+      : await api.addedClusters!.add(text, {
+          names: Object.fromEntries(
+            Object.entries(namesNow.current).filter(([name]) =>
+              run.inspected.conflicts.includes(name),
+            ),
+          ),
+          agreed: run.agreed,
+        })
+    if (!current(runId)) return
+    if (!result.ok) {
+      // Said where it can be seen, and what to do next: never left checking.
+      setError(result.error.message)
+      setStage('failed')
+      return
     }
+    setAdded({
+      path: editing ? editing.path : (result.data as { path: string }).path,
+      context: shownContext(run.inspected, namesNow.current),
+    })
     await queryClient.invalidateQueries({ queryKey: ['contexts'] })
-    setStage('done')
+    if (current(runId)) setStage('done')
   }
 
   useEffect(() => {
@@ -104,54 +171,113 @@ export function AddClusterDialog({
   }, [added])
 
   const run = async (agreedNow: string[]) => {
+    const runId = ++runs.current
     setStage('checking')
     setError(undefined)
-    setCheck(undefined)
+    setChecks({})
     setReadError(undefined)
+    setInspected(undefined)
     const read = await api.addedClusters!.inspect(text, editing?.path)
+    if (!current(runId)) return
     if (!read.ok) {
       setReadError(read.error.message)
       setStage('failed')
       return
     }
-    setInspected(read.data)
+    const found = read.data
+    setInspected(found)
     // A context named as one already read is added under another name (kubectl would take the other).
-    setNames((now) =>
-      Object.fromEntries(read.data.conflicts.map((name) => [name, now[name] ?? `${name}-2`])),
+    const renamed = Object.fromEntries(
+      found.conflicts.map((name) => [name, names[name] ?? `${name}-2`]),
     )
-    const context = read.data.contexts[0]!
-    const result = await api.addedClusters!.check(text, context.name, agreedNow, editing?.path)
-    if (!result.ok) {
-      setReadError(result.error.message)
-      setStage('failed')
-      return
+    setNames(renamed)
+    namesNow.current = renamed
+    const thisRun: Run = { inspected: found, agreed: agreedNow }
+
+    // Each context, one after another: its server, then a moment later its credentials.
+    const results: ClusterCheck[] = []
+    for (const context of found.contexts) {
+      setChecking(context.name)
+      const checked = await api.addedClusters!.check(text, context.name, agreedNow, editing?.path)
+      if (!current(runId)) return
+      if (!checked.ok) {
+        setChecking(undefined)
+        setError(`${context.name}: ${checked.error.message}`)
+        setStage('failed')
+        return
+      }
+      results.push(checked.data)
+      setChecks((now) => ({
+        ...now,
+        [context.name]: { result: checked.data, credentialsShown: false },
+      }))
+      await wait(CREDENTIALS_SHOWN_MS)
+      if (!current(runId)) return
+      setChecks((now) => ({
+        ...now,
+        [context.name]: { result: checked.data, credentialsShown: true },
+      }))
+      await wait(STEP_MS)
     }
-    setCheck(result.data)
-    const { server, credentials } = result.data
-    if (!server.ok) return setStage('failed')
-    if ('notTried' in credentials && credentials.notTried === 'agreement') return setStage('agree')
-    if (!credentials.ok) return setStage('failed')
-    await keep(agreedNow)
+    setChecking(undefined)
+    if (!current(runId)) return
+
+    // What's agreed to first, decided from what it holds: for any context, before anything goes.
+    const { servers, rest } = consentsOf(found)
+    if ([...servers, ...rest].some((consent) => !agreedNow.includes(consent))) {
+      return setStage('agree')
+    }
+    if (results.some(({ server }) => !server.ok)) return setStage('failed')
+    if (results.some(({ credentials }) => !credentials.ok)) return setStage('failed')
+    await keep(thisRun, runId)
   }
 
-  const everything = [
-    ...(inspected?.commands.map((command) => command.consent) ?? []),
-    ...(inspected?.tokenFiles.map((file) => file.consent) ?? []),
-  ]
-  const needsAgreement = everything.some((consent) => !agreed.includes(consent))
+  const pending = inspected
+    ? (() => {
+        const { servers, rest } = consentsOf(inspected)
+        const unagreed = (consents: string[]) => consents.filter((c) => !agreed.includes(c))
+        // The server's first; then the rest, one panel after the other.
+        return unagreed(servers).length > 0
+          ? { kind: 'servers' as const, consents: unagreed(servers) }
+          : { kind: 'rest' as const, consents: unagreed(rest) }
+      })()
+    : undefined
 
   const allow = () => {
-    setAgreed(everything)
-    if (anyway) void keep(everything)
-    else void run(everything)
+    if (!inspected || !pending) return
+    const now = [...agreed, ...pending.consents]
+    setAgreed(now)
+    const { servers, rest } = consentsOf(inspected)
+    // More to agree to: its panel next.
+    if ([...servers, ...rest].some((consent) => !now.includes(consent))) return
+    if (anyway) {
+      const runId = ++runs.current
+      setStage('checking')
+      void keep({ inspected, agreed: now }, runId)
+    } else void run(now)
   }
 
   const addAnyway = () => {
+    if (!inspected) return
     setAnyway(true)
-    if (needsAgreement) setStage('agree')
-    else void keep(agreed)
+    const { servers, rest } = consentsOf(inspected)
+    if ([...servers, ...rest].some((consent) => !agreed.includes(consent))) setStage('agree')
+    else {
+      const runId = ++runs.current
+      setStage('checking')
+      void keep({ inspected, agreed }, runId)
+    }
   }
 
+  // Edited again: what was checked (and "anyway") no longer holds.
+  const backToInput = () => {
+    runs.current++
+    setAnyway(false)
+    setStage('input')
+    setMode(from ? 'file' : 'paste')
+  }
+
+  const serverFailed = Object.values(checks).some(({ result }) => !result.server.ok)
   const footer = (() => {
     const cancel = (
       <Button variant="ghost" onClick={onClose}>
@@ -194,13 +320,13 @@ export function AddClusterDialog({
       case 'failed':
         return (
           <>
-            {check && !check.server.ok && !readError && (
+            {serverFailed && !readError && !error && (
               <Button variant="ghost" className="-ml-2" onClick={addAnyway}>
                 Add it anyway
               </Button>
             )}
             <span className="ml-auto" />
-            <Button variant="secondary" onClick={() => setStage('input')}>
+            <Button variant="secondary" onClick={backToInput}>
               Back
             </Button>
             <Button type="submit" variant="primary">
@@ -213,16 +339,17 @@ export function AddClusterDialog({
     }
   })()
 
-  if (stage === 'done' && added && firstName) {
+  if (stage === 'done' && added && inspected) {
     return (
       <Ready
-        context={firstName}
+        context={added.context}
         line={added.line}
         groups={groups}
-        check={check}
-        inspected={inspected!}
+        checks={checks}
+        inspected={inspected}
+        names={names}
         editing={!!editing}
-        onDone={(open) => onDone(firstName, open)}
+        onDone={(openIt) => onDone(added.context, openIt)}
       />
     )
   }
@@ -237,7 +364,11 @@ export function AddClusterDialog({
         if (stage === 'agree') allow()
         else if (stage === 'input' || stage === 'failed') void run(agreed)
       }}
-      onClose={onClose}
+      onClose={() => {
+        // Closed: nothing that was under way adds it.
+        runs.current++
+        onClose()
+      }}
       footer={footer}
     >
       {stage === 'input' ? (
@@ -254,23 +385,19 @@ export function AddClusterDialog({
         />
       ) : (
         <>
-          <Pasted
-            from={from}
-            inspected={inspected}
-            onEdit={() => {
-              setStage('input')
-              setMode(from ? 'file' : 'paste')
-            }}
-          />
+          <Pasted from={from} inspected={inspected} onEdit={backToInput} />
           <Steps
             stage={stage}
             inspected={inspected}
             readError={readError}
-            check={check}
+            checks={checks}
+            checking={checking}
             names={names}
             onName={(name, value) => setNames((now) => ({ ...now, [name]: value }))}
           />
-          {stage === 'agree' && inspected && <Agreement inspected={inspected} />}
+          {stage === 'agree' && inspected && pending && (
+            <Agreement inspected={inspected} kind={pending.kind} />
+          )}
         </>
       )}
     </PageDialog>
@@ -365,7 +492,12 @@ function Input({
               over ? 'border-accent bg-accent-soft' : 'border-line-strong',
             )}
           >
-            <span className="mb-1.5 grid size-10 place-items-center rounded-xl bg-surface-3 text-ink-2">
+            <span
+              className={cn(
+                'mb-1.5 grid size-10 place-items-center rounded-xl transition-colors',
+                over ? 'bg-surface text-accent-strong' : 'bg-surface-3 text-ink-2',
+              )}
+            >
               <FileUp className="size-5" />
             </span>
             <span className="text-[13px] font-medium text-ink-1">
@@ -438,12 +570,15 @@ function Step({
   title,
   detail,
   hint,
+  index,
   children,
 }: {
   state: StepState
   title: string
   detail?: ReactNode
   hint?: ReactNode
+  /** Where it is in the list: each comes a moment after the one before. */
+  index: number
   children?: ReactNode
 }) {
   const Icon = {
@@ -454,7 +589,10 @@ function Step({
     waiting: CircleDashed,
   }[state]
   return (
-    <li className="flex animate-fade-in gap-2.5">
+    <li
+      className="flex animate-fade-in gap-2.5"
+      style={{ animationDelay: `${index * STEP_MS}ms`, animationFillMode: 'both' }}
+    >
       <Icon
         aria-hidden
         className={cn(
@@ -469,8 +607,9 @@ function Step({
       <span className="min-w-0 flex-1">
         <span
           className={cn(
-            'block text-[13px] font-medium',
-            state === 'waiting' ? 'text-ink-3' : 'text-ink-1',
+            'block text-[13px]',
+            // Still to come: regular, and quiet.
+            state === 'waiting' ? 'font-normal text-ink-3' : 'font-medium text-ink-1',
           )}
         >
           {title}
@@ -483,167 +622,278 @@ function Step({
   )
 }
 
-/** The check, step by step: it reads, it answers, it signs in. */
+/** A user's name, unless it's one Lumovi gave in its own files (lumovi-…), which means nothing. */
+const userOf = (user?: string) => (user && !OWN_NAME.test(user) ? user : undefined)
+
+/** The check, step by step: it reads; then each context's server answers, and it signs in. */
 function Steps({
   stage,
   inspected,
   readError,
-  check,
+  checks,
+  checking,
   names,
   onName,
 }: {
   stage: Stage
   inspected?: PastedKubeconfig
   readError?: string
-  check?: ClusterCheck
+  checks: Record<string, Checked>
+  /** The context being checked now. */
+  checking?: string
   names: Record<string, string>
-  onName: (name: string, value: string) => void
+  /** A conflict's name, typed: none once it's added. */
+  onName?: (name: string, value: string) => void
 }) {
-  const context = inspected?.contexts[0]
-  const host = hostOf(context?.server) ?? context?.server
-  const reads: StepState = readError && !inspected ? 'failed' : inspected ? 'ok' : 'checking'
-  const server: StepState =
-    !inspected || reads !== 'ok'
-      ? 'waiting'
-      : !check
-        ? stage === 'checking'
-          ? 'checking'
-          : 'waiting'
-        : check.server.ok
-          ? 'ok'
-          : 'failed'
-  const credentials: StepState =
-    !check || !check.server.ok
-      ? server === 'ok' && stage === 'checking'
-        ? 'checking'
-        : 'waiting'
-      : check.credentials.ok
-        ? 'ok'
-        : 'notTried' in check.credentials
-          ? 'warn'
-          : 'failed'
+  const contexts = inspected?.contexts ?? []
+  const one = contexts.length === 1
+  const reads: StepState = readError ? 'failed' : inspected ? 'ok' : 'checking'
+  let index = 0
   return (
     <ol className="space-y-3">
       <Step
+        index={index++}
         state={reads}
-        title="It reads as a kubeconfig"
+        title={reads === 'failed' ? 'It doesn’t read as a kubeconfig' : 'It reads as a kubeconfig'}
         detail={
           reads === 'failed'
             ? readError
-            : context &&
-              // The user's as named in Lumovi's own files (lumovi-…) means nothing to anyone.
-              `${context.name}${context.user && !OWN_NAME.test(context.user) ? ` · user ${context.user}` : ''}`
+            : one
+              ? `${contexts[0]!.name}${userOf(contexts[0]!.user) ? ` · user ${userOf(contexts[0]!.user)}` : ''}`
+              : contexts.length > 0
+                ? `${contexts.length} contexts: ${contexts.map((context) => context.name).join(', ')}`
+                : undefined
         }
       >
-        {inspected?.conflicts.map((name) => (
-          <label key={name} className="mt-1.5 flex items-center gap-2 text-xs text-ink-2">
-            <span>
-              <span className="font-mono">{name}</span> is already read, so it’s added as
+        {inspected?.conflicts.map((name) =>
+          onName ? (
+            <label key={name} className="mt-1.5 flex items-center gap-2 text-xs text-ink-2">
+              <span>
+                <span className="font-mono">{name}</span> is already read, so it’s added as
+              </span>
+              <input
+                value={names[name] ?? ''}
+                onChange={(event) => onName(name, event.target.value)}
+                aria-label={`Add ${name} as`}
+                className="h-7 w-44 rounded-md border border-line-strong bg-surface px-2 font-mono text-xs text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft"
+              />
+            </label>
+          ) : (
+            <span key={name} className="mt-0.5 block text-xs text-ink-2">
+              <span className="font-mono">{name}</span> was already read, so it’s added as{' '}
+              <span className="font-mono">{names[name]}</span>
             </span>
-            <input
-              value={names[name] ?? ''}
-              onChange={(event) => onName(name, event.target.value)}
-              aria-label={`Add ${name} as`}
-              className="h-7 w-44 rounded-md border border-line-strong bg-surface px-2 font-mono text-xs text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft"
+          ),
+        )}
+      </Step>
+      {contexts.map((context) => {
+        const checked = checks[context.name]
+        const result = checked?.result
+        const host = hostOf(context.server) ?? context.server
+        const server: StepState = !result
+          ? checking === context.name
+            ? 'checking'
+            : 'waiting'
+          : !result.server.ok
+            ? 'failed'
+            : context.insecure
+              ? 'warn'
+              : 'ok'
+        const credentials: StepState =
+          !result || !checked.credentialsShown
+            ? result?.server.ok && stage === 'checking'
+              ? 'checking'
+              : 'waiting'
+            : result.credentials.ok
+              ? 'ok'
+              : 'notTried' in result.credentials
+                ? result.credentials.notTried === 'agreement'
+                  ? 'warn'
+                  : 'waiting'
+                : 'failed'
+        const user = userOf(context.user)
+        return (
+          <Fragment key={context.name}>
+            {!one && (
+              <li className="pt-1 font-mono text-2xs tracking-wide text-ink-3">{context.name}</li>
+            )}
+            <Step
+              index={index++}
+              state={server}
+              title={server === 'failed' ? 'The server didn’t answer' : 'The server answers'}
+              detail={
+                result && !result.server.ok
+                  ? result.server.message
+                  : result?.server.ok
+                    ? [
+                        host,
+                        result.server.version,
+                        result.server.latencyMs !== undefined && `${result.server.latencyMs} ms`,
+                        context.insecure && 'its certificate isn’t checked',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : server === 'checking'
+                      ? `Asking ${host}…`
+                      : undefined
+              }
+              hint={
+                server === 'failed'
+                  ? 'Is it on a network you’re not on, like a VPN? Connect to it and try again.'
+                  : undefined
+              }
+            >
+              {context.proxy && (
+                <span className="mt-1 flex items-start gap-1.5 text-xs text-warn-text">
+                  <CircleAlert className="mt-0.5 size-3 shrink-0" />
+                  <span>
+                    Everything to it goes through{' '}
+                    <span className="font-mono">
+                      <Visible text={context.proxy} />
+                    </span>
+                    .
+                  </span>
+                </span>
+              )}
+            </Step>
+            <Step
+              index={index++}
+              state={credentials}
+              title={
+                credentials === 'failed' ? 'The credentials didn’t work' : 'The credentials work'
+              }
+              detail={
+                result?.credentials.ok && checked?.credentialsShown
+                  ? `Signed in${user ? ` as ${user}` : ''} · ${result.credentials.allowed ? 'can list namespaces' : 'can’t list namespaces'}`
+                  : result && checked?.credentialsShown && 'message' in result.credentials
+                    ? result.credentials.message
+                    : credentials === 'warn'
+                      ? 'Waiting for you'
+                      : undefined
+              }
             />
-          </label>
-        ))}
-      </Step>
-      <Step
-        state={server}
-        title={server === 'failed' ? 'The server didn’t answer' : 'The server answers'}
-        detail={
-          check && !check.server.ok
-            ? check.server.message
-            : check?.server.ok
-              ? [
-                  host,
-                  check.server.version,
-                  check.server.latencyMs !== undefined && `${check.server.latencyMs} ms`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')
-              : server === 'checking'
-                ? `Asking ${host}…`
-                : undefined
-        }
-        hint={
-          server === 'failed'
-            ? 'Is it on a network you’re not on, like a VPN? Connect to it and try again.'
-            : undefined
-        }
-      >
-        {context?.insecure && (
-          <Notice>
-            Its server isn’t verified (insecure-skip-tls-verify): its credentials go to whoever
-            answers.
-          </Notice>
-        )}
-        {context?.proxy && (
-          <Notice>
-            Everything to it goes through <span className="font-mono">{context.proxy}</span>.
-          </Notice>
-        )}
-      </Step>
-      <Step
-        state={credentials}
-        title={credentials === 'failed' ? 'The credentials didn’t work' : 'The credentials work'}
-        detail={
-          check?.credentials.ok
-            ? `Signed in${context?.user && !OWN_NAME.test(context.user) ? ` as ${context.user}` : ''} · ${check.credentials.allowed ? 'can list namespaces' : 'can’t list namespaces'}`
-            : check && 'message' in check.credentials
-              ? check.credentials.message
-              : credentials === 'warn'
-                ? 'Waiting for you'
-                : undefined
-        }
-      />
+          </Fragment>
+        )
+      })}
     </ol>
   )
 }
 
-function Notice({ children }: { children: ReactNode }) {
-  return (
-    <span className="mt-1 flex items-start gap-1.5 text-xs text-warn-text">
-      <CircleAlert className="mt-0.5 size-3 shrink-0" />
-      <span>{children}</span>
-    </span>
+/** Characters that change how text reads without being seen: bidi controls, and zero-width ones. */
+const UNSEEN = /([\u202A-\u202E\u2066-\u2069\u200B-\u200F\uFEFF])/
+
+/**
+ * Text as it is, its unseen characters shown escaped (⟨U+202E⟩): where the person decides what
+ * runs, nothing can make it read as other than it is.
+ */
+export function Visible({ text }: { text: string }) {
+  return text.split(UNSEEN).map((part, index) =>
+    index % 2 === 1 ? (
+      <span
+        key={index}
+        className="rounded bg-critical/10 px-0.5 text-critical-text"
+        title="A character that changes how the text reads, without being seen"
+      >
+        ⟨U+{part.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}⟩
+      </span>
+    ) : (
+      part
+    ),
   )
 }
 
-/** What its credentials would do here, exactly: shown, and allowed or not. */
-function Agreement({ inspected }: { inspected: PastedKubeconfig }) {
+/** A word of a command, kept whole on its line (one longer than the line, broken within). */
+const WORD = 'inline-block max-w-full [overflow-wrap:anywhere]'
+
+/** A command's words, as a shell would split them (each kept whole when shown). */
+function wordsOf(line: string): string[] {
+  return line.match(/'[^']*'|"[^"]*"|\S+/g) ?? [line]
+}
+
+/**
+ * What its credentials would do here, exactly, to be allowed or not: first a server not
+ * verified, then the rest (a program run, a file sent, what Lumovi kept sent somewhere new).
+ */
+function Agreement({ inspected, kind }: { inspected: PastedKubeconfig; kind: 'servers' | 'rest' }) {
+  if (kind === 'servers') {
+    return (
+      <Panel icon={ShieldAlert} title="Lumovi can’t check it’s the right server">
+        <p>
+          This kubeconfig turns off the server’s certificate check (
+          <code className="font-mono">insecure-skip-tls-verify</code>), so whatever answers at that
+          address gets its credentials. Allow sends them now and each time Lumovi connects; with the
+          server’s CA in the kubeconfig, Lumovi checks it instead.
+        </p>
+        {inspected.unverified.map((entry) => (
+          <p key={entry.consent} className="mt-1.5 text-ink-2">
+            Its credentials go to{' '}
+            <span className="font-mono text-ink-1">
+              <Visible text={entry.server} />
+            </span>
+            , which isn’t verified.
+          </p>
+        ))}
+      </Panel>
+    )
+  }
   const runs = inspected.commands.length > 0
+  const sends = inspected.tokenFiles.length > 0
+  const kept = inspected.keptCredentials.length > 0
+  const doing = [
+    runs && 'runs a program on this computer',
+    sends && 'sends a file to its server',
+    kept && 'sends what Lumovi kept to somewhere new',
+  ].filter(Boolean)
   return (
-    <div className="mt-4 rounded-xl border border-warn/30 bg-warn/9 px-3.5 py-3">
-      <p className="flex items-center gap-2.5 text-[13px] font-medium text-ink-1">
-        <TriangleAlert className="size-4 shrink-0 text-warn-text" />
-        {runs
-          ? 'Signing in runs a program on this computer'
-          : 'Signing in sends a file to its server'}
-      </p>
-      <p className="mt-1 ml-[26px] text-xs leading-relaxed text-ink-2">
-        {runs
-          ? 'This kubeconfig gets its credentials from the command below. Lumovi would run it each time it connects, as kubectl does. Allow it only if you trust where the kubeconfig came from.'
-          : 'This kubeconfig signs in with the text of the file below, sent to its server each time it connects. Allow it only if you trust where the kubeconfig came from.'}
-      </p>
+    <Panel
+      icon={TriangleAlert}
+      title={`Signing in ${doing.slice(0, -1).join(', ')}${doing.length > 1 ? ', and ' : ''}${doing.at(-1)}`}
+    >
+      {runs && (
+        <p>
+          This kubeconfig gets its credentials from the command below. Lumovi would run it each time
+          it connects, as kubectl does.
+        </p>
+      )}
+      {sends && (
+        <p className={cn(runs && 'mt-1.5')}>
+          It signs in with the text of the file below, sent to its server each time it connects.
+        </p>
+      )}
+      {kept && (
+        <p className={cn((runs || sends) && 'mt-1.5')}>
+          Its credentials, kept in Lumovi, would go to the server below, which they weren’t kept
+          for.
+        </p>
+      )}
+      <p className="mt-1.5">Allow it only if you trust where the kubeconfig came from.</p>
       {inspected.commands.map((command) => {
-        const line = [
-          ...command.env.map(({ name, value }) => `${name}=${value}`),
-          command.line,
-        ].join(' ')
+        const env = command.env.map(({ name, value }) => `${name}=${value}`)
         return (
           <Box
             key={command.consent}
-            label={command.shell ? 'The command, run in a shell' : 'The command'}
-            copy={line}
+            label={[
+              command.shell ? 'The command, run in a shell' : 'The command',
+              command.movedTo && `now for ${command.movedTo}`,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            copy={[...env, command.line].join(' ')}
           >
-            {command.env.length > 0 && (
-              <span className="text-ink-3">
-                {command.env.map(({ name, value }) => `${name}=${value}`).join(' ')}{' '}
-              </span>
-            )}
-            {command.line}
+            {env.map((variable) => (
+              <Fragment key={variable}>
+                <span className={cn(WORD, 'text-ink-3')}>
+                  <Visible text={variable} />
+                </span>{' '}
+              </Fragment>
+            ))}
+            {wordsOf(command.line).map((word, index) => (
+              <Fragment key={index}>
+                <span className={WORD}>
+                  <Visible text={word} />
+                </span>{' '}
+              </Fragment>
+            ))}
           </Box>
         )
       })}
@@ -653,9 +903,38 @@ function Agreement({ inspected }: { inspected: PastedKubeconfig }) {
           label={`The file, sent to ${hostOf(file.server) ?? file.server}`}
           copy={file.path}
         >
-          {file.path}
+          <Visible text={file.path} />
         </Box>
       ))}
+      {inspected.keptCredentials.map((entry) => (
+        <Box
+          key={entry.consent}
+          label={`Its kept credentials, for ${entry.context}`}
+          copy={entry.server}
+        >
+          <Visible text={entry.server} />
+        </Box>
+      ))}
+    </Panel>
+  )
+}
+
+function Panel({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: typeof ShieldAlert
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <div className="mt-4 rounded-xl border border-warn/30 bg-warn/9 px-3.5 py-3">
+      <p className="flex items-center gap-2.5 text-[13px] font-semibold text-ink-1">
+        <Icon className="size-4 shrink-0 text-warn-text" />
+        {title}
+      </p>
+      <div className="mt-1 ml-[26px] text-xs leading-relaxed text-ink-2">{children}</div>
     </div>
   )
 }
@@ -663,9 +942,9 @@ function Agreement({ inspected }: { inspected: PastedKubeconfig }) {
 /** A command or path, shown whole, with a way to copy it. */
 function Box({ label, copy, children }: { label: string; copy: string; children: ReactNode }) {
   return (
-    <div className="group relative mt-2.5 ml-[26px] rounded-lg bg-surface px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--line)]">
+    <div className="group relative mt-2.5 rounded-lg bg-surface px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--line)]">
       <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">{label}</p>
-      <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-1 selectable">
+      <code className="block font-mono text-xs leading-relaxed whitespace-normal text-ink-1 selectable">
         {children}
       </code>
       <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -680,36 +959,48 @@ function Ready({
   context,
   line,
   groups,
-  check,
+  checks,
   inspected,
+  names,
   editing,
   onDone,
 }: {
   context: string
   line?: string
   groups: string[]
-  check?: ClusterCheck
+  checks: Record<string, Checked>
   inspected: PastedKubeconfig
+  names: Record<string, string>
   editing: boolean
   onDone: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
+  const go = useGo()
   const stored = useSettings().data?.clusters?.[context] ?? {}
   const [name, setName] = useState(stored.name ?? '')
   const [color, setColor] = useState(stored.color)
   const [group, setGroup] = useState(stored.group ?? '')
-  const nameField = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string>()
   const title = name.trim() || context
 
   const finish = async (open: boolean) => {
-    const next = {
+    const result = await api.app.setCluster!(context, {
       ...stored,
       name: name.trim() || undefined,
       color,
       group: group.trim() || undefined,
+    })
+    // Said, not dropped: its name, color and group weren't kept.
+    if (!result.ok) return setError(result.error.message)
+    queryClient.setQueryData(['settings'], result.data)
+    if (!editing && !open) {
+      toast({
+        tone: 'success',
+        title: `${title} is added`,
+        description: 'It’s in Lumovi’s own folder. Your kubeconfig is as it was.',
+        action: { label: 'Open', run: () => go(clusterPath(context)) },
+      })
     }
-    const result = await api.app.setCluster!(context, next)
-    if (result.ok) queryClient.setQueryData(['settings'], result.data)
     onDone(open)
   }
 
@@ -722,6 +1013,7 @@ function Ready({
       }
       title={`${title} is ${editing ? 'saved' : 'ready'}`}
       subtitle="It’s in Lumovi’s own folder. Your kubeconfig stays as it is."
+      error={error}
       onSubmit={() => void finish(true)}
       onClose={() => void finish(false)}
       footer={
@@ -736,14 +1028,13 @@ function Ready({
         </>
       }
     >
-      <Steps stage="done" inspected={inspected} check={check} names={{}} onName={() => undefined} />
+      <Steps stage="done" inspected={inspected} checks={checks} names={names} />
       <div className="mt-5 grid grid-cols-[128px_1fr] items-center gap-x-4 gap-y-3">
         <label htmlFor="added-name" className="text-xs font-medium text-ink-2">
           Name
         </label>
         <input
           id="added-name"
-          ref={nameField}
           data-autofocus
           value={name}
           placeholder={context}

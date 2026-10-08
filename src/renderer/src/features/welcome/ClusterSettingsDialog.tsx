@@ -63,6 +63,12 @@ export function ClusterSettingsDialog({
   const stored: ClusterSettings = settings?.clusters?.[context.name] ?? {}
   const readOnlyByPolicy =
     !!settings?.readOnlyAll || managedReadOnly(settings?.managed, context.name)
+  // Who keeps it read-only: LUMOVI_READ_ONLY (set where Lumovi started), or the organization.
+  const lockedBy = settings?.readOnlyAll
+    ? 'Set by LUMOVI_READ_ONLY.'
+    : readOnlyByPolicy
+      ? 'Set by your organization.'
+      : undefined
 
   const [name, setName] = useState(stored.name ?? '')
   const [color, setColor] = useState(stored.color)
@@ -105,7 +111,13 @@ export function ClusterSettingsDialog({
     }
     let updated = result.data
     if (!readOnlyByPolicy && readOnly !== !!settings?.readOnly?.includes(context.name)) {
-      updated = await api.app.setReadOnly(context.name, readOnly)
+      try {
+        updated = await api.app.setReadOnly(context.name, readOnly)
+      } catch (failed) {
+        setSaving(false)
+        setError((failed as Error).message)
+        return
+      }
     }
     queryClient.setQueryData(['settings'], updated)
     // Opened in the namespace set, from now on: not the one it was last left in.
@@ -203,13 +215,19 @@ export function ClusterSettingsDialog({
           line="Deleting and draining ask you to type its name, and its rows say Production."
           checked={production ?? looksLikeProduction(context.name)}
           onChange={setProduction}
+          // Set by hand, it's kept so: back to Lumovi's guess from its name.
+          reset={
+            production === undefined
+              ? undefined
+              : { label: 'Use Lumovi’s guess', run: () => setProduction(undefined) }
+          }
         />
         <Toggle
           title="Read-only"
           line="Lumovi changes nothing in it."
           checked={readOnlyByPolicy || readOnly}
           onChange={setReadOnly}
-          locked={readOnlyByPolicy}
+          locked={lockedBy}
         />
         <Toggle
           title="Hidden"
@@ -255,8 +273,10 @@ export function Swatches({
         aria-label="No color"
         onClick={() => onChange(undefined)}
         className={cn(
-          'grid size-[22px] place-items-center rounded-full bg-surface text-ink-3 ring-1 ring-line-strong ring-inset',
-          color === undefined && 'ring-2 ring-ink-3 ring-offset-2 ring-offset-surface-2',
+          'grid size-[22px] place-items-center rounded-full bg-surface text-ink-3',
+          color === undefined
+            ? 'ring-2 ring-ink-3 ring-offset-2 ring-offset-surface-2'
+            : 'ring-1 ring-line-strong ring-inset',
         )}
       >
         <Minus className="size-3" />
@@ -412,28 +432,41 @@ function Toggle({
   line,
   checked,
   onChange,
-  locked = false,
+  locked,
+  reset,
 }: {
   title: string
   line: string
   checked: boolean
   onChange: (checked: boolean) => void
-  locked?: boolean
+  /** Who keeps it as it is, if anyone does. */
+  locked?: string
+  /** Back to what Lumovi would make of it, where it's been set by hand. */
+  reset?: { label: string; run: () => void }
 }) {
   return (
     <div className="flex items-start gap-3">
       <span className="mt-px">
-        <Switch label={title} checked={checked} onCheckedChange={onChange} disabled={locked} />
+        <Switch label={title} checked={checked} onCheckedChange={onChange} disabled={!!locked} />
       </span>
       <span className="min-w-0">
         <span className="block text-[13px] font-medium text-ink-1">{title}</span>
         <span className="block text-xs text-ink-3">
           {locked && (
             <span className="mr-1 inline-flex items-center gap-1 text-ink-2">
-              <Lock className="size-3" /> Set by your organization.
+              <Lock className="size-3" /> {locked}
             </span>
           )}
           {line}
+          {reset && (
+            <button
+              type="button"
+              onClick={reset.run}
+              className="ml-1.5 font-medium text-accent-strong hover:underline"
+            >
+              {reset.label}
+            </button>
+          )}
         </span>
       </span>
     </div>
@@ -460,7 +493,7 @@ function Connection({
     <section className="mt-5 rounded-xl bg-surface-3/70 px-3.5 py-3">
       <div className="mb-1.5 flex items-baseline gap-2">
         <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Connection</h3>
-        <span className="ml-auto truncate font-mono text-xs text-ink-2">
+        <span className={cn('ml-auto truncate text-xs text-ink-2', !cluster.own && 'font-mono')}>
           {cluster.own
             ? `Added in Lumovi${addedAt ? `, ${new Date(addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}` : ''}`
             : context.file && files

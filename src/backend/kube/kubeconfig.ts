@@ -33,14 +33,15 @@ export function loadKubeConfig(
     currentContext: string
   }
   for (const file of paths.filter((path) => existsSync(path))) {
-    const text = readFileSync(file, 'utf8')
-    // kubectl treats an empty file as an empty config rather than an error.
-    if (!text.trim()) {
-      results?.set(file, { contexts: [] })
-      continue
-    }
     const kc = new KubeConfig()
     try {
+      // Read here too: one that can't be opened (not yours, a folder) is as one that can't be read.
+      const text = readFileSync(file, 'utf8')
+      // kubectl treats an empty file as an empty config rather than an error.
+      if (!text.trim()) {
+        results?.set(file, { contexts: [] })
+        continue
+      }
       kc.loadFromString(text)
       kc.makePathsAbsolute(dirname(file))
     } catch (error) {
@@ -131,6 +132,17 @@ export class KubeConfigStore implements ClusterConfigs {
   /** What each file read came to, as last read. */
   results(): FileResults {
     return this.#results
+  }
+
+  /**
+   * The files read, as kubectl should read them too: without those that couldn't be (kubectl
+   * would refuse them all for one).
+   */
+  readable(): string[] {
+    return this.paths().paths.filter((path) => {
+      const result = this.#results.get(path)
+      return !result || !('problem' in result)
+    })
   }
 
   /**

@@ -296,6 +296,8 @@ export interface CredentialCommand {
   env: { name: string; value: string }[]
   /** What the page gives back when the person agrees to it: this, exactly as shown. */
   consent: string
+  /** One added in Lumovi, edited: the server it now runs for, where it didn't before. */
+  movedTo?: string
 }
 
 /** A kubeconfig pasted or imported, read (nothing run, nothing reached). */
