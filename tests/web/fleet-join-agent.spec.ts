@@ -558,7 +558,7 @@ test('a cluster connected from the page is the page’s to name, label and remov
   await page.getByRole('button', { name: `${EDGE}’s actions` }).click()
   await page.getByRole('menuitem', { name: 'Remove from the fleet…' }).click()
   const removing = page.getByRole('dialog', { name: `Remove ${EDGE}?` })
-  await expect(removing).toContainText('helm uninstall lumovi-agent --namespace lumovi')
+  await expect(removing).toContainText('helm uninstall lumovi --namespace lumovi')
   await expect(removing.getByRole('button', { name: 'Remove' })).toBeDisabled()
   await removing.getByLabel(`Type ${EDGE} to confirm`).fill(EDGE)
   await removing.getByRole('button', { name: 'Remove' }).click()
