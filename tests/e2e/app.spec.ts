@@ -299,6 +299,13 @@ test('recovers from unreadable settings', async ({ launch }) => {
         sandbox: { namespace: 'Not A Namespace', image: 'alpine' },
         large: null,
       },
+      // A cluster's settings that don't make sense are left as if unset; the rest kept.
+      clusters: {
+        demo: { name: '  Shop  ', color: 2, labels: { env: 'prod' }, hidden: false },
+        sandbox: { color: 9 },
+        large: { labels: { 'no spaces': 'x' } },
+        offline: 'red',
+      },
       autoUpdate: false,
       // AI assistants' too: their port and token, and what they may change.
       assistants: { enabled: 'yes', port: 80, token: 'short', launch: [1] },
@@ -310,6 +317,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
     theme: 'system',
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
+    clusters: { demo: { name: 'Shop', color: 2, labels: { env: 'prod' } } },
     autoUpdate: false,
     matchingKubectl: true,
     nodeShell: { demo: { namespace: 'ops', image: 'alpine:3.22' } },

@@ -130,6 +130,14 @@ export function registerIpc(deps: Dependencies): void {
         return { ok: false, error: toKubeError(error) }
       }
     },
+    [IPC.setCluster]: (context, clusterSettings) => {
+      assertString(context, 'context')
+      try {
+        return { ok: true, data: settings.setCluster(context, clusterSettings) }
+      } catch (error) {
+        return { ok: false, error: { code: 'invalid', message: (error as Error).message } }
+      }
+    },
     [IPC.kubeconfigFiles]: () => kubeconfigFiles.list(),
     [IPC.kubeconfigChoose]: (how) => {
       if (how !== 'replace' && how !== 'add') throw invalid('how must be replace or add')
@@ -143,6 +151,10 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.kubeconfigShow]: (path) => {
       assertString(path, 'path')
       kubeconfigFiles.show(path)
+    },
+    [IPC.kubeconfigChooseAgain]: (path) => {
+      assertString(path, 'path')
+      return kubeconfigFiles.chooseAgain(path)
     },
     [IPC.addedImport]: () => addedClusters.import(),
     [IPC.addedInspect]: (text, editing) => {

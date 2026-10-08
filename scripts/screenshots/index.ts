@@ -11,11 +11,11 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { _electron as electron, chromium, type Browser, type Page } from '@playwright/test'
 import { parse, stringify } from 'yaml'
@@ -124,7 +124,13 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
   // AI assistants' token, the same each time (shown in part).
   writeFileSync(
     join(home, 'settings.json'),
-    JSON.stringify({ theme, assistants: { enabled: false, port: 47830, token: ASSISTANTS_TOKEN } }),
+    JSON.stringify({
+      theme,
+      assistants: { enabled: false, port: 47830, token: ASSISTANTS_TOKEN },
+      // The clusters page as people keep it: each cluster in a color and a group, labelled (its
+      // name as the kubeconfig's, which the screens find it by).
+      clusters: CLUSTER_SETTINGS,
+    }),
   )
   // Terminals' shells (zsh on macOS, bash elsewhere) with a prompt that's the same everywhere,
   // not one that names the computer: its folder icon one of the Nerd Font's.
@@ -133,9 +139,12 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
     join(home, '.bashrc'),
     "PS1='\\[\\e[34m\\]\uf07c ~\\[\\e[0m\\] \\[\\e[32m\\]❯\\[\\e[0m\\] '\n",
   )
-  // Started where the kubeconfig's .kube folder is, and pointed at it from there: the clusters
-  // page shows the path, the same wherever that is.
-  const cwd = dirname(dirname(kubeconfig))
+  // The kubeconfig where people keep theirs, ~/.kube/config: the clusters page shows it so, the
+  // same each time (its certificates are in it, so it reads the same anywhere). Not KUBECONFIG.
+  mkdirSync(join(home, '.kube'))
+  copyFileSync(kubeconfig, join(home, '.kube', 'config'))
+  const { KUBECONFIG: _theirs, ...inherited } = process.env
+  const cwd = home
   const app = await electron.launch({
     cwd,
     // Shown without a window on screen (see tests/e2e/harness.cjs).
@@ -154,9 +163,8 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
       '--lang=en-US',
     ],
     env: {
-      ...process.env,
+      ...inherited,
       ...env,
-      KUBECONFIG: relative(cwd, kubeconfig),
       HOME: home,
       USERPROFILE: home,
       TZ: 'UTC',
@@ -217,6 +225,22 @@ const freePort = async () => {
   const { port } = server.address() as AddressInfo
   await new Promise((done) => server.close(done))
   return port
+}
+
+/** How each cluster shows on the clusters page: its color, its group, and its labels. */
+const CLUSTER_SETTINGS = {
+  [CLUSTERS.production]: {
+    color: 2,
+    group: 'Shop',
+    labels: { env: 'production', region: 'eu-west' },
+  },
+  [CLUSTERS.staging]: { color: 4, group: 'Shop', labels: { env: 'staging', region: 'eu-west' } },
+  [CLUSTERS.loadTest]: { color: 7, group: 'Platform', labels: { env: 'test', region: 'us-east' } },
+  [CLUSTERS.edge]: {
+    color: 3,
+    group: 'Platform',
+    labels: { env: 'production', region: 'ap-south' },
+  },
 }
 
 /** What each cluster of the fleet is labelled with. */

@@ -34,7 +34,7 @@ import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
 import { useViews } from '@renderer/hooks/views'
-import { useReadOnly } from '@renderer/hooks/settings'
+import { useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
@@ -286,6 +286,7 @@ function ClusterSwitcher() {
   const server = contexts.find((c) => c.name === context)?.server
   const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
   const readOnly = useReadOnly()
+  const clusterName = useClusterName()
   const go = (path: string) => {
     setOpen(false)
     navigateTo(path)
@@ -299,7 +300,7 @@ function ClusterSwitcher() {
         <StatusDot health={health} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink-1">
-            <span className="truncate">{context}</span>
+            <span className="truncate">{clusterName(context)}</span>
             {readOnly.readOnly && (
               <Lock aria-label="Read-only" className="size-3 shrink-0 text-ink-3" />
             )}
@@ -403,16 +404,17 @@ function SwitcherItem({
   onSelect: (path: string) => void
 }) {
   const version = useVersion(context.name)
+  const name = useClusterName()(context.name)
   const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
   return (
     <Command.Item
-      value={`${context.name} ${context.cluster}`}
+      value={`${name} ${context.name} ${context.cluster}`}
       onSelect={() => onSelect(clusterPath(context.name))}
       className={cn(menuItem, 'h-auto py-1.5')}
     >
       <StatusDot health={health} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate">{context.name}</span>
+        <span className="block truncate">{name}</span>
       </span>
       {active && <Check className="size-4 text-accent" aria-label="Current cluster" />}
     </Command.Item>

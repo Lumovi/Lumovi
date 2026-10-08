@@ -58,20 +58,23 @@ test('kubeconfig files chosen in Lumovi replace KUBECONFIG’s or add to them, l
 
   // Chosen in place of KUBECONFIG's.
   await answer(first.app, [alpha])
-  expect(await choose(first.page, 'replace')).toEqual({
+  expect(await choose(first.page, 'replace')).toMatchObject({
     ok: true,
-    data: { from: 'chosen', files: [{ path: alpha, exists: true, removable: true }] },
+    data: {
+      from: 'chosen',
+      files: [{ path: alpha, exists: true, origin: 'chosen', removable: true, contexts: 1 }],
+    },
   })
   expect(await contexts(first.page)).toEqual(['alpha'])
   // Another after it; then no longer read.
   await answer(first.app, [beta])
-  expect(await choose(first.page, 'add')).toEqual({
+  expect(await choose(first.page, 'add')).toMatchObject({
     ok: true,
     data: {
       from: 'chosen',
       files: [
-        { path: alpha, exists: true, removable: true },
-        { path: beta, exists: true, added: true, removable: true },
+        { path: alpha, exists: true, origin: 'chosen', removable: true, contexts: 1 },
+        { path: beta, exists: true, origin: 'added', added: true, removable: true, contexts: 1 },
       ],
     },
   })
@@ -128,7 +131,10 @@ test('files added after KUBECONFIG’s go with whatever it is next; KUBECONFIG�
     env: { KUBECONFIG: relative(process.cwd(), alpha!) },
     userDataDir,
   })
-  expect(await files(first.page)).toEqual({ from: 'env', files: [{ path: alpha, exists: true }] })
+  expect(await files(first.page)).toMatchObject({
+    from: 'env',
+    files: [{ path: alpha, exists: true, origin: 'env', contexts: 1 }],
+  })
   await first.app.evaluate(({ shell }) => {
     const shown: string[] = []
     Object.assign(globalThis, { shown })
@@ -147,13 +153,13 @@ test('files added after KUBECONFIG’s go with whatever it is next; KUBECONFIG�
   })
   // One added after it.
   await answer(first.app, [beta!])
-  expect(await choose(first.page, 'add')).toEqual({
+  expect(await choose(first.page, 'add')).toMatchObject({
     ok: true,
     data: {
       from: 'env',
       files: [
-        { path: alpha, exists: true },
-        { path: beta, exists: true, added: true, removable: true },
+        { path: alpha, exists: true, origin: 'env', contexts: 1 },
+        { path: beta, exists: true, origin: 'added', added: true, removable: true, contexts: 1 },
       ],
     },
   })
@@ -161,11 +167,11 @@ test('files added after KUBECONFIG’s go with whatever it is next; KUBECONFIG�
 
   // KUBECONFIG is something else next time: that, then the one added.
   const next = await launch({ env: { KUBECONFIG: gamma! }, userDataDir })
-  expect(await files(next.page)).toEqual({
+  expect(await files(next.page)).toMatchObject({
     from: 'env',
     files: [
-      { path: gamma, exists: true },
-      { path: beta, exists: true, added: true, removable: true },
+      { path: gamma, exists: true, origin: 'env', contexts: 1 },
+      { path: beta, exists: true, origin: 'added', added: true, removable: true, contexts: 1 },
     ],
   })
   expect(await contexts(next.page)).toEqual(['gamma', 'beta'])
@@ -210,9 +216,9 @@ test('an organization’s policy keeps Lumovi to KUBECONFIG’s kubeconfig, and 
 
   // The policy gone: what was chosen is read again.
   const free = await launch({ userDataDir })
-  expect(await files(free.page)).toEqual({
+  expect(await files(free.page)).toMatchObject({
     from: 'chosen',
-    files: [{ path: alpha, exists: true, removable: true }],
+    files: [{ path: alpha, exists: true, origin: 'chosen', removable: true, contexts: 1 }],
   })
   expect(await contexts(free.page)).toEqual(['alpha'])
 })

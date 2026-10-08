@@ -10,6 +10,8 @@ interface Prefs {
   /** The namespace picked per context; `null` is "All namespaces". */
   namespaces: Record<string, string | null>
   setNamespace: (context: string, namespace: string | null) => void
+  /** The namespace a context was last left in, forgotten: it opens where it's set to. */
+  forgetNamespace: (context: string) => void
   /** Contexts opened most recently, newest first. */
   recent: string[]
   touchRecent: (context: string) => void
@@ -31,6 +33,12 @@ interface Prefs {
   /** The chart on this computer each Helm release was last deployed from, by `context/namespace/name`. */
   localCharts: Record<string, string>
   setLocalChart: (release: string, path: string) => void
+  /** How the clusters page groups clusters: Lumovi's groups, a label's values (`label:key`), or not. */
+  clusterGrouping: 'group' | 'none' | `label:${string}`
+  setClusterGrouping: (grouping: Prefs['clusterGrouping']) => void
+  /** Whether the clusters page shows the clusters hidden from it. */
+  showHidden: boolean
+  setShowHidden: (showHidden: boolean) => void
 }
 
 const toggled = (list: string[], item: string, on: boolean) =>
@@ -42,6 +50,11 @@ export const usePrefs = create<Prefs>()(
       namespaces: {},
       setNamespace: (context, namespace) =>
         set((prefs) => ({ namespaces: { ...prefs.namespaces, [context]: namespace } })),
+      forgetNamespace: (context) =>
+        set((prefs) => {
+          const { [context]: _forgotten, ...namespaces } = prefs.namespaces
+          return { namespaces }
+        }),
       recent: [],
       touchRecent: (context) =>
         set((prefs) => ({
@@ -68,6 +81,10 @@ export const usePrefs = create<Prefs>()(
       localCharts: {},
       setLocalChart: (release, path) =>
         set((prefs) => ({ localCharts: { ...prefs.localCharts, [release]: path } })),
+      clusterGrouping: 'group',
+      setClusterGrouping: (clusterGrouping) => set({ clusterGrouping }),
+      showHidden: false,
+      setShowHidden: (showHidden) => set({ showHidden }),
     }),
     { name: 'lumovi:prefs' },
   ),

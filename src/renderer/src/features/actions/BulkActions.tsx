@@ -18,9 +18,8 @@ import { Button } from '@renderer/components/Button'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { useChange, type ClusterChange } from '@renderer/hooks/change'
 import { labelFor } from '@renderer/hooks/resources'
-import { useReadOnly } from '@renderer/hooks/settings'
+import { useProduction, useReadOnly } from '@renderer/hooks/settings'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
-import { looksLikeProduction } from '@renderer/lib/production'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
@@ -330,8 +329,8 @@ function BulkDialog({
     }
   }
 
-  const risky =
-    action.danger && (kinds.some((k) => RISKY.includes(k)) || looksLikeProduction(context))
+  const production = useProduction(context)
+  const risky = action.danger && (kinds.some((k) => RISKY.includes(k)) || production)
   return (
     <ActionDialog
       icon={action.icon}

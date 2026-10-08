@@ -6,6 +6,7 @@
  * throwing, because errors that cross IPC or the network are flattened into
  * plain strings and we want the page to know *why* a request failed.
  */
+import type { ClusterSettings } from './cluster-settings'
 import type { AccessPolicy, AdminAccess, MyAccess } from './access'
 import type { AiPermissions, AiPermissionsView } from './ai-permissions'
 import type {
@@ -100,6 +101,8 @@ export interface Settings {
   kubeconfigFiles?: string[]
   /** The desktop app's: kubeconfig files added after those (chosen, or KUBECONFIG's). */
   kubeconfigAdded?: string[]
+  /** The desktop app's: how each cluster shows in Lumovi, by its context. */
+  clusters?: Record<string, ClusterSettings>
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
   autoUpdate?: boolean
   /** Whether terminals get a kubectl matching each cluster's version (View → Match kubectl to Each Cluster). */
@@ -241,6 +244,8 @@ export interface KubeContext {
   user: string
   namespace?: string
   server?: string
+  /** The desktop app's: the kubeconfig file it's read from. */
+  file?: string
   /** A fleet's: what the cluster is labelled with (env, region…), to filter and group by. */
   labels?: Record<string, string>
 }
@@ -252,7 +257,20 @@ export interface KubeconfigFiles {
    * Lumovi after the rest are `added`, and those it was given (chosen or added) `removable`. Last,
    * Lumovi's `own`: clusters added in it (see `addedClusters`).
    */
-  files: { path: string; exists: boolean; added?: true; removable?: true; own?: true }[]
+  files: {
+    path: string
+    exists: boolean
+    /** Where it comes from: the default, KUBECONFIG, chosen or added in Lumovi, or Lumovi's own. */
+    origin: 'default' | 'env' | 'chosen' | 'added' | 'own'
+    added?: true
+    removable?: true
+    own?: true
+    /** As last read: how many contexts it has, or why it couldn't be read (and was left out). */
+    contexts?: number
+    problem?: string
+    /** One of Lumovi's own: when it was added. */
+    addedAt?: string
+  }[]
   /**
    * Where the files before those added come from: chosen in Lumovi, KUBECONFIG, or the default
    * (~/.kube/config).
@@ -260,6 +278,10 @@ export interface KubeconfigFiles {
   from: 'chosen' | 'env' | 'default'
   /** Why it can't be changed in Lumovi (the organization's policy), if it can't. */
   locked?: string
+  /** The person's home folder, to show paths in it from `~`. */
+  home: string
+  /** The folder Lumovi keeps the clusters added in it in (shown, and shown in Finder, as one). */
+  ownFolder: string
 }
 
 /** A program a kubeconfig's credentials run on this computer, exactly as it would run. */
@@ -282,6 +304,8 @@ export interface PastedKubeconfig {
     name: string
     server?: string
     namespace?: string
+    /** The kubeconfig user it signs in as. */
+    user?: string
     /** How it signs in. */
     auth: 'token' | 'certificate' | 'basic' | 'command' | 'none'
     /** Its server isn't verified (`insecure-skip-tls-verify`): its credentials go to whoever answers. */
@@ -331,8 +355,10 @@ export interface ContextsResult {
   currentContext?: string
   /** Where the kubeconfig was loaded from, for display. */
   source: string
-  /** Set when the kubeconfig exists but could not be parsed. */
+  /** Set when the kubeconfig exists but could not be parsed (nothing else could be read). */
   error?: string
+  /** Files that couldn't be read, left out (the desktop app's), and why: the rest are read. */
+  problems?: { path: string; message: string }[]
 }
 
 export type KubeErrorCode =
@@ -905,6 +931,8 @@ export interface LumoviApi {
     problems?(): Promise<string[]>
     setTheme(theme: ThemePreference): Promise<Settings>
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
+    /** The desktop app's: how a cluster shows in Lumovi (all of it: what's left out is unset). */
+    setCluster?(context: string, settings: ClusterSettings): Promise<Result<Settings>>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
     /** Where `context`'s node shells run; NODE_SHELL_DEFAULTS (or the server's) to reset. */
     setNodeShell(context: string, setting: NodeShellSetting | null): Promise<Settings>
@@ -975,7 +1003,12 @@ export interface LumoviApi {
     remove(path: string): Promise<Result<KubeconfigFiles>>
     /** Back to KUBECONFIG's, or ~/.kube/config. */
     useDefault(): Promise<Result<KubeconfigFiles>>
-    /** Shows one of them in Finder or Explorer. */
+    /**
+     * One Lumovi was given that's gone, chosen again where it is now (the system's file picker),
+     * in its place; null if the user cancels.
+     */
+    chooseAgain(path: string): Promise<Result<KubeconfigFiles | null>>
+    /** Shows one of them, or Lumovi's own folder, in Finder or Explorer. */
     show(path: string): Promise<void>
   }
   /**
@@ -1167,6 +1200,7 @@ export const IPC = {
   settingsChanged: 'app:settings-changed',
   setTheme: 'app:set-theme',
   setReadOnly: 'app:set-read-only',
+  setCluster: 'app:set-cluster',
   setMetricsSource: 'app:set-metrics-source',
   setNodeShell: 'app:set-node-shell',
   openExternal: 'app:open-external',
@@ -1178,6 +1212,7 @@ export const IPC = {
   kubeconfigRemove: 'kubeconfig:remove',
   kubeconfigUseDefault: 'kubeconfig:use-default',
   kubeconfigShow: 'kubeconfig:show',
+  kubeconfigChooseAgain: 'kubeconfig:choose-again',
   addedImport: 'added:import',
   addedInspect: 'added:inspect',
   addedCheck: 'added:check',

@@ -7,6 +7,7 @@ import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
 import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
+import { useClusterSettings } from '@renderer/hooks/settings'
 import { usePrefs } from '@renderer/state/prefs'
 import { useSession, useSwitching } from '@renderer/state/session'
 import { ReadOnlyOutsideBanner } from '../session/ReadOnlyOutsideBanner'
@@ -34,8 +35,10 @@ export function ClusterLayout() {
   const stored = usePrefs((prefs) => prefs.namespaces[context])
   const setStored = usePrefs((prefs) => prefs.setNamespace)
   const touchRecent = usePrefs((prefs) => prefs.touchRecent)
-  // Until the user picks one, start in the kubeconfig's namespace (useful with namespaced RBAC).
-  const namespace = stored === undefined ? (contextInfo?.namespace ?? null) : stored
+  const opensIn = useClusterSettings(context)?.namespace
+  // Until the user picks one, start in the one set for it in Lumovi, or else the kubeconfig's
+  // (useful with namespaced RBAC).
+  const namespace = stored === undefined ? (opensIn ?? contextInfo?.namespace ?? null) : stored
 
   useEffect(() => touchRecent(context), [context, touchRecent])
 

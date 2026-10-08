@@ -28,6 +28,7 @@ const api: LumoviApi = {
     problems: () => invoke(IPC.appProblems),
     setTheme: (theme) => invoke(IPC.setTheme, theme),
     setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
+    setCluster: (context, settings) => invoke(IPC.setCluster, context, settings),
     setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
     setNodeShell: (context, setting) => invoke(IPC.setNodeShell, context, setting),
     openExternal: (url) => invoke(IPC.openExternal, url),
@@ -63,6 +64,7 @@ const api: LumoviApi = {
     remove: (path) => invoke(IPC.kubeconfigRemove, path),
     useDefault: () => invoke(IPC.kubeconfigUseDefault),
     show: (path) => invoke(IPC.kubeconfigShow, path),
+    chooseAgain: (path) => invoke(IPC.kubeconfigChooseAgain, path),
   },
   addedClusters: {
     import: () => invoke(IPC.addedImport),
