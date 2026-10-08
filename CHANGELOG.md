@@ -6,6 +6,16 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Statuses look as they do on the website and in the docs (the brand's): in progress is neutral,
+  not blue, its dot pulsing and its icon turning once every 3 s (both still for people who ask
+  for less motion); every status's mark reaches 3:1 and its words 4.5:1 on each surface, in
+  light and dark, with pills filled with their mark at 12%; and the orange of "serious" is gone,
+  YAML's numbers and booleans included. Blue is for what can be acted on: links and text buttons
+  use the stronger blue, which reads at 4.5:1 on every surface, the lighter one is for icons, and
+  Access's notes of what's to know are neutral.
+
 ### Fixed
 
 - A link that sorts a list by a column that doesn't sort (`?sort=ready`), or one the list doesn't
@@ -49,12 +59,6 @@ sponsor card, and a dialog's error is always in view.
 
 ### Changed
 
-- Statuses look as they do on the website and in the docs (the brand's): in progress is neutral,
-  not blue, its dot pulsing and its icon turning once every 3 s (both still for people who ask
-  for less motion); every status's mark reaches 3:1 and its words 4.5:1 on each surface, in
-  light and dark, with pills filled with their mark at 12%; and the orange of "serious" is gone,
-  YAML's numbers and booleans included. Links and text buttons use the stronger blue, which
-  reads at 4.5:1 on every surface; the lighter one is for icons.
 - The Helm chart refuses more than one replica without `auth.keepSessions`: each would keep
   who's signed in, and what's set for everyone, in its own memory, and they'd disagree. A server
   keeping its state in memory says to run a single replica.
