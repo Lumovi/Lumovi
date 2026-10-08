@@ -2,7 +2,7 @@ import { Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from
 import type { SettingsStore } from './settings'
 import type { Updates } from './updates'
 import { IPC } from '@shared/api'
-import { REPO_URL, SPONSOR_URL } from '@shared/app'
+import { DOCS_URL, REPO_URL, SPONSOR_URL } from '@shared/app'
 import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
 
 /**
@@ -92,6 +92,7 @@ export function buildMenu(
     {
       role: 'help',
       submenu: [
+        link('docs', 'Documentation', DOCS_URL),
         command('shortcuts', 'Keyboard Shortcuts', 'CmdOrCtrl+/'),
         { type: 'separator' },
         link('github', 'Lumovi on GitHub', REPO_URL),
