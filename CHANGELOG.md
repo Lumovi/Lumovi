@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-08
+
+kubectl's signature checks keep working as Sigstore and Kubernetes change, and an organization's
+policy can require them from its mirror too.
+
 ### Added
 
 - A policy can require Kubernetes' signature from its mirror too,
@@ -654,7 +659,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/Lumovi/Lumovi/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/Lumovi/Lumovi/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/Lumovi/Lumovi/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/Lumovi/Lumovi/compare/v1.11.0...v1.12.0
