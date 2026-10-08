@@ -66,8 +66,9 @@ const api: LumoviApi = {
   },
   addedClusters: {
     import: () => invoke(IPC.addedImport),
-    inspect: (text) => invoke(IPC.addedInspect, text),
-    check: (text, context, agreed) => invoke(IPC.addedCheck, text, context, agreed),
+    inspect: (text, editing) => invoke(IPC.addedInspect, text, editing),
+    check: (text, context, agreed, editing) =>
+      invoke(IPC.addedCheck, text, context, agreed, editing),
     add: (text, options) => invoke(IPC.addedAdd, text, options),
     read: (path) => invoke(IPC.addedRead, path),
     edit: (path, text, agreed) => invoke(IPC.addedEdit, path, text, agreed),
