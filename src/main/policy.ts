@@ -20,6 +20,8 @@
  *     "kubectl": false,                  terminals use the kubectl installed, not one Lumovi gets
  *                                        to match each cluster; or a mirror of dl.k8s.io to get
  *                                        it from, over HTTPS ("https://artifacts.corp.example.com/k8s")
+ *     "kubectlSignatures": "required",   a mirror's kubectl too only with Kubernetes' signature, as
+ *                                        dl.k8s.io's always: one keeping none isn't used
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -76,7 +78,15 @@ const POLICY_FILE: Partial<Record<NodeJS.Platform, string>> = {
 /** Where IT puts it on Windows: a value of the registry's policies, only administrators' to set. */
 export const POLICY_KEY = 'HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Lumovi'
 
-const KEYS = ['readOnly', 'assistants', 'assistantRules', 'updates', 'kubectl', 'network']
+const KEYS = [
+  'readOnly',
+  'assistants',
+  'assistantRules',
+  'updates',
+  'kubectl',
+  'kubectlSignatures',
+  'network',
+]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
 
 /** A policy found: where, and its text (which throws, if it can't be used). */
@@ -314,7 +324,15 @@ function checked(given: unknown, path: string): Policy {
   if (unknown.length) {
     throw new Error(`it has ${unknown.join(', ')}, which Lumovi doesn’t know: ${KEYS.join(', ')}.`)
   }
-  const { readOnly, assistants, assistantRules, updates, kubectl, network = {} } = policy
+  const {
+    readOnly,
+    assistants,
+    assistantRules,
+    updates,
+    kubectl,
+    kubectlSignatures,
+    network = {},
+  } = policy
   if (
     readOnly !== undefined &&
     typeof readOnly !== 'boolean' &&
@@ -337,6 +355,11 @@ function checked(given: unknown, path: string): Policy {
   ) {
     throw new Error(
       'kubectl must be true, false, or the https URL of a mirror of dl.k8s.io, or an http one on this computer (over plain http elsewhere, what it downloads could be changed on the way).',
+    )
+  }
+  if (kubectlSignatures !== undefined && kubectlSignatures !== 'required') {
+    throw new Error(
+      'kubectlSignatures must be "required": a mirror’s kubectl is then used only with Kubernetes’ signature, as dl.k8s.io’s always is.',
     )
   }
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
@@ -368,6 +391,7 @@ function checked(given: unknown, path: string): Policy {
     ...(updates === false ? { updatesOff: true } : {}),
     ...(kubectl === false ? { kubectlOff: true } : {}),
     ...(typeof kubectl === 'string' ? { kubectlMirror: kubectl } : {}),
+    ...(kubectlSignatures === 'required' ? { kubectlSignatures: 'required' as const } : {}),
   }
   return {
     managed,

@@ -105,7 +105,7 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       source: path,
       readOnly: true,
       assistantsOff: true,
-      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, network.`,
+      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, network.`,
     },
   })
   await openCluster(page)
@@ -137,6 +137,11 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
         'kubectl must be true, false, or the https URL of a mirror of dl.k8s.io',
       ],
     ),
+    // Signatures are required, or the mirror decides (as without the key).
+    ...[false, 'optional'].map((kubectlSignatures): [string, string] => [
+      policyFile({ kubectlSignatures }),
+      'kubectlSignatures must be "required"',
+    ]),
   ]
   if (process.platform !== 'win32') cases.push([fifo, `${fifo} must be a file.`])
   for (const [path, problem] of cases) {

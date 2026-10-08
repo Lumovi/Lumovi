@@ -19,12 +19,15 @@ import {
   X509Certificate,
   X509SCTExtension,
 } from '@sigstore/core'
+import { KUBERNETES_SIGNER } from './kubernetes-signer'
 
-/** Who signs Kubernetes' releases, and how they signed in (Kubernetes' own instructions). */
-export const KUBERNETES_SIGNER = {
-  identity: 'krel-staging@k8s-releng-prod.iam.gserviceaccount.com',
-  issuer: 'https://accounts.google.com',
-}
+/**
+ * What a refusal says when what Lumovi knows could be what's out of date: Kubernetes' signer, or
+ * Sigstore's authority and logs, can change, and only a newer Lumovi knows the new ones.
+ */
+const IF_KUBERNETES_CHANGED = 'if Kubernetes has changed how it signs, Lumovi needs an update'
+const IF_SIGSTORE_CHANGED =
+  'if Sigstore has changed its authority or its logs, Lumovi needs an update'
 
 /** What a certificate may be used for (extended key usage), and signing code. */
 const OID_EXTENDED_KEY_USAGE = '2.5.29.37'
@@ -94,7 +97,9 @@ function check(
     throw new SignatureError('its certificate wasn’t valid when it was logged')
   }
   if (!fromFulcio(leaf, issued, root)) {
-    throw new SignatureError('its certificate isn’t from Sigstore’s certificate authority')
+    throw new SignatureError(
+      `its certificate isn’t from Sigstore’s certificate authority, as this Lumovi knows it; ${IF_SIGSTORE_CHANGED}`,
+    )
   }
   // (Its value: a sequence of what it may be used for.)
   const usages = leaf
@@ -108,12 +113,12 @@ function check(
     leaf.extension(OID_ISSUER_V1)?.value.toString('ascii')
   if (leaf.subjectAltName !== signer.identity) {
     throw new SignatureError(
-      `it’s signed by ${leaf.subjectAltName ?? 'someone unnamed'}, not Kubernetes’ release`,
+      `it’s signed by ${leaf.subjectAltName ?? 'someone unnamed'}, not Kubernetes’ release, as this Lumovi knows it; ${IF_KUBERNETES_CHANGED}`,
     )
   }
   if (issuer !== signer.issuer) {
     throw new SignatureError(
-      `its signer signed in with ${issuer ?? 'nobody'}, not as Kubernetes’ release does`,
+      `its signer signed in with ${issuer ?? 'nobody'}, not as this Lumovi knows Kubernetes’ release does; ${IF_KUBERNETES_CHANGED}`,
     )
   }
   let key: KeyObject
@@ -188,5 +193,7 @@ function loggedAt(leaf: X509Certificate, root: TrustRoot): Date {
       if (verified) return sct.datetime
     }
   }
-  throw new SignatureError('its certificate wasn’t logged where Sigstore logs them')
+  throw new SignatureError(
+    `its certificate wasn’t logged where this Lumovi knows Sigstore logs them; ${IF_SIGSTORE_CHANGED}`,
+  )
 }
