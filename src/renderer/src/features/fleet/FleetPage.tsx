@@ -13,7 +13,7 @@ import {
   ShieldAlert,
   Tag,
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Dialog, DropdownMenu } from 'radix-ui'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { AgentTrust, ClusterSummary, KubeContext, KubeError, Result } from '@shared/api'
@@ -363,6 +363,12 @@ function GroupMenu({
 
 /** An admin's: adding a cluster, connected with its agent. */
 function AddCluster({ onConnect }: { onConnect: () => void }) {
+  // A dialog it opens has the focus: the button doesn't take it back, late (it does on Escape).
+  const opening = useRef(false)
+  const open = (dialog: () => void) => () => {
+    opening.current = true
+    dialog()
+  }
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -375,12 +381,14 @@ function AddCluster({ onConnect }: { onConnect: () => void }) {
           align="end"
           sideOffset={6}
           className={cn(menuContent, 'w-80')}
-          // Each opens a dialog, which has the focus: the button doesn't take it back, late.
-          onCloseAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => {
+            if (opening.current) event.preventDefault()
+            opening.current = false
+          }}
         >
           <DropdownMenu.Item
             className={cn(menuItem, 'h-auto items-start py-2 whitespace-normal')}
-            onSelect={onConnect}
+            onSelect={open(onConnect)}
           >
             <Cable className="mt-0.5 size-4 shrink-0 text-ink-3" />
             <span>
