@@ -524,6 +524,7 @@ test('an agent refused just after it joined (by a replica behind) tries again, n
 test('a cluster connected from the page is the page’s to name, label and remove', async ({
   page,
   context,
+  browser,
   serve,
   clusters,
 }) => {
@@ -533,7 +534,14 @@ test('a cluster connected from the page is the page’s to name, label and remov
   const token = await connect(page)
   agentSecret(clusters, { 'join-token': token })
   const agent = agentOf(hub.url, clusters, { LUMOVI_AGENT_JOIN_TOKEN: token })
+  // Admins see it (to check it); nobody else, until its certificate authority is checked.
   await expect.poll(() => names(page)).toContain(EDGE)
+  const others = await browser.newContext()
+  await as(others, 'alice@example.com', 'platform')
+  const alice = await others.newPage()
+  await alice.goto(hub.url)
+  expect(await names(alice)).not.toContain(EDGE)
+  await others.close()
   await page.reload()
 
   // Its settings: its labels the page's, where it comes from, its certificate not checked yet.

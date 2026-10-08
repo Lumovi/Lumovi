@@ -1140,7 +1140,10 @@ export interface LumoviApi {
     remove(name: string): Promise<void>
     /** An admin's: a cluster's settings, each with what sets it, where that isn't the page. */
     settings(name: string): Promise<FleetClusterSettings>
-    /** An admin's: what the page sets for a cluster, of what its source leaves unset. */
+    /**
+     * An admin's: what the page sets for a cluster, of what its source leaves unset. A field left
+     * out stays as it is; given empty, it's unset.
+     */
     saveSettings(name: string, setting: FleetSetting): Promise<FleetClusterSettings>
   }
   /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */

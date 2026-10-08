@@ -32,7 +32,7 @@ import { secretClusters } from './secrets'
 function fromKubeconfig(text: string, where: string, what: string, dir?: string): FleetCluster[] {
   return kubeconfigClusters(text, where, what, dir).map((cluster) => ({
     ...cluster,
-    origin: { kind: 'kubeconfig', where, context: cluster.name },
+    origin: { kind: 'kubeconfig', where, context: cluster.name, server: cluster.cluster?.server },
   }))
 }
 
@@ -59,13 +59,22 @@ function settled(
     ...cluster,
     ...(title ? { title } : {}),
     ...(setting.labels && !cluster.managed?.labels ? { labels: setting.labels } : {}),
-    ...(setting.groups && !cluster.managed?.groups ? { groups: setting.groups } : {}),
+    // Admins alone, until one saves its settings (what restricted it was let go).
+    ...(cluster.managed?.groups
+      ? {}
+      : setting.adminsOnly
+        ? { groups: [] }
+        : setting.groups
+          ? { groups: setting.groups }
+          : {}),
   }
 }
 
 /** Who sees a cluster: those in its groups, if it has any; everyone signed in, if not. */
 export const seenBy = (cluster: FleetCluster, user: SessionUser): boolean =>
-  !cluster.groups || cluster.groups.some((group) => user.groups.includes(group))
+  // (One joined from the page, until its certificate authority is checked: nobody's yet.)
+  !cluster.unchecked &&
+  (!cluster.groups || cluster.groups.some((group) => user.groups.includes(group)))
 
 /** What the Fleet page sets for clusters (what their sources leave unset), and who sees them all. */
 export interface FleetPage {
@@ -179,7 +188,7 @@ export class HostedFleet implements Hosted {
     const visible = () =>
       this.#page?.isAdmin(identity.user)
         ? this.#clusters
-        : this.#clusters.filter((c) => !c.unchecked && seenBy(c, identity.user))
+        : this.#clusters.filter((c) => seenBy(c, identity.user))
     return {
       load: (): ContextsResult => ({
         source: 'this server’s fleet',

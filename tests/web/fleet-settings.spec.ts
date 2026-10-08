@@ -63,7 +63,12 @@ test('admins name, label and share clusters; what a source sets stays its own', 
       title: {},
       labels: { value: { env: 'production', region: 'eu-west' }, managed: FROM_KUBECONFIG },
       groups: { value: [] },
-      origin: { kind: 'kubeconfig', where: 'LUMOVI_FLEET_KUBECONFIG', context: FLEET.prodEu },
+      origin: {
+        kind: 'kubeconfig',
+        where: 'LUMOVI_FLEET_KUBECONFIG',
+        context: FLEET.prodEu,
+        server: clusters.demo.url,
+      },
       removable: false,
     },
   })
@@ -217,6 +222,13 @@ test('only admins see and change a cluster’s settings, where Lumovi has some',
   expect(
     (await call(page, 'saveSettings', FLEET.prodUs, { title: 'Production' })).error,
   ).toBeUndefined()
+  // A field not given stays as it was; given empty, it's unset.
+  expect(await call(page, 'saveSettings', FLEET.prodUs, { groups: ['sre'] })).toEqual({
+    value: expect.objectContaining({ title: { value: 'Production' }, groups: { value: ['sre'] } }),
+  })
+  expect(await call(page, 'saveSettings', FLEET.prodUs, { title: '' })).toEqual({
+    value: expect.objectContaining({ title: {}, groups: { value: ['sre'] } }),
+  })
   expect((await call(page, 'settings', 'nowhere')).error).toBe(
     'This server has no cluster called “nowhere”.',
   )
@@ -369,9 +381,10 @@ test('what the page set for a cluster isn’t another’s that comes by its name
     )
   expect(await lab()).toMatchObject({ title: 'Lab', labels: { env: 'staging' } })
 
-  // A cluster that comes by the name it's shown by: lab is shown by its own again.
+  // A cluster that comes by the name it's shown by: lab is shown by its own again. (A field not
+  // given stays as it was.)
   await call(page, 'saveSettings', 'lab', { title: 'Later' })
-  expect((await lab())?.title).toBe('Later')
+  expect(await lab()).toMatchObject({ title: 'Later', labels: { env: 'staging' } })
   writeFileSync(second, kubeconfig(['other', 'later']))
   await expect.poll(async () => (await lab())?.title).toBeUndefined()
   await call(page, 'saveSettings', 'lab', {
@@ -386,12 +399,14 @@ test('what the page set for a cluster isn’t another’s that comes by its name
   writeFileSync(second, kubeconfig(['other', 'lab']))
   await expect.poll(async () => (await lab())?.labels).toEqual({})
   expect((await lab())?.title).toBeUndefined()
+  // Who saw the other was restricted: this one, until an admin says, only admins see.
   expect(await call(page, 'settings', 'lab')).toEqual({
     value: expect.objectContaining({
       title: {},
       labels: { value: {} },
       groups: { value: [] },
-      origin: { kind: 'kubeconfig', where: second, context: 'lab' },
+      adminsOnly: true,
+      origin: { kind: 'kubeconfig', where: second, context: 'lab', server: clusters.demo.url },
     }),
   })
   // Let go, and recorded, by Lumovi.
@@ -399,9 +414,16 @@ test('what the page set for a cluster isn’t another’s that comes by its name
     .poll(() => audited(hub, 'cluster-settings.changed').map((e) => [e.actor.user, e.summary]))
     .toContainEqual([
       'lumovi',
-      'Let go of what the Fleet page set for lab: it was set for another cluster by that name, and this one comes from elsewhere',
+      'Let go of what the Fleet page set for lab: it was set for another cluster by that name, and this one comes from elsewhere. Only admins see it until one of them saves its settings',
     ])
-  // Everyone sees it: the groups were the other's.
+  await as(context, 'alice@example.com')
+  await page.reload()
+  expect(await lab()).toBeUndefined()
+  // An admin says: everyone.
+  await as(context, 'admin@example.com')
+  await page.reload()
+  await call(page, 'saveSettings', 'lab', { groups: [] })
+  expect((await call(page, 'settings', 'lab')).value).not.toHaveProperty('adminsOnly')
   await as(context, 'alice@example.com')
   await page.reload()
   expect(await lab()).toBeDefined()

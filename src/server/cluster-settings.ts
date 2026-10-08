@@ -282,9 +282,12 @@ export class ClusterSettings {
     this.#change(context, user, ['fleet'], (entry) => ({ ...entry, fleet }))
   }
 
-  /** A fleet's: what its page set for `context`, let go by Lumovi (it was another cluster's). */
-  dropFleet(context: string): void {
-    this.#change(context, undefined, ['fleet'], (entry) => ({ ...entry, fleet: undefined }))
+  /**
+   * A fleet's: what its page sets for `context`, as Lumovi itself sets it (none: let go), as what
+   * was set for another cluster of its name is let go.
+   */
+  setFleetAsLumovi(context: string, setting: FleetSetting | undefined): void {
+    this.#change(context, undefined, ['fleet'], (entry) => ({ ...entry, fleet: setting }))
   }
 
   /** Why `user` may not change them, or nothing when they may. */

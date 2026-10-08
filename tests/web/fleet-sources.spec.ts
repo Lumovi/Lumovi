@@ -557,7 +557,7 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
       tool: 'lumovi',
       secret: 'staging',
       namespace: 'lumovi',
-      uid: expect.any(String),
+      server: clusters.sandbox.url,
     },
     removable: false,
   })
@@ -590,4 +590,30 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
   expect(await settings('workload-1')).toMatchObject({
     origin: { kind: 'secret', tool: 'cluster-api' },
   })
+
+  // Its Secret made again (as Argo CD replaces it): for the same server, it's the same cluster,
+  // and keeps what the page set; for another, it's another, which takes none of it, and as that
+  // restricted who saw it, only admins see it until one of them says.
+  const shown = async (name: string) =>
+    (await page.evaluate(() => window.lumovi!.kube.contexts())).contexts.find(
+      (c) => c.name === name,
+    )
+  await page.evaluate(() =>
+    window.lumovi!.fleet!.saveSettings('bare', { title: 'Bare', groups: ['ops'] }),
+  )
+  expect(await shown('bare')).toMatchObject({ title: 'Bare' })
+  const remake = async (server: string) => {
+    demo.remove('Secret', 'argocd', 'cluster-bare')
+    await expect.poll(() => shown('bare')).toBeUndefined()
+    demo.upsert(argoSecret('cluster-bare', { name: 'bare', server }))
+    await expect.poll(() => shown('bare')).toBeDefined()
+  }
+  await remake('https://127.0.0.1:1')
+  expect(await shown('bare')).toMatchObject({ title: 'Bare' })
+  await remake('https://127.0.0.1:2')
+  await expect.poll(async () => (await settings('bare')).adminsOnly).toBe(true)
+  expect((await shown('bare'))?.title).toBeUndefined()
+  await as(context, 'alice@example.com', 'developers, ops')
+  await page.reload()
+  expect(await shown('bare')).toBeUndefined()
 })
