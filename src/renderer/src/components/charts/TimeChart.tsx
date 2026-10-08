@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { cn } from '@renderer/lib/cn'
 import type { Unit } from '@renderer/lib/promql'
+import { labelWidth, placeLabels, spanOf, textBox, type Polyline } from './labels'
 import { formatMoment, formatTick, formatValue, niceTicks, timeTicks } from './scale'
 
 export interface ChartSeries {
@@ -25,6 +26,8 @@ const RIGHT = 14
 const AXIS_BAND = 24
 const BAR_MAX = 24
 const GAP = 2
+/** Each note of a threshold above the chart: a line of its own, over the plot. */
+const NOTE = 14
 
 /** A path through values, broken where there are none. */
 function linePath(values: (number | null)[], x: (i: number) => number, y: (v: number) => number) {
@@ -106,8 +109,7 @@ export function TimeChart({
       ? (stacks.at(-1) ?? [])
       : visible.flatMap((s) => s.values.filter((v): v is number => v !== null))),
   )
-  // A threshold far above the data would flatten it; it's noted at the top instead.
-  // From the top down, labels go above and below their lines in turn, so neighbors' part ways.
+  // A threshold far above the data would flatten it; it's noted over the plot instead.
   const onScale = references
     .filter((r) => r.value <= dataPeak * 3)
     .sort((a, b) => b.value - a.value)
@@ -117,13 +119,46 @@ export function TimeChart({
   const yMax = yTicks.at(-1)!
   const tickLabels = yTicks.map((t) => formatValue(t, unit))
   const left = Math.max(30, Math.max(...tickLabels.map((t) => t.length)) * 6.6 + 12)
-  const plotWidth = Math.max(1, width - left - RIGHT)
   const plotBottom = height - AXIS_BAND
-  const plotHeight = plotBottom - TOP
+  const plotTop = TOP + offScale.length * NOTE
+  const plotHeight = plotBottom - plotTop
+  const y = (v: number) => plotBottom - (v / yMax) * plotHeight
+  const plotWidth = Math.max(1, width - left - RIGHT)
   const slot = plotWidth / Math.max(1, n)
   const x = (i: number) =>
     kind === 'bars' ? left + slot * (i + 0.5) : left + (i / (n - 1)) * plotWidth
-  const y = (v: number) => plotBottom - (v / yMax) * plotHeight
+  /** What a label mustn't sit on: each line (or each stack's top), or the columns. */
+  const plotted = (x0: number, x1: number): [number, number][] => {
+    if (kind === 'bars') {
+      const half = Math.max(1, Math.min(BAR_MAX, slot - GAP)) / 2
+      return (stacks.at(-1) ?? []).flatMap((v, k): [number, number][] =>
+        v > 0 && x(k) + half >= x0 && x(k) - half <= x1 ? [[y(v), plotBottom]] : [],
+      )
+    }
+    const lines: Polyline[] =
+      kind === 'lines'
+        ? visible.map((s) => s.values.map((v, i) => (v === null ? null : { x: x(i), y: y(v) })))
+        : stacks.map((stack) => stack.map((v, i) => ({ x: x(i), y: y(v) })))
+    return lines.flatMap((line) => {
+      const span = spanOf(line, x0, x1)
+      return span ? [span] : []
+    })
+  }
+  const notes = offScale.map((reference, i) => {
+    const text = `↑ ${reference.label} ${formatValue(reference.value, unit)}, above the chart`
+    const baseline = TOP - 2 + i * NOTE
+    return { text, baseline, box: textBox(left, baseline, labelWidth(text), 'start') }
+  })
+  const texts = onScale.map((r) => `${r.label} ${formatValue(r.value, unit)}`)
+  const widths = texts.map(labelWidth)
+  // Each label near an end of its line, clear of what's plotted, the other lines and labels; or,
+  // where none is, where it's least in the way, on a background of its own.
+  const labels = placeLabels({
+    lines: onScale.map((r, i) => ({ y: y(r.value), width: widths[i]! })),
+    plot: { left, right: left + plotWidth, ceiling: 0, bottom: plotBottom },
+    fixed: notes.map((note) => note.box),
+    obstacles: plotted,
+  })
   const indexAt = (px: number) =>
     Math.max(
       0,
@@ -258,7 +293,7 @@ export function TimeChart({
             {kind === 'bars' && hover !== null && (
               <rect
                 x={x(hover) - slot / 2}
-                y={TOP}
+                y={plotTop}
                 width={slot}
                 height={plotHeight}
                 className="fill-surface-3"
@@ -336,44 +371,63 @@ export function TimeChart({
                 })
               })}
 
-            {offScale.map((reference, i) => (
+            {notes.map((note) => (
               <text
-                key={reference.label}
-                x={left + 6}
-                y={TOP + 10 + i * 14}
+                key={note.text}
+                x={left}
+                y={note.baseline}
                 className="fill-ink-3 text-[10.5px] font-medium"
               >
-                ↑ {reference.label} {formatValue(reference.value, unit)}, above the chart
+                {note.text}
               </text>
             ))}
-            {onScale.map((reference, i) => (
-              <g key={reference.label}>
-                <line
-                  x1={left}
-                  x2={left + plotWidth}
-                  y1={y(reference.value)}
-                  y2={y(reference.value)}
-                  stroke="var(--text-3)"
-                  strokeDasharray="4 3"
-                />
-                <text
-                  x={left + plotWidth}
-                  y={y(reference.value)}
-                  dy={i % 2 === 0 ? -5 : 12}
-                  textAnchor="end"
-                  stroke="var(--surface-2)"
-                  strokeWidth={3}
-                  paintOrder="stroke"
-                  className="fill-ink-2 text-[10.5px] font-medium"
-                >
-                  {reference.label} {formatValue(reference.value, unit)}
-                </text>
-              </g>
-            ))}
+            {onScale.map((reference, i) => {
+              const label = labels[i]!
+              return (
+                <g key={reference.label}>
+                  <line
+                    x1={left}
+                    x2={left + plotWidth}
+                    y1={y(reference.value)}
+                    y2={y(reference.value)}
+                    stroke="var(--text-3)"
+                    strokeDasharray="4 3"
+                  />
+                  {!label.clear && (
+                    <rect
+                      x={label.box.x0 - 4}
+                      y={label.box.y0 - 2}
+                      width={label.box.x1 - label.box.x0 + 8}
+                      height={label.box.y1 - label.box.y0 + 4}
+                      rx={4}
+                      fill="var(--surface-2)"
+                      stroke="var(--line)"
+                    />
+                  )}
+                  <text
+                    x={label.x}
+                    y={label.y}
+                    textAnchor={label.anchor}
+                    stroke="var(--surface-2)"
+                    strokeWidth={3}
+                    paintOrder="stroke"
+                    className="fill-ink-2 text-[10.5px] font-medium"
+                  >
+                    {texts[i]}
+                  </text>
+                </g>
+              )
+            })}
 
             {hover !== null && kind !== 'bars' && (
               <g pointerEvents="none">
-                <line x1={x(hover)} x2={x(hover)} y1={TOP} y2={plotBottom} stroke="var(--text-3)" />
+                <line
+                  x1={x(hover)}
+                  x2={x(hover)}
+                  y1={plotTop}
+                  y2={plotBottom}
+                  stroke="var(--text-3)"
+                />
                 {visible.map((s, i) => {
                   if (s.values[hover] === null) return null
                   return (
@@ -394,7 +448,7 @@ export function TimeChart({
             {drag && Math.abs(drag.to - drag.from) > 2 && (
               <rect
                 x={Math.max(left, Math.min(drag.from, drag.to))}
-                y={TOP}
+                y={plotTop}
                 width={Math.abs(drag.to - drag.from)}
                 height={plotHeight}
                 className="fill-accent-soft stroke-accent"

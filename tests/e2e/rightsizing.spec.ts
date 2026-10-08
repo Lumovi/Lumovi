@@ -253,6 +253,62 @@ test.describe('right-sizing', () => {
     await expect(method).toContainText('Limits are never lowered')
   })
 
+  test('the lines’ labels stay clear of the week and of each other, or say so', async ({
+    page,
+  }) => {
+    await expand(page, 'prometheus')
+    /** Each line's label in a chart: its words, whether it's on a background, what it covers. */
+    const labels = (resource: 'CPU' | 'Memory') =>
+      details(page, ['Deployment', 'prometheus'], 'prometheus', resource)
+        .getByRole('img', { name: /over the last 7 days$/ })
+        .evaluate((svg: SVGSVGElement) => {
+          const week = [...svg.querySelectorAll<SVGPathElement>('path[stroke^="var(--series"]')]
+          const point = svg.createSVGPoint()
+          return [
+            ...svg.querySelectorAll<SVGTextElement>('g:has(> line[stroke-dasharray]) > text'),
+          ].map((text) => {
+            const box = text.getBBox()
+            let onWeek = false
+            for (let i = 0; i <= 10; i++) {
+              for (let j = 0; j <= 4; j++) {
+                point.x = box.x + (box.width * i) / 10
+                point.y = box.y + (box.height * j) / 4
+                onWeek ||= week.some((path) => path.isPointInStroke(point))
+              }
+            }
+            return {
+              text: text.textContent,
+              background: text.previousElementSibling?.tagName === 'rect',
+              onWeek,
+              box: [box.x, box.y, box.x + box.width, box.y + box.height],
+            }
+          })
+        })
+    const apart = (boxes: number[][]) =>
+      boxes.every((a, i) =>
+        boxes
+          .slice(i + 1)
+          .every((b) => a[2]! <= b[0]! || b[2]! <= a[0]! || a[3]! <= b[1]! || b[3]! <= a[1]!),
+      )
+
+    // Memory stays well below its lines: every label has room of its own.
+    const memory = await labels('Memory')
+    expect(memory.map(({ text, background, onWeek }) => ({ text, background, onWeek }))).toEqual([
+      { text: 'Recommended, new limit 5 GiB', background: false, onWeek: false },
+      { text: 'Limit 4 GiB', background: false, onWeek: false },
+      { text: 'Request 2 GiB', background: false, onWeek: false },
+    ])
+    expect(apart(memory.map((l) => l.box))).toBe(true)
+    // CPU crosses its request all week: that label is on a background of its own, at its line.
+    const cpu = await labels('CPU')
+    expect(cpu.map(({ text, background }) => ({ text, background }))).toEqual([
+      { text: 'Recommended 675m', background: false },
+      { text: 'Request 500m', background: true },
+    ])
+    expect(cpu[0]!.onWeek).toBe(false)
+    expect(apart(cpu.map((l) => l.box))).toBe(true)
+  })
+
   test('filters, search and order, kept in the URL', async ({ page }) => {
     const show = page.getByRole('group', { name: 'Show' })
     await show.getByRole('button', { name: /^Over-provisioned/ }).click()
