@@ -158,6 +158,75 @@ test('the list is driven by the keyboard', async ({ page }) => {
   await expect(panel(page, 'Deployment', DEMO.deployments.checkout)).toBeVisible()
 })
 
+test('a link sorted by a column that doesn’t sort, or isn’t there, lists as usual', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await goTo(page, 'Pods')
+  const status = page.getByRole('grid', { name: 'Pods' }).getByRole('columnheader', {
+    name: 'Status',
+  })
+  await expect(status).toHaveAttribute('aria-sort', 'ascending')
+  const usual = await rows(page, 'Pods').allInnerTexts()
+  // Pods' Ready column shows "1/2", which doesn't sort.
+  for (const sort of ['ready', 'nothing']) {
+    await page.evaluate((sort) => {
+      window.location.hash = `${window.location.hash.split('?')[0]}?sort=${sort}&desc=1`
+    }, sort)
+    await expect(page).toHaveURL(new RegExp(`sort=${sort}`))
+    await expect(status).toHaveAttribute('aria-sort', 'ascending')
+    expect(await rows(page, 'Pods').allInnerTexts()).toEqual(usual)
+  }
+  // Its header sorts it the other way, as if the link hadn't asked.
+  await status.getByRole('button').click()
+  await expect(status).toHaveAttribute('aria-sort', 'descending')
+})
+
+test('headers and the label selector show whole at the default window, beside the panel too', async ({
+  page,
+}) => {
+  await openCluster(page)
+  /** The headers a list cuts short, sorted by each in turn (its arrow takes room too). */
+  const cut = async (label: string, sortBy: string[]) => {
+    const grid = page.getByRole('grid', { name: label })
+    const shortened = () =>
+      grid.getByRole('columnheader').evaluateAll((headers) =>
+        headers.flatMap((header) => {
+          const text = header.querySelector<HTMLElement>('.truncate')
+          return text && text.scrollWidth > text.clientWidth ? [text.textContent] : []
+        }),
+      )
+    const found = new Set(await shortened())
+    for (const header of sortBy) {
+      await grid.getByRole('columnheader', { name: header }).getByRole('button').click()
+      await expect(grid.getByRole('columnheader', { name: header })).toHaveAttribute('aria-sort')
+      for (const text of await shortened()) found.add(text)
+    }
+    return [...found]
+  }
+  await goTo(page, 'Events')
+  expect(await cut('Events', ['Count', 'Last seen'])).toEqual([])
+  // Its placeholder, in the field's own type, fits the field.
+  const fits = await page.getByLabel('Label selector').evaluate((input: HTMLInputElement) => {
+    const style = getComputedStyle(input, '::placeholder')
+    const context = document.createElement('canvas').getContext('2d')!
+    context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+    return context.measureText(input.placeholder).width <= input.clientWidth
+  })
+  expect(fits).toBe(true)
+  await goTo(page, 'Volume Claims')
+  expect(await cut('Volume Claims', [])).toEqual([])
+  await goTo(page, 'Pods')
+  expect(await cut('Pods', ['Restarts'])).toEqual([])
+  // Beside the panel, columns that don't fit step aside (whole), and none is cut or pushed off.
+  await row(page, 'Pods', DEMO.pods.debugShell).getByRole('gridcell').nth(1).click()
+  await expect(panel(page, 'Pod', DEMO.pods.debugShell)).toBeVisible()
+  expect(await cut('Pods', [])).toEqual([])
+  const grid = page.getByRole('grid', { name: 'Pods' })
+  // (Once the panel has made its room.)
+  await expect.poll(() => grid.evaluate((g) => g.scrollWidth <= g.clientWidth)).toBe(true)
+})
+
 test('rows have a context menu', async ({ page }) => {
   const clipboard = () => clipboardText(page)
   await openCluster(page)
@@ -173,10 +242,15 @@ test('rows have a context menu', async ({ page }) => {
   await expect.poll(clipboard).toBe(DEMO.pods.debugShell)
   await choose('Copy namespace/name')
   await expect.poll(clipboard).toBe(`default/${DEMO.pods.debugShell}`)
+  // For this cluster, wherever it's pasted (as the dialogs' commands are).
   await choose('Copy kubectl describe')
-  await expect.poll(clipboard).toBe(`kubectl describe pod ${DEMO.pods.debugShell} -n default`)
+  await expect
+    .poll(clipboard)
+    .toBe(`kubectl describe pod/${DEMO.pods.debugShell} -n default --context ${CONTEXTS.demo}`)
   await choose('Copy kubectl logs')
-  await expect.poll(clipboard).toBe(`kubectl logs ${DEMO.pods.debugShell} -n default`)
+  await expect
+    .poll(clipboard)
+    .toBe(`kubectl logs ${DEMO.pods.debugShell} -n default --context ${CONTEXTS.demo}`)
   await choose('Open')
   await expect(panel(page, 'Pod', DEMO.pods.debugShell)).toBeVisible()
 
@@ -184,7 +258,9 @@ test('rows have a context menu', async ({ page }) => {
   await row(page, 'Nodes', DEMO.nodes.worker1).click({ button: 'right' })
   await expect(page.getByRole('menuitem', { name: 'Copy namespace/name' })).toHaveCount(0)
   await page.getByRole('menuitem', { name: 'Copy kubectl describe' }).click()
-  await expect.poll(clipboard).toBe(`kubectl describe node ${DEMO.nodes.worker1}`)
+  await expect
+    .poll(clipboard)
+    .toBe(`kubectl describe node/${DEMO.nodes.worker1} --context ${CONTEXTS.demo}`)
 })
 
 test('narrow tables drop the least important columns', async ({ launch }) => {

@@ -6,6 +6,20 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A link that sorts a list by a column that doesn't sort (`?sort=ready`), or one the list doesn't
+  have, shows the list in its usual order instead of failing.
+- "Copy kubectl describe" and "Copy kubectl logs" in a row's menu name the cluster (`--context`)
+  and a custom kind's API group, as the dialogs' commands do, so they run against the right one
+  wherever they're pasted.
+- The Workloads page cuts a long image at its start, so its tag shows, as each kind's own list
+  does.
+- Lists' headers show whole at the default window, with room for the sort arrow: Events' Count
+  and Last seen, Volume Claims' Storage class, and Pods' Restarts. The label selector's
+  placeholder fits, and a table counts its own padding, so it no longer runs a few pixels past
+  its edge (where Pods beside the panel cut off Restarts and scrolled sideways).
+
 ## [1.16.0] - 2026-10-08
 
 A server notices its settings changed outside Lumovi and keeps the stricter, the sidebar has a

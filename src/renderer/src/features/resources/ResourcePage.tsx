@@ -26,7 +26,14 @@ import { usePrefs } from '@renderer/state/prefs'
 import { SelectionBar } from '../actions/BulkActions'
 import { AddOnTabs } from '../add-ons/AddOnPage'
 import { WorkloadTabs } from '../workloads/WorkloadTabs'
-import { columnsFor, customColumnsFor, metricsKey, sortRows, type CellContext } from './columns'
+import {
+  columnsFor,
+  customColumnsFor,
+  metricsKey,
+  sortedBy,
+  sortRows,
+  type CellContext,
+} from './columns'
 import { useListState } from './list-state'
 import { countBy, HealthChips, LabelSelector } from './ListToolbar'
 import { Pagination } from './Pagination'
@@ -110,7 +117,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const withHealth = builtin
     ? hasHealth(kind)
     : items.some((object) => statusFor(kind, object) !== null)
-  const { columns } =
+  const { columns, defaultSort } =
     builtinColumns ?? customColumnsFor({ kind, showNamespace, hasHealth: withHealth, view, table })
   const cells = table
     ? new Map(items.map((item, i) => [item, table.cells[i]!] as const))
@@ -143,11 +150,11 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const counts = countBy(withHealth ? items : [], (object) => statusOf(kind, object).health)
 
   const needle = state.q.trim().toLowerCase()
-  const column = columns.find((c) => c.id === state.sort) ?? columns[0]!
+  const { column, desc } = sortedBy(columns, state, defaultSort)
   const matching = items
     .filter((o) => state.health.length === 0 || state.health.includes(statusOf(kind, o).health))
     .filter((o) => !needle || searchText(o, shownValues(o)).includes(needle))
-  const rows = sortRows(matching, column, state.desc, ctx)
+  const rows = sortRows(matching, column, desc, ctx)
   const pages = Math.max(1, Math.ceil(rows.length / state.size))
   const page = Math.min(state.page, pages)
   const pageRows = rows.slice((page - 1) * state.size, page * state.size)
@@ -158,7 +165,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
         ? state.health.filter((h) => h !== health)
         : [...state.health, health],
     })
-  const onSort = (id: string) => update({ sort: id, desc: state.sort === id ? !state.desc : false })
+  const onSort = (id: string) => update({ sort: id, desc: column.id === id ? !desc : false })
   const goToPage = (next: number) => update({ page: Math.max(1, Math.min(pages, next)) })
   const scope = resource.namespaced && namespace ? `in ${namespace}` : 'in this cluster'
 
@@ -197,7 +204,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           rows={pageRows}
           ctx={ctx}
           selected={params.get('open')?.replace(`${kind}/`, '')}
-          sort={{ id: column.id, desc: state.desc }}
+          sort={{ id: column.id, desc }}
           onSort={onSort}
           onOpen={(o) => open(kind, o.metadata.name, o.metadata.namespace)}
           onPage={(delta) => goToPage(page + delta)}

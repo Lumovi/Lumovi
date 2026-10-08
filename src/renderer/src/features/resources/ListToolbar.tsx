@@ -58,7 +58,7 @@ export function LabelSelector({
   return (
     <label
       className={cn(
-        'flex h-8 w-52 items-center gap-2 rounded-lg border bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
+        'flex h-8 w-60 items-center gap-2 rounded-lg border bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
         value ? 'border-accent/60' : 'border-line',
       )}
     >
