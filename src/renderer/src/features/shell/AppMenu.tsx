@@ -36,6 +36,8 @@ export function AppMenuButton({ className }: { className?: string }) {
         </span>
       }
       tipSide="right"
+      aria-haspopup="menu"
+      aria-expanded={open}
       // Open while the menu is.
       {...(open ? { 'data-state': 'open' } : {})}
       className={className}
@@ -46,7 +48,14 @@ export function AppMenuButton({ className }: { className?: string }) {
   )
 }
 
-/** Alt on its own (pressed and released, nothing else between), or F10: opens the menu. */
+/** Whether a key is a terminal's: its program's, for which F10 is often Quit (htop, mc). */
+const inTerminal = (event: KeyboardEvent) =>
+  event.target instanceof Element && event.target.closest('.xterm') !== null
+
+/**
+ * Alt on its own (pressed and released, nothing else between), or F10: opens the menu, except in a
+ * terminal, whose keys are its program's.
+ */
 function useMenuKeys(open: () => void) {
   const latest = useRef(open)
   useEffect(() => {
@@ -55,6 +64,10 @@ function useMenuKeys(open: () => void) {
   useEffect(() => {
     let alone = false
     const down = (event: KeyboardEvent) => {
+      if (inTerminal(event)) {
+        alone = false
+        return
+      }
       if (event.key === 'Alt') {
         if (!event.repeat) alone = !event.ctrlKey && !event.metaKey && !event.shiftKey
         return
@@ -72,7 +85,7 @@ function useMenuKeys(open: () => void) {
       }
     }
     const up = (event: KeyboardEvent) => {
-      if (event.key === 'Alt' && alone) {
+      if (event.key === 'Alt' && alone && !inTerminal(event)) {
         event.preventDefault()
         latest.current()
       }

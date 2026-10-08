@@ -46,6 +46,8 @@ test('on Windows and Linux, a button in the window’s corner opens the app’s 
 
   // The start screen.
   let button = await expectInTheCorner(page)
+  await expect(button).toHaveAttribute('aria-haspopup', 'menu')
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
   await hoverForTooltip(button, /Menu\s*Alt/)
   await button.click()
   // The whole menu, 4 px under the button's bottom left corner.
@@ -77,6 +79,16 @@ test('on Windows and Linux, a button in the window’s corner opens the app’s 
   await expect.poll(opened).toBe(4)
   const cluster = page.getByRole('button', { name: /^(Switch cluster|Cluster)$/ })
   expect((await cluster.boundingBox())?.y).toBe(52 + 12)
+
+  // In a terminal, F10 and Alt are its program's (F10 quits htop): the menu stays shut.
+  await closed(button)
+  await page.keyboard.press('Control+Backquote')
+  await expect(page.locator('.xterm-helper-textarea:focus')).toHaveCount(1)
+  await page.keyboard.press('F10')
+  await page.keyboard.press('Alt')
+  await page.waitForTimeout(500)
+  expect(await opened()).toBe(4)
+  await page.keyboard.press('Control+Backquote')
 
   // A page of its own.
   await app.evaluate(({ Menu }) =>
