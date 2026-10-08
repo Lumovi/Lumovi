@@ -115,6 +115,10 @@ const api: LumoviApi = {
     set: (permissions) => invoke(IPC.aiPermissionsSet, permissions),
     onChanged: (listener) => subscribe(IPC.aiPermissionsChanged, listener),
   },
+  sponsor: {
+    card: () => invoke(IPC.sponsorCard),
+    onChange: (listener) => subscribe(IPC.sponsorChanged, listener),
+  },
   updates: {
     state: () => invoke(IPC.updateState),
     check: () => invoke(IPC.updateCheck),

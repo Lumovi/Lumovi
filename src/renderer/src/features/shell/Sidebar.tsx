@@ -14,7 +14,7 @@ import {
   ShipWheel,
 } from 'lucide-react'
 import { Popover } from 'radix-ui'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
 import type { KubeContext } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
@@ -55,6 +55,7 @@ import { AdminButton } from '../access/AdminButton'
 import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
 import { menuContent, menuItem } from './menu-styles'
+import { Sponsor, useSponsorShown } from './Sponsor'
 import { AssistantsButton } from '../assistants/DesktopConnect'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from './ThemeMenu'
@@ -151,6 +152,11 @@ export function Sidebar() {
   const addOns = useAddOns()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
   const navigate = useNavigate()
+  const nav = useRef<HTMLElement>(null)
+  const goesOn = useGoesOn(nav)
+  // Over the sponsor card, the nav fades out where it goes on, so the card's label doesn't read as
+  // one more of its sections.
+  const fades = useSponsorShown() && (goesOn.up || goesOn.down)
   return (
     <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
       {/* Room for macOS's window controls, which sit above the cluster. */}
@@ -159,9 +165,17 @@ export function Sidebar() {
         <ClusterSwitcher />
       </div>
       <nav
+        ref={nav}
         aria-label="Resources"
         // With add-ons it can be longer than the window; it scrolls without a scrollbar, as macOS's do.
         className="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto px-3 pb-3 no-drag"
+        style={
+          fades
+            ? {
+                maskImage: `linear-gradient(to bottom, ${goesOn.up ? `transparent, #000 ${FADE}px` : '#000'}, ${goesOn.down ? `#000 calc(100% - ${FADE}px), transparent` : '#000'})`,
+              }
+            : undefined
+        }
       >
         <NavItem end to={clusterPath(context)}>
           <LayoutDashboard className="size-4 text-ink-3" /> Overview
@@ -208,6 +222,7 @@ export function Sidebar() {
         ))}
         <CustomResources addOns={addOns} />
       </nav>
+      <Sponsor />
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
         <ThemeMenu />
         {api.assistants && <AssistantsButton assistants={api.assistants} />}
@@ -226,6 +241,35 @@ export function Sidebar() {
       </div>
     </aside>
   )
+}
+
+/** How far the nav fades out at an edge where it goes on: a little less than one of its rows. */
+const FADE = 24
+
+/** Whether a list goes on past its top (scrolled) and past its bottom. */
+function useGoesOn(ref: RefObject<HTMLElement | null>): { up: boolean; down: boolean } {
+  const [goesOn, setGoesOn] = useState({ up: false, down: false })
+  useEffect(() => {
+    const list = ref.current!
+    const measure = () => {
+      const up = list.scrollTop > 0
+      const down = list.scrollTop + list.clientHeight < list.scrollHeight - 1
+      setGoesOn((was) => (was.up === up && was.down === down ? was : { up, down }))
+    }
+    measure()
+    list.addEventListener('scroll', measure, { passive: true })
+    // The window's size, and what's in the list (add-ons, as they're found), change it too.
+    const resized = new ResizeObserver(measure)
+    resized.observe(list)
+    const changed = new MutationObserver(measure)
+    changed.observe(list, { childList: true, subtree: true })
+    return () => {
+      list.removeEventListener('scroll', measure)
+      resized.disconnect()
+      changed.disconnect()
+    }
+  }, [ref])
+  return goesOn
 }
 
 /**

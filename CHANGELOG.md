@@ -17,6 +17,16 @@ All notable changes to Lumovi are documented here. The format follows
   don't undo them, whichever reads what first. Entries that don't open with a server's key
   (another replica's, while keys are rotated) are left as they are until they've been unchanged
   for 15 minutes, then let go; anything else there, which no key made, at once.
+- The sidebar has one sponsor card, above its footer, in the desktop app, a server's web UI and
+  a fleet's hub. It shows Lumovi's own ("Help keep Lumovi free."), a sponsor's or none, as
+  `sponsor.json` in [Lumovi/main-sponsor](https://github.com/Lumovi/main-sponsor) says, so it
+  changes without a release. The desktop app reads it from GitHub a few seconds after starting
+  and every hour, and a server reads it for its pages; nothing is sent but the request, and
+  nothing is counted. Only plain text, an `https` link and pictures checked by what they are
+  (PNG, GIF or WebP, 408 × 136, small enough) are used, shown from Lumovi's own copy. Whatever
+  can't be read or doesn't pass shows Lumovi's own card, with no error and no wait. The link's
+  domain shows as it's pointed at or focused; an animated picture plays once, and shows its first
+  frame still for people who ask for less motion. Under 720 px tall, the card steps aside.
 
 ### Changed
 

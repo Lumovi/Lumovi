@@ -145,6 +145,10 @@ export function createWebApi(): LumoviApi {
       onProposal: listen(IPC.assistantsProposal),
       onOutcome: listen(IPC.assistantsOutcome),
     },
+    sponsor: {
+      card: invoke(IPC.sponsorCard),
+      onChange: listen(IPC.sponsorChanged),
+    },
     aiPermissions: {
       get: invoke(IPC.aiPermissionsGet),
       set: invoke(IPC.aiPermissionsSet),
