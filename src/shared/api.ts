@@ -19,6 +19,7 @@ import type {
   ServerAssistantsStatus,
 } from './assistants'
 import type { AuditEvent, AuditInfo, AuditPage, AuditQuery, AuditVerification } from './audit'
+import type { FleetJoinRequest, FleetJoins, NewFleetJoin } from './fleet'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
@@ -1118,6 +1119,12 @@ export interface LumoviApi {
      * whose SHA-256 they give (from its cluster itself).
      */
     trustAgent(name: string, sha256: string): Promise<void>
+    /** An admin's: the clusters being connected from the page, and why none may be, if so. */
+    joins(): Promise<FleetJoins>
+    /** An admin's: a cluster to connect, and its agent's join token (shown once). */
+    connect(request: FleetJoinRequest): Promise<NewFleetJoin>
+    /** An admin's: stops connecting a cluster, whose token no longer works. */
+    cancelJoin(name: string): Promise<void>
   }
   /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */
   approvals?: {
@@ -1241,6 +1248,9 @@ export const IPC = {
   fleetSummary: 'fleet:summary',
   fleetAgents: 'fleet:agents',
   fleetTrustAgent: 'fleet:trust-agent',
+  fleetJoins: 'fleet:joins',
+  fleetConnect: 'fleet:connect',
+  fleetCancelJoin: 'fleet:cancel-join',
   helmReleases: 'helm:releases',
   helmRelease: 'helm:release',
   helmCli: 'helm:cli',

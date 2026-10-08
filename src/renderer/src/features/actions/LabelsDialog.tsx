@@ -1,5 +1,6 @@
 import { Plus, Tags, X } from 'lucide-react'
 import { useState } from 'react'
+import { labelKeyError as keyError, labelValueError } from '@shared/fleet'
 import { useChange } from '@renderer/hooks/change'
 import { cn } from '@renderer/lib/cn'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
@@ -13,25 +14,9 @@ type Pairs = Record<string, string>
 /** Managed by `kubectl apply`, huge, and not meant to be edited by hand. */
 const HIDDEN = new Set(['kubectl.kubernetes.io/last-applied-configuration'])
 
-const NAME = /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
-const PREFIX = /^(?=.{1,253}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/
-
-/** Why a key is invalid, like the API server would say, or undefined. */
-function keyError(key: string): string | undefined {
-  if (key === '') return 'Enter a key'
-  const slash = key.lastIndexOf('/')
-  if (slash >= 0 && !PREFIX.test(key.slice(0, slash))) {
-    return 'The prefix must be a DNS subdomain, like example.com'
-  }
-  return NAME.test(key.slice(slash + 1))
-    ? undefined
-    : 'Up to 63 letters, digits, “-”, “_” or “.”, starting and ending with a letter or digit'
-}
-
-function valueError(field: Field, value: string): string | undefined {
-  if (field === 'annotations' || value === '' || NAME.test(value)) return undefined
-  return 'Up to 63 letters, digits, “-”, “_” or “.”, starting and ending with a letter or digit'
-}
+/** Why a value is invalid (an annotation's may be anything), or undefined. */
+const valueError = (field: Field, value: string): string | undefined =>
+  field === 'annotations' ? undefined : labelValueError(value)
 
 interface Row {
   id: number

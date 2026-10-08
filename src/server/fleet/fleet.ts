@@ -87,6 +87,10 @@ export class HostedFleet implements Hosted {
     return fleet
   }
 
+  hasCluster(name: string): boolean {
+    return this.#clusters.some((cluster) => cluster.name === name)
+  }
+
   describe(): string {
     const names = this.#clusters.map((c) => c.name)
     return `a fleet of ${names.length} ${names.length === 1 ? 'cluster' : 'clusters'} (${names.join(', ')})`

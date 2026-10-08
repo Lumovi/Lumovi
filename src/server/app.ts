@@ -21,6 +21,7 @@ import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
 import { ClusterSettings } from './cluster-settings'
+import { Joins } from './fleet/joins'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -101,6 +102,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   sponsor.start()
   // Its clusters' settings (read-only, metrics, node shells), the same for everyone.
   const clusters = new ClusterSettings(state, access, audit)
+  // A fleet's clusters connected from its page: their agents' join tokens.
+  const joins = hosted.fleet
+    ? new Joins(state, access, audit, (name) => hosted.hasCluster?.(name) ?? false)
+    : undefined
   const assistants = new ServerAssistants({
     state,
     clusters,
@@ -256,6 +261,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           isAuditor(config.audit, caller.identity) || access.readsEveryone(caller.identity.user),
         access,
         clusters,
+        joins,
         sponsor,
         rejected: () =>
           sessions.end(
@@ -312,6 +318,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       sponsor.stop()
       access.close()
       clusters.close()
+      joins?.close()
       const ending = [...connections]
       hosted.close()
       await assistants.close()

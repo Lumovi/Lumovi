@@ -37,6 +37,7 @@ import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import { fingerprint, type ServerConfig } from './config'
 import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
+import type { Joins } from './fleet/joins'
 import { checkChartUrl } from './network'
 
 /**
@@ -139,6 +140,8 @@ export interface ConnectionOptions {
   access: ServerAccess
   /** The clusters' settings, everyone's on this server. */
   clusters: ClusterSettings
+  /** A fleet's: the clusters its admins connect from the Fleet page. */
+  joins?: Joins
   /**
    * Called when the cluster refuses the person's own token: it expired, or was revoked. (In a
    * fleet, one cluster refusing it is that cluster's error.)
@@ -191,6 +194,7 @@ export class PageConnection {
       auditor,
       access,
       clusters,
+      joins,
       sponsor,
     }: ConnectionOptions,
   ) {
@@ -324,6 +328,11 @@ export class PageConnection {
               }
               hosted.agents.trust(name, sha256, actor)
             },
+            // An admin's (Lumovi must have some): the clusters they connect, each with a join
+            // token for its agent, shown once.
+            [IPC.fleetJoins]: () => joins!.list(identity.user),
+            [IPC.fleetConnect]: (request: unknown) => joins!.create(request, identity.user, actor),
+            [IPC.fleetCancelJoin]: (name: unknown) => joins!.cancel(name, identity.user, actor),
           }
         : {}),
     }
