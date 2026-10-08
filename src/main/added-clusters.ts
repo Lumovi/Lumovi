@@ -125,7 +125,8 @@ export class AddedClusters {
             const server = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
               .server
             const cluster = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
-            const proxy = cluster?.['proxy-url']
+            // Its password is a secret: shown as kept.
+            const proxy = withoutPassword(cluster?.['proxy-url'])
             return {
               name,
               ...(typeof server === 'string' ? { server } : {}),
@@ -143,6 +144,7 @@ export class AddedClusters {
             consent: agreeable[index]!.consent,
           })),
           tokenFiles: tokenFilesOf(raw),
+          unverified: unverifiedOf(raw),
           keptCredentials: stored
             ? keptSendsOf(given, raw, stored).map(({ context, server, consent }) => ({
                 context,
@@ -176,9 +178,13 @@ export class AddedClusters {
       const stored = this.#stored(editing)
       const given = read(text)
       const full = stored ? restored(given, stored) : given
+      const agreedByPerson = agreed
       if (stored) agreed = [...agreed, ...carriedConsents(stored, full)]
       const sends = stored
-        ? keptSendsOf(given, full, stored).filter((send) => send.context === context)
+        ? [
+            ...keptSendsOf(given, full, stored).filter((send) => send.context === context),
+            ...movedCommandsOf(full, stored, context),
+          ]
         : []
       const raw = pick(full, [context], {}, { contexts: [], clusters: [], users: [] })
       refuseRelative(raw)
@@ -217,7 +223,8 @@ export class AddedClusters {
         return { ok: true, data: { server, credentials: { ok: false, notTried: 'server' } } }
       if (
         unagreed(raw, agreed).length > 0 ||
-        sends.some((send) => !agreed.includes(send.consent))
+        // What goes somewhere it didn't, agreed to by the person now (not carried over).
+        sends.some((send) => !agreedByPerson.includes(send.consent))
       ) {
         return { ok: true, data: { server, credentials: { ok: false, notTried: 'agreement' } } }
       }
@@ -301,9 +308,15 @@ export class AddedClusters {
           this.#others(own),
         ),
         agreedNow,
-        keptSendsOf(given, raw, stored)
-          .filter((send) => !agreedNow.includes(send.consent))
-          .map((send) => `send its kept credentials to ${send.server}`),
+        // What goes somewhere it didn't, agreed to by the person now (not carried over).
+        [
+          ...keptSendsOf(given, raw, stored)
+            .filter((send) => !agreed.includes(send.consent))
+            .map((send) => `send its kept credentials to ${send.server}`),
+          ...movedCommandsOf(raw, stored)
+            .filter((command) => !agreed.includes(command.consent))
+            .map((command) => `run ${command.line} on this computer, for ${command.server}`),
+        ],
       )
       // Whole or not at all: written beside it, then put in its place.
       const next = `${own}.${randomBytes(3).toString('hex')}.tmp`
@@ -685,7 +698,50 @@ function carriedConsents(stored: Raw, edited: Raw): string[] {
   return [
     ...commandsOf(stored.users.filter(({ name }) => !moved.has(name))),
     ...tokenFilesOf(stored),
+    ...unverifiedOf(stored),
   ].map(({ consent }) => consent)
+}
+
+/**
+ * The servers not verified (`insecure-skip-tls-verify`) that its credentials would go to:
+ * whatever answers there gets them, so each is agreed to first, for that very server.
+ */
+function unverifiedOf(raw: Raw): { context: string; server: string; consent: string }[] {
+  const seen = new Set<string>()
+  return raw.contexts.flatMap(({ name, context }) => {
+    const cluster = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
+    const user = raw.users.find((entry) => entry.name === context.user)?.user
+    if (cluster?.['insecure-skip-tls-verify'] !== true || authOf(user) === 'none') return []
+    const server = String(cluster.server ?? '')
+    const agreement = consent('unverified', server)
+    if (seen.has(agreement)) return []
+    seen.add(agreement)
+    return [{ context: name, server, consent: agreement }]
+  })
+}
+
+/**
+ * The programs of users whose contexts go somewhere they didn't (`context`'s, if one's named),
+ * with where: agreed to anew by the person, since what one gives would go there. Another user's
+ * identical program agreed to before (a sibling, as each context gets a user of its own) doesn't
+ * count for them.
+ */
+function movedCommandsOf(
+  edited: Raw,
+  stored: Raw,
+  context?: string,
+): { line: string; server: string; consent: string }[] {
+  const moved = movedUsers(edited, stored)
+  return edited.contexts.flatMap(({ name, context: entry }) => {
+    if (context !== undefined && name !== context) return []
+    if (!entry.user || !moved.has(entry.user)) return []
+    const server = String(
+      edited.clusters.find((cluster) => cluster.name === entry.cluster)?.cluster.server ?? '',
+    )
+    return commandsOf(edited.users.filter((user) => user.name === entry.user)).map(
+      ({ line, consent }) => ({ line, server, consent }),
+    )
+  })
 }
 
 /** Whether a user, as given (before its placeholders are its secrets), keeps any of them. */
@@ -723,6 +779,9 @@ function keptSendsOf(
 /** What its credentials do here that isn't agreed to, as said to the person. */
 function unagreed(raw: Raw, agreed: string[]): string[] {
   return [
+    ...unverifiedOf(raw)
+      .filter(({ consent }) => !agreed.includes(consent))
+      .map(({ server }) => `go to ${server}, which isn’t verified`),
     ...commandsOf(raw.users)
       .filter(({ consent }) => !agreed.includes(consent))
       .map(({ line }) => `run ${line} on this computer`),
@@ -952,7 +1011,11 @@ export function kubeconfigLine(
       .join('')
     return `$env:KUBECONFIG = "${text}"`
   }
-  // Runs of text, each in single quotes; $HOME, in double.
+  // Read as it's typed, in double quotes, where nothing in it means more there (as Lumovi's own
+  // folder's paths); else runs of text, each in single quotes, and $HOME in double.
+  if (parts.every((part) => part === HOME || !/[$`"\\!]/.test(part))) {
+    return `export KUBECONFIG="${parts.map((part) => (part === HOME ? '$HOME' : part)).join('')}"`
+  }
   const runs: string[] = []
   for (const part of parts) {
     if (part === HOME || runs.length === 0 || runs.at(-1) === HOME) runs.push(part)

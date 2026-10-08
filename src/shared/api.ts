@@ -297,6 +297,11 @@ export interface PastedKubeconfig {
    */
   tokenFiles: { user: string; path: string; server: string; consent: string }[]
   /**
+   * Servers not verified (`insecure-skip-tls-verify`) its credentials would go to: whatever
+   * answers there gets them, so each is agreed to first.
+   */
+  unverified: { context: string; server: string; consent: string }[]
+  /**
    * One added in Lumovi, edited: the contexts its kept credentials (placeholders left as they
    * were) would go to that they weren't kept for (its server moved, or a context added), each to
    * be agreed to before they're sent there.
