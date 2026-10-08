@@ -4,12 +4,12 @@ import { Tooltip } from './Tooltip'
 
 const VARIANTS = {
   primary:
-    'bg-accent text-white shadow-sm hover:bg-accent-strong active:translate-y-px disabled:opacity-50',
+    'bg-accent text-white shadow-sm hover:bg-accent-hover active:translate-y-px disabled:opacity-50',
   secondary:
     'border border-line-strong bg-surface-2 text-ink-1 shadow-xs hover:bg-surface-3 active:translate-y-px',
   ghost: 'text-ink-2 hover:bg-surface-3 hover:text-ink-1',
   danger:
-    'bg-critical text-white shadow-sm hover:bg-critical/90 active:translate-y-px disabled:opacity-50',
+    'bg-critical text-white shadow-sm hover:bg-critical-hover active:translate-y-px disabled:opacity-50',
 }
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
