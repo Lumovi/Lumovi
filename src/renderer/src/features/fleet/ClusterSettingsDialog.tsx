@@ -366,7 +366,7 @@ function ComesFrom({ origin, trust }: { origin: ClusterOrigin; trust?: AgentTrus
 }
 
 /** Where a cluster's agent was installed, from the Fleet page's command: to uninstall it. */
-const UNINSTALL_COMMAND = 'helm uninstall lumovi-agent --namespace lumovi'
+const UNINSTALL_COMMAND = 'helm uninstall lumovi --namespace lumovi'
 
 /**
  * Removing a cluster connected from the page, typed to confirm: what stops, and how to uninstall
