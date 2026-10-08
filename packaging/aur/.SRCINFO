@@ -1,5 +1,5 @@
 pkgbase = lumovi-bin
-	pkgdesc = A calm, fast Kubernetes dashboard, on your desktop or in your cluster.
+	pkgdesc = Calm, fast Kubernetes dashboard, on your desktop or in your cluster
 	pkgver = 1.7.0
 	pkgrel = 1
 	url = https://lumovi.dev

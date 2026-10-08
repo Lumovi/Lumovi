@@ -5,7 +5,7 @@
 pkgname=lumovi-bin
 pkgver=1.7.0
 pkgrel=1
-pkgdesc='A calm, fast Kubernetes dashboard, on your desktop or in your cluster.'
+pkgdesc='Calm, fast Kubernetes dashboard, on your desktop or in your cluster'
 arch=('x86_64' 'aarch64')
 url='https://lumovi.dev'
 license=('Apache-2.0')

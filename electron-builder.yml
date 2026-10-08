@@ -123,7 +123,8 @@ appx:
 linux:
   executableName: lumovi
   category: Development
-  synopsis: A calm, fast Kubernetes dashboard, on your desktop or in your cluster.
+  # The .deb's and .rpm's one-line summary: as their tools want it, with no article or full stop.
+  synopsis: Calm, fast Kubernetes dashboard, on your desktop or in your cluster
   # Drawn for each size.
   icon: build/icons
   maintainer: Peter Kota <kotapeter@gmail.com>
