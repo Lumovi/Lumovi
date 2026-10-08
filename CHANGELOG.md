@@ -26,6 +26,9 @@ All notable changes to Lumovi are documented here. The format follows
 - On a server, the command palette offers to make a cluster read-only only to those who may, and
   a refused change says who made it read-only, but no longer a date in UTC (the switch says
   when, in your time).
+- Lumovi says what it is in one line, the same everywhere: "A calm, fast Kubernetes dashboard,
+  on your desktop or in your cluster." In its README, its package, the image's description, the
+  chart's (and so Artifact Hub's), and the Linux and Arch packages'.
 
 ### Fixed
 

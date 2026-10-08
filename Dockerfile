@@ -34,7 +34,7 @@ RUN apk add --no-cache curl \
 FROM gcr.io/distroless/nodejs26-debian13:nonroot@sha256:2ee7b2c54a3e37dfc248af81c9f6bcdcaa50abe4af44aa47a3388431031b9283
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Lumovi" \
-      org.opencontainers.image.description="A beautiful, fast Kubernetes dashboard, served from your cluster." \
+      org.opencontainers.image.description="A calm, fast Kubernetes dashboard, on your desktop or in your cluster." \
       org.opencontainers.image.source="https://github.com/Lumovi/Lumovi" \
       org.opencontainers.image.url="https://lumovi.dev" \
       org.opencontainers.image.licenses="Apache-2.0" \
