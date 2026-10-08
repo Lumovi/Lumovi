@@ -33,6 +33,13 @@ All notable changes to Lumovi are documented here. The format follows
   if an older copy is put back where they're kept. Each change is in the audit log, with who saw
   the cluster before and after. Only Lumovi's admins change them, and only where it has some;
   and admins now see every cluster, whichever groups it's shared with.
+- Where its chart allows it (`fleet.addFromPage`, off unless set), a fleet's admins add a cluster
+  on the Fleet page by pasting a kubeconfig, or a server, a token and its CA. It's checked first:
+  it reads, it signs in with what's in it (a credential plugin is refused, as the hub runs no
+  programs, and it offers a token or an agent instead), its server is https and checked against
+  its CA, and its credentials work and may act as each person. It's kept as a Secret of Lumovi's
+  in its own namespace, the only place the chart then lets Lumovi write Secrets; removed from the
+  page, that Secret is deleted (never one Lumovi didn't make). Admin-only, and recorded.
 
 ### Changed
 

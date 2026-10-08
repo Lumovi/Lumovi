@@ -139,6 +139,7 @@ function SettingsForm({
     return (
       <RemoveDialog
         name={settings.name}
+        added={Boolean(settings.added)}
         onDone={(removed) => (removed ? onClose() : setRemoving(false))}
       />
     )
@@ -233,6 +234,7 @@ function SettingsForm({
       </div>
       <ComesFrom
         origin={settings.origin}
+        added={settings.added}
         trust={agents.data?.find((agent) => agent.name === settings.name)}
       />
     </PageDialog>
@@ -301,7 +303,16 @@ function From({
 }
 
 /** Where a cluster comes from, and what that means here. */
-function ComesFrom({ origin, trust }: { origin: ClusterOrigin; trust?: AgentTrust }) {
+function ComesFrom({
+  origin,
+  added,
+  trust,
+}: {
+  origin: ClusterOrigin
+  /** Added from the page by kubeconfig or token: when, and by whom. */
+  added?: { at: string; by: string }
+  trust?: AgentTrust
+}) {
   const tag = {
     secret:
       origin.kind === 'secret'
@@ -311,6 +322,35 @@ function ComesFrom({ origin, trust }: { origin: ClusterOrigin; trust?: AgentTrus
     this: 'This cluster',
     agent: 'Its agent',
   }[origin.kind]
+  if (origin.kind === 'secret' && added) {
+    return (
+      <section className="mt-5 rounded-xl bg-surface-3/70 px-3.5 py-3">
+        <div className="mb-1.5 flex items-baseline gap-2">
+          <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Comes from</h3>
+          <span className="ml-auto truncate text-xs font-medium text-ink-2">This page</span>
+        </div>
+        <dl className="grid grid-cols-[96px_1fr] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-ink-3">Added</dt>
+          <dd className="text-ink-1">
+            {new Date(added.at).toLocaleString(undefined, {
+              day: 'numeric',
+              month: 'long',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+            , by {added.by}
+          </dd>
+          <dt className="text-ink-3">Kept as</dt>
+          <dd className="truncate text-ink-1">
+            the Secret{' '}
+            <span className="font-mono">
+              {origin.namespace}/{origin.secret}
+            </span>
+          </dd>
+        </dl>
+      </section>
+    )
+  }
   if (origin.kind === 'agent' && origin.joined) {
     return (
       <section className="mt-5 rounded-xl bg-surface-3/70 px-3.5 py-3">
@@ -377,9 +417,12 @@ const UNINSTALL_COMMAND = 'helm uninstall lumovi --namespace lumovi'
  */
 export function RemoveDialog({
   name,
+  added = false,
   onDone,
 }: {
   name: string
+  /** Added by kubeconfig or token: its Secret goes (connected, its agent's token stops). */
+  added?: boolean
   onDone: (removed: boolean) => void
 }) {
   const queryClient = useQueryClient()
@@ -432,13 +475,24 @@ export function RemoveDialog({
       }
     >
       <div className="flex flex-col gap-3.5">
-        <p className="text-[13px] leading-relaxed text-ink-2">
-          People stop seeing it, and its agent’s token stops working at once. The agent keeps
-          running in the cluster until you uninstall it there:
-        </p>
-        <Box label={`In ${name}`} copy={UNINSTALL_COMMAND} copyLabel="Copy the command">
-          <code className="block font-mono text-xs text-ink-2 selectable">{UNINSTALL_COMMAND}</code>
-        </Box>
+        {added ? (
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            People stop seeing it, and Lumovi deletes the Secret it kept it as, with its
+            credentials. The cluster itself isn’t changed.
+          </p>
+        ) : (
+          <>
+            <p className="text-[13px] leading-relaxed text-ink-2">
+              People stop seeing it, and its agent’s token stops working at once. The agent keeps
+              running in the cluster until you uninstall it there:
+            </p>
+            <Box label={`In ${name}`} copy={UNINSTALL_COMMAND} copyLabel="Copy the command">
+              <code className="block font-mono text-xs text-ink-2 selectable">
+                {UNINSTALL_COMMAND}
+              </code>
+            </Box>
+          </>
+        )}
         <label className="block">
           <span className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-2">
             <TriangleAlert className="size-3.5 text-critical-text" aria-hidden />

@@ -5,10 +5,13 @@ import {
   Cable,
   Check,
   ChevronDown,
+  ClipboardPaste,
   Copy,
   CornerDownLeft,
   Ellipsis,
+  KeyRound,
   Layers,
+  Lock,
   PackageSearch,
   Plus,
   Search,
@@ -61,6 +64,7 @@ import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
 import { ClusterSettingsDialog, RemoveDialog } from './ClusterSettingsDialog'
+import { AddClusterDialog, type AddKind } from './AddClusterDialog'
 import { ConnectDialog, FINGERPRINT_COMMAND, timeOf } from './ConnectDialog'
 
 /** How often each cluster is summed up again, while the page is open. */
@@ -107,10 +111,14 @@ export function FleetPage() {
   // Its card, just connected, is tinted for a moment.
   const fresh = useFresh(joins.data?.joins ?? [])
   // Those connected from here, which may be removed from here.
-  const removable = new Set(
-    (joins.data?.joins ?? []).flatMap((join) => (join.used ? [join.name] : [])),
-  )
+  const added = new Set(joins.data?.added ?? [])
+  const removable = new Set([
+    ...(joins.data?.joins ?? []).flatMap((join) => (join.used ? [join.name] : [])),
+    ...(joins.data?.added ?? []),
+  ])
   const [connecting, setConnecting] = useState<{ showing?: FleetJoin }>()
+  const [adding, setAdding] = useState<AddKind>()
+  const addFromPage = Boolean(joins.data?.addFromPage)
   const summaries = useQueries({
     queries: all.map(({ name }) => ({
       queryKey: ['fleet-summary', name],
@@ -191,7 +199,11 @@ export function FleetPage() {
                 <EmptyState icon={ServerOff} title="No clusters here yet" className="py-24">
                   Connect one: its agent dials this server, so the cluster opens no port.
                   <div className="mt-4 flex justify-center">
-                    <AddCluster onConnect={() => setConnecting({})} />
+                    <AddCluster
+                      addFromPage={addFromPage}
+                      onConnect={() => setConnecting({})}
+                      onAdd={setAdding}
+                    />
                   </div>
                 </EmptyState>
               ) : (
@@ -215,7 +227,13 @@ export function FleetPage() {
                         : 'All healthy'}
                   </span>
                 </h1>
-                {admin && <AddCluster onConnect={() => setConnecting({})} />}
+                {admin && (
+                  <AddCluster
+                    addFromPage={addFromPage}
+                    onConnect={() => setConnecting({})}
+                    onAdd={setAdding}
+                  />
+                )}
               </div>
               <AgentsToCheck />
               <div className="flex flex-wrap items-center gap-2">
@@ -313,17 +331,27 @@ export function FleetPage() {
                         {grouped.length}
                       </span>
                     </h2>
-                    <Cards items={grouped} fresh={fresh} removable={removable} />
+                    <Cards items={grouped} fresh={fresh} removable={removable} added={added} />
                   </section>
                 ))
               ) : (
-                <Cards items={visible} fresh={fresh} removable={removable} />
+                <Cards items={visible} fresh={fresh} removable={removable} added={added} />
               )}
               <WaitingCards waiting={waiting} onShow={(showing) => setConnecting({ showing })} />
             </>
           )}
         </div>
       </main>
+      {adding && (
+        <AddClusterDialog
+          kind={adding}
+          onConnect={() => {
+            setAdding(undefined)
+            setConnecting({})
+          }}
+          onClose={() => setAdding(undefined)}
+        />
+      )}
       {connecting && (
         <ConnectDialog showing={connecting.showing} onClose={() => setConnecting(undefined)} />
       )}
@@ -372,7 +400,17 @@ function GroupMenu({
 }
 
 /** An admin's: adding a cluster, connected with its agent. */
-function AddCluster({ onConnect }: { onConnect: () => void }) {
+function AddCluster({
+  addFromPage,
+  onConnect,
+  onAdd,
+}: {
+  /** Whether the server allows adding by kubeconfig or token (the chart's fleet.addFromPage). */
+  addFromPage: boolean
+  onConnect: () => void
+  onAdd: (kind: AddKind) => void
+}) {
+  const item = cn(menuItem, 'h-auto items-start py-2 whitespace-normal data-[disabled]:opacity-45')
   // A dialog it opens has the focus: the button doesn't take it back, late (it does on Escape).
   const opening = useRef(false)
   const open = (dialog: () => void) => () => {
@@ -408,6 +446,40 @@ function AddCluster({ onConnect }: { onConnect: () => void }) {
               </span>
             </span>
           </DropdownMenu.Item>
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Item
+            className={item}
+            disabled={!addFromPage}
+            onSelect={open(() => onAdd('kubeconfig'))}
+          >
+            <ClipboardPaste className="mt-0.5 size-4 shrink-0 text-ink-3" />
+            <span>
+              Paste a kubeconfig…
+              <span className="block text-xs text-ink-3">Kept as a Secret in its namespace.</span>
+            </span>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={item}
+            disabled={!addFromPage}
+            onSelect={open(() => onAdd('token'))}
+          >
+            <KeyRound className="mt-0.5 size-4 shrink-0 text-ink-3" />
+            <span>
+              Use a token…
+              <span className="block text-xs text-ink-3">
+                A server’s address, a token and its CA.
+              </span>
+            </span>
+          </DropdownMenu.Item>
+          {!addFromPage && (
+            <p className="m-1 flex gap-2 rounded-lg bg-surface-3 p-2 text-xs text-ink-2">
+              <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span>
+                Adding by kubeconfig or token is off on this server. It’s turned on with the Helm
+                value <code className="font-mono">fleet.addFromPage</code>.
+              </span>
+            </p>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
@@ -494,10 +566,13 @@ function Cards({
   items,
   fresh,
   removable,
+  added,
 }: {
   items: Item[]
   fresh?: Set<string>
   removable?: Set<string>
+  /** Of those, the ones added by kubeconfig or token. */
+  added?: Set<string>
 }) {
   // Admins change a cluster's settings from its card, and remove one connected from here.
   const admin = Boolean(useMyAccess()?.admin)
@@ -519,7 +594,13 @@ function Cards({
         />
       ))}
       {settings && <ClusterSettingsDialog name={settings} onClose={() => setSettings(undefined)} />}
-      {removing && <RemoveDialog name={removing} onDone={() => setRemoving(undefined)} />}
+      {removing && (
+        <RemoveDialog
+          name={removing}
+          added={added?.has(removing)}
+          onDone={() => setRemoving(undefined)}
+        />
+      )}
     </div>
   )
 }
