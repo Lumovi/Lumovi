@@ -39,25 +39,36 @@ const useSponsor = create<{ shown?: Shown | null }>(() => ({}))
 /** Whether the sidebar has a card (or may have, until the host says). */
 export const useSponsorShown = (): boolean => useSponsor((state) => state.shown !== null)
 
+/** How long a sponsor's pictures may take to decode before Lumovi's own card shows instead. */
+const DECODE_MS = 3_000
+
 /**
  * What to show for the host's card: a sponsor's once all its pictures have decoded, or, if one
- * won't, Lumovi's own.
+ * won't (or takes too long), Lumovi's own.
  */
 async function toShow(card: SponsorCard): Promise<Shown | null> {
   if (card.mode === 'none') return null
   if (card.mode === 'lumovi') return lumovi(card.link)
   const { light, dark } = card.picture
   const sources = [light.src, dark.src, light.still, dark.still].filter((src) => src !== undefined)
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await Promise.all(
-      sources.map((src) => {
-        const image = new Image()
-        image.src = src
-        return image.decode()
+    await Promise.race([
+      Promise.all(
+        sources.map((src) => {
+          const image = new Image()
+          image.src = src
+          return image.decode()
+        }),
+      ),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Too slow to decode')), DECODE_MS)
       }),
-    )
+    ])
   } catch {
     return lumovi(card.lumovi)
+  } finally {
+    clearTimeout(timer)
   }
   return { id: ++ids, link: card.link, alt: card.alt, line: card.line, picture: card.picture }
 }

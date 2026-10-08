@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
 import {
   ACME,
   CRAFTED,
@@ -28,9 +28,16 @@ const test = base.extend<{
   launchSponsored: (options?: LaunchOptions) => Promise<Lumovi>
 }>({
   // eslint-disable-next-line no-empty-pattern
-  sponsor: async ({}, use) => {
+  sponsor: async ({}, use, testInfo) => {
     const sponsor = await startMockSponsor()
     await use(sponsor)
+    // What the app asked, and when: whether it stopped reading, or the page stopped showing.
+    if (testInfo.status !== testInfo.expectedStatus) {
+      const start = sponsor.requests[0]?.at ?? 0
+      console.log(
+        sponsor.requests.map((r) => `+${r.at - start} ms ${r.path} ${r.status ?? '…'}`).join('\n'),
+      )
+    }
     await sponsor.close()
   },
   launchSponsored: async ({ launch, sponsor }, use) => {
@@ -50,6 +57,21 @@ const test = base.extend<{
 const BUILT_IN = 'https://github.com/sponsors/Lumovi'
 
 const card = (page: Page) => page.getByRole('region', { name: 'Sponsor' })
+
+/**
+ * Makes the page `width` × `height` CSS px, whatever the screen lets the window be (a runner's
+ * may be shorter): the window as near as it can, and zoomed out as much as it falls short.
+ */
+const pageSize = (app: ElectronApplication, width: number, height: number) =>
+  app.evaluate(
+    ({ BrowserWindow }, [width, height]) => {
+      const win = BrowserWindow.getAllWindows()[0]!
+      win.setContentSize(width!, height!)
+      const [shown, tall] = win.getContentSize()
+      win.webContents.setZoomFactor(Math.min(1, shown! / width!, tall! / height!))
+    },
+    [width, height],
+  )
 const link = (page: Page) => card(page).getByRole('link')
 
 /** The card's picture that shows, in the mode in use. */
@@ -177,6 +199,8 @@ test('whatever doesn’t pass shows Lumovi’s own card, never an error', async 
   launchSponsored,
   sponsor,
 }) => {
+  // A card change a second, back and forth, for each case: slow runners need the time.
+  test.slow()
   const lumovi = { link: 'https://lumovi.example/own' }
   sponsor.serveAcme()
   const { page } = await launchSponsored({ theme: 'light' })
@@ -251,6 +275,8 @@ test('pictures are taken by what they are: PNG, GIF or WebP, still or playing on
   launchSponsored,
   sponsor,
 }) => {
+  // A card change a second, back and forth, for each case: slow runners need the time.
+  test.slow()
   const lumovi = { link: 'https://lumovi.example/own' }
   sponsor.serveAcme()
   sponsor.files.set('sponsor.json', sponsorJson({ mode: 'sponsor', lumovi, sponsor: ACME }))
@@ -345,9 +371,7 @@ test('the nav fades out over the card where it goes on; on short windows the car
 }) => {
   sponsor.files.set('sponsor.json', sponsorJson({ mode: 'lumovi' }))
   const { app, page } = await launchSponsored({ fullLayout: false })
-  await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]!.setContentSize(1200, 760),
-  )
+  await pageSize(app, 1200, 760)
   await openCluster(page)
   await expectLumovis(page)
   const nav = page.getByRole('navigation', { name: 'Resources' })
@@ -364,8 +388,6 @@ test('the nav fades out over the card where it goes on; on short windows the car
   await expect.poll(fades).toEqual([true, false])
 
   // Under 720 px tall, the nav keeps the room.
-  await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]!.setContentSize(1200, 700),
-  )
+  await pageSize(app, 1200, 700)
   await expect(card(page)).toBeHidden()
 })
