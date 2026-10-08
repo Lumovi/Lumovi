@@ -14,6 +14,8 @@ import {
   labelKeyError,
   labelValueError,
   MAX_GROUPS,
+  originKey,
+  placesText,
   titleError,
   type FleetClusterSettings,
   type FleetSetting,
@@ -23,7 +25,9 @@ import type { AuditLog } from '@backend/audit/log'
 import { KubeRequestError } from '@backend/kube/errors'
 import type { ServerAccess } from '../access'
 import type { Hosted } from '../cluster'
+import { SERVER_ACTOR } from '../audit'
 import type { ClusterSettings } from '../cluster-settings'
+import type { FleetCluster } from './clusters'
 
 const invalid = (message: string) => new KubeRequestError('invalid', message)
 
@@ -58,7 +62,7 @@ export function checkedGroups(groups: unknown): string[] {
 }
 
 /** Who sees a cluster, in words, for the audit log. */
-const seenBy = (groups: string[] | undefined) =>
+const seenByText = (groups: string[] | undefined) =>
   groups?.length ? groups.join(', ') : 'everyone signed in'
 
 export class FleetSettings {
@@ -84,7 +88,7 @@ export class FleetSettings {
     const why = this.whyNot(user)
     if (why) throw new KubeRequestError('not-allowed', why, 403)
     const cluster = this.#cluster(name)
-    const set = this.clusters.fleetSettings()[cluster.name] ?? {}
+    const set = this.#setFor(cluster)
     const { managed } = cluster
     return {
       name: cluster.name,
@@ -139,7 +143,7 @@ export class FleetSettings {
       if (given === undefined) continue
       if (managed) {
         throw invalid(
-          `Its ${field} are set by ${managed.by}, in ${managed.key}: change them there.`,
+          `Its ${field} are set by ${managed.by}, in ${placesText(managed)}: change them there.`,
         )
       }
       if (field === 'labels') {
@@ -150,8 +154,20 @@ export class FleetSettings {
         if (checked.length) setting.groups = checked
       }
     }
+    // Its name as shown is its own: not another's name, nor what another is shown by.
+    const shown = setting.title?.toLowerCase()
+    const other = (this.hosted.allClusters?.() ?? []).find(
+      (c) =>
+        c.name !== cluster.name &&
+        (c.name.toLowerCase() === shown || c.title?.toLowerCase() === shown),
+    )
+    if (shown && other) {
+      throw invalid(
+        `Its name: ${other.name.toLowerCase() === shown ? 'another cluster is called' : `${other.name} is shown as`} ${setting.title}. Give it a name of its own.`,
+      )
+    }
     const before = this.get(cluster.name, user)
-    this.clusters.setFleet(cluster.name, setting, user)
+    this.clusters.setFleet(cluster.name, { origin: originKey(cluster.origin!), ...setting }, user)
     const after = this.get(cluster.name, user)
     this.audit.record({
       action: 'cluster-settings.changed',
@@ -161,7 +177,7 @@ export class FleetSettings {
       summary: `Changed ${cluster.name}’s settings on the Fleet page${
         before.groups.value.join() === after.groups.value.join()
           ? ''
-          : `: seen by ${seenBy(after.groups.value)}, besides admins (was ${seenBy(before.groups.value)})`
+          : `: seen by ${seenByText(after.groups.value)}, besides admins (was ${seenByText(before.groups.value)})`
       }`,
       details: {
         title: after.title.value ?? null,
@@ -171,6 +187,36 @@ export class FleetSettings {
       },
     })
     return after
+  }
+
+  /**
+   * What the page set for a cluster that's another now (by its name, from elsewhere): let go, and
+   * recorded. A cluster that's gone a while (its source unread) keeps its: it's the same cluster
+   * if it comes back from the same place.
+   */
+  forget(name: string): void {
+    const cluster = this.hosted.sourced?.(name)
+    const set = this.clusters.fleetSettings()[name]
+    if (!cluster?.origin || !set || set.origin === originKey(cluster.origin)) return
+    this.clusters.dropFleet(name)
+    this.audit.record({
+      action: 'cluster-settings.changed',
+      outcome: 'success',
+      actor: SERVER_ACTOR,
+      cluster: name,
+      summary: `Let go of what the Fleet page set for ${name}: it was set for another cluster by that name, and this one comes from elsewhere`,
+      details: {
+        title: set.title ?? null,
+        labels: Object.entries(set.labels ?? {}).map(([key, value]) => `${key}=${value}`),
+        groups: set.groups ?? [],
+      },
+    })
+  }
+
+  /** What the page set for a cluster: only if it's for this one (from where it comes from). */
+  #setFor(cluster: FleetCluster): FleetSetting {
+    const set = this.clusters.fleetSettings()[cluster.name]
+    return set && cluster.origin && set.origin === originKey(cluster.origin) ? set : {}
   }
 
   /** A cluster of the fleet, as its source describes it. */

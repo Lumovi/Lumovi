@@ -6,7 +6,7 @@
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Pencil, ScrollText, Settings2, X } from 'lucide-react'
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   groupError,
   labelKeyError,
@@ -169,7 +169,7 @@ function SettingsForm({
             onChange={(event) => setTitle(event.target.value)}
             className={cn(field, titleProblem && 'border-critical focus:ring-critical/15')}
           />
-          <From id="fleet-cluster-title-from" problem={titleProblem} />
+          <From id="fleet-cluster-title-from" set={title.trim() !== ''} problem={titleProblem} />
         </div>
         <FieldLabel htmlFor="fleet-cluster-labels">Labels</FieldLabel>
         <div className="min-w-0">
@@ -197,7 +197,7 @@ function SettingsForm({
             }
             mono
           />
-          <From managed={settings.labels.managed} />
+          <From set={labels.length > 0} managed={settings.labels.managed} />
         </div>
         <FieldLabel htmlFor="fleet-cluster-groups">Groups</FieldLabel>
         <div className="min-w-0">
@@ -210,7 +210,7 @@ function SettingsForm({
             check={groupError}
             onChange={(values) => setGroups([...new Set(values)])}
           />
-          <From managed={settings.groups.managed} />
+          <From set={groups.length > 0} managed={settings.groups.managed} />
           <p className="mt-1 text-xs text-ink-3">
             {groups.length
               ? 'Who sees it, besides admins. A change applies at once.'
@@ -234,8 +234,21 @@ function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNod
   )
 }
 
-/** Where a field's value comes from: its cluster's source, which manages it, or this page. */
-function From({ id, managed, problem }: { id?: string; managed?: Managed; problem?: string }) {
+/**
+ * Where a field's value comes from: its cluster's source, which manages it; or this page, once
+ * it's set (an empty one says nothing: its placeholder and help do).
+ */
+function From({
+  id,
+  set,
+  managed,
+  problem,
+}: {
+  id?: string
+  set: boolean
+  managed?: Managed
+  problem?: string
+}) {
   if (problem) {
     return (
       <p id={id} className="mt-1.5 text-xs text-critical-text">
@@ -243,19 +256,35 @@ function From({ id, managed, problem }: { id?: string; managed?: Managed; proble
       </p>
     )
   }
-  return managed ? (
-    <p id={id} className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-2">
-      <Lock className="mt-0.5 size-3 shrink-0" aria-hidden />
-      <span>
-        Set by {managed.by}, in <span className="font-mono">{managed.key}</span>. Change it there.
-      </span>
-    </p>
-  ) : (
+  if (managed) {
+    return (
+      <p id={id} className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-2">
+        <Lock className="mt-0.5 size-3 shrink-0" aria-hidden />
+        <span>
+          Set by {managed.by}, in{' '}
+          {managed.in.map(({ key, context }, i) => (
+            <Fragment key={key + (context ?? '')}>
+              {i > 0 && ' and '}
+              {context === undefined ? (
+                <span className="font-mono">{key}</span>
+              ) : (
+                <>
+                  the <span className="font-mono">{key}</span> extension of context {context}
+                </>
+              )}
+            </Fragment>
+          ))}
+          . Change it there.
+        </span>
+      </p>
+    )
+  }
+  return set ? (
     <p id={id} className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-3">
       <Pencil className="mt-0.5 size-3 shrink-0" aria-hidden />
       <span>Set on this page.</span>
     </p>
-  )
+  ) : null
 }
 
 /**
@@ -401,7 +430,7 @@ function ComesFrom({ origin }: { origin: ClusterOrigin }) {
     <section className="mt-5 rounded-xl bg-surface-3/70 px-3.5 py-3">
       <div className="mb-1.5 flex items-baseline gap-2">
         <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Comes from</h3>
-        <span className="ml-auto truncate font-mono text-xs text-ink-2">{tag}</span>
+        <span className="ml-auto truncate text-xs font-medium text-ink-2">{tag}</span>
       </div>
       <p className="text-xs leading-relaxed text-ink-2">
         {where} What it sets is shown, not changed, here; it can’t be removed from this page.

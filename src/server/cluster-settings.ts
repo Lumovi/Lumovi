@@ -282,6 +282,11 @@ export class ClusterSettings {
     this.#change(context, user, ['fleet'], (entry) => ({ ...entry, fleet }))
   }
 
+  /** A fleet's: what its page set for `context`, let go by Lumovi (it was another cluster's). */
+  dropFleet(context: string): void {
+    this.#change(context, undefined, ['fleet'], (entry) => ({ ...entry, fleet: undefined }))
+  }
+
   /** Why `user` may not change them, or nothing when they may. */
   whyNot(user: SessionUser): string | undefined {
     return this.access.administered && !this.access.isAdmin(user)
@@ -384,11 +389,12 @@ export class ClusterSettings {
    */
   #change(
     context: string,
-    user: SessionUser,
+    /** Who changes it; none, Lumovi itself. */
+    user: SessionUser | undefined,
     fields: readonly Field[],
     change: (entry: ClusterEntry) => ClusterEntry,
   ): void {
-    const why = this.whyNot(user)
+    const why = user && this.whyNot(user)
     if (why) throw new KubeRequestError('not-allowed', why, 403)
     const based = this.state.get<ClusterEntry>('clusters', context)
     const settle = based ? this.#settler(context, based) : (now: ClusterEntry | undefined) => now

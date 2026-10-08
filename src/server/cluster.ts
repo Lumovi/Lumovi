@@ -42,6 +42,8 @@ export interface Hosted {
   hasCluster?(name: string): boolean
   /** A fleet's: a cluster as its source describes it, before what the Fleet page sets. */
   sourced?(name: string): FleetCluster | undefined
+  /** A fleet's: every cluster, with what the Fleet page sets, whoever sees it. */
+  allClusters?(): FleetCluster[]
   /** A fleet's: what its page sets for its clusters, and who sees them all (its admins). */
   settleWith?(page: FleetPage): void
   /** What it shows, for the log: "demo (https://…)", "a fleet of 3 clusters". */

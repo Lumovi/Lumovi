@@ -3,9 +3,9 @@
  * groups (who sees it, besides admins), set by its admins where its source leaves them unset,
  * kept in Lumovi's own state, and recorded.
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { FLEET } from '../mock-cluster/fleet.ts'
 import { audited, expect, freePort, test } from './fixtures.ts'
@@ -37,8 +37,8 @@ const seen = (page: Page) =>
   )
 
 const FROM_KUBECONFIG = {
-  by: `the fleet’s kubeconfig, context ${FLEET.prodEu}`,
-  key: 'lumovi.dev extension',
+  by: 'the fleet’s kubeconfig',
+  in: [{ key: 'lumovi.dev', context: FLEET.prodEu }],
 }
 
 test('admins name, label and share clusters; what a source sets stays its own', async ({
@@ -69,7 +69,7 @@ test('admins name, label and share clusters; what a source sets stays its own', 
   })
   // Its labels are its kubeconfig's: changed there, not here.
   expect(await call(page, 'saveSettings', FLEET.prodEu, { labels: { env: 'dev' } })).toEqual({
-    error: `Its labels are set by the fleet’s kubeconfig, context ${FLEET.prodEu}, in lumovi.dev extension: change them there.`,
+    error: `Its labels are set by the fleet’s kubeconfig, in the lumovi.dev extension of context ${FLEET.prodEu}: change them there.`,
   })
   // Its name as shown, and who sees it, are the page's.
   expect(
@@ -204,6 +204,19 @@ test('only admins see and change a cluster’s settings, where Lumovi has some',
   expect(await refused({ title: 'x'.repeat(101) })).toBe('Its name: Up to 100 characters.')
   expect(await refused({ title: 7 })).toBe('Its name must be text.')
   expect(await refused({ groups: [''] })).toBe('Its group “”: Enter a group.')
+  // Its name as shown is its own: not another's name, nor what another is shown by.
+  expect(await refused({ title: 'PROD-EU' })).toBe(
+    'Its name: another cluster is called PROD-EU. Give it a name of its own.',
+  )
+  expect((await call(page, 'saveSettings', FLEET.prodUs, { title: 'Production' })).error).toBe(
+    undefined,
+  )
+  expect(await refused({ title: 'production' })).toBe(
+    `Its name: ${FLEET.prodUs} is shown as production. Give it a name of its own.`,
+  )
+  expect(
+    (await call(page, 'saveSettings', FLEET.prodUs, { title: 'Production' })).error,
+  ).toBeUndefined()
   expect((await call(page, 'settings', 'nowhere')).error).toBe(
     'This server has no cluster called “nowhere”.',
   )
@@ -249,7 +262,7 @@ test('an admin changes a cluster’s settings from its card; what its source set
   await expect(dialog).toContainText(`Comes from the fleet’s kubeconfig, context ${FLEET.prodEu}`)
   // Its labels are its kubeconfig's: shown, locked, with where to change them.
   await expect(dialog).toContainText(
-    `env=productionregion=eu-westSet by the fleet’s kubeconfig, context ${FLEET.prodEu}, in lumovi.dev extension. Change it there.`,
+    `env=productionregion=eu-westSet by the fleet’s kubeconfig, in the lumovi.dev extension of context ${FLEET.prodEu}. Change it there.`,
   )
   await expect(dialog.getByRole('textbox', { name: 'Add a label' })).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Remove env=production' })).toHaveCount(0)
@@ -260,6 +273,8 @@ test('an admin changes a cluster’s settings from its card; what its source set
     `Comes fromKubeconfigThe fleet’s kubeconfig, context ${FLEET.prodEu}. What it sets is shown, not changed, here; it can’t be removed from this page.`,
   )
   await expect(dialog).toContainText('Recorded in the audit log')
+  // Nothing set yet, it doesn't say it's set here.
+  await expect(dialog).not.toContainText('Set on this page.')
 
   // A name, too long, then one that fits; a group, with one that can't be one refused.
   const name = dialog.getByLabel('Name')
@@ -267,6 +282,7 @@ test('an admin changes a cluster’s settings from its card; what its source set
   await expect(dialog).toContainText('Up to 100 characters.')
   await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled()
   await name.fill('Production EU')
+  await expect(dialog.locator('#fleet-cluster-title-from')).toHaveText('Set on this page.')
   const groups = dialog.getByRole('textbox', { name: 'Add a group' })
   await groups.fill('sre​')
   await groups.press('Enter')
@@ -305,4 +321,76 @@ test('an admin changes a cluster’s settings from its card; what its source set
   await expect(again.getByRole('button', { name: 'Remove sre' })).toBeVisible()
   await again.getByRole('button', { name: 'Cancel' }).click()
   await expect(again).toHaveCount(0)
+})
+
+test('what the page set for a cluster isn’t another’s that comes by its name from elsewhere', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-fleet-files-'))
+  const [first, second] = [join(dir, 'first.json'), join(dir, 'second.json')]
+  const kubeconfig = (contexts: string[]) =>
+    JSON.stringify({
+      apiVersion: 'v1',
+      kind: 'Config',
+      clusters: contexts.map((name) => ({
+        name,
+        cluster: {
+          server: clusters.demo.url,
+          'certificate-authority-data': Buffer.from(clusters.demo.caPem!).toString('base64'),
+        },
+      })),
+      users: [{ name: 'hub', user: { token: 'lumovi-demo-token' } }],
+      contexts: contexts.map((name) => ({ name, context: { cluster: name, user: 'hub' } })),
+    })
+  writeFileSync(first, kubeconfig(['lab']))
+  writeFileSync(second, kubeconfig(['other']))
+  const hub = await serve({
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_FLEET_KUBECONFIG_FILE: [first, second].join(delimiter),
+      LUMOVI_FLEET_REFRESH_SECONDS: '1',
+      LUMOVI_ADMINS: 'user:admin@example.com',
+      LUMOVI_DATA_DIR: mkdtempSync(join(tmpdir(), 'lumovi-fleet-settings-')),
+    },
+  })
+  await as(context, 'admin@example.com')
+  await page.goto(hub.url)
+  await call(page, 'saveSettings', 'lab', {
+    title: 'Lab',
+    labels: { env: 'staging' },
+    groups: ['qa'],
+  })
+  const lab = async () =>
+    (await page.evaluate(() => window.lumovi!.kube.contexts())).contexts.find(
+      (c) => c.name === 'lab',
+    )
+  expect(await lab()).toMatchObject({ title: 'Lab', labels: { env: 'staging' } })
+
+  // Another lab, from the other file: none of it is its.
+  writeFileSync(first, kubeconfig([]))
+  writeFileSync(second, kubeconfig(['other', 'lab']))
+  await expect.poll(async () => (await lab())?.labels).toEqual({})
+  expect((await lab())?.title).toBeUndefined()
+  expect(await call(page, 'settings', 'lab')).toEqual({
+    value: expect.objectContaining({
+      title: {},
+      labels: { value: {} },
+      groups: { value: [] },
+      origin: { kind: 'kubeconfig', where: second, context: 'lab' },
+    }),
+  })
+  // Let go, and recorded, by Lumovi.
+  await expect
+    .poll(() => audited(hub, 'cluster-settings.changed').map((e) => [e.actor.user, e.summary]))
+    .toContainEqual([
+      'lumovi',
+      'Let go of what the Fleet page set for lab: it was set for another cluster by that name, and this one comes from elsewhere',
+    ])
+  // Everyone sees it: the groups were the other's.
+  await as(context, 'alice@example.com')
+  await page.reload()
+  expect(await lab()).toBeDefined()
 })

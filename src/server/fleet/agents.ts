@@ -406,7 +406,9 @@ export class Agents {
 function managedBy(config: AgentConfig): Pick<FleetCluster, 'managed'> {
   const managed: NonNullable<FleetCluster['managed']> = {}
   for (const field of ['labels', 'groups'] as const) {
-    if (config[field]) managed[field] = { by: 'the server’s settings', key: 'LUMOVI_FLEET_AGENTS' }
+    if (config[field]) {
+      managed[field] = { by: 'the server’s settings', in: [{ key: 'LUMOVI_FLEET_AGENTS' }] }
+    }
   }
   return Object.keys(managed).length ? { managed } : {}
 }

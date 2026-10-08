@@ -98,6 +98,11 @@ export const titleError = (title: string): string | undefined =>
 
 /** What the Fleet page sets for a cluster: what its source leaves unset. */
 export interface FleetSetting {
+  /**
+   * The cluster it was set for, by where it comes from (originKey): another of the same name,
+   * from elsewhere, doesn't take it.
+   */
+  origin?: string
   /** The name it's shown by (its own stays, in URLs and its context). */
   title?: string
   labels?: Record<string, string>
@@ -110,19 +115,51 @@ export type ClusterOrigin =
   /** A kubeconfig's context: the fleet's setting (LUMOVI_FLEET_KUBECONFIG), or a file. */
   | { kind: 'kubeconfig'; where: string; context: string }
   /** A Secret of the cluster Lumovi runs in, each tool's way. */
-  | { kind: 'secret'; tool: 'lumovi' | 'cluster-api' | 'argocd'; secret: string; namespace: string }
+  | {
+      kind: 'secret'
+      tool: 'lumovi' | 'cluster-api' | 'argocd'
+      secret: string
+      namespace: string
+      /** The Secret's UID: one made again is another. */
+      uid?: string
+    }
   /** The cluster Lumovi runs in. */
   | { kind: 'this' }
   /** An agent that dials the hub: LUMOVI_FLEET_AGENTS names it, or it was connected from the page. */
   | { kind: 'agent'; joined?: { at: string; by: string } }
 
+/** Where a cluster comes from, as one key: what the page sets for it is for that cluster alone. */
+export function originKey(origin: ClusterOrigin): string {
+  switch (origin.kind) {
+    case 'kubeconfig':
+      return `kubeconfig:${origin.where}:${origin.context}`
+    case 'secret':
+      return `secret:${origin.tool}:${origin.namespace}/${origin.secret}:${origin.uid ?? ''}`
+    case 'this':
+      return 'this'
+    case 'agent':
+      return `agent:${origin.joined?.at ?? ''}`
+  }
+}
+
 /** A setting its source sets, which the page doesn't change: where, to change it there. */
 export interface Managed {
   /** What sets it: "its Secret, cluster-production". */
   by: string
-  /** Where in that: "lumovi.dev/labels". */
-  key: string
+  /**
+   * Where in that: a key ("lumovi.dev/labels"), or a kubeconfig context's extension (`lumovi.dev`,
+   * of its context); more than one where they're merged.
+   */
+  in: { key: string; context?: string }[]
 }
+
+/** Where in its source a setting is set, in words: "lumovi.dev/labels". */
+export const placesText = (managed: Managed): string =>
+  managed.in
+    .map(({ key, context }) =>
+      context === undefined ? key : `the ${key} extension of context ${context}`,
+    )
+    .join(' and ')
 
 /** A field of a cluster's settings: its value, and what sets it, where it isn't the page. */
 export interface SettingField<T> {

@@ -543,31 +543,43 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
   await page.reload()
   const settings = (name: string) =>
     page.evaluate((name) => window.lumovi!.fleet!.settings(name), name)
-  const itsSecret = (name: string, key: string) => ({ by: `its Secret, ${name}`, key })
+  const itsSecret = (name: string, ...keys: string[]) => ({
+    by: `its Secret, ${name}`,
+    in: keys.map((key) => ({ key })),
+  })
   expect(await settings('staging')).toEqual({
     name: 'staging',
     title: {},
     labels: { value: { env: 'staging' }, managed: itsSecret('staging', 'lumovi.dev/labels') },
     groups: { value: ['developers', 'qa'], managed: itsSecret('staging', 'lumovi.dev/groups') },
-    origin: { kind: 'secret', tool: 'lumovi', secret: 'staging', namespace: 'lumovi' },
+    origin: {
+      kind: 'secret',
+      tool: 'lumovi',
+      secret: 'staging',
+      namespace: 'lumovi',
+      uid: expect.any(String),
+    },
     removable: false,
   })
   expect(await settings('qa')).toMatchObject({
-    labels: { value: { env: 'qa' }, managed: itsSecret('several', 'lumovi.dev extension') },
+    labels: {
+      value: { env: 'qa' },
+      managed: { by: 'its Secret, several', in: [{ key: 'lumovi.dev', context: 'qa' }] },
+    },
     groups: { value: [] },
   })
   expect((await settings('qa')).groups.managed).toBeUndefined()
   expect(await settings('hub')).toMatchObject({
     labels: {
       value: { env: 'ops' },
-      managed: { by: 'the server’s settings', key: 'LUMOVI_CLUSTER_LABELS' },
+      managed: { by: 'the server’s settings', in: [{ key: 'LUMOVI_CLUSTER_LABELS' }] },
     },
     origin: { kind: 'this' },
   })
   expect(await settings('prod-us')).toMatchObject({
     labels: {
       value: { env: 'production', tier: 'gold' },
-      managed: itsSecret('cluster-prod-us', 'metadata.labels and lumovi.dev/labels'),
+      managed: itsSecret('cluster-prod-us', 'metadata.labels', 'lumovi.dev/labels'),
     },
     origin: { kind: 'secret', tool: 'argocd', secret: 'cluster-prod-us', namespace: 'argocd' },
   })
