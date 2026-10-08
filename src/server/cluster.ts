@@ -14,6 +14,8 @@ import { KubeRequestError } from '@backend/kube/errors'
 import { kubeconfigPaths, loadKubeConfig, type ClusterConfigs } from '@backend/kube/kubeconfig'
 import { ConfigError } from './config'
 import type { Agents } from './fleet/agents'
+import type { FleetCluster } from './fleet/clusters'
+import type { FleetPage } from './fleet/fleet'
 
 /** Where Kubernetes mounts a pod's service account. */
 const SERVICE_ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount'
@@ -38,6 +40,10 @@ export interface Hosted {
   readonly agents?: Agents
   /** A fleet's: whether one of its clusters is called `name`. */
   hasCluster?(name: string): boolean
+  /** A fleet's: a cluster as its source describes it, before what the Fleet page sets. */
+  sourced?(name: string): FleetCluster | undefined
+  /** A fleet's: what its page sets for its clusters, and who sees them all (its admins). */
+  settleWith?(page: FleetPage): void
   /** What it shows, for the log: "demo (https://…)", "a fleet of 3 clusters". */
   describe(): string
   /** The clusters someone may see, and how their requests reach each. */

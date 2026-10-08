@@ -5,6 +5,7 @@
 import { withProxy } from '@backend/network'
 import { KubeConfig, type Cluster, type User } from '@kubernetes/client-node'
 import { parse } from 'yaml'
+import type { ClusterOrigin, Managed } from '@shared/fleet'
 import { ConfigError, stringMap, strings } from '../config'
 
 /** One cluster of a fleet, and how the server reaches it. */
@@ -38,6 +39,12 @@ export interface FleetCluster {
    * first used its join token is trusted, so it isn't shown (but to admins) until someone does.
    */
   unchecked?: true
+  /** Where it comes from, as the Fleet page says. */
+  origin?: ClusterOrigin
+  /** Which of Lumovi's settings its source sets (the page doesn't change those), and where. */
+  managed?: { labels?: Managed; groups?: Managed }
+  /** The name it's shown by, as the Fleet page sets it. */
+  title?: string
 }
 
 /** Lumovi's settings for a cluster, as a context's `lumovi.dev` extension (or a Secret's annotations) has them. */
@@ -53,8 +60,16 @@ export type Prefixes = Partial<{ user: string; groups: string }>
 
 const EXTENSION = 'lumovi.dev'
 
-/** Every context of a kubeconfig, as a cluster; `dir` resolves its relative file paths. */
-export function kubeconfigClusters(text: string, source: string, dir?: string): FleetCluster[] {
+/**
+ * Every context of a kubeconfig, as a cluster; `dir` resolves its relative file paths. What its
+ * `lumovi.dev` extension sets is its, as `by` says where (each context's).
+ */
+export function kubeconfigClusters(
+  text: string,
+  source: string,
+  by: (context: string) => string,
+  dir?: string,
+): FleetCluster[] {
   const kc = new KubeConfig()
   let raw: { contexts?: { name?: string; context?: { extensions?: unknown } }[] }
   try {
@@ -69,7 +84,7 @@ export function kubeconfigClusters(text: string, source: string, dir?: string): 
   }
   return kc.contexts.map((context) => {
     const extensions = raw.contexts?.find((c) => c.name === context.name)?.context?.extensions
-    let settings: ClusterSettings
+    let settings: ClusterSettings & { set: ('labels' | 'groups')[] }
     try {
       settings = extensionSettings(extensions)
     } catch (error) {
@@ -77,7 +92,12 @@ export function kubeconfigClusters(text: string, source: string, dir?: string): 
     }
     const cluster = kc.getCluster(context.cluster)
     const account = kc.getUser(context.user)
-    return described(context.name, source, settings, cluster ?? undefined, account ?? undefined)
+    const { set, ...rest } = settings
+    const found = described(context.name, source, rest, cluster ?? undefined, account ?? undefined)
+    const managed = { by: by(context.name), key: `${EXTENSION} extension` }
+    return set.length
+      ? { ...found, managed: Object.fromEntries(set.map((field) => [field, managed])) }
+      : found
   })
 }
 
@@ -121,8 +141,10 @@ function hasCredentials(user: User | undefined): boolean {
   return CREDENTIALS.some((field) => Boolean(user?.[field]))
 }
 
-/** Lumovi's settings from a context's extensions: everything optional. */
-function extensionSettings(extensions: unknown): ClusterSettings {
+/** Lumovi's settings from a context's extensions: everything optional; and which it sets. */
+function extensionSettings(
+  extensions: unknown,
+): ClusterSettings & { set: ('labels' | 'groups')[] } {
   const found = Array.isArray(extensions)
     ? (extensions as { name?: unknown; extension?: unknown }[]).find((e) => e.name === EXTENSION)
     : undefined
@@ -130,13 +152,15 @@ function extensionSettings(extensions: unknown): ClusterSettings {
   if (typeof extension !== 'object' || Array.isArray(extension)) {
     throw new ConfigError('should be a map, like { labels: { env: production } }.')
   }
-  return settingsFrom({
+  const settings = settingsFrom({
     labels: stringMap('labels', extension.labels),
     groups: extension.groups === undefined ? undefined : strings('groups', extension.groups),
     forwardToken: extension.forwardToken,
     usernamePrefix: extension.usernamePrefix,
     groupsPrefix: extension.groupsPrefix,
   })
+  const set = (['labels', 'groups'] as const).filter((field) => extension[field] !== undefined)
+  return { ...settings, set }
 }
 
 /** Settings, checked: forwardToken a boolean, prefixes text. */

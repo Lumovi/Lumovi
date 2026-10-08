@@ -49,18 +49,23 @@ const SELECTORS: Record<SecretSource, string> = {
   argocd: 'argocd.argoproj.io/secret-type=cluster',
 }
 
+/** What a Secret sets of a cluster's settings is set by it: said so on the Fleet page. */
+const itsSecret = (secret: Secret) => `its Secret, ${secret.metadata.name}`
+
 const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetCluster[]> = {
   lumovi: (secret, source) => {
     const kubeconfig = decoded(secret, 'kubeconfig')
     return kubeconfig === undefined
       ? [broken(secret.metadata.name, source, 'It has no kubeconfig (data.kubeconfig).')]
-      : kubeconfigClusters(kubeconfig, source).map((cluster) => annotated(cluster, secret))
+      : kubeconfigClusters(kubeconfig, source, () => itsSecret(secret)).map((cluster) =>
+          annotated(cluster, secret),
+        )
   },
   // Cluster API labels every Secret of a cluster; its kubeconfig is <name>-kubeconfig, under value.
   'cluster-api': (secret, source) => {
     const kubeconfig = decoded(secret, 'value')
     if (!secret.metadata.name.endsWith('-kubeconfig') || kubeconfig === undefined) return []
-    const [cluster] = kubeconfigClusters(kubeconfig, source)
+    const [cluster] = kubeconfigClusters(kubeconfig, source, () => itsSecret(secret))
     return cluster
       ? [
           annotated(
@@ -92,7 +97,7 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
       ([key]) => !key.startsWith('argocd.argoproj.io/'),
     )
     const exec = config.execProviderConfig
-    const cluster = described(
+    const found = described(
       name,
       source,
       { labels: Object.fromEntries(own), forwardToken: false },
@@ -119,6 +124,10 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
         },
       },
     )
+    // Those labels are set by its Secret.
+    const cluster = own.length
+      ? { ...found, managed: { labels: { by: itsSecret(secret), key: 'metadata.labels' } } }
+      : found
     return [annotated(cluster, secret)]
   },
 }
@@ -144,13 +153,25 @@ function annotated(cluster: FleetCluster, secret: Secret): FleetCluster {
     groups: groups === undefined ? cluster.groups : groups.split(',').map((g) => g.trim()),
     forwardToken: forward === undefined ? cluster.forwardToken : forward === 'true',
   })
-  return described(
-    cluster.name,
-    cluster.source,
-    { ...settings, prefixes: cluster.prefixes },
-    cluster.cluster,
-    cluster.account,
-  )
+  // What its annotations set is its Secret's: its labels, with those it had (they're merged);
+  // its groups, instead.
+  const managed = { ...cluster.managed }
+  for (const field of ['labels', 'groups'] as const) {
+    const key = `lumovi.dev/${field}`
+    if (annotations[key] === undefined) continue
+    const had = field === 'labels' ? managed.labels : undefined
+    managed[field] = { by: itsSecret(secret), key: had ? `${had.key} and ${key}` : key }
+  }
+  return {
+    ...described(
+      cluster.name,
+      cluster.source,
+      { ...settings, prefixes: cluster.prefixes },
+      cluster.cluster,
+      cluster.account,
+    ),
+    ...(Object.keys(managed).length ? { managed } : {}),
+  }
 }
 
 /**
@@ -191,10 +212,19 @@ export async function secretClusters(
       const clusters: FleetCluster[] = []
       for (const secret of secrets) {
         const source = `Secret ${namespace}/${secret.metadata.name}`
+        const origin = {
+          kind: 'secret',
+          tool: kind,
+          secret: secret.metadata.name,
+          namespace,
+        } as const
         try {
-          clusters.push(...READERS[kind](secret, source))
+          clusters.push(...READERS[kind](secret, source).map((cluster) => ({ ...cluster, origin })))
         } catch (error) {
-          clusters.push(broken(secret.metadata.name, source, (error as Error).message))
+          clusters.push({
+            ...broken(secret.metadata.name, source, (error as Error).message),
+            origin,
+          })
         }
       }
       lists.set(list, clusters)

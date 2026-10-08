@@ -23,10 +23,6 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import type { AuditActor } from '@shared/audit'
 import {
   clusterNameError,
-  groupError,
-  labelKeyError,
-  labelValueError,
-  MAX_GROUPS,
   type FleetJoin,
   type FleetJoinRequest,
   type FleetJoins,
@@ -40,6 +36,7 @@ import { SERVER_ACTOR } from '../audit'
 import { log } from '../log'
 import type { ServerState } from '../state'
 import { prefix } from './agents'
+import { checkedGroups, checkedLabels } from './settings'
 
 /** How long a join's token works (LUMOVI_FLEET_JOIN_SECONDS, for tests). */
 const JOIN_MS = (Number(process.env.LUMOVI_FLEET_JOIN_SECONDS) || 3600) * 1000
@@ -120,31 +117,7 @@ function checked(request: unknown): FleetJoinRequest {
   if (typeof name !== 'string') throw invalid('Give the cluster a name.')
   const nameError = clusterNameError(name)
   if (nameError) throw invalid(`Its name: ${nameError}.`)
-  if (
-    typeof labels !== 'object' ||
-    labels === null ||
-    Array.isArray(labels) ||
-    Object.values(labels).some((value) => typeof value !== 'string')
-  ) {
-    throw invalid('Its labels must be a map of text, like { env: production }.')
-  }
-  for (const [key, value] of Object.entries(labels as Record<string, string>)) {
-    const error = labelKeyError(key) ?? labelValueError(value)
-    if (error) throw invalid(`Its label ${key}: ${error}.`)
-  }
-  if (!Array.isArray(groups) || groups.some((group) => typeof group !== 'string')) {
-    throw invalid('Its groups must be a list of text, like [platform, sre].')
-  }
-  if (groups.length > MAX_GROUPS) throw invalid(`Up to ${MAX_GROUPS} groups may see it.`)
-  for (const group of groups as string[]) {
-    const error = groupError(group)
-    if (error) throw invalid(`Its group “${group}”: ${error}.`)
-  }
-  return {
-    name,
-    labels: { ...(labels as Record<string, string>) },
-    groups: [...new Set(groups as string[])],
-  }
+  return { name, labels: checkedLabels(labels), groups: checkedGroups(groups) }
 }
 
 export class Joins {
