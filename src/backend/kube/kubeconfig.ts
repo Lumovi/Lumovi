@@ -67,8 +67,8 @@ export interface ClusterConfigs {
 
 /**
  * Holds the merged kubeconfig and hands out per-context views of it: the files chosen in Lumovi
- * (on the desktop), or else KUBECONFIG's, or ~/.kube/config; then those added in Lumovi. Read,
- * never written.
+ * (on the desktop), or else KUBECONFIG's, or ~/.kube/config; then those added in Lumovi; then
+ * Lumovi's own (clusters added in it, each a file of its own). Read, never written.
  */
 export class KubeConfigStore implements ClusterConfigs {
   #base = new KubeConfig()
@@ -76,7 +76,7 @@ export class KubeConfigStore implements ClusterConfigs {
 
   constructor(
     private readonly env: NodeJS.ProcessEnv = process.env,
-    private readonly given: () => { chosen: string[]; added: string[] } = () => ({
+    private readonly given: () => { chosen: string[]; added: string[]; own?: string[] } = () => ({
       chosen: [],
       added: [],
     }),
@@ -85,21 +85,31 @@ export class KubeConfigStore implements ClusterConfigs {
   }
 
   /**
-   * The files read, in order: those before (`base`, from where `from` says), then those added
-   * (each once).
+   * The files read, in order: those before (`base`, from where `from` says), then those added,
+   * then Lumovi's own (each once).
    */
   paths(): {
     paths: string[]
     base: string[]
     added: string[]
+    own: string[]
     from: 'chosen' | 'env' | 'default'
   } {
-    const { chosen, added } = this.given()
+    const { chosen, added, own = [] } = this.given()
     const from = chosen.length > 0 ? 'chosen' : this.env.KUBECONFIG ? 'env' : 'default'
     const base = chosen.length > 0 ? chosen : kubeconfigPaths(this.env)
-    const before = new Set(base.map((file) => resolve(file)))
-    const after = added.filter((file) => !before.has(resolve(file)))
-    return { paths: [...base, ...after], base, added: after, from }
+    const seen = new Set(base.map((file) => resolve(file)))
+    const after = (files: string[]) =>
+      files.filter((file) => !seen.has(resolve(file)) && seen.add(resolve(file)))
+    const addedAfter = after(added)
+    const ownAfter = after(own)
+    return {
+      paths: [...base, ...addedAfter, ...ownAfter],
+      base,
+      added: addedAfter,
+      own: ownAfter,
+      from,
+    }
   }
 
   /** Re-reads the kubeconfig from disk. */

@@ -32,11 +32,11 @@ export class KubeconfigFiles {
     },
   ) {}
 
-  /** Each where it is (what show and remove take), and which Lumovi was given. */
+  /** Each where it is (what show and remove take), and which Lumovi was given, or keeps. */
   list(): Files {
-    const { base, added, from } = this.deps.store.paths()
+    const { base, added, own, from } = this.deps.store.paths()
     const locked = lockedBy(this.deps.managed)
-    const file = (path: string, more: { added?: true; removable?: true }) => ({
+    const file = (path: string, more: { added?: true; removable?: true; own?: true }) => ({
       path: resolve(path),
       exists: existsSync(path),
       ...more,
@@ -45,6 +45,7 @@ export class KubeconfigFiles {
       files: [
         ...base.map((path) => file(path, from === 'chosen' ? { removable: true } : {})),
         ...added.map((path) => file(path, { added: true, removable: true })),
+        ...own.map((path) => file(path, { own: true })),
       ],
       from,
       ...(locked ? { locked } : {}),
@@ -81,9 +82,16 @@ export class KubeconfigFiles {
       const { chosen, added } = this.deps.settings.kubeconfigFiles()
       if (added.includes(path)) return { ok: true, data: this.#keep(chosen, without(added, path)) }
       if (chosen.includes(path)) return { ok: true, data: this.#keep(without(chosen, path), added) }
+      const { own, from } = this.deps.store.paths()
+      if (own.includes(path)) {
+        throw new KubeRequestError(
+          'invalid',
+          `${path} is a cluster added in Lumovi: remove it there.`,
+        )
+      }
       throw new KubeRequestError(
         'invalid',
-        this.deps.store.paths().from === 'env'
+        from === 'env'
           ? `${path} is in KUBECONFIG, which Lumovi reads as it’s set: change KUBECONFIG, or choose a kubeconfig in its place.`
           : `${path} is read where no other kubeconfig is chosen: choose one in its place.`,
       )

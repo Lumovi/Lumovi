@@ -20,6 +20,7 @@ import { viewsDirectory } from '@backend/views'
 import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
 import { KubeconfigFiles } from './kubeconfig-files'
+import { AddedClusters, ownKubeconfigs } from './added-clusters'
 import { runStdio, STDIO } from './mcp-stdio'
 import { KUBECTL_MIRROR, Kubectls } from './kubectl'
 import type { TrustRoot } from './kubectl-signature'
@@ -77,8 +78,13 @@ if (stdio) {
     session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission))
 
     const url = rendererUrl()
-    // The kubeconfig files chosen in Lumovi, or else KUBECONFIG's, or ~/.kube/config.
-    const store = new KubeConfigStore(process.env, () => settings.kubeconfigFiles())
+    // The kubeconfig files chosen in Lumovi, or else KUBECONFIG's, or ~/.kube/config; then those
+    // added; then the clusters added in Lumovi, each a file of its own.
+    const kubeconfigs = join(app.getPath('userData'), 'kubeconfigs')
+    const store = new KubeConfigStore(process.env, () => ({
+      ...settings.kubeconfigFiles(),
+      own: ownKubeconfigs(kubeconfigs, policy.managed),
+    }))
     const kubeconfigFiles = new KubeconfigFiles({
       settings,
       store,
@@ -93,6 +99,20 @@ if (stdio) {
         return canceled ? null : filePaths
       },
       reveal: (path) => shell.showItemInFolder(path),
+    })
+    const addedClusters = new AddedClusters({
+      folder: kubeconfigs,
+      store,
+      files: kubeconfigFiles,
+      managed: policy.managed,
+      pick: async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+          title: 'Import a kubeconfig',
+          defaultPath: join(homedir(), '.kube'),
+          properties: ['openFile', 'showHiddenFiles'],
+        })
+        return canceled ? null : (filePaths[0] ?? null)
+      },
     })
     // Once the login shell's PATH and proxy are known: the network set up (the system's
     // certificate authorities trusted, the proxy gone through), and the kubeconfig read again
@@ -315,6 +335,7 @@ if (stdio) {
     registerIpc({
       problems: () => envReady.then(() => problems),
       kubeconfigFiles,
+      addedClusters,
       assistants,
       kube,
       helm,

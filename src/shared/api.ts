@@ -249,9 +249,10 @@ export interface KubeContext {
 export interface KubeconfigFiles {
   /**
    * Each, in order, where it is; one that isn't there is skipped, as kubectl does. Those added in
-   * Lumovi after the rest are `added`, and those it was given (chosen or added) `removable`.
+   * Lumovi after the rest are `added`, and those it was given (chosen or added) `removable`. Last,
+   * Lumovi's `own`: clusters added in it (see `addedClusters`).
    */
-  files: { path: string; exists: boolean; added?: true; removable?: true }[]
+  files: { path: string; exists: boolean; added?: true; removable?: true; own?: true }[]
   /**
    * Where the files before those added come from: chosen in Lumovi, KUBECONFIG, or the default
    * (~/.kube/config).
@@ -259,6 +260,48 @@ export interface KubeconfigFiles {
   from: 'chosen' | 'env' | 'default'
   /** Why it can't be changed in Lumovi (the organization's policy), if it can't. */
   locked?: string
+}
+
+/** A program a kubeconfig's credentials run on this computer, exactly as it would run. */
+export interface CredentialCommand {
+  /** The kubeconfig user it signs in as. */
+  user: string
+  /** As it runs: the program and its arguments, quoted as a shell would need them. */
+  line: string
+  /** Run through a shell, as written (an auth provider's cmd-path and cmd-args), not as a program. */
+  shell?: true
+  /** The environment variables set for it, over Lumovi's. */
+  env: { name: string; value: string }[]
+}
+
+/** A kubeconfig pasted or imported, read (nothing run, nothing reached). */
+export interface PastedKubeconfig {
+  contexts: {
+    name: string
+    server?: string
+    namespace?: string
+    /** How it signs in. */
+    auth: 'token' | 'certificate' | 'basic' | 'command' | 'none'
+  }[]
+  /** The programs its credentials run: shown, and never run before the person agrees. */
+  commands: CredentialCommand[]
+  /** The files on this computer its connections read (a token file's text is sent to its server). */
+  files: string[]
+  /** Its contexts named as some already read are: kubectl would take those, not these. */
+  conflicts: string[]
+}
+
+/** Whether a context of a pasted kubeconfig can be used: its server answers, and its credentials work. */
+export interface ClusterCheck {
+  server: { ok: true; version?: string } | { ok: false; message: string }
+  /**
+   * Signed in (and whether it may list namespaces), refused, or not tried: its credentials run a
+   * program the person hasn't agreed to.
+   */
+  credentials:
+    | { ok: true; allowed: boolean }
+    | { ok: false; message: string }
+    | { ok: false; notTried: 'commands' | 'server' }
 }
 
 export interface ContextsResult {
@@ -913,6 +956,39 @@ export interface LumoviApi {
     /** Shows one of them in Finder or Explorer. */
     show(path: string): Promise<void>
   }
+  /**
+   * The desktop app's: clusters added in Lumovi from a pasted or imported kubeconfig, each kept as
+   * a file of its own (0600, in Lumovi's data folder) after those read. The person's own files
+   * are never written. A credential that runs a program (`commands`) runs only once the person
+   * agrees (`allowCommands`).
+   */
+  addedClusters?: {
+    /** Asks for a kubeconfig file to import, and gives its text; null if the user cancels. */
+    import(): Promise<Result<string | null>>
+    /** What a kubeconfig holds, and what it would run: nothing run, nothing reached. */
+    inspect(text: string): Promise<Result<PastedKubeconfig>>
+    /** Whether one of its contexts can be used. */
+    check(text: string, context: string, allowCommands: boolean): Promise<Result<ClusterCheck>>
+    /**
+     * Kept, as a file of Lumovi's own, and read after the rest: its contexts (or those named),
+     * each renamed as `names` says (to not be taken for one already read).
+     */
+    add(
+      text: string,
+      options: { contexts?: string[]; names?: Record<string, string>; allowCommands: boolean },
+    ): Promise<Result<KubeconfigFiles>>
+    /** The text of one Lumovi keeps, to edit. */
+    read(path: string): Promise<Result<string>>
+    /** One Lumovi keeps, written again (checked as add checks it). */
+    edit(path: string, text: string, allowCommands: boolean): Promise<Result<KubeconfigFiles>>
+    /** One Lumovi keeps, no longer read, and its file deleted. */
+    remove(path: string): Promise<Result<KubeconfigFiles>>
+    /**
+     * The line for a terminal (`export KUBECONFIG=…`, or PowerShell's) that has kubectl read the
+     * same: one of the files read, or all of them, in order.
+     */
+    forKubectl(path?: string): Promise<Result<string>>
+  }
   localCharts?: {
     /** Asks for a chart folder or a packaged chart; null if the user cancels. */
     choose(kind: 'folder' | 'archive'): Promise<string | null>
@@ -1068,6 +1144,14 @@ export const IPC = {
   kubeconfigRemove: 'kubeconfig:remove',
   kubeconfigUseDefault: 'kubeconfig:use-default',
   kubeconfigShow: 'kubeconfig:show',
+  addedImport: 'added:import',
+  addedInspect: 'added:inspect',
+  addedCheck: 'added:check',
+  addedAdd: 'added:add',
+  addedRead: 'added:read',
+  addedEdit: 'added:edit',
+  addedRemove: 'added:remove',
+  addedForKubectl: 'added:for-kubectl',
   version: 'kube:version',
   resources: 'kube:resources',
   schema: 'kube:schema',

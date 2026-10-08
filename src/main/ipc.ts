@@ -23,6 +23,7 @@ import { isPort } from '@shared/assistants'
 import { checkedDecision } from '@backend/mcp/approvals'
 import type { SponsorSource } from '@backend/sponsor/source'
 import type { Assistants } from './assistants'
+import type { AddedClusters } from './added-clusters'
 import type { KubeconfigFiles } from './kubeconfig-files'
 import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
@@ -33,6 +34,8 @@ interface Dependencies extends Backend {
   assistants: Assistants
   /** The kubeconfig files read: chosen here, or KUBECONFIG's. */
   kubeconfigFiles: KubeconfigFiles
+  /** Clusters added in Lumovi, each a kubeconfig of its own. */
+  addedClusters: AddedClusters
   settings: SettingsStore
   local: LocalTerminals
   terminalKeys: TerminalKeys
@@ -49,10 +52,15 @@ interface Dependencies extends Backend {
   problems: () => Promise<string[]>
 }
 
+/** Whether it's a list of strings. */
+const isStrings = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
 export function registerIpc(deps: Dependencies): void {
   const {
     assistants,
     kubeconfigFiles,
+    addedClusters,
     helm,
     settings,
     terminals,
@@ -135,6 +143,50 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.kubeconfigShow]: (path) => {
       assertString(path, 'path')
       kubeconfigFiles.show(path)
+    },
+    [IPC.addedImport]: () => addedClusters.import(),
+    [IPC.addedInspect]: (text) => {
+      assertString(text, 'text')
+      return addedClusters.inspect(text)
+    },
+    [IPC.addedCheck]: (text, context, allowCommands) => {
+      assertString(text, 'text')
+      assertString(context, 'context')
+      return addedClusters.check(text, context, allowCommands === true)
+    },
+    [IPC.addedAdd]: (text, options) => {
+      assertString(text, 'text')
+      const { contexts, names, allowCommands } = (options ?? {}) as Record<string, unknown>
+      if (contexts !== undefined && !isStrings(contexts)) throw invalid('contexts must be names')
+      if (
+        names !== undefined &&
+        (typeof names !== 'object' || names === null || !isStrings(Object.values(names)))
+      ) {
+        throw invalid('names must map names to names')
+      }
+      return addedClusters.add(text, {
+        ...(contexts ? { contexts } : {}),
+        ...(names ? { names: names as Record<string, string> } : {}),
+        // Only a yes is one.
+        allowCommands: allowCommands === true,
+      })
+    },
+    [IPC.addedRead]: (path) => {
+      assertString(path, 'path')
+      return addedClusters.read(path)
+    },
+    [IPC.addedEdit]: (path, text, allowCommands) => {
+      assertString(path, 'path')
+      assertString(text, 'text')
+      return addedClusters.edit(path, text, allowCommands === true)
+    },
+    [IPC.addedRemove]: (path) => {
+      assertString(path, 'path')
+      return addedClusters.remove(path)
+    },
+    [IPC.addedForKubectl]: (path) => {
+      if (path !== undefined) assertString(path, 'path')
+      return addedClusters.forKubectl(path)
     },
     [IPC.helmChoose]: async (kind) => {
       const archive = kind === 'archive'

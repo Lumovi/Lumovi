@@ -64,6 +64,16 @@ const api: LumoviApi = {
     useDefault: () => invoke(IPC.kubeconfigUseDefault),
     show: (path) => invoke(IPC.kubeconfigShow, path),
   },
+  addedClusters: {
+    import: () => invoke(IPC.addedImport),
+    inspect: (text) => invoke(IPC.addedInspect, text),
+    check: (text, context, allowCommands) => invoke(IPC.addedCheck, text, context, allowCommands),
+    add: (text, options) => invoke(IPC.addedAdd, text, options),
+    read: (path) => invoke(IPC.addedRead, path),
+    edit: (path, text, allowCommands) => invoke(IPC.addedEdit, path, text, allowCommands),
+    remove: (path) => invoke(IPC.addedRemove, path),
+    forKubectl: (path) => invoke(IPC.addedForKubectl, path),
+  },
   localCharts: {
     choose: (kind) => invoke(IPC.helmChoose, kind),
     read: (path) => invoke(IPC.helmLocal, path),
