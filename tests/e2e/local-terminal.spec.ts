@@ -781,6 +781,8 @@ test('a mirror’s kubectl: checked against Kubernetes’ signature, or said to 
   downloads,
 }) => {
   test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
+  // Lumovi started four times (on Windows, each takes long).
+  test.slow()
   // A host of its own (the stand-in for dl.k8s.io's, by another name): a mirror is by its host.
   const mirror = new URL('/mirror', downloads.url)
   mirror.hostname = 'localhost'
@@ -830,6 +832,7 @@ test('the organization’s policy can require Kubernetes’ signature from its m
   downloads,
 }) => {
   test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
+  test.slow()
   const mirror = new URL('/mirror', downloads.url)
   mirror.hostname = 'localhost'
   const host = mirror.host
@@ -864,6 +867,18 @@ test('the organization’s policy can require Kubernetes’ signature from its m
     `${host}\n${sha256Of(kept(userDataDir, 'v1.34.9'))}\n`,
   )
   expect(existsSync(join(kept(userDataDir, 'v1.34.9'), 'unsigned'))).toBe(false)
+})
+
+test('under a policy requiring signatures, a signed kubectl is kept for offline; a broken policy gets none', async ({
+  launch,
+  downloads,
+}) => {
+  test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
+  test.slow()
+  const mirror = new URL('/mirror', downloads.url)
+  mirror.hostname = 'localhost'
+  const host = mirror.host
+  const policy = policyFile({ kubectl: mirror.href, kubectlSignatures: 'required' })
 
   // Offline, the newest signed one kept of the minor version, though a newer one came unsigned:
   // kept as Lumovi starts, for this.
