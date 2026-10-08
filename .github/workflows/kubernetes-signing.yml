@@ -27,6 +27,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
@@ -37,9 +39,41 @@ jobs:
       - name: Kubernetes' signer, as its instructions name it
         run: node scripts/kubernetes-signer.ts
 
+  # Taken again by code from npm (@sigstore/tuf and what it uses), so with nothing it could change:
+  # a token that reads, and none left in .git for it to find.
   trust-root:
     name: Sigstore's trust root
     if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.root.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Taken again, through TUF
+        id: root
+        run: node scripts/sigstore-root.ts
+      - name: For the pull request
+        if: steps.root.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sigstore-root
+          path: src/main/sigstore-root.json
+          retention-days: 7
+
+  # What may push and open a pull request runs nothing from npm: git, gh and jq alone.
+  trust-root-pr:
+    name: Sigstore's trust root, proposed
+    needs: trust-root
+    if: needs.trust-root.outputs.changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       # Its branch, and its pull request.
@@ -49,16 +83,21 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - name: Taken again, through TUF
-        id: root
-        run: node scripts/sigstore-root.ts
-      - name: A pull request, if it's changed
-        if: steps.root.outputs.changed == 'true'
+          name: sigstore-root
+          path: ${{ runner.temp }}/sigstore-root
+      - name: The trust root alone, as it must be
+        run: |
+          # Only its four keys, each what it must be: it's all that's taken from the other job.
+          jq -e '
+            (keys == ["certificateAuthorities", "ctlogs", "source", "taken"]) and
+            (.source | type == "string") and (.taken | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and
+            (.certificateAuthorities | type == "array" and length > 0) and
+            (.ctlogs | type == "array" and length > 0)
+          ' "$RUNNER_TEMP/sigstore-root/sigstore-root.json" > /dev/null
+          cp "$RUNNER_TEMP/sigstore-root/sigstore-root.json" src/main/sigstore-root.json
+      - name: A pull request
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: sigstore-root
@@ -94,6 +133,8 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
@@ -101,11 +142,11 @@ jobs:
       - name: As Kubernetes' instructions name it
         id: signer
         run: node scripts/kubernetes-signer.ts
-      - name: An issue, if they no longer do
+      - name: An issue, if they no longer seem to
         if: steps.signer.outputs.named == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          TITLE: Kubernetes' instructions no longer name the signer Lumovi checks kubectl against
+          TITLE: Kubernetes' instructions may no longer name the signer Lumovi checks kubectl against
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # Once, until it's dealt with.
@@ -113,8 +154,10 @@ jobs:
             exit 0
           fi
           gh issue create --title "$TITLE" --body "$(cat <<EOF
-          [This week's check]($RUN) didn't find the identity and issuer Lumovi checks a kubectl's certificate for (\`src/main/kubernetes-signer.ts\`) in Kubernetes' [instructions for checking its signatures](https://kubernetes.io/docs/tasks/administer-cluster/verify-signed-artifacts/).
+          [This week's check]($RUN) didn't find the identity and issuer Lumovi checks a kubectl's certificate for (\`src/main/kubernetes-signer.ts\`) in the \`cosign verify-blob\` command of Kubernetes' [instructions for checking its signatures](https://kubernetes.io/docs/tasks/administer-cluster/verify-signed-artifacts/).
 
-          If Kubernetes has changed how it signs, every Lumovi refuses new kubectls (its terminals use the installed one, saying an update may be needed) until \`src/main/kubernetes-signer.ts\` names the new signer and a release ships it. If only the instructions' wording changed, \`scripts/kubernetes-signer.ts\` needs to read them as they are now.
+          It may only be a rewording of the instructions: read them by hand first. If they name the same signer in other words, \`scripts/kubernetes-signer.ts\` needs to read them as they are now.
+
+          If Kubernetes has changed how it signs, every Lumovi refuses new kubectls (its terminals use the installed one, saying an update may be needed) until \`src/main/kubernetes-signer.ts\` names the new signer and a release ships it.
           EOF
           )"
