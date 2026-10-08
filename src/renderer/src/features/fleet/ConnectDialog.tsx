@@ -423,7 +423,7 @@ function CheckCa({ name, onDone }: { name: string; onDone: () => void }) {
 }
 
 /** A box to copy from, labelled as the Equivalent command box is. */
-function Box({
+export function Box({
   label,
   copy,
   copyLabel,

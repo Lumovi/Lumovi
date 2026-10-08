@@ -16,6 +16,7 @@ import {
   Settings2,
   ShieldAlert,
   Tag,
+  Trash2,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Dialog, DropdownMenu } from 'radix-ui'
@@ -59,7 +60,7 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
-import { ClusterSettingsDialog } from './ClusterSettingsDialog'
+import { ClusterSettingsDialog, RemoveDialog } from './ClusterSettingsDialog'
 import { ConnectDialog, FINGERPRINT_COMMAND, timeOf } from './ConnectDialog'
 
 /** How often each cluster is summed up again, while the page is open. */
@@ -105,6 +106,10 @@ export function FleetPage() {
   const waiting = admin ? (joins.data?.joins ?? []).filter((join) => !join.used) : []
   // Its card, just connected, is tinted for a moment.
   const fresh = useFresh(joins.data?.joins ?? [])
+  // Those connected from here, which may be removed from here.
+  const removable = new Set(
+    (joins.data?.joins ?? []).flatMap((join) => (join.used ? [join.name] : [])),
+  )
   const [connecting, setConnecting] = useState<{ showing?: FleetJoin }>()
   const summaries = useQueries({
     queries: all.map(({ name }) => ({
@@ -308,11 +313,11 @@ export function FleetPage() {
                         {grouped.length}
                       </span>
                     </h2>
-                    <Cards items={grouped} />
+                    <Cards items={grouped} fresh={fresh} removable={removable} />
                   </section>
                 ))
               ) : (
-                <Cards items={visible} fresh={fresh} />
+                <Cards items={visible} fresh={fresh} removable={removable} />
               )}
               <WaitingCards waiting={waiting} onShow={(showing) => setConnecting({ showing })} />
             </>
@@ -485,10 +490,19 @@ function useFresh(joins: FleetJoin[]): Set<string> {
   return new Set(joins.flatMap((j) => (j.used && j.used > since ? [j.name] : [])))
 }
 
-function Cards({ items, fresh }: { items: Item[]; fresh?: Set<string> }) {
-  // Admins change a cluster's settings from its card.
+function Cards({
+  items,
+  fresh,
+  removable,
+}: {
+  items: Item[]
+  fresh?: Set<string>
+  removable?: Set<string>
+}) {
+  // Admins change a cluster's settings from its card, and remove one connected from here.
   const admin = Boolean(useMyAccess()?.admin)
   const [settings, setSettings] = useState<string>()
+  const [removing, setRemoving] = useState<string>()
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
@@ -497,9 +511,15 @@ function Cards({ items, fresh }: { items: Item[]; fresh?: Set<string> }) {
           {...item}
           fresh={fresh?.has(item.context.name)}
           onSettings={admin ? () => setSettings(item.context.name) : undefined}
+          onRemove={
+            admin && removable?.has(item.context.name)
+              ? () => setRemoving(item.context.name)
+              : undefined
+          }
         />
       ))}
       {settings && <ClusterSettingsDialog name={settings} onClose={() => setSettings(undefined)} />}
+      {removing && <RemoveDialog name={removing} onDone={() => setRemoving(undefined)} />}
     </div>
   )
 }
@@ -531,7 +551,8 @@ function ClusterCard({
   status,
   fresh,
   onSettings,
-}: Item & { fresh?: boolean; onSettings?: () => void }) {
+  onRemove,
+}: Item & { fresh?: boolean; onSettings?: () => void; onRemove?: () => void }) {
   const version = summary?.version
   const { name, title } = context
   return (
@@ -582,13 +603,21 @@ function ClusterCard({
           <Answered summary={summary as Required<ClusterSummary>} />
         )}
       </Link>
-      {onSettings && <CardMenu context={context} onSettings={onSettings} />}
+      {onSettings && <CardMenu context={context} onSettings={onSettings} onRemove={onRemove} />}
     </div>
   )
 }
 
-/** A card's ⋯, an admin's: open the cluster, its settings, or copy its name. */
-function CardMenu({ context, onSettings }: { context: KubeContext; onSettings: () => void }) {
+/** A card's ⋯, an admin's: open the cluster, its settings, copy its name, or remove it. */
+function CardMenu({
+  context,
+  onSettings,
+  onRemove,
+}: {
+  context: KubeContext
+  onSettings: () => void
+  onRemove?: () => void
+}) {
   const navigate = useNavigate()
   const { name, title } = context
   return (
@@ -619,6 +648,14 @@ function CardMenu({ context, onSettings }: { context: KubeContext; onSettings: (
           >
             <Copy className="size-4 text-ink-3" /> Copy its name
           </DropdownMenu.Item>
+          {onRemove && (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-line" />
+              <DropdownMenu.Item className={cn(menuItem, 'text-critical-text')} onSelect={onRemove}>
+                <Trash2 className="size-4" /> Remove from the fleet…
+              </DropdownMenu.Item>
+            </>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

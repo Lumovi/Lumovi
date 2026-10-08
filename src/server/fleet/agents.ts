@@ -249,7 +249,7 @@ export class Agents {
         source: 'LUMOVI_FLEET_AGENTS',
         labels: config.labels ?? {},
         groups: config.groups,
-        origin: { kind: 'agent' },
+        origin: { kind: 'agent', ...(config.joined ? { joined: config.joined } : {}) },
         ...managedBy(config),
         forwardToken: config.forwardToken,
         agent: config.name,
@@ -404,6 +404,8 @@ export class Agents {
 
 /** What LUMOVI_FLEET_AGENTS sets of an agent's cluster's settings: the Fleet page doesn't change those. */
 function managedBy(config: AgentConfig): Pick<FleetCluster, 'managed'> {
+  // (One that joined from the page has what the page set: it's the page's to change.)
+  if (config.joined) return {}
   const managed: NonNullable<FleetCluster['managed']> = {}
   for (const field of ['labels', 'groups'] as const) {
     if (config[field]) {

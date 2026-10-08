@@ -5,12 +5,11 @@
  * here, and kept by Lumovi (never in the source).
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Lock, Pencil, ScrollText, Settings2, X } from 'lucide-react'
-import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Lock, Pencil, Settings2, Trash2, TriangleAlert } from 'lucide-react'
+import { Fragment, useState, type ReactNode } from 'react'
+import type { AgentTrust } from '@shared/api'
 import {
   groupError,
-  labelKeyError,
-  labelValueError,
   titleError,
   type ClusterOrigin,
   type FleetClusterSettings,
@@ -22,6 +21,8 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { toast } from '@renderer/state/toasts'
 import { DialogIcon, PageDialog } from '../welcome/PageDialog'
+import { ChipsField, labelError, labelMap, lastOfEachKey } from './ChipsField'
+import { AuditNote, Box } from './ConnectDialog'
 
 const field =
   'h-8 w-full min-w-0 rounded-lg border border-line-strong bg-surface px-2.5 text-[13px] text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft'
@@ -98,6 +99,13 @@ function SettingsForm({
   const [groups, setGroups] = useState(settings.groups.value.filter(Boolean))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
+  const [removing, setRemoving] = useState(false)
+  // A cluster joined from the page: what its certificate authority is trusted with.
+  const agents = useQuery({
+    queryKey: ['fleet-agents'],
+    queryFn: () => api.fleet!.agents(),
+    enabled: settings.origin.kind === 'agent',
+  })
   const titleProblem = titleError(title.trim())
   const shown = settings.title.value ?? settings.name
   const save = async () => {
@@ -111,9 +119,7 @@ function SettingsForm({
         ...(settings.labels.managed
           ? {}
           : {
-              labels: Object.fromEntries(
-                labels.map((label) => [label.slice(0, label.indexOf('=')), labelValue(label)]),
-              ),
+              labels: labelMap(labels),
             }),
         ...(settings.groups.managed ? {} : { groups }),
       })
@@ -143,10 +149,17 @@ function SettingsForm({
       onClose={onClose}
       footer={
         <>
-          <span className="mr-auto flex items-center gap-1.5 text-xs text-ink-3">
-            <ScrollText className="size-3.5" aria-hidden />
-            Recorded in the audit log
-          </span>
+          {settings.removable ? (
+            <Button
+              variant="ghost"
+              className="mr-auto text-critical-text hover:bg-critical/10 hover:text-critical-text"
+              onClick={() => setRemoving(true)}
+            >
+              <Trash2 /> Remove from the fleet…
+            </Button>
+          ) : (
+            <AuditNote />
+          )}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -180,22 +193,8 @@ function SettingsForm({
             values={labels}
             locked={Boolean(settings.labels.managed)}
             placeholder={labels.length ? 'Add a label…' : 'Add a label, as env=production…'}
-            check={(text) => {
-              const at = text.indexOf('=')
-              const key = at < 0 ? text : text.slice(0, at)
-              return (
-                labelKeyError(key) ??
-                (at < 0 ? 'A label is key=value' : labelValueError(text.slice(at + 1)))
-              )
-            }}
-            // A key once: the last value given for it.
-            onChange={(values) =>
-              setLabels(
-                values.filter(
-                  (value, i) => !values.slice(i + 1).some((later) => keyOf(later) === keyOf(value)),
-                ),
-              )
-            }
+            check={labelError}
+            onChange={(values) => setLabels(lastOfEachKey(values))}
             mono
           />
           <From set={labels.length > 0} managed={settings.labels.managed} />
@@ -221,13 +220,19 @@ function SettingsForm({
           </p>
         </div>
       </div>
-      <ComesFrom origin={settings.origin} />
+      <ComesFrom
+        origin={settings.origin}
+        trust={agents.data?.find((agent) => agent.name === settings.name)}
+      />
+      {removing && (
+        <RemoveDialog
+          name={settings.name}
+          onDone={(removed) => (removed ? onClose() : setRemoving(false))}
+        />
+      )}
     </PageDialog>
   )
 }
-
-const keyOf = (label: string) => label.slice(0, label.indexOf('='))
-const labelValue = (label: string) => label.slice(label.indexOf('=') + 1)
 
 function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
   return (
@@ -290,123 +295,8 @@ function From({
   ) : null
 }
 
-/**
- * Values as chips, each added as it's typed (Enter or a comma), checked first; removed with its
- * X, or Backspace in an empty field. Locked, they're only shown.
- */
-function ChipsField({
-  id,
-  label,
-  values,
-  locked,
-  placeholder,
-  check,
-  onChange,
-  mono = false,
-}: {
-  id: string
-  /** What each is, in words: "label". */
-  label: string
-  values: string[]
-  locked: boolean
-  placeholder: string
-  check: (text: string) => string | undefined
-  onChange: (values: string[]) => void
-  mono?: boolean
-}) {
-  const [text, setText] = useState('')
-  const [problem, setProblem] = useState<string>()
-  const add = () => {
-    const value = text.trim()
-    if (!value) return
-    const error = check(value)
-    if (error) {
-      setProblem(error)
-      return
-    }
-    onChange([...values, value])
-    setText('')
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if ((event.key === 'Enter' || event.key === ',') && text.trim()) {
-      // Enter adds it, not saves (with nothing typed, it saves).
-      event.preventDefault()
-      add()
-    } else if (event.key === 'Backspace' && text === '' && values.length > 0) {
-      onChange(values.slice(0, -1))
-    }
-  }
-  return (
-    <>
-      <div
-        className={cn(
-          'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border px-1.5 py-1',
-          locked
-            ? 'border-line bg-surface-2'
-            : problem
-              ? 'border-critical bg-surface focus-within:ring-3 focus-within:ring-critical/15'
-              : 'border-line-strong bg-surface focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
-        )}
-      >
-        {values.map((value) => (
-          <span
-            key={value}
-            className={cn(
-              'flex h-5 items-center gap-0.5 rounded-md text-2xs',
-              mono && 'font-mono',
-              locked
-                ? 'border border-line bg-transparent px-1.5 text-ink-2'
-                : 'bg-surface-3 pr-1 pl-1.5 text-ink-1',
-            )}
-          >
-            {value}
-            {!locked && (
-              <button
-                type="button"
-                aria-label={`Remove ${value}`}
-                onClick={() => onChange(values.filter((v) => v !== value))}
-                className="grid place-items-center rounded text-ink-3 hover:text-ink-1"
-              >
-                <X className="size-3" />
-              </button>
-            )}
-          </span>
-        ))}
-        {locked ? (
-          values.length === 0 && <span className="px-1 text-xs text-ink-3">None</span>
-        ) : (
-          <input
-            id={id}
-            value={text}
-            placeholder={placeholder}
-            spellCheck={false}
-            autoComplete="off"
-            aria-label={`Add a ${label}`}
-            aria-invalid={Boolean(problem) || undefined}
-            onChange={(event) => {
-              setText(event.target.value)
-              setProblem(undefined)
-            }}
-            onKeyDown={onKeyDown}
-            onBlur={add}
-            className={cn(
-              'h-5 min-w-28 flex-1 bg-transparent px-1 text-xs text-ink-1 outline-none placeholder:font-sans placeholder:text-xs placeholder:text-ink-3',
-              mono && 'font-mono text-2xs',
-            )}
-          />
-        )}
-      </div>
-      {problem && (
-        <p role="alert" className="mt-1.5 text-xs text-critical-text">
-          {problem}.
-        </p>
-      )}
-    </>
-  )
-}
-
 /** Where a cluster comes from, and what that means here. */
-function ComesFrom({ origin }: { origin: ClusterOrigin }) {
+function ComesFrom({ origin, trust }: { origin: ClusterOrigin; trust?: AgentTrust }) {
   const tag = {
     secret:
       origin.kind === 'secret'
@@ -416,6 +306,37 @@ function ComesFrom({ origin }: { origin: ClusterOrigin }) {
     this: 'This cluster',
     agent: 'Its agent',
   }[origin.kind]
+  if (origin.kind === 'agent' && origin.joined) {
+    return (
+      <section className="mt-5 rounded-xl bg-surface-3/70 px-3.5 py-3">
+        <div className="mb-1.5 flex items-baseline gap-2">
+          <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Comes from</h3>
+          <span className="ml-auto truncate text-xs font-medium text-ink-2">{tag}</span>
+        </div>
+        <dl className="grid grid-cols-[96px_1fr] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-ink-3">Connected</dt>
+          <dd className="text-ink-1">
+            from this page,{' '}
+            {new Date(origin.joined.at).toLocaleString(undefined, {
+              day: 'numeric',
+              month: 'long',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </dd>
+          <dt className="text-ink-3">Certificate</dt>
+          <dd className="truncate text-ink-1">
+            {!trust?.trusted.length
+              ? 'Not yet sent'
+              : `SHA-256 ${trust.unconfirmed ? 'not checked yet' : 'checked'} · `}
+            {trust?.trusted.length ? (
+              <span className="font-mono">{trust.trusted.join(', ')}</span>
+            ) : null}
+          </dd>
+        </dl>
+      </section>
+    )
+  }
   const where =
     origin.kind === 'secret' ? (
       <>
@@ -439,5 +360,97 @@ function ComesFrom({ origin }: { origin: ClusterOrigin }) {
         {where} What it sets is shown, not changed, here; it can’t be removed from this page.
       </p>
     </section>
+  )
+}
+
+/** Where a cluster's agent was installed, from the Fleet page's command: to uninstall it. */
+const UNINSTALL_COMMAND = 'helm uninstall lumovi-agent --namespace lumovi'
+
+/**
+ * Removing a cluster connected from the page, typed to confirm: what stops, and how to uninstall
+ * its agent, which keeps running in the cluster until then.
+ */
+export function RemoveDialog({
+  name,
+  onDone,
+}: {
+  name: string
+  onDone: (removed: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const [typed, setTyped] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const remove = async () => {
+    if (typed !== name || pending) return
+    setPending(true)
+    setError(undefined)
+    try {
+      await api.fleet!.remove(name)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['contexts'] }),
+        queryClient.invalidateQueries({ queryKey: ['fleet-joins'] }),
+      ])
+      toast({ tone: 'success', title: `Removed ${name} from the fleet` })
+      onDone(true)
+    } catch (failed) {
+      setError((failed as Error).message)
+      setPending(false)
+    }
+  }
+  return (
+    <PageDialog
+      leading={
+        <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-critical/10 text-critical-text [&_svg]:size-[18px]">
+          <Trash2 />
+        </div>
+      }
+      title={`Remove ${name}?`}
+      subtitle={
+        <>
+          From the fleet · <span className="font-medium text-ink-2">{name}</span>
+        </>
+      }
+      error={error}
+      onSubmit={() => void remove()}
+      onClose={() => onDone(false)}
+      footer={
+        <>
+          <AuditNote />
+          <Button variant="ghost" onClick={() => onDone(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" type="submit" disabled={typed !== name || pending}>
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <p className="text-[13px] leading-relaxed text-ink-2">
+          People stop seeing it, and its agent’s token stops working at once. The agent keeps
+          running in the cluster until you uninstall it there:
+        </p>
+        <Box label={`In ${name}`} copy={UNINSTALL_COMMAND} copyLabel="Copy the command">
+          <code className="block font-mono text-xs text-ink-2 selectable">{UNINSTALL_COMMAND}</code>
+        </Box>
+        <label className="block">
+          <span className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-2">
+            <TriangleAlert className="size-3.5 text-critical-text" aria-hidden />
+            Type <span className="font-mono font-medium text-ink-1 select-all">{name}</span> to
+            confirm
+          </span>
+          <input
+            data-autofocus
+            aria-label={`Type ${name} to confirm`}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+            className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
+          />
+        </label>
+      </div>
+    </PageDialog>
   )
 }
