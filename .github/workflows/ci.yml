@@ -196,7 +196,9 @@ jobs:
         # Each platform's tests, split over four machines that run at once.
         shard: [1, 2, 3, 4]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    # The longest shard has taken 28 minutes: room for a few failing tests' retries, so that a
+    # timeout doesn't hide which failed.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -229,21 +231,21 @@ jobs:
             ~/Library/Caches/ms-playwright
             ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.versions.outputs.playwright }}
-      # A mirror apt waits on can hang it for hours: tried twice, a few minutes each, and the step
-      # stops within its own time whatever happens.
+      # apt drops a mirror that stalls (30 s without a byte) and tries again, three times, rather
+      # than waiting on it for hours; a slow one that keeps going is left to finish (it has taken
+      # 7 minutes). The step stops within its own time whatever happens, and says so.
       - name: Install Chromium
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           if [ "$RUNNER_OS" != "Linux" ]; then
             npx playwright install chromium
             exit
           fi
-          for attempt in 1 2; do
-            timeout 240 npx playwright install --with-deps chromium && exit 0
-            echo "::warning::Installing Chromium and the packages it needs didn't finish in 4 minutes, or failed (attempt $attempt of 2)."
-          done
-          echo "::error::Chromium couldn't be installed: apt (or Playwright's download) didn't finish twice. Run the job again."
+          printf 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n' |
+            sudo tee /etc/apt/apt.conf.d/80-ci-timeouts > /dev/null
+          timeout 600 npx playwright install --with-deps chromium && exit 0
+          echo "::error::Chromium couldn't be installed in 10 minutes: apt (or Playwright's download) stalled or failed. Run the job again."
           exit 1
       - name: Allow Chromium's sandbox
         # Ubuntu 24.04 restricts the unprivileged user namespaces Electron's sandbox needs.
