@@ -130,6 +130,26 @@ test('a server whose certificate isn’t checked is said so, and added once allo
   await expect(page.getByRole('dialog', { name: 'skipped is ready' })).toBeVisible()
 })
 
+test('a server over plain HTTP that Lumovi won’t reach is kept, anyway, only once allowed', async ({
+  launch,
+}) => {
+  const server = await standIn()
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const { page } = await launch({ userDataDir })
+  await expect(clusterOption(page, 'demo')).toBeVisible()
+  // No insecure-skip-tls-verify: Lumovi won't connect, but kubectl would.
+  const dialog = await paste(page, config(server.url, undefined, { token: DEMO_TOKEN }, ['lab']))
+  await expect(dialog).toContainText('Its credentials would travel unencrypted')
+  await dialog.getByRole('button', { name: 'Allow and continue' }).click()
+  await expect(dialog).toContainText('This cluster uses plain HTTP')
+  expect(own(userDataDir)).toEqual([])
+  await dialog.getByRole('button', { name: 'Add it anyway' }).click()
+  await expect(page.getByRole('dialog', { name: 'lab is ready' })).toBeVisible()
+  expect(own(userDataDir)).toHaveLength(1)
+  expect(server.seen).toEqual([])
+  server.close()
+})
+
 test('every context is checked and shown; a server not verified is agreed to first, then a program, in one go', async ({
   launch,
   clusters,

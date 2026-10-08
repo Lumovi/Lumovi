@@ -937,7 +937,7 @@ test('a server not verified gets the credentials only once the person agrees, fo
   standIn.close()
 })
 
-test('a server over plain HTTP without insecure-skip-tls-verify isn’t asked at all, credentials least of all', async ({
+test('a server over plain HTTP without insecure-skip-tls-verify isn’t asked at all, and is kept only once agreed to', async ({
   launch,
 }) => {
   const asked: (string | undefined)[] = []
@@ -965,6 +965,30 @@ test('a server over plain HTTP without insecure-skip-tls-verify isn’t asked at
       credentials: { notTried: 'server' },
     },
   })
+  // Kept only once agreed to: kubectl would send its credentials there, unencrypted.
+  const inspected = (await page.evaluate(
+    (text) => window.lumovi!.addedClusters!.inspect(text),
+    text,
+  )) as { data: { unverified: { context: string; server: string; consent: string }[] } }
+  expect(inspected.data.unverified).toEqual([
+    { context: 'open', server, consent: expect.stringMatching(/^[0-9a-f]{64}$/) },
+  ])
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }), text),
+  ).toMatchObject({
+    ok: false,
+    error: {
+      code: 'not-allowed',
+      message: `Its credentials would go to ${server} unencrypted. Agree to that to keep it.`,
+    },
+  })
+  const { consent } = inspected.data.unverified[0]!
+  expect(
+    await page.evaluate(
+      ([text, consent]) => window.lumovi!.addedClusters!.add(text!, { agreed: [consent!] }),
+      [text, consent],
+    ),
+  ).toMatchObject({ ok: true })
   expect(asked).toEqual([])
   standIn.close()
 })
