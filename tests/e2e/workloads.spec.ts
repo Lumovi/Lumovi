@@ -296,7 +296,7 @@ test('in progress is neutral, and turns, unless less motion is asked for', async
     .getByRole('grid', { name: 'Workloads' })
     .locator('[data-health="progressing"]')
     .first()
-  await expect(running).toHaveText('Running')
+  await expect(running).toHaveText('In progress')
   // Neutral, not blue: blue is for what can be acted on. (Each as the page computes it.)
   const colour = (token: string) =>
     page.evaluate((token) => {

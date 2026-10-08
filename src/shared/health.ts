@@ -128,7 +128,8 @@ export function jobStatus(job: KubeObject): Status {
     return { health: 'critical', label: 'Failed', detail: failed.message }
   }
   if (condition(job, 'Complete')?.status === 'True') return { health: 'healthy', label: 'Complete' }
-  return { health: 'progressing', label: 'Running' }
+  // (Not "Running": a pod's Running is healthy, and one word has one look.)
+  return { health: 'progressing', label: 'In progress' }
 }
 
 export const STATUS_BY_KIND: Partial<Record<BuiltinKind, (object: KubeObject) => Status>> = {
