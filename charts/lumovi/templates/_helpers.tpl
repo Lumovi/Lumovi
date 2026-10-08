@@ -54,7 +54,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/* Whether the dashboard shows a fleet: clusters from a kubeconfig, Secrets or agents. */}}
 {{- define "lumovi.fleet" -}}
 {{- with .Values.fleet }}
-{{- if or .kubeconfigSecret .secrets .agentsSecret }}true{{ end }}
+{{- if or .kubeconfigSecret .secrets .agentsSecret .addFromPage }}true{{ end }}
 {{- end }}
 {{- end }}
 

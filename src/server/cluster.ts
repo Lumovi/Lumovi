@@ -44,6 +44,8 @@ export interface Hosted {
   sourced?(name: string): FleetCluster | undefined
   /** A fleet's: every cluster, with what the Fleet page sets, whoever sees it. */
   allClusters?(): FleetCluster[]
+  /** A fleet's: its sources read again now (a Secret added or removed from its page). */
+  reread?(): Promise<void>
   /** A fleet's: what its page sets for its clusters, and who sees them all (its admins). */
   settleWith?(page: FleetPage): void
   /** What it shows, for the log: "demo (https://…)", "a fleet of 3 clusters". */

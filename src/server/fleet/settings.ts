@@ -71,6 +71,9 @@ export class FleetSettings {
     private readonly clusters: ClusterSettings,
     private readonly access: ServerAccess,
     private readonly audit: AuditLog,
+    /** When a cluster was added from the page by kubeconfig or token, and by whom, if it was. */
+    private readonly addedOf: (name: string) => { at: string; by: string } | undefined = () =>
+      undefined,
   ) {}
 
   /** Why `user` may not see or change clusters' settings, or nothing when they may. */
@@ -101,7 +104,10 @@ export class FleetSettings {
         : { value: set.groups ?? cluster.groups ?? [] },
       origin: cluster.origin ?? { kind: 'this' },
       ...(set.adminsOnly && !managed?.groups ? { adminsOnly: true as const } : {}),
-      removable: cluster.origin?.kind === 'agent' && Boolean(cluster.origin.joined),
+      removable:
+        (cluster.origin?.kind === 'agent' && Boolean(cluster.origin.joined)) ||
+        Boolean(this.addedOf(cluster.name)),
+      ...(this.addedOf(cluster.name) ? { added: this.addedOf(cluster.name) } : {}),
     }
   }
 

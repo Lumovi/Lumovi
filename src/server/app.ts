@@ -25,6 +25,7 @@ import { ClusterSettings } from './cluster-settings'
 import { Joins, type JoinRefusal } from './fleet/joins'
 import { AGENT_JOINED } from './fleet/agents'
 import { FleetSettings } from './fleet/settings'
+import { AddedClusters } from './fleet/added'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -107,8 +108,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const clusters = new ClusterSettings(state, access, audit)
   // A fleet's page names, labels and shares its clusters (what their sources leave unset), and
   // its admins see them all.
+  // Clusters added by kubeconfig or token, where the server allows it.
+  const added = hosted.fleet
+    ? new AddedClusters(
+        options.env,
+        config.fleet?.addFromPage ?? false,
+        state,
+        access,
+        audit,
+        clusters,
+        hosted,
+      )
+    : undefined
   const fleetSettings = hosted.fleet
-    ? new FleetSettings(hosted, clusters, access, audit)
+    ? new FleetSettings(hosted, clusters, access, audit, (name) => added?.addedOf(name))
     : undefined
   hosted.settleWith?.({
     settings: () => clusters.fleetSettings(),
@@ -326,6 +339,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         clusters,
         joins,
         fleetSettings,
+        added,
         sponsor,
         rejected: () =>
           sessions.end(

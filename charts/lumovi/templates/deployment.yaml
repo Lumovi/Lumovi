@@ -241,6 +241,10 @@ spec:
             {{- end }}
             - name: LUMOVI_FLEET_LOCAL
               value: {{ .includeThisCluster | quote }}
+            {{- if .addFromPage }}
+            - name: LUMOVI_FLEET_ADD_FROM_PAGE
+              value: "true"
+            {{- end }}
             {{- end }}
             {{- with .Values.fleet.labels }}
             - name: LUMOVI_CLUSTER_LABELS

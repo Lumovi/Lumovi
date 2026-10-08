@@ -53,6 +53,9 @@
         "agentsSecret": {
           "type": "string"
         },
+        "addFromPage": {
+          "type": "boolean"
+        },
         "includeThisCluster": {
           "type": "boolean"
         },

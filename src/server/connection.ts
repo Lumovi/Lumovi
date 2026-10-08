@@ -39,6 +39,7 @@ import { fingerprint, type ServerConfig } from './config'
 import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
 import type { Joins } from './fleet/joins'
 import type { FleetSettings } from './fleet/settings'
+import type { AddedClusters } from './fleet/added'
 import { checkChartUrl } from './network'
 
 /**
@@ -145,6 +146,8 @@ export interface ConnectionOptions {
   joins?: Joins
   /** A fleet's: its clusters' names, labels and groups, as its admins set them on its page. */
   fleetSettings?: FleetSettings
+  /** A fleet's: the clusters its admins add by kubeconfig or token, where it allows it. */
+  added?: AddedClusters
   /**
    * Called when the cluster refuses the person's own token: it expired, or was revoked. (In a
    * fleet, one cluster refusing it is that cluster's error.)
@@ -199,6 +202,7 @@ export class PageConnection {
       clusters,
       joins,
       fleetSettings,
+      added,
       sponsor,
     }: ConnectionOptions,
   ) {
@@ -334,10 +338,20 @@ export class PageConnection {
             },
             // An admin's (Lumovi must have some): the clusters they connect, each with a join
             // token for its agent, shown once.
-            [IPC.fleetJoins]: () => joins!.list(identity.user),
+            [IPC.fleetJoins]: () => ({
+              ...joins!.list(identity.user),
+              addFromPage: added?.on ?? false,
+              added: added?.names() ?? [],
+            }),
             [IPC.fleetConnect]: (request: unknown) => joins!.create(request, identity.user, actor),
             [IPC.fleetCancelJoin]: (name: unknown) => joins!.cancel(name, identity.user, actor),
-            [IPC.fleetRemove]: (name: unknown) => joins!.remove(name, identity.user, actor),
+            [IPC.fleetRemove]: (name: unknown) =>
+              typeof name === 'string' && added?.has(name)
+                ? added.remove(name, identity.user, actor)
+                : joins!.remove(name, identity.user, actor),
+            // Where the server allows it: clusters added by kubeconfig or token.
+            [IPC.fleetCheck]: (source: unknown) => added!.check(source, identity.user),
+            [IPC.fleetAdd]: (request: unknown) => added!.add(request, identity.user, actor),
             // An admin's (Lumovi must have some): a cluster's settings, each with where it's set,
             // and what the page sets of them.
             [IPC.fleetSettings]: (name: unknown) => fleetSettings!.get(name, identity.user),

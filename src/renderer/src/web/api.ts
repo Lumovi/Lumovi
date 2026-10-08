@@ -141,6 +141,8 @@ export function createWebApi(): LumoviApi {
       connect: invoke(IPC.fleetConnect),
       cancelJoin: invoke(IPC.fleetCancelJoin),
       remove: invoke(IPC.fleetRemove),
+      check: invoke(IPC.fleetCheck),
+      add: invoke(IPC.fleetAdd),
       settings: invoke(IPC.fleetSettings),
       saveSettings: invoke(IPC.fleetSaveSettings),
     },

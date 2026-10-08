@@ -83,6 +83,40 @@ export interface NewFleetJoin {
 export interface FleetJoins {
   joins: FleetJoin[]
   whyNot?: string
+  /** Whether clusters may be added by kubeconfig or token here (the chart's fleet.addFromPage). */
+  addFromPage: boolean
+  /** The clusters added that way, which the page may remove. */
+  added: string[]
+}
+
+/** A cluster to add from the Fleet page: a kubeconfig of one context, or a server, token and CA. */
+export type FleetAddSource = { kubeconfig: string } | { server: string; token: string; ca: string }
+
+/** A cluster to add from the Fleet page, as it'll be called, labelled and shared. */
+export interface FleetAddRequest extends FleetJoinRequest {
+  source: FleetAddSource
+}
+
+/** One of the checks a cluster to add goes through. */
+export interface FleetCheck {
+  /** Passed; failed, so it can't be added; or passed, with something to know. */
+  result: 'ok' | 'bad' | 'warn'
+  title: string
+  /** What was found, in a line: a context, a host, a command. */
+  detail?: string
+  /** What to do about it. */
+  hint?: string
+  /** It signs in by running a program, which this server can't. */
+  plugin?: true
+}
+
+/** A cluster to add, checked: whether it may be, and what it'd be called. */
+export interface FleetChecked {
+  checks: FleetCheck[]
+  /** Every check passed (some, maybe, with something to know): it may be added. */
+  passed: boolean
+  /** What its kubeconfig's context calls it, as a cluster's name. */
+  name?: string
 }
 
 /** How long a cluster's name, as the fleet shows it, may be. */
@@ -181,6 +215,8 @@ export interface FleetClusterSettings {
   origin: ClusterOrigin
   /** Whether it can be removed from the page: it was added there. */
   removable: boolean
+  /** Added from the page by kubeconfig or token: when, and by whom. */
+  added?: { at: string; by: string }
   /** Admins alone see it, until one saves its settings (see FleetSetting). */
   adminsOnly?: true
 }
