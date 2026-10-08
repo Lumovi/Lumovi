@@ -360,18 +360,20 @@ test('an animated picture plays once; for less motion, its first frame, still', 
   await openCluster(page)
   await expect(link(page)).toHaveAccessibleName(/^Acme/)
   const shown = () => shownPicture(page).evaluate((img: HTMLImageElement) => img.currentSrc)
-  // The tests ask for less motion: the first frame alone.
-  const still = await shown()
-  expect(still).toMatch(/^data:image\/webp;base64,/)
-  expect(dataOf(still).length).toBeLessThan(picture('animated.webp').length)
+  /** How much of the picture is shown: less than all of it, once it's the first frame alone. */
+  const shownBytes = async () => dataOf(await shown()).length
+  // The tests ask for less motion: the first frame alone. (The whole picture is a data: URL of
+  // the same type too, so it's told apart by its size, waited for.)
+  await expect.poll(shownBytes).toBeLessThan(picture('animated.webp').length)
+  expect(await shown()).toMatch(/^data:image\/webp;base64,/)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await expect.poll(() => shownDigest(shown())).toBe(digest(picture('animated.webp')))
 
   await page.evaluate(() => window.lumovi!.app.setTheme('dark'))
   await expect.poll(() => shownDigest(shown())).toBe(digest(picture('animated.gif')))
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect.poll(shown).toMatch(/^data:image\/gif;base64,/)
-  expect(dataOf(await shown()).length).toBeLessThan(picture('animated.gif').length)
+  await expect.poll(shownBytes).toBeLessThan(picture('animated.gif').length)
+  expect(await shown()).toMatch(/^data:image\/gif;base64,/)
 })
 
 test('the nav fades out over the card where it goes on; on short windows the card steps aside', async ({
