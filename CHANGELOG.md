@@ -6,6 +6,31 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app's clusters page is new. Each cluster is a tile in its color, with its status on
+  its corner, its name and where it is, and its version and latency or what went wrong. The ones
+  opened last come first, then Lumovi's groups (or a label's values, or none), and a search finds
+  them by name, context, server or label (showing the label it found). Its actions are on its ⋯,
+  on right-click or on `.`: its settings, the line for kubectl, its file in Finder, hiding it, or
+  removing one added in Lumovi.
+- The kubeconfig files the desktop app reads are chosen from the clusters page's footer: one in
+  place of KUBECONFIG's (or ~/.kube/config), or more after them. Each says where it's from and how
+  many clusters it has, or that it's gone or can't be read, and then the others still load, under
+  a notice. Lumovi never writes them, and its terminals get the same files. An organization's
+  policy can keep it to KUBECONFIG's or ~/.kube/config (`kubeconfigFiles: "locked"`).
+- A cluster can be added from a pasted kubeconfig, or a file: checked first (it reads, its server
+  answers, its credentials work), then kept in Lumovi's own folder (only you can read it), never
+  in your kubeconfig. A credential that runs a program on your computer, or sends a file to the
+  server, is shown exactly, and nothing runs or is sent until you allow it; so is sending its
+  credentials to a server Lumovi can't verify, or unencrypted over http://. Once added, it's named,
+  colored and grouped, with the line to use it with kubectl. Its connection can be edited (its
+  secrets stay in Lumovi), and it can be removed.
+- Each cluster's settings, kept in Lumovi (⌘I): its name, color, group and labels, the namespace
+  it opens in, and whether it's production, read-only or hidden. Production, set by hand, wins
+  over Lumovi's guess from its name, for its chip and the names typed to delete and drain. Its
+  name shows in the switcher, the palette and the window's title too.
+
 ### Changed
 
 - Statuses look as they do on the website and in the docs (the brand's): in progress is neutral,
@@ -59,29 +84,6 @@ sponsor card, and a dialog's error is always in view.
   can't be read or doesn't pass shows Lumovi's own card, with no error and no wait. The link's
   domain shows as it's pointed at or focused; an animated picture plays once, and shows its first
   frame still for people who ask for less motion. Under 720 px tall, the card steps aside.
-
-- The desktop app's clusters page is new. Each cluster is a tile in its color, with its status on
-  its corner, its name and where it is, and its version and latency or what went wrong. The ones
-  opened last come first, then Lumovi's groups (or a label's values, or none), and a search finds
-  them by name, context, server or label (showing the label it found). Its actions are on its ⋯,
-  on right-click or on `.`: its settings, the line for kubectl, its file in Finder, hiding it, or
-  removing one added in Lumovi.
-- The kubeconfig files the desktop app reads are chosen from the clusters page's footer: one in
-  place of KUBECONFIG's (or ~/.kube/config), or more after them. Each says where it's from and how
-  many clusters it has, or that it's gone or can't be read, and then the others still load, under
-  a notice. Lumovi never writes them, and its terminals get the same files. An organization's
-  policy can keep it to KUBECONFIG's or ~/.kube/config (`kubeconfigFiles: "locked"`).
-- A cluster can be added from a pasted kubeconfig, or a file: checked first (it reads, its server
-  answers, its credentials work), then kept in Lumovi's own folder (only you can read it), never
-  in your kubeconfig. A credential that runs a program on your computer, or sends a file to the
-  server, is shown exactly, and nothing runs or is sent until you allow it; so is sending its
-  credentials to a server Lumovi can't verify, or unencrypted over http://. Once added, it's named,
-  colored and grouped, with the line to use it with kubectl. Its connection can be edited (its
-  secrets stay in Lumovi), and it can be removed.
-- Each cluster's settings, kept in Lumovi (⌘I): its name, color, group and labels, the namespace
-  it opens in, and whether it's production, read-only or hidden. Production, set by hand, wins
-  over Lumovi's guess from its name, for its chip and the names typed to delete and drain. Its
-  name shows in the switcher, the palette and the window's title too.
 
 ### Changed
 
