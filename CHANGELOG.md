@@ -40,7 +40,8 @@ All notable changes to Lumovi are documented here. The format follows
   its own. A threshold above the chart is noted over it, no longer on it.
 - A dialog's error is always in view, just above its buttons: in a tall one (a drain's list of
   pods, a chart's values), it no longer lands below where the dialog is scrolled to, so that the
-  button seems to do nothing.
+  button seems to do nothing. In Create from YAML, what each object came to is brought into view
+  too.
 
 ## [1.15.0] - 2026-10-08
 
