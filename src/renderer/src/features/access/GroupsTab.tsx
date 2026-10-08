@@ -548,7 +548,7 @@ function SeenAtSignIn({
                       setNaming(g.id)
                       setDraft(named ?? '')
                     }}
-                    className="h-[26px] rounded-md px-2 text-xs text-accent hover:bg-surface-3"
+                    className="h-[26px] rounded-md px-2 text-xs text-accent-strong hover:bg-surface-3"
                   >
                     {named ? 'Rename' : 'Name it'}
                   </button>

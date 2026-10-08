@@ -36,7 +36,7 @@
   --line-strong: rgb(0 0 0 / 0.14);
   --text-1: #0a0a0a;
   --text-2: #525252;
-  --text-3: #737373;
+  --text-3: #6b6b6b;
   --accent: #2675d3;
   --accent-strong: #1c5cab;
   --accent-soft: rgb(38 117 211 / 0.1);
@@ -54,16 +54,16 @@
   --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.12);
   --shadow-pop: 0 12px 40px -8px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(0 0 0 / 0.06);
 
-  /* Status marks are mode-invariant; status text gets a readable step per mode. */
-  --good: #0ca30c;
-  --warn: #fab219;
-  --serious: #ec835a;
+  /* Status marks reach 3:1 and their words 4.5:1 on each of the mode's surfaces (the brand's
+     Status, colors/tokens.css): critical, warning, healthy, and neutral, which progressing is too. */
+  --good: #009e00;
+  --warn: #bd7800;
   --critical: #d03b3b;
-  --neutral: #898781;
-  --good-text: #1a7f37;
+  --neutral: #737373;
+  --good-text: #00732b;
   --warn-text: #8a5a00;
-  --serious-text: #b4501f;
   --critical-text: #b42318;
+  --neutral-text: #525252;
   /* Terminal colors (ANSI 0–15) in logs, readable on this mode's surfaces. */
   --ansi-0: #24292f;
   --ansi-1: #cf222e;
@@ -110,10 +110,14 @@
     --series-other: #5f5e5a;
     --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.02), 0 8px 24px -12px rgb(0 0 0 / 0.6);
     --shadow-pop: 0 16px 48px -8px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
+    --good: #009e00;
+    --warn: #fab219;
+    --critical: #d03b3b;
+    --neutral: #737373;
     --good-text: #3fb950;
     --warn-text: #e3a008;
-    --serious-text: #f0883e;
-    --critical-text: #f85149;
+    --critical-text: #fc554c;
+    --neutral-text: #a3a3a3;
     --ansi-0: #6e7681;
     --ansi-1: #ff7b72;
     --ansi-2: #3fb950;
@@ -154,13 +158,12 @@
   --color-series-2: var(--series-2);
   --color-good: var(--good);
   --color-warn: var(--warn);
-  --color-serious: var(--serious);
   --color-critical: var(--critical);
   --color-neutral: var(--neutral);
   --color-good-text: var(--good-text);
   --color-warn-text: var(--warn-text);
-  --color-serious-text: var(--serious-text);
   --color-critical-text: var(--critical-text);
+  --color-neutral-text: var(--neutral-text);
 
   --shadow-panel: var(--shadow-panel);
   --shadow-pop: var(--shadow-pop);
@@ -178,6 +181,9 @@
   --animate-toast-in: toast-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-toast-out: toast-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
   --animate-spin-once: spin-once 500ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Progressing's dashed icon: a turn every 3 s (stopped, like every animation, under reduced
+     motion). */
+  --animate-turn: turn 3s linear infinite;
 }
 
 @keyframes slide-in {
@@ -230,6 +236,11 @@
   to {
     transform: translateX(16px);
     opacity: 0;
+  }
+}
+@keyframes turn {
+  to {
+    rotate: 360deg;
   }
 }
 @keyframes spin-once {

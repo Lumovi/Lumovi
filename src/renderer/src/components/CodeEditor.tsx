@@ -24,7 +24,7 @@ import { useEffect, useRef } from 'react'
 const highlight = HighlightStyle.define([
   { tag: [tags.propertyName, tags.definition(tags.propertyName)], color: 'var(--accent-strong)' },
   { tag: [tags.string, tags.special(tags.string)], color: 'var(--good-text)' },
-  { tag: [tags.number, tags.bool, tags.null, tags.keyword], color: 'var(--serious-text)' },
+  { tag: [tags.number, tags.bool, tags.null, tags.keyword], color: 'var(--ansi-5)' },
   { tag: [tags.comment, tags.meta], color: 'var(--text-3)', fontStyle: 'italic' },
   { tag: [tags.punctuation, tags.separator, tags.operator], color: 'var(--text-3)' },
 ])

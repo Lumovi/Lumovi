@@ -152,6 +152,18 @@ test('Karpenter’s page: its node pools against their limits, its nodes, and wh
   await expect(nodes).toContainText(
     `${nodeClaims.launching}c6i.2xlarge · spot · eu-west-1bLaunching`,
   )
+  // Launching is under way: its dot pulses, unless less motion is asked for.
+  const dot = nodes
+    .getByRole('button', { name: new RegExp(nodeClaims.launching) })
+    .locator('.animate-pulse-dot')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect
+    .poll(() => dot.evaluate((element) => getComputedStyle(element).animationIterationCount))
+    .toBe('infinite')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect
+    .poll(() => dot.evaluate((element) => getComputedStyle(element).animationIterationCount))
+    .toBe('1')
   await nodes.getByRole('button', { name: new RegExp(nodeClaims.launching) }).click()
   await expect(panel(page, 'NodeClaim', nodeClaims.launching).locator('header')).toContainText(
     'Launching',
