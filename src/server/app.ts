@@ -327,6 +327,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ])
       // What changed last is kept, for the next server.
       await state.flush()
+      state.close()
       // Sign-ins only counted, said before it stops.
       auth.close()
       audit.record({
