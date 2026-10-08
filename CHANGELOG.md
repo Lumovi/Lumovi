@@ -19,10 +19,11 @@ All notable changes to Lumovi are documented here. The format follows
   pastes its credentials into the hub. The command's join token works once, for an hour, is
   shown once and never kept (only its SHA-256), and is read from the terminal, not the command
   line. The agent exchanges it for a token of its own, which it keeps in its Secret (the one
-  Secret it may read and change), so the join token is no use once it's joined. The page waits
-  for it with a timer and a card, then asks for its certificate authority to be checked.
-  Making, cancelling, joining and removing are admin-only, need Lumovi's admins configured and
-  its state kept, and are recorded in the audit log.
+  Secret it may change), so the join token is no use once it's joined. The page waits for it
+  with a timer and a card, then asks for its certificate authority to be checked: until it is,
+  only admins see the cluster, as whoever first used the token is trusted. Making, cancelling,
+  joining and removing are admin-only, need Lumovi's admins configured and its state kept, and
+  are recorded in the audit log.
 
 ### Changed
 
