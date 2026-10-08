@@ -1,4 +1,8 @@
-{{- if and (include "lumovi.dashboard" .) .Values.networkPolicy.enabled }}
+{{- $proxy := eq .Values.auth.mode "proxy" }}
+{{- if and (include "lumovi.dashboard" .) (or .Values.networkPolicy.enabled $proxy) }}
+{{- if and $proxy (not .Values.networkPolicy.from) }}
+{{- fail (printf "auth.mode proxy trusts the %s header from whoever reaches Lumovi: set networkPolicy.from to the proxy's pods (a podSelector, with a namespaceSelector if it runs in another namespace), so that nobody else can" .Values.auth.proxy.userHeader) }}
+{{- end }}
 # Only what `from` allows reaches Lumovi (with auth.mode proxy: the proxy alone).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

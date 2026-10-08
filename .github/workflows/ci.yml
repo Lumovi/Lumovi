@@ -55,8 +55,18 @@ jobs:
             helm template lumovi charts/lumovi --set auth.mode="$mode" \
               --set url=https://lumovi.example.com \
               --set auth.oidc.issuer=https://dex.example.com --set auth.oidc.clientId=lumovi \
-              --set ingress.enabled=true --set networkPolicy.enabled=true >/dev/null
+              --set ingress.enabled=true --set networkPolicy.enabled=true \
+              --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' >/dev/null
           done
+          # Behind a proxy, only the proxy reaches Lumovi: without saying which pods it is, refused;
+          # with them, a NetworkPolicy lets them alone in, whether networkPolicy.enabled says so.
+          (! helm template lumovi charts/lumovi --set auth.mode=proxy 2>/dev/null)
+          helm template lumovi charts/lumovi --set auth.mode=proxy \
+            --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' \
+            | grep -A12 'kind: NetworkPolicy' | grep -q 'app: oauth2-proxy'
+          # An agent's hub only over https.
+          (! helm template lumovi charts/lumovi --set mode=agent --set agent.hubUrl=http://hub.example.com \
+            --set agent.tokenSecret=agent 2>/dev/null)
           # Single sign-on with people's own tokens: no impersonation, so no ClusterRole.
           (! helm template lumovi charts/lumovi --set auth.mode=oidc \
             --set url=https://lumovi.example.com --set auth.oidc.issuer=https://dex.example.com \
@@ -150,6 +160,7 @@ jobs:
           (! helm template lumovi charts/lumovi --set audit.level=everything 2>/dev/null)
           # A fleet, with every source; a member; an agent.
           helm template lumovi charts/lumovi --set auth.mode=proxy \
+            --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' \
             --set fleet.kubeconfigSecret=fleet --set 'fleet.secrets={lumovi,cluster-api,argocd}' \
             --set 'fleet.secretNamespaces={lumovi,argocd}' --set fleet.agentsSecret=agents \
             --set fleet.labels.env=production >/dev/null

@@ -72,8 +72,9 @@ their RBAC applies. Its service account may impersonate anyone: keep its namespa
 {{- else }}
 
 Lumovi trusts the {{ .Values.auth.proxy.userHeader }} and {{ .Values.auth.proxy.groupsHeader }} headers: whoever reaches it
-directly can say they're anyone, in any group (an admin's, an auditor's). Make sure only the
-authenticating proxy can reach it{{ if not .Values.networkPolicy.enabled }} (networkPolicy.enabled keeps everything else out){{ end }}.
+directly can say they're anyone, in any group (an admin's, an auditor's). Its NetworkPolicy lets
+in only networkPolicy.from (the proxy's pods): it holds only where the cluster's network plugin
+enforces NetworkPolicies (most do; flannel alone doesn't), so check that one does.
 {{- end }}
 {{- end }}
 {{- if and (include "lumovi.dashboard" .) .Values.auth.keepSessions (not .Values.auth.stateKeySecret) (not (lookup "v1" "Namespace" "" .Release.Namespace)) }}

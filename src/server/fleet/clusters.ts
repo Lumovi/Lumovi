@@ -28,6 +28,11 @@ export interface FleetCluster {
   agent?: string
   /** Why it can't be used now, as people are told. */
   problem?: string
+  /**
+   * Its agent sent a certificate authority the hub doesn't trust for it: not the one
+   * LUMOVI_FLEET_AGENTS names, or not the one it first sent (which an admin may trust).
+   */
+  untrusted?: 'named' | 'first'
 }
 
 /** Lumovi's settings for a cluster, as a context's `lumovi.dev` extension (or a Secret's annotations) has them. */

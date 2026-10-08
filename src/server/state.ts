@@ -30,7 +30,15 @@ import { keeper, MAX_KEPT_BYTES, type Keeper, type Keeping, type Kept } from './
 import { log } from './log'
 
 /** What's kept, each a map of its own. */
-export const SECTIONS = ['sessions', 'grants', 'access', 'refresh', 'spent', 'clusters'] as const
+export const SECTIONS = [
+  'sessions',
+  'grants',
+  'access',
+  'refresh',
+  'spent',
+  'clusters',
+  'agents',
+] as const
 export type Section = (typeof SECTIONS)[number]
 
 /** As it's kept: each entry by its name (an HMAC), sealed. */
