@@ -19,11 +19,12 @@ const INSTRUCTIONS =
 
 const response = await fetch(INSTRUCTIONS)
 if (!response.ok) throw new Error(`${INSTRUCTIONS} answered ${response.status}`)
-const text = await response.text()
+// The commands as one line each: a line ending in \ goes on, and spaces are spaces.
+const commands = ` ${(await response.text()).replace(/\\\n/g, ' ').replace(/\s+/g, ' ')} `
 const { identity, issuer } = KUBERNETES_SIGNER
-// The flag and its value, as the instructions' commands give them (on one line, or the next).
+// The flag and its value, as the instructions' commands give them.
 const names = (flag: string, value: string) =>
-  new RegExp(`${flag}[ =\\\\\\s]+${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(text)
+  commands.includes(` ${flag} ${value} `) || commands.includes(` ${flag}=${value} `)
 const named =
   names('--certificate-identity', identity) && names('--certificate-oidc-issuer', issuer)
 console.log(
