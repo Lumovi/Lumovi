@@ -58,6 +58,11 @@ export interface AgentConfig {
   groups?: string[]
   /** Requests carry each person's own token, rather than impersonating them. */
   forwardToken: boolean
+  /**
+   * The SHA-256 of its cluster's certificate authority (hex), or of each of them: the hub
+   * trusts no other the agent sends. Unset, it trusts the one the agent first sends.
+   */
+  caSha256?: string[]
 }
 
 /** Where a fleet's clusters come from. */
@@ -725,7 +730,10 @@ export function document(name: string, setting: string): string {
   return text
 }
 
-/** The agents allowed to connect: a list of { name, token or tokenSha256, labels, groups, forwardToken }. */
+/**
+ * The agents allowed to connect: a list of { name, token or tokenSha256, labels, groups,
+ * forwardToken, caSha256 }.
+ */
 function agentsConfig(setting: string | undefined): AgentConfig[] {
   if (!setting) return []
   const name = 'LUMOVI_FLEET_AGENTS'
@@ -758,12 +766,28 @@ function agentsConfig(setting: string | undefined): AgentConfig[] {
         `${at} (${entry.name}) needs a token of at least 32 characters, or its tokenSha256.`,
       )
     }
+    // Its cluster's certificate authority, as openssl x509 -fingerprint -sha256 says it (or a
+    // list, while it's rotated): colons or none, either case.
+    let caSha256: string[] | undefined
+    if (entry.caSha256 !== undefined) {
+      const given = Array.isArray(entry.caSha256) ? entry.caSha256 : [entry.caSha256]
+      caSha256 = given.map((value: unknown) => {
+        const hex = typeof value === 'string' ? value.replaceAll(':', '').toLowerCase() : ''
+        if (!/^[0-9a-f]{64}$/.test(hex)) {
+          throw new ConfigError(
+            `${at}.caSha256 (${entry.name}) must be the SHA-256 of its cluster’s certificate authority, as openssl x509 -fingerprint -sha256 says it, or a list of them.`,
+          )
+        }
+        return hex
+      })
+    }
     return {
       name: entry.name,
       tokenSha256,
       labels: stringMap(`${at}.labels`, entry.labels),
       groups: entry.groups === undefined ? undefined : strings(`${at}.groups`, entry.groups),
       forwardToken: entry.forwardToken === true,
+      ...(caSha256 ? { caSha256 } : {}),
     }
   })
 }

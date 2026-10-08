@@ -3,6 +3,9 @@
 {{- if not .hubUrl }}
 {{- fail "agent.hubUrl must be set: the address of the fleet's Lumovi, like https://lumovi.example.com" }}
 {{- end }}
+{{- if not (hasPrefix "https://" .hubUrl) }}
+{{- fail (printf "agent.hubUrl must be https, not %s: the agent's token and its cluster's would cross the network as they are" .hubUrl) }}
+{{- end }}
 {{- if not .tokenSecret }}
 {{- fail "agent.tokenSecret must name a Secret with the agent's token under token" }}
 {{- end }}

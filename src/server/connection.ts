@@ -285,9 +285,20 @@ export class PageConnection {
       ...accessing.invoke,
       ...assistants.invoke,
       [IPC.appInfo]: () => info,
-      // A fleet's page sums each cluster up.
+      // A fleet's page sums each cluster up; and an admin trusts an agent again, whose cluster's
+      // certificate authority changed.
       ...(hosted.fleet
-        ? { [IPC.fleetSummary]: (context: unknown) => clusterSummary(kube, context as string) }
+        ? {
+            [IPC.fleetSummary]: (context: unknown) => clusterSummary(kube, context as string),
+            [IPC.fleetTrustAgent]: (name: unknown) => {
+              if (typeof name !== 'string' || !hosted.agents)
+                throw new Error('Expected an agent’s name')
+              if (!access.isAdmin(identity.user)) {
+                throw new KubeRequestError('not-allowed', 'Only Lumovi’s admins trust an agent.')
+              }
+              hosted.agents.trust(name, actor)
+            },
+          }
         : {}),
     }
     this.#send = shared.send

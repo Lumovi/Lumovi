@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   Check,
@@ -8,6 +8,7 @@ import {
   PackageSearch,
   Search,
   ServerOff,
+  ShieldAlert,
   Tag,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -41,7 +42,9 @@ import { HEALTH_RANK, statusOf } from '@renderer/lib/health'
 import { matchWords } from '@renderer/lib/match'
 import { clusterPath, formatRef, workloadsPath } from '@renderer/lib/routes'
 import { useSession } from '@renderer/state/session'
+import { toast } from '@renderer/state/toasts'
 import { AdminButton } from '../access/AdminButton'
+import { useMyAccess } from '../access/use-access'
 import { AccountMenu } from '../session/AccountMenu'
 import { ServerBanner } from '../session/ServerBanner'
 import { Commands } from '../shell/Commands'
@@ -173,6 +176,11 @@ export function FleetPage() {
                       : 'All healthy'}
                 </span>
               </h1>
+              <UntrustedAgents
+                names={items
+                  .filter(({ summary }) => untrusted(summary?.version))
+                  .map((i) => i.context.name)}
+              />
               <div className="flex flex-wrap items-center gap-2">
                 <SearchInput
                   value={q}
@@ -379,6 +387,73 @@ function ClusterCard({ context, summary, status }: Item) {
         <Answered summary={summary as Required<ClusterSummary>} />
       )}
     </Link>
+  )
+}
+
+/** Whether a cluster's agent isn't trusted, as its version's answer says. */
+const untrusted = (version: ClusterSummary['version'] | undefined) =>
+  version?.ok === false && version.error.code === 'untrusted-agent'
+
+/**
+ * For an admin: the agents the hub doesn't trust, as each sent a certificate authority other than
+ * the one it's trusted with, and a way to trust each one's again (its cluster's changed).
+ */
+function UntrustedAgents({ names }: { names: string[] }) {
+  const mine = useMyAccess()
+  const queryClient = useQueryClient()
+  const [asking, setAsking] = useState<string>()
+  if (!mine?.admin || names.length === 0) return null
+  const trust = async (name: string) => {
+    try {
+      await api.fleet!.trustAgent(name)
+      toast({ tone: 'success', title: `Trusted ${name}’s agent` })
+      setAsking(undefined)
+      await queryClient.invalidateQueries({ queryKey: ['fleet-summary', name] })
+    } catch (error) {
+      toast({ tone: 'error', title: 'Couldn’t trust it', description: (error as Error).message })
+    }
+  }
+  return (
+    <section
+      aria-label="Agents not trusted"
+      className="flex flex-col gap-2 rounded-xl border border-warn/25 bg-warn/10 px-4 py-3 text-[13px]"
+    >
+      {names.map((name) => (
+        <div key={name} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <ShieldAlert className="size-4 shrink-0 text-warn-text" />
+          <p className="min-w-0 flex-1 text-ink-1">
+            {asking === name ? (
+              <>
+                Trust the certificate authority {name}’s agent sends now?{' '}
+                <span className="text-ink-2">
+                  Only if you know its cluster’s changed: whoever has its token could otherwise read
+                  what goes to it.
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="font-medium">{name}</span>’s agent sent a certificate authority
+                other than the one Lumovi trusts for it.
+              </>
+            )}
+          </p>
+          {asking === name ? (
+            <span className="flex gap-1.5">
+              <Button variant="ghost" className="h-7 text-xs" onClick={() => setAsking(undefined)}>
+                Cancel
+              </Button>
+              <Button variant="primary" className="h-7 text-xs" onClick={() => void trust(name)}>
+                Trust it
+              </Button>
+            </span>
+          ) : (
+            <Button variant="secondary" className="h-7 text-xs" onClick={() => setAsking(name)}>
+              Trust it…
+            </Button>
+          )}
+        </div>
+      ))}
+    </section>
   )
 }
 

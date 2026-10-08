@@ -6,7 +6,7 @@
  * passes on bytes it can't read. Its service account may only impersonate,
  * so the hub acts as each person, and their RBAC applies.
  *
- * LUMOVI_HUB_URL       the hub's address (https://lumovi.example.com/)
+ * LUMOVI_HUB_URL       the hub's address (https://lumovi.example.com/; http only on this computer)
  * LUMOVI_AGENT_NAME    the cluster's name, as the hub's LUMOVI_FLEET_AGENTS has it
  * LUMOVI_AGENT_TOKEN   its token there
  * LUMOVI_AGENT_HEALTH_PORT  where GET /healthz says whether it's connected (8081; 0: nowhere)
@@ -40,7 +40,10 @@ function required(name: string): string {
   return value
 }
 
-/** The hub's address, as LUMOVI_HUB_URL has it (http or https). */
+/**
+ * The hub's address, as LUMOVI_HUB_URL has it: https, as the agent's token and its cluster's go
+ * there (http only to this computer, where nothing crosses a network).
+ */
 function hubAddress(): URL {
   const setting = required('LUMOVI_HUB_URL')
   if (!/^https?:\/\/[^/\s]+\S*$/.test(setting)) {
@@ -49,7 +52,14 @@ function hubAddress(): URL {
     )
     process.exit(1)
   }
-  return new URL(setting.replace(/\/*$/, '/'))
+  const url = new URL(setting.replace(/\/*$/, '/'))
+  if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+    console.error(
+      `LUMOVI_HUB_URL must be https, not ${url.origin}: the agent’s token and its cluster’s would cross the network as they are.`,
+    )
+    process.exit(1)
+  }
+  return url
 }
 
 const address = hubAddress()
@@ -127,10 +137,20 @@ function dial(): void {
       // Welcomed: the hub pings it every heartbeatSeconds from now on. A connection that
       // goes quiet (dropped somewhere on the way, without a word) is taken for lost.
       text: (text) => {
+        const said = JSON.parse(text) as {
+          type?: string
+          heartbeatSeconds: number
+          message?: string
+        }
+        // Refused: the hub doesn't trust the certificate authority it sent (until an admin does).
+        if (said.type === 'refused') {
+          log(`The hub doesn’t trust this cluster: ${said.message}`)
+          return
+        }
         connected = true
         attempts = 0
         log(`Connected to ${origin} as ${name}`)
-        const { heartbeatSeconds } = JSON.parse(text) as { heartbeatSeconds: number }
+        const { heartbeatSeconds } = said
         const quiet = (heartbeatSeconds * 2 + 1) * 1000
         const listen = () => {
           clearTimeout(silence)

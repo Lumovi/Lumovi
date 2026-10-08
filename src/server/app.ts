@@ -69,6 +69,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     options.env,
     stateKey(config.state, config.stateKey),
   )
+  // A fleet's agents: which certificate authority each was first trusted with is kept, and recorded.
+  hosted.agents?.trustWith({ state, audit })
   const sessions = new Sessions(
     config.sessionHours,
     (ended, how, why) => {

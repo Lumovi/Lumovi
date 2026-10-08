@@ -6,6 +6,16 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Behind an authenticating proxy (`auth.mode: proxy`), the chart lets only the proxy's pods
+  reach Lumovi: its NetworkPolicy is always on, and the chart won't install without
+  `networkPolicy.from` naming them. Whoever else could reach Lumovi could say they're anyone.
+- A fleet's hub trusts an agent's cluster only with the certificate authority it's named with
+  (`caSha256`, in `LUMOVI_FLEET_AGENTS`), or the one the agent first sends: that's kept, and
+  recorded in the audit log, and another is refused (the agent and its cluster's card say so)
+  until an admin trusts it. Agents connect to their hub only over https.
+
 ## [1.13.0] - 2026-10-08
 
 The kubectl terminals download is checked against Kubernetes' signature, and the bill of

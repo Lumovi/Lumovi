@@ -230,6 +230,8 @@ export type KubeErrorCode =
   | 'helm'
   /** Lumovi's admins don't let this person do it there (their access, not the cluster's RBAC). */
   | 'not-allowed'
+  /** A fleet's agent sent a certificate authority the hub doesn't trust for its cluster. */
+  | 'untrusted-agent'
 
 export interface KubeError {
   code: KubeErrorCode
@@ -865,6 +867,8 @@ export interface LumoviApi {
   /** A fleet's: each cluster summed up, for the page of every cluster (a server with a fleet). */
   fleet?: {
     summary(context: string): Promise<ClusterSummary>
+    /** An admin's: trusts the certificate authority an agent sends now (its cluster's changed). */
+    trustAgent(name: string): Promise<void>
   }
   /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */
   approvals?: {
@@ -965,6 +969,7 @@ export const IPC = {
   can: 'kube:can',
   history: 'kube:history',
   fleetSummary: 'fleet:summary',
+  fleetTrustAgent: 'fleet:trust-agent',
   helmReleases: 'helm:releases',
   helmRelease: 'helm:release',
   helmCli: 'helm:cli',
