@@ -171,12 +171,14 @@ test('the native menu runs the same commands', async ({ lumovi, clusters }) => {
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
   await page.keyboard.press('Escape')
 
+  await menu(app, 'docs')
   await menu(app, 'github')
   await menu(app, 'issue')
   await menu(app, 'sponsor')
   await expect
     .poll(opened)
     .toEqual([
+      'https://docs.lumovi.dev',
       'https://github.com/Lumovi/Lumovi',
       'https://github.com/Lumovi/Lumovi/issues/new/choose',
       'https://github.com/sponsors/kotapeter',
