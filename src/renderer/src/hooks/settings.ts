@@ -78,11 +78,15 @@ export function useReadOnly() {
     outside: settings?.changedOutside?.[context],
     mayChange: !locked && settings?.shared?.mayChange !== false,
     why: by
-      ? `Changes are turned off for this cluster: ${by.by} made it read-only for everyone.`
+      ? by.outside
+        ? 'Changes are turned off for this cluster: it was made read-only for everyone outside Lumovi.'
+        : `Changes are turned off for this cluster: ${by.by} made it read-only for everyone.`
       : 'Changes are turned off for this cluster.',
     /** Why it's read-only, said of the cluster. */
     said: by
-      ? `${by.by} made ${context} read-only for everyone on this server`
+      ? by.outside
+        ? `${context} was made read-only for everyone on this server outside Lumovi`
+        : `${by.by} made ${context} read-only for everyone on this server`
       : `${context} is read-only in Lumovi`,
     /** Says so where it can't be changed. */
     async set(readOnly: boolean) {
