@@ -16,6 +16,8 @@ All notable changes to Lumovi are documented here. The format follows
   progress" (a pod's Running is healthy). Blue is for what can be acted on: links and text buttons
   use the stronger blue, which reads at 4.5:1 on every surface, the lighter one is for icons, and
   Access's notes of what's to know and a live terminal's tab are neutral.
+- In dark mode, primary buttons are the same blue as in light (white on it is 4.6:1, as button
+  text needs, not 3.6:1), and a primary or danger button hovered turns deeper, not lighter.
 
 ### Fixed
 

@@ -41,6 +41,9 @@
   --accent-strong: #1c5cab;
   --accent-soft: rgb(38 117 211 / 0.1);
   --accent-track: #dcebfe;
+  /* A filled button hovered: deeper, in both modes, so white on it reads better still. */
+  --accent-hover: #1c5cab;
+  --critical-hover: #bb3535;
   /* Categorical chart slots, in their validated order (adjacent pairs stay apart under CVD). */
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -95,7 +98,8 @@
     --text-1: #ededed;
     --text-2: #a3a3a3;
     --text-3: #8f8f8f;
-    --accent: #3987e5;
+    /* Blue 600, as in light: white on it is 4.6:1, as a button's text needs. */
+    --accent: #2675d3;
     --accent-strong: #5ea2f0;
     --accent-soft: rgb(57 135 229 / 0.16);
     --accent-track: rgb(57 135 229 / 0.2);
@@ -152,6 +156,7 @@
   --color-ink-3: var(--text-3);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
+  --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-track: var(--accent-track);
   --color-series-1: var(--series-1);
@@ -159,6 +164,7 @@
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-critical: var(--critical);
+  --color-critical-hover: var(--critical-hover);
   --color-neutral: var(--neutral);
   --color-good-text: var(--good-text);
   --color-warn-text: var(--warn-text);
