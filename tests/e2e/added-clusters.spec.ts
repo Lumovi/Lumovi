@@ -128,6 +128,7 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
       contexts: [{ name: 'demo', server: clusters.demo.url, auth: 'token' }],
       commands: [],
       tokenFiles: [],
+      unverified: [],
       keptCredentials: [],
       files: [],
       conflicts: ['demo'],
@@ -313,7 +314,11 @@ test('the line for kubectl keeps a path whole, whatever it holds, and one in the
       (file) => window.lumovi!.addedClusters!.forKubectl(file),
       config,
     )
-    expect(fromHome).toMatchObject({ ok: true, data: expect.stringContaining('"$HOME"') })
+    // Read as typed, in double quotes: nothing in it means more there.
+    expect(fromHome).toEqual({
+      ok: true,
+      data: `export KUBECONFIG="$HOME${config.slice(home.length)}"`,
+    })
     expect(run((fromHome as { data: string }).data)).toBe(config)
   } finally {
     rmSync(inHome, { recursive: true, force: true })
@@ -704,7 +709,7 @@ test('an added cluster’s kept credentials go only where they were kept for, un
         window.lumovi!.addedClusters!.check(
           text as string,
           context as string,
-          agreed as string[],
+          [...(agreed as readonly string[])],
           file as string,
         ),
       [text, context, file!, agreed] as const,
@@ -720,7 +725,10 @@ test('an added cluster’s kept credentials go only where they were kept for, un
   moved.clusters[0]!.cluster = { server: elsewhere, 'insecure-skip-tls-verify': true }
   const movedText = stringify(moved)
   const asked = (await inspect(movedText)) as {
-    data: { keptCredentials: { context: string; server: string; consent: string }[] }
+    data: {
+      keptCredentials: { context: string; server: string; consent: string }[]
+      unverified: { context: string; server: string; consent: string }[]
+    }
   }
   expect(asked.data.keptCredentials).toEqual([
     { context: 'kept', server: elsewhere, consent: expect.stringMatching(/^[0-9a-f]{64}$/) },
@@ -762,8 +770,19 @@ test('an added cluster’s kept credentials go only where they were kept for, un
   expect(seen).toEqual([])
 
   // Agreed to, for that very server: sent there.
+  // (Its server isn't verified either: agreed to as well.)
+  expect(asked.data.unverified).toEqual([
+    { context: 'kept', server: elsewhere, consent: expect.stringMatching(/^[0-9a-f]{64}$/) },
+  ])
   const { consent } = asked.data.keptCredentials[0]!
-  expect(await check(movedText, 'kept', [consent])).toMatchObject({
+  expect(await check(movedText, 'kept', [asked.data.unverified[0]!.consent])).toMatchObject({
+    ok: true,
+    data: { credentials: { notTried: 'agreement' } },
+  })
+  expect(seen).toEqual([])
+  expect(
+    await check(movedText, 'kept', [consent, asked.data.unverified[0]!.consent]),
+  ).toMatchObject({
     ok: true,
     data: { credentials: { ok: true } },
   })
@@ -779,6 +798,14 @@ test('an added cluster’s kept credentials go only where they were kept for, un
   const proxiedText = await read(add.data.path)
   expect(proxiedText).not.toContain('hunter2')
   expect(proxiedText).toContain('someone:(kept%20by%20Lumovi)@127.0.0.1')
+  // Nor does inspect give it back, kept or pasted.
+  for (const editing of [add.data.path, undefined]) {
+    const inspected = await page.evaluate(
+      ([text, editing]) => window.lumovi!.addedClusters!.inspect(text!, editing),
+      [editing ? proxiedText : stringify(proxied), editing] as const,
+    )
+    expect(JSON.stringify(inspected)).not.toContain('hunter2')
+  }
   const editProxied = (text: string) =>
     page.evaluate(
       ([file, text]) => window.lumovi!.addedClusters!.edit(file!, text!, []),
@@ -793,5 +820,195 @@ test('an added cluster’s kept credentials go only where they were kept for, un
   // As it was, it keeps its password.
   expect(await editProxied(proxiedText)).toMatchObject({ ok: true })
   expect(readFileSync(add.data.path, 'utf8')).toContain('hunter2')
+  standIn.close()
+})
+
+test('a server not verified gets the credentials only once the person agrees, for that very server', async ({
+  launch,
+}) => {
+  const seen: string[] = []
+  const standIn = createServer((req, res) => {
+    if (req.headers.authorization) seen.push(req.headers.authorization)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(req.url === '/version' ? { gitVersion: 'v9.9.9' } : { items: [] }))
+  })
+  await new Promise<void>((done) => standIn.listen(0, '127.0.0.1', done))
+  const server = `http://127.0.0.1:${(standIn.address() as AddressInfo).port}`
+  const text = stringify({
+    apiVersion: 'v1',
+    kind: 'Config',
+    clusters: [{ name: 'open', cluster: { server, 'insecure-skip-tls-verify': true } }],
+    users: [{ name: 'open', user: { token: 'pasted-token' } }],
+    contexts: [{ name: 'open', context: { cluster: 'open', user: 'open' } }],
+  })
+  const { page } = await launch()
+  const inspected = (await page.evaluate(
+    (text) => window.lumovi!.addedClusters!.inspect(text),
+    text,
+  )) as { data: { unverified: { context: string; server: string; consent: string }[] } }
+  expect(inspected.data.unverified).toEqual([
+    { context: 'open', server, consent: expect.stringMatching(/^[0-9a-f]{64}$/) },
+  ])
+  // Asked without credentials: it answers, and gets none.
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.check(text, 'open', []), text),
+  ).toMatchObject({
+    ok: true,
+    data: { server: { ok: true, version: 'v9.9.9' }, credentials: { notTried: 'agreement' } },
+  })
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }), text),
+  ).toMatchObject({
+    ok: false,
+    error: {
+      code: 'not-allowed',
+      message: `Its credentials would go to ${server}, which isn’t verified. Agree to that to keep it.`,
+    },
+  })
+  expect(seen).toEqual([])
+  // Agreed to: sent, and kept.
+  const { consent } = inspected.data.unverified[0]!
+  expect(
+    await page.evaluate(
+      ([text, consent]) => window.lumovi!.addedClusters!.check(text!, 'open', [consent!]),
+      [text, consent],
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { ok: true } } })
+  expect(seen).toEqual(['Bearer pasted-token'])
+  expect(
+    await page.evaluate(
+      ([text, consent]) => window.lumovi!.addedClusters!.add(text!, { agreed: [consent!] }),
+      [text, consent],
+    ),
+  ).toMatchObject({ ok: true })
+  standIn.close()
+})
+
+test('a program shared by contexts runs for one moved elsewhere only once the person agrees again', async ({
+  launch,
+  clusters,
+}) => {
+  const seen: string[] = []
+  const standIn = createServer((req, res) => {
+    if (req.headers.authorization) seen.push(req.headers.authorization)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(req.url === '/version' ? { gitVersion: 'v9.9.9' } : { items: [] }))
+  })
+  await new Promise<void>((done) => standIn.listen(0, '127.0.0.1', done))
+  const elsewhere = `http://127.0.0.1:${(standIn.address() as AddressInfo).port}`
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-plugin-'))
+  const ran = join(dir, 'ran')
+  const plugin = join(dir, 'credential.mjs')
+  writeFileSync(
+    plugin,
+    `import { appendFileSync } from 'node:fs'
+appendFileSync(${JSON.stringify(ran)}, 'ran\\n')
+console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind: 'ExecCredential', status: { token: ${JSON.stringify(DEMO_TOKEN)} } }))
+`,
+  )
+  // Two contexts signing in as one user, by one program (as kubelogin's often are).
+  const config = {
+    apiVersion: 'v1',
+    kind: 'Config',
+    clusters: [
+      {
+        name: 'demo',
+        cluster: {
+          server: clusters.demo.url,
+          'certificate-authority-data': Buffer.from(clusters.demo.caPem!).toString('base64'),
+        },
+      },
+    ],
+    users: [
+      {
+        name: 'sso',
+        user: {
+          exec: {
+            apiVersion: 'client.authentication.k8s.io/v1',
+            command: process.execPath,
+            args: [plugin, '--oidc-client-id', 'lumovi'],
+            interactiveMode: 'Never',
+          },
+        },
+      },
+    ],
+    contexts: [
+      { name: 'first', context: { cluster: 'demo', user: 'sso' } },
+      { name: 'second', context: { cluster: 'demo', user: 'sso' } },
+    ],
+  }
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const { page } = await launch({ userDataDir })
+  const pasted = stringify(config)
+  const run = (
+    (await page.evaluate((text) => window.lumovi!.addedClusters!.inspect(text), pasted)) as {
+      data: { commands: { consent: string }[] }
+    }
+  ).data.commands[0]!.consent
+  expect(
+    await page.evaluate(
+      ([text, run]) => window.lumovi!.addedClusters!.add(text!, { agreed: [run!] }),
+      [pasted, run],
+    ),
+  ).toMatchObject({ ok: true })
+  const [file] = own(userDataDir)
+  const kept = parse(
+    (
+      (await page.evaluate((file) => window.lumovi!.addedClusters!.read(file), file!)) as {
+        data: string
+      }
+    ).data,
+  ) as Config
+  // The second moved elsewhere: its server agreed to (not verified), not its program anew.
+  const second = kept.contexts.find((context) => context.name === 'second')!
+  kept.clusters.find((cluster) => cluster.name === second.context.cluster)!.cluster = {
+    server: elsewhere,
+    'insecure-skip-tls-verify': true,
+  }
+  const moved = stringify(kept)
+  const inspected = (await page.evaluate(
+    ([text, file]) => window.lumovi!.addedClusters!.inspect(text!, file),
+    [moved, file!],
+  )) as { data: { unverified: { consent: string }[]; commands: { consent: string }[] } }
+  const unverified = inspected.data.unverified.map(({ consent }) => consent)
+  const before = existsSync(ran) ? readFileSync(ran, 'utf8') : ''
+  expect(
+    await page.evaluate(
+      ([text, file, agreed]) =>
+        window.lumovi!.addedClusters!.check(
+          text as string,
+          'second',
+          [...(agreed as readonly string[])],
+          file as string,
+        ),
+      [moved, file!, unverified] as const,
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { notTried: 'agreement' } } })
+  expect(
+    await page.evaluate(
+      ([file, text, agreed]) =>
+        window.lumovi!.addedClusters!.edit(file as string, text as string, agreed as string[]),
+      [file!, moved, unverified] as const,
+    ),
+  ).toMatchObject({
+    ok: false,
+    error: { message: expect.stringContaining(`for ${elsewhere}`) },
+  })
+  expect(seen).toEqual([])
+  expect(existsSync(ran) ? readFileSync(ran, 'utf8') : '').toBe(before)
+  // Agreed to anew: run, and sent there.
+  expect(
+    await page.evaluate(
+      ([text, file, agreed]) =>
+        window.lumovi!.addedClusters!.check(
+          text as string,
+          'second',
+          [...(agreed as readonly string[])],
+          file as string,
+        ),
+      [moved, file!, [...unverified, inspected.data.commands[0]!.consent]] as const,
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { ok: true } } })
+  expect(seen).toEqual([`Bearer ${DEMO_TOKEN}`])
   standIn.close()
 })
