@@ -371,7 +371,13 @@ function AddCluster({ onConnect }: { onConnect: () => void }) {
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={6} className={cn(menuContent, 'w-80')}>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={6}
+          className={cn(menuContent, 'w-80')}
+          // Each opens a dialog, which has the focus: the button doesn't take it back, late.
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
           <DropdownMenu.Item
             className={cn(menuItem, 'h-auto items-start py-2 whitespace-normal')}
             onSelect={onConnect}
