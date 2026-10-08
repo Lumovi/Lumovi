@@ -12,8 +12,11 @@ import {
   type Ref,
 } from 'react'
 import type { KubeObject } from '@shared/api'
+import { kindOf } from '@shared/resources'
 import { objectKey } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
+import { kubectl, objectArg } from '@renderer/lib/kubectl'
+import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { RowActions } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
@@ -23,6 +26,8 @@ import type { CellContext, Column } from './columns'
 const ROW_HEIGHT = 46
 /** The checkbox column of tables that can pick rows. */
 const PICK_WIDTH = 40
+/** Each row's padding (px-3 on either side), which its columns' room doesn't include. */
+const ROW_PADDING = 24
 /** Rows skipped by PageUp/PageDown. */
 const PAGE_JUMP = 10
 
@@ -119,7 +124,9 @@ export function ResourceTable({
     return () => observer.disconnect()
   }, [])
   const selectable = onPick !== undefined
-  const visible = fitColumns(columns, width - (selectable ? PICK_WIDTH : 0))
+  // What the columns have: the table's width, less the rows' padding and the checkboxes.
+  const frame = ROW_PADDING + (selectable ? PICK_WIDTH : 0)
+  const visible = fitColumns(columns, width - frame)
   // The React Compiler is not used, so the virtualizer's unmemoizable API is fine here.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -133,7 +140,7 @@ export function ResourceTable({
       ...(selectable ? [`${PICK_WIDTH}px`] : []),
       ...visible.map((c) => c.width),
     ].join(' '),
-    minWidth: minWidth(visible) + (selectable ? PICK_WIDTH : 0),
+    minWidth: minWidth(visible) + frame,
   }
   const keyOf = (index: number) => rowKey(rows[index]!)
   const pickedOnPage = rows.filter((object) => picked?.has(rowKey(object))).length
@@ -366,9 +373,9 @@ export function ResourceTable({
 
 /** Right-click actions for a row. */
 function RowMenu({ object, onOpen }: { object: KubeObject; onOpen: (object: KubeObject) => void }) {
+  const { context } = useCluster()
   const { name, namespace } = object.metadata
-  const kind = (object.kind as string).toLowerCase()
-  const scope = namespace ? ` -n ${namespace}` : ''
+  const kind = kindOf(object)
   const copy = (text: string) => () => void navigator.clipboard.writeText(text)
   return (
     <>
@@ -386,12 +393,16 @@ function RowMenu({ object, onOpen }: { object: KubeObject; onOpen: (object: Kube
       )}
       <ContextMenu.Item
         className={menuItem}
-        onSelect={copy(`kubectl describe ${kind} ${name}${scope}`)}
+        // As the dialogs' commands: for this cluster, and a custom kind with its group.
+        onSelect={copy(kubectl(context, namespace, 'describe', objectArg(kind, name)))}
       >
         <Terminal className="size-4 text-ink-3" /> Copy kubectl describe
       </ContextMenu.Item>
-      {kind === 'pod' && (
-        <ContextMenu.Item className={menuItem} onSelect={copy(`kubectl logs ${name}${scope}`)}>
+      {kind === 'Pod' && (
+        <ContextMenu.Item
+          className={menuItem}
+          onSelect={copy(kubectl(context, namespace, 'logs', name))}
+        >
           <Terminal className="size-4 text-ink-3" /> Copy kubectl logs
         </ContextMenu.Item>
       )}

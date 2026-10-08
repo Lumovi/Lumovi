@@ -19,7 +19,7 @@ import {
 } from '@renderer/lib/workloads'
 import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
-import { sortRows, type CellContext } from '../resources/columns'
+import { sortedBy, sortRows, type CellContext } from '../resources/columns'
 import { useListState } from '../resources/list-state'
 import { countBy, HealthChips, LabelSelector } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
@@ -87,13 +87,13 @@ export function WorkloadsPage() {
   }
   const counts = countBy(workloads, (o) => statusOf(kindOf(o), o).health)
   const needle = state.q.trim().toLowerCase()
-  const column = columns.find((c) => c.id === state.sort) ?? columns[0]!
+  const { column, desc } = sortedBy(columns, state, 'status')
   const matching = workloads
     .filter(
       (o) => state.health.length === 0 || state.health.includes(statusOf(kindOf(o), o).health),
     )
     .filter((o) => !needle || searchText(o).includes(needle))
-  const rows = sortRows(matching, column, state.desc, ctx)
+  const rows = sortRows(matching, column, desc, ctx)
   const pages = Math.max(1, Math.ceil(rows.length / state.size))
   const page = Math.min(state.page, pages)
   const pageRows = rows.slice((page - 1) * state.size, page * state.size)
@@ -137,8 +137,8 @@ export function WorkloadsPage() {
           ctx={ctx}
           rowKey={rowKey}
           selected={params.get('open') ?? undefined}
-          sort={{ id: column.id, desc: state.desc }}
-          onSort={(id) => update({ sort: id, desc: state.sort === id ? !state.desc : false })}
+          sort={{ id: column.id, desc }}
+          onSort={(id) => update({ sort: id, desc: column.id === id ? !desc : false })}
           onOpen={(o) => open(kindOf(o), o.metadata.name, o.metadata.namespace)}
           onPage={(delta) => goToPage(page + delta)}
           followSelection={params.has('open')}
