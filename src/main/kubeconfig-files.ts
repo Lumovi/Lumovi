@@ -4,7 +4,8 @@
  * cluster, user or context wins), and read where they are: Lumovi never writes them. An
  * organization's policy can keep it to the default (`kubeconfigFiles: "locked"`).
  */
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type { KubeconfigFiles as Files, ManagedSettings, Result } from '@shared/api'
 import type { KubeConfigStore } from '@backend/kube/kubeconfig'
@@ -29,6 +30,8 @@ export class KubeconfigFiles {
       pick: () => Promise<string[] | null>
       /** Shows a file in Finder or Explorer. */
       reveal: (path: string) => void
+      /** Where Lumovi keeps the clusters added in it. */
+      ownFolder: string
     },
   ) {}
 
@@ -36,19 +39,32 @@ export class KubeconfigFiles {
   list(): Files {
     const { base, added, own, from } = this.deps.store.paths()
     const locked = lockedBy(this.deps.managed)
-    const file = (path: string, more: { added?: true; removable?: true; own?: true }) => ({
-      path: resolve(path),
-      exists: existsSync(path),
-      ...more,
-    })
+    const results = this.deps.store.results()
+    const file = (
+      path: string,
+      origin: Files['files'][number]['origin'],
+      more: { added?: true; removable?: true; own?: true },
+    ) => {
+      const result = results.get(path)
+      return {
+        path: resolve(path),
+        exists: existsSync(path),
+        origin,
+        ...more,
+        ...(result && 'problem' in result ? { problem: result.problem } : {}),
+        ...(result && 'contexts' in result ? { contexts: result.contexts.length } : {}),
+      }
+    }
     return {
       files: [
-        ...base.map((path) => file(path, from === 'chosen' ? { removable: true } : {})),
-        ...added.map((path) => file(path, { added: true, removable: true })),
-        ...own.map((path) => file(path, { own: true })),
+        ...base.map((path) => file(path, from, from === 'chosen' ? { removable: true } : {})),
+        ...added.map((path) => file(path, 'added', { added: true, removable: true })),
+        ...own.map((path) => ({ ...file(path, 'own', { own: true }), addedAt: addedAt(path) })),
       ],
       from,
       ...(locked ? { locked } : {}),
+      home: homedir(),
+      ownFolder: this.deps.ownFolder,
     }
   }
 
@@ -110,9 +126,28 @@ export class KubeconfigFiles {
     }
   }
 
-  /** Only one of those read: not any path the page names. */
+  /** One Lumovi was given that's gone, chosen again where it is now, in its place. */
+  async chooseAgain(path: string): Promise<Result<Files | null>> {
+    try {
+      this.#mayChange()
+      const { chosen, added } = this.deps.settings.kubeconfigFiles()
+      if (!chosen.includes(path) && !added.includes(path)) {
+        throw new KubeRequestError('invalid', `${path} isn’t one Lumovi was given.`)
+      }
+      const [picked] = (await this.deps.pick()) ?? []
+      if (!picked) return { ok: true, data: null }
+      const instead = (files: string[]) => files.map((file) => (file === path ? picked : file))
+      return { ok: true, data: this.#keep(instead(chosen), instead(added)) }
+    } catch (error) {
+      return { ok: false, error: toKubeError(error) }
+    }
+  }
+
+  /** Only one of those read, or Lumovi's own folder: not any path the page names. */
   show(path: string): void {
-    if (this.list().files.some((file) => file.path === path)) this.deps.reveal(path)
+    if (path === this.deps.ownFolder || this.list().files.some((file) => file.path === path)) {
+      this.deps.reveal(path)
+    }
   }
 
   #mayChange(): void {
@@ -129,6 +164,16 @@ export class KubeconfigFiles {
     this.deps.settings.update({ kubeconfigFiles, kubeconfigAdded })
     this.deps.store.load()
     return this.list()
+  }
+}
+
+/** When one of Lumovi's own was made (or last written, where a disk doesn't keep that). */
+function addedAt(path: string): string | undefined {
+  try {
+    const { birthtimeMs, mtimeMs } = statSync(path)
+    return new Date(birthtimeMs || mtimeMs).toISOString()
+  } catch {
+    return undefined
   }
 }
 

@@ -37,7 +37,7 @@ import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
 import { useAddOns } from '@renderer/hooks/add-ons'
 import { useResources } from '@renderer/hooks/resources'
-import { useReadOnly, useSetTheme } from '@renderer/hooks/settings'
+import { useClusterName, useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { matchWords } from '@renderer/lib/match'
 import {
   addOnPath,
@@ -110,6 +110,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const { context, namespace, setNamespace } = useCluster()
   const [search, setSearch] = useState('')
   const contexts = useContexts().data?.contexts ?? []
+  const clusterName = useClusterName()
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
   // The cluster's other kinds, custom resources included.
   const others = (useResources().data ?? []).filter((r) => !isBuiltinKind(r.kind))
@@ -300,10 +301,10 @@ function Palette({ onDone }: { onDone: () => void }) {
               <Item
                 key={name}
                 icon={<Server />}
-                value={`${name} cluster`}
+                value={`${clusterName(name)} ${name} cluster`}
                 onSelect={run(() => go(clusterPath(name)))}
               >
-                {name}
+                {clusterName(name)}
               </Item>
             ))}
             <Item icon={<LogOut />} value="All clusters" onSelect={run(() => go('/'))}>

@@ -12,11 +12,20 @@ export function kubeconfigPaths(env: NodeJS.ProcessEnv): string[] {
   return fromEnv.length > 0 ? fromEnv : [join(homedir(), '.kube', 'config')]
 }
 
+/** What each file read came to: the contexts it names, or why it couldn't be read. */
+export type FileResults = Map<string, { contexts: string[] } | { problem: string }>
+
 /**
  * Loads and merges kubeconfig files with kubectl semantics: missing files are
- * skipped, and the first file to define a name (or a current context) wins.
+ * skipped, and the first file to define a name (or a current context) wins. A file that
+ * can't be read fails the whole, as kubectl does, unless `results` is given: then it's
+ * skipped, and why is noted there with what each other file came to.
  */
-export function loadKubeConfig(paths: string[], env = process.env): KubeConfig {
+export function loadKubeConfig(
+  paths: string[],
+  env = process.env,
+  results?: FileResults,
+): KubeConfig {
   const merged = { clusters: [], users: [], contexts: [], currentContext: '' } as {
     clusters: KubeConfig['clusters']
     users: KubeConfig['users']
@@ -26,16 +35,22 @@ export function loadKubeConfig(paths: string[], env = process.env): KubeConfig {
   for (const file of paths.filter((path) => existsSync(path))) {
     const text = readFileSync(file, 'utf8')
     // kubectl treats an empty file as an empty config rather than an error.
-    if (!text.trim()) continue
+    if (!text.trim()) {
+      results?.set(file, { contexts: [] })
+      continue
+    }
     const kc = new KubeConfig()
     try {
       kc.loadFromString(text)
       kc.makePathsAbsolute(dirname(file))
     } catch (error) {
       // Only the reason and where: the parser quotes the lines around it, credentials and all.
-      const reason = (error as Error).message.split('\n')[0]
-      throw new Error(`Could not read ${file}: ${reason}`, { cause: error })
+      const reason = (error as Error).message.split('\n')[0]!
+      if (!results) throw new Error(`Could not read ${file}: ${reason}`, { cause: error })
+      results.set(file, { problem: reason })
+      continue
     }
+    results?.set(file, { contexts: kc.contexts.map(({ name }) => name) })
     addMissing(merged.clusters, kc.clusters)
     addMissing(merged.users, kc.users)
     addMissing(merged.contexts, kc.contexts)
@@ -73,6 +88,7 @@ export interface ClusterConfigs {
 export class KubeConfigStore implements ClusterConfigs {
   #base = new KubeConfig()
   #perContext = new Map<string, KubeConfig>()
+  #results: FileResults = new Map()
 
   constructor(
     private readonly env: NodeJS.ProcessEnv = process.env,
@@ -112,23 +128,46 @@ export class KubeConfigStore implements ClusterConfigs {
     }
   }
 
-  /** Re-reads the kubeconfig from disk. */
+  /** What each file read came to, as last read. */
+  results(): FileResults {
+    return this.#results
+  }
+
+  /**
+   * Re-reads the kubeconfig from disk. A file that can't be read is left out, and said so;
+   * only when nothing else could be read is that the error.
+   */
   load(): ContextsResult {
     const { paths } = this.paths()
     const source = paths.join(delimiter)
     this.#perContext.clear()
+    const results: FileResults = new Map()
     try {
-      this.#base = loadKubeConfig(paths)
+      this.#base = loadKubeConfig(paths, this.env, results)
     } catch (error) {
       this.#base = new KubeConfig()
+      this.#results = results
       return { contexts: [], source, error: (error as Error).message }
     }
+    this.#results = results
+    const problems = [...results].flatMap(([path, result]) =>
+      'problem' in result ? [{ path, message: result.problem }] : [],
+    )
     const current = this.#base.getCurrentContext()
+    if (problems.length > 0 && this.#base.getContexts().length === 0) {
+      const [{ path, message }] = problems as [(typeof problems)[number]]
+      return { contexts: [], source, problems, error: `Could not read ${path}: ${message}` }
+    }
     return {
       source,
+      ...(problems.length > 0 ? { problems } : {}),
       currentContext: current || undefined,
       contexts: this.#base.getContexts().map((context) => ({
         name: context.name,
+        // The first file to name it, as kubectl takes it from.
+        file: [...results].find(
+          ([, result]) => 'contexts' in result && result.contexts.includes(context.name),
+        )?.[0],
         cluster: context.cluster,
         user: context.user,
         namespace: context.namespace,

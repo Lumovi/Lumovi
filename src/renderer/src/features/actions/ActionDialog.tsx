@@ -11,7 +11,7 @@ import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { looksLikeProduction } from '@renderer/lib/production'
+import { useProduction } from '@renderer/hooks/settings'
 import { useCluster } from '@renderer/state/cluster'
 import { useDock } from '../terminal/dock'
 
@@ -64,7 +64,7 @@ export function ActionDialog({
 }: ActionDialogProps) {
   const { context } = useCluster()
   const [typed, setTyped] = useState('')
-  const production = looksLikeProduction(context)
+  const production = useProduction(context)
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
   const canSubmit = ready && confirmed && !pending
 

@@ -38,7 +38,7 @@ const menu = (app: ElectronApplication, id: string) =>
 
 // The page listens for updates once it's up; the start screen showing means it is.
 test.beforeEach(async ({ page }) => {
-  await expect(page.getByPlaceholder('Search clusters…')).toBeVisible()
+  await expect(page.getByPlaceholder('Search clusters and labels…')).toBeVisible()
 })
 
 test('a new version downloads in the background, then installs on restart', async ({ lumovi }) => {

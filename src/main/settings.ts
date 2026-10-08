@@ -21,6 +21,7 @@ import {
   isTheme,
   type SettingsAccess,
 } from '@backend/settings'
+import { checkedClusterSettings, type ClusterSettings } from '@shared/cluster-settings'
 import { NO_POLICY, type Policy } from './policy'
 
 const DEFAULTS: Settings = {
@@ -89,6 +90,15 @@ export class SettingsStore implements SettingsAccess {
   /** What AI assistants may do at most, as the organization's policy says. */
   adminRules(): AiRule[] {
     return this.policy.assistantRules
+  }
+
+  /** How a cluster shows in Lumovi: all of it (what's left out is unset), checked. */
+  setCluster(context: string, settings: unknown): Settings {
+    const kept = checkedClusterSettings(settings)
+    const { [context]: _was, ...others } = this.#settings.clusters ?? {}
+    return this.update({
+      clusters: Object.keys(kept).length > 0 ? { ...others, [context]: kept } : others,
+    })
   }
 
   setReadOnly(context: string, readOnly: boolean): Settings {
@@ -194,6 +204,8 @@ export class SettingsStore implements SettingsAccess {
         // Where each is (they're read where they are, never written).
         ...(paths(stored.kubeconfigFiles) ? { kubeconfigFiles: stored.kubeconfigFiles } : {}),
         ...(paths(stored.kubeconfigAdded) ? { kubeconfigAdded: stored.kubeconfigAdded } : {}),
+        // A cluster's that don't make sense (edited by hand, say) are left as if unset.
+        ...clustersOf(stored.clusters),
         // On unless turned off.
         autoUpdate: stored.autoUpdate !== false,
         matchingKubectl: stored.matchingKubectl !== false,
@@ -213,6 +225,21 @@ export class SettingsStore implements SettingsAccess {
       return { ...DEFAULTS }
     }
   }
+}
+
+/** Each cluster's settings that make sense, as kept (none: left out). */
+function clustersOf(value: unknown): { clusters?: Record<string, ClusterSettings> } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const clusters = Object.fromEntries(
+    Object.entries(value).flatMap(([context, settings]) => {
+      try {
+        return [[context, checkedClusterSettings(settings)]]
+      } catch {
+        return []
+      }
+    }),
+  )
+  return Object.keys(clusters).length > 0 ? { clusters } : {}
 }
 
 /** Whether a setting is a list of files, each where it is. */

@@ -23,6 +23,7 @@ import { useAddOns } from '@renderer/hooks/add-ons'
 import { useResource } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { useClusterName } from '@renderer/hooks/settings'
 import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
 import { ActivityButton } from '../activity/ActivityButton'
@@ -62,10 +63,11 @@ export function Header() {
     : (PAGES[page] ?? PAGES['']!)
   const title = kind ? (resource?.label ?? apiKindOf(kind)) : pageTitle
 
+  const clusterName = useClusterName()(context)
   useEffect(() => {
     // Shown in the Dock, the task switcher and Mission Control.
-    document.title = `${title} · ${context} — Lumovi`
-  }, [title, context])
+    document.title = `${title} · ${clusterName} — Lumovi`
+  }, [title, clusterName])
 
   const refresh = async () => {
     setRefreshing(true)

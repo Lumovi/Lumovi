@@ -1,32 +1,69 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Command, useCommandState } from 'cmdk'
-import { CornerDownLeft, FileWarning, RotateCw, Search, ServerOff } from 'lucide-react'
-import { useEffect } from 'react'
-import type { KubeContext } from '@shared/api'
+import { RotateCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { REPO_URL } from '@shared/app'
 import { Button, IconButton } from '@renderer/components/Button'
-import { Kbd } from '@renderer/components/Kbd'
 import { GithubMark } from '@renderer/components/GithubMark'
 import { LogoLockup } from '@renderer/components/LogoLockup'
-import { EmptyState, Loading } from '@renderer/components/States'
-import { StatusDot } from '@renderer/components/Status'
+import { Loading } from '@renderer/components/States'
 import { useGo } from '@renderer/hooks/go'
-import { useContexts, useVersion } from '@renderer/hooks/queries'
-import { api, type KubeApiError } from '@renderer/lib/api'
-import { ERROR_LABELS, hostOf } from '@renderer/lib/format'
-import { matchWords } from '@renderer/lib/match'
+import { useContexts } from '@renderer/hooks/queries'
+import { api } from '@renderer/lib/api'
 import { clusterPath } from '@renderer/lib/routes'
-import { usePrefs } from '@renderer/state/prefs'
 import { Commands } from '../shell/Commands'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { AssistantsButton } from '../assistants/DesktopConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
+import { AddClusterDialog } from './AddClusterDialog'
+import { ClusterPicker, useClusters } from './ClusterPicker'
+import { KubeconfigFilesButton, useKubeconfigFiles } from './KubeconfigFiles'
+import { NothingToShow } from './NothingToShow'
+import { useClusterActions } from './useClusterActions'
 
 export { REPO_URL } from '@shared/app'
 
 export function WelcomePage() {
   const contexts = useContexts()
+  const files = useKubeconfigFiles()
   const queryClient = useQueryClient()
+  const go = useGo()
+  const clusters = useClusters(contexts.data?.contexts ?? [], files.data)
+  // Adding a cluster, or editing one added in Lumovi; then the one just added, shown.
+  const [adding, setAdding] = useState<{ editing?: { path: string; context: string } }>()
+  const [justAdded, setJustAdded] = useState<string>()
+  const { handlers, dialogs } = useClusterActions({
+    clusters,
+    files: files.data,
+    onEditConnection: (cluster) =>
+      setAdding({ editing: { path: cluster.context.file!, context: cluster.context.name } }),
+  })
+  // Lumovi adds clusters on the desktop, unless an organization's policy keeps it from it.
+  const canAdd = !!api.addedClusters && !!files.data && !files.data.locked
+  const add = canAdd ? () => setAdding({}) : undefined
+  const groups = [
+    ...new Set(clusters.map((cluster) => cluster.group).filter((g): g is string => !!g)),
+  ].sort((a, b) => a.localeCompare(b))
+
+  // ⌘N adds one: the menu's New, which makes objects in a cluster, adds a cluster here (the
+  // menu takes the key before the page does).
+  useEffect(() => {
+    if (!canAdd) return
+    return api.desktop?.onCommand((command) => {
+      if (command === 'create') setAdding({})
+    })
+  }, [canAdd])
+  // And where the page gets the key itself (no menu takes it).
+  useEffect(() => {
+    if (!canAdd) return
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        setAdding({})
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [canAdd])
 
   useEffect(() => {
     document.title = 'Lumovi'
@@ -37,11 +74,13 @@ export function WelcomePage() {
     void queryClient.invalidateQueries({ queryKey: ['version'] })
   }
 
+  // On the desktop, the files read come with the clusters: both, or neither yet.
+  const pending = contexts.isPending || (!!api.kubeconfigFiles && files.isPending)
   return (
     <div className="vt-page relative flex h-full flex-col overflow-hidden">
       <div className="titlebar-leading titlebar-trailing h-[52px] shrink-0 drag" />
       <main className="relative flex min-h-0 flex-1 flex-col items-center px-8 pb-6">
-        <div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col">
+        <div className="flex min-h-0 w-full max-w-[720px] flex-1 flex-col">
           <header className="mt-6 mb-8 flex shrink-0 animate-rise flex-col items-center text-center [@media(max-height:800px)]:mt-0 [@media(max-height:800px)]:mb-5">
             <h1>
               <LogoLockup className="h-9 [@media(max-height:800px)]:h-7" />
@@ -51,40 +90,44 @@ export function WelcomePage() {
             </p>
           </header>
 
-          {contexts.isPending ? (
+          {pending ? (
             <Loading label="Reading kubeconfig…" />
-          ) : contexts.data!.error ? (
-            <EmptyState icon={FileWarning} title="Your kubeconfig couldn’t be read">
-              <pre className="mt-2 max-h-60 overflow-auto rounded-lg border border-line bg-surface-3 px-3 py-2 text-left font-mono text-xs whitespace-pre-wrap text-ink-2 selectable">
-                {contexts.data!.error}
-              </pre>
-              <p className="mt-3">Fix the file, then choose Reload.</p>
-            </EmptyState>
           ) : contexts.data!.contexts.length === 0 ? (
-            <EmptyState icon={ServerOff} title="No clusters found">
-              Lumovi reads clusters from your kubeconfig. Set the{' '}
-              <code className="font-mono">KUBECONFIG</code> environment variable, or create{' '}
-              <code className="font-mono">~/.kube/config</code>, then reload.
-            </EmptyState>
+            <NothingToShow
+              contexts={contexts.data!}
+              files={files.data}
+              onReload={reload}
+              onAdd={add}
+            />
           ) : (
-            <ContextPicker
+            <ClusterPicker
               contexts={contexts.data!.contexts}
               current={contexts.data!.currentContext}
+              files={files.data}
+              onAdd={add}
+              actions={handlers}
+              justAdded={justAdded}
             />
           )}
 
           <footer className="mt-5 flex shrink-0 items-center gap-2 text-xs text-ink-3">
-            {contexts.data && (
-              <span
-                className="flex min-w-0 flex-1 items-center gap-1.5"
-                title={contexts.data.source}
-              >
-                <span className="shrink-0">Loaded from</span>
-                {/* Truncate from the start so the file name stays visible. */}
-                <span className="min-w-0 truncate font-mono [direction:rtl] selectable">
-                  <bdi>{contexts.data.source}</bdi>
-                </span>
+            {files.data ? (
+              <span className="flex min-w-0 flex-1 items-center">
+                <KubeconfigFilesButton files={files.data} />
               </span>
+            ) : (
+              contexts.data && (
+                <span
+                  className="flex min-w-0 flex-1 items-center gap-1.5"
+                  title={contexts.data.source}
+                >
+                  <span className="shrink-0">Loaded from</span>
+                  {/* Truncate from the start so the file name stays visible. */}
+                  <span className="min-w-0 truncate font-mono [direction:rtl] selectable">
+                    <bdi>{contexts.data.source}</bdi>
+                  </span>
+                </span>
+              )
             )}
             <Button variant="ghost" onClick={reload}>
               <RotateCw /> Reload
@@ -97,134 +140,21 @@ export function WelcomePage() {
           </footer>
         </div>
       </main>
+      {dialogs}
+      {adding && (
+        <AddClusterDialog
+          editing={adding.editing}
+          groups={groups}
+          onDone={(context, open) => {
+            setAdding(undefined)
+            if (open) go(clusterPath(context))
+            else setJustAdded(context)
+          }}
+          onClose={() => setAdding(undefined)}
+        />
+      )}
       <Commands />
       <ShortcutsDialog />
     </div>
-  )
-}
-
-/**
- * Type to filter, ↑/↓ to move, Enter to open. Recently opened clusters come
- * first, then the rest in kubeconfig order.
- */
-function ContextPicker({ contexts, current }: { contexts: KubeContext[]; current?: string }) {
-  const recentNames = usePrefs((prefs) => prefs.recent)
-  const recent = recentNames
-    .map((name) => contexts.find((c) => c.name === name))
-    .filter((c): c is KubeContext => c !== undefined)
-  const others = contexts.filter((c) => !recentNames.includes(c.name))
-
-  return (
-    <Command
-      label="Clusters"
-      loop
-      filter={matchWords}
-      className="flex min-h-0 animate-rise flex-col overflow-hidden rounded-2xl border border-line bg-surface-2 shadow-panel [animation-delay:60ms]"
-    >
-      <div className="flex items-center gap-2.5 border-b border-line px-4">
-        <Search className="size-4 shrink-0 text-ink-3" />
-        <Command.Input
-          autoFocus
-          data-hotkey-target="filter"
-          placeholder="Search clusters…"
-          className="h-12 min-w-0 flex-1 bg-transparent text-[14px] text-ink-1 outline-none placeholder:text-ink-3"
-        />
-        <MatchCount total={contexts.length} />
-      </div>
-      <Command.List className="min-h-0 flex-1 overflow-y-auto p-1.5 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
-        <Command.Empty className="px-4 py-10 text-center text-ink-3">
-          No clusters match.
-        </Command.Empty>
-        {recent.length > 0 && (
-          <Command.Group heading="Recent">
-            {recent.map((context) => (
-              <ContextItem
-                key={context.name}
-                context={context}
-                isCurrent={context.name === current}
-              />
-            ))}
-          </Command.Group>
-        )}
-        <Command.Group heading={recent.length > 0 ? 'All clusters' : 'Clusters'}>
-          {others.map((context) => (
-            <ContextItem
-              key={context.name}
-              context={context}
-              isCurrent={context.name === current}
-            />
-          ))}
-        </Command.Group>
-      </Command.List>
-      <div className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3">
-        <span className="flex items-center gap-1.5">
-          <Kbd>↑</Kbd>
-          <Kbd>↓</Kbd> to move
-        </span>
-        <span className="flex items-center gap-1.5">
-          <Kbd>
-            <CornerDownLeft className="size-3" />
-          </Kbd>
-          to open
-        </span>
-        <span className="flex items-center gap-1.5">
-          <Kbd>?</Kbd> for all shortcuts
-        </span>
-      </div>
-    </Command>
-  )
-}
-
-function MatchCount({ total }: { total: number }) {
-  const count = useCommandState((state) => state.filtered.count)
-  return (
-    <span className="shrink-0 text-xs text-ink-3 tabular-nums">
-      {count} of {total}
-    </span>
-  )
-}
-
-function ContextItem({ context, isCurrent }: { context: KubeContext; isCurrent: boolean }) {
-  const go = useGo()
-  const version = useVersion(context.name)
-  const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
-  return (
-    <Command.Item
-      value={`${context.name} ${context.cluster} ${context.server ?? ''}`}
-      onSelect={() => go(clusterPath(context.name))}
-      className="group flex cursor-default items-center gap-3.5 rounded-xl px-3 py-2.5 text-left transition-colors data-[selected=true]:bg-surface-3 data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
-    >
-      <StatusDot health={health} />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate text-[13.5px] font-medium text-ink-1">{context.name}</span>
-          {isCurrent && (
-            <span className="rounded-full bg-surface-3 px-1.5 py-px text-2xs font-medium text-ink-2">
-              current
-            </span>
-          )}
-        </span>
-        <span className="mt-0.5 block truncate font-mono text-xs text-ink-3">
-          {hostOf(context.server) ?? 'No cluster defined'} · {context.user}
-        </span>
-      </span>
-      <span className="shrink-0 text-right text-xs">
-        {version.isPending ? (
-          <span className="text-ink-3">Checking…</span>
-        ) : version.isError ? (
-          <span className="text-critical-text" title={version.error.message}>
-            {ERROR_LABELS[(version.error as KubeApiError).code]}
-          </span>
-        ) : (
-          <span className="text-ink-3">
-            <span className="font-mono text-ink-2">{version.data.gitVersion}</span> ·{' '}
-            {version.data.latencyMs} ms
-          </span>
-        )}
-      </span>
-      <span className="grid size-5 shrink-0 place-items-center rounded-md text-ink-3 opacity-0 transition-opacity group-data-[selected=true]:opacity-100">
-        <CornerDownLeft className="size-3.5" />
-      </span>
-    </Command.Item>
   )
 }

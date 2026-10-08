@@ -99,6 +99,7 @@ if (stdio) {
         return canceled ? null : filePaths
       },
       reveal: (path) => shell.showItemInFolder(path),
+      ownFolder: kubeconfigs,
     })
     const addedClusters = new AddedClusters({
       folder: kubeconfigs,

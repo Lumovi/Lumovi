@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
@@ -312,6 +312,44 @@ test('production-looking clusters ask for the name before risky changes', async 
   await open(page, 'Nodes', DEMO.nodes.worker2)
   await menuAction(page, 'Node', DEMO.nodes.worker2, 'Drain…')
   await expect(dialog(page).getByLabel(`Type ${DEMO.nodes.worker2} to confirm`)).toBeVisible()
+})
+
+test('production set by hand in Lumovi wins over what the name suggests, either way', async ({
+  launch,
+  clusters,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-prod-'))
+  const kubeconfig = writeKubeconfig(dir, {
+    clusters: [{ name: 'demo', server: clusters.demo.url, caPem: clusters.demo.caPem }],
+    users: [{ name: 'u', token: DEMO_TOKEN }],
+    contexts: [
+      { name: 'shop-prod', cluster: 'demo', user: 'u' },
+      { name: 'payments', cluster: 'demo', user: 'u' },
+    ],
+  })
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  writeFileSync(
+    join(userDataDir, 'settings.json'),
+    JSON.stringify({
+      clusters: { 'shop-prod': { production: false }, payments: { production: true } },
+    }),
+  )
+  const { page } = await launch({ env: { KUBECONFIG: kubeconfig }, userDataDir })
+  // Not production, though its name says so: deleting asks for no name.
+  await openCluster(page, 'shop-prod')
+  await open(page, 'Services', DEMO.services.grafana)
+  await menuAction(page, 'Service', DEMO.services.grafana, 'Delete…')
+  await expect(dialog(page)).not.toContainText('Production')
+  await expect(dialog(page).getByLabel(`Type ${DEMO.services.grafana} to confirm`)).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  // Production, though its name doesn't say so.
+  await page.getByRole('button', { name: 'Switch cluster' }).click()
+  await page.getByRole('option', { name: /^payments/ }).click()
+  await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText('payments')
+  await open(page, 'Services', DEMO.services.grafana)
+  await menuAction(page, 'Service', DEMO.services.grafana, 'Delete…')
+  await expect(dialog(page)).toContainText('Production')
+  await expect(dialog(page).getByLabel(`Type ${DEMO.services.grafana} to confirm`)).toBeFocused()
 })
 
 test.describe('activity and feedback', () => {

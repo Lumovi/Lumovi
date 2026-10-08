@@ -6,8 +6,8 @@ import type { ResourceKind } from '@shared/resources'
 import { useChange } from '@renderer/hooks/change'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
-import { looksLikeProduction } from '@renderer/lib/production'
 import { formatRef } from '@renderer/lib/routes'
+import { useProduction } from '@renderer/hooks/settings'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog, useSubmit } from './ActionDialog'
 import { kindOf, subjectOf, target, type ActionProps } from './common'
@@ -80,6 +80,7 @@ function consequence(object: ActionProps['object']): string | undefined {
 
 export function DeleteDialog({ object, onClose }: ActionProps) {
   const { context } = useCluster()
+  const production = useProduction(context)
   const change = useChange()
   const [params] = useSearchParams()
   const updateParams = useUpdateParams()
@@ -111,9 +112,7 @@ export function DeleteDialog({ object, onClose }: ActionProps) {
       subject={subjectOf(object)}
       command={command}
       confirmLabel={kind === 'Pod' && force ? 'Force delete' : 'Delete'}
-      typeToConfirm={
-        TYPE_TO_DELETE.includes(kind) || looksLikeProduction(context) ? name : undefined
-      }
+      typeToConfirm={TYPE_TO_DELETE.includes(kind) || production ? name : undefined}
       pending={pending}
       error={error}
       onClose={onClose}

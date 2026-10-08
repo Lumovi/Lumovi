@@ -135,7 +135,7 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
   expect(await page.evaluate((text) => window.lumovi!.addedClusters!.inspect(text), text)).toEqual({
     ok: true,
     data: {
-      contexts: [{ name: 'demo', server: clusters.demo.url, auth: 'token' }],
+      contexts: [{ name: 'demo', server: clusters.demo.url, user: 'demo', auth: 'token' }],
       commands: [],
       tokenFiles: [],
       unverified: [],
@@ -173,7 +173,17 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
     ok: true,
     data: {
       path: file,
-      files: { files: expect.arrayContaining([{ path: file, exists: true, own: true }]) },
+      files: {
+        files: expect.arrayContaining([
+          expect.objectContaining({
+            path: file,
+            exists: true,
+            origin: 'own',
+            own: true,
+            contexts: 1,
+          }),
+        ]),
+      },
     },
   })
   if (posix) expect(statSync(file!).mode & 0o777).toBe(0o600)

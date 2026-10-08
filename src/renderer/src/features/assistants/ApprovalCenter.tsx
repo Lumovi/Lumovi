@@ -27,10 +27,10 @@ import { CopyButton } from '@renderer/components/CopyButton'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { MOD_KEY } from '@renderer/components/Kbd'
 import { refreshAfterChange } from '@renderer/hooks/change'
+import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { pluralize } from '@renderer/lib/format'
-import { looksLikeProduction } from '@renderer/lib/production'
 import { toYaml } from '@renderer/lib/yaml'
 import { useActivity } from '@renderer/state/activity'
 import { toast } from '@renderer/state/toasts'
@@ -188,7 +188,7 @@ function ApprovalDialog({
   const { client, context, target, action } = proposal
   const Icon = ICONS[action]
   const danger = action === 'delete'
-  const production = looksLikeProduction(context)
+  const production = useProduction(context)
   // Deletions Lumovi's own Delete asks to type the name for, so does this.
   const typeToConfirm =
     danger && (TYPE_TO_DELETE.includes(target.kind) || production) ? target.name : undefined

@@ -6,7 +6,9 @@ import {
   type Settings,
   type ThemePreference,
 } from '@shared/api'
+import type { ClusterSettings } from '@shared/cluster-settings'
 import { api } from '@renderer/lib/api'
+import { looksLikeProduction } from '@renderer/lib/production'
 import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
 
@@ -121,4 +123,23 @@ export function useNodeShellSetting() {
       queryClient.setQueryData(['settings'], await api.app.setNodeShell(context, setting))
     },
   }
+}
+
+/** How a cluster shows in Lumovi (the desktop app's settings for it), if it's set. */
+export function useClusterSettings(context: string): ClusterSettings | undefined {
+  return useSettings().data?.clusters?.[context]
+}
+
+/**
+ * Whether a cluster is production, where changes ask more: as set for it by hand, or else as its
+ * name suggests.
+ */
+export function useProduction(context: string): boolean {
+  return useClusterSettings(context)?.production ?? looksLikeProduction(context)
+}
+
+/** The name each cluster goes by in Lumovi (its own, set on the desktop, or its context's). */
+export function useClusterName(): (context: string) => string {
+  const clusters = useSettings().data?.clusters
+  return (context) => clusters?.[context]?.name ?? context
 }
