@@ -596,6 +596,8 @@ function TrustAgent({ agent, onDone }: { agent: AgentTrust; onDone: () => void }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['fleet-agents'] }),
         queryClient.invalidateQueries({ queryKey: ['fleet-summary', agent.name] }),
+        // (One joined from the page is shown once it's checked.)
+        queryClient.invalidateQueries({ queryKey: ['contexts'] }),
       ])
     } catch (error) {
       setProblem((error as Error).message)

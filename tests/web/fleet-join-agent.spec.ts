@@ -85,6 +85,7 @@ const agentOf = (hub: string, clusters: TestClusters, env: Record<string, string
 test('a private cluster joins with one command, and its agent keeps a token of its own', async ({
   page,
   context,
+  browser,
   serve,
   clusters,
 }) => {
@@ -105,6 +106,23 @@ test('a private cluster joins with one command, and its agent keeps a token of i
   await expect.poll(() => Object.keys(kept(clusters))).toEqual(['token'])
   const credential = kept(clusters).token!
   expect(credential).toMatch(/^lumovi_agent_[A-Za-z0-9_-]{43}$/)
+  // Whoever first used its token is trusted: until an admin checks its certificate authority,
+  // nobody else sees it.
+  const others = await browser.newContext()
+  await as(others, 'alice@example.com')
+  const alice = await others.newPage()
+  await alice.goto(hub.url)
+  await expect
+    .poll(() => page.evaluate(() => window.lumovi!.fleet!.agents()))
+    .toEqual([expect.objectContaining({ name: EDGE, connected: true, unconfirmed: true })])
+  expect(await names(alice)).not.toContain(EDGE)
+  await page.evaluate(([name, sha256]) => window.lumovi!.fleet!.trustAgent(name, sha256), [
+    EDGE,
+    new X509Certificate(clusters.demo.caPem!).fingerprint256,
+  ] as const)
+  await alice.reload()
+  expect(await names(alice)).toContain(EDGE)
+  await others.close()
   // It's in the fleet, with the labels it was connected with, reached through its agent.
   await expect.poll(() => names(page)).toContain(EDGE)
   await expect
@@ -278,6 +296,9 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   expect(command).toContain(`--set mode=agent --set clusterName=${EDGE}`)
   expect(command).toContain(`--set agent.hubUrl=${hub.url.replace(/\/$/, '')}`)
   expect(command).toContain('--set-file agent.joinToken=/dev/stdin')
+  // (Then it's forgotten.)
+  expect(command).toMatch(/\nunset LUMOVI_JOIN_TOKEN$/)
+  await expect(dialog).toContainText(`In ${EDGE}, with bash or zsh`)
   expect(command).not.toContain(token)
   await expect(dialog.getByRole('status')).toContainText(`Waiting for ${EDGE} to connect…`)
   await expect(dialog.getByRole('status')).toContainText(/\d+:\d\d$/)

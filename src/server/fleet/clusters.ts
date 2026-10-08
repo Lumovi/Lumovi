@@ -33,6 +33,11 @@ export interface FleetCluster {
    * LUMOVI_FLEET_AGENTS names, or not the one it first sent (which an admin may trust).
    */
   untrusted?: 'named' | 'first'
+  /**
+   * It joined from the Fleet page, and nobody has checked its certificate authority yet: whoever
+   * first used its join token is trusted, so it isn't shown (but to admins) until someone does.
+   */
+  unchecked?: true
 }
 
 /** Lumovi's settings for a cluster, as a context's `lumovi.dev` extension (or a Secret's annotations) has them. */
