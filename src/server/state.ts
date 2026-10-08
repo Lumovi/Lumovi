@@ -382,9 +382,10 @@ export class ServerState {
     this.#change({ section, key, value, ...(rebase ? { rebase } : {}) })
   }
 
-  delete(section: Section, key: string): void {
+  /** `rebase` says what it is over another's write, if one met it: none, it's deleted. */
+  delete(section: Section, key: string, rebase?: (current: unknown) => unknown): void {
     this.#open.get(section)!.delete(key)
-    this.#change({ section, key })
+    this.#change({ section, key, ...(rebase ? { rebase } : {}) })
   }
 
   /**
@@ -496,7 +497,11 @@ export class ServerState {
             continue
           }
         }
-        if (!this.#changes.has(name)) this.#open.get(change.section)!.set(change.key, change.value)
+        if (!this.#changes.has(name)) {
+          const open = this.#open.get(change.section)!
+          if (change.value === undefined) open.delete(change.key)
+          else open.set(change.key, change.value)
+        }
       }
       if (held.size > 0) {
         for (const name of held.keys()) changes.delete(name)

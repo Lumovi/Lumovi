@@ -4,7 +4,7 @@
  * time.
  */
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -37,7 +37,17 @@ async function replica(dir: string, key: Buffer) {
     () => false,
   )
   joins.close()
-  return { joins, recorded }
+  return { joins, state, recorded }
+}
+
+/** The next time `state` writes, `first` happens just before: another replica's write, between. */
+function before(state: ServerState, first: () => Promise<unknown>): void {
+  const flush = state.flush.bind(state)
+  state.flush = async (options) => {
+    state.flush = flush
+    await first()
+    return flush(options)
+  }
 }
 
 test('a join token works once, on whichever replica its agent reaches first, and not once it’s expired', async () => {
@@ -95,4 +105,74 @@ test('a join token works once, on whichever replica its agent reaches first, and
       details: expect.objectContaining({ why: 'expired' }),
     }),
   ])
+})
+
+test('an older copy of a join, put back where it’s kept, isn’t taken again by a replica that saw it used', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-joins-'))
+  const key = randomBytes(32)
+  const a = await replica(dir, key)
+  const b = await replica(dir, key)
+  const { token } = await a.joins.create({ name: 'edge', labels: {}, groups: [] }, ADMIN, ACTOR)
+  const given = await a.joins.issue('edge', token)
+  if (!('credential' in given)) throw new Error('No credential')
+  // As it was before its agent joined.
+  const older = readFileSync(join(dir, 'state.json'), 'utf8')
+  expect(await a.joins.admit('edge', given.credential)).toBe(true)
+  // B reads it used (as any replica does, every few seconds).
+  expect(await b.joins.check('edge', token)).toEqual({ refused: 'used' })
+
+  writeFileSync(join(dir, 'state.json'), older)
+  await b.state.refresh('joins')
+  expect(b.joins.joined()).toEqual([])
+  // Its token, nor the token it was given, joins again: refused before anything's written.
+  expect(await b.joins.issue('edge', token)).toEqual({ refused: 'used' })
+  expect(await b.joins.admit('edge', given.credential)).toBe(false)
+  expect(readFileSync(join(dir, 'state.json'), 'utf8')).toBe(older)
+})
+
+test('a join used on another replica as one makes it again, or cancels it, is kept; the CA it pinned too', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-joins-'))
+  const key = randomBytes(32)
+  const a = await replica(dir, key)
+  const b = await replica(dir, key)
+  const request = { name: 'edge', labels: {}, groups: [] }
+
+  // Made again on A as its agent joins through B: A's is refused, B's join kept.
+  const first = await a.joins.create(request, ADMIN, ACTOR)
+  const given = await b.joins.issue('edge', first.token)
+  if (!('credential' in given)) throw new Error('No credential')
+  before(a.state, () => b.joins.admit('edge', given.credential))
+  await expect(a.joins.create(request, ADMIN, ACTOR)).rejects.toThrow(
+    'edge joined the fleet meanwhile, from another of Lumovi’s replicas: it’s in the fleet already.',
+  )
+  expect(a.joins.joined()).toEqual([expect.objectContaining({ name: 'edge' })])
+
+  // Cancelled on A as its agent joins through B: refused, and not recorded as cancelled.
+  const lab = await a.joins.create({ ...request, name: 'lab' }, ADMIN, ACTOR)
+  // (B reads it, as it does every few seconds.)
+  await b.state.refresh('joins')
+  const labGiven = await b.joins.issue('lab', lab.token)
+  if (!('credential' in labGiven)) throw new Error('No credential')
+  before(a.state, () => b.joins.admit('lab', labGiven.credential))
+  await expect(a.joins.cancel('lab', ADMIN, ACTOR)).rejects.toThrow(
+    'lab’s agent joined meanwhile, through another of Lumovi’s replicas: it’s in the fleet.',
+  )
+  expect(a.joins.joined().map((agent) => agent.name)).toEqual(['edge', 'lab'])
+  expect(a.recorded.filter((event) => event.action === 'agent.join-cancelled')).toEqual([])
+
+  // Its agent's first connection, through two replicas at once: the one that lost leaves the
+  // certificate authority the winner's agent pinned as it is.
+  const late = await a.joins.create({ ...request, name: 'late' }, ADMIN, ACTOR)
+  const lateGiven = await a.joins.issue('late', late.token)
+  if (!('credential' in lateGiven)) throw new Error('No credential')
+  await b.state.refresh('joins')
+  const pin = { ca: ['ab'.repeat(32)], at: new Date().toISOString() }
+  before(a.state, async () => {
+    await b.joins.admit('late', lateGiven.credential)
+    b.state.set('agents', 'late', pin)
+    await b.state.flush({ strict: true })
+  })
+  expect(await a.joins.admit('late', lateGiven.credential)).toBe(true)
+  await a.state.refresh('agents')
+  expect(a.state.get('agents', 'late')).toEqual(pin)
 })

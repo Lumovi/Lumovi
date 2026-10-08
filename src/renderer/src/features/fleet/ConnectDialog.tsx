@@ -27,20 +27,20 @@ const field =
 const hubUrl = () => new URL('.', document.baseURI).href.replace(/\/$/, '')
 
 /**
- * The command that installs a cluster's agent, in bash or zsh: it asks for the join token first
- * (not shown, nor kept in the shell's history), gives it to Helm on its standard input, and
- * forgets it after.
+ * The command that installs a cluster's agent, in bash or zsh: it asks for the join token (not
+ * shown, nor kept in the shell's history) and gives it to Helm on its standard input, then forgets
+ * it. One command, read whole before it runs: pasted where the terminal doesn't bracket a paste,
+ * what's asked for can't be the rest of it.
  */
 export function agentCommand(name: string, version?: string): string {
   return [
-    'read -rs LUMOVI_JOIN_TOKEN',
-    'printf %s "$LUMOVI_JOIN_TOKEN" | helm install lumovi oci://ghcr.io/lumovi/charts/lumovi \\',
+    '{ read -rs LUMOVI_JOIN_TOKEN && printf %s "$LUMOVI_JOIN_TOKEN"; } |',
+    '  helm install lumovi oci://ghcr.io/lumovi/charts/lumovi \\',
     ...(version ? [`  --version ${version} \\`] : []),
     '  --namespace lumovi --create-namespace \\',
     `  --set mode=agent --set clusterName=${name} \\`,
     `  --set agent.hubUrl=${hubUrl()} \\`,
-    '  --set-file agent.joinToken=/dev/stdin',
-    'unset LUMOVI_JOIN_TOKEN',
+    '  --set-file agent.joinToken=/dev/stdin; unset LUMOVI_JOIN_TOKEN',
   ].join('\n')
 }
 

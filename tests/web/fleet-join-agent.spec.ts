@@ -3,9 +3,10 @@
  * which the hub exchanges for a token of the agent's own, kept in its Secret in its cluster.
  */
 import { X509Certificate } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -59,6 +60,27 @@ const kept = (clusters: TestClusters, name = SECRET) =>
         {},
     ).map(([key, value]) => [key, Buffer.from(value, 'base64').toString()]),
   )
+
+/**
+ * What a stand-in helm was given, run by bash with `input` as its standard input (the command,
+ * then what's typed): its arguments, and what it read from its own.
+ */
+function ranInBash(input: string): { args: string[]; stdin: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-helm-'))
+  writeFileSync(
+    join(dir, 'helm'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$OUT/args"\ncat > "$OUT/stdin"\n',
+    { mode: 0o755 },
+  )
+  execFileSync('bash', [], {
+    input,
+    env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}`, OUT: dir },
+  })
+  return {
+    args: readFileSync(join(dir, 'args'), 'utf8').trimEnd().split('\n'),
+    stdin: readFileSync(join(dir, 'stdin'), 'utf8'),
+  }
+}
 
 /** The clusters the page's person sees, by name. */
 const names = (page: Page) =>
@@ -294,15 +316,32 @@ test('an admin connects a cluster from the Fleet page: a command, a wait, then i
   const token = (await dialog.locator('code').first().textContent())!
   expect(token).toMatch(/^lumovi_join_/)
   const command = (await dialog.locator('code').nth(1).textContent())!
-  expect(command).toContain('read -rs LUMOVI_JOIN_TOKEN')
-  expect(command).toContain('helm install lumovi oci://ghcr.io/lumovi/charts/lumovi')
-  expect(command).toContain(`--set mode=agent --set clusterName=${EDGE}`)
-  expect(command).toContain(`--set agent.hubUrl=${hub.url.replace(/\/$/, '')}`)
-  expect(command).toContain('--set-file agent.joinToken=/dev/stdin')
-  // (Then it's forgotten.)
-  expect(command).toMatch(/\nunset LUMOVI_JOIN_TOKEN$/)
   await expect(dialog).toContainText(`In ${EDGE}, with bash or zsh`)
   expect(command).not.toContain(token)
+  // Pasted, then the token, as one stream (a terminal that doesn't bracket a paste): Helm is
+  // given the token alone, on its standard input, and its settings.
+  if (process.platform !== 'win32') {
+    expect(ranInBash(`${command}\n${token}\n`)).toEqual({
+      args: [
+        'install',
+        'lumovi',
+        'oci://ghcr.io/lumovi/charts/lumovi',
+        ...(command.includes('--version') ? ['--version', expect.any(String)] : []),
+        '--namespace',
+        'lumovi',
+        '--create-namespace',
+        '--set',
+        'mode=agent',
+        '--set',
+        `clusterName=${EDGE}`,
+        '--set',
+        `agent.hubUrl=${hub.url.replace(/\/$/, '')}`,
+        '--set-file',
+        'agent.joinToken=/dev/stdin',
+      ],
+      stdin: token,
+    })
+  }
   await expect(dialog.getByRole('status')).toContainText(`Waiting for ${EDGE} to connect…`)
   await expect(dialog.getByRole('status')).toContainText(/\d+:\d\d$/)
 
