@@ -7,15 +7,19 @@
  * context's name: a cluster renamed doesn't keep what was set for it.
  *
  * Whoever can write where it's kept can't make an entry (they're sealed), but could delete one,
- * or put back an older one: read-only off, unseen. So each entry counts how many times Lumovi
- * changed it, only ever more, and stays when nothing else is set. An entry gone, or counting less
- * than a replica knew, was changed outside Lumovi: where that turned read-only on or off, it's
- * recorded in the audit log, and shown to those who may set it, until one does. (Changed while no
- * replica runs, or before one ever read it, it can't be told from Lumovi's own.)
+ * or put back an older one: read-only off, unseen. So each entry carries a count that only grows
+ * (from the time it's written, so that an entry made again, after one was deleted while no
+ * replica ran, counts above any older copy), and stays when nothing else is set. An entry gone,
+ * or not counting above what a running replica knew, was changed outside Lumovi. It's recorded
+ * in the audit log, and kept as the stricter of the two, failing closed: read-only if either was,
+ * and the rest as Lumovi last set it, never an older copy's. Marked in the entry, it's shown to
+ * those who may set it, on every replica, until one of them does. (Changed while no replica runs,
+ * a replica that starts takes it as it finds it: it knows nothing older.)
  */
+import { isDeepStrictEqual } from 'node:util'
 import type { AuditLog } from '@backend/audit/log'
 import { KubeRequestError } from '@backend/kube/errors'
-import type { MetricsSourceSetting, NodeShellSetting, ReadOnlyChangedOutside } from '@shared/api'
+import type { ChangedOutside, MetricsSourceSetting, NodeShellSetting } from '@shared/api'
 import type { SessionUser } from '@shared/server'
 import type { ServerAccess } from './access'
 import { SERVER_ACTOR } from './audit'
@@ -27,18 +31,35 @@ const REFRESH_MS = 10_000
 
 /** A cluster's, as kept (by its context's name). */
 export interface ClusterEntry {
-  readOnly?: { by: string; at: string }
+  /** Who made it read-only, and when; `outside` where an older copy, put back, made it so. */
+  readOnly?: { by: string; at: string; outside?: true }
   metricsSource?: MetricsSourceSetting
   nodeShell?: NodeShellSetting
-  /** How many times Lumovi changed it, only ever more. */
+  /** Only ever more: from the time Lumovi wrote it, and above what it was. */
   version?: number
+  /** A change made outside Lumovi, found and dealt with: shown until Lumovi's next change. */
+  outside?: ChangedOutside
 }
+
+/** The settings besides read-only, which have nothing stricter: as Lumovi last set them. */
+const OTHERS = ['metricsSource', 'nodeShell'] as const
+const AUDITED = {
+  metricsSource: 'metrics-source.changed',
+  nodeShell: 'node-shell.changed',
+} as const
+const NAMED = { metricsSource: 'metrics source', nodeShell: 'node shells' } as const
+
+/** A count above each of `counts`, and no less than now. */
+const above = (...counts: (number | undefined)[]) =>
+  Math.max(Date.now(), ...counts.map((count) => (count ?? 0) + 1))
+
+/** What's kept of an entry: nothing that's unset. */
+const kept = (entry: ClusterEntry): ClusterEntry =>
+  Object.fromEntries(Object.entries(entry).filter(([, value]) => value !== undefined))
 
 export class ClusterSettings {
   readonly #listeners = new Set<() => void>()
   readonly #refresher?: NodeJS.Timeout
-  /** Clusters whose read-only was changed outside Lumovi, until someone who may sets it again. */
-  readonly #outside = new Map<string, ReadOnlyChangedOutside>()
 
   constructor(
     private readonly state: ServerState,
@@ -67,15 +88,19 @@ export class ClusterSettings {
   /** Who made each read-only, and when. */
   readOnlyBy(): Record<string, { by: string; at: string }> {
     return Object.fromEntries(
-      this.#entries.flatMap(([context, entry]) =>
-        entry.readOnly ? [[context, entry.readOnly]] : [],
+      this.#entries.flatMap(([context, { readOnly }]) =>
+        readOnly ? [[context, { by: readOnly.by, at: readOnly.at }]] : [],
       ),
     )
   }
 
-  /** Clusters whose read-only was changed outside Lumovi, since the server started. */
-  readOnlyChangedOutside(): Record<string, ReadOnlyChangedOutside> {
-    return Object.fromEntries(this.#outside)
+  /** The clusters whose settings were changed outside Lumovi, as each was dealt with. */
+  changedOutside(): Record<string, ChangedOutside> {
+    return Object.fromEntries(
+      this.#entries.flatMap(([context, entry]) =>
+        entry.outside ? [[context, entry.outside]] : [],
+      ),
+    )
   }
 
   metricsSources(): Record<string, MetricsSourceSetting> {
@@ -105,11 +130,12 @@ export class ClusterSettings {
     this.#change(context, user, (entry) => ({
       ...entry,
       readOnly: readOnly
-        ? (entry.readOnly ?? { by: user.name, at: new Date().toISOString() })
+        ? // Kept as it was, but where it's to be confirmed: then it's theirs, who confirm it.
+          entry.readOnly && !entry.outside && !entry.readOnly.outside
+          ? entry.readOnly
+          : { by: user.name, at: new Date().toISOString() }
         : undefined,
     }))
-    // Set by someone who may, as they chose it: a change made outside Lumovi is settled.
-    this.#outside.delete(context)
   }
 
   setMetricsSource(context: string, setting: MetricsSourceSetting, user: SessionUser): void {
@@ -131,21 +157,20 @@ export class ClusterSettings {
     clearInterval(this.#refresher)
   }
 
+  /**
+   * A change, by someone who may: over the entry as it's kept (as another replica wrote it, if one
+   * did meanwhile), counting above it. It settles a change made outside Lumovi, if one's shown.
+   */
   #change(context: string, user: SessionUser, change: (entry: ClusterEntry) => ClusterEntry): void {
     const why = this.whyNot(user)
     if (why) throw new KubeRequestError('not-allowed', why, 403)
-    const entry = this.state.get<ClusterEntry>('clusters', context) ?? {}
-    this.#keep(context, { ...change(entry), version: (entry.version ?? 0) + 1 })
-    this.#tell()
-  }
-
-  /** An entry, as it's kept: never deleted (its count stays, so that its going says so too). */
-  #keep(context: string, entry: ClusterEntry): void {
-    const kept = Object.fromEntries(
-      Object.entries(entry).filter(([, value]) => value !== undefined),
-    )
-    this.state.set('clusters', context, kept)
+    const next = (current: unknown) => {
+      const entry = (current ?? {}) as ClusterEntry
+      return kept({ ...change(entry), outside: undefined, version: above(entry.version) })
+    }
+    this.state.set('clusters', context, next(this.state.get('clusters', context)), next)
     void this.state.flush()
+    this.#tell()
   }
 
   async #refresh(): Promise<void> {
@@ -154,17 +179,18 @@ export class ClusterSettings {
     for (const [context, was] of before) {
       if (!was.version) continue
       const now = this.state.get<ClusterEntry>('clusters', context)
-      // As Lumovi changed it, on this replica or another: its count went on.
-      if (now && (now.version ?? 0) >= was.version) continue
+      // As Lumovi changed it, on this replica or another, counting above it; or as it was.
+      if (now && (now.version ?? 0) > was.version) continue
+      if (now && isDeepStrictEqual(now, was)) continue
       this.#changedOutside(context, was, now)
     }
     this.#tell()
   }
 
   /**
-   * An entry deleted, or put back as it once was, where it's kept: recorded where read-only went
-   * on or off, then kept as it is now, counting on from what was known, so that it's recorded
-   * once, by whichever replica found it first.
+   * An entry deleted, or an older copy of it put back, where it's kept: recorded, and kept as the
+   * stricter of what was and what's there (read-only if either is; the rest as Lumovi last set
+   * it), marked, and counting above both, so that other replicas take it as Lumovi's own.
    */
   #changedOutside(context: string, was: ClusterEntry, now: ClusterEntry | undefined): void {
     const how = now ? 'replaced' : 'deleted'
@@ -172,29 +198,59 @@ export class ClusterSettings {
       how === 'deleted'
         ? 'its setting was deleted where Lumovi keeps it'
         : 'an older copy of its setting was put back where Lumovi keeps it'
-    const readOnly = now?.readOnly !== undefined
-    if (readOnly !== (was.readOnly !== undefined)) {
+    const at = new Date().toISOString()
+    // Read-only where either is: as it was where it was (who made it so is known), else as the
+    // copy has it, made so outside Lumovi.
+    const readOnly =
+      was.readOnly ?? (now?.readOnly ? { ...now.readOnly, outside: true as const } : undefined)
+    const what: ChangedOutside['readOnly'] =
+      was.readOnly && !now?.readOnly ? 'restored' : !was.readOnly && now?.readOnly ? 'made' : 'kept'
+    const restored = OTHERS.filter((key) => !isDeepStrictEqual(was[key], now?.[key]))
+    const record = (action: Parameters<AuditLog['record']>[0]['action'], summary: string) =>
       this.audit.record({
-        action: 'read-only.changed',
+        action,
         outcome: 'success',
         actor: SERVER_ACTOR,
         cluster: context,
-        summary: `Changed outside Lumovi: ${context} is ${readOnly ? 'read-only' : 'no longer read-only'} for everyone on this server, as ${done}`,
-        details: {
-          outside: true,
-          how,
-          readOnly,
-          ...(was.readOnly ? { was: `read-only, by ${was.readOnly.by}, ${was.readOnly.at}` } : {}),
-        },
+        summary: `Changed outside Lumovi: ${summary}`,
+        details: { outside: true, how, readOnly: readOnly !== undefined },
       })
-      this.#outside.set(context, { at: new Date().toISOString(), how, readOnly })
-      log(
-        `${context}’s read-only was turned ${readOnly ? 'on' : 'off'} outside Lumovi: ${done}. It’s recorded in the audit log.`,
+    if (what === 'restored') {
+      record(
+        'read-only.changed',
+        `${context}’s read-only was turned off, as ${done}, and Lumovi made it read-only again`,
       )
-    } else {
-      log(`What’s set for ${context} was changed outside Lumovi (${done}), but not its read-only.`)
+    } else if (what === 'made') {
+      record('read-only.changed', `${context} was made read-only for everyone, as ${done}`)
     }
-    this.#keep(context, { ...now, version: was.version! + 1 })
+    for (const key of restored) {
+      record(
+        AUDITED[key],
+        `${context}’s ${NAMED[key]} were changed, as ${done}, and Lumovi put back what it last set`,
+      )
+    }
+    const changed = what !== 'kept' || restored.length > 0
+    log(
+      changed
+        ? `What’s set for ${context} was changed outside Lumovi: ${done}. Lumovi kept the stricter (${[
+            ...(what === 'restored' ? ['read-only again'] : what === 'made' ? ['read-only'] : []),
+            ...restored.map((key) => `its ${NAMED[key]} as it set them`),
+          ].join(', ')}), and it’s recorded in the audit log.`
+        : `What’s set for ${context} was changed outside Lumovi (${done}), but nothing it sets.`,
+    )
+    const fixed: ClusterEntry = kept({
+      readOnly,
+      metricsSource: was.metricsSource,
+      nodeShell: was.nodeShell,
+      outside: changed ? { at, how, readOnly: what, restored: [...restored] } : was.outside,
+      version: above(was.version, now?.version),
+    })
+    // Over another replica's write meanwhile: counting above it too.
+    this.state.set('clusters', context, fixed, (current) => ({
+      ...fixed,
+      version: above(fixed.version, (current as ClusterEntry | undefined)?.version),
+    }))
+    void this.state.flush()
   }
 
   #tell(): void {
