@@ -130,8 +130,6 @@ export class SponsorSource {
             .then((answered) => next(answered ? everyMs : Math.min(everyMs, RETRY_MS))),
         ms,
       )
-      // It never keeps Lumovi running.
-      this.#timer.unref()
     }
     void Promise.all([ready, this.#loaded]).then(() => next(firstMs))
   }
@@ -223,7 +221,6 @@ export class SponsorSource {
     const left = until === undefined ? 0 : endOf(until) - Date.now()
     if (left > 0) {
       this.#expiry = setTimeout(() => this.#update(), Math.min(left, LONGEST_WAIT_MS))
-      this.#expiry.unref()
     }
   }
 
