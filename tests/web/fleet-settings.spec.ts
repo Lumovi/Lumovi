@@ -419,7 +419,15 @@ test('what the page set for a cluster isn’t another’s that comes by its name
   await as(context, 'alice@example.com')
   await page.reload()
   expect(await lab()).toBeUndefined()
-  // An admin says: everyone.
+  // Saved without its groups (its name, say), it stays admins' alone.
+  await as(context, 'admin@example.com')
+  await page.reload()
+  await call(page, 'saveSettings', 'lab', { title: 'New lab' })
+  expect((await call(page, 'settings', 'lab')).value).toMatchObject({ adminsOnly: true })
+  await as(context, 'alice@example.com')
+  await page.reload()
+  expect(await lab()).toBeUndefined()
+  // An admin says who sees it: everyone.
   await as(context, 'admin@example.com')
   await page.reload()
   await call(page, 'saveSettings', 'lab', { groups: [] })
