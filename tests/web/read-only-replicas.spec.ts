@@ -340,7 +340,9 @@ test.describe('replicas over one kept state', () => {
     }
     delay.disable()
     // Opened a few hundred at a time: never long without the event loop let go.
-    expect(delay.max / 1e6).toBeLessThan(50)
+    // About 25 ms here, and up to 85 on a CI runner busy with three other tests; without opening
+    // a few hundred at a time, about 160 here, and several times that there.
+    expect(delay.max / 1e6).toBeLessThan(150)
     expect(a.settings.isReadOnly('demo')).toBe(true)
     expect(a.outside()).toEqual([])
   })
