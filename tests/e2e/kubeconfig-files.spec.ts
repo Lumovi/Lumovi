@@ -6,7 +6,7 @@
  */
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { expect, test } from './fixtures.ts'
@@ -60,19 +60,26 @@ test('kubeconfig files chosen in Lumovi replace KUBECONFIG’s or add to them, l
   await answer(first.app, [alpha])
   expect(await choose(first.page, 'replace')).toEqual({
     ok: true,
-    data: { from: 'chosen', files: [{ path: alpha, exists: true }] },
+    data: { from: 'chosen', files: [{ path: alpha, exists: true, removable: true }] },
   })
   expect(await contexts(first.page)).toEqual(['alpha'])
-  // Another after it; then the first no longer read.
+  // Another after it; then no longer read.
   await answer(first.app, [beta])
-  expect((await choose(first.page, 'add')) as unknown).toMatchObject({
-    data: { files: [{ path: alpha }, { path: beta }] },
+  expect(await choose(first.page, 'add')).toEqual({
+    ok: true,
+    data: {
+      from: 'chosen',
+      files: [
+        { path: alpha, exists: true, removable: true },
+        { path: beta, exists: true, added: true, removable: true },
+      ],
+    },
   })
   expect(await contexts(first.page)).toEqual(['alpha', 'beta'])
   expect(
-    await first.page.evaluate((alpha) => window.lumovi!.kubeconfigFiles!.remove(alpha), alpha),
-  ).toMatchObject({ ok: true, data: { files: [{ path: beta }] } })
-  expect(await contexts(first.page)).toEqual(['beta'])
+    await first.page.evaluate((beta) => window.lumovi!.kubeconfigFiles!.remove(beta), beta),
+  ).toMatchObject({ ok: true, data: { files: [{ path: alpha }] } })
+  expect(await contexts(first.page)).toEqual(['alpha'])
   // Cancelled: nothing changes.
   await answer(first.app, null)
   expect(await choose(first.page, 'replace')).toEqual({ ok: true, data: null })
@@ -84,21 +91,21 @@ test('kubeconfig files chosen in Lumovi replace KUBECONFIG’s or add to them, l
     shell.showItemInFolder = (path: string) => void shown.push(path)
   })
   await first.page.evaluate(
-    async ([beta, other]) => {
-      await window.lumovi!.kubeconfigFiles!.show(beta!)
+    async ([alpha, other]) => {
+      await window.lumovi!.kubeconfigFiles!.show(alpha!)
       await window.lumovi!.kubeconfigFiles!.show(other!)
     },
-    [beta, alpha],
+    [alpha, beta],
   )
   expect(
     await first.app.evaluate(() => (globalThis as unknown as { shown: string[] }).shown),
-  ).toEqual([beta])
+  ).toEqual([alpha])
   await first.app.close()
 
   // Kept across a restart.
   const again = await launch({ userDataDir })
-  expect(await files(again.page)).toMatchObject({ from: 'chosen', files: [{ path: beta }] })
-  expect(await contexts(again.page)).toEqual(['beta'])
+  expect(await files(again.page)).toMatchObject({ from: 'chosen', files: [{ path: alpha }] })
+  expect(await contexts(again.page)).toEqual(['alpha'])
   // Back to KUBECONFIG's.
   expect(
     await again.page.evaluate(() => window.lumovi!.kubeconfigFiles!.useDefault()),
@@ -106,6 +113,62 @@ test('kubeconfig files chosen in Lumovi replace KUBECONFIG’s or add to them, l
   expect(await contexts(again.page)).toContain('demo')
   // None of them written, all along.
   expect([alpha, beta, defaults.files[0]!.path].map(state)).toEqual(before)
+})
+
+test('files added after KUBECONFIG’s go with whatever it is next; KUBECONFIG’s own aren’t Lumovi’s to remove', async ({
+  launch,
+  clusters,
+}) => {
+  const [alpha, beta, gamma] = ['alpha', 'beta', 'gamma'].map((name) =>
+    kubeconfigFor(name, clusters.demo.url, clusters.demo.caPem),
+  )
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  // Relative to where Lumovi started: listed where it is, as show and remove take it.
+  const first = await launch({
+    env: { KUBECONFIG: relative(process.cwd(), alpha!) },
+    userDataDir,
+  })
+  expect(await files(first.page)).toEqual({ from: 'env', files: [{ path: alpha, exists: true }] })
+  await first.app.evaluate(({ shell }) => {
+    const shown: string[] = []
+    Object.assign(globalThis, { shown })
+    shell.showItemInFolder = (path: string) => void shown.push(path)
+  })
+  await first.page.evaluate((alpha) => window.lumovi!.kubeconfigFiles!.show(alpha), alpha!)
+  expect(
+    await first.app.evaluate(() => (globalThis as unknown as { shown: string[] }).shown),
+  ).toEqual([alpha])
+  // KUBECONFIG's own: said why, and left as it is.
+  expect(
+    await first.page.evaluate((alpha) => window.lumovi!.kubeconfigFiles!.remove(alpha), alpha!),
+  ).toMatchObject({
+    ok: false,
+    error: { message: expect.stringContaining('is in KUBECONFIG') },
+  })
+  // One added after it.
+  await answer(first.app, [beta!])
+  expect(await choose(first.page, 'add')).toEqual({
+    ok: true,
+    data: {
+      from: 'env',
+      files: [
+        { path: alpha, exists: true },
+        { path: beta, exists: true, added: true, removable: true },
+      ],
+    },
+  })
+  await first.app.close()
+
+  // KUBECONFIG is something else next time: that, then the one added.
+  const next = await launch({ env: { KUBECONFIG: gamma! }, userDataDir })
+  expect(await files(next.page)).toEqual({
+    from: 'env',
+    files: [
+      { path: gamma, exists: true },
+      { path: beta, exists: true, added: true, removable: true },
+    ],
+  })
+  expect(await contexts(next.page)).toEqual(['gamma', 'beta'])
 })
 
 test('an organization’s policy keeps Lumovi to KUBECONFIG’s kubeconfig, and one that can’t be used does too', async ({
@@ -143,4 +206,13 @@ test('an organization’s policy keeps Lumovi to KUBECONFIG’s kubeconfig, and 
   const broken = await launch({ env: { LUMOVI_POLICY: policy }, userDataDir })
   expect((await files(broken.page)).locked).toContain('can’t be used')
   expect(await contexts(broken.page)).not.toContain('alpha')
+  await broken.app.close()
+
+  // The policy gone: what was chosen is read again.
+  const free = await launch({ userDataDir })
+  expect(await files(free.page)).toEqual({
+    from: 'chosen',
+    files: [{ path: alpha, exists: true, removable: true }],
+  })
+  expect(await contexts(free.page)).toEqual(['alpha'])
 })

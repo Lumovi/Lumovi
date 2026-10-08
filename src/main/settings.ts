@@ -135,11 +135,15 @@ export class SettingsStore implements SettingsAccess {
   }
 
   /**
-   * The kubeconfig files chosen in Lumovi (none: KUBECONFIG's, or ~/.kube/config), unless the
-   * organization's policy keeps to those.
+   * The kubeconfig files chosen in Lumovi in place of KUBECONFIG's (or ~/.kube/config), and
+   * those added after them, unless the organization's policy keeps to the default.
    */
-  kubeconfigFiles(): string[] {
-    return this.policy.managed?.kubeconfigFilesLocked ? [] : (this.#settings.kubeconfigFiles ?? [])
+  kubeconfigFiles(): { chosen: string[]; added: string[] } {
+    if (this.policy.managed?.kubeconfigFilesLocked) return { chosen: [], added: [] }
+    return {
+      chosen: this.#settings.kubeconfigFiles ?? [],
+      added: this.#settings.kubeconfigAdded ?? [],
+    }
   }
 
   update(patch: Partial<Omit<Settings, 'readOnlyAll' | 'nodeShellDefault'>>): Settings {
@@ -188,10 +192,8 @@ export class SettingsStore implements SettingsAccess {
           ),
         ),
         // Where each is (they're read where they are, never written).
-        ...(Array.isArray(stored.kubeconfigFiles) &&
-        stored.kubeconfigFiles.every((file) => typeof file === 'string' && isAbsolute(file))
-          ? { kubeconfigFiles: stored.kubeconfigFiles }
-          : {}),
+        ...(paths(stored.kubeconfigFiles) ? { kubeconfigFiles: stored.kubeconfigFiles } : {}),
+        ...(paths(stored.kubeconfigAdded) ? { kubeconfigAdded: stored.kubeconfigAdded } : {}),
         // On unless turned off.
         autoUpdate: stored.autoUpdate !== false,
         matchingKubectl: stored.matchingKubectl !== false,
@@ -212,6 +214,10 @@ export class SettingsStore implements SettingsAccess {
     }
   }
 }
+
+/** Whether a setting is a list of files, each where it is. */
+const paths = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((file) => typeof file === 'string' && isAbsolute(file))
 
 /**
  * What AI assistants may do, as kept: unless it was edited into something

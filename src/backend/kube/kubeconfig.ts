@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { KubeConfig } from '@kubernetes/client-node'
 import type { ContextsResult } from '@shared/api'
 import { withProxy } from '../network'
@@ -67,7 +67,8 @@ export interface ClusterConfigs {
 
 /**
  * Holds the merged kubeconfig and hands out per-context views of it: the files chosen in Lumovi
- * (`chosen`, on the desktop), or else KUBECONFIG's, or ~/.kube/config. Read, never written.
+ * (on the desktop), or else KUBECONFIG's, or ~/.kube/config; then those added in Lumovi. Read,
+ * never written.
  */
 export class KubeConfigStore implements ClusterConfigs {
   #base = new KubeConfig()
@@ -75,16 +76,30 @@ export class KubeConfigStore implements ClusterConfigs {
 
   constructor(
     private readonly env: NodeJS.ProcessEnv = process.env,
-    private readonly chosen: () => string[] = () => [],
+    private readonly given: () => { chosen: string[]; added: string[] } = () => ({
+      chosen: [],
+      added: [],
+    }),
   ) {
     this.load()
   }
 
-  /** The files read, in order, and where the list comes from. */
-  paths(): { paths: string[]; from: 'chosen' | 'env' | 'default' } {
-    const chosen = this.chosen()
-    if (chosen.length > 0) return { paths: chosen, from: 'chosen' }
-    return { paths: kubeconfigPaths(this.env), from: this.env.KUBECONFIG ? 'env' : 'default' }
+  /**
+   * The files read, in order: those before (`base`, from where `from` says), then those added
+   * (each once).
+   */
+  paths(): {
+    paths: string[]
+    base: string[]
+    added: string[]
+    from: 'chosen' | 'env' | 'default'
+  } {
+    const { chosen, added } = this.given()
+    const from = chosen.length > 0 ? 'chosen' : this.env.KUBECONFIG ? 'env' : 'default'
+    const base = chosen.length > 0 ? chosen : kubeconfigPaths(this.env)
+    const before = new Set(base.map((file) => resolve(file)))
+    const after = added.filter((file) => !before.has(resolve(file)))
+    return { paths: [...base, ...after], base, added: after, from }
   }
 
   /** Re-reads the kubeconfig from disk. */
