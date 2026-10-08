@@ -140,8 +140,17 @@ test('a server over plain HTTP that Lumovi won’t reach is kept, anyway, only o
   // No insecure-skip-tls-verify: Lumovi won't connect, but kubectl would.
   const dialog = await paste(page, config(server.url, undefined, { token: DEMO_TOKEN }, ['lab']))
   await expect(dialog).toContainText('Its credentials would travel unencrypted')
+  await expect(dialog).toContainText(
+    'Lumovi won’t connect to it like this, but kubectl will, in Lumovi’s terminals or from its kubectl line.',
+  )
+  await expect(dialog).not.toContainText('Allow sends them now')
   await dialog.getByRole('button', { name: 'Allow and continue' }).click()
   await expect(dialog).toContainText('This cluster uses plain HTTP')
+  await expect(dialog).toContainText(
+    'Lumovi doesn’t connect over plain HTTP. Add it anyway to use it with kubectl.',
+  )
+  // Trying again can't help: adding it anyway is the way on.
+  await expect(dialog.getByRole('button', { name: 'Try again' })).toHaveCount(0)
   expect(own(userDataDir)).toEqual([])
   await dialog.getByRole('button', { name: 'Add it anyway' }).click()
   await expect(page.getByRole('dialog', { name: 'lab is ready' })).toBeVisible()
@@ -182,6 +191,8 @@ test('every context is checked and shown; a server not verified is agreed to fir
   // The server first, over plain HTTP: said unencrypted (not a certificate unchecked), with
   // nothing sent.
   await expect(dialog).toContainText('Its credentials would travel unencrypted')
+  // With the flag, Lumovi itself sends them.
+  await expect(dialog).toContainText('Allow sends them now and each time Lumovi connects.')
   await expect(dialog).toContainText('not encrypted')
   await expect(dialog).not.toContainText('certificate')
   expect(server.seen).toEqual([])
