@@ -115,7 +115,15 @@ jobs:
 
           A kubectl signed under what's new is refused by a Lumovi without it (its terminals use the installed kubectl, saying an update may be needed), so this should reach a release soon.
 
-          Before merging: look at what changed (a new authority or log, and when each is valid from and to), and add a CHANGELOG line.
+          Before merging:
+          - **Compare it with the one Sigstore publishes**, [sigstore/root-signing's \`targets/trusted_root.json\`](https://github.com/sigstore/root-signing/blob/main/targets/trusted_root.json). The job that took it ran code from npm, and this pull request's checks look only at its shape: whoever merges it is the last check. Nothing should differ (the repository can be a little behind or ahead of what TUF serves: a difference is a reason to look closer, not to merge):
+
+            \`\`\`sh
+            git fetch origin sigstore-root
+            diff <(curl -fsSL https://raw.githubusercontent.com/sigstore/root-signing/main/targets/trusted_root.json | jq '{certificateAuthorities, ctlogs}') \\
+              <(git show origin/sigstore-root:src/main/sigstore-root.json | jq '{certificateAuthorities, ctlogs}')
+            \`\`\`
+          - Look at what changed (a new authority or log, and when each is valid from and to), and add a CHANGELOG line.
 
           CI was started for it by the check, as a pull request it opens starts none.
           EOF
