@@ -127,7 +127,7 @@ export function TimeChart({
   const slot = plotWidth / Math.max(1, n)
   const x = (i: number) =>
     kind === 'bars' ? left + slot * (i + 0.5) : left + (i / (n - 1)) * plotWidth
-  /** What a label mustn't sit on: each line (or each stack's top), or the columns. */
+  /** What a label mustn't sit on: each line, or what's stacked (its areas, or its columns). */
   const plotted = (x0: number, x1: number): [number, number][] => {
     if (kind === 'bars') {
       const half = Math.max(1, Math.min(BAR_MAX, slot - GAP)) / 2
@@ -135,10 +135,21 @@ export function TimeChart({
         v > 0 && x(k) + half >= x0 && x(k) - half <= x1 ? [[y(v), plotBottom]] : [],
       )
     }
-    const lines: Polyline[] =
-      kind === 'lines'
-        ? visible.map((s) => s.values.map((v, i) => (v === null ? null : { x: x(i), y: y(v) })))
-        : stacks.map((stack) => stack.map((v, i) => ({ x: x(i), y: y(v) })))
+    if (kind === 'stacked') {
+      // From the top of the stack down: a label on an area's fill is on the data too.
+      const top = stacks.at(-1)
+      const span =
+        top &&
+        spanOf(
+          top.map((v, i) => ({ x: x(i), y: y(v) })),
+          x0,
+          x1,
+        )
+      return span ? [[span[0], plotBottom]] : []
+    }
+    const lines: Polyline[] = visible.map((s) =>
+      s.values.map((v, i) => (v === null ? null : { x: x(i), y: y(v) })),
+    )
     return lines.flatMap((line) => {
       const span = spanOf(line, x0, x1)
       return span ? [span] : []
