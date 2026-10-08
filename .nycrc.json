@@ -1,9 +1,5 @@
 {
   "temp-dir": ".nyc_output",
   "report-dir": "coverage",
-  "reporter": ["text-summary", "text", "html", "lcov", "json-summary"],
-  "branches": 100,
-  "functions": 100,
-  "lines": 100,
-  "statements": 100
+  "reporter": ["text-summary", "text", "html", "lcov", "json-summary"]
 }

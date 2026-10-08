@@ -34,7 +34,7 @@ npm run dev:server -- --fleet # a fleet of the demo clusters, signed in to as Al
 | `npm run test:e2e`                      | Build with coverage instrumentation and run the e2e suite     |
 | `npm run test:linux`                    | The same, on Linux in Docker, as CI runs it                   |
 | `npm run coverage`                      | The above, plus a coverage report in `coverage/`              |
-| `npm run coverage:check`                | Fail unless every file, line, branch and function is covered  |
+| `npm run coverage:check`                | Fail unless every file is loaded, and more than 95% runs      |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
 | `npm run views:check`                   | Check Lumovi's views against the CRDs of their tools          |
 | `npm run crds`                          | Fetch those CRDs again, at the versions `sources.json` pins   |

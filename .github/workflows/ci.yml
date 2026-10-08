@@ -205,6 +205,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # What's kept between runs, by the version of what it is: package-lock.json changes with
+      # every release, and a new set of downloads each time would fill the cache.
+      - name: Versions
+        id: versions
+        shell: bash
+        run: |
+          version() { node -p "require('./package-lock.json').packages['node_modules/$1'].version"; }
+          echo "electron=$(version electron)" >> "$GITHUB_OUTPUT"
+          echo "playwright=$(version playwright-core)" >> "$GITHUB_OUTPUT"
       # Electron's download, kept between runs: faster, and spared GitHub's occasional errors.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -212,7 +221,7 @@ jobs:
             ~/.cache/electron
             ~/Library/Caches/electron
             ~/AppData/Local/electron/Cache
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
       - run: npm ci
       # For Lumovi served from a cluster, in a browser (tests/web).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -221,7 +230,7 @@ jobs:
             ~/.cache/ms-playwright
             ~/Library/Caches/ms-playwright
             ~/AppData/Local/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ steps.versions.outputs.playwright }}
       - name: Install Chromium
         shell: bash
         run: |
@@ -328,6 +337,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # What's kept between runs, by the version of what it is: package-lock.json changes with
+      # every release, and a new set of downloads each time would fill the cache.
+      - name: Versions
+        id: versions
+        shell: bash
+        run: |
+          version() { node -p "require('./package-lock.json').packages['node_modules/$1'].version"; }
+          echo "electron=$(version electron)" >> "$GITHUB_OUTPUT"
+          echo "playwright=$(version playwright-core)" >> "$GITHUB_OUTPUT"
       # Electron's download, kept between runs: faster, and spared GitHub's occasional errors.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -335,7 +353,7 @@ jobs:
             ~/.cache/electron
             ~/Library/Caches/electron
             ~/AppData/Local/electron/Cache
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
       - run: npm ci
       - run: npm run build
       # Its bill of materials lists the helm it ships, the Go modules that helm is built from
@@ -421,6 +439,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      # What's kept between runs, by the version of what it is: package-lock.json changes with
+      # every release, and a new set of downloads each time would fill the cache.
+      - name: Versions
+        id: versions
+        shell: bash
+        run: |
+          version() { node -p "require('./package-lock.json').packages['node_modules/$1'].version"; }
+          echo "electron=$(version electron)" >> "$GITHUB_OUTPUT"
+          echo "playwright=$(version playwright-core)" >> "$GITHUB_OUTPUT"
       # Electron's download, kept between runs: faster, and spared GitHub's occasional errors.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -428,7 +455,7 @@ jobs:
             ~/.cache/electron
             ~/Library/Caches/electron
             ~/AppData/Local/electron/Cache
-          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
       - run: npm ci
       # kind and kubectl only: cluster.ts creates the cluster, with its own kubeconfig.
       - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
@@ -460,3 +487,18 @@ jobs:
             playwright-report-integration/
             test-results-integration/
           retention-days: 7
+
+  # One check for the main branch's ruleset to require: whether every job above passed (theirs
+  # are many, and change with the matrix).
+  passed:
+    name: CI passed
+    if: always()
+    needs: [checks, e2e, coverage, package, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for result in $RESULTS; do [ "$result" = success ] || exit 1; done
