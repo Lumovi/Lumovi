@@ -79,8 +79,6 @@ jobs:
       # Its branch, and its pull request.
       contents: write
       pull-requests: write
-      # CI on it: a pull request this workflow's token opens starts none, and main requires it.
-      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -116,6 +114,7 @@ jobs:
           A kubectl signed under what's new is refused by a Lumovi without it (its terminals use the installed kubectl, saying an update may be needed), so this should reach a release soon.
 
           Before merging:
+          - **Start its CI: close this pull request, and reopen it.** One this check opens starts none (GitHub's rule for its token), and \`main\` takes it only once _CI passed_, which only a pull request's own CI gives. (CI started otherwise, by hand on the branch, isn't counted.)
           - **Compare it with the one Sigstore publishes**, [sigstore/root-signing's \`targets/trusted_root.json\`](https://github.com/sigstore/root-signing/blob/main/targets/trusted_root.json). The job that took it ran code from npm, and this pull request's checks look only at its shape: whoever merges it is the last check. Nothing should differ (the repository can be a little behind or ahead of what TUF serves: a difference is a reason to look closer, not to merge):
 
             \`\`\`sh
@@ -124,12 +123,9 @@ jobs:
               <(git show origin/sigstore-root:src/main/sigstore-root.json | jq '{certificateAuthorities, ctlogs}')
             \`\`\`
           - Look at what changed (a new authority or log, and when each is valid from and to), and add a CHANGELOG line.
-
-          CI was started for it by the check, as a pull request it opens starts none.
           EOF
           )"
           fi
-          gh workflow run ci.yml --ref "$BRANCH"
 
   signer:
     name: Kubernetes' signer
