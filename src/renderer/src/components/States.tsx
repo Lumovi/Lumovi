@@ -101,6 +101,11 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
     hint: 'Lumovi’s admins decide who may do what. Your access (in the account menu) says why.',
     icon: Lock,
   },
+  'untrusted-agent': {
+    title: 'Its agent isn’t trusted',
+    hint: 'The certificate authority its agent sent isn’t the one Lumovi trusts for its cluster.',
+    icon: ShieldAlert,
+  },
 }
 
 /** For errors Lumovi didn't see coming: a bug, or a failure outside the API. */

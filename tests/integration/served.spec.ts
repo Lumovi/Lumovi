@@ -108,6 +108,49 @@ test.afterAll(() => {
   kubectl(['delete', 'clusterrolebinding', 'it-served-viewer', '--ignore-not-found'])
 })
 
+/** The proxy's pods, as the chart's networkPolicy.from names them. */
+const PROXY = 'it-proxy'
+
+/**
+ * What a pod in the cluster gets asking Lumovi who it is, saying it's someone (as only the proxy
+ * should): labelled as the proxy's pods are, or not. Its HTTP status, or "timeout". The proxy's
+ * asks again for a while: the cluster's network plugin learns of a new pod a moment after it starts.
+ */
+function probe(labelled: boolean): string {
+  const ask = `
+    const url = 'http://${RELEASE}.${NS}.svc/api/session'
+    const headers = { 'X-Forwarded-User': 'mallory@example.com' }
+    for (let tries = ${labelled ? 10 : 1}; ; ) {
+      const status = await fetch(url, { headers, signal: AbortSignal.timeout(5000) }).then(
+        (r) => r.status,
+        () => 'timeout',
+      )
+      if (status !== 'timeout' || --tries === 0) {
+        console.log(status)
+        break
+      }
+      await new Promise((done) => setTimeout(done, 2000))
+    }`
+  return kubectl([
+    'run',
+    `it-probe-${labelled ? 'proxy' : 'other'}`,
+    '-n',
+    NS,
+    '--rm',
+    '-i',
+    '--quiet',
+    '--restart=Never',
+    `--image=${SERVED_IMAGE}`,
+    '--image-pull-policy=Never',
+    ...(labelled ? [`--labels=app=${PROXY}`] : []),
+    // The image's own node, as its entrypoint.
+    '--',
+    '--input-type=module',
+    '-e',
+    ask,
+  ]).trim()
+}
+
 async function proxied(browser: Browser, user: string, groups: string): Promise<Page> {
   const context = await browser.newContext({
     extraHTTPHeaders: { 'X-Forwarded-User': user, 'X-Forwarded-Groups': groups },
@@ -116,8 +159,12 @@ async function proxied(browser: Browser, user: string, groups: string): Promise<
 }
 
 test('behind a proxy: each person with their own RBAC', async ({ browser }) => {
-  install({ 'auth.mode': 'proxy' })
+  install({ 'auth.mode': 'proxy', 'networkPolicy.from[0].podSelector.matchLabels.app': PROXY })
   await portForward()
+
+  // Only the proxy reaches it: anything else in the cluster saying it's someone isn't let in.
+  expect(probe(true)).toBe('200')
+  expect(probe(false)).toBe('timeout')
 
   // In the view role's group: sees workloads in every namespace (not nodes: view doesn't).
   const viewer = await proxied(browser, 'vera@example.com', 'served-viewers')

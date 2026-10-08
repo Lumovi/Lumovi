@@ -42,7 +42,10 @@ fleet:
   # set.
   secretNamespaces: []
   # A Secret with the agents that may connect under `agents.yaml`: a list of
-  # { name, tokenSha256, labels, groups }.
+  # { name, tokenSha256, labels, groups, caSha256 }. caSha256 is the SHA-256 of the agent's
+  # cluster's certificate authority (as `openssl x509 -fingerprint -sha256` says it, or a list
+  # while it's rotated): the hub trusts no other the agent sends. Without it, the hub trusts
+  # the one the agent first sends, and refuses another until an admin trusts it.
   agentsSecret: ''
   # Whether this cluster is one of the fleet's (as clusterName).
   includeThisCluster: true
@@ -51,7 +54,8 @@ fleet:
 
 # A fleet's agent (mode agent).
 agent:
-  # The fleet's Lumovi, like https://lumovi.example.com
+  # The fleet's Lumovi, like https://lumovi.example.com (https: the agent's token and its
+  # cluster's go there).
   hubUrl: ''
   # A Secret with the agent's token under `token` (the hub knows its SHA-256).
   tokenSecret: ''
@@ -76,7 +80,7 @@ auth:
   #   Google…). Lumovi impersonates whoever signs in, so their RBAC applies.
   # - proxy: behind an authenticating proxy (oauth2-proxy, Pomerium…) that names people in
   #   request headers. Lumovi impersonates them. Only safe when nothing but the proxy
-  #   can reach Lumovi: see networkPolicy.
+  #   can reach Lumovi: networkPolicy.from must name the proxy's pods.
   mode: token
 
   oidc:
@@ -319,12 +323,18 @@ extraCA:
 openshift: auto
 
 networkPolicy:
-  # Only lets in what `from` allows (with auth.mode proxy: the proxy's pods).
+  # Only lets in what `from` allows. With auth.mode proxy it's always on, and `from` must
+  # name the proxy's pods (with a namespaceSelector, where it runs in another namespace):
+  # Lumovi trusts the proxy's headers from whoever reaches it, so nobody else may. It
+  # needs a network plugin that enforces NetworkPolicies (most do; flannel alone doesn't).
   enabled: false
   from: []
   #  - podSelector:
   #      matchLabels:
   #        app.kubernetes.io/name: oauth2-proxy
+  #    namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: oauth2-proxy
 
 resources:
   requests:

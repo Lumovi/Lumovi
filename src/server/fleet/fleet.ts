@@ -201,7 +201,15 @@ export class HostedFleet implements Hosted {
   /** Why someone can't use a cluster now, if they can't. */
   #problem(cluster: FleetCluster, identity: Identity): Problem | undefined {
     if (cluster.problem) {
-      return { code: cluster.agent ? 'unreachable' : 'invalid', message: cluster.problem }
+      const code =
+        cluster.untrusted === 'first'
+          ? 'untrusted-agent'
+          : cluster.untrusted
+            ? 'tls'
+            : cluster.agent
+              ? 'unreachable'
+              : 'invalid'
+      return { code, message: cluster.problem }
     }
     if (cluster.forwardToken) {
       return identity.token

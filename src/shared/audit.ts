@@ -63,6 +63,10 @@ export const AUDIT_ACTIONS = {
   'permissions.changed': 'settings',
   'read-only.changed': 'settings',
   'node-shell.changed': 'settings',
+  // A fleet's agents: whose cluster's certificate authority is trusted.
+  'agent.pinned': 'server',
+  'agent.refused': 'server',
+  'agent.trusted': 'settings',
   'metrics-source.changed': 'settings',
   'assistants.changed': 'settings',
   'access.changed': 'settings',

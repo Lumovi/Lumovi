@@ -2,12 +2,17 @@
  * A fleet's agents: clusters the hub can't reach dial it instead, and relay
  * its connections to their API server, which TLS keeps private from them.
  */
-import { readFileSync, writeFileSync } from 'node:fs'
-import type { Socket } from 'node:net'
+import { X509Certificate } from 'node:crypto'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { connect as connectTo, type AddressInfo, type Socket } from 'node:net'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import tls from 'node:tls'
+import { generate } from 'selfsigned'
 import { WebSocket, WebSocketServer } from 'ws'
 import { HELM } from '../mock-cluster/fixtures/helm.ts'
 import {
+  audited,
   expect,
   freePort,
   inCluster,
@@ -57,6 +62,48 @@ function agentOf(
   })
 }
 
+/**
+ * TLS in front of 127.0.0.1:`port`, as an ingress would be, with a certificate for `name` that's
+ * its own authority (in a file, for LUMOVI_CA_FILE).
+ */
+async function tlsTo(port: number, name: string) {
+  const pems = await generate([{ name: 'commonName', value: name }], {
+    keyType: 'ec',
+    algorithm: 'sha256',
+    notAfterDate: new Date(Date.now() + 24 * 3600 * 1000),
+    extensions: [
+      { name: 'basicConstraints', cA: true },
+      { name: 'keyUsage', digitalSignature: true, keyCertSign: true },
+      { name: 'extKeyUsage', serverAuth: true },
+      { name: 'subjectAltName', altNames: [{ type: 2, value: name }] },
+    ],
+  })
+  const caFile = join(mkdtempSync(join(tmpdir(), 'lumovi-ingress-')), 'ca.pem')
+  writeFileSync(caFile, pems.cert)
+  const sockets = new Set<Socket>()
+  const server = tls.createServer({ key: pems.private, cert: pems.cert }, (socket) => {
+    const upstream = connectTo(port, '127.0.0.1')
+    socket.pipe(upstream).pipe(socket)
+    for (const s of [socket, upstream]) {
+      sockets.add(s)
+      s.on('error', () => undefined)
+      s.on('close', () => sockets.delete(s))
+    }
+    socket.on('close', () => upstream.destroy())
+    upstream.on('close', () => socket.destroy())
+  })
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  return {
+    port: (server.address() as AddressInfo).port,
+    caFile,
+    close: () =>
+      new Promise<void>((done) => {
+        for (const socket of sockets) socket.destroy()
+        server.close(() => done())
+      }),
+  }
+}
+
 /** The helm runs that reached the cluster first, and what it answered. */
 function reached(served: Served): { args: string[]; status: number | string }[] {
   try {
@@ -74,21 +121,141 @@ test('an agent reaches its hub through the proxy the environment says', async ({
   clusters,
 }) => {
   const account = inCluster(clusters)
-  const port = await freePort()
   const proxy = await startMockProxy()
-  const served = await serve({ port, env: HUB })
-  // The hub by a name only the proxy knows (its own API server, directly).
-  const agent = agentOf(`http://hub.test:${port}`, account, { HTTP_PROXY: proxy.url })
+  const served = await serve({ env: HUB })
+  // The hub over https, as an ingress would serve it, by a name only the proxy knows (its own API
+  // server, directly). Its certificate's authority is the agent's to trust (LUMOVI_CA_FILE).
+  const ingress = await tlsTo(served.port, 'hub.test')
+  const agent = agentOf(`https://hub.test:${ingress.port}`, account, {
+    HTTPS_PROXY: proxy.url,
+    LUMOVI_CA_FILE: ingress.caFile,
+  })
   await expect
     .poll(() => served.log())
     .toContain(`The agent of ${NAME} connected (Lumovi ${VERSION})`)
-  expect(proxy.seen).toEqual([`CONNECT hub.test:${port}`])
+  expect(proxy.seen).toEqual([`CONNECT hub.test:${ingress.port}`])
   expect(agent.log()).toContain(
-    `Lumovi’s own connections go through the proxy ${proxy.url} for http, except to`,
+    `Lumovi’s own connections go through the proxy ${proxy.url} for https, except to`,
   )
   await agent.stop()
   await served.stop()
+  await ingress.close()
   await proxy.close()
+})
+
+test('an agent is trusted with the certificate authority it’s named with, or first sent', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  test.setTimeout(120_000)
+  const account = inCluster(clusters)
+  // As openssl x509 -fingerprint -sha256 says it, colons and all.
+  const fingerprint = new X509Certificate(clusters.demo.caPem!).fingerprint256
+  const sha256 = fingerprint.replaceAll(':', '').toLowerCase()
+  const agents = (more = '') =>
+    Buffer.from(`- name: ${NAME}\n  token: ${TOKEN}\n${more}`).toString('base64')
+  await as(context, 'alice@example.com')
+
+  // Named in LUMOVI_FLEET_AGENTS: trusted, with nothing else to keep.
+  const named = await serve({
+    env: { ...HUB, LUMOVI_FLEET_AGENTS: agents(`  caSha256: "${fingerprint}"\n`) },
+  })
+  let agent = agentOf(named.url, account)
+  await page.goto(named.url)
+  await expect(card(page, NAME)).toContainText('Nodes')
+  expect(audited(named, 'agent.pinned')).toEqual([])
+  await agent.stop()
+  await named.stop()
+
+  // Another named: refused, as its card, the agent and the audit log say.
+  const wrong = await serve({
+    env: { ...HUB, LUMOVI_FLEET_AGENTS: agents(`  caSha256: ${'ab'.repeat(32)}\n`) },
+  })
+  agent = agentOf(wrong.url, account)
+  const notNamed = `Its agent sent a certificate authority (SHA-256 ${sha256.slice(0, 16)}…) other than the one LUMOVI_FLEET_AGENTS names for it.`
+  await expect.poll(() => agent.log()).toContain(`The hub doesn’t trust this cluster: ${notNamed}`)
+  await page.goto(wrong.url)
+  await expect(card(page, NAME)).toContainText(notNamed)
+  expect(audited(wrong, 'agent.refused')).toEqual([
+    expect.objectContaining({ outcome: 'refused', cluster: NAME, error: notNamed }),
+  ])
+  await agent.stop()
+  await wrong.stop()
+
+  // Named nowhere: the one it first sends is trusted, and kept, as the audit log says.
+  const data = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const env = {
+    ...HUB,
+    LUMOVI_FLEET_AGENTS: agents(),
+    LUMOVI_DATA_DIR: data,
+    LUMOVI_ADMINS: 'user:admin@example.com',
+  }
+  const port = await freePort()
+  const first = await serve({ port, env })
+  agent = agentOf(first.url, account)
+  await expect
+    .poll(() => audited(first, 'agent.pinned'))
+    .toEqual([expect.objectContaining({ cluster: NAME, details: { sha256: [sha256] } })])
+  await agent.stop()
+  await first.stop()
+
+  // After a restart, an agent sending another is refused.
+  const other = await generate([{ name: 'commonName', value: 'someone else’s cluster' }], {
+    keyType: 'ec',
+    algorithm: 'sha256',
+    extensions: [{ name: 'basicConstraints', cA: true }],
+  })
+  writeFileSync(join(account.dir, 'ca.crt'), other.cert)
+  const otherSha256 = new X509Certificate(other.cert).fingerprint256
+    .replaceAll(':', '')
+    .toLowerCase()
+  const restarted = await serve({ port, env })
+  agent = agentOf(restarted.url, account)
+  const changed = `Its agent sent a certificate authority (SHA-256 ${otherSha256.slice(0, 16)}…) other than the one it sent when it first connected. If its cluster’s changed, an admin can trust the new one.`
+  await expect.poll(() => agent.log()).toContain(`The hub doesn’t trust this cluster: ${changed}`)
+  // Someone who isn't an admin can't trust it, nor ask the server to.
+  await page.goto(restarted.url)
+  await expect(card(page, NAME)).toContainText(changed)
+  await expect(page.getByRole('region', { name: 'Agents not trusted' })).toHaveCount(0)
+  expect(
+    await page.evaluate(
+      (name) =>
+        window.lumovi!.fleet!.trustAgent(name).then(
+          () => 'trusted',
+          (error: Error) => error.message,
+        ),
+      NAME,
+    ),
+  ).toBe('Only Lumovi’s admins trust an agent.')
+  // An admin can: then the one it sends now is trusted.
+  await as(context, 'admin@example.com')
+  await page.reload()
+  const untrusted = page.getByRole('region', { name: 'Agents not trusted' })
+  await expect(untrusted).toContainText(
+    `${NAME}’s agent sent a certificate authority other than the one Lumovi trusts for it.`,
+  )
+  await untrusted.getByRole('button', { name: 'Trust it…' }).click()
+  await expect(untrusted).toContainText(
+    `Trust the certificate authority ${NAME}’s agent sends now?`,
+  )
+  await untrusted.getByRole('button', { name: 'Trust it', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    `Trusted ${NAME}’s agent`,
+  )
+  await expect(untrusted).toHaveCount(0)
+  expect(
+    audited(restarted)
+      .filter((e) => e.action.startsWith('agent.'))
+      .map((e) => [e.action, e.actor.user]),
+  ).toEqual([
+    ['agent.refused', 'lumovi'],
+    ['agent.trusted', 'admin@example.com'],
+    ['agent.pinned', 'lumovi'],
+  ])
+  await agent.stop()
+  await restarted.stop()
 })
 
 test('a cluster behind its agent', async ({ page, context, serve, clusters, request }) => {
@@ -241,6 +408,11 @@ test('agents the hub won’t have, and agents that can’t start', async ({
     [
       { LUMOVI_HUB_URL: 'lumovi.example.com' },
       'LUMOVI_HUB_URL must be the hub’s address, like https://lumovi.example.com, not "lumovi.example.com".',
+    ],
+    // Over http, its token and its cluster's would cross the network as they are.
+    [
+      { LUMOVI_HUB_URL: 'http://lumovi.example.com/fleet' },
+      'LUMOVI_HUB_URL must be https, not http://lumovi.example.com: the agent’s token and its cluster’s would cross the network as they are.',
     ],
     [
       { LUMOVI_SERVICE_ACCOUNT_DIR: undefined, LUMOVI_AGENT_HEALTH_PORT: undefined },
