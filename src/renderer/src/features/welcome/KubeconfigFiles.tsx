@@ -206,7 +206,8 @@ function FileRow({ file, home, locked }: { file: KubeconfigFile; home: string; l
       <span className="min-w-0 flex-1">
         <span
           className={cn(
-            'block truncate font-mono text-xs [direction:rtl] selectable',
+            // Cut from the start, but set from the left when it fits.
+            'block truncate text-left font-mono text-xs [direction:rtl] selectable',
             wrong ? 'text-ink-2' : 'text-ink-1',
           )}
           title={file.path}

@@ -111,6 +111,25 @@ test('a name already read, with nothing to agree to, is added under the name giv
   await expect(dialog).toContainText('demo was already read, so it’s added as demo-2')
 })
 
+test('a server whose certificate isn’t checked is said so, and added once allowed', async ({
+  launch,
+  clusters,
+}) => {
+  const { page } = await launch()
+  await expect(clusterOption(page, 'demo')).toBeVisible()
+  const dialog = await paste(
+    page,
+    config(clusters.demo.url, undefined, { token: DEMO_TOKEN }, ['skipped'], {
+      'insecure-skip-tls-verify': true,
+    }),
+  )
+  await expect(dialog).toContainText('Lumovi can’t check it’s the right server')
+  await expect(dialog).toContainText('its certificate isn’t checked')
+  await expect(dialog).not.toContainText('unencrypted')
+  await dialog.getByRole('button', { name: 'Allow and continue' }).click()
+  await expect(page.getByRole('dialog', { name: 'skipped is ready' })).toBeVisible()
+})
+
 test('every context is checked and shown; a server not verified is agreed to first, then a program, in one go', async ({
   launch,
   clusters,
@@ -140,10 +159,11 @@ test('every context is checked and shown; a server not verified is agreed to fir
   await expect(dialog).toContainText('2 contexts: one, two')
   await expect(dialog.getByText('one', { exact: true })).toBeVisible()
   await expect(dialog.getByText('two', { exact: true })).toBeVisible()
-  // The server first, said not verified, with nothing sent.
-  await expect(dialog).toContainText('Lumovi can’t check it’s the right server')
-  await expect(dialog).toContainText('its certificate isn’t checked')
-  await expect(dialog).toContainText(`Its credentials go to ${server.url}, which isn’t verified.`)
+  // The server first, over plain HTTP: said unencrypted (not a certificate unchecked), with
+  // nothing sent.
+  await expect(dialog).toContainText('Its credentials would travel unencrypted')
+  await expect(dialog).toContainText('not encrypted')
+  await expect(dialog).not.toContainText('certificate')
   expect(server.seen).toEqual([])
   await dialog.getByRole('button', { name: 'Allow and continue' }).click()
   // Then the program, still not run.
@@ -304,7 +324,7 @@ test('editing an added cluster: the one opened is the one checked, its secrets s
   await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.insertText(moved)
   await editor.getByRole('button', { name: 'Check it' }).click()
-  await expect(editor).toContainText('Lumovi can’t check it’s the right server')
+  await expect(editor).toContainText('Its credentials would travel unencrypted')
   await editor.getByRole('button', { name: 'Allow and continue' }).click()
   await expect(editor).toContainText('sends what Lumovi kept to somewhere new')
   expect(server.seen).toEqual([])

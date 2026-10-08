@@ -5,9 +5,10 @@
  */
 import { CircleAlert, X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import type { FormEvent, ReactNode } from 'react'
+import { useEffect, type FormEvent, type ReactNode } from 'react'
 import { IconButton } from '@renderer/components/Button'
 import { cn } from '@renderer/lib/cn'
+import { useToasts } from '@renderer/state/toasts'
 
 export function PageDialog({
   leading,
@@ -32,6 +33,8 @@ export function PageDialog({
   onClose: () => void
   children?: ReactNode
 }) {
+  // Toasts from before are done with: in a narrow window they'd cover its buttons.
+  useEffect(() => useToasts.getState().clear(), [])
   const submit = (event: FormEvent) => {
     event.preventDefault()
     onSubmit?.()

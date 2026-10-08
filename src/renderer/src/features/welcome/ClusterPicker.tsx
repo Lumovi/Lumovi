@@ -596,7 +596,8 @@ function ClusterRow({
           {label}
         </span>
       )}
-      <span className="w-[116px] shrink-0 text-right text-xs">
+      {/* Recent's narrower gap made up, so its column ends where the others' do. */}
+      <span className={cn('w-[116px] shrink-0 text-right text-xs', recent && 'mr-0.5')}>
         {version.isPending ? (
           // Being checked: a place for its version.
           <span className="inline-block h-2.5 w-[72px] animate-shimmer rounded bg-surface-3 align-middle" />
