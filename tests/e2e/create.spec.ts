@@ -133,7 +133,11 @@ test('what the cluster refused is in view at the smallest window', async ({ laun
   await expect(results(page)).toContainText('namespaces "nope" not found')
   // Below the editor, past the fold here: brought into view, the focus left where it was.
   await expect(results(page)).toBeInViewport({ ratio: 1 })
-  await expect(create(page)).toBeFocused()
+  // Focused in the page, whether or not its window has the system's focus (on a Windows runner,
+  // it may not).
+  await expect
+    .poll(() => create(page).evaluate((button) => button === document.activeElement))
+    .toBe(true)
 })
 
 test('nothing is created when the cluster refuses any object', async ({ page, clusters }) => {

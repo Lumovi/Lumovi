@@ -378,7 +378,9 @@ test('a dialog’s error is in view at the smallest window, by the button just p
   await expect(dialog(page).getByRole('alert')).toBeInViewport({ ratio: 1 })
   await expect(drain).toBeInViewport({ ratio: 1 })
   // Where it was: nothing moves the focus away.
-  await expect(drain).toBeFocused()
+  // Focused in the page, whether or not its window has the system's focus (on a Windows runner,
+  // it may not).
+  await expect.poll(() => drain.evaluate((button) => button === document.activeElement)).toBe(true)
 })
 
 test('draining an empty node', async ({ page }) => {
