@@ -78,8 +78,14 @@ export function createMainWindow(
     win.show()
   })
   win.on('close', () => onSaveState({ ...win.getNormalBounds(), maximized: win.isMaximized() }))
-  // Recover from a crashed or killed renderer instead of leaving a blank window.
-  win.webContents.on('render-process-gone', () => win.webContents.reload())
+  // Recover from a crashed or killed renderer instead of leaving a blank window, and say why it
+  // went (in the app's log, where a crash in the field or on CI can be read).
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.warn(
+      `The page's process ended (${details.reason}, exit code ${details.exitCode}): reloading it`,
+    )
+    win.webContents.reload()
+  })
 
   // Only the app's own page is ever shown: block pop-ups and navigation
   // elsewhere, but let the page reload itself (e.g. from the error page).
