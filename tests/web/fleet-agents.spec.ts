@@ -181,7 +181,7 @@ test('an agent is trusted with the certificate authority it’s named with, or f
     env: { ...HUB, LUMOVI_FLEET_AGENTS: agents(`  caSha256: ${'ab'.repeat(32)}\n`) },
   })
   agent = agentOf(wrong.url, account, { LUMOVI_AGENT_HEALTH_PORT: String(health) })
-  const notNamed = `Its agent sent a certificate authority (SHA-256 ${sha256.slice(0, 16)}…) other than the one LUMOVI_FLEET_AGENTS names for it.`
+  const notNamed = `Its agent sent a certificate authority (SHA-256 ${sha256.slice(0, 8)}…) other than the one LUMOVI_FLEET_AGENTS names for it.`
   await expect.poll(() => agent.log()).toContain(`The hub doesn’t trust this cluster: ${notNamed}`)
   // Not ready: the hub doesn't use it.
   const healthz = async () => {
@@ -202,6 +202,19 @@ test('an agent is trusted with the certificate authority it’s named with, or f
   expect(memory.log()).toContain(
     `${NAME} has no caSha256 in LUMOVI_FLEET_AGENTS: the hub trusts the certificate authority each first sends, from whoever has its token, and, as nothing keeps what it trusts (no LUMOVI_DATA_DIR, nor the chart’s auth.keepSessions), again after every restart. Give each its cluster’s.`,
   )
+  // With no admins, anyone signed in checks it (with its SHA-256 from the cluster, as admins do).
+  agent = agentOf(memory.url, account)
+  await expect.poll(() => audited(memory, 'agent.pinned').length).toBe(1)
+  await page.goto(memory.url)
+  const anyone = page.getByRole('region', { name: 'Agents to check' })
+  await anyone.getByRole('button', { name: 'Check it…' }).click()
+  await anyone.getByLabel(`${NAME}’s certificate authority’s SHA-256`).fill(sha256)
+  await anyone.getByRole('button', { name: 'Trust it', exact: true }).click()
+  await expect(anyone).toHaveCount(0)
+  expect(audited(memory, 'agent.trusted')).toEqual([
+    expect.objectContaining({ actor: expect.objectContaining({ user: 'alice@example.com' }) }),
+  ])
+  await agent.stop()
   await memory.stop()
 
   // Kept: the one it first sends is trusted, and recorded; admins are asked to check it.
@@ -251,7 +264,7 @@ test('an agent is trusted with the certificate authority it’s named with, or f
   const otherSha256 = hex(other.cert)
   const restarted = await serve({ port, env })
   agent = agentOf(restarted.url, account, { LUMOVI_AGENT_HEALTH_PORT: String(health) })
-  const changed = `Its agent sent a certificate authority (SHA-256 ${otherSha256.slice(0, 16)}…) other than the one it’s trusted with. If its cluster’s changed, an admin can trust the new one, given its SHA-256 from the cluster itself.`
+  const changed = `Its agent sent a certificate authority (SHA-256 ${otherSha256.slice(0, 8)}…) other than the one it’s trusted with. If its cluster’s changed, an admin can trust the new one, given its SHA-256 from the cluster itself.`
   await expect.poll(() => agent.log()).toContain(`The hub doesn’t trust this cluster: ${changed}`)
   await expect.poll(healthz).toBe(`503 connected, but refused: ${changed}`)
   // Someone who isn't an admin can't trust it, nor see what agents send.
@@ -281,15 +294,18 @@ test('an agent is trusted with the certificate authority it’s named with, or f
     `${NAME}’s agent sends a certificate authority other than the one it’s trusted with.`,
   )
   await refused.getByRole('button', { name: 'Trust it…' }).click()
-  await expect(refused).toContainText(`It sends${otherSha256}`)
-  await expect(refused).toContainText(`Trusted with${sha256}`)
+  // Only enough of each to tell them apart: all of what it sends could be given back.
+  await expect(refused).toContainText(`It sends${otherSha256.slice(0, 8)}…`)
+  await expect(refused).toContainText(`Trusted with${sha256.slice(0, 8)}…`)
   const given = refused.getByLabel(`${NAME}’s certificate authority’s SHA-256`)
   // Not the one it sends (the old one, say): refused.
   await given.fill(sha256)
   await refused.getByRole('button', { name: 'Trust it', exact: true }).click()
   await expect(refused.getByRole('alert')).toHaveText(
-    `${NAME}’s agent doesn’t send a certificate authority with that SHA-256: it sends ${otherSha256}.`,
+    `${NAME}’s agent doesn’t send a certificate authority with that SHA-256: it sends ${otherSha256.slice(0, 8)}….`,
   )
+  expect(await page.locator('body').innerText()).not.toContain(otherSha256)
+  expect(await page.locator('body').innerText()).not.toContain(otherSha256.slice(0, 16))
   await given.fill(printed(other.cert))
   await refused.getByRole('button', { name: 'Trust it', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
