@@ -1012,3 +1012,106 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
   expect(seen).toEqual([`Bearer ${DEMO_TOKEN}`])
   standIn.close()
 })
+
+test('an OIDC user’s kept secrets go to its identity provider only where they were kept for', async ({
+  launch,
+  clusters,
+}) => {
+  const asked: string[] = []
+  const issuer = createServer((req, res) => {
+    asked.push(`${req.method} ${req.url}`)
+    res.writeHead(404).end()
+  })
+  await new Promise<void>((done) => issuer.listen(0, '127.0.0.1', done))
+  const elsewhere = `http://127.0.0.1:${(issuer.address() as AddressInfo).port}`
+  // An ID token long expired: the refresh token goes to the issuer for a new one.
+  const expired = ['{"alg":"none"}', '{"exp":1}']
+    .map((part) => Buffer.from(part).toString('base64url'))
+    .concat('x')
+    .join('.')
+  const text = stringify({
+    apiVersion: 'v1',
+    kind: 'Config',
+    clusters: [
+      {
+        name: 'sso',
+        cluster: {
+          server: clusters.demo.url,
+          'certificate-authority-data': Buffer.from(clusters.demo.caPem!).toString('base64'),
+        },
+      },
+    ],
+    users: [
+      {
+        name: 'sso',
+        user: {
+          'auth-provider': {
+            name: 'oidc',
+            config: {
+              'client-id': 'lumovi',
+              'client-secret': 'oidc-secret',
+              'id-token': expired,
+              'refresh-token': 'oidc-refresh',
+              'idp-issuer-url': 'https://issuer.invalid',
+            },
+          },
+        },
+      },
+    ],
+    contexts: [{ name: 'sso', context: { cluster: 'sso', user: 'sso' } }],
+  })
+  const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const { page } = await launch({ userDataDir })
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }), text),
+  ).toMatchObject({ ok: true })
+  const [file] = own(userDataDir)
+  const kept = parse(
+    (
+      (await page.evaluate((file) => window.lumovi!.addedClusters!.read(file), file!)) as {
+        data: string
+      }
+    ).data,
+  ) as Config
+  expect(JSON.stringify(kept)).not.toContain('oidc-')
+  // Its issuer moved: its kept secrets aren't sent there, nor kept so.
+  ;(kept.users[0]!.user['auth-provider'] as { config: Record<string, unknown> }).config[
+    'idp-issuer-url'
+  ] = elsewhere
+  const moved = stringify(kept)
+  const inspected = (await page.evaluate(
+    ([text, file]) => window.lumovi!.addedClusters!.inspect(text!, file),
+    [moved, file!],
+  )) as { data: { keptCredentials: { server: string; consent: string }[] } }
+  expect(inspected.data.keptCredentials).toEqual([
+    {
+      context: 'sso',
+      server: `${clusters.demo.url}, and ${elsewhere}`,
+      consent: expect.stringMatching(/^[0-9a-f]{64}$/),
+    },
+  ])
+  expect(
+    await page.evaluate(
+      ([text, file]) => window.lumovi!.addedClusters!.check(text!, 'sso', [], file),
+      [moved, file!],
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { notTried: 'agreement' } } })
+  expect(
+    await page.evaluate(
+      ([file, text]) => window.lumovi!.addedClusters!.edit(file!, text!, []),
+      [file!, moved],
+    ),
+  ).toMatchObject({ ok: false, error: { code: 'not-allowed' } })
+  expect(asked).toEqual([])
+  // Agreed to: tried. (client-node 2.0's OIDC refresh fails before it asks the issuer anything;
+  // what matters here is that it's tried only once agreed to.)
+  const { consent } = inspected.data.keptCredentials[0]!
+  expect(
+    await page.evaluate(
+      ([text, file, consent]) =>
+        window.lumovi!.addedClusters!.check(text!, 'sso', [consent!], file),
+      [moved, file!, consent],
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { ok: false, message: expect.any(String) } } })
+  issuer.close()
+})
