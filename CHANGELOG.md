@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-10-08
+
+A server notices its settings changed outside Lumovi and keeps the stricter, the sidebar has a
+sponsor card, and a dialog's error is always in view.
+
 ### Added
 
 - On a server, a cluster's settings changed where the server keeps them, outside Lumovi (its
@@ -706,7 +711,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/Lumovi/Lumovi/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/Lumovi/Lumovi/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/Lumovi/Lumovi/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/Lumovi/Lumovi/compare/v1.12.0...v1.13.0
