@@ -144,6 +144,9 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
       resolve('tests/e2e/harness.cjs'),
       '-r',
       resolve('scripts/screenshots/harness.cjs'),
+      // Lumovi's own sponsor card, not what's live on GitHub that day.
+      '-r',
+      resolve('scripts/screenshots/own-card.cjs'),
       resolve('.'),
       `--user-data-dir=${home}`,
       // Drawn in software: on the GPU, things come out a little differently from time to time.
@@ -288,10 +291,14 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
             : {}),
         }
       : {}
-  const node =
-    mode === 'audit' || mode === 'access'
+  const node = [
+    // Lumovi's own sponsor card, not what's live on GitHub that day.
+    '-r',
+    resolve('scripts/screenshots/own-card.cjs'),
+    ...(mode === 'audit' || mode === 'access'
       ? ['-r', resolve('scripts/screenshots/shifted-clock.cjs')]
-      : []
+      : []),
+  ]
   const child: ChildProcess = spawn(process.execPath, [...node, resolve('out/server/index.js')], {
     env: {
       ...audit,
