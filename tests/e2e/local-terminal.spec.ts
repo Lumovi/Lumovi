@@ -647,23 +647,46 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
 /** Why each signature that isn't right isn't taken (`host`, the stand-in dl.k8s.io's). */
 const refusals = (host: string): [NonNullable<MockDownloads['signing']>, string][] => {
   const notKubernetes = (why: string) => `${host}’s kubectl v1.34.9 isn’t Kubernetes’ own: ${why}`
+  // Where what this Lumovi knows could be what's out of date, it says an update may be the cure.
+  const ifKubernetes = '; if Kubernetes has changed how it signs, Lumovi needs an update'
+  const ifSigstore = '; if Sigstore has changed its authority or its logs, Lumovi needs an update'
   return [
     // What was downloaded, and its SHA-256, changed together: only the signature says so.
     ['tampered', notKubernetes('its signature isn’t for what was downloaded')],
     // Signed, but not by Kubernetes' release, or not as it signs in.
-    ['identity', notKubernetes('it’s signed by someone@example.com, not Kubernetes’ release')],
+    [
+      'identity',
+      notKubernetes(
+        `it’s signed by someone@example.com, not Kubernetes’ release, as this Lumovi knows it${ifKubernetes}`,
+      ),
+    ],
     [
       'issuer',
       notKubernetes(
-        'its signer signed in with https://token.actions.githubusercontent.com, not as Kubernetes’ release does',
+        `its signer signed in with https://token.actions.githubusercontent.com, not as this Lumovi knows Kubernetes’ release does${ifKubernetes}`,
       ),
     ],
     // A certificate Sigstore's authority didn't issue, though logged as if it had.
-    ['authority', notKubernetes('its certificate isn’t from Sigstore’s certificate authority')],
+    [
+      'authority',
+      notKubernetes(
+        `its certificate isn’t from Sigstore’s certificate authority, as this Lumovi knows it${ifSigstore}`,
+      ),
+    ],
     // Its certificate's timestamp: none, forged, from a log Sigstore doesn't run, or too late.
     ['unlogged', notKubernetes('its certificate wasn’t logged')],
-    ['forged-log', notKubernetes('its certificate wasn’t logged where Sigstore logs them')],
-    ['foreign-log', notKubernetes('its certificate wasn’t logged where Sigstore logs them')],
+    [
+      'forged-log',
+      notKubernetes(
+        `its certificate wasn’t logged where this Lumovi knows Sigstore logs them${ifSigstore}`,
+      ),
+    ],
+    [
+      'foreign-log',
+      notKubernetes(
+        `its certificate wasn’t logged where this Lumovi knows Sigstore logs them${ifSigstore}`,
+      ),
+    ],
     ['logged-late', notKubernetes('its certificate wasn’t valid when it was logged')],
     // For something other than signing code.
     ['usage', notKubernetes('its certificate isn’t for signing code')],
@@ -778,6 +801,45 @@ test('a mirror’s kubectl: checked against Kubernetes’ signature, or said to 
   expect(kubectls(downloads.requests)).toEqual([
     expect.stringMatching(/^\/mirror\/release\/v1\.34\.9\//),
   ])
+})
+
+test('the organization’s policy can require Kubernetes’ signature from its mirror too', async ({
+  launch,
+  downloads,
+}) => {
+  test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
+  const mirror = new URL('/mirror', downloads.url)
+  mirror.hostname = 'localhost'
+  const host = mirror.host
+  // Taken from it unsigned, before the policy said otherwise.
+  downloads.signing = 'unsigned'
+  const before = await launch({ env: { ...SHELL, LUMOVI_KUBECTL_MIRROR: mirror.href } })
+  await openCluster(before.page)
+  await terminal(before.page)
+  await shows(before.page, 'checked it against its SHA-256 only.')
+  await before.close()
+  const userDataDir = before.userDataDir
+
+  // Once it does: neither that one, nor a new one without a signature.
+  const policy = policyFile({ kubectl: mirror.href, kubectlSignatures: 'required' })
+  const required = await launch({ env: { ...SHELL, LUMOVI_POLICY: policy }, userDataDir })
+  await openCluster(required.page)
+  await terminal(required.page)
+  await shows(
+    required.page,
+    `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${host} published no signature for kubectl v1.34.9, and your organization’s policy requires one).`,
+  )
+  await required.close()
+
+  // One signed as dl.k8s.io's are: taken, and kept as checked against its signature.
+  downloads.reset()
+  const signed = await launch({ env: { ...SHELL, LUMOVI_POLICY: policy }, userDataDir })
+  await openCluster(signed.page)
+  await terminal(signed.page)
+  await shows(signed.page, 'It’s v1.34.9, to match the cluster.')
+  await expect(screen(signed.page)).not.toContainText('SHA-256 only')
+  expect(readFileSync(join(kept(userDataDir, 'v1.34.9'), 'signed'), 'utf8')).toBe(host)
+  expect(existsSync(join(kept(userDataDir, 'v1.34.9'), 'unsigned'))).toBe(false)
 })
 
 test('a terminal waits for neither a cluster that doesn’t answer nor a long download', async ({

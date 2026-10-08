@@ -153,6 +153,8 @@ if (stdio) {
       mirror: () =>
         // (An empty one is as good as none.)
         policy.managed?.kubectlMirror || process.env.LUMOVI_KUBECTL_MIRROR || KUBECTL_MIRROR,
+      // A mirror's kubectl too only with Kubernetes' signature, where the policy says.
+      signaturesRequired: () => policy.managed?.kubectlSignatures === 'required',
       // The e2e tests' stand-ins for dl.k8s.io and Sigstore's trust root: never a packaged app's.
       official: (!app.isPackaged && process.env.LUMOVI_KUBECTL_OFFICIAL) || KUBECTL_MIRROR,
       trust:
