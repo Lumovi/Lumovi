@@ -158,6 +158,8 @@ export class SponsorSource {
     const names =
       file?.mode === 'sponsor' ? new Set(Object.values(file.sponsor!.image)) : new Set<string>()
     const answered = await Promise.all([...names].map((name) => this.#readPicture(name)))
+    // Stopped while it read (a server closing): nothing is kept, and no timer is set again.
+    if (this.#stopped) return false
     for (const name of this.#pictures.keys()) if (!names.has(name)) this.#pictures.delete(name)
     this.#text = file && text
     this.#file = file
@@ -211,6 +213,7 @@ export class SponsorSource {
   /** Works the card out from what was read, and tells listeners if it changed. */
   #update(): void {
     clearTimeout(this.#expiry)
+    if (this.#stopped) return
     const card = this.#compute()
     if (JSON.stringify(card) !== JSON.stringify(this.#card)) {
       this.#card = card
