@@ -294,6 +294,10 @@ test('an agent is trusted with the certificate authority it’s named with, or f
     `${NAME}’s agent sends a certificate authority other than the one it’s trusted with.`,
   )
   await refused.getByRole('button', { name: 'Trust it…' }).click()
+  // From the cluster with their own access: through Lumovi, it's this agent's word.
+  await expect(refused).toContainText(
+    'Run this with your own access to that cluster, not through Lumovi (which reaches it through this agent):',
+  )
   // Only enough of each to tell them apart: all of what it sends could be given back.
   await expect(refused).toContainText(`It sends${otherSha256.slice(0, 8)}…`)
   await expect(refused).toContainText(`Trusted with${sha256.slice(0, 8)}…`)

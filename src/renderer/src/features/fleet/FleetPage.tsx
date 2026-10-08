@@ -485,7 +485,8 @@ function TrustAgent({ agent, onDone }: { agent: AgentTrust; onDone: () => void }
       </dl>
       <label className="flex flex-col gap-1.5">
         <span className="text-xs text-ink-2">
-          Its SHA-256, from the cluster itself (not from what its agent says):{' '}
+          Its SHA-256, from the cluster itself, not from what its agent says. Run this with your own
+          access to that cluster, not through Lumovi (which reaches it through this agent):{' '}
           <code className="font-mono [overflow-wrap:anywhere] text-ink-1 selectable">
             {FINGERPRINT_COMMAND}
           </code>
