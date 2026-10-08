@@ -430,6 +430,7 @@ test('an admin adds a cluster from the Fleet page: pasted, checked, named, then 
   await page.getByRole('button', { name: 'lab’s actions' }).click()
   await page.getByRole('menuitem', { name: 'Settings…' }).click()
   const settings = page.getByRole('dialog', { name: 'lab' })
+  await expect(settings).toContainText('Comes from this page')
   await expect(settings).toContainText('Comes fromThis pageAdded')
   await expect(settings).toContainText('Kept asthe Secret lumovi-clusters/lumovi-cluster-lab')
   await settings.getByRole('button', { name: 'Remove from the fleet…' }).click()
@@ -463,6 +464,9 @@ test('where adding is off, its menu says how it’s turned on', async ({
   }
   await expect(page.getByRole('menu')).toContainText(
     'Adding by kubeconfig or token is off on this server. It’s turned on with the Helm value fleet.addFromPage.',
+  )
+  await expect(page.getByRole('menuitem', { name: /^Paste a kubeconfig…/ })).toContainText(
+    'Kept as a Secret in a namespace of its own.',
   )
 })
 

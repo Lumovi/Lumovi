@@ -462,7 +462,7 @@ function AddCluster({
             <span>
               Paste a kubeconfig…
               <span className="block text-xs text-ink-3">
-                Kept as a Secret in {namespace ?? 'its namespace'}.
+                Kept as a Secret in {namespace ?? 'a namespace of its own'}.
               </span>
             </span>
           </DropdownMenu.Item>
