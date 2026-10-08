@@ -23,6 +23,7 @@ jobs:
     # Always the same kind of machine: elsewhere, text is drawn a little differently, and every
     # screenshot would change.
     runs-on: macos-15
+    timeout-minutes: 30
     permissions:
       # To push a branch with the screenshots, and propose it.
       contents: write

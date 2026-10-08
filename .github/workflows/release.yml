@@ -33,6 +33,7 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     outputs:
@@ -153,6 +154,7 @@ jobs:
           - os: macos-26
           - os: windows-latest
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     # The signing secrets live in this environment, which only main can deploy from.
     environment: release
     permissions:
@@ -325,6 +327,7 @@ jobs:
     needs: preflight
     if: needs.preflight.outputs.version != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Only main deploys from this environment: what's pushed and signed is main's.
     environment: release
     permissions:
@@ -435,6 +438,7 @@ jobs:
     name: Checksums and publish
     needs: [preflight, build, image]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     env:
@@ -471,6 +475,7 @@ jobs:
     name: AUR (lumovi-bin)
     needs: [preflight, publish]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # makepkg, to write the .SRCINFO the AUR needs.
     container: archlinux:latest
     permissions:
@@ -539,6 +544,7 @@ jobs:
     # The cask follows the latest release, never a prerelease.
     if: needs.preflight.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # The token is main's alone, as the signing keys are.
     environment: release
     permissions: {}
