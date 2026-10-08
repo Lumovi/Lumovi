@@ -40,6 +40,10 @@ export const AGENT_SERVER = 'https://kubernetes.default.svc'
 
 /** The WebSocket close code that tells an agent another connected as it. */
 export const AGENT_REPLACED = 4409
+/** The WebSocket close code that tells an agent it was removed from the fleet. */
+export const AGENT_REMOVED = 4410
+/** The WebSocket close code that tells a joining agent to connect with the credential it was given. */
+export const AGENT_JOINED = 4202
 
 interface Connected {
   socket: WebSocket
@@ -88,6 +92,8 @@ export class Agents {
   readonly #connected = new Map<string, Connected>()
   /** Where what agents first sent is kept, and where what's trusted is recorded. */
   #trust?: { state: ServerState; audit: AuditLog }
+  /** The agents that joined from the Fleet page, as they are now. */
+  #joined: () => AgentConfig[] = () => []
 
   constructor(
     private readonly configs: AgentConfig[],
@@ -113,9 +119,30 @@ export class Agents {
     )
   }
 
+  /**
+   * The agents that joined from the Fleet page, besides LUMOVI_FLEET_AGENTS's (whose names come
+   * first): as they join, and as they're removed, whose connections close at once.
+   */
+  joinedWith(joins: { joined(): AgentConfig[]; onChange(listener: () => void): unknown }): void {
+    this.#joined = () => joins.joined()
+    joins.onChange(() => {
+      const names = new Set(this.#all().map((config) => config.name))
+      for (const [name, { socket }] of this.#connected) {
+        if (!names.has(name)) socket.close(AGENT_REMOVED, 'This agent was removed from the fleet.')
+      }
+      this.changed()
+    })
+  }
+
+  /** Every agent that may connect: LUMOVI_FLEET_AGENTS's, then those that joined. */
+  #all(): AgentConfig[] {
+    const named = new Set(this.configs.map((config) => config.name))
+    return [...this.configs, ...this.#joined().filter((config) => !named.has(config.name))]
+  }
+
   /** Each agent's certificate authority, as sent and as trusted: an admin's to see. */
   status(): AgentTrust[] {
-    return this.configs.map((config) => {
+    return this.#all().map((config) => {
       const connected = this.#connected.get(config.name)
       const pin = this.#trust?.state.get<Pin>('agents', config.name)
       return {
@@ -136,7 +163,7 @@ export class Agents {
    * isn't its cluster's (whoever has its token) can't be trusted on its own say.
    */
   trust(name: string, sha256: string, actor: AuditActor): void {
-    const config = this.configs.find((c) => c.name === name)
+    const config = this.#all().find((c) => c.name === name)
     if (!config) {
       throw new KubeRequestError('not-found', `This server has no agent called “${name}”.`)
     }
@@ -185,7 +212,7 @@ export class Agents {
   /** The agent a name and token belong to, if they do. */
   admit(name: string, token: string): AgentConfig | undefined {
     const digest = createHash('sha256').update(token).digest()
-    return this.configs.find(
+    return this.#all().find(
       (config) =>
         config.name === name && timingSafeEqual(digest, Buffer.from(config.tokenSha256, 'hex')),
     )
@@ -215,7 +242,7 @@ export class Agents {
 
   /** The clusters agents make available: reachable once their agent said hello. */
   clusters(): FleetCluster[] {
-    return this.configs.map((config): FleetCluster => {
+    return this.#all().map((config): FleetCluster => {
       const hello = this.#connected.get(config.name)?.hello
       const cluster: FleetCluster = {
         name: config.name,

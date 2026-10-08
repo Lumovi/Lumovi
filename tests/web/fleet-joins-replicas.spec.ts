@@ -53,14 +53,27 @@ test('a join token works once, on whichever replica its agent reaches first, and
   expect(await b.joins.check('edge', `${token.slice(0, -1)}x`)).toEqual({ refused: 'unknown' })
   expect(await b.joins.check('lab', token)).toEqual({ refused: 'unknown' })
 
-  // Used on both at once: one of them is its use.
-  const used = await Promise.all([a.joins.spend('edge', token), b.joins.spend('edge', token)])
-  expect(used.filter(Boolean)).toHaveLength(1)
+  // Given a credential for it on each (an agent that stopped half way, and joined again): only
+  // the last works, on either, and its first connection is the join.
+  const first = await a.joins.issue('edge', token)
+  const last = await b.joins.issue('edge', token)
+  if (!('credential' in first) || !('credential' in last)) throw new Error('No credential')
+  expect(await a.joins.admit('edge', first.credential)).toBe(false)
+  expect(a.joins.joined()).toEqual([])
+  const joined = await Promise.all([
+    a.joins.admit('edge', last.credential),
+    b.joins.admit('edge', last.credential),
+  ])
+  expect(joined).toEqual([true, true])
   for (const { joins } of [a, b]) {
     expect(await joins.check('edge', token)).toEqual({ refused: 'used' })
-    expect(await joins.spend('edge', token)).toBe(false)
+    expect(await joins.issue('edge', token)).toEqual({ refused: 'used' })
+    expect(await joins.admit('edge', first.credential)).toBe(false)
   }
   expect([...a.recorded, ...b.recorded].filter((e) => e.action === 'agent.joined')).toHaveLength(1)
+  expect(b.joins.joined()).toEqual([
+    expect.objectContaining({ name: 'edge', joined: expect.objectContaining({ by: ADMIN.name }) }),
+  ])
   // Each refused use is recorded (once a minute, for each join).
   expect(b.recorded.filter((e) => e.action === 'agent.join-refused')).toEqual([
     expect.objectContaining({ cluster: 'edge', details: expect.objectContaining({ why: 'used' }) }),
@@ -68,8 +81,11 @@ test('a join token works once, on whichever replica its agent reaches first, and
 
   // Past its time: refused, and not used, though nothing tried it before.
   const late = await a.joins.create({ ...request, name: 'lab' }, ADMIN, ACTOR)
+  const given = await a.joins.issue('lab', late.token)
   await sleep(4100)
-  expect(await a.joins.spend('lab', late.token)).toBe(false)
+  if (!('credential' in given)) throw new Error('No credential')
+  expect(await a.joins.admit('lab', given.credential)).toBe(false)
+  expect(await a.joins.issue('lab', late.token)).toEqual({ refused: 'expired' })
   expect(await b.joins.check('lab', late.token)).toEqual({ refused: 'expired' })
   expect(
     b.recorded.filter((e) => e.action === 'agent.join-refused' && e.cluster === 'lab'),

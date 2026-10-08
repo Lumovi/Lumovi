@@ -5,6 +5,13 @@
  * (state.ts), read again every few seconds (its agent may reach another replica). Made,
  * cancelled, used, and tried once it no longer works: each is recorded.
  *
+ * The join token isn't the agent's credential: it's exchanged for one. Given it, the hub makes
+ * the agent a credential of its own (its SHA-256 alone kept), which the agent keeps in its
+ * Secret, in its cluster, and connects with. Only that first connection spends the join token,
+ * so an agent that stopped half way can join again with it, within its hour. What was shown on
+ * the page, copied, and kept in Helm's history is no use then; the credential never left the
+ * cluster but to the hub.
+ *
  * Only Lumovi's admins connect clusters, so a server without admins connects none; nor one that
  * keeps nothing, which would forget them when it restarts.
  *
@@ -49,26 +56,50 @@ const REREAD_MS = 2_000
 const REFUSED_EVERY_MS = 60_000
 /** What a join's token starts with: one found where it shouldn't be says what it is. */
 const TOKEN_PREFIX = 'lumovi_join_'
+/** What an agent's credential, made for it as it joins, starts with. */
+const CREDENTIAL_PREFIX = 'lumovi_agent_'
 
-/** A join, as kept (by the cluster's name). */
+/** A join, as kept (by the cluster's name): the cluster's, once its agent joined. */
 interface Kept extends FleetJoinRequest {
+  /** Which join it is: the cluster's, once joined (another of its name is another). */
+  id: string
   /** Its token's SHA-256 (hex): the token itself is shown once, never kept. */
   tokenSha256: string
   by: string
   at: string
   /** When its token stops working (ms). */
   until: number
-  /** When its agent used it, and which replica's use it was (the first written). */
+  /** The credential made for its agent (its SHA-256), until the agent connects with it. */
+  pending?: { credentialSha256: string; at: string }
+  /** When its agent first connected with its credential, and which replica's that was. */
   used?: { at: string; by: string }
+  /** Its agent's credential (its SHA-256), once it joined. */
+  credentialSha256?: string
   refused?: string
-  /** When it's let go (state.ts deletes what's expired). */
-  expires: number
+  /** When it's let go (state.ts deletes what's expired); none, once joined. */
+  expires?: number
+}
+
+/** An agent that joined from the Fleet page: as LUMOVI_FLEET_AGENTS would name it. */
+export interface JoinedAgent {
+  name: string
+  /** Its credential's SHA-256 (hex). */
+  tokenSha256: string
+  labels: Record<string, string>
+  groups?: string[]
+  forwardToken: false
+  joined: { id: string; at: string; by: string }
 }
 
 /** Why an agent's join token was refused: a token that never was this cluster's, or no longer works. */
 export type JoinRefusal = 'unknown' | 'expired' | 'used'
 
 const sha256 = (token: string) => createHash('sha256').update(token).digest('hex')
+
+/** Whether `token` is the one `sha256Hex` is of: compared in constant time. */
+const isOf = (token: string, sha256Hex: string | undefined) =>
+  sha256Hex !== undefined &&
+  timingSafeEqual(Buffer.from(sha256(token), 'hex'), Buffer.from(sha256Hex, 'hex'))
 
 /** A join as its admins see it. */
 const shown = (kept: Kept): FleetJoin => ({
@@ -125,6 +156,8 @@ export class Joins {
   /** What's kept, being read again for a token this replica doesn't know; and when it last was. */
   #rereading?: Promise<unknown>
   #rereadAt = 0
+  /** Told when joined agents may have changed: one joined, or removed, here or on a replica. */
+  readonly #listeners = new Set<() => void>()
 
   constructor(
     private readonly state: ServerState,
@@ -205,6 +238,7 @@ export class Joins {
     const until = now + JOIN_MS
     const kept: Kept = {
       ...wanted,
+      id: randomUUID(),
       tokenSha256: sha256(token),
       by: user.name,
       at: new Date(now).toISOString(),
@@ -269,15 +303,12 @@ export class Joins {
     name: string,
     token: string,
   ): Promise<{ join: FleetJoin } | { refused: JoinRefusal }> {
-    const digest = Buffer.from(sha256(token), 'hex')
-    const matches = (kept: Kept | undefined): kept is Kept =>
-      kept !== undefined && timingSafeEqual(digest, Buffer.from(kept.tokenSha256, 'hex'))
     let kept = this.state.get<Kept>('joins', name)
-    if (!matches(kept)) {
+    if (!kept || !isOf(token, kept.tokenSha256)) {
       await this.#reread()
       kept = this.state.get<Kept>('joins', name)
     }
-    if (!matches(kept)) return { refused: 'unknown' }
+    if (!kept || !isOf(token, kept.tokenSha256)) return { refused: 'unknown' }
     const refused: JoinRefusal | undefined =
       kept.used || this.#spent.has(kept.tokenSha256)
         ? 'used'
@@ -290,36 +321,146 @@ export class Joins {
   }
 
   /**
-   * Uses a join's token, which works once: whether this was its use (on any replica, the first
-   * written is). Kept before it's said.
+   * A credential for the agent that gives a join's token, while it works: kept (its SHA-256) as
+   * the join's, until the agent connects with it. Given again, the token gets another, and the
+   * one before no longer joins.
    */
-  async spend(name: string, token: string): Promise<boolean> {
+  async issue(
+    name: string,
+    token: string,
+  ): Promise<{ credential: string } | { refused: JoinRefusal }> {
+    const checked = await this.check(name, token)
+    if ('refused' in checked) return checked
+    const credential = `${CREDENTIAL_PREFIX}${randomBytes(32).toString('base64url')}`
+    const pending = { credentialSha256: sha256(credential), at: new Date().toISOString() }
     const tokenSha256 = sha256(token)
-    const use = { at: new Date().toISOString(), by: randomUUID() }
-    // Used only if it works still, as it's written: unused, and not yet expired.
-    const used = (current: unknown) => {
+    const issued = (current: unknown) => {
       const kept = current as Kept | undefined
       return kept && kept.tokenSha256 === tokenSha256 && !kept.used && kept.until >= Date.now()
-        ? { ...kept, used: use }
+        ? { ...kept, pending }
         : kept
     }
-    const kept = used(this.state.get<Kept>('joins', name))
-    if (!kept) return false
-    this.state.set('joins', name, kept, used)
+    this.state.set('joins', name, issued(this.state.get('joins', name)), issued)
+    // Kept before it's given: the agent may connect with it to another replica.
+    await this.state.flush({ strict: true })
+    await this.#read()
+    if (
+      this.state.get<Kept>('joins', name)?.pending?.credentialSha256 !== pending.credentialSha256
+    ) {
+      return { refused: 'used' }
+    }
+    log(`${name}’s agent was given its credential, for its join token`)
+    return { credential }
+  }
+
+  /**
+   * Whether `credential` is `name`'s joined agent's: as it is, or as it was given, its first
+   * connection with it spending its join token (on any replica, the first written is the join).
+   */
+  async admit(name: string, credential: string): Promise<boolean> {
+    let kept = this.state.get<Kept>('joins', name)
+    const known = (k: Kept | undefined) =>
+      isOf(credential, k?.credentialSha256) || isOf(credential, k?.pending?.credentialSha256)
+    if (!known(kept)) {
+      await this.#reread()
+      kept = this.state.get<Kept>('joins', name)
+    }
+    if (!kept || !known(kept)) return false
+    if (isOf(credential, kept.credentialSha256)) return true
+    const credentialSha256 = kept.pending!.credentialSha256
+    const use = { at: new Date().toISOString(), by: randomUUID() }
+    // Joined only if its token works still, as it's written: unused, and not yet expired.
+    const joined = (current: unknown) => {
+      const kept = current as Kept | undefined
+      if (
+        !kept ||
+        kept.used ||
+        kept.until < Date.now() ||
+        kept.pending?.credentialSha256 !== credentialSha256
+      ) {
+        return kept
+      }
+      const { pending: _pending, expires: _expires, ...rest } = kept
+      return { ...rest, used: use, credentialSha256 }
+    }
+    this.state.set('joins', name, joined(kept), joined)
+    // A new cluster: the certificate authority it first sends is its, not one kept by its name.
+    this.state.delete('agents', name)
     await this.state.flush({ strict: true })
     await this.#read()
     const now = this.state.get<Kept>('joins', name)
-    if (now?.used?.by !== use.by || this.#spent.has(tokenSha256)) return false
-    this.#spent.add(tokenSha256)
+    // Another replica's join, with this credential: it's in.
+    if (now?.used?.by !== use.by) return isOf(credential, now?.credentialSha256)
+    // A token this replica saw used, joining again (an older copy put back where it's kept): no.
+    if (this.#spent.has(now.tokenSha256)) return false
+    this.#spent.add(now.tokenSha256)
     this.audit.record({
       action: 'agent.joined',
       outcome: 'success',
       actor: SERVER_ACTOR,
       cluster: name,
-      summary: `${name}’s agent joined the fleet with its join token`,
-      details: { token: prefix(tokenSha256) },
+      summary: `${name}’s agent joined the fleet, with the credential made for its join token`,
+      details: { token: prefix(now.tokenSha256), credential: prefix(credentialSha256) },
     })
+    log(`${name}’s agent joined the fleet`)
+    this.#tell()
     return true
+  }
+
+  /** The agents that joined from the page, as the hub takes them. */
+  joined(): JoinedAgent[] {
+    return this.state.entries<Kept>('joins').flatMap(([, kept]) =>
+      kept.used && kept.credentialSha256
+        ? [
+            {
+              name: kept.name,
+              tokenSha256: kept.credentialSha256,
+              labels: kept.labels,
+              ...(kept.groups.length ? { groups: kept.groups } : {}),
+              forwardToken: false as const,
+              joined: { id: kept.id, at: kept.used.at, by: kept.by },
+            },
+          ]
+        : [],
+    )
+  }
+
+  /**
+   * An admin's: a cluster that joined from the page, removed: its agent's credential no longer
+   * works (its agent is let go at once), and it's recorded.
+   */
+  async remove(name: unknown, user: SessionUser, actor: AuditActor): Promise<void> {
+    this.#allowed(user)
+    if (typeof name !== 'string') {
+      throw new KubeRequestError('invalid', 'Expected a cluster’s name.')
+    }
+    await this.#read()
+    const kept = this.state.get<Kept>('joins', name)
+    if (!kept?.used) {
+      throw new KubeRequestError(
+        'not-found',
+        `No cluster called ${name} was connected from this page.`,
+      )
+    }
+    this.state.delete('joins', name)
+    // What its certificate authority was trusted with goes too: it was this cluster's.
+    this.state.delete('agents', name)
+    await this.state.flush({ strict: true })
+    this.audit.record({
+      action: 'cluster.removed',
+      outcome: 'success',
+      actor,
+      cluster: name,
+      summary: `Removed ${name} from the fleet: its agent’s credential no longer works`,
+      details: { credential: prefix(kept.credentialSha256 ?? '') },
+    })
+    this.#tell()
+  }
+
+  /** Tells `listener` whenever joined agents may have changed. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener)
+    return () => void this.#listeners.delete(listener)
   }
 
   close(): void {
@@ -328,7 +469,11 @@ export class Joins {
 
   /** What's kept, read again (another replica's joins, and their uses): where something keeps it. */
   async #read(): Promise<void> {
-    if (this.state.kept !== 'memory') await this.state.refresh('joins')
+    if (this.state.kept !== 'memory' && (await this.state.refresh('joins'))) this.#tell()
+  }
+
+  #tell(): void {
+    for (const listener of this.#listeners) listener()
   }
 
   /** Read again for a token this replica doesn't know, now and then: once at a time. */

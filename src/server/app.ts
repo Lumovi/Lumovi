@@ -3,6 +3,7 @@
  * WebSocket for each page, all below the configured base path.
  */
 import http, { type IncomingMessage, type ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
@@ -21,7 +22,8 @@ import { OidcClient } from './oidc'
 import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
 import { Sessions } from './sessions'
 import { ClusterSettings } from './cluster-settings'
-import { Joins } from './fleet/joins'
+import { Joins, type JoinRefusal } from './fleet/joins'
+import { AGENT_JOINED } from './fleet/agents'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -106,6 +108,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const joins = hosted.fleet
     ? new Joins(state, access, audit, (name) => hosted.hasCluster?.(name) ?? false)
     : undefined
+  // Agents that joined from the page connect as LUMOVI_FLEET_AGENTS's do.
+  if (joins) hosted.agents?.joinedWith(joins)
   const assistants = new ServerAssistants({
     state,
     clusters,
@@ -213,25 +217,65 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   })
   // A fleet's agents: each signs in with its name and token (which no browser page can send).
   const agentSockets = new WebSocketServer({ noServer: true })
-  server.on('upgrade', (req, socket, head) => {
-    // Its socket is ours now, without Node's error handler: one its peer resets (once it's
-    // refused, say; a process that stops does, on Windows) is closed, not the server.
-    socket.on('error', () => socket.destroy())
-    if (address(req).path === PATHS.agent && hosted.agents) {
-      const name = String(req.headers['lumovi-agent'] ?? '')
-      const token = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
-      const agent = hosted.agents.admit(name, token)
-      if (!agent) {
-        log(`An agent was refused: “${name}”, with a token that doesn’t match`)
-        socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+  /**
+   * An agent, by its name and credential: LUMOVI_FLEET_AGENTS's, or one made as it joined from
+   * the Fleet page (its first connection with it is its join). Or, joining (Lumovi-Join: 1), by
+   * its join token: then it's given its credential, once, to keep in its cluster and connect with.
+   */
+  async function agentUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    const agents = hosted.agents!
+    const name = String(req.headers['lumovi-agent'] ?? '')
+    const token = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
+    const refuse = (why: string, refused?: JoinRefusal) => {
+      log(`An agent was refused: “${name}”, with ${why}`)
+      socket.end(
+        `HTTP/1.1 401 Unauthorized\r\n${refused ? `Lumovi-Refused: ${refused}\r\n` : ''}Connection: close\r\n\r\n`,
+      )
+    }
+    if (req.headers['lumovi-join'] === '1') {
+      const issued = joins ? await joins.issue(name, token) : { refused: 'unknown' as const }
+      if ('refused' in issued) {
+        refuse(
+          issued.refused === 'unknown'
+            ? 'a join token that doesn’t match'
+            : issued.refused === 'used'
+              ? 'a join token used already'
+              : 'a join token that expired',
+          issued.refused,
+        )
         return
       }
       agentSockets.handleUpgrade(req, socket, head, (ws) => {
-        sockets.set(ws, { alive: true })
         ws.on('error', () => ws.terminate())
-        ws.on('pong', () => (sockets.get(ws)!.alive = true))
-        ws.on('close', () => sockets.delete(ws))
-        hosted.agents!.attach(agent, ws)
+        ws.send(JSON.stringify({ type: 'credential', token: issued.credential }), () =>
+          ws.close(AGENT_JOINED, 'Connect with the credential you were given.'),
+        )
+      })
+      return
+    }
+    let agent = agents.admit(name, token)
+    if (!agent && (await joins?.admit(name, token))) agent = agents.admit(name, token)
+    if (!agent) {
+      refuse('a token that doesn’t match')
+      return
+    }
+    agentSockets.handleUpgrade(req, socket, head, (ws) => {
+      sockets.set(ws, { alive: true })
+      ws.on('error', () => ws.terminate())
+      ws.on('pong', () => (sockets.get(ws)!.alive = true))
+      ws.on('close', () => sockets.delete(ws))
+      agents.attach(agent, ws)
+    })
+  }
+
+  server.on('upgrade', (req, socket, head) => {
+    // Its socket is ours now, without Node's error handler: one its peer resets (a process that
+    // stops does, on Windows), refused or still being checked, is closed, not the server.
+    socket.on('error', () => socket.destroy())
+    if (address(req).path === PATHS.agent && hosted.agents) {
+      agentUpgrade(req, socket, head).catch((error: unknown) => {
+        log(`An agent couldn’t be let in: ${(error as Error).message}`)
+        socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
       })
       return
     }

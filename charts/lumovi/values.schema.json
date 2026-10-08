@@ -75,6 +75,9 @@
         "tokenSecret": {
           "type": "string"
         },
+        "joinToken": {
+          "type": "string"
+        },
         "resources": {
           "type": "object"
         }

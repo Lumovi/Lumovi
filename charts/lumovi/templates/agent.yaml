@@ -6,10 +6,10 @@
 {{- if not (or (hasPrefix "https://" .hubUrl) (regexMatch "^http://(localhost|127\\.0\\.0\\.1|\\[::1\\])([:/]|$)" .hubUrl)) }}
 {{- fail (printf "agent.hubUrl must be https, not %s: the agent's token and its cluster's would cross the network as they are (http only reaches a hub on the same machine)" .hubUrl) }}
 {{- end }}
-{{- if not .tokenSecret }}
-{{- fail "agent.tokenSecret must name a Secret with the agent's token under token" }}
 {{- end }}
-{{- end }}
+{{- /* Its token's Secret: one named, or the chart's, which the agent keeps the token it's given in. */}}
+{{- $made := not .Values.agent.tokenSecret }}
+{{- $secret := .Values.agent.tokenSecret | default (printf "%s-agent" (include "lumovi.fullname" .)) }}
 # A fleet's agent: it dials the hub (only outward: nothing here listens for it) and relays
 # the hub's connections to this cluster's API server, which TLS keeps private from it.
 apiVersion: apps/v1
@@ -65,11 +65,23 @@ spec:
               value: {{ .Values.agent.hubUrl | quote }}
             - name: LUMOVI_AGENT_NAME
               value: {{ .Values.clusterName | quote }}
+            # Its token; until it's given one, its join token (the chart's Secret has one or the other).
             - name: LUMOVI_AGENT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.agent.tokenSecret }}
+                  name: {{ $secret }}
                   key: token
+                  optional: {{ $made }}
+            {{- if $made }}
+            - name: LUMOVI_AGENT_JOIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: join-token
+                  optional: true
+            - name: LUMOVI_AGENT_TOKEN_SECRET
+              value: {{ $secret }}
+            {{- end }}
             - name: LUMOVI_AGENT_HEALTH_PORT
               value: "8081"
             {{- include "lumovi.networkEnv" . | nindent 12 }}
@@ -108,4 +120,51 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- if $made }}
+---
+# The agent's token: its join token, given once (from the Fleet page's command), then the token the
+# hub gives it for that, which the agent keeps here. (Helm sets only the join token: what the
+# agent keeps stays as it is when the chart is upgraded.)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+type: Opaque
+{{- with .Values.agent.joinToken }}
+stringData:
+  join-token: {{ . | trim | quote }}
+{{- end }}
+{{- if .Values.rbac.create }}
+---
+# That Secret alone: read, and changed to keep the token the hub gives it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ $secret }}]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "lumovi.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $secret }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lumovi.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
 {{- end }}

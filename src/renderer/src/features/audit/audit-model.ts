@@ -249,6 +249,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'agent.join-cancelled': { label: 'Cancelled a join token', icon: KeyRound },
   'agent.joined': { label: 'An agent joined', icon: Cable },
   'agent.join-refused': { label: 'Refused a join token', icon: ShieldX },
+  'cluster.removed': { label: 'Removed a cluster', icon: Trash2 },
   'metrics-source.changed': { label: 'Changed where metrics come from', icon: SlidersHorizontal },
   'assistants.changed': { label: 'Changed AI assistants', icon: SlidersHorizontal },
   'server.started': { label: 'Lumovi started', icon: Power },

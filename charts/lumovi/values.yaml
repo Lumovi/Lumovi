@@ -57,8 +57,14 @@ agent:
   # The fleet's Lumovi, like https://lumovi.example.com (https: the agent's token and its
   # cluster's go there).
   hubUrl: ''
-  # A Secret with the agent's token under `token` (the hub knows its SHA-256).
+  # A Secret with the agent's token under `token` (the hub knows its SHA-256). Unset, the chart
+  # makes one, <release>-agent, that the agent keeps its token in: the one the hub gives it for
+  # its joinToken (and only that Secret may it read and change).
   tokenSecret: ''
+  # Connected from the Fleet page: its one-time join token, given from a file or stdin
+  # (--set-file agent.joinToken=/dev/stdin), never on the command line. The agent exchanges it
+  # for a token of its own, kept in its Secret, and the join token no longer works.
+  joinToken: ''
   resources:
     requests:
       cpu: 10m

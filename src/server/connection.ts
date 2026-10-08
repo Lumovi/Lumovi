@@ -333,6 +333,7 @@ export class PageConnection {
             [IPC.fleetJoins]: () => joins!.list(identity.user),
             [IPC.fleetConnect]: (request: unknown) => joins!.create(request, identity.user, actor),
             [IPC.fleetCancelJoin]: (name: unknown) => joins!.cancel(name, identity.user, actor),
+            [IPC.fleetRemove]: (name: unknown) => joins!.remove(name, identity.user, actor),
           }
         : {}),
     }

@@ -72,6 +72,7 @@ export const AUDIT_ACTIONS = {
   'agent.join-cancelled': 'settings',
   'agent.joined': 'server',
   'agent.join-refused': 'server',
+  'cluster.removed': 'settings',
   'metrics-source.changed': 'settings',
   'assistants.changed': 'settings',
   'access.changed': 'settings',
