@@ -46,6 +46,8 @@ interface Dependencies extends Backend {
   auditLog: AuditLog
   /** Tells the page of something. */
   send: (channel: string, ...args: unknown[]) => void
+  /** Opens the app's menu at a point of the page; done once it closes. */
+  openMenu: (x: number, y: number) => Promise<void>
   /** Only frames showing this URL may call into the main process. */
   rendererUrl: string
   /** What couldn't be set up as Lumovi started, once the network is. */
@@ -74,6 +76,7 @@ export function registerIpc(deps: Dependencies): void {
     audit,
     auditLog,
     send,
+    openMenu,
   } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame?.url.startsWith(rendererUrl) === true
@@ -101,6 +104,12 @@ export function registerIpc(deps: Dependencies): void {
       chrome: process.versions.chrome,
       node: process.versions.node,
     }),
+    [IPC.openMenu]: (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error('The menu opens at a point of the page: two numbers')
+      }
+      return openMenu(x as number, y as number)
+    },
     [IPC.setTheme]: (theme) => {
       if (!isTheme(theme)) throw new Error(`Unknown theme "${String(theme)}"`)
       nativeTheme.themeSource = theme

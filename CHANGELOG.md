@@ -6,6 +6,14 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- On Windows and Linux, the desktop app's menu has a button in the window's top left corner, in
+  every view, since its window has no menu bar: Help (Sponsor Lumovi, Check for Updates, Report an
+  Issue), View (zoom, full screen, Match kubectl to Each Cluster) and the rest are reachable with
+  the mouse. Alt on its own, or F10, opens it too.
+- Help → Documentation opens docs.lumovi.dev, on every platform.
+
 ### Fixed
 
 - A server keeps running when a WebSocket connection it refused (a page's that isn't signed in,

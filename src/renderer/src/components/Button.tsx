@@ -33,16 +33,19 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string
+  /** Its tooltip, if more than its name (its key, say). */
+  tip?: ReactNode
+  tipSide?: 'top' | 'bottom' | 'left' | 'right'
   children: ReactNode
 }
 
 /** A square ghost button whose accessible name doubles as its tooltip. */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, className, children, ...props },
+  { label, tip, tipSide, className, children, ...props },
   ref,
 ) {
   return (
-    <Tooltip content={label}>
+    <Tooltip content={tip ?? label} side={tipSide}>
       <button
         ref={ref}
         type="button"

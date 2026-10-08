@@ -7,6 +7,7 @@ import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { IconButton } from '@renderer/components/Button'
 import { LogoLockup } from '@renderer/components/LogoLockup'
+import { AppMenuButton, HAS_MENU_BUTTON } from './AppMenu'
 
 export function PageHeader({
   scope,
@@ -22,7 +23,10 @@ export function PageHeader({
   const back = () =>
     void ((window.history.state as { idx?: number } | null)?.idx ? navigate(-1) : navigate('/'))
   return (
-    <header className="titlebar-leading titlebar-trailing flex min-h-[52px] shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2 drag">
+    // 52 px above its border: the window controls' band, its row centered on their line.
+    <header className="titlebar-leading titlebar-trailing flex min-h-[53px] shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2 drag">
+      {/* At 12 px, as in every view. */}
+      {HAS_MENU_BUTTON && <AppMenuButton className="-ml-1" />}
       <IconButton label="Back" className="no-drag" onClick={back}>
         <ArrowLeft />
       </IconButton>

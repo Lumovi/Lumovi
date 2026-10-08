@@ -14,6 +14,7 @@ import { Commands } from '../shell/Commands'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { AssistantsButton } from '../assistants/DesktopConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
+import { AppMenuButton, HAS_MENU_BUTTON } from '../shell/AppMenu'
 import { AddClusterDialog } from './AddClusterDialog'
 import { ClusterPicker, useClusters } from './ClusterPicker'
 import { KubeconfigFilesButton, useKubeconfigFiles } from './KubeconfigFiles'
@@ -82,7 +83,9 @@ export function WelcomePage() {
   const pending = contexts.isPending || (!!api.kubeconfigFiles && files.isPending)
   return (
     <div className="vt-page relative flex h-full flex-col overflow-hidden">
-      <div className="titlebar-leading titlebar-trailing h-[52px] shrink-0 drag" />
+      <div className="titlebar-leading titlebar-trailing flex h-[52px] shrink-0 items-center drag">
+        {HAS_MENU_BUTTON && <AppMenuButton className="ml-3" />}
+      </div>
       <main className="relative flex min-h-0 flex-1 flex-col items-center px-8 pb-6">
         <div className="flex min-h-0 w-full max-w-[720px] flex-1 flex-col">
           <header className="mt-6 mb-8 flex shrink-0 animate-rise flex-col items-center text-center [@media(max-height:800px)]:mt-0 [@media(max-height:800px)]:mb-5">

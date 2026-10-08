@@ -28,7 +28,7 @@ import SIGSTORE_ROOT from './sigstore-root.json'
 import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
 import { chromiumProxy, proxyCredentials } from './chromium-proxy'
-import { buildMenu } from './menu'
+import { buildMenu, popupMenu } from './menu'
 import { readPolicy } from './policy'
 import { SettingsStore } from './settings'
 import { loadLoginShellEnv } from './shell-env'
@@ -354,6 +354,7 @@ if (stdio) {
       audit,
       auditLog,
       send,
+      openMenu: (x, y) => popupMenu(win, x, y),
     })
     // Shells, forwards and log streams belong to the page that started them.
     const closeStreams = () => {
