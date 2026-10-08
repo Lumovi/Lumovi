@@ -166,6 +166,7 @@ export class Joins {
     /** Whether the fleet already has a cluster by that name (one connected from here too). */
     private readonly taken: (name: string) => boolean,
   ) {
+    this.#saw()
     if (state.kept !== 'memory') {
       this.#refresher = setInterval(() => void this.#read(), REFRESH_MS)
       this.#refresher.unref()
@@ -245,9 +246,19 @@ export class Joins {
       until,
       expires: until + KEPT_MS,
     }
-    this.state.set('joins', wanted.name, kept)
+    // Over another replica's join of that name that its agent used meanwhile: that one's kept.
+    this.state.set('joins', wanted.name, kept, (current) =>
+      (current as Kept | undefined)?.used ? current : kept,
+    )
     // Kept before it's shown: its agent may reach another replica, or this one restarted.
     await this.state.flush({ strict: true })
+    await this.#read()
+    if (this.state.get<Kept>('joins', wanted.name)?.id !== kept.id) {
+      throw new KubeRequestError(
+        'invalid',
+        `${wanted.name} joined the fleet meanwhile, from another of Lumovi’s replicas: it’s in the fleet already.`,
+      )
+    }
     this.audit.record({
       action: 'agent.join-created',
       outcome: 'success',
@@ -283,8 +294,18 @@ export class Joins {
         `${name}’s agent used its token already: it’s in the fleet.`,
       )
     }
-    this.state.delete('joins', name)
+    // Over its agent's join, on another replica meanwhile: that's kept, and it's refused.
+    this.state.delete('joins', name, (current) =>
+      (current as Kept | undefined)?.used ? current : undefined,
+    )
     await this.state.flush({ strict: true })
+    await this.#read()
+    if (this.state.get<Kept>('joins', name)?.used) {
+      throw new KubeRequestError(
+        'invalid',
+        `${name}’s agent joined meanwhile, through another of Lumovi’s replicas: it’s in the fleet.`,
+      )
+    }
     this.audit.record({
       action: 'agent.join-cancelled',
       outcome: 'success',
@@ -367,6 +388,9 @@ export class Joins {
     }
     if (!kept || !known(kept)) return false
     if (isOf(credential, kept.credentialSha256)) return true
+    // A token this replica saw used, joining again (an older copy put back where it's kept):
+    // refused before anything's written.
+    if (this.#spent.has(kept.tokenSha256)) return false
     const credentialSha256 = kept.pending!.credentialSha256
     const use = { at: new Date().toISOString(), by: randomUUID() }
     // Joined only if its token works still, as it's written: unused, and not yet expired.
@@ -384,16 +408,16 @@ export class Joins {
       return { ...rest, used: use, credentialSha256 }
     }
     this.state.set('joins', name, joined(kept), joined)
-    // A new cluster: the certificate authority it first sends is its, not one kept by its name.
-    this.state.delete('agents', name)
     await this.state.flush({ strict: true })
     await this.#read()
     const now = this.state.get<Kept>('joins', name)
     // Another replica's join, with this credential: it's in.
     if (now?.used?.by !== use.by) return isOf(credential, now?.credentialSha256)
-    // A token this replica saw used, joining again (an older copy put back where it's kept): no.
-    if (this.#spent.has(now.tokenSha256)) return false
     this.#spent.add(now.tokenSha256)
+    // Its join, this one: a new cluster, whose certificate authority is the one it first sends,
+    // not one kept by its name (only now: one that lost mustn't undo the winner's).
+    this.state.delete('agents', name)
+    await this.state.flush({ strict: true })
     this.audit.record({
       action: 'agent.joined',
       outcome: 'success',
@@ -405,6 +429,15 @@ export class Joins {
     log(`${name}’s agent joined the fleet`)
     this.#tell()
     return true
+  }
+
+  /** Why `name`'s agent's credential was refused, as this replica knows: for the log. */
+  refusal(name: string, credential: string): JoinRefusal {
+    const kept = this.state.get<Kept>('joins', name)
+    if (kept && isOf(credential, kept.pending?.credentialSha256)) {
+      return kept.used || this.#spent.has(kept.tokenSha256) ? 'used' : 'expired'
+    }
+    return 'unknown'
   }
 
   /** The agents that joined from the page, as the hub takes them. */
@@ -469,7 +502,17 @@ export class Joins {
 
   /** What's kept, read again (another replica's joins, and their uses): where something keeps it. */
   async #read(): Promise<void> {
-    if (this.state.kept !== 'memory' && (await this.state.refresh('joins'))) this.#tell()
+    if (this.state.kept !== 'memory' && (await this.state.refresh('joins'))) {
+      this.#saw()
+      this.#tell()
+    }
+  }
+
+  /** The join tokens seen used, as what's kept is read: never taken again here. */
+  #saw(): void {
+    for (const [, kept] of this.state.entries<Kept>('joins')) {
+      if (kept.used) this.#spent.add(kept.tokenSha256)
+    }
   }
 
   #tell(): void {

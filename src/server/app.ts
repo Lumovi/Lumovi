@@ -256,7 +256,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     let agent = agents.admit(name, token)
     if (!agent && (await joins?.admit(name, token))) agent = agents.admit(name, token)
     if (!agent) {
-      refuse('a token that doesn’t match')
+      const why = joins?.refusal(name, token) ?? 'unknown'
+      refuse(
+        why === 'expired'
+          ? 'the token it was given for a join that expired before it connected'
+          : why === 'used'
+            ? 'the token it was given for a join used already'
+            : 'a token that doesn’t match',
+      )
       return
     }
     agentSockets.handleUpgrade(req, socket, head, (ws) => {

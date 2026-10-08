@@ -1125,7 +1125,10 @@ export interface LumoviApi {
     connect(request: FleetJoinRequest): Promise<NewFleetJoin>
     /** An admin's: stops connecting a cluster, whose token no longer works. */
     cancelJoin(name: string): Promise<void>
-    /** An admin's: removes a cluster connected from the page (its agent let go at once). */
+    /**
+     * An admin's: removes a cluster connected from the page: its agent is let go at once by the
+     * replica that's asked, and by the others as they next read (within 10 s).
+     */
     remove(name: string): Promise<void>
   }
   /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */
