@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-08
+
+Behind an authenticating proxy, only the proxy reaches Lumovi, and a fleet's hub trusts an
+agent's cluster only with the certificate authority it's named with, or one an admin checks.
+
 ### Changed
 
 - Behind an authenticating proxy (`auth.mode: proxy`), the chart lets only the proxy's pods
@@ -627,7 +632,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/Lumovi/Lumovi/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/Lumovi/Lumovi/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/Lumovi/Lumovi/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/Lumovi/Lumovi/compare/v1.10.0...v1.11.0
