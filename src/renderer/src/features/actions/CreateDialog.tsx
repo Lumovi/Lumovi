@@ -1,5 +1,5 @@
 import { CircleCheck, CircleX, FilePlus2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { parseAllDocuments } from 'yaml'
 import type { KubeObject } from '@shared/api'
 import { kindFor, kindOf, type ResourceKind } from '@shared/resources'
@@ -187,6 +187,12 @@ function Create({ onClose }: { onClose: () => void }) {
   useResources()
   const [text, setText] = useState(() => TEMPLATES.Deployment!(target))
   const [outcomes, setOutcomes] = useState<Outcome[]>([])
+  // What each object came to, in view as it comes (the editor above can push it past the fold):
+  // where it's said, not where the focus is.
+  const results = useRef<HTMLUListElement>(null)
+  useEffect(() => {
+    if (outcomes.length > 0) results.current?.scrollIntoView({ block: 'nearest' })
+  }, [outcomes])
   const [pending, setPending] = useState(false)
   const command = kubectl(context, target, 'create', '-f', 'objects.yaml')
 
@@ -302,7 +308,11 @@ function Create({ onClose }: { onClose: () => void }) {
         Several objects can be created at once: separate them with a line of <code>---</code>.
       </p>
       {outcomes.length > 0 && (
-        <ul aria-label="Results" className="divide-y divide-line rounded-xl border border-line">
+        <ul
+          ref={results}
+          aria-label="Results"
+          className="scroll-mb-5 divide-y divide-line rounded-xl border border-line"
+        >
           {outcomes.map((outcome, i) => (
             <li key={i} className="flex gap-2.5 px-3 py-2 text-xs">
               {outcome.ok ? (

@@ -124,6 +124,18 @@ spec:
   await expect(toasts(page)).toContainText(/Created job hello-\w{5}/)
 })
 
+test('what the cluster refused is in view at the smallest window', async ({ launch }) => {
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x640' }, fullLayout: false })
+  await openCluster(page)
+  await page.keyboard.press('ControlOrMeta+n')
+  await write(page, 'apiVersion: v1\nkind: Service\nmetadata:\n  name: lost\n  namespace: nope\n')
+  await create(page).click()
+  await expect(results(page)).toContainText('namespaces "nope" not found')
+  // Below the editor, past the fold here: brought into view, the focus left where it was.
+  await expect(results(page)).toBeInViewport({ ratio: 1 })
+  await expect(create(page)).toBeFocused()
+})
+
 test('nothing is created when the cluster refuses any object', async ({ page, clusters }) => {
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+n')
@@ -156,6 +168,7 @@ metadata:
   await expect(results(page)).toContainText('namespaces "nope" not found')
   await expect(results(page)).not.toContainText('ConfigMap/fresh')
   expect(clusters.demo.object('ConfigMap', 'default', 'fresh')).toBeUndefined()
+  await expect(results(page)).toBeInViewport({ ratio: 1 })
   await expect(dialog(page)).toBeVisible()
 
   // Editing clears the results.
