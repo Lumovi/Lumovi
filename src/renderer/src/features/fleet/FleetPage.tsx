@@ -1,11 +1,13 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
+  Cable,
   Check,
   ChevronDown,
   CornerDownLeft,
   Layers,
   PackageSearch,
+  Plus,
   Search,
   ServerOff,
   ShieldAlert,
@@ -15,6 +17,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Dialog, DropdownMenu } from 'radix-ui'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { AgentTrust, ClusterSummary, KubeContext, KubeError, Result } from '@shared/api'
+import type { FleetJoin } from '@shared/fleet'
 import { REPO_URL } from '@shared/app'
 import type { Status } from '@shared/health'
 import { Button, IconButton } from '@renderer/components/Button'
@@ -52,6 +55,7 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
+import { ConnectDialog, FINGERPRINT_COMMAND } from './ConnectDialog'
 
 /** How often each cluster is summed up again, while the page is open. */
 const REFRESH_MS = 30_000
@@ -85,6 +89,18 @@ export function FleetPage() {
     refetchInterval: REFRESH_MS,
   })
   const all = contexts.data?.contexts ?? []
+  // An admin's: clusters connected from here, waiting for their agents; and connecting one.
+  const admin = Boolean(useMyAccess()?.admin)
+  const joins = useQuery({
+    queryKey: ['fleet-joins'],
+    queryFn: () => api.fleet!.joins(),
+    enabled: admin,
+    refetchInterval: 5000,
+  })
+  const waiting = admin ? (joins.data?.joins ?? []).filter((join) => !join.used) : []
+  // Its card, just connected, is tinted for a moment.
+  const fresh = useFresh(joins.data?.joins ?? [])
+  const [connecting, setConnecting] = useState<{ showing?: FleetJoin }>()
   const summaries = useQueries({
     queries: all.map(({ name }) => ({
       queryKey: ['fleet-summary', name],
@@ -160,22 +176,37 @@ export function FleetPage() {
               className="py-24"
             />
           ) : all.length === 0 ? (
-            <EmptyState icon={ServerOff} title="No clusters for you here" className="py-24">
-              This Lumovi shows a fleet of clusters, but none of them is shared with you. Ask
-              whoever runs it to add one, or to share one with your groups.
-            </EmptyState>
+            <>
+              {admin ? (
+                <EmptyState icon={ServerOff} title="No clusters here yet" className="py-24">
+                  Connect one: its agent dials this server, so the cluster opens no port.
+                  <div className="mt-4 flex justify-center">
+                    <AddCluster onConnect={() => setConnecting({})} />
+                  </div>
+                </EmptyState>
+              ) : (
+                <EmptyState icon={ServerOff} title="No clusters for you here" className="py-24">
+                  This Lumovi shows a fleet of clusters, but none of them is shared with you. Ask
+                  whoever runs it to add one, or to share one with your groups.
+                </EmptyState>
+              )}
+              <WaitingCards waiting={waiting} onShow={(showing) => setConnecting({ showing })} />
+            </>
           ) : (
             <>
-              <h1 className="text-[30px] leading-[1.15] headline text-ink-1">
-                {pluralize(all.length, 'cluster')}
-                <span className="block text-ink-3">
-                  {attention > 0
-                    ? `${attention} ${attention === 1 ? 'needs' : 'need'} attention`
-                    : checking > 0
-                      ? 'Checking each one…'
-                      : 'All healthy'}
-                </span>
-              </h1>
+              <div className="flex items-end gap-4">
+                <h1 className="flex-1 text-[30px] leading-[1.15] headline text-ink-1">
+                  {pluralize(all.length, 'cluster')}
+                  <span className="block text-ink-3">
+                    {attention > 0
+                      ? `${attention} ${attention === 1 ? 'needs' : 'need'} attention`
+                      : checking > 0
+                        ? 'Checking each one…'
+                        : 'All healthy'}
+                  </span>
+                </h1>
+                {admin && <AddCluster onConnect={() => setConnecting({})} />}
+              </div>
               <AgentsToCheck />
               <div className="flex flex-wrap items-center gap-2">
                 <SearchInput
@@ -276,12 +307,16 @@ export function FleetPage() {
                   </section>
                 ))
               ) : (
-                <Cards items={visible} />
+                <Cards items={visible} fresh={fresh} />
               )}
+              <WaitingCards waiting={waiting} onShow={(showing) => setConnecting({ showing })} />
             </>
           )}
         </div>
       </main>
+      {connecting && (
+        <ConnectDialog showing={connecting.showing} onClose={() => setConnecting(undefined)} />
+      )}
       <Commands />
       <ShortcutsDialog />
     </div>
@@ -326,25 +361,129 @@ function GroupMenu({
   )
 }
 
-function Cards({ items }: { items: Item[] }) {
+/** An admin's: adding a cluster, connected with its agent. */
+function AddCluster({ onConnect }: { onConnect: () => void }) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <Button variant="secondary">
+          <Plus /> Add cluster <ChevronDown className="size-3.5 text-ink-3" />
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={6} className={cn(menuContent, 'w-80')}>
+          <DropdownMenu.Item
+            className={cn(menuItem, 'h-auto items-start py-2 whitespace-normal')}
+            onSelect={onConnect}
+          >
+            <Cable className="mt-0.5 size-4 shrink-0 text-ink-3" />
+            <span>
+              Connect with an agent…
+              <span className="block text-xs text-ink-3">
+                For a cluster this server can’t reach. Its agent dials out.
+              </span>
+            </span>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  )
+}
+
+/** Clusters connected from here, waiting for their agents (or whose command expired). */
+function WaitingCards({
+  waiting,
+  onShow,
+}: {
+  waiting: FleetJoin[]
+  onShow: (join: FleetJoin) => void
+}) {
+  const queryClient = useQueryClient()
+  // (Whether each has expired, as time goes by.)
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(timer)
+  }, [])
+  if (waiting.length === 0) return null
+  const cancel = async (join: FleetJoin) => {
+    try {
+      await api.fleet!.cancelJoin(join.name)
+      toast({ tone: 'success', title: `Stopped connecting ${join.name}` })
+    } catch (failed) {
+      toast({ tone: 'error', title: (failed as Error).message })
+    }
+    await queryClient.invalidateQueries({ queryKey: ['fleet-joins'] })
+  }
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {waiting.map((join) => {
+        const expired = Date.parse(join.until) < now
+        const status = expired ? 'Its command expired' : 'Waiting for its agent…'
+        return (
+          <section
+            key={join.name}
+            aria-label={`${join.name}, ${status}`}
+            className="flex min-h-36 flex-col gap-3 rounded-xl border-[1.5px] border-dashed border-line-strong p-4"
+          >
+            <div className="flex min-w-0 items-start gap-2.5">
+              <span
+                aria-hidden
+                className={cn(
+                  'mt-[7px] size-2 shrink-0 rounded-full bg-neutral',
+                  !expired && 'animate-pulse-dot',
+                )}
+              />
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-semibold text-ink-1">{join.name}</p>
+                <p className="text-neutral-text truncate text-xs">{status}</p>
+              </div>
+            </div>
+            <div className="mt-auto flex gap-2">
+              <Button variant="secondary" className="h-7 text-xs" onClick={() => onShow(join)}>
+                Show the command
+              </Button>
+              <Button variant="ghost" className="h-7 text-xs" onClick={() => void cancel(join)}>
+                Cancel it
+              </Button>
+            </div>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The clusters that joined from here since this page opened: their cards land tinted. */
+function useFresh(joins: FleetJoin[]): Set<string> {
+  const [since] = useState(() => new Date().toISOString())
+  return new Set(joins.flatMap((j) => (j.used && j.used > since ? [j.name] : [])))
+}
+
+function Cards({ items, fresh }: { items: Item[]; fresh?: Set<string> }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
-        <ClusterCard key={item.context.name} {...item} />
+        <ClusterCard key={item.context.name} {...item} fresh={fresh?.has(item.context.name)} />
       ))}
     </div>
   )
 }
 
 /** A cluster, summed up as its overview's tiles: it opens the cluster. */
-function ClusterCard({ context, summary, status }: Item) {
+function ClusterCard({ context, summary, status, fresh }: Item & { fresh?: boolean }) {
   const version = summary?.version
   return (
     <Link
       data-cluster-card
+      data-fresh={fresh || undefined}
       to={clusterPath(context.name)}
       aria-label={`${context.name}, ${status.label}`}
-      className="@container flex min-w-0 animate-rise flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4 shadow-panel transition-colors hover:border-line-strong hover:bg-surface"
+      className={cn(
+        '@container flex min-w-0 flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4 shadow-panel transition-colors hover:border-line-strong hover:bg-surface',
+        // Just connected: it lands tinted, fading to its own.
+        fresh ? 'animate-landed' : 'animate-rise',
+      )}
     >
       <div className="flex min-w-0 items-start gap-2.5">
         <StatusDot health={status.health} className="mt-[7px]" />
@@ -385,10 +524,6 @@ function ClusterCard({ context, summary, status }: Item) {
     </Link>
   )
 }
-
-/** On the cluster an agent runs in: its certificate authority's SHA-256, to compare. */
-const FINGERPRINT_COMMAND =
-  "kubectl get configmap kube-root-ca.crt -n default -o jsonpath='{.data.ca\\.crt}' | openssl x509 -noout -fingerprint -sha256"
 
 /**
  * For an admin (anyone, where Lumovi has none): agents whose certificate authority needs them, either refused (not the one it's
