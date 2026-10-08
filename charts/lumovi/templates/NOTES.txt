@@ -27,6 +27,14 @@ contexts:
 
 Keep it secret: whoever has the token can act as anyone here.
 {{- else if eq .Values.mode "agent" }}
+{{- if not .Values.agent.tokenSecret }}
+{{ .Values.clusterName }}'s agent dials {{ .Values.agent.hubUrl }}, and relays its connections to this
+cluster. It joins with its join token, from the Fleet page: the hub gives it a token of its own,
+which it keeps in the Secret {{ include "lumovi.fullname" . }}-agent. The Fleet page shows it once it's connected.
+
+Its log says when it's joined, connected, and trusted:
+  kubectl logs --namespace {{ .Release.Namespace }} deployment/{{ include "lumovi.fullname" . }}-agent
+{{- else }}
 {{ .Values.clusterName }}'s agent dials {{ .Values.agent.hubUrl }}, and relays its connections to this
 cluster. The fleet's Lumovi must list it in its agents, with its token's SHA-256 (of the
 token as the agent sends it, without a trailing newline):
@@ -44,6 +52,7 @@ without it, it trusts the one the agent first sends, from whoever has its token)
 
 Its log says when it's connected, and trusted:
   kubectl logs --namespace {{ .Release.Namespace }} deployment/{{ include "lumovi.fullname" . }}-agent
+{{- end }}
 {{- else }}
 {{- if include "lumovi.fleet" . }}
 Lumovi shows a fleet of clusters to whoever signs in{{ if .Values.fleet.includeThisCluster }}, {{ .Values.clusterName }} among them{{ end }}.

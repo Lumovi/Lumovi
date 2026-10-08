@@ -63,6 +63,8 @@ export interface AgentConfig {
    * trusts no other the agent sends. Unset, it trusts the one the agent first sends.
    */
   caSha256?: string[]
+  /** It joined from the Fleet page, not LUMOVI_FLEET_AGENTS: which join, when, made by whom. */
+  joined?: { id: string; at: string; by: string }
 }
 
 /** Where a fleet's clusters come from. */
