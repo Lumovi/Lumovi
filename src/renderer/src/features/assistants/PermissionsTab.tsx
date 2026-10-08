@@ -173,7 +173,7 @@ function Editor({
             <span>
               Your access caps them too: where Lumovi’s admins don’t let you do something, your
               assistants don’t either, whatever these say.{' '}
-              <Link to="/your-access" className="font-medium text-accent hover:underline">
+              <Link to="/your-access" className="font-medium text-accent-strong hover:underline">
                 See your access
               </Link>
             </span>

@@ -16,13 +16,14 @@ export const HEALTH_STYLE: Record<
   healthy: {
     dot: 'bg-good',
     text: 'text-good-text',
-    soft: 'bg-good/10',
+    soft: 'bg-good/12',
     icon: CircleCheck,
   },
+  // In progress is neutral, not blue (blue is for what can be acted on): it moves instead.
   progressing: {
-    dot: 'bg-accent',
-    text: 'text-accent-strong',
-    soft: 'bg-accent-soft',
+    dot: 'bg-neutral',
+    text: 'text-neutral-text',
+    soft: 'bg-neutral/12',
     icon: CircleDashed,
   },
   warning: {
@@ -34,13 +35,13 @@ export const HEALTH_STYLE: Record<
   critical: {
     dot: 'bg-critical',
     text: 'text-critical-text',
-    soft: 'bg-critical/10',
+    soft: 'bg-critical/12',
     icon: CircleX,
   },
   neutral: {
     dot: 'bg-neutral',
-    text: 'text-ink-2',
-    soft: 'bg-surface-3',
+    text: 'text-neutral-text',
+    soft: 'bg-neutral/12',
     icon: CircleMinus,
   },
 }
@@ -73,7 +74,10 @@ export function StatusPill({ status, className }: { status: Status; className?: 
         className,
       )}
     >
-      <Icon className="size-3.5 shrink-0" strokeWidth={2.25} />
+      <Icon
+        className={cn('size-3.5 shrink-0', status.health === 'progressing' && 'animate-turn')}
+        strokeWidth={2.25}
+      />
       <span className="truncate" title={status.label}>
         {status.label}
       </span>

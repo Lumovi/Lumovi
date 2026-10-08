@@ -278,3 +278,34 @@ test('Workloads is a shortcut and a palette entry away', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
   await expect(tabs(page)).toHaveCount(0)
 })
+
+/** How an element moves: its animation's name, how long a round takes, and how many rounds. */
+const motion = (target: import('@playwright/test').Locator) =>
+  target.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return [style.animationName, style.animationDuration, style.animationIterationCount]
+  })
+
+test('in progress is neutral, and turns, unless less motion is asked for', async ({ page }) => {
+  await openCluster(page)
+  await page
+    .getByRole('navigation', { name: 'Resources' })
+    .getByRole('link', { name: 'Workloads', exact: true })
+    .click()
+  const running = page
+    .getByRole('grid', { name: 'Workloads' })
+    .locator('[data-health="progressing"]')
+    .first()
+  await expect(running).toHaveText('Running')
+  // Not blue: blue is for what can be acted on.
+  expect(await running.evaluate((pill) => getComputedStyle(pill).color)).not.toBe(
+    await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--accent-strong'),
+    ),
+  )
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect.poll(() => motion(running.locator('svg'))).toEqual(['turn', '3s', 'infinite'])
+  // (The tests ask for less motion: then it's still.)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => motion(running.locator('svg'))).toEqual(['turn', '0.001s', '1'])
+})

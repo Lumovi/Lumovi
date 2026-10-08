@@ -104,7 +104,7 @@ export function ObjectAudit({
       </ol>
       <Link
         to={all}
-        className="mt-3 inline-block px-2 text-xs font-medium text-accent hover:underline"
+        className="mt-3 inline-block px-2 text-xs font-medium text-accent-strong hover:underline"
       >
         Open in the audit log
       </Link>

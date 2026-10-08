@@ -26,7 +26,10 @@ export function ActivityTab() {
         <h2 className="text-[15px] font-semibold text-ink-1">What assistants did</h2>
         <p className="mt-0.5 text-xs text-ink-3">
           Their changes, made or not, since Lumovi opened: with the kubectl command for each.{' '}
-          <Link to="/audit?via=assistant" className="font-medium text-accent hover:underline">
+          <Link
+            to="/audit?via=assistant"
+            className="font-medium text-accent-strong hover:underline"
+          >
             Everything they did, kept, is in the audit log.
           </Link>
         </p>

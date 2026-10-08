@@ -180,7 +180,7 @@ function Summary({ permissions }: { permissions: NonNullable<LumoviApi['aiPermis
         href={serverUrl('assistants/permissions').href}
         target="_blank"
         rel="noreferrer"
-        className="mt-2 inline-block text-xs text-accent hover:text-accent-strong hover:underline"
+        className="mt-2 inline-block text-xs text-accent-strong hover:underline"
       >
         Change what assistants may do
       </a>

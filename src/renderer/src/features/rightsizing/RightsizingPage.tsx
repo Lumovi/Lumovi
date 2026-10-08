@@ -224,7 +224,8 @@ function Rightsizing() {
           </p>
           <span aria-hidden className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-line">
             <span
-              className="block h-full rounded-full bg-accent transition-[width]"
+              // Under way, as a status is: neutral, not blue.
+              className="block h-full rounded-full bg-neutral transition-[width]"
               style={{ width: `${(100 * progress.settled) / progress.total}%` }}
             />
           </span>

@@ -30,7 +30,7 @@ export function HistoryTab() {
         action={
           <Link
             to="/audit?category=settings&q=access.changed&range=all"
-            className="text-[13px] font-medium text-accent hover:underline"
+            className="text-[13px] font-medium text-accent-strong hover:underline"
           >
             Open in the audit log
           </Link>
