@@ -56,6 +56,9 @@ class PagePreferences implements SettingsAccess {
 
   get(): Settings {
     const readOnlyBy = this.clusters.readOnlyBy()
+    const mayChange = !this.clusters.whyNot(this.user)
+    // For those who may set it: what's to look at, changed outside Lumovi.
+    const outside = mayChange ? this.clusters.readOnlyChangedOutside() : {}
     return {
       // The browser keeps the theme itself.
       theme: 'system',
@@ -64,7 +67,8 @@ class PagePreferences implements SettingsAccess {
       metricsSource: this.clusters.metricsSources(),
       nodeShell: this.clusters.nodeShells(),
       nodeShellDefault: this.nodeShells.setting,
-      shared: { mayChange: !this.clusters.whyNot(this.user) },
+      shared: { mayChange },
+      ...(Object.keys(outside).length ? { readOnlyChangedOutside: outside } : {}),
       ...(this.readOnlyAll ? { readOnlyAll: true } : {}),
       ...(this.nodeShells.off ? { nodeShellsOff: true } : {}),
     }

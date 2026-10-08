@@ -385,7 +385,8 @@ function Palette({ onDone }: { onDone: () => void }) {
               {label}
             </Item>
           ))}
-          {!readOnly.locked && (
+          {/* Only for those who may: on a server, Lumovi's admins (or anyone, where it has none). */}
+          {readOnly.mayChange && (
             <Item
               icon={readOnly.readOnly ? <LockOpen /> : <Lock />}
               value={readOnly.readOnly ? 'Allow changes' : 'Make read-only'}

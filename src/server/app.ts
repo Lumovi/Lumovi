@@ -95,7 +95,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     (user) => hosted.refuses(user),
   )
   // Its clusters' settings (read-only, metrics, node shells), the same for everyone.
-  const clusters = new ClusterSettings(state, access)
+  const clusters = new ClusterSettings(state, access, audit)
   const assistants = new ServerAssistants({
     state,
     clusters,

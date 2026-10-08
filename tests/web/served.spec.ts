@@ -188,7 +188,7 @@ test('read-only for everyone on the server: one turns it on, and another sees wh
       })
       return result.ok ? 'changed' : result.error.message
     }, DEMO.deployments.cart),
-  ).toMatch(/^demo is read-only for everyone on this server: alice@example\.com made it so on /)
+  ).toMatch(/^demo is read-only for everyone on this server: alice@example\.com made it so\./)
   expect(clusters.demo.requests.filter((r) => r.method !== 'GET').length).toBe(writes)
   await bob.goto(
     `${served.url}cluster/demo/deployments?open=Deployment/shop/${DEMO.deployments.cart}`,

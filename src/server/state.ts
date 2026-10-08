@@ -149,6 +149,11 @@ export class ServerState {
       ? 'The Helm chart’s auth.keepSessions keeps them (LUMOVI_STATE_SECRET).'
       : 'Set LUMOVI_DATA_DIR to keep them.'
     const kept = keeper(keeping, { ...KEPT, howToKeep }, env)
+    if (kept.kept === 'memory') {
+      log(
+        'Run a single replica so: each would keep its own, and what’s set for everyone (the clusters made read-only, say) would differ between them.',
+      )
+    }
     return new ServerState(kept, await kept.read(), key)
   }
 

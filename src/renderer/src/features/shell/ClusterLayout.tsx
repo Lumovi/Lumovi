@@ -9,6 +9,7 @@ import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { useSession, useSwitching } from '@renderer/state/session'
+import { ReadOnlyOutsideBanner } from '../session/ReadOnlyOutsideBanner'
 import { ServerBanner } from '../session/ServerBanner'
 import { TerminalDock } from '../terminal/TerminalDock'
 import { ActionHost } from '../actions/ActionSurfaces'
@@ -60,6 +61,7 @@ export function ClusterLayout() {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel no-drag">
             <Header />
             {api.host === 'server' && <ServerBanner />}
+            {api.host === 'server' && <ReadOnlyOutsideBanner />}
             <ConnectionBanner />
             <div className="relative flex min-h-0 flex-1">
               <div

@@ -13,6 +13,11 @@ policy can require them from its mirror too.
 
 ### Added
 
+- On a server, a cluster's read-only turned off (or on) where the server keeps it, outside
+  Lumovi, by deleting its setting or putting an older copy back, is recorded in the audit log
+  (`read-only.changed`, as changed outside Lumovi), and Lumovi's admins see it on the cluster's
+  pages until one of them sets it again. Each setting counts Lumovi's own changes, so that a
+  running server tells them from those made by hand.
 - A policy can require Kubernetes' signature from its mirror too,
   `"kubectlSignatures": "required"`: a mirror's kubectl is then used only with it, as
   dl.k8s.io's always is, and a terminal says when its mirror keeps none. One taken unsigned
@@ -21,6 +26,12 @@ policy can require them from its mirror too.
 
 ### Changed
 
+- The Helm chart refuses more than one replica without `auth.keepSessions`: each would keep
+  who's signed in, and what's set for everyone, in its own memory, and they'd disagree. A server
+  keeping its state in memory says to run a single replica.
+- On a server, the command palette offers to make a cluster read-only only to those who may, and
+  a refused change says who made it read-only, but no longer a date in UTC (the switch says
+  when, in your time).
 - Published releases are immutable: once a release is out, GitHub keeps its files and its tag
   from being changed or replaced, and shows it as immutable.
 - A terminal whose kubectl's signature is refused says it couldn't be verified as Kubernetes'

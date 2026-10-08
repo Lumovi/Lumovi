@@ -293,7 +293,7 @@ test('behind a proxy, assistants carry on across a restart, and a cluster made r
     reason: 'Busy.',
   }
   expect((await call(next, 'scale', scale)).text).toMatch(
-    /demo is read-only for everyone on this server: frank@example\.com made it so on /,
+    /demo is read-only for everyone on this server: frank@example\.com made it so\./,
   )
   // Its refresh token still renews it, once.
   const token = (refresh: string) =>
