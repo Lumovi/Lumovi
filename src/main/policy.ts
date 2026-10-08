@@ -29,8 +29,8 @@
  *     }
  *   }
  *
- * One that can't be used locks the most it could: every cluster read-only, and AI assistants
- * off, until it's put right.
+ * One that can't be used locks the most it could: every cluster read-only, AI assistants off,
+ * and a matching kubectl only with Kubernetes' signature, until it's put right.
  *
  * readOnly's names are kubeconfig contexts', which the person names: a list keeps them from
  * changing those clusters by mistake, `true` from changing any.
@@ -114,7 +114,14 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
   } catch (error) {
     const problem = `${found.source} can’t be used: ${(error as Error).message}`
     return {
-      managed: { source: found.source, readOnly: true, assistantsOff: true, problem },
+      // And kubectl only with Kubernetes' signature: one that meant to require it can't be looser.
+      managed: {
+        source: found.source,
+        readOnly: true,
+        assistantsOff: true,
+        kubectlSignatures: 'required',
+        problem,
+      },
       assistantRules: [],
       network: { caFiles: [] },
     }

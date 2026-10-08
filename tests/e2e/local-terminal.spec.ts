@@ -3,6 +3,7 @@
  * shell with kubectl pointed at a cluster (in that terminal only), and the
  * commands Lumovi shows pasted in to run.
  */
+import { createHash } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
@@ -128,6 +129,20 @@ test('the helm Lumovi ships with: its Helm actions run it, and terminals have it
 
 /** Where terminals' kubectl matching a cluster on `version` is kept. */
 const kept = (userDataDir: string, version: string) => join(userDataDir, 'kubectl', version)
+
+/** A kept kubectl's own SHA-256. */
+const sha256Of = (dir: string) =>
+  createHash('sha256')
+    .update(readFileSync(join(dir, WINDOWS ? 'kubectl.exe' : 'kubectl')))
+    .digest('hex')
+
+/**
+ * How a kept kubectl was checked, as Lumovi says it beside it: `signed` or `unsigned`, from
+ * `host`, naming the kubectl by its SHA-256.
+ */
+function mark(dir: string, how: 'signed' | 'unsigned', host: string, sha256 = sha256Of(dir)) {
+  writeFileSync(join(dir, how), `${host}\n${sha256}\n`)
+}
 
 /** That the terminal's PATH starts with the kubectl kept for `version` (Electron's path to it). */
 async function firstOnPath(page: Page, userDataDir: string, version: string) {
@@ -619,7 +634,7 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
     mkdirSync(kept(userDataDir, version), { recursive: true })
     writeFileSync(join(kept(userDataDir, version), WINDOWS ? 'kubectl.exe' : 'kubectl'), '')
     // As checked against Kubernetes' signature, when it was downloaded.
-    writeFileSync(join(kept(userDataDir, version), 'signed'), 'dl.k8s.io')
+    mark(kept(userDataDir, version), 'signed', 'dl.k8s.io')
   }
   // And one a crash cut short.
   const partial = join(kept(userDataDir, 'v1.34.7'), '.kubectl.99999')
@@ -646,45 +661,52 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
 
 /** Why each signature that isn't right isn't taken (`host`, the stand-in dl.k8s.io's). */
 const refusals = (host: string): [NonNullable<MockDownloads['signing']>, string][] => {
-  const notKubernetes = (why: string) => `${host}’s kubectl v1.34.9 isn’t Kubernetes’ own: ${why}`
-  // Where what this Lumovi knows could be what's out of date, it says an update may be the cure.
-  const ifKubernetes = '; if Kubernetes has changed how it signs, Lumovi needs an update'
-  const ifSigstore = '; if Sigstore has changed its authority or its logs, Lumovi needs an update'
+  const notVerified = `${host}’s kubectl v1.34.9 couldn’t be verified as Kubernetes’ own`
+  const notKubernetes = (why: string) => `${notVerified}, and may have been changed: ${why}`
+  // Where what this Lumovi knows could be what's out of date, that's said too: before why, as a
+  // terminal's line may be cut short.
+  const orChanged = (what: string, why: string) =>
+    `${notVerified}, so it may have been changed, or ${what} and Lumovi needs an update: ${why}`
   return [
     // What was downloaded, and its SHA-256, changed together: only the signature says so.
     ['tampered', notKubernetes('its signature isn’t for what was downloaded')],
     // Signed, but not by Kubernetes' release, or not as it signs in.
     [
       'identity',
-      notKubernetes(
-        `it’s signed by someone@example.com, not Kubernetes’ release, as this Lumovi knows it${ifKubernetes}`,
+      orChanged(
+        'Kubernetes has changed how it signs',
+        'it’s signed by someone@example.com, not Kubernetes’ release as this Lumovi knows it',
       ),
     ],
     [
       'issuer',
-      notKubernetes(
-        `its signer signed in with https://token.actions.githubusercontent.com, not as this Lumovi knows Kubernetes’ release does${ifKubernetes}`,
+      orChanged(
+        'Kubernetes has changed how it signs',
+        'its signer signed in with https://token.actions.githubusercontent.com, not as this Lumovi knows Kubernetes’ release does',
       ),
     ],
     // A certificate Sigstore's authority didn't issue, though logged as if it had.
     [
       'authority',
-      notKubernetes(
-        `its certificate isn’t from Sigstore’s certificate authority, as this Lumovi knows it${ifSigstore}`,
+      orChanged(
+        'Sigstore has changed its certificate authority',
+        'its certificate isn’t from Sigstore’s certificate authority as this Lumovi knows it',
       ),
     ],
     // Its certificate's timestamp: none, forged, from a log Sigstore doesn't run, or too late.
     ['unlogged', notKubernetes('its certificate wasn’t logged')],
     [
       'forged-log',
-      notKubernetes(
-        `its certificate wasn’t logged where this Lumovi knows Sigstore logs them${ifSigstore}`,
+      orChanged(
+        'Sigstore has changed its logs',
+        'its certificate wasn’t logged where this Lumovi knows Sigstore logs them',
       ),
     ],
     [
       'foreign-log',
-      notKubernetes(
-        `its certificate wasn’t logged where this Lumovi knows Sigstore logs them${ifSigstore}`,
+      orChanged(
+        'Sigstore has changed its logs',
+        'its certificate wasn’t logged where this Lumovi knows Sigstore logs them',
       ),
     ],
     ['logged-late', notKubernetes('its certificate wasn’t valid when it was logged')],
@@ -750,7 +772,7 @@ test('kubectl kept from before Lumovi checked signatures is got again, checked',
   expect(kubectls(downloads.requests)).toEqual([expect.stringMatching(/\/v1\.34\.9\//)])
   expect(downloads.requests).toContainEqual(expect.stringMatching(/kubectl(\.exe)?\.sig$/))
   expect(readFileSync(join(kept(userDataDir, 'v1.34.9'), 'signed'), 'utf8')).toBe(
-    new URL(downloads.url).host,
+    `${new URL(downloads.url).host}\n${sha256Of(kept(userDataDir, 'v1.34.9'))}\n`,
   )
 })
 
@@ -787,7 +809,7 @@ test('a mirror’s kubectl: checked against Kubernetes’ signature, or said to 
   await terminal(tampered.page)
   await shows(
     tampered.page,
-    `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${host}’s kubectl v1.34.9 isn’t Kubernetes’ own: its signature isn’t for what was downloaded).`,
+    `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${host}’s kubectl v1.34.9 couldn’t be verified as Kubernetes’ own, and may have been changed: its signature isn’t for what was downloaded).`,
   )
   await tampered.close()
 
@@ -838,8 +860,90 @@ test('the organization’s policy can require Kubernetes’ signature from its m
   await terminal(signed.page)
   await shows(signed.page, 'It’s v1.34.9, to match the cluster.')
   await expect(screen(signed.page)).not.toContainText('SHA-256 only')
-  expect(readFileSync(join(kept(userDataDir, 'v1.34.9'), 'signed'), 'utf8')).toBe(host)
+  expect(readFileSync(join(kept(userDataDir, 'v1.34.9'), 'signed'), 'utf8')).toBe(
+    `${host}\n${sha256Of(kept(userDataDir, 'v1.34.9'))}\n`,
+  )
   expect(existsSync(join(kept(userDataDir, 'v1.34.9'), 'unsigned'))).toBe(false)
+
+  // Offline, the newest signed one kept of the minor version, though a newer one came unsigned:
+  // kept as Lumovi starts, for this.
+  const offline = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  for (const [version, how] of [
+    ['v1.34.7', 'signed'],
+    ['v1.34.8', 'signed'],
+    ['v1.34.9', 'unsigned'],
+  ] as const) {
+    mkdirSync(kept(offline, version), { recursive: true })
+    writeFileSync(join(kept(offline, version), WINDOWS ? 'kubectl.exe' : 'kubectl'), version)
+    mark(kept(offline, version), how, host)
+  }
+  downloads.fail = 'lookup'
+  const cut = await launch({ env: { ...SHELL, LUMOVI_POLICY: policy }, userDataDir: offline })
+  await openCluster(cut.page)
+  await terminal(cut.page)
+  await shows(cut.page, 'It’s v1.34.8, to match the cluster.')
+  expect(existsSync(kept(offline, 'v1.34.9'))).toBe(true)
+  expect(existsSync(kept(offline, 'v1.34.7'))).toBe(false)
+  await cut.close()
+
+  // A policy that can't be used, as one meaning to require them would be by a slip: required too.
+  downloads.reset()
+  downloads.signing = 'unsigned'
+  const slip = await launch({
+    env: {
+      ...SHELL,
+      LUMOVI_KUBECTL_MIRROR: mirror.href,
+      LUMOVI_POLICY: policyFile({ kubectlSignatures: 'Required' }),
+    },
+  })
+  await openCluster(slip.page)
+  await terminal(slip.page)
+  await shows(
+    slip.page,
+    `(${host} published no signature for kubectl v1.34.9, and your organization’s policy requires one).`,
+  )
+})
+
+test('a kept kubectl is used only as what was said of it says: of that kubectl', async ({
+  launch,
+  downloads,
+}) => {
+  test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
+  const mirror = new URL('/mirror', downloads.url)
+  mirror.hostname = 'localhost'
+  const host = mirror.host
+  // A kubectl taken unsigned, being got again signed (as a policy requiring it has it), when
+  // Lumovi stopped between the two: "signed" said, of another kubectl than the one there.
+  const stopped = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  const dir = kept(stopped, 'v1.34.9')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, WINDOWS ? 'kubectl.exe' : 'kubectl'), 'taken unsigned')
+  mark(dir, 'signed', host, createHash('sha256').update('the signed one').digest('hex'))
+  downloads.signing = 'unsigned'
+  const policy = policyFile({ kubectl: mirror.href, kubectlSignatures: 'required' })
+  const lumovi = await launch({ env: { ...SHELL, LUMOVI_POLICY: policy }, userDataDir: stopped })
+  await openCluster(lumovi.page)
+  await terminal(lumovi.page)
+  await shows(
+    lumovi.page,
+    `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${host} published no signature for kubectl v1.34.9, and your organization’s policy requires one).`,
+  )
+  await lumovi.close()
+
+  // Said as Lumovi before 1.15 said it (without the kubectl's SHA-256): got again, and said anew.
+  downloads.reset()
+  const before = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  mkdirSync(kept(before, 'v1.34.9'), { recursive: true })
+  writeFileSync(join(kept(before, 'v1.34.9'), WINDOWS ? 'kubectl.exe' : 'kubectl'), 'kept')
+  writeFileSync(join(kept(before, 'v1.34.9'), 'signed'), new URL(downloads.url).host)
+  const again = await launch({ env: SHELL, userDataDir: before })
+  await openCluster(again.page)
+  await terminal(again.page)
+  await shows(again.page, 'It’s v1.34.9, to match the cluster.')
+  expect(kubectls(downloads.requests)).toEqual([expect.stringMatching(/\/v1\.34\.9\//)])
+  expect(readFileSync(join(kept(before, 'v1.34.9'), 'signed'), 'utf8')).toBe(
+    `${new URL(downloads.url).host}\n${sha256Of(kept(before, 'v1.34.9'))}\n`,
+  )
 })
 
 test('a terminal waits for neither a cluster that doesn’t answer nor a long download', async ({

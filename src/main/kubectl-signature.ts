@@ -22,12 +22,13 @@ import {
 import { KUBERNETES_SIGNER } from './kubernetes-signer'
 
 /**
- * What a refusal says when what Lumovi knows could be what's out of date: Kubernetes' signer, or
- * Sigstore's authority and logs, can change, and only a newer Lumovi knows the new ones.
+ * Where what this Lumovi knows could be what's out of date (Kubernetes' signer, or Sigstore's
+ * authority and logs, can change, and only a newer Lumovi knows the new ones), what may have
+ * changed instead of the kubectl.
  */
-const IF_KUBERNETES_CHANGED = 'if Kubernetes has changed how it signs, Lumovi needs an update'
-const IF_SIGSTORE_CHANGED =
-  'if Sigstore has changed its authority or its logs, Lumovi needs an update'
+const KUBERNETES_CHANGED = 'Kubernetes has changed how it signs'
+const AUTHORITY_CHANGED = 'Sigstore has changed its certificate authority'
+const LOGS_CHANGED = 'Sigstore has changed its logs'
 
 /** What a certificate may be used for (extended key usage), and signing code. */
 const OID_EXTENDED_KEY_USAGE = '2.5.29.37'
@@ -51,13 +52,27 @@ export interface TrustRoot {
 }
 
 /** Why a kubectl isn't taken as Kubernetes' own: said in a terminal's first line. */
-class SignatureError extends Error {}
+class SignatureError extends Error {
+  constructor(
+    message: string,
+    readonly changed?: string,
+  ) {
+    super(message)
+  }
+}
+
+/** Why a kubectl isn't Kubernetes' own, and what else may have changed, if anything may have. */
+export interface Refused {
+  why: string
+  /** What may have changed instead of the kubectl: then Lumovi needs an update. */
+  changed?: string
+}
 
 const within = ({ start, end }: Validity, date: Date) =>
   date >= new Date(start) && (!end || date <= new Date(end))
 
 /**
- * Why `binary` isn't Kubernetes' own, or nothing if it is: signed by `signer` with `signature`
+ * Why `binary` isn't Kubernetes' own (and what else may have changed), or nothing if it is: signed by `signer` with `signature`
  * (base64, as kubectl.sig has it), under `certificate` (a PEM, base64'd, as kubectl.cert has it).
  */
 export function whyNotKubernetes(
@@ -66,15 +81,15 @@ export function whyNotKubernetes(
   certificate: Buffer,
   root: TrustRoot,
   signer = KUBERNETES_SIGNER,
-): string | undefined {
+): Refused | undefined {
   try {
     check(binary, signature, certificate, root, signer)
     return undefined
   } catch (error) {
     // What can't be read isn't Kubernetes' either.
     return error instanceof SignatureError
-      ? error.message
-      : `its certificate couldn’t be read (${(error as Error).message})`
+      ? { why: error.message, ...(error.changed ? { changed: error.changed } : {}) }
+      : { why: `its certificate couldn’t be read (${(error as Error).message})` }
   }
 }
 
@@ -98,7 +113,8 @@ function check(
   }
   if (!fromFulcio(leaf, issued, root)) {
     throw new SignatureError(
-      `its certificate isn’t from Sigstore’s certificate authority, as this Lumovi knows it; ${IF_SIGSTORE_CHANGED}`,
+      'its certificate isn’t from Sigstore’s certificate authority as this Lumovi knows it',
+      AUTHORITY_CHANGED,
     )
   }
   // (Its value: a sequence of what it may be used for.)
@@ -113,12 +129,14 @@ function check(
     leaf.extension(OID_ISSUER_V1)?.value.toString('ascii')
   if (leaf.subjectAltName !== signer.identity) {
     throw new SignatureError(
-      `it’s signed by ${leaf.subjectAltName ?? 'someone unnamed'}, not Kubernetes’ release, as this Lumovi knows it; ${IF_KUBERNETES_CHANGED}`,
+      `it’s signed by ${leaf.subjectAltName ?? 'someone unnamed'}, not Kubernetes’ release as this Lumovi knows it`,
+      KUBERNETES_CHANGED,
     )
   }
   if (issuer !== signer.issuer) {
     throw new SignatureError(
-      `its signer signed in with ${issuer ?? 'nobody'}, not as this Lumovi knows Kubernetes’ release does; ${IF_KUBERNETES_CHANGED}`,
+      `its signer signed in with ${issuer ?? 'nobody'}, not as this Lumovi knows Kubernetes’ release does`,
+      KUBERNETES_CHANGED,
     )
   }
   let key: KeyObject
@@ -194,6 +212,7 @@ function loggedAt(leaf: X509Certificate, root: TrustRoot): Date {
     }
   }
   throw new SignatureError(
-    `its certificate wasn’t logged where this Lumovi knows Sigstore logs them; ${IF_SIGSTORE_CHANGED}`,
+    'its certificate wasn’t logged where this Lumovi knows Sigstore logs them',
+    LOGS_CHANGED,
   )
 }
