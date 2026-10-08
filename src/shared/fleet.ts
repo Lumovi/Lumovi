@@ -126,7 +126,7 @@ export type ClusterOrigin =
   /** The cluster Lumovi runs in. */
   | { kind: 'this' }
   /** An agent that dials the hub: LUMOVI_FLEET_AGENTS names it, or it was connected from the page. */
-  | { kind: 'agent'; joined?: { at: string; by: string } }
+  | { kind: 'agent'; joined?: { id: string; at: string; by: string } }
 
 /** Where a cluster comes from, as one key: what the page sets for it is for that cluster alone. */
 export function originKey(origin: ClusterOrigin): string {
@@ -138,7 +138,7 @@ export function originKey(origin: ClusterOrigin): string {
     case 'this':
       return 'this'
     case 'agent':
-      return `agent:${origin.joined?.at ?? ''}`
+      return `agent:${origin.joined?.id ?? ''}`
   }
 }
 

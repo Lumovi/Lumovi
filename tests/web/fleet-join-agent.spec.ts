@@ -12,6 +12,7 @@ import { createServer } from 'node:http'
 import { connect as connectTo, type AddressInfo } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { KubeObject } from '../mock-cluster/types.ts'
+import { FLEET } from '../mock-cluster/fleet.ts'
 import type { TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { audited, expect, freePort, inCluster, startAgent, test } from './fixtures.ts'
 import { as, fleetEnv } from './fleet.ts'
@@ -518,4 +519,47 @@ test('an agent refused just after it joined (by a replica behind) tries again, n
     await agent.stop()
     hub.close()
   }
+})
+
+test('a cluster connected from the page is the page’s to name, label and remove', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const hub = await serve({ env: hubEnv(clusters) })
+  await as(context, 'admin@example.com')
+  await page.goto(hub.url)
+  const token = await connect(page)
+  agentSecret(clusters, { 'join-token': token })
+  const agent = agentOf(hub.url, clusters, { LUMOVI_AGENT_JOIN_TOKEN: token })
+  await expect.poll(() => names(page)).toContain(EDGE)
+  await page.reload()
+
+  // Its settings: its labels the page's, where it comes from, its certificate not checked yet.
+  await page.getByRole('button', { name: `${EDGE}’s actions` }).click()
+  await page.getByRole('menuitem', { name: 'Settings…' }).click()
+  const settings = page.getByRole('dialog', { name: EDGE })
+  await expect(settings).toContainText(`Comes from its agent, connected from this page`)
+  await expect(settings.getByRole('button', { name: 'Remove region=ap-south' })).toBeVisible()
+  await expect(settings).toContainText('Comes fromIts agentConnectedfrom this page,')
+  await expect(settings).toContainText(/CertificateSHA-256 not checked yet · [0-9a-f]{8}…/)
+  await settings.getByRole('button', { name: 'Cancel' }).click()
+
+  // Removed from its card, typed to confirm: its agent is let go, and stops.
+  await page.getByRole('button', { name: `${EDGE}’s actions` }).click()
+  await page.getByRole('menuitem', { name: 'Remove from the fleet…' }).click()
+  const removing = page.getByRole('dialog', { name: `Remove ${EDGE}?` })
+  await expect(removing).toContainText('helm uninstall lumovi-agent --namespace lumovi')
+  await expect(removing.getByRole('button', { name: 'Remove' })).toBeDisabled()
+  await removing.getByLabel(`Type ${EDGE} to confirm`).fill(EDGE)
+  await removing.getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    `Removed ${EDGE} from the fleet`,
+  )
+  expect(await agent.exited).toBe(1)
+  await expect(page.getByRole('link', { name: new RegExp(`^${EDGE}, `) })).toHaveCount(0)
+  // Others, from elsewhere, aren't the page's to remove.
+  await page.getByRole('button', { name: `${FLEET.prodEu}’s actions` }).click()
+  await expect(page.getByRole('menuitem')).toHaveText(['Open', 'Settings…', 'Copy its name'])
 })
