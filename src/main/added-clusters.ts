@@ -657,9 +657,22 @@ const CONNECTION = [
   'certificate-authority-data',
   'tls-server-name',
 ]
-function connectionOf(raw: Raw, cluster: string): string {
+/**
+ * Where an OIDC user's own secrets go besides: its identity provider (its refresh token and
+ * client secret, once its ID token has expired), and how it's verified.
+ */
+const ISSUER = ['idp-issuer-url', 'idp-certificate-authority', 'idp-certificate-authority-data']
+
+/** Where a context's credentials go: its cluster's connection, and its user's issuer. */
+function connectionOf(raw: Raw, cluster: string, user?: string): string {
   const found = raw.clusters.find((entry) => entry.name === cluster)?.cluster ?? {}
-  return JSON.stringify(CONNECTION.map((key) => found[key] ?? null))
+  const config =
+    (dig(raw.users.find((entry) => entry.name === user)?.user, ['auth-provider', 'config']) as
+      Record<string, unknown> | undefined) ?? {}
+  return JSON.stringify([
+    ...CONNECTION.map((key) => found[key] ?? null),
+    ...ISSUER.map((key) => config[key] ?? null),
+  ])
 }
 
 /** The connections each user's contexts have. */
@@ -668,7 +681,7 @@ function connectionsOf(raw: Raw): Map<string, Set<string>> {
   for (const { context } of raw.contexts) {
     if (!context.user) continue
     const set = connections.get(context.user) ?? new Set<string>()
-    set.add(connectionOf(raw, context.cluster))
+    set.add(connectionOf(raw, context.cluster, context.user))
     connections.set(context.user, set)
   }
   return connections
@@ -766,13 +779,25 @@ function keptSendsOf(
   return edited.contexts.flatMap(({ name, context }) => {
     const user = context.user
     if (!user || !keepsSecrets(given.users.find((entry) => entry.name === user)?.user)) return []
-    const connection = connectionOf(edited, context.cluster)
+    const connection = connectionOf(edited, context.cluster, user)
     if (kept.get(user)?.has(connection)) return []
     const server = edited.clusters.find((entry) => entry.name === context.cluster)?.cluster.server
+    const issuer = dig(edited.users.find((entry) => entry.name === user)?.user, [
+      'auth-provider',
+      'config',
+      'idp-issuer-url',
+    ])
     const agreement = consent('kept', user, connection)
     if (seen.has(agreement)) return []
     seen.add(agreement)
-    return [{ context: name, server: String(server ?? ''), consent: agreement }]
+    return [
+      {
+        context: name,
+        // Its issuer too, where an OIDC user's own secrets go.
+        server: [server, issuer].filter((where) => typeof where === 'string').join(', and '),
+        consent: agreement,
+      },
+    ]
   })
 }
 
