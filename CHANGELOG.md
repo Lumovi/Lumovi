@@ -38,6 +38,9 @@ All notable changes to Lumovi are documented here. The format follows
   each other: at either end of their line, above or below it, or a little further off. A label
   with no clear spot (a line the data crosses all along) sits beside its line on a background of
   its own. A threshold above the chart is noted over it, no longer on it.
+- A dialog's error is always in view, just above its buttons: in a tall one (a drain's list of
+  pods, a chart's values), it no longer lands below where the dialog is scrolled to, so that the
+  button seems to do nothing.
 
 ## [1.15.0] - 2026-10-08
 

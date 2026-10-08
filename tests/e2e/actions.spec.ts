@@ -350,7 +350,35 @@ test('drain a node', async ({ page, clusters }) => {
   })
   await dialog(page).getByRole('button', { name: 'Drain', exact: true }).click()
   await expect(dialog(page).getByRole('alert')).toContainText('HTTP 500')
+  // In view, however far the list of pods above it goes, not just there.
+  await expect(dialog(page).getByRole('alert')).toBeInViewport({ ratio: 1 })
   await expect(dialog(page).getByRole('button', { name: 'Drain', exact: true })).toBeEnabled()
+})
+
+test('a dialog’s error is in view at the smallest window, by the button just pressed', async ({
+  launch,
+  clusters,
+}) => {
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x640' }, fullLayout: false })
+  await openCluster(page)
+  await open(page, 'Nodes', DEMO.nodes.worker2)
+  await menuAction(page, 'Node', DEMO.nodes.worker2, 'Drain…')
+  await dialog(page)
+    .getByRole('checkbox', { name: /Evict pods without a controller/ })
+    .check()
+  await dialog(page)
+    .getByRole('checkbox', { name: /Delete local data/ })
+    .check()
+  clusters.demo.fail(`/api/v1/nodes/${DEMO.nodes.worker2}`, {
+    status: 403,
+    body: 'nodes "worker-2" is forbidden',
+  })
+  const drain = dialog(page).getByRole('button', { name: 'Drain', exact: true })
+  await drain.click()
+  await expect(dialog(page).getByRole('alert')).toBeInViewport({ ratio: 1 })
+  await expect(drain).toBeInViewport({ ratio: 1 })
+  // Where it was: nothing moves the focus away.
+  await expect(drain).toBeFocused()
 })
 
 test('draining an empty node', async ({ page }) => {

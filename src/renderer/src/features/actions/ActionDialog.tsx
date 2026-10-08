@@ -41,8 +41,9 @@ export interface ActionDialogProps {
 
 /**
  * The frame every action dialog shares: what is about to change and where,
- * the form, the equivalent kubectl command, errors from the API server, and
- * a clear way to confirm or back out. Enter confirms, Escape cancels.
+ * the form, the equivalent kubectl command, errors from the API server (always
+ * in view, above the buttons), and a clear way to confirm or back out. Enter
+ * confirms, Escape cancels.
  */
 export function ActionDialog({
   icon: Icon,
@@ -178,8 +179,12 @@ export function ActionDialog({
                   <CopyButton text={command} label="Copy command" />
                 </span>
               </div>
+            </div>
 
-              {error && (
+            {/* Outside what scrolls, just above the buttons: in view wherever the form was scrolled
+                to, where the button was just pressed. A long one scrolls on its own. */}
+            {error && (
+              <div className="max-h-[25vh] shrink-0 overflow-y-auto border-t border-line px-5 py-3">
                 <div
                   role="alert"
                   className="flex gap-2.5 rounded-lg border border-critical/25 bg-critical/8 px-3 py-2.5 text-[13px] leading-relaxed text-critical-text"
@@ -187,8 +192,8 @@ export function ActionDialog({
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
                   <p className="min-w-0 break-words selectable">{error}</p>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <footer className="flex items-center justify-end gap-2 border-t border-line bg-surface px-5 py-3">
               {footer ?? (
