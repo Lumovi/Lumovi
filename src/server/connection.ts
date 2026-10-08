@@ -292,8 +292,9 @@ export class PageConnection {
             [IPC.fleetSummary]: (context: unknown) => clusterSummary(kube, context as string),
             // An admin's: the agents, as sent and trusted; and one trusted with what it sends now,
             // as the SHA-256 they give (from its cluster) says.
+            // (Where Lumovi has no admins, anyone signed in, as for the clusters' settings.)
             [IPC.fleetAgents]: () => {
-              if (!access.isAdmin(identity.user)) {
+              if (access.administered && !access.isAdmin(identity.user)) {
                 throw new KubeRequestError('not-allowed', 'Only Lumovi’s admins see its agents.')
               }
               return hosted.agents?.status() ?? []
@@ -302,7 +303,7 @@ export class PageConnection {
               if (typeof name !== 'string' || !hosted.agents) {
                 throw new Error('Expected an agent’s name')
               }
-              if (!access.isAdmin(identity.user)) {
+              if (access.administered && !access.isAdmin(identity.user)) {
                 throw new KubeRequestError('not-allowed', 'Only Lumovi’s admins trust an agent.')
               }
               const sha256 = fingerprint(given)

@@ -526,9 +526,12 @@ export interface Capacity {
 export interface AgentTrust {
   name: string
   connected: boolean
-  /** The SHA-256s (hex) of what it sends as its cluster's certificate authority now. */
+  /**
+   * The start of the SHA-256 (hex) of each certificate it sends as its cluster's authority now:
+   * enough to tell them apart, never all of it (or it could be given back to trust it).
+   */
   sent: string[]
-  /** The SHA-256s the hub trusts it with: as LUMOVI_FLEET_AGENTS names them, or as kept. */
+  /** The start of each SHA-256 the hub trusts it with: as LUMOVI_FLEET_AGENTS names them, or kept. */
   trusted: string[]
   /** LUMOVI_FLEET_AGENTS names them: only changed there. */
   named: boolean
