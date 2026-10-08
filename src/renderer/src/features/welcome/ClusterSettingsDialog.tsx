@@ -219,7 +219,7 @@ export function ClusterSettingsDialog({
           reset={
             production === undefined
               ? undefined
-              : { label: 'Use Lumovi’s guess', run: () => setProduction(undefined) }
+              : { label: 'Let Lumovi guess from its name', run: () => setProduction(undefined) }
           }
         />
         <Toggle
@@ -337,7 +337,8 @@ export function Combo({
         // Its own chevron, not the browser's arrow for the choices.
         className={cn(
           field,
-          'pr-8 [&::-webkit-calendar-picker-indicator]:hidden',
+          // Its own chevron only: not the browser's arrow too.
+          'pr-8 [&::-webkit-calendar-picker-indicator]:hidden! [&::-webkit-list-button]:hidden!',
           mono && 'font-mono',
         )}
       />
@@ -462,7 +463,7 @@ function Toggle({
             <button
               type="button"
               onClick={reset.run}
-              className="ml-1.5 font-medium text-accent-strong hover:underline"
+              className="mt-0.5 block text-xs font-medium text-accent-strong hover:underline"
             >
               {reset.label}
             </button>
@@ -493,13 +494,25 @@ function Connection({
     <section className="mt-5 rounded-xl bg-surface-3/70 px-3.5 py-3">
       <div className="mb-1.5 flex items-baseline gap-2">
         <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Connection</h3>
-        <span className={cn('ml-auto truncate text-xs text-ink-2', !cluster.own && 'font-mono')}>
-          {cluster.own
-            ? `Added in Lumovi${addedAt ? `, ${new Date(addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}` : ''}`
-            : context.file && files
-              ? tilde(context.file, files.home)
+        {cluster.own ? (
+          <span className="ml-auto min-w-0 truncate text-xs text-ink-2">
+            Added in Lumovi
+            {addedAt
+              ? `, ${new Date(addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}`
               : ''}
-        </span>
+          </span>
+        ) : (
+          context.file &&
+          files && (
+            // Cut from the start: the file's name shows.
+            <span
+              className="ml-auto min-w-0 truncate font-mono text-xs text-ink-2 [direction:rtl]"
+              title={context.file}
+            >
+              <bdi>{tilde(context.file, files.home)}</bdi>
+            </span>
+          )
+        )}
       </div>
       {cluster.own ? (
         <>

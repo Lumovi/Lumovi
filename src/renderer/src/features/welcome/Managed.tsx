@@ -30,11 +30,12 @@ export function ManagedBadge({ reason }: { reason: string }) {
               : 'Your organization’s policy keeps Lumovi to the kubeconfig in KUBECONFIG or ~/.kube/config, so it can’t add files or clusters.'}
           </p>
           {managed?.source && (
+            // Cut from the start: the policy's file name shows.
             <p
-              className="mt-2 truncate font-mono text-2xs text-ink-3 selectable"
+              className="mt-2 truncate font-mono text-2xs text-ink-3 [direction:rtl] selectable"
               title={managed.source}
             >
-              {managed.source}
+              <bdi>{managed.source}</bdi>
             </p>
           )}
         </Popover.Content>

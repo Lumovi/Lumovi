@@ -36,7 +36,9 @@ export interface LaunchOptions {
   args?: string[]
   /**
    * Lay the app out at the default window size even on a smaller screen, by
-   * zooming out (true unless a test is about narrow windows).
+   * zooming out (true unless a test is about narrow windows). Off for a
+   * picture at another size: on, a smaller window shows the 1440 layout
+   * zoomed out, not that size's own.
    */
   fullLayout?: boolean
 }
