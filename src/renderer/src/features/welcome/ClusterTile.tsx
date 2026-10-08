@@ -31,7 +31,7 @@ export function ClusterTile({
         small
           ? 'size-6 rounded-[7px] text-[10px]'
           : large
-            ? 'size-11 rounded-xl text-sm'
+            ? 'size-9 rounded-xl text-[13px]'
             : 'size-8 rounded-[9px] text-xs',
         !color &&
           'bg-surface-3 text-ink-2 ring-1 ring-line ring-inset group-data-[selected=true]:bg-surface-2',

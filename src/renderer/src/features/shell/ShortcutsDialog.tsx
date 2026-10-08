@@ -17,7 +17,10 @@ const SECTIONS: {
       { keys: [MOD_KEY, 'R'], label: 'Refresh' },
       ...(WINDOW_SHORTCUTS
         ? [
-            { keys: [MOD_KEY, 'N'], label: 'Create from YAML' },
+            {
+              keys: [MOD_KEY, 'N'],
+              label: 'Create from YAML (on the clusters page, add a cluster)',
+            },
             { keys: [MOD_KEY, '↵'], label: 'Approve an AI assistant’s change' },
           ]
         : []),
@@ -49,6 +52,17 @@ const SECTIONS: {
   // On this computer, in the desktop app.
   ...(WINDOW_SHORTCUTS
     ? [
+        {
+          title: 'Clusters page',
+          shortcuts: [
+            { keys: ['↑', '↓'], label: 'Move through clusters' },
+            { keys: ['↵'], label: 'Open the selected cluster' },
+            { keys: ['.'], label: 'Its actions' },
+            { keys: [MOD_KEY, 'I'], label: 'Its settings' },
+            { keys: [MOD_KEY, 'N'], label: 'Add a cluster' },
+            { keys: [MOD_KEY, '⌫'], label: 'Remove one added in Lumovi' },
+          ],
+        },
         {
           title: 'Terminal',
           shortcuts: [

@@ -49,13 +49,17 @@ export function WelcomePage() {
   useEffect(() => {
     if (!canAdd) return
     return api.desktop?.onCommand((command) => {
-      if (command === 'create') setAdding({})
+      if (command !== 'create') return
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return
+      setAdding({})
     })
   }, [canAdd])
   // And where the page gets the key itself (no menu takes it).
   useEffect(() => {
     if (!canAdd) return
     const onKey = (event: KeyboardEvent) => {
+      // Not past a dialog that's open (editing a connection, say).
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'n') {
         event.preventDefault()
         setAdding({})
