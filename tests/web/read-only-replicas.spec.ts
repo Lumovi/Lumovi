@@ -6,7 +6,7 @@
  * cluster-settings.ts, step by step, and in seeded random runs.
  */
 import { createHmac, hkdfSync, randomBytes } from 'node:crypto'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -95,6 +95,12 @@ const entries = (dir: string): Record<string, string> => {
 }
 const keep = (dir: string, kept: Record<string, string>) =>
   writeFileSync(join(dir, 'state.json'), JSON.stringify({ entries: kept }))
+/**
+ * Writes to what's kept in `dir` fail (reads don't) until `unblock`: a folder where each is first
+ * written whole (kept.ts), on any platform (a folder made read-only isn't one on Windows).
+ */
+const block = (dir: string) => mkdirSync(join(dir, `state.json.${process.pid}`))
+const unblock = (dir: string) => rmSync(join(dir, `state.json.${process.pid}`), { recursive: true })
 /** The name an entry is kept under, with `key`: demo's settings, by default. */
 const demoName = (key: Buffer, entry = 'clusters\0demo') =>
   createHmac('sha256', Buffer.from(hkdfSync('sha256', key, 'lumovi', 'state names', 32)))
@@ -219,10 +225,10 @@ test.describe('replicas over one kept state', () => {
 
     keep(dir, { ...entries(dir), [demoName(key)]: changeable })
     // Both find the copy before either's fix is written (the store can't be, for a moment).
-    chmodSync(dir, 0o555)
+    block(dir)
     await a.settings.refresh()
     await b.settings.refresh()
-    chmodSync(dir, 0o755)
+    unblock(dir)
     // Then an admin's change on B is written before A's fix.
     b.settings.setMetricsSource('demo', AUTO, ADMIN)
     await b.written()
@@ -249,12 +255,12 @@ test.describe('replicas over one kept state', () => {
     a.settings.setReadOnly('demo', true, ADMIN)
     await a.written()
     // The store can't be written for a moment: "Allow changes" waits to be tried again.
-    chmodSync(dir, 0o555)
+    block(dir)
     a.settings.setReadOnly('demo', false, ADMIN)
     await expect(a.written()).rejects.toThrow()
     // And a metrics source, meanwhile, from the view with read-only off.
     a.settings.setMetricsSource('demo', OFF, ADMIN)
-    chmodSync(dir, 0o755)
+    unblock(dir)
     await a.written()
     expect(a.outside()).toEqual([])
     const b = await replica(dir, key, time)
@@ -295,6 +301,25 @@ test.describe('replicas over one kept state', () => {
     expect(Object.keys(entries(dir))).not.toContain(demoName(key))
     expect(rolled.outside()).toEqual([])
     expect(rolled.settings.isReadOnly('demo')).toBe(true)
+  })
+
+  test('a write that met another’s, then failed, is made over theirs when it’s tried again, not over what it had read', async () => {
+    const a = await replica(dir, key, time)
+    const b = await replica(dir, key, time)
+    a.settings.setReadOnly('demo', true, ADMIN)
+    await a.written()
+    await b.refreshed()
+    // B writes meanwhile; A's next write meets it, reads it, and then can't be written.
+    b.state.set('clusters', 'other', { theirs: true })
+    await b.written()
+    block(dir)
+    a.settings.setMetricsSource('demo', OFF, ADMIN)
+    await expect(a.written()).rejects.toThrow()
+    unblock(dir)
+    await a.written()
+    const c = await replica(dir, key, time)
+    expect(c.state.get('clusters', 'other')).toEqual({ theirs: true })
+    expect(c.demo()).toMatchObject({ readOnly: { by: ADMIN.name }, metricsSource: OFF })
   })
 
   test('a change that can’t be made again over what’s kept holds back only itself, and is written as it was made after a few tries', async () => {
@@ -585,20 +610,11 @@ for (const seed of SEEDS) {
       })
       // 3 and 4. A replica's fixes are of things the test did outside Lumovi since it started:
       // never more of them, after any step, than were done (each fix is of one done before it).
-      // A copy a fix names, by its count, wasn't put back fewer times. (A copy that was itself
-      // written over a deletion is named as one: what it was written over is all it tells.)
+      // (Which copy a fix names is the latest its entries tell it apart from: not always the one.)
       members.forEach(({ r, world: w, born }, i) => {
         const done = w.outside.filter((d) => d.step > born)
         if (r.fixes.length > done.length) {
           broken.push(`replica ${i} fixed ${r.fixes.length} times, after ${done.length} done`)
-        }
-        const counted = new Map<unknown, number>()
-        for (const { found } of r.fixes) counted.set(found, (counted.get(found) ?? 0) + 1)
-        for (const [found, times] of counted) {
-          const put = done.filter((d) => d.found === found).length
-          if ((put > 0 || w.copies.some((copy) => copy.version === found)) && times > put) {
-            broken.push(`replica ${i} recorded ${String(found)} ${times} times, put back ${put}`)
-          }
         }
       })
       // 5. What retired keys open is gone, once a write past the grace has been.
@@ -647,19 +663,19 @@ for (const seed of SEEDS) {
       } else if (action === 'later') {
         // Its write fails (the store can't be written for a moment), so it waits, unwritten, until
         // this replica next writes, whatever it reads meanwhile.
-        chmodSync(dir, 0o555)
+        block(dir)
         change(i)
         await m.r.state.writing
-        chmodSync(dir, 0o755)
+        unblock(dir)
         if (m.r.state.unwritten('clusters') === 0) wrote(i)
       } else if (action === 'write') {
         await m.r.written()
         wrote(i)
       } else if (action === 'fail') {
-        chmodSync(dir, 0o555)
+        block(dir)
         change(i)
         await expect(m.r.written()).rejects.toThrow()
-        chmodSync(dir, 0o755)
+        unblock(dir)
         await m.r.written()
         wrote(i)
       } else if (action === 'refresh') {

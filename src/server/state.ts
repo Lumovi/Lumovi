@@ -522,6 +522,10 @@ export class ServerState {
         if (error instanceof KubeRequestError && error.code === 'conflict' && attempt < ATTEMPTS) {
           this.#conflicts++
           base = await this.keeper.read().catch(() => base)
+          // What's written next is over what was just read, whatever comes of this write: the
+          // keeper checks against it now (a write that then failed, made over what this server
+          // had read before, would put back what others removed, and lose what they wrote).
+          this.#document = base
           await this.#seen(base)
           continue
         }
