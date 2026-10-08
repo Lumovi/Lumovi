@@ -126,7 +126,7 @@ export function AuditPage() {
                 <button
                   type="button"
                   onClick={found.loadMore}
-                  className="mt-3 block w-full text-[13px] font-medium text-accent hover:underline"
+                  className="mt-3 block w-full text-[13px] font-medium text-accent-strong hover:underline"
                 >
                   Look further back
                 </button>
@@ -150,7 +150,7 @@ export function AuditPage() {
               <button
                 type="button"
                 onClick={found.loadMore}
-                className="font-medium text-accent hover:underline"
+                className="font-medium text-accent-strong hover:underline"
               >
                 Look further back
               </button>

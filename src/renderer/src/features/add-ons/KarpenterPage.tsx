@@ -488,7 +488,8 @@ function LaunchingRow({ claim }: { claim: KubeObject }) {
             <span className="block truncate text-xs text-ink-3">{describe(claim)}</span>
           </span>
         </span>
-        <span className="text-xs text-accent-strong">
+        {/* Under way, as a status is: neutral, not blue. */}
+        <span className="text-xs text-neutral-text">
           Launching · {age(claim.metadata.creationTimestamp!)}
         </span>
       </button>

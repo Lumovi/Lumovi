@@ -72,7 +72,7 @@ export function ActivityButton() {
           )}
           <footer className="border-t border-line px-4 py-2">
             <Popover.Close asChild>
-              <Link to="/audit" className="text-xs font-medium text-accent hover:underline">
+              <Link to="/audit" className="text-xs font-medium text-accent-strong hover:underline">
                 Everything done through Lumovi, kept: the audit log
               </Link>
             </Popover.Close>

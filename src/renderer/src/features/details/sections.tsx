@@ -422,7 +422,7 @@ export function DataEntries({
           <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
           <span>
             Only the keys: {withheld}{' '}
-            <Link to="/your-access" className="font-medium text-accent hover:underline">
+            <Link to="/your-access" className="font-medium text-accent-strong hover:underline">
               See your access
             </Link>
           </span>

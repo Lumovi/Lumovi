@@ -293,7 +293,7 @@ function SaveBar({
                 type="button"
                 aria-expanded={shown}
                 onClick={() => setShown(!shown)}
-                className="text-xs font-medium text-accent hover:underline"
+                className="text-xs font-medium text-accent-strong hover:underline"
               >
                 {shown ? 'Hide them' : 'Read them'}
               </button>

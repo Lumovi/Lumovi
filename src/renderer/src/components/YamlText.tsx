@@ -4,8 +4,9 @@ import { tokenizeYamlLine, type YamlTokenType } from '@renderer/lib/yaml'
 const TOKEN_CLASS: Record<YamlTokenType, string> = {
   key: 'text-accent-strong',
   string: 'text-good-text',
-  number: 'text-serious-text',
-  literal: 'text-serious-text',
+  // Numbers, booleans and null: a code colour, neither a status's nor blue (as CodeEditor's).
+  number: 'text-(--ansi-5)',
+  literal: 'text-(--ansi-5)',
   punct: 'text-ink-3',
   plain: 'text-ink-1',
 }

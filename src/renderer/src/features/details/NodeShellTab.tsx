@@ -436,7 +436,7 @@ function NodeShellDialog({
         <button
           type="button"
           onClick={() => void save(null)}
-          className="text-xs text-accent hover:underline"
+          className="text-xs text-accent-strong hover:underline"
         >
           Use the defaults: {defaults.namespace}, {defaults.image}
         </button>
