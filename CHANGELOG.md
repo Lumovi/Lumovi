@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Published releases are immutable: once a release is out, GitHub keeps its files and its tag
+  from being changed or replaced, and shows it as immutable.
+
 ## [1.14.0] - 2026-10-08
 
 Behind an authenticating proxy, only the proxy reaches Lumovi, and a fleet's hub trusts an
