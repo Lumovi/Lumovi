@@ -552,6 +552,22 @@ test('a cluster connected from the page is the page’s to name, label and remov
   await expect(settings.getByRole('button', { name: 'Remove region=ap-south' })).toBeVisible()
   await expect(settings).toContainText('Comes fromIts agentConnectedfrom this page,')
   await expect(settings).toContainText(/CertificateSHA-256 not checked yet · [0-9a-f]{8}…/)
+  // Remove, from here, takes the dialog's place (not stacked on it), and keeps the focus; Cancel
+  // brings it back as it was left.
+  await settings.getByRole('textbox', { name: 'Add a group' }).fill('qa')
+  await settings.getByRole('textbox', { name: 'Add a group' }).press('Enter')
+  await settings.getByRole('button', { name: 'Remove from the fleet…' }).click()
+  const confirm = page
+    .getByRole('dialog', { name: `Remove ${EDGE}?` })
+    .getByLabel(`Type ${EDGE} to confirm`)
+  await expect(confirm).toBeFocused()
+  // (In the page at all: the dialog below one would be hidden from its roles.)
+  await expect(page.locator('[role="dialog"]')).toHaveCount(1)
+  await page.waitForTimeout(250) // (what closed gives the focus back a moment later, if anywhere)
+  await expect(confirm).toBeFocused()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+  await expect(settings.getByRole('button', { name: 'Remove qa' })).toBeVisible()
+  await expect(settings.getByLabel('Name')).toBeFocused()
   await settings.getByRole('button', { name: 'Cancel' }).click()
 
   // Removed from its card, typed to confirm: its agent is let go, and stops.
