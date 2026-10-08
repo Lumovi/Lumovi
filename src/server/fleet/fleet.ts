@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { KubeConfig } from '@kubernetes/client-node'
 import type { ContextsResult, KubeErrorCode } from '@shared/api'
+import type { FleetSetting } from '@shared/fleet'
 import type { SessionUser } from '@shared/server'
 import { KubeRequestError } from '@backend/kube/errors'
 import type { ClusterConfigs } from '@backend/kube/kubeconfig'
@@ -27,6 +28,35 @@ import { AGENT_SERVER, Agents } from './agents'
 import { kubeconfigClusters, type FleetCluster } from './clusters'
 import { secretClusters } from './secrets'
 
+/** A kubeconfig's contexts, as clusters that come from it: `what` it is, in words. */
+function fromKubeconfig(text: string, where: string, what: string, dir?: string): FleetCluster[] {
+  return kubeconfigClusters(text, where, (context) => `${what}, context ${context}`, dir).map(
+    (cluster) => ({ ...cluster, origin: { kind: 'kubeconfig', where, context: cluster.name } }),
+  )
+}
+
+/**
+ * A cluster with what the Fleet page sets for it: its name as shown; and its labels and groups,
+ * where its source leaves them unset (what its source sets, the page never overrides).
+ */
+function settled(cluster: FleetCluster, setting: FleetSetting | undefined): FleetCluster {
+  if (!setting) return cluster
+  return {
+    ...cluster,
+    ...(setting.title ? { title: setting.title } : {}),
+    ...(setting.labels && !cluster.managed?.labels ? { labels: setting.labels } : {}),
+    ...(setting.groups && !cluster.managed?.groups ? { groups: setting.groups } : {}),
+  }
+}
+
+/** What the Fleet page sets for clusters (what their sources leave unset), and who sees them all. */
+export interface FleetPage {
+  settings(): Record<string, FleetSetting>
+  onChange(listener: () => void): unknown
+  /** Lumovi's admins see every cluster: who sees one is theirs to say. */
+  isAdmin(user: SessionUser): boolean
+}
+
 /** Why a cluster can't be used for someone: as a request's error. */
 interface Problem {
   code: KubeErrorCode
@@ -41,7 +71,10 @@ export class HostedFleet implements Hosted {
    * read again keeps them.
    */
   readonly #sources = new Map<string, FleetCluster[]>()
+  /** Every source's clusters, as they describe them; and with what the Fleet page sets. */
+  #sourced: FleetCluster[] = []
   #clusters: FleetCluster[] = []
+  #page?: FleetPage
   /** What was last said about each source's problems, so each is said once. */
   readonly #said = new Map<string, string>()
   readonly #timer: NodeJS.Timeout
@@ -57,11 +90,12 @@ export class HostedFleet implements Hosted {
     if (config.kubeconfig) {
       this.#sources.set(
         'LUMOVI_FLEET_KUBECONFIG',
-        kubeconfigClusters(config.kubeconfig, 'LUMOVI_FLEET_KUBECONFIG'),
+        fromKubeconfig(config.kubeconfig, 'LUMOVI_FLEET_KUBECONFIG', 'the fleet’s kubeconfig'),
       )
     }
     if (config.local) {
       const found = inCluster(env)
+      const labelled = Object.keys(settings.clusterLabels).length > 0
       this.#sources.set('local', [
         {
           name: settings.clusterName ?? found.name,
@@ -70,6 +104,14 @@ export class HostedFleet implements Hosted {
           forwardToken: false,
           cluster: found.cluster,
           account: found.account,
+          origin: { kind: 'this' },
+          ...(labelled
+            ? {
+                managed: {
+                  labels: { by: 'the server’s settings', key: 'LUMOVI_CLUSTER_LABELS' },
+                },
+              }
+            : {}),
         },
       ])
     }
@@ -91,6 +133,16 @@ export class HostedFleet implements Hosted {
     return this.#clusters.some((cluster) => cluster.name === name)
   }
 
+  sourced(name: string): FleetCluster | undefined {
+    return this.#sourced.find((cluster) => cluster.name === name)
+  }
+
+  settleWith(page: FleetPage): void {
+    this.#page = page
+    page.onChange(() => this.#merge())
+    this.#merge()
+  }
+
   describe(): string {
     const names = this.#clusters.map((c) => c.name)
     return `a fleet of ${names.length} ${names.length === 1 ? 'cluster' : 'clusters'} (${names.join(', ')})`
@@ -98,13 +150,16 @@ export class HostedFleet implements Hosted {
 
   configsFor(identity: Identity): ClusterConfigs {
     const configs = new WeakMap<FleetCluster, KubeConfig>()
-    // (One joined from the page, until its certificate authority is checked: nobody's yet.)
+    // Admins see them all (who sees each is theirs to say); others, those of their groups, and
+    // not one joined from the page until its certificate authority is checked.
     const visible = () =>
-      this.#clusters.filter(
-        (c) =>
-          !c.unchecked &&
-          (!c.groups || c.groups.some((group) => identity.user.groups.includes(group))),
-      )
+      this.#page?.isAdmin(identity.user)
+        ? this.#clusters
+        : this.#clusters.filter(
+            (c) =>
+              !c.unchecked &&
+              (!c.groups || c.groups.some((group) => identity.user.groups.includes(group))),
+          )
     return {
       load: (): ContextsResult => ({
         source: 'this server’s fleet',
@@ -114,6 +169,7 @@ export class HostedFleet implements Hosted {
           user: identity.user.name,
           server: c.agent ? undefined : c.cluster?.server,
           labels: c.labels,
+          ...(c.title ? { title: c.title } : {}),
         })),
       }),
       forContext: (name) => {
@@ -234,7 +290,9 @@ export class HostedFleet implements Hosted {
   /** Reads the sources that change (files, Secrets) again, then merges. */
   async #refresh(): Promise<void> {
     for (const file of this.config.kubeconfigFiles) {
-      this.#read(file, () => kubeconfigClusters(readFileSync(file, 'utf8'), file, dirname(file)))
+      this.#read(file, () =>
+        fromKubeconfig(readFileSync(file, 'utf8'), file, `the kubeconfig ${file}`, dirname(file)),
+      )
     }
     if (this.config.secrets.length > 0) {
       const { lists, problems } = await secretClusters(this.env, this.config)
@@ -279,6 +337,8 @@ export class HostedFleet implements Hosted {
     const after = new Set(merged.map((c) => c.name))
     for (const name of after) if (!before.has(name)) log(`Fleet: ${name} added`)
     for (const name of before) if (!after.has(name)) log(`Fleet: ${name} removed`)
-    this.#clusters = merged
+    this.#sourced = merged
+    const set = this.#page?.settings() ?? {}
+    this.#clusters = merged.map((cluster) => settled(cluster, set[cluster.name]))
   }
 }

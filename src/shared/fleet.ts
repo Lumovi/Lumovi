@@ -84,3 +84,59 @@ export interface FleetJoins {
   joins: FleetJoin[]
   whyNot?: string
 }
+
+/** How long a cluster's name, as the fleet shows it, may be. */
+export const MAX_TITLE = 100
+
+/** Why a cluster's name, as the fleet shows it, is invalid, or undefined (none: its own). */
+export const titleError = (title: string): string | undefined =>
+  title.length > MAX_TITLE
+    ? `Up to ${MAX_TITLE} characters`
+    : /[\p{Cc}\p{Cf}]/u.test(title)
+      ? 'No control characters'
+      : undefined
+
+/** What the Fleet page sets for a cluster: what its source leaves unset. */
+export interface FleetSetting {
+  /** The name it's shown by (its own stays, in URLs and its context). */
+  title?: string
+  labels?: Record<string, string>
+  /** Who sees it, besides admins; none: everyone signed in. */
+  groups?: string[]
+}
+
+/** Where a cluster in a fleet comes from. */
+export type ClusterOrigin =
+  /** A kubeconfig's context: the fleet's setting (LUMOVI_FLEET_KUBECONFIG), or a file. */
+  | { kind: 'kubeconfig'; where: string; context: string }
+  /** A Secret of the cluster Lumovi runs in, each tool's way. */
+  | { kind: 'secret'; tool: 'lumovi' | 'cluster-api' | 'argocd'; secret: string; namespace: string }
+  /** The cluster Lumovi runs in. */
+  | { kind: 'this' }
+  /** An agent that dials the hub: LUMOVI_FLEET_AGENTS names it, or it was connected from the page. */
+  | { kind: 'agent'; joined?: { at: string; by: string } }
+
+/** A setting its source sets, which the page doesn't change: where, to change it there. */
+export interface Managed {
+  /** What sets it: "its Secret, cluster-production". */
+  by: string
+  /** Where in that: "lumovi.dev/labels". */
+  key: string
+}
+
+/** A field of a cluster's settings: its value, and what sets it, where it isn't the page. */
+export interface SettingField<T> {
+  value: T
+  managed?: Managed
+}
+
+/** A cluster's settings, as an admin sees them on the Fleet page. */
+export interface FleetClusterSettings {
+  name: string
+  title: SettingField<string | undefined>
+  labels: SettingField<Record<string, string>>
+  groups: SettingField<string[]>
+  origin: ClusterOrigin
+  /** Whether it can be removed from the page: it was added there. */
+  removable: boolean
+}

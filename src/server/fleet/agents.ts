@@ -247,8 +247,10 @@ export class Agents {
       const cluster: FleetCluster = {
         name: config.name,
         source: 'LUMOVI_FLEET_AGENTS',
-        labels: config.labels,
+        labels: config.labels ?? {},
         groups: config.groups,
+        origin: { kind: 'agent' },
+        ...managedBy(config),
         forwardToken: config.forwardToken,
         agent: config.name,
       }
@@ -398,6 +400,15 @@ export class Agents {
     log(`The agent of ${name}: ${refused} (It sent ${sha256s.join(', ') || 'nothing readable'}.)`)
     connected.tunnel.say({ type: 'refused', message: refused })
   }
+}
+
+/** What LUMOVI_FLEET_AGENTS sets of an agent's cluster's settings: the Fleet page doesn't change those. */
+function managedBy(config: AgentConfig): Pick<FleetCluster, 'managed'> {
+  const managed: NonNullable<FleetCluster['managed']> = {}
+  for (const field of ['labels', 'groups'] as const) {
+    if (config[field]) managed[field] = { by: 'the server’s settings', key: 'LUMOVI_FLEET_AGENTS' }
+  }
+  return Object.keys(managed).length ? { managed } : {}
 }
 
 /** What a hello must have. */

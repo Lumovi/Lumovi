@@ -4,7 +4,11 @@ import { useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { useCluster } from '@renderer/state/cluster'
 
-const NAMED = { metricsSource: 'metrics source', nodeShell: 'node shells' } as const
+const NAMED = {
+  metricsSource: 'metrics source',
+  nodeShell: 'node shells',
+  fleet: 'name, labels and groups on the Fleet page',
+} as const
 
 /**
  * For those who may set it: this cluster's settings were changed where the server keeps them,

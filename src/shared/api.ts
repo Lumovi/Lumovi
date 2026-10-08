@@ -19,7 +19,13 @@ import type {
   ServerAssistantsStatus,
 } from './assistants'
 import type { AuditEvent, AuditInfo, AuditPage, AuditQuery, AuditVerification } from './audit'
-import type { FleetJoinRequest, FleetJoins, NewFleetJoin } from './fleet'
+import type {
+  FleetClusterSettings,
+  FleetJoinRequest,
+  FleetJoins,
+  FleetSetting,
+  NewFleetJoin,
+} from './fleet'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
@@ -59,7 +65,7 @@ export interface ChangedOutside {
    */
   readOnly: 'restored' | 'made' | 'kept'
   /** The others it changed, which Lumovi put back as it last set them. */
-  restored: ('metricsSource' | 'nodeShell')[]
+  restored: ('metricsSource' | 'nodeShell' | 'fleet')[]
 }
 
 export interface Settings {
@@ -249,6 +255,8 @@ export interface KubeContext {
   file?: string
   /** A fleet's: what the cluster is labelled with (env, region…), to filter and group by. */
   labels?: Record<string, string>
+  /** A fleet's: the name it's shown by, as the Fleet page sets it. */
+  title?: string
 }
 
 /** The kubeconfig files the desktop app reads, merged as kubectl would (the first to name a thing wins). */
@@ -1130,6 +1138,10 @@ export interface LumoviApi {
      * replica that's asked, and by the others as they next read (within 10 s).
      */
     remove(name: string): Promise<void>
+    /** An admin's: a cluster's settings, each with what sets it, where that isn't the page. */
+    settings(name: string): Promise<FleetClusterSettings>
+    /** An admin's: what the page sets for a cluster, of what its source leaves unset. */
+    saveSettings(name: string, setting: FleetSetting): Promise<FleetClusterSettings>
   }
   /** Changes AI assistants ask for, waiting for the person's approval: the desktop app's or a server's. */
   approvals?: {
@@ -1257,6 +1269,8 @@ export const IPC = {
   fleetConnect: 'fleet:connect',
   fleetCancelJoin: 'fleet:cancel-join',
   fleetRemove: 'fleet:remove',
+  fleetSettings: 'fleet:settings',
+  fleetSaveSettings: 'fleet:save-settings',
   helmReleases: 'helm:releases',
   helmRelease: 'helm:release',
   helmCli: 'helm:cli',

@@ -37,9 +37,10 @@ type Clock = ReturnType<typeof clock>
 
 /**
  * A replica: its own view of the state kept in `dir`, sealed with `key`, which writes only when
- * the test says (`written`), on `time` (its own clock `skew` ms off).
+ * the test says (`written`), on `time` (its own clock `skew` ms off); `administered`, ADMIN is
+ * Lumovi's only admin (otherwise it has none, and anyone may change what's set).
  */
-async function replica(dir: string, key: Buffer, time: Clock, skew = 0) {
+async function replica(dir: string, key: Buffer, time: Clock, skew = 0, administered = false) {
   const now = () => time.now() + skew
   const recorded: Recorded[] = []
   /** Each fix recorded (its records are made at once, together), naming the copy it found. */
@@ -60,7 +61,10 @@ async function replica(dir: string, key: Buffer, time: Clock, skew = 0) {
   })
   const settings = new ClusterSettings(
     state,
-    { administered: false, isAdmin: () => true } as unknown as ServerAccess,
+    {
+      administered,
+      isAdmin: (user: { name: string }) => !administered || user.name === ADMIN.name,
+    } as unknown as ServerAccess,
     { record } as unknown as AuditLog,
     { now },
   )
@@ -153,6 +157,40 @@ test.describe('replicas over one kept state', () => {
     await a.refreshed()
     expect(a.demo()).toMatchObject({ readOnly: { by: ADMIN.name }, metricsSource: OFF })
     expect(a.outside()).toHaveLength(1)
+  })
+
+  test('who sees a cluster, put back to an older copy that let more see it, is put back as an admin last set it, and recorded', async () => {
+    const a = await replica(dir, key, time, 0, true)
+    a.settings.setFleet('demo', { groups: ['platform', 'payments'] }, ADMIN)
+    await a.written()
+    const wider = entries(dir)[demoName(key)]!
+    const found = a.demo()!.version
+    a.settings.setFleet('demo', { title: 'Demo', groups: ['platform'] }, ADMIN)
+    await a.written()
+
+    keep(dir, { ...entries(dir), [demoName(key)]: wider })
+    await a.refreshed()
+    expect(a.outside()).toEqual([
+      expect.objectContaining({
+        action: 'cluster-settings.changed',
+        summary:
+          'Changed outside Lumovi: demo’s name, labels and groups on the Fleet page were changed, as an older copy of its setting was put back where Lumovi keeps it, and Lumovi put back what it last set',
+        details: expect.objectContaining({ found }),
+      }),
+    ])
+    expect(a.settings.fleetSettings()).toEqual({ demo: { title: 'Demo', groups: ['platform'] } })
+    expect(a.settings.changedOutside().demo?.restored).toEqual(['fleet'])
+    // Deleted: put back too.
+    const { [demoName(key)]: _demo, ...rest } = entries(dir)
+    keep(dir, rest)
+    await a.refreshed()
+    expect(a.settings.fleetSettings()).toEqual({ demo: { title: 'Demo', groups: ['platform'] } })
+
+    // Only Lumovi's admins set it; and where it has none, nobody does (who sees what is theirs).
+    const notAdmin = 'Only Lumovi’s admins change a cluster’s settings on the Fleet page.'
+    expect(() => a.settings.setFleet('demo', {}, { name: 'alice', groups: [] })).toThrow(notAdmin)
+    const unadministered = await replica(dir, key, time)
+    expect(() => unadministered.settings.setFleet('demo', {}, ADMIN)).toThrow(notAdmin)
   })
 
   test('an admin’s change, written over a copy put back meanwhile, is made over its fix', async () => {

@@ -1,6 +1,7 @@
 /**
  * What a server sets for each of its clusters, the same for everyone on it: which are read-only
- * (who made them so, and when), where their metrics come from, and where their node shells run.
+ * (who made them so, and when), where their metrics come from, where their node shells run, and,
+ * in a fleet, the name, labels and groups its Fleet page sets.
  * Kept with what a restart mustn't lose (state.ts), read again every few seconds (another replica
  * may change it), and changed by Lumovi's admins (or, where it has none, anyone). By its
  * context's name: a cluster renamed doesn't keep what was set for it.
@@ -56,6 +57,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { AuditLog } from '@backend/audit/log'
 import { KubeRequestError } from '@backend/kube/errors'
 import type { ChangedOutside, MetricsSourceSetting, NodeShellSetting } from '@shared/api'
+import type { FleetSetting } from '@shared/fleet'
 import type { SessionUser } from '@shared/server'
 import type { ServerAccess } from './access'
 import { SERVER_ACTOR } from './audit'
@@ -71,6 +73,8 @@ export interface ClusterEntry {
   readOnly?: { by: string; at: string; outside?: true }
   metricsSource?: MetricsSourceSetting
   nodeShell?: NodeShellSetting
+  /** A fleet's: what its page sets (each field its source leaves unset). */
+  fleet?: FleetSetting
   /** A change made outside Lumovi, found and dealt with: shown until read-only is set again. */
   outside?: ChangedOutside
   /** The count of the write that last set each of those (unset too). */
@@ -82,21 +86,27 @@ export interface ClusterEntry {
 }
 
 /** What an entry sets, each counted by the write that last set it. */
-const FIELDS = ['readOnly', 'metricsSource', 'nodeShell', 'outside'] as const
+const FIELDS = ['readOnly', 'metricsSource', 'nodeShell', 'fleet', 'outside'] as const
 type Field = (typeof FIELDS)[number]
 /** How many entries back an entry says it was written over (enough to name a copy). */
 const TRAIL = 4
 
 /** The settings besides read-only, which have nothing stricter: as Lumovi last set them. */
-const OTHERS = ['metricsSource', 'nodeShell'] as const
+const OTHERS = ['metricsSource', 'nodeShell', 'fleet'] as const
 const AUDITED = {
   metricsSource: 'metrics-source.changed',
   nodeShell: 'node-shell.changed',
+  fleet: 'cluster-settings.changed',
 } as const
-const SAID = { metricsSource: 'metrics source was', nodeShell: 'node shells were' } as const
+const SAID = {
+  metricsSource: 'metrics source was',
+  nodeShell: 'node shells were',
+  fleet: 'name, labels and groups on the Fleet page were',
+} as const
 const KEPT_AS = {
   metricsSource: 'its metrics source as it set it',
   nodeShell: 'its node shells as it set them',
+  fleet: 'its name, labels and groups as it set them',
 } as const
 
 /** What's kept of an entry: nothing that's unset. */
@@ -174,6 +184,7 @@ function fixOf(was: ClusterEntry, now: ClusterEntry | undefined, at: string, ver
       readOnly,
       metricsSource: from('metricsSource').metricsSource,
       nodeShell: from('nodeShell').nodeShell,
+      fleet: from('fleet').fleet,
       outside: changed ? { at, how, readOnly: what, restored } : from('outside').outside,
       counts,
     }),
@@ -246,6 +257,29 @@ export class ClusterSettings {
         entry.nodeShell ? [[context, entry.nodeShell]] : [],
       ),
     )
+  }
+
+  /** A fleet's: what its page sets for each cluster. */
+  fleetSettings(): Record<string, FleetSetting> {
+    return Object.fromEntries(
+      this.#entries.flatMap(([context, entry]) => (entry.fleet ? [[context, entry.fleet]] : [])),
+    )
+  }
+
+  /**
+   * A fleet's: what its page sets for `context`, which its admins alone change (none, where it
+   * has none: who sees a cluster is theirs to say).
+   */
+  setFleet(context: string, setting: FleetSetting, user: SessionUser): void {
+    if (!this.access.administered || !this.access.isAdmin(user)) {
+      throw new KubeRequestError(
+        'not-allowed',
+        'Only Lumovi’s admins change a cluster’s settings on the Fleet page.',
+        403,
+      )
+    }
+    const fleet = Object.keys(setting).length ? setting : undefined
+    this.#change(context, user, ['fleet'], (entry) => ({ ...entry, fleet }))
   }
 
   /** Why `user` may not change them, or nothing when they may. */

@@ -53,8 +53,9 @@ export interface AgentConfig {
   name: string
   /** The SHA-256 of the token it signs in with, in hex. */
   tokenSha256: string
-  labels: Record<string, string>
-  /** Only people in these groups see it; everyone unless set. */
+  /** What it's labelled with: unset, the Fleet page may label it. */
+  labels?: Record<string, string>
+  /** Only people in these groups see it; everyone unless set (or the Fleet page sets them). */
   groups?: string[]
   /** Requests carry each person's own token, rather than impersonating them. */
   forwardToken: boolean
@@ -785,7 +786,7 @@ function agentsConfig(setting: string | undefined): AgentConfig[] {
     return {
       name: entry.name,
       tokenSha256,
-      labels: stringMap(`${at}.labels`, entry.labels),
+      labels: entry.labels === undefined ? undefined : stringMap(`${at}.labels`, entry.labels),
       groups: entry.groups === undefined ? undefined : strings(`${at}.groups`, entry.groups),
       forwardToken: entry.forwardToken === true,
       ...(caSha256 ? { caSha256 } : {}),

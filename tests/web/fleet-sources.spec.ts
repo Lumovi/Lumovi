@@ -484,6 +484,7 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
       LUMOVI_FLEET_SECRETS: 'lumovi,cluster-api,argocd',
       LUMOVI_FLEET_SECRETS_NAMESPACES: 'lumovi, argocd, elsewhere',
       LUMOVI_FLEET_REFRESH_SECONDS: '1',
+      LUMOVI_ADMINS: 'user:admin@example.com',
     },
   })
   for (const kind of ['lumovi', 'cluster-api', 'argocd']) {
@@ -536,4 +537,45 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
   await page.reload()
   await expect(card(page, 'hub')).toBeVisible()
   await expect(card(page, 'staging')).toHaveCount(0)
+
+  // What each source sets of a cluster's settings is its own, and an admin sees where.
+  await as(context, 'admin@example.com')
+  await page.reload()
+  const settings = (name: string) =>
+    page.evaluate((name) => window.lumovi!.fleet!.settings(name), name)
+  const itsSecret = (name: string, key: string) => ({ by: `its Secret, ${name}`, key })
+  expect(await settings('staging')).toEqual({
+    name: 'staging',
+    title: {},
+    labels: { value: { env: 'staging' }, managed: itsSecret('staging', 'lumovi.dev/labels') },
+    groups: { value: ['developers', 'qa'], managed: itsSecret('staging', 'lumovi.dev/groups') },
+    origin: { kind: 'secret', tool: 'lumovi', secret: 'staging', namespace: 'lumovi' },
+    removable: false,
+  })
+  expect(await settings('qa')).toMatchObject({
+    labels: { value: { env: 'qa' }, managed: itsSecret('several', 'lumovi.dev extension') },
+    groups: { value: [] },
+  })
+  expect((await settings('qa')).groups.managed).toBeUndefined()
+  expect(await settings('hub')).toMatchObject({
+    labels: {
+      value: { env: 'ops' },
+      managed: { by: 'the server’s settings', key: 'LUMOVI_CLUSTER_LABELS' },
+    },
+    origin: { kind: 'this' },
+  })
+  expect(await settings('prod-us')).toMatchObject({
+    labels: {
+      value: { env: 'production', tier: 'gold' },
+      managed: itsSecret('cluster-prod-us', 'metadata.labels and lumovi.dev/labels'),
+    },
+    origin: { kind: 'secret', tool: 'argocd', secret: 'cluster-prod-us', namespace: 'argocd' },
+  })
+  // What a source leaves unset, the page sets.
+  expect(await settings('bare')).toEqual(
+    expect.objectContaining({ labels: { value: {} }, groups: { value: [] } }),
+  )
+  expect(await settings('workload-1')).toMatchObject({
+    origin: { kind: 'secret', tool: 'cluster-api' },
+  })
 })

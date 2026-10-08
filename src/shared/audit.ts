@@ -73,6 +73,8 @@ export const AUDIT_ACTIONS = {
   'agent.joined': 'server',
   'agent.join-refused': 'server',
   'cluster.removed': 'settings',
+  // A fleet's clusters as its page names, labels and shares them.
+  'cluster-settings.changed': 'settings',
   'metrics-source.changed': 'settings',
   'assistants.changed': 'settings',
   'access.changed': 'settings',
