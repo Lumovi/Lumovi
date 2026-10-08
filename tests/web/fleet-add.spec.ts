@@ -334,3 +334,97 @@ test('what the hub can’t use is refused, saying why; a token, a server and its
   ).toEqual({})
   await expect.poll(() => names(page)).toContain('token-lab')
 })
+
+test('an admin adds a cluster from the Fleet page: pasted, checked, named, then removed', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  ownNamespace(clusters)
+  const hub = await serve({ env: hubEnv(clusters) })
+  await as(context, 'admin@example.com')
+  await page.goto(hub.url)
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  await page.getByRole('menuitem', { name: /^Paste a kubeconfig…/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add a cluster' })
+  const paste = async (text: string) => {
+    await dialog.getByRole('textbox', { name: 'Its kubeconfig' }).click()
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText(text)
+  }
+
+  // A credential plugin: refused, with what works instead.
+  await paste(
+    kubeconfig(clusters, {
+      exec: {
+        apiVersion: 'client.authentication.k8s.io/v1beta1',
+        command: 'aws',
+        args: ['eks', 'get-token', '--cluster-name', 'payments-prod'],
+      },
+    }),
+  )
+  await dialog.getByRole('button', { name: 'Check it' }).click()
+  await expect(dialog.getByRole('list', { name: 'Checks' })).toContainText(
+    'It signs in by running a programaws eks get-token --cluster-name payments-prodThis server can’t run programs',
+  )
+  await expect(dialog.getByRole('button', { name: 'Connect with an agent' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Use a token' }).click()
+  await expect(dialog.getByLabel('Server')).toBeVisible()
+  await dialog.getByRole('button', { name: /A kubeconfig/ }).click()
+
+  // One that works: checked, named as its context, labelled and shared, added.
+  await paste(kubeconfig(clusters))
+  await dialog.getByRole('button', { name: 'Check it' }).click()
+  await expect(dialog.getByRole('list', { name: 'Checks' }).getByRole('listitem')).toHaveCount(3)
+  await expect(dialog.getByRole('img', { name: 'Failed' })).toHaveCount(0)
+  await expect(dialog.getByLabel('Name')).toHaveValue('lab')
+  await dialog.getByRole('textbox', { name: 'Add a label' }).fill('env=lab')
+  await dialog.getByRole('textbox', { name: 'Add a label' }).press('Enter')
+  await dialog.getByRole('button', { name: 'Add to the fleet' }).click()
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    'Added lab to the fleet',
+  )
+  const card = page.getByRole('link', { name: /^lab, / })
+  await expect(card).toContainText('env=lab')
+
+  // Its settings say where it's kept; removed, its Secret goes with it.
+  await page.getByRole('button', { name: 'lab’s actions' }).click()
+  await page.getByRole('menuitem', { name: 'Settings…' }).click()
+  const settings = page.getByRole('dialog', { name: 'lab' })
+  await expect(settings).toContainText('Comes fromThis pageAdded')
+  await expect(settings).toContainText('Kept asthe Secret lumovi/lumovi-cluster-lab')
+  await settings.getByRole('button', { name: 'Remove from the fleet…' }).click()
+  const removing = page.getByRole('dialog', { name: 'Remove lab?' })
+  await expect(removing).toContainText('Lumovi deletes the Secret it kept it as')
+  await expect(removing).not.toContainText('helm uninstall')
+  await removing.getByLabel('Type lab to confirm').fill('lab')
+  await removing.getByRole('button', { name: 'Remove' }).click()
+  await expect(removing).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    'Removed lab from the fleet',
+  )
+  await expect(settings).toHaveCount(0)
+  await expect(card).toHaveCount(0)
+  expect(clusters.demo.object('Secret', 'lumovi', 'lumovi-cluster-lab')).toBeUndefined()
+})
+
+test('where adding is off, its menu says how it’s turned on', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const hub = await serve({ env: hubEnv(clusters, false) })
+  await as(context, 'admin@example.com')
+  await page.goto(hub.url)
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  await expect(page.getByRole('menuitem', { name: /^Connect with an agent…/ })).toBeEnabled()
+  for (const item of [/^Paste a kubeconfig…/, /^Use a token…/]) {
+    await expect(page.getByRole('menuitem', { name: item })).toHaveAttribute('data-disabled', '')
+  }
+  await expect(page.getByRole('menu')).toContainText(
+    'Adding by kubeconfig or token is off on this server. It’s turned on with the Helm value fleet.addFromPage.',
+  )
+})
