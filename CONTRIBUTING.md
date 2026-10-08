@@ -44,6 +44,8 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 5. Open a pull request describing what changed and why. Screenshots help for UI changes
    (`npm run screenshots -- overview pods` takes those two, light and dark, into
    `docs/screenshots`; see [Screenshots](#screenshots)).
+   It can merge once CI's _CI passed_ check is green: `main` requires it, of everyone, with no
+   one able to bypass it.
 
 Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
@@ -133,10 +135,13 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
    too).
 2. In `CHANGELOG.md`, move what's under _Unreleased_ into a `## [1.1.0] - <date>` section,
    and update the links at the bottom.
-3. Commit and push to `main`.
+3. Commit, on a branch, and open a pull request for it.
+4. Once CI is green on it, fast-forward `main` to that very commit, without merging:
+   `git push origin <commit>:main`. `main` takes a commit pushed this way only once its checks
+   have passed, and a merge would make another commit, not the one CI tested.
 
-When CI passes on that commit, the _Release_ workflow sees a version without a release, and
-builds the installers for every platform (signing and notarizing the macOS app, signing the
+When CI passes on that commit on `main`, the _Release_ workflow sees a version without a
+release, and builds the installers for every platform (signing and notarizing the macOS app, signing the
 Windows one), and the image (`ghcr.io/lumovi/lumovi`) and Helm chart
 (`oci://ghcr.io/lumovi/charts`), which it pushes to GitHub's container registry with provenance attestations and signs
 with cosign (keyless). It attaches the installers, a `SHA256SUMS.txt` and a bill of
