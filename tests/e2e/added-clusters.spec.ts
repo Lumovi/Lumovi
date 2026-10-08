@@ -862,7 +862,8 @@ test('a server not verified gets the credentials only once the person agrees, fo
     ok: false,
     error: {
       code: 'not-allowed',
-      message: `Its credentials would go to ${server}, which isn’t verified. Agree to that to keep it.`,
+      // Over plain HTTP: said so.
+      message: `Its credentials would go to ${server} unencrypted. Agree to that to keep it.`,
     },
   })
   expect(seen).toEqual([])
@@ -882,6 +883,69 @@ test('a server not verified gets the credentials only once the person agrees, fo
     ),
   ).toMatchObject({ ok: true })
   standIn.close()
+})
+
+test('a server over plain HTTP without insecure-skip-tls-verify isn’t asked at all, credentials least of all', async ({
+  launch,
+}) => {
+  const asked: (string | undefined)[] = []
+  const standIn = createServer((req, res) => {
+    asked.push(req.headers.authorization)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ gitVersion: 'v9.9.9' }))
+  })
+  await new Promise<void>((done) => standIn.listen(0, '127.0.0.1', done))
+  const server = `http://127.0.0.1:${(standIn.address() as AddressInfo).port}`
+  const text = stringify({
+    apiVersion: 'v1',
+    kind: 'Config',
+    clusters: [{ name: 'open', cluster: { server } }],
+    users: [{ name: 'open', user: { token: 'pasted-token' } }],
+    contexts: [{ name: 'open', context: { cluster: 'open', user: 'open' } }],
+  })
+  const { page } = await launch()
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.check(text, 'open', []), text),
+  ).toMatchObject({
+    ok: true,
+    data: {
+      server: { ok: false, message: expect.stringContaining('plain HTTP') },
+      credentials: { notTried: 'server' },
+    },
+  })
+  expect(asked).toEqual([])
+  standIn.close()
+})
+
+test('a server over HTTPS whose certificate isn’t checked is said not verified', async ({
+  launch,
+  clusters,
+}) => {
+  const text = stringify({
+    apiVersion: 'v1',
+    kind: 'Config',
+    clusters: [
+      { name: 'c', cluster: { server: clusters.demo.url, 'insecure-skip-tls-verify': true } },
+    ],
+    users: [{ name: 'u', user: { token: DEMO_TOKEN } }],
+    contexts: [{ name: 'skipped', context: { cluster: 'c', user: 'u' } }],
+  })
+  const { page } = await launch()
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.inspect(text), text),
+  ).toMatchObject({
+    ok: true,
+    data: { unverified: [{ context: 'skipped', server: clusters.demo.url }] },
+  })
+  expect(
+    await page.evaluate((text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }), text),
+  ).toMatchObject({
+    ok: false,
+    error: {
+      code: 'not-allowed',
+      message: `Its credentials would go to ${clusters.demo.url}, which isn’t verified. Agree to that to keep it.`,
+    },
+  })
 })
 
 test('a program shared by contexts runs for one moved elsewhere only once the person agrees again', async ({
