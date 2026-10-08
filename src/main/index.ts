@@ -15,6 +15,7 @@ import { KubeService } from '@backend/kube/service'
 import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { setUpNetwork } from '@backend/network'
+import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { viewsDirectory } from '@backend/views'
 import { Assistants } from './assistants'
 import { registerIpc } from './ipc'
@@ -198,6 +199,18 @@ if (stdio) {
           ? 'store'
           : undefined,
     )
+    // The sidebar's sponsor card, from Lumovi/main-sponsor: what was read last time at once, read
+    // again soon after starting (once the network is set up, as the updater does) and every hour.
+    const { base, everyMs } = sponsorSource(process.env, !app.isPackaged)
+    const sponsor = new SponsorSource({
+      base,
+      dir: join(app.getPath('userData'), 'sponsor'),
+      ready: envReady,
+      firstMs: Math.min(SPONSOR_FIRST_MS, everyMs),
+      everyMs,
+    })
+    sponsor.onChange((card) => send(IPC.sponsorChanged, card))
+    sponsor.start()
     // What Chromium fetches (the updater, in its own session) goes through the policy's proxy
     // too, not the shell's; its credentials only for it.
     const { proxy, noProxy } = policy.network
@@ -295,6 +308,7 @@ if (stdio) {
       forwards,
       logs,
       updates,
+      sponsor,
       viewsDirectory: viewsDirectory(homedir()),
       rendererUrl: url,
       audit,
@@ -330,6 +344,9 @@ if (stdio) {
     app.on('second-instance', reveal)
   })
 }
+
+/** After starting, so the sponsor card's first read doesn't compete with loading a cluster. */
+const SPONSOR_FIRST_MS = 3_000
 
 /** How long the desktop app keeps what was done through it. */
 const AUDIT_RETENTION_DAYS = 90

@@ -90,6 +90,8 @@ export function startServer(
     LUMOVI_VIEWS_DIR: join(helmDir, 'views'),
     // The mock repositories and registries run here.
     LUMOVI_ALLOW_PRIVATE_CHARTS: 'true',
+    // Never GitHub's sponsor.json: a closed port, so Lumovi's own card (sponsor.spec.ts serves one).
+    LUMOVI_SPONSOR_URL: 'http://127.0.0.1:9/',
     ...NO_PROXY_HERE,
     ...options.env,
   }

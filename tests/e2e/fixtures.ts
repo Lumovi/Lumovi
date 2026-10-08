@@ -117,6 +117,8 @@ export async function launchApp(
     LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
     // Never the developer's own views.
     LUMOVI_VIEWS_DIR: join(userDataDir, 'views'),
+    // Never GitHub's sponsor.json: a closed port, so Lumovi's own card (sponsor.spec.ts serves one).
+    LUMOVI_SPONSOR_URL: 'http://127.0.0.1:9/',
     // Keep tests independent of the developer's login shell, and their proxy.
     SHELL: undefined,
     ELECTRON_RENDERER_URL: undefined,
