@@ -642,8 +642,14 @@ function FileNotices({ files }: { files: KubeconfigFiles }) {
         className="flex shrink-0 animate-fade-in items-center gap-2 border-b border-warn/25 bg-warn/10 px-5 py-1.5 text-xs text-warn-text"
       >
         <TriangleAlert className="size-3.5 shrink-0" />
-        <span className="min-w-0 truncate" title={file.problem ?? file.path}>
-          <span className="font-mono">{path}</span>{' '}
+        {/* The path cut from its start (its name shows), the words after it whole. */}
+        <span
+          className="max-w-[45%] min-w-0 truncate font-mono [direction:rtl]"
+          title={file.problem ?? file.path}
+        >
+          <bdi>{path}</bdi>
+        </span>
+        <span className="shrink-0">
           {gone
             ? 'is gone, so its clusters aren’t here.'
             : 'couldn’t be read, so its clusters aren’t here.'}

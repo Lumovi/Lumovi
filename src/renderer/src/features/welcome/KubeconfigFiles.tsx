@@ -114,6 +114,8 @@ export function KubeconfigFilesButton({ files }: { files: Files }) {
           side="top"
           align="start"
           sideOffset={6}
+          // In line with the card above, not with the button's hover area (8 px further out).
+          alignOffset={8}
           aria-label="Kubeconfig files"
           // Opened on the popover, not its first file's button (whose tooltip would show).
           tabIndex={-1}
@@ -183,7 +185,11 @@ function FilesPopover({ files }: { files: Files }) {
         )}
         {locked
           ? 'Your organization’s policy keeps Lumovi to these files.'
-          : 'Lumovi reads these files and never writes to them. Removing one only stops Lumovi reading it.'}
+          : `Lumovi reads these files and never writes to them.${
+              files.files.some((file) => file.removable)
+                ? ' Removing one only stops Lumovi reading it.'
+                : ''
+            }`}
       </p>
     </>
   )

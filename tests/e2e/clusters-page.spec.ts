@@ -345,6 +345,8 @@ test('a cluster is added from a pasted kubeconfig, checked, named, and used with
     page.getByRole('dialog', { name: 'Remove Pasted cluster from Lumovi?' }),
   ).toBeVisible()
   await page.keyboard.press('Escape')
+  // Closed: back in the search.
+  await expect(page.getByPlaceholder('Search clusters and labels…')).toBeFocused()
   // Or from its actions.
   await row.getByRole('button', { name: 'Actions for Pasted cluster' }).click()
   await page.getByRole('menuitem', { name: 'Remove from Lumovi' }).click()
@@ -485,7 +487,7 @@ test('a cluster’s settings: production back to Lumovi’s guess, and read-only
   const dialog = await openSettings(page, 'demo')
   await expect(dialog).toContainText('Set by LUMOVI_READ_ONLY.')
   await expect(dialog.getByRole('switch', { name: 'Read-only' })).toBeDisabled()
-  await dialog.getByRole('button', { name: 'Use Lumovi’s guess' }).click()
+  await dialog.getByRole('button', { name: 'Let Lumovi guess from its name' }).click()
   // demo doesn't look like production.
   await expect(dialog.getByRole('switch', { name: 'Production' })).not.toBeChecked()
   await dialog.getByRole('button', { name: 'Save' }).click()

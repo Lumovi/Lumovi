@@ -571,11 +571,14 @@ function Step({
   detail,
   hint,
   index,
+  mono = false,
   children,
 }: {
   state: StepState
   title: string
   detail?: ReactNode
+  /** Its detail is names or addresses (mono), not a sentence. */
+  mono?: boolean
   hint?: ReactNode
   /** Where it is in the list: each comes a moment after the one before. */
   index: number
@@ -614,7 +617,11 @@ function Step({
         >
           {title}
         </span>
-        {detail && <span className="block truncate font-mono text-xs text-ink-3">{detail}</span>}
+        {detail && (
+          <span className={cn('block truncate text-xs text-ink-3', mono && 'font-mono')}>
+            {detail}
+          </span>
+        )}
         {hint && <span className="mt-0.5 block text-xs text-ink-2">{hint}</span>}
         {children}
       </span>
@@ -654,6 +661,7 @@ function Steps({
       <Step
         index={index++}
         state={reads}
+        mono={reads !== 'failed'}
         title={reads === 'failed' ? 'It doesn’t read as a kubeconfig' : 'It reads as a kubeconfig'}
         detail={
           reads === 'failed'
@@ -720,6 +728,8 @@ function Steps({
             <Step
               index={index++}
               state={server}
+              // Its address and version; what went wrong, as a sentence.
+              mono={server !== 'failed'}
               title={server === 'failed' ? 'The server didn’t answer' : 'The server answers'}
               detail={
                 result && !result.server.ok
@@ -1060,8 +1070,8 @@ function Ready({
         <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
           Use it with kubectl
         </p>
-        <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
-          {line ?? '…'}
+        <code className="block font-mono text-xs leading-relaxed text-ink-2 selectable">
+          {line ? <PathLine line={line} /> : '…'}
         </code>
         {line && (
           <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -1071,4 +1081,19 @@ function Ready({
       </div>
     </PageDialog>
   )
+}
+
+/** A line of paths, broken only after a slash (its spaces kept, so it isn't broken there). */
+function PathLine({ line }: { line: string }) {
+  const parts = line.replaceAll(' ', '\u00a0').split('/')
+  return parts.map((part, index) => (
+    <Fragment key={index}>
+      {part}
+      {index < parts.length - 1 && (
+        <>
+          /<wbr />
+        </>
+      )}
+    </Fragment>
+  ))
 }
