@@ -111,7 +111,7 @@ const MAX_BYTES = Number(process.env.LUMOVI_STATE_MAX_BYTES) || MAX_KEPT_BYTES
  */
 const UNOPENED_GRACE_MS = Number(process.env.LUMOVI_STATE_UNOPENED_GRACE_MS) || 15 * 60_000
 /** How many entries are opened before the event loop is let go a moment, as they're read. */
-const OPENED_AT_ONCE = 500
+const OPENED_AT_ONCE = 200
 /** An entry's name (an HMAC, in base64url), and a sealed entry: what could be one, at least. */
 const NAME = /^[A-Za-z0-9_-]{43}$/
 const SEALED = /^[A-Za-z0-9_-]{40,}$/
