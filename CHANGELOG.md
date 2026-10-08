@@ -11,15 +11,18 @@ All notable changes to Lumovi are documented here. The format follows
 - A policy can require Kubernetes' signature from its mirror too,
   `"kubectlSignatures": "required"`: a mirror's kubectl is then used only with it, as
   dl.k8s.io's always is, and a terminal says when its mirror keeps none. One taken unsigned
-  before isn't used either.
+  before isn't used either. A policy that can't be used requires it too.
 
 ### Changed
 
 - Published releases are immutable: once a release is out, GitHub keeps its files and its tag
   from being changed or replaced, and shows it as immutable.
-- A terminal whose kubectl's signature is refused because it isn't signed as this Lumovi knows
-  Kubernetes signs, or under Sigstore's authority and logs as it knows them, says Lumovi needs
-  an update if Kubernetes or Sigstore has changed them.
+- A terminal whose kubectl's signature is refused says it couldn't be verified as Kubernetes'
+  own and may have been changed; or, where it isn't signed as this Lumovi knows Kubernetes signs
+  (or under Sigstore's authority and logs as it knows them), that they may have changed, and
+  Lumovi needs an update.
+- A kubectl Lumovi keeps is used only if what it wrote of it names that kubectl, by its
+  SHA-256: one Lumovi stopped while getting again isn't taken for the one it was getting.
 - The Sigstore trust root the app checks signatures against is taken through Sigstore's TUF
   repository, checked against its signed metadata, and a weekly check proposes the new one when
   Sigstore changes it (and opens an issue if Kubernetes' instructions name another signer).

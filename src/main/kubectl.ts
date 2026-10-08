@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { chmod, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { whyNotKubernetes, type TrustRoot } from './kubectl-signature'
 
@@ -65,18 +65,26 @@ export type MatchingKubectl =
   { dir: string; version: string; unsigned?: string } | { problem: string }
 
 /**
- * In a version's folder, how it was checked: against Kubernetes' signature (where it came from),
- * or against its SHA-256 only (the mirror it came from unsigned). One without either was kept
- * before Lumovi checked signatures (1.13.0): it's got again, as Lumovi starts.
+ * In a version's folder, how it was checked: against Kubernetes' signature, or against its
+ * SHA-256 only (from a mirror that keeps no signatures). Each names the host it came from and
+ * the kubectl's own SHA-256, and is written once the kubectl is in place: one that doesn't name
+ * the kubectl beside it (a crash between the two, say) says nothing, and that kubectl isn't used.
+ * One without either was kept before Lumovi checked signatures (1.13.0): it's got again.
  */
 const SIGNED = 'signed'
 const UNSIGNED = 'unsigned'
+
+/** How a version's kubectl was checked: signed, or its SHA-256 only, from `host`. */
+interface Checked {
+  signed: boolean
+  host: string
+}
 
 export class Kubectls {
   /** Each minor version's newest patch (1.34 → v1.34.3), or why it isn't known, for a while. */
   readonly #newest = new Map<string, { until: number; version?: string; problem?: string }>()
   /** Downloads under way, by version: terminals opened meanwhile wait for the same one. */
-  readonly #getting = new Map<string, Promise<void>>()
+  readonly #getting = new Map<string, Promise<Checked>>()
   /** Each cluster's minor version, as it last said it. */
   /** Done once the folder's been tidied, as Lumovi starts: terminals wait for it. */
   readonly #pruned: Promise<void>
@@ -129,13 +137,13 @@ export class Kubectls {
     let downloading: string | undefined
     const matching = async () => {
       const version = await this.#newestOf(minor)
-      const dir = join(this.deps.dir, version)
-      if (!existsSync(join(dir, EXE)) || !this.#checked(dir)) {
+      let checked = await this.#usable(join(this.deps.dir, version))
+      if (!checked) {
         downloading = version
         getting(version)
-        await this.#download(version, `${goos}/${goarch}`)
+        checked = await this.#download(version, `${goos}/${goarch}`)
       }
-      return this.#found(version)
+      return this.#found(version, checked)
     }
     try {
       return await within(matching(), KUBECTL_WAIT_MS, () =>
@@ -151,7 +159,7 @@ export class Kubectls {
       }
       // Offline, say: the newest one kept of that minor version will do.
       const kept = await this.#kept(minor)
-      if (kept) return this.#found(kept)
+      if (kept) return this.#found(kept.version, kept.checked)
       return {
         problem:
           error instanceof Late
@@ -162,15 +170,8 @@ export class Kubectls {
   }
 
   /** A version the folder has, and whether it came unsigned (from which mirror). */
-  #found(version: string): MatchingKubectl {
-    const dir = join(this.deps.dir, version)
-    let unsigned: string | undefined
-    try {
-      unsigned = readFileSync(join(dir, UNSIGNED), 'utf8').trim() || undefined
-    } catch {
-      unsigned = undefined
-    }
-    return { dir, version, ...(unsigned ? { unsigned } : {}) }
+  #found(version: string, { signed, host }: Checked): MatchingKubectl {
+    return { dir: join(this.deps.dir, version), version, ...(signed ? {} : { unsigned: host }) }
   }
 
   /**
@@ -258,7 +259,7 @@ export class Kubectls {
     }
   }
 
-  #download(version: string, platform: string): Promise<void> {
+  #download(version: string, platform: string): Promise<Checked> {
     let getting = this.#getting.get(version)
     if (!getting) {
       getting = this.#fetch(version, platform).finally(() => this.#getting.delete(version))
@@ -267,7 +268,7 @@ export class Kubectls {
     return getting
   }
 
-  async #fetch(version: string, platform: string): Promise<void> {
+  async #fetch(version: string, platform: string): Promise<Checked> {
     const mirror = this.#mirror
     const url = `${mirror}/release/${version}/bin/${platform}/${EXE}`
     const [kubectl, published, signature, certificate] = await Promise.all([
@@ -286,8 +287,16 @@ export class Kubectls {
     // As its host says it, however it's spelled (DL.K8S.IO, dl.k8s.io:443, …).
     const official = host(mirror) === host(this.deps.official)
     if (signature && certificate) {
-      const why = whyNotKubernetes(kubectl, signature, certificate, this.deps.trust)
-      if (why) throw new Error(`${host(mirror)}’s kubectl ${version} isn’t Kubernetes’ own: ${why}`)
+      const refused = whyNotKubernetes(kubectl, signature, certificate, this.deps.trust)
+      // What may have happened first (a terminal's line can be cut short), then why.
+      if (refused) {
+        const which = refused.changed
+          ? `so it may have been changed, or ${refused.changed} and Lumovi needs an update`
+          : 'and may have been changed'
+        throw new Error(
+          `${host(mirror)}’s kubectl ${version} couldn’t be verified as Kubernetes’ own, ${which}: ${refused.why}`,
+        )
+      }
     } else if (signature || certificate) {
       throw new Error(
         `${host(mirror)} published kubectl ${version}’s ${signature ? 'signature without its certificate' : 'certificate without its signature'}`,
@@ -301,34 +310,39 @@ export class Kubectls {
     }
     const dir = join(this.deps.dir, version)
     await mkdir(dir, { recursive: true })
-    // Whole, or not there: a terminal never finds half of one. How it was checked is said before
-    // it's there (and not as a download a crash cut short said).
-    await rm(join(dir, signature ? UNSIGNED : SIGNED), { force: true })
-    await writeFile(join(dir, signature ? SIGNED : UNSIGNED), host(mirror))
+    // Whole, or not there: a terminal never finds half of one. How it was checked is said once
+    // it's there, naming it: what was said of one before it no longer is, and a crash between
+    // the two leaves it said of nothing.
+    await rm(join(dir, SIGNED), { force: true })
+    await rm(join(dir, UNSIGNED), { force: true })
     const partial = join(dir, `.${EXE}.${process.pid}`)
     await writeFile(partial, kubectl, { mode: 0o755 })
     await rename(partial, join(dir, EXE))
+    const checked = { signed: Boolean(signature), host: host(mirror) }
+    const marker = signature ? SIGNED : UNSIGNED
+    await writeFile(join(dir, `.${marker}.${process.pid}`), `${checked.host}\n${sha256}\n`)
+    await rename(join(dir, `.${marker}.${process.pid}`), join(dir, marker))
+    return checked
   }
 
   /**
-   * Whether a version's folder says how its kubectl was checked, in a way that does now: one
-   * taken unsigned from a mirror isn't used once the policy requires signatures.
+   * How a version's kubectl was checked, where its folder says so of the kubectl there, in a way
+   * that does now: one taken unsigned from a mirror isn't used once the policy requires
+   * signatures. (Read each time it's used: what's kept could have been changed since.)
    */
-  #checked(dir: string): boolean {
-    return (
-      existsSync(join(dir, SIGNED)) ||
-      (existsSync(join(dir, UNSIGNED)) && !this.deps.signaturesRequired())
-    )
+  async #usable(dir: string): Promise<Checked | undefined> {
+    const checked = await checkedAs(dir)
+    return checked && (checked.signed || !this.deps.signaturesRequired()) ? checked : undefined
   }
 
-  /** The newest patch of a minor version the folder has. */
-  async #kept(minor: string): Promise<string | undefined> {
-    return (await this.#versions()).find((version) => {
-      const dir = join(this.deps.dir, version)
-      return (
-        VERSION.exec(version)?.[1] === minor && existsSync(join(dir, EXE)) && this.#checked(dir)
-      )
-    })
+  /** The newest patch of a minor version the folder has that can be used. */
+  async #kept(minor: string): Promise<{ version: string; checked: Checked } | undefined> {
+    for (const version of await this.#versions()) {
+      if (VERSION.exec(version)?.[1] !== minor) continue
+      const checked = await this.#usable(join(this.deps.dir, version))
+      if (checked) return { version, checked }
+    }
+    return undefined
   }
 
   /** The versions the folder has, newest first. */
@@ -357,28 +371,46 @@ export class Kubectls {
       }
     }
     await chmod(this.#minorsFile, 0o600).catch(() => {})
-    const seen = new Set<string>()
+    // Of each minor version, the newest; and the newest signed one too, where that's older: what
+    // a policy requiring signatures can use, offline.
+    const newest = new Set<string>()
+    const newestSigned = new Set<string>()
     for (const version of await this.#versions()) {
       const minor = VERSION.exec(version)![1]!
       const dir = join(this.deps.dir, version)
-      if (existsSync(join(dir, EXE)) && !checked(dir)) {
+      const signed = existsSync(join(dir, SIGNED))
+      if (existsSync(join(dir, EXE)) && !signed && !existsSync(join(dir, UNSIGNED))) {
         await rm(dir, { recursive: true, force: true }).catch(() => {})
         continue
       }
-      if (seen.has(minor)) {
+      if (newest.has(minor) && !(signed && !newestSigned.has(minor))) {
         await rm(dir, { recursive: true, force: true }).catch(() => {})
-      } else {
-        for (const name of await readdir(dir).catch(() => [])) {
-          if (name.startsWith('.')) await rm(join(dir, name), { force: true }).catch(() => {})
-        }
+        continue
       }
-      seen.add(minor)
+      for (const name of await readdir(dir).catch(() => [])) {
+        if (name.startsWith('.')) await rm(join(dir, name), { force: true }).catch(() => {})
+      }
+      newest.add(minor)
+      if (signed) newestSigned.add(minor)
     }
   }
 }
 
-/** Whether a version's folder says how its kubectl was checked. */
-const checked = (dir: string) => existsSync(join(dir, SIGNED)) || existsSync(join(dir, UNSIGNED))
+/** How a version's kubectl was checked, if its folder says so of the kubectl there. */
+async function checkedAs(dir: string): Promise<Checked | undefined> {
+  for (const [marker, signed] of [
+    [SIGNED, true],
+    [UNSIGNED, false],
+  ] as const) {
+    const said = await readFile(join(dir, marker), 'utf8').catch(() => undefined)
+    if (said === undefined) continue
+    const [host = '', sha256] = said.trim().split('\n')
+    const kubectl = await readFile(join(dir, EXE)).catch(() => undefined)
+    if (!kubectl || createHash('sha256').update(kubectl).digest('hex') !== sha256) return undefined
+    return { signed, host }
+  }
+  return undefined
+}
 
 /** A wait that ran out: what it waited for carries on. */
 class Late extends Error {}

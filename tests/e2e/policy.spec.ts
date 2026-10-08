@@ -105,6 +105,8 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       source: path,
       readOnly: true,
       assistantsOff: true,
+      // And kubectl only with Kubernetes' signature (local-terminal.spec.ts shows it).
+      kubectlSignatures: 'required',
       problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, network.`,
     },
   })
@@ -148,7 +150,12 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
     // (Nothing waits on a FIFO: Lumovi starts.)
     const { page, app } = await launch({ env: { LUMOVI_POLICY: path } })
     expect(await page.evaluate(() => window.lumovi!.app.settings())).toMatchObject({
-      managed: { readOnly: true, assistantsOff: true, problem: expect.stringContaining(problem) },
+      managed: {
+        readOnly: true,
+        assistantsOff: true,
+        kubectlSignatures: 'required',
+        problem: expect.stringContaining(problem),
+      },
     })
     await app.close()
   }
