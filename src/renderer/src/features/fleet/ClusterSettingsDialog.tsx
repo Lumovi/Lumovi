@@ -94,7 +94,8 @@ function SettingsForm({
   const [labels, setLabels] = useState(
     Object.entries(settings.labels.value).map(([key, value]) => `${key}=${value}`),
   )
-  const [groups, setGroups] = useState(settings.groups.value)
+  // (A source's empty group, lumovi.dev/groups: "", is none.)
+  const [groups, setGroups] = useState(settings.groups.value.filter(Boolean))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
   const titleProblem = titleError(title.trim())
@@ -212,9 +213,11 @@ function SettingsForm({
           />
           <From set={groups.length > 0} managed={settings.groups.managed} />
           <p className="mt-1 text-xs text-ink-3">
-            {groups.length
-              ? 'Who sees it, besides admins. A change applies at once.'
-              : 'Who sees it, besides admins: with none, everyone signed in. A change applies at once.'}
+            {settings.groups.managed && groups.length === 0
+              ? 'Only admins see it: its source gives it no groups.'
+              : groups.length
+                ? 'Who sees it, besides admins. A change applies at once.'
+                : 'Who sees it, besides admins: with none, everyone signed in. A change applies at once.'}
           </p>
         </div>
       </div>

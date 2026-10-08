@@ -41,15 +41,23 @@ const isFor = (setting: FleetSetting, cluster: FleetCluster) =>
   cluster.origin !== undefined && setting.origin === originKey(cluster.origin)
 
 /**
- * A cluster with what the Fleet page sets for it: its name as shown; and its labels and groups,
- * where its source leaves them unset (what its source sets, the page never overrides). What was
- * set for another of its name, from elsewhere, isn't its.
+ * A cluster with what the Fleet page sets for it: its name as shown, unless another cluster has
+ * come by that name since; and its labels and groups, where its source leaves them unset (what
+ * its source sets, the page never overrides). What was set for another of its name, from
+ * elsewhere, isn't its.
  */
-function settled(cluster: FleetCluster, setting: FleetSetting | undefined): FleetCluster {
+function settled(
+  cluster: FleetCluster,
+  setting: FleetSetting | undefined,
+  names: Set<string>,
+): FleetCluster {
   if (!setting || !isFor(setting, cluster)) return cluster
+  const shown = setting.title?.toLowerCase()
+  const title =
+    shown && (shown === cluster.name.toLowerCase() || !names.has(shown)) ? setting.title : undefined
   return {
     ...cluster,
-    ...(setting.title ? { title: setting.title } : {}),
+    ...(title ? { title } : {}),
     ...(setting.labels && !cluster.managed?.labels ? { labels: setting.labels } : {}),
     ...(setting.groups && !cluster.managed?.groups ? { groups: setting.groups } : {}),
   }
@@ -351,7 +359,9 @@ export class HostedFleet implements Hosted {
     for (const name of before) if (!after.has(name)) log(`Fleet: ${name} removed`)
     this.#sourced = merged
     const set = this.#page?.settings() ?? {}
-    this.#clusters = merged.map((cluster) => settled(cluster, set[cluster.name]))
+    // (A name shown that's another cluster's name now gives way: two cards don't say the same.)
+    const names = new Set(merged.map((cluster) => cluster.name.toLowerCase()))
+    this.#clusters = merged.map((cluster) => settled(cluster, set[cluster.name], names))
     // What was set for another cluster of a name, now from elsewhere, is let go (once this is done).
     for (const cluster of merged) {
       const setting = set[cluster.name]
