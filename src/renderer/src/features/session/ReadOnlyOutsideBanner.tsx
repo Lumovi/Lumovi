@@ -38,7 +38,9 @@ export function ReadOnlyOutsideBanner() {
             ? 'its setting was deleted'
             : 'an older copy of its setting was put back'}{' '}
           where Lumovi keeps it, by whoever can write there.
-          {others && ` Lumovi put back its ${others} as it last set them.`} It’s in the audit log.
+          {others &&
+            ` Lumovi put back its ${others} as it last set ${outside.restored.join() === 'metricsSource' ? 'it' : 'them'}.`}{' '}
+          It’s in the audit log.
         </span>
       </span>
       {readOnly.readOnly ? (
