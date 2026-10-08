@@ -51,7 +51,12 @@ export async function startMockDownloads(): Promise<MockDownloads> {
       this.delayMs = undefined
       this.signing = this.defaultSigning
     },
-    close: () => new Promise<void>((done) => server.close(() => done())),
+    // Without waiting for the connections apps kept open (a killed app's, on Windows, never end).
+    close: () =>
+      new Promise<void>((done) => {
+        server.close(() => done())
+        server.closeAllConnections()
+      }),
   }
   const server = createServer((req, res) => {
     const path = new URL(req.url!, 'http://localhost').pathname
