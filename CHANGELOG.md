@@ -13,6 +13,16 @@ All notable changes to Lumovi are documented here. The format follows
   Issue), View (zoom, full screen, Match kubectl to Each Cluster) and the rest are reachable with
   the mouse. Alt on its own, or F10, opens it too.
 - Help → Documentation opens docs.lumovi.dev, on every platform.
+- A fleet's admins connect a private cluster from the Fleet page (Add cluster, then Connect with
+  an agent…): its name, labels and groups, then one command to run with their own access to it,
+  which installs its agent. The agent dials the hub, so the cluster opens no port and nobody
+  pastes its credentials into the hub. The command's join token works once, for an hour, is
+  shown once and never kept (only its SHA-256), and is read from the terminal, not the command
+  line. The agent exchanges it for a token of its own, which it keeps in its Secret (the one
+  Secret it may read and change), so the join token is no use once it's joined. The page waits
+  for it with a timer and a card, then asks for its certificate authority to be checked.
+  Making, cancelling, joining and removing are admin-only, need Lumovi's admins configured and
+  its state kept, and are recorded in the audit log.
 
 ### Changed
 

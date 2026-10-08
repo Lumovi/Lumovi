@@ -2,6 +2,7 @@
  * A private cluster connected from the Fleet page: its agent joins with its one-time join token,
  * which the hub exchanges for a token of the agent's own, kept in its Secret in its cluster.
  */
+import { X509Certificate } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -235,4 +236,94 @@ test('a join token that isn’t one, or expired, is refused; an agent stopped ha
   expect(expired.log()).toContain(
     `The hub at ${origin} refused this agent: its join token expired: make a new command on the Fleet page.`,
   )
+})
+
+test('an admin connects a cluster from the Fleet page: a command, a wait, then its CA checked', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const hub = await serve({ env: hubEnv(clusters) })
+  // Someone else has nothing to add.
+  await as(context, 'alice@example.com')
+  await page.goto(hub.url)
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('cluster')
+  await expect(page.getByRole('button', { name: 'Add cluster' })).toHaveCount(0)
+
+  // (In the group it's shared with.)
+  await as(context, 'admin@example.com', 'platform')
+  await page.reload()
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  await page.getByRole('menuitem', { name: /^Connect with an agent…/ }).click()
+  const form = page.getByRole('dialog', { name: 'Connect a cluster' })
+  await form.getByLabel('Name').fill('Edge AP')
+  await expect(form).toContainText(
+    'Up to 63 lowercase letters, digits or “-”, starting and ending with a letter or digit.',
+  )
+  await expect(form.getByRole('button', { name: 'Create the command' })).toBeDisabled()
+  await form.getByLabel('Name').fill(EDGE)
+  await form.getByRole('textbox', { name: 'Add a label' }).fill('region=ap-south')
+  await form.getByRole('textbox', { name: 'Add a label' }).press('Enter')
+  await form.getByRole('textbox', { name: 'Add a group' }).fill('platform')
+  await form.getByRole('textbox', { name: 'Add a group' }).press('Enter')
+  await form.getByRole('button', { name: 'Create the command' }).click()
+
+  // Its join token, once, and the command, which asks for it (it's not on the command line).
+  const dialog = page.getByRole('dialog', { name: `Connect ${EDGE}` })
+  const token = (await dialog.locator('code').first().textContent())!
+  expect(token).toMatch(/^lumovi_join_/)
+  const command = (await dialog.locator('code').nth(1).textContent())!
+  expect(command).toContain('read -rs LUMOVI_JOIN_TOKEN')
+  expect(command).toContain(`--set mode=agent --set clusterName=${EDGE}`)
+  expect(command).toContain(`--set agent.hubUrl=${hub.url.replace(/\/$/, '')}`)
+  expect(command).toContain('--set-file agent.joinToken=/dev/stdin')
+  expect(command).not.toContain(token)
+  await expect(dialog.getByRole('status')).toContainText(`Waiting for ${EDGE} to connect…`)
+  await expect(dialog.getByRole('status')).toContainText(/\d+:\d\d$/)
+
+  // Closed, it waits on the page; shown again, without its token.
+  await dialog.getByRole('button', { name: 'Leave it waiting' }).click()
+  const waiting = page.getByRole('region', { name: `${EDGE}, Waiting for its agent…` })
+  await waiting.getByRole('button', { name: 'Show the command' }).click()
+  await expect(dialog).toContainText('Its join token was shown when the command was made')
+  await expect(dialog.locator('code')).toHaveCount(1)
+
+  // Its agent joins: the dialog says so, and asks for the last step.
+  agentSecret(clusters, { 'join-token': token })
+  const agent = agentOf(hub.url, clusters, { LUMOVI_AGENT_JOIN_TOKEN: token })
+  const connected = page.getByRole('dialog', { name: `${EDGE} is connected` })
+  await expect(connected).toContainText('Check its certificate authority')
+  await connected
+    .getByLabel(`${EDGE}’s certificate authority’s SHA-256`)
+    .fill(new X509Certificate(clusters.demo.caPem!).fingerprint256)
+  await connected.getByRole('button', { name: 'Trust it' }).click()
+  await expect(connected).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    `Trusted ${EDGE}’s agent`,
+  )
+  await expect(waiting).toHaveCount(0)
+  // Its card lands, tinted for a moment.
+  const card = page.getByRole('link', { name: new RegExp(`^${EDGE}, `) })
+  await expect(card).toContainText('region=ap-south')
+  await expect(card).toHaveAttribute('data-fresh', 'true')
+  await agent.stop()
+
+  // Another, cancelled from its card: recorded.
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  await page.getByRole('menuitem', { name: /^Connect with an agent…/ }).click()
+  await form.getByLabel('Name').fill('lab')
+  await form.getByRole('button', { name: 'Create the command' }).click()
+  await page
+    .getByRole('dialog', { name: 'Connect lab' })
+    .getByRole('button', { name: 'Leave it waiting' })
+    .click()
+  await page
+    .getByRole('region', { name: 'lab, Waiting for its agent…' })
+    .getByRole('button', { name: 'Cancel it' })
+    .click()
+  await expect(page.getByRole('region', { name: /^lab, / })).toHaveCount(0)
+  expect(audited(hub, 'agent.join-cancelled')).toEqual([
+    expect.objectContaining({ cluster: 'lab' }),
+  ])
 })
