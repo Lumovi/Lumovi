@@ -581,7 +581,7 @@ test('what’s done through the page is recorded: as it was asked, and as it wen
   expect(events[0]!.error).toHaveLength(4000)
   expect(events[0]!.error).toMatch(/^x+…$/)
   expect(events.find((e) => e.outcome === 'refused')!.error).toMatch(
-    /^demo is read-only for everyone on this server: .+ made it so on \d{4}-\d{2}-\d{2}\.$/,
+    /^demo is read-only for everyone on this server: .+ made it so\.$/,
   )
 
   // Found by where, what, through whom; one object's by its uid (and those that had none).

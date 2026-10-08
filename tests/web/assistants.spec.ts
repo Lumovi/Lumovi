@@ -816,7 +816,7 @@ test('a cluster made read-only for everyone is read-only for everyone’s assist
     reason: 'Busy.',
   }
   expect((await call(client, 'scale', scale)).text).toMatch(
-    /demo is read-only for everyone on this server: bob@example\.com made it so on /,
+    /demo is read-only for everyone on this server: bob@example\.com made it so\./,
   )
   await page.goto(`${served.url}cluster/demo`)
   await page.getByRole('button', { name: 'AI assistants (1 connected)' }).click()
