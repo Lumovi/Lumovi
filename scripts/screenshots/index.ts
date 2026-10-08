@@ -58,7 +58,13 @@ async function startClusters() {
   const child = spawn(process.execPath, [resolve('scripts/screenshots/clusters.ts')], {
     stdio: ['pipe', 'pipe', 'inherit'],
   })
-  const [line] = (await once(createInterface({ input: child.stdout }), 'line')) as [string]
+  // Its first line, or why there's none: it stopped (it says why).
+  const line = await new Promise<string>((resolve, reject) => {
+    createInterface({ input: child.stdout }).once('line', resolve)
+    child.once('exit', (code) =>
+      reject(new Error(`The mock clusters stopped before they started (exit code ${code}).`)),
+    )
+  })
   const { kubeconfig } = JSON.parse(line) as { kubeconfig: string }
   return {
     kubeconfig,
