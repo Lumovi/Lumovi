@@ -107,14 +107,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const clusters = new ClusterSettings(state, access, audit)
   // A fleet's page names, labels and shares its clusters (what their sources leave unset), and
   // its admins see them all.
-  hosted.settleWith?.({
-    settings: () => clusters.fleetSettings(),
-    onChange: (listener) => clusters.onChange(listener),
-    isAdmin: (user) => access.isAdmin(user),
-  })
   const fleetSettings = hosted.fleet
     ? new FleetSettings(hosted, clusters, access, audit)
     : undefined
+  hosted.settleWith?.({
+    settings: () => clusters.fleetSettings(),
+    onChange: (listener) => clusters.onChange(listener),
+    stale: (name) => fleetSettings?.forget(name),
+    isAdmin: (user) => access.isAdmin(user),
+  })
   // A fleet's clusters connected from its page: their agents' join tokens.
   const joins = hosted.fleet
     ? new Joins(state, access, audit, (name) => hosted.hasCluster?.(name) ?? false)

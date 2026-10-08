@@ -62,12 +62,12 @@ const EXTENSION = 'lumovi.dev'
 
 /**
  * Every context of a kubeconfig, as a cluster; `dir` resolves its relative file paths. What its
- * `lumovi.dev` extension sets is its, as `by` says where (each context's).
+ * `lumovi.dev` extension sets is set `by` it, as the Fleet page says ("the fleet's kubeconfig").
  */
 export function kubeconfigClusters(
   text: string,
   source: string,
-  by: (context: string) => string,
+  by: string,
   dir?: string,
 ): FleetCluster[] {
   const kc = new KubeConfig()
@@ -94,7 +94,7 @@ export function kubeconfigClusters(
     const account = kc.getUser(context.user)
     const { set, ...rest } = settings
     const found = described(context.name, source, rest, cluster ?? undefined, account ?? undefined)
-    const managed = { by: by(context.name), key: `${EXTENSION} extension` }
+    const managed = { by, in: [{ key: EXTENSION, context: context.name }] }
     return set.length
       ? { ...found, managed: Object.fromEntries(set.map((field) => [field, managed])) }
       : found

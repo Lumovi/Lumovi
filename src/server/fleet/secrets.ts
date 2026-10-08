@@ -17,6 +17,7 @@ interface Secret {
   metadata: {
     name: string
     namespace: string
+    uid?: string
     labels?: Record<string, string>
     annotations?: Record<string, string>
   }
@@ -57,7 +58,7 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
     const kubeconfig = decoded(secret, 'kubeconfig')
     return kubeconfig === undefined
       ? [broken(secret.metadata.name, source, 'It has no kubeconfig (data.kubeconfig).')]
-      : kubeconfigClusters(kubeconfig, source, () => itsSecret(secret)).map((cluster) =>
+      : kubeconfigClusters(kubeconfig, source, itsSecret(secret)).map((cluster) =>
           annotated(cluster, secret),
         )
   },
@@ -65,7 +66,7 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
   'cluster-api': (secret, source) => {
     const kubeconfig = decoded(secret, 'value')
     if (!secret.metadata.name.endsWith('-kubeconfig') || kubeconfig === undefined) return []
-    const [cluster] = kubeconfigClusters(kubeconfig, source, () => itsSecret(secret))
+    const [cluster] = kubeconfigClusters(kubeconfig, source, itsSecret(secret))
     return cluster
       ? [
           annotated(
@@ -126,7 +127,10 @@ const READERS: Record<SecretSource, (secret: Secret, source: string) => FleetClu
     )
     // Those labels are set by its Secret.
     const cluster = own.length
-      ? { ...found, managed: { labels: { by: itsSecret(secret), key: 'metadata.labels' } } }
+      ? {
+          ...found,
+          managed: { labels: { by: itsSecret(secret), in: [{ key: 'metadata.labels' }] } },
+        }
       : found
     return [annotated(cluster, secret)]
   },
@@ -159,8 +163,8 @@ function annotated(cluster: FleetCluster, secret: Secret): FleetCluster {
   for (const field of ['labels', 'groups'] as const) {
     const key = `lumovi.dev/${field}`
     if (annotations[key] === undefined) continue
-    const had = field === 'labels' ? managed.labels : undefined
-    managed[field] = { by: itsSecret(secret), key: had ? `${had.key} and ${key}` : key }
+    const had = field === 'labels' ? (managed.labels?.in ?? []) : []
+    managed[field] = { by: itsSecret(secret), in: [...had, { key }] }
   }
   return {
     ...described(
@@ -217,6 +221,7 @@ export async function secretClusters(
           tool: kind,
           secret: secret.metadata.name,
           namespace,
+          uid: secret.metadata.uid,
         } as const
         try {
           clusters.push(...READERS[kind](secret, source).map((cluster) => ({ ...cluster, origin })))
