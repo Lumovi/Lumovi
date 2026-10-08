@@ -12,9 +12,13 @@ All notable changes to Lumovi are documented here. The format follows
   reach Lumovi: its NetworkPolicy is always on, and the chart won't install without
   `networkPolicy.from` naming them. Whoever else could reach Lumovi could say they're anyone.
 - A fleet's hub trusts an agent's cluster only with the certificate authority it's named with
-  (`caSha256`, in `LUMOVI_FLEET_AGENTS`), or the one the agent first sends: that's kept, and
-  recorded in the audit log, and another is refused (the agent and its cluster's card say so)
-  until an admin trusts it. Agents connect to their hub only over https.
+  (`caSha256`, in `LUMOVI_FLEET_AGENTS`, as `openssl x509 -fingerprint -sha256` prints it), or
+  the one the agent first sends: that's kept, and recorded in the audit log, and another is
+  refused (the agent and its cluster's card say so). An admin trusts a new one, or checks one
+  first sent, by giving its SHA-256 from the cluster itself, in "Agents to check" on the fleet's
+  page; the hub's log and the chart's notes say which agents have no `caSha256`.
+- An agent's `/healthz` is ready only once its hub trusts its cluster, and says why when it's
+  refused. Agents connect to their hub only over https (or http on the same machine).
 
 ## [1.13.0] - 2026-10-08
 
