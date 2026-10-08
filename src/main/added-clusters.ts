@@ -715,9 +715,13 @@ function carriedConsents(stored: Raw, edited: Raw): string[] {
   ].map(({ consent }) => consent)
 }
 
+/** A server over plain HTTP: what's sent it isn't encrypted. */
+const plain = (server: string) => /^http:/i.test(server)
+
 /**
  * The servers not verified (`insecure-skip-tls-verify`) that its credentials would go to:
- * whatever answers there gets them, so each is agreed to first, for that very server.
+ * whatever answers there gets them, so each is agreed to first, for that very server. Plain HTTP
+ * is one of them: it's refused without that flag (serverUrl), and unencrypted with it.
  */
 function unverifiedOf(raw: Raw): { context: string; server: string; consent: string }[] {
   const seen = new Set<string>()
@@ -806,7 +810,9 @@ function unagreed(raw: Raw, agreed: string[]): string[] {
   return [
     ...unverifiedOf(raw)
       .filter(({ consent }) => !agreed.includes(consent))
-      .map(({ server }) => `go to ${server}, which isn’t verified`),
+      .map(({ server }) =>
+        plain(server) ? `go to ${server} unencrypted` : `go to ${server}, which isn’t verified`,
+      ),
     ...commandsOf(raw.users)
       .filter(({ consent }) => !agreed.includes(consent))
       .map(({ line }) => `run ${line} on this computer`),
