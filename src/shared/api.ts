@@ -272,6 +272,8 @@ export interface CredentialCommand {
   shell?: true
   /** The environment variables set for it, over Lumovi's. */
   env: { name: string; value: string }[]
+  /** What the page gives back when the person agrees to it: this, exactly as shown. */
+  consent: string
 }
 
 /** A kubeconfig pasted or imported, read (nothing run, nothing reached). */
@@ -282,9 +284,15 @@ export interface PastedKubeconfig {
     namespace?: string
     /** How it signs in. */
     auth: 'token' | 'certificate' | 'basic' | 'command' | 'none'
+    /** Its server isn't verified (`insecure-skip-tls-verify`): its credentials go to whoever answers. */
+    insecure?: true
+    /** Everything to it goes through this proxy (`proxy-url`). */
+    proxy?: string
   }[]
   /** The programs its credentials run: shown, and never run before the person agrees. */
   commands: CredentialCommand[]
+  /** Files whose text its credentials send to its server: shown, and never read before the person agrees. */
+  tokenFiles: { user: string; path: string; consent: string }[]
   /** The files on this computer its connections read (a token file's text is sent to its server). */
   files: string[]
   /** Its contexts named as some already read are: kubectl would take those, not these. */
@@ -301,7 +309,7 @@ export interface ClusterCheck {
   credentials:
     | { ok: true; allowed: boolean }
     | { ok: false; message: string }
-    | { ok: false; notTried: 'commands' | 'server' }
+    | { ok: false; notTried: 'agreement' | 'server' }
 }
 
 export interface ContextsResult {
@@ -959,8 +967,9 @@ export interface LumoviApi {
   /**
    * The desktop app's: clusters added in Lumovi from a pasted or imported kubeconfig, each kept as
    * a file of its own (0600, in Lumovi's data folder) after those read. The person's own files
-   * are never written. A credential that runs a program (`commands`) runs only once the person
-   * agrees (`allowCommands`).
+   * are never written. What a credential does on this computer (runs a program, sends a file) is
+   * done only once the person agrees to that very thing: `agreed` holds the `consent` of each.
+   * An added cluster's secrets stay in the main process: the page gets placeholders.
    */
   addedClusters?: {
     /** Asks for a kubeconfig file to import, and gives its text; null if the user cancels. */
@@ -968,19 +977,22 @@ export interface LumoviApi {
     /** What a kubeconfig holds, and what it would run: nothing run, nothing reached. */
     inspect(text: string): Promise<Result<PastedKubeconfig>>
     /** Whether one of its contexts can be used. */
-    check(text: string, context: string, allowCommands: boolean): Promise<Result<ClusterCheck>>
+    check(text: string, context: string, agreed: string[]): Promise<Result<ClusterCheck>>
     /**
      * Kept, as a file of Lumovi's own, and read after the rest: its contexts (or those named),
      * each renamed as `names` says (to not be taken for one already read).
      */
     add(
       text: string,
-      options: { contexts?: string[]; names?: Record<string, string>; allowCommands: boolean },
+      options: { contexts?: string[]; names?: Record<string, string>; agreed: string[] },
     ): Promise<Result<{ path: string; files: KubeconfigFiles }>>
-    /** The text of one Lumovi keeps, to edit. */
+    /** The text of one Lumovi keeps, to edit: its secrets as placeholders. */
     read(path: string): Promise<Result<string>>
-    /** One Lumovi keeps, written again (checked as add checks it). */
-    edit(path: string, text: string, allowCommands: boolean): Promise<Result<KubeconfigFiles>>
+    /**
+     * One Lumovi keeps, written again (checked as add checks it): a placeholder left as it was
+     * keeps its secret, and what was agreed to before needn't be again.
+     */
+    edit(path: string, text: string, agreed: string[]): Promise<Result<KubeconfigFiles>>
     /** One Lumovi keeps, no longer read, and its file deleted. */
     remove(path: string): Promise<Result<KubeconfigFiles>>
     /**
