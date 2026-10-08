@@ -196,6 +196,19 @@ test('an older copy put back can’t take read-only off, nor bring back what Lum
     details: { outside: true, how: 'replaced', readOnly: true },
   })
   await expect(banner(page)).toContainText('demo was made read-only outside Lumovi.')
+  // A change refused says so: the copy's person didn't make it read-only now.
+  expect(
+    await page.evaluate(async () => {
+      const result = await window.lumovi!.kube.change({
+        context: 'demo',
+        kind: 'Deployment',
+        namespace: 'shop',
+        name: 'cart',
+        change: { action: 'patch', patchType: 'merge', patch: { spec: { replicas: 3 } } },
+      })
+      return result.ok ? 'changed' : result.error.message
+    }),
+  ).toBe('demo is read-only for everyone on this server: it was made so outside Lumovi.')
   // Its buttons say what it is now.
   await expect(banner(page).getByRole('button', { name: 'Keep it read-only' })).toBeVisible()
   await banner(page).getByRole('button', { name: 'Allow changes' }).click()
