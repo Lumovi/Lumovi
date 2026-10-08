@@ -41,6 +41,9 @@ export interface LaunchOptions {
   fullLayout?: boolean
 }
 
+/** Whether the suite runs against a packaged app (LUMOVI_E2E_EXECUTABLE), not the build in out/. */
+export const PACKAGED = Boolean(process.env.LUMOVI_E2E_EXECUTABLE)
+
 /** The app's default content size; tests are written against this layout. */
 const REFERENCE_SIZE = { width: 1440, height: 920 }
 
@@ -344,6 +347,12 @@ export const test = base.extend<
     // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
       const downloads = await startMockDownloads()
+      // A packaged app takes no stand-in for Sigstore: what it downloads from the tests' dl.k8s.io
+      // is as from a mirror that keeps no signatures (the tests of signatures don't run there).
+      if (PACKAGED) {
+        downloads.defaultSigning = 'unsigned'
+        downloads.reset()
+      }
       await use(downloads)
       await downloads.close()
     },

@@ -17,7 +17,17 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { dialog, open, writes } from './action-helpers.ts'
-import { CONTEXTS, DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import {
+  CONTEXTS,
+  DEMO,
+  expect,
+  goTo,
+  openCluster,
+  PACKAGED,
+  panel,
+  row,
+  test,
+} from './fixtures.ts'
 import { HELM_VERSION } from '../../scripts/helm.ts'
 import type { MockDownloads } from '../mock-downloads/server.ts'
 
@@ -634,13 +644,10 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
   )
 })
 
-test('kubectl that isn’t Kubernetes’ own is refused, however its signature is wrong', async ({
-  launch,
-  downloads,
-}) => {
-  const host = new URL(downloads.url).host
+/** Why each signature that isn't right isn't taken (`host`, the stand-in dl.k8s.io's). */
+const refusals = (host: string): [NonNullable<MockDownloads['signing']>, string][] => {
   const notKubernetes = (why: string) => `${host}’s kubectl v1.34.9 isn’t Kubernetes’ own: ${why}`
-  const refusals: [NonNullable<MockDownloads['signing']>, string][] = [
+  return [
     // What was downloaded, and its SHA-256, changed together: only the signature says so.
     ['tampered', notKubernetes('its signature isn’t for what was downloaded')],
     // Signed, but not by Kubernetes' release, or not as it signs in.
@@ -665,8 +672,16 @@ test('kubectl that isn’t Kubernetes’ own is refused, however its signature i
     ['no-signature', `${host} published kubectl v1.34.9’s certificate without its signature`],
     ['unsigned', `${host} published no signature for kubectl v1.34.9`],
   ]
-  for (const [signing, why] of refusals) {
-    downloads.reset()
+}
+
+// The packaged app takes no stand-in for Sigstore (nor for dl.k8s.io): these run on the build.
+for (const signing of refusals('').map(([signing]) => signing)) {
+  test(`kubectl that isn’t Kubernetes’ own is refused: ${signing}`, async ({
+    launch,
+    downloads,
+  }) => {
+    test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
+    const why = new Map(refusals(new URL(downloads.url).host)).get(signing)!
     downloads.signing = signing
     const lumovi = await launch({ env: SHELL })
     await openCluster(lumovi.page)
@@ -676,29 +691,27 @@ test('kubectl that isn’t Kubernetes’ own is refused, however its signature i
       `It’s the one on your PATH: Lumovi couldn’t get kubectl 1.34 to match the cluster (${why}).`,
     )
     expect(existsSync(kept(lumovi.userDataDir, 'v1.34.9'))).toBe(false)
-    await lumovi.close()
-  }
+  })
+}
 
-  // dl.k8s.io however it's spelled (here, its scheme's case and a trailing slash): not a mirror,
-  // so a kubectl without its signature is still refused.
-  downloads.reset()
+test('dl.k8s.io however it’s spelled is dl.k8s.io, not a mirror', async ({ launch, downloads }) => {
+  test.skip(PACKAGED, 'The packaged app takes no stand-in for dl.k8s.io.')
+  // Its scheme's case and a trailing slash: still dl.k8s.io, where every kubectl is signed.
   downloads.signing = 'unsigned'
   const url = new URL(downloads.url)
-  const spelled = await launch({
-    env: {
-      ...SHELL,
-      LUMOVI_KUBECTL_MIRROR: `HTTP://${url.hostname}:${url.port}/`,
-    },
+  const lumovi = await launch({
+    env: { ...SHELL, LUMOVI_KUBECTL_MIRROR: `HTTP://${url.hostname}:${url.port}/` },
   })
-  await openCluster(spelled.page)
-  await terminal(spelled.page)
-  await shows(spelled.page, `(${host} published no signature for kubectl v1.34.9).`)
+  await openCluster(lumovi.page)
+  await terminal(lumovi.page)
+  await shows(lumovi.page, `(${url.host} published no signature for kubectl v1.34.9).`)
 })
 
 test('kubectl kept from before Lumovi checked signatures is got again, checked', async ({
   launch,
   downloads,
 }) => {
+  test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
   // Kept by 1.12 or earlier: it says nothing of how it was checked.
   const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   mkdirSync(kept(userDataDir, 'v1.34.9'), { recursive: true })
@@ -722,6 +735,7 @@ test('a mirror’s kubectl: checked against Kubernetes’ signature, or said to 
   launch,
   downloads,
 }) => {
+  test.skip(PACKAGED, 'The packaged app takes no stand-in for Sigstore.')
   // A host of its own (the stand-in for dl.k8s.io's, by another name): a mirror is by its host.
   const mirror = new URL('/mirror', downloads.url)
   mirror.hostname = 'localhost'

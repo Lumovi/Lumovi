@@ -27,6 +27,8 @@ export interface MockDownloads {
    * signed (its SHA-256 changed with it), or the signature or the certificate (or both) not there.
    */
   signing?: CertificateFault | 'tampered' | 'unsigned' | 'no-certificate' | 'no-signature'
+  /** What `signing` goes back to after each test. */
+  defaultSigning?: MockDownloads['signing']
   reset(): void
   close(): Promise<void>
 }
@@ -47,7 +49,7 @@ export async function startMockDownloads(): Promise<MockDownloads> {
       this.requests.length = 0
       this.fail = undefined
       this.delayMs = undefined
-      this.signing = undefined
+      this.signing = this.defaultSigning
     },
     close: () => new Promise<void>((done) => server.close(() => done())),
   }
