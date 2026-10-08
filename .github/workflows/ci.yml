@@ -18,6 +18,26 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
+  # What the change needs run (scripts/ci-changes.ts): nothing but the checks for docs, and on
+  # macOS, the full E2E suite only where it touches what macOS does differently.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs: ${{ steps.what.outputs.docs }}
+      e2e: ${{ steps.what.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The pull request's merge commit, and what it's merged into.
+          fetch-depth: 2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+      - id: what
+        run: node scripts/ci-changes.ts
+
   checks:
     name: Format, lint & typecheck
     runs-on: ubuntu-latest
@@ -191,13 +211,14 @@ jobs:
           (! helm template lumovi charts/lumovi --set mode=agent 2>/dev/null)
 
   e2e:
-    name: E2E (${{ matrix.os }}, ${{ matrix.shard }}/4)
+    name: E2E (${{ matrix.os }}, ${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.docs != 'true'
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        # Each platform's tests, split over four machines that run at once.
-        shard: [1, 2, 3, 4]
+      # Each platform's tests, split over four machines that run at once, so that each takes
+      # about as long (scripts/e2e-shard.ts); or on macOS, the smoke set (scripts/ci-changes.ts).
+      matrix: ${{ fromJSON(needs.changes.outputs.e2e) }}
     runs-on: ${{ matrix.os }}
     # The longest shard has taken 28 minutes: room for a few failing tests' retries, so that a
     # timeout doesn't hide which failed.
@@ -262,26 +283,37 @@ jobs:
           # Nobody's watching: draw the windows, as transparent ones render slowly on Linux and
           # Windows (on macOS, transparent ones are the faster).
           LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
-          SHARD: ${{ matrix.shard }}/4
+          SHARD: ${{ matrix.shard }}
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run --auto-servernum npx playwright test --shard="$SHARD"
+          if [ "$SHARD" = smoke ]; then
+            list=tests/e2e/smoke.txt
           else
-            npx playwright test --shard="$SHARD"
+            node scripts/e2e-shard.ts "$SHARD" > shard.txt
+            list=shard.txt
           fi
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum npx playwright test --test-list "$list"
+          else
+            npx playwright test --test-list "$list"
+          fi
+      # One file of this shard's coverage, merged here (where it's one of twelve at once) rather
+      # than as thousands, after the last shard.
+      - name: Merge coverage
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: npx nyc merge .nyc_output "coverage-${RUNNER_OS}-${{ matrix.part }}.json"
       - name: Upload coverage
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coverage-${{ runner.os }}-${{ matrix.shard }}
-          path: .nyc_output/
-          include-hidden-files: true
+          name: coverage-${{ runner.os }}-${{ matrix.part }}
+          path: coverage-${{ runner.os }}-${{ matrix.part }}.json
           retention-days: 7
       - name: Upload test report
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-report-${{ runner.os }}-${{ matrix.shard }}
+          name: playwright-report-${{ runner.os }}-${{ matrix.part }}
           path: |
             playwright-report/
             test-results/
@@ -305,17 +337,17 @@ jobs:
           pattern: coverage-*
           path: .nyc_output
           merge-multiple: true
-      - name: Report
+      # One pass: the report, then the gate, from the report's one merged file.
+      - name: Report, and require more than 95%
         run: |
-          npx nyc report --reporter=text --reporter=html --reporter=lcov --reporter=json-summary
+          npx nyc report --reporter=text-summary --reporter=html --reporter=lcov --reporter=json-summary --reporter=json
           node -e '
             const t = require("./coverage/coverage-summary.json").total
             const row = (k) => `| ${k} | ${t[k].pct}% | ${t[k].covered}/${t[k].total} |`
             console.log(["## E2E coverage (Linux + macOS + Windows)", "", "| | % | covered |", "|---|---|---|",
               ...["statements", "branches", "functions", "lines"].map(row)].join("\n"))
           ' >> "$GITHUB_STEP_SUMMARY"
-      - name: Require more than 95% coverage
-        run: npm run coverage:check
+          node scripts/check-coverage.ts coverage/coverage-final.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: ${{ !cancelled() }}
         with:
@@ -325,7 +357,8 @@ jobs:
 
   package:
     name: Package (${{ matrix.os }})
-    needs: checks
+    needs: [changes, checks]
+    if: needs.changes.outputs.docs != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -442,8 +475,14 @@ jobs:
           Remove-AppxPackage $installed.PackageFullName
 
   integration:
-    name: Integration (kind)
-    needs: checks
+    name: Integration (kind, ${{ matrix.shard }}/2)
+    needs: [changes, checks]
+    if: needs.changes.outputs.docs != 'true'
+    strategy:
+      fail-fast: false
+      # Two clusters, each with half the files (a file's tests share theirs, one at a time).
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -484,7 +523,9 @@ jobs:
       - name: Start the kind cluster, with metrics-server and Prometheus
         run: node tests/integration/cluster.ts up
       - name: Run the integration tests
-        run: xvfb-run --auto-servernum npx playwright test -c playwright.integration.config.ts
+        run: |
+          node scripts/e2e-shard.ts ${{ matrix.shard }}/2 playwright.integration.config.ts > shard.txt
+          xvfb-run --auto-servernum npx playwright test -c playwright.integration.config.ts --test-list shard.txt
       - name: Cluster state
         if: ${{ failure() }}
         run: |
@@ -495,7 +536,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-report-integration
+          name: playwright-report-integration-${{ matrix.shard }}
           path: |
             playwright-report-integration/
             test-results-integration/
@@ -506,13 +547,15 @@ jobs:
   passed:
     name: CI passed
     if: always()
-    needs: [checks, e2e, coverage, package, integration]
+    needs: [changes, checks, e2e, coverage, package, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Or was skipped, as a docs-only change skips the tests (a job skipped as another failed,
+      # the other says so).
       - name: Every job passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           echo "$RESULTS"
-          for result in $RESULTS; do [ "$result" = success ] || exit 1; done
+          for result in $RESULTS; do [ "$result" = success ] || [ "$result" = skipped ] || exit 1; done
