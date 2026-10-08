@@ -12,8 +12,10 @@
  * file's tests stay together, in their shard, in their order.
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 interface Spec {
   title: string
@@ -37,15 +39,22 @@ if (!current || !total || current > total) {
   process.exit(1)
 }
 
-/** Every test, as `--test-list` names it: `[project] › file › describe › title`. */
+/**
+ * Every test, as `--test-list` names it: `[project] › file › describe › title`. Listed to a file
+ * (what's printed can have more in it: a download's progress, on CI).
+ */
 const cli = createRequire(import.meta.url).resolve('@playwright/test/cli')
-const listed = JSON.parse(
-  execFileSync(
-    process.execPath,
-    [cli, 'test', '--list', '--reporter=json', ...(config ? ['-c', config] : [])],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-  ),
-) as Listed
+const listing = mkdtempSync(join(tmpdir(), 'lumovi-shard-'))
+execFileSync(
+  process.execPath,
+  [cli, 'test', '--list', '--reporter=json', ...(config ? ['-c', config] : [])],
+  {
+    env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: join(listing, 'tests.json') },
+    stdio: ['ignore', 'ignore', 'inherit'],
+  },
+)
+const listed = JSON.parse(readFileSync(join(listing, 'tests.json'), 'utf8')) as Listed
+rmSync(listing, { recursive: true, force: true })
 const parallel = new Map(
   (listed.config.projects ?? []).map((project) => [
     project.name,
