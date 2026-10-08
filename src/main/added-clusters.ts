@@ -11,7 +11,7 @@
  *
  * The page gets an added cluster's text back with its secrets as placeholders: they stay here.
  */
-import { createHash, randomBytes } from 'node:crypto'
+import { createHmac, randomBytes } from 'node:crypto'
 import {
   mkdirSync,
   readdirSync,
@@ -593,12 +593,15 @@ function tokenFilesOf(raw: Raw): PastedKubeconfig['tokenFiles'] {
   })
 }
 
+/** Consents' key: this run's own, so the page can't test a guess at what one stands for. */
+const CONSENT_KEY = randomBytes(32)
+
 /**
  * What's agreed to, when it is: one thing a credential does here, exactly as it would do it
- * (secrets and all), as a digest: the page gives it back, and learns nothing from it.
+ * (secrets and all), as a keyed digest: the page gives it back, and learns nothing from it.
  */
 function consent(...what: unknown[]): string {
-  return createHash('sha256').update(JSON.stringify(what)).digest('hex')
+  return createHmac('sha256', CONSENT_KEY).update(JSON.stringify(what)).digest('hex')
 }
 
 /** All its credentials do here that's agreed to first. */
