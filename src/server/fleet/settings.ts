@@ -130,12 +130,9 @@ export class FleetSettings {
     const cluster = this.#cluster(name)
     const { title, labels, groups } = (request ?? {}) as Partial<Record<string, unknown>>
     // What's given, over what's set: a field not given is as it was; given empty, it's unset.
-    // (Saved, it's no longer admins' alone: they say who sees it now.)
-    const {
-      origin: _origin,
-      adminsOnly: _adminsOnly,
-      ...setting
-    }: FleetSetting = { ...this.#setFor(cluster) }
+    // (Admins' alone stays so until its groups are given: then they say who sees it.)
+    const { origin: _origin, ...setting }: FleetSetting = { ...this.#setFor(cluster) }
+    if (groups !== undefined) delete setting.adminsOnly
     if (title !== undefined) {
       if (typeof title !== 'string') throw invalid('Its name must be text.')
       const error = titleError(title.trim())
