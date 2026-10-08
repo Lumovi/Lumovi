@@ -12,9 +12,10 @@ All notable changes to Lumovi are documented here. The format follows
   not blue, its dot pulsing and its icon turning once every 3 s (both still for people who ask
   for less motion); every status's mark reaches 3:1 and its words 4.5:1 on each surface, in
   light and dark, with pills filled with their mark at 12%; and the orange of "serious" is gone,
-  YAML's numbers and booleans included. Blue is for what can be acted on: links and text buttons
+  YAML's numbers and booleans included. One word has one look: a job still running says "In
+  progress" (a pod's Running is healthy). Blue is for what can be acted on: links and text buttons
   use the stronger blue, which reads at 4.5:1 on every surface, the lighter one is for icons, and
-  Access's notes of what's to know are neutral.
+  Access's notes of what's to know and a live terminal's tab are neutral.
 
 ### Fixed
 

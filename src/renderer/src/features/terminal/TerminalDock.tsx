@@ -273,7 +273,13 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
               }}
               className="flex h-full items-center gap-1.5 rounded-md pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <SquareTerminal className={cn('size-3.5', ended ? 'text-ink-3' : 'text-accent')} />
+              {/* Live isn't a status, nor something to act on: not blue. */}
+              <SquareTerminal
+                className={cn(
+                  'size-3.5',
+                  ended ? 'text-ink-3' : selected ? 'text-ink-1' : 'text-ink-2',
+                )}
+              />
               <span className="max-w-48 truncate font-medium">{tab.title ?? tab.context}</span>
               {!tab.title && tab.namespace && <span className="text-ink-3">{tab.namespace}</span>}
               {ended && <span className="text-ink-3 italic">exited</span>}
