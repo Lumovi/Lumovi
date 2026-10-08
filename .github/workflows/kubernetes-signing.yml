@@ -1,0 +1,120 @@
+name: Kubernetes' signing
+
+# Each week, whether what the desktop app checks kubectl's signature against still holds: if
+# Sigstore's trust root has changed, a pull request with the new one; if Kubernetes' instructions
+# no longer name the signer Lumovi knows, an issue. Either way, a Lumovi without the change
+# refuses new kubectls (terminals use the installed one) until a release brings it.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+  # The checks alone, when what they run changes.
+  pull_request:
+    paths:
+      - .github/workflows/kubernetes-signing.yml
+      - scripts/sigstore-root.ts
+      - scripts/kubernetes-signer.ts
+      - src/main/kubernetes-signer.ts
+
+permissions: {}
+
+jobs:
+  check:
+    name: The checks, as a pull request changes them
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Sigstore's trust root, through TUF
+        run: node scripts/sigstore-root.ts
+      - name: Kubernetes' signer, as its instructions name it
+        run: node scripts/kubernetes-signer.ts
+
+  trust-root:
+    name: Sigstore's trust root
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      # Its branch, and its pull request.
+      contents: write
+      pull-requests: write
+      # CI on it: a pull request this workflow's token opens starts none, and main requires it.
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Taken again, through TUF
+        id: root
+        run: node scripts/sigstore-root.ts
+      - name: A pull request, if it's changed
+        if: steps.root.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: sigstore-root
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BRANCH"
+          git commit -am "chore: Sigstore's trust root, as it is on $(date -u +%F)"
+          # One branch: next week's change replaces this week's, if it's still open.
+          git push --force origin "$BRANCH"
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --head "$BRANCH" --title "Sigstore's trust root, as it is now" --body "$(cat <<EOF
+          Sigstore's certificate authorities or its certificate transparency logs have changed: [this week's check]($RUN) took its trust root again, through its TUF repository, and it's not the one Lumovi ships (\`src/main/sigstore-root.json\`).
+
+          A kubectl signed under what's new is refused by a Lumovi without it (its terminals use the installed kubectl, saying an update may be needed), so this should reach a release soon.
+
+          Before merging: look at what changed (a new authority or log, and when each is valid from and to), and add a CHANGELOG line.
+
+          CI was started for it by the check, as a pull request it opens starts none.
+          EOF
+          )"
+          fi
+          gh workflow run ci.yml --ref "$BRANCH"
+
+  signer:
+    name: Kubernetes' signer
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # An issue, when Kubernetes no longer names it.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+      # Nothing to install: src/main/kubernetes-signer.ts imports nothing.
+      - name: As Kubernetes' instructions name it
+        id: signer
+        run: node scripts/kubernetes-signer.ts
+      - name: An issue, if they no longer do
+        if: steps.signer.outputs.named == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: Kubernetes' instructions no longer name the signer Lumovi checks kubectl against
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Once, until it's dealt with.
+          if [ -n "$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[].number')" ]; then
+            exit 0
+          fi
+          gh issue create --title "$TITLE" --body "$(cat <<EOF
+          [This week's check]($RUN) didn't find the identity and issuer Lumovi checks a kubectl's certificate for (\`src/main/kubernetes-signer.ts\`) in Kubernetes' [instructions for checking its signatures](https://kubernetes.io/docs/tasks/administer-cluster/verify-signed-artifacts/).
+
+          If Kubernetes has changed how it signs, every Lumovi refuses new kubectls (its terminals use the installed one, saying an update may be needed) until \`src/main/kubernetes-signer.ts\` names the new signer and a release ships it. If only the instructions' wording changed, \`scripts/kubernetes-signer.ts\` needs to read them as they are now.
+          EOF
+          )"

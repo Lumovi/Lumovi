@@ -41,10 +41,6 @@ jobs:
             echo "::error file=Dockerfile::The image's helm isn't $version, the app's (scripts/helm.ts)."
             exit 1
           }
-      # The Sigstore trust root kubectl's signature is checked against (src/main/sigstore-root.json):
-      # a warning once it's 90 days old, to take it again before a release.
-      - name: Sigstore's trust root
-        run: node scripts/sigstore-root.ts --check
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Helm chart
         run: |
