@@ -1,6 +1,6 @@
 {
-  "source": "https://raw.githubusercontent.com/sigstore/root-signing/main/targets/trusted_root.json",
-  "taken": "2026-10-07",
+  "source": "Sigstore's TUF repository, https://tuf-repo-cdn.sigstore.dev (trusted_root.json)",
+  "taken": "2026-10-08",
   "certificateAuthorities": [
     {
       "subject": {
