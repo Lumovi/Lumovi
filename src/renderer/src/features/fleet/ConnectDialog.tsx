@@ -34,7 +34,7 @@ const hubUrl = () => new URL('.', document.baseURI).href.replace(/\/$/, '')
 export function agentCommand(name: string, version?: string): string {
   return [
     'read -rs LUMOVI_JOIN_TOKEN',
-    'printf %s "$LUMOVI_JOIN_TOKEN" | helm install lumovi-agent oci://ghcr.io/lumovi/charts/lumovi \\',
+    'printf %s "$LUMOVI_JOIN_TOKEN" | helm install lumovi oci://ghcr.io/lumovi/charts/lumovi \\',
     ...(version ? [`  --version ${version} \\`] : []),
     '  --namespace lumovi --create-namespace \\',
     `  --set mode=agent --set clusterName=${name} \\`,
