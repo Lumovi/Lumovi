@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
 import {
+  clipboardText,
   CONTEXTS,
   expect,
   hoverForTooltip,
@@ -75,6 +76,14 @@ test.describe('custom resources', () => {
     await expect(row(page, 'Certificates', CUSTOM.certificates.failing)).toContainText('Failed')
     await expect(row(page, 'Certificates', CUSTOM.certificates.issuing)).toContainText('Issuing')
     await expect(page.getByRole('button', { name: /^Failing/ })).toContainText('1')
+    // Its kubectl command names the kind with its group, and the cluster.
+    await ready.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Copy kubectl describe' }).click()
+    await expect
+      .poll(() => clipboardText(page))
+      .toBe(
+        `kubectl describe certificate.cert-manager.io/${CUSTOM.certificates.ready} -n shop --context ${CONTEXTS.demo}`,
+      )
 
     // Sorting by a view's date column, and filtering by what it shows.
     await headers(page, 'Certificates').filter({ hasText: 'Expires' }).getByRole('button').click()

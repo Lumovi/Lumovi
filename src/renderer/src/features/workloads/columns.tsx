@@ -2,6 +2,7 @@ import type { KubeObject } from '@shared/api'
 import { kindOf } from '@shared/resources'
 import { KindIcon } from '@renderer/components/KindIcon'
 import { StatusPill } from '@renderer/components/Status'
+import { Tail } from '@renderer/components/Tail'
 import { formatBytes, formatCpu } from '@renderer/lib/format'
 import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@renderer/lib/health'
 import { containersOf, workloadKey } from '@renderer/lib/workloads'
@@ -143,7 +144,8 @@ export function workloadColumns(options: {
         const images = containersOf(o).map((c) => c.image)
         return (
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-mono text-xs text-ink-2">{images[0]}</span>
+            {/* Its tag is what tells images apart: the start is what's cut. */}
+            <Tail text={images[0]!} className="font-mono text-xs text-ink-2" />
             {images.length > 1 && <span className="text-ink-3">+{images.length - 1}</span>}
           </span>
         )

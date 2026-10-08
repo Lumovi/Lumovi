@@ -84,7 +84,12 @@ test('every workload, whatever its kind, in one list', async ({ page }) => {
   await page.evaluate(() => {
     window.location.hash = window.location.hash.replace(/sort=\w+/, 'sort=bogus')
   })
-  await expect(first).toContainText('backfill')
+  // The list's own order: by status, the worst first.
+  await expect(grid.getByRole('columnheader', { name: 'Status' })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  )
+  await expect(first).toContainText('db-migrate')
 
   // Opening one shows it in the panel, by its kind.
   await workload(page, 'postgres').getByRole('gridcell').nth(1).click()

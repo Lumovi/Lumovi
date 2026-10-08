@@ -79,7 +79,8 @@ export const nameColumn = (showNamespace: boolean): Column => ({
 export const statusColumn = (kind: ResourceKind): Column => ({
   id: 'status',
   header: kind === 'Event' ? 'Type' : 'Status',
-  width: 'minmax(168px, 1fr)',
+  // An event's is Normal or Warning: the room it doesn't need is the object's, on a narrow window.
+  width: kind === 'Event' ? 'minmax(136px, 1fr)' : 'minmax(168px, 1fr)',
   cell: (o) => {
     const status = statusOf(kind, o)
     return (
@@ -152,7 +153,8 @@ const podColumns: Column[] = [
   {
     id: 'restarts',
     header: 'Restarts',
-    width: '84px',
+    // Room for its header, and its arrow when it's sorted by.
+    width: '108px',
     align: 'right',
     cell: (o) => {
       const restarts = podRestarts(o)
@@ -504,7 +506,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
     {
       id: 'class',
       header: 'Storage class',
-      width: '120px',
+      width: '136px',
       cell: (o) => plain(o.spec.storageClassName),
     },
     {
@@ -531,7 +533,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
     {
       id: 'class',
       header: 'Storage class',
-      width: '120px',
+      width: '136px',
       cell: (o) => plain(o.spec.storageClassName),
     },
     {
@@ -614,7 +616,7 @@ const eventColumns: Column[] = [
   {
     id: 'count',
     header: 'Count',
-    width: '64px',
+    width: '88px',
     align: 'right',
     cell: (o) => <span className="tabular-nums">{eventCount(o)}</span>,
     sort: eventCount,
@@ -622,7 +624,7 @@ const eventColumns: Column[] = [
   {
     id: 'lastSeen',
     header: 'Last seen',
-    width: '84px',
+    width: '108px',
     align: 'right',
     cell: (o, ctx) => muted(age(lastSeen(o), ctx.now)),
     sort: (o) => -Date.parse(lastSeen(o)),
@@ -804,6 +806,21 @@ export function customColumnsFor(options: {
     { ...ageColumn, priority: 1 as const },
   ]
   return { columns, defaultSort: hasHealth ? 'status' : 'name' }
+}
+
+/**
+ * What a list is sorted by: the column its address asks for, if it has one that sorts; else its
+ * default, ascending (an address can ask for anything: `?sort=ready`, or a column that's gone).
+ */
+export function sortedBy(
+  columns: Column[],
+  asked: { sort: string; desc: boolean },
+  fallback: string,
+): { column: Column; desc: boolean } {
+  const sorting = (id: string) => columns.find((c) => c.id === id && c.sort)
+  const column = sorting(asked.sort)
+  if (column) return { column, desc: asked.desc }
+  return { column: sorting(fallback) ?? columns.find((c) => c.sort)!, desc: false }
 }
 
 /** Sorts by `column`, falling back to the name so equal rows keep a stable order. */
