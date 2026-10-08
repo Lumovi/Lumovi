@@ -137,6 +137,9 @@ export function createWebApi(): LumoviApi {
       summary: invoke(IPC.fleetSummary),
       agents: invoke(IPC.fleetAgents),
       trustAgent: invoke(IPC.fleetTrustAgent),
+      joins: invoke(IPC.fleetJoins),
+      connect: invoke(IPC.fleetConnect),
+      cancelJoin: invoke(IPC.fleetCancelJoin),
     },
     // The signed-in person's AI assistants, and the changes they ask for.
     approvals: {

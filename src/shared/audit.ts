@@ -67,6 +67,11 @@ export const AUDIT_ACTIONS = {
   'agent.pinned': 'server',
   'agent.refused': 'server',
   'agent.trusted': 'settings',
+  // Clusters connected from the Fleet page: their agents' join tokens.
+  'agent.join-created': 'settings',
+  'agent.join-cancelled': 'settings',
+  'agent.joined': 'server',
+  'agent.join-refused': 'server',
   'metrics-source.changed': 'settings',
   'assistants.changed': 'settings',
   'access.changed': 'settings',

@@ -36,6 +36,8 @@ export interface Hosted {
   readonly name?: string
   /** A fleet's agents, when it has any to accept. */
   readonly agents?: Agents
+  /** A fleet's: whether one of its clusters is called `name`. */
+  hasCluster?(name: string): boolean
   /** What it shows, for the log: "demo (https://…)", "a fleet of 3 clusters". */
   describe(): string
   /** The clusters someone may see, and how their requests reach each. */

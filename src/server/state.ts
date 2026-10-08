@@ -45,6 +45,7 @@ export const SECTIONS = [
   'spent',
   'clusters',
   'agents',
+  'joins',
   // Since when each entry that doesn't open with the key has been there (see #track).
   'unopened',
 ] as const
