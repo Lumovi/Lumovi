@@ -454,8 +454,10 @@ function Toggle({
         <span className="block text-[13px] font-medium text-ink-1">{title}</span>
         <span className="block text-xs text-ink-3">
           {locked && (
-            <span className="mr-1 inline-flex items-center gap-1 text-ink-2">
-              <Lock className="size-3" /> {locked}
+            <span className="mr-1 text-ink-2">
+              {/* On the line's baseline, as its words are. */}
+              <Lock className="mr-1 inline-block size-3 align-[-2px]" />
+              {locked}
             </span>
           )}
           {line}

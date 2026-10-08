@@ -13,6 +13,8 @@ interface ToastState {
   toasts: Toast[]
   show(toast: Omit<Toast, 'id'>): number
   dismiss(id: number): void
+  /** Every toast gone at once. */
+  clear(): void
 }
 
 let nextId = 1
@@ -26,6 +28,7 @@ export const useToasts = create<ToastState>((set) => ({
     return id
   },
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+  clear: () => set({ toasts: [] }),
 }))
 
 export const toast = (t: Omit<Toast, 'id'>) => useToasts.getState().show(t)

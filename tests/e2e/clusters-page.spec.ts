@@ -310,7 +310,7 @@ test('a cluster is added from a pasted kubeconfig, checked, named, and used with
   await expect(dialog).toContainText(`pasted · user pasted`)
   await expect(dialog).toContainText(DEMO.gitVersion)
   await expect(dialog).toContainText('Signed in as pasted · can list namespaces')
-  await expect(dialog).toContainText(/export KUBECONFIG=|\$env:KUBECONFIG = /)
+  await expect(dialog).toContainText(/export\sKUBECONFIG=|\$env:KUBECONFIG\s=\s/)
   await dialog.getByLabel('Name', { exact: true }).fill('Pasted cluster')
   await dialog.getByRole('radio', { name: 'Teal' }).click()
   await dialog.getByRole('button', { name: 'Close' }).last().click()

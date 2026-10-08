@@ -698,6 +698,7 @@ function Steps({
         const checked = checks[context.name]
         const result = checked?.result
         const host = hostOf(context.server) ?? context.server
+        const plain = /^http:/i.test(context.server ?? '')
         const server: StepState = !result
           ? checking === context.name
             ? 'checking'
@@ -736,13 +737,21 @@ function Steps({
                   ? result.server.message
                   : result?.server.ok
                     ? [
-                        host,
-                        result.server.version,
-                        result.server.latencyMs !== undefined && `${result.server.latencyMs} ms`,
-                        context.insecure && 'its certificate isn’t checked',
+                        [
+                          host,
+                          result.server.version,
+                          result.server.latencyMs !== undefined && `${result.server.latencyMs} ms`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · '),
+                        // What isn't safe about it, as a sentence.
+                        (plain || context.insecure) && (
+                          <span key="unsafe" className="font-sans">
+                            {' · '}
+                            {plain ? 'not encrypted' : 'its certificate isn’t checked'}
+                          </span>
+                        ),
                       ]
-                        .filter(Boolean)
-                        .join(' · ')
                     : server === 'checking'
                       ? `Asking ${host}…`
                       : undefined
@@ -826,23 +835,33 @@ function wordsOf(line: string): string[] {
  */
 function Agreement({ inspected, kind }: { inspected: PastedKubeconfig; kind: 'servers' | 'rest' }) {
   if (kind === 'servers') {
+    // Plain HTTP isn't encrypted at all; the others only skip the certificate check.
+    const plain = inspected.unverified.some(({ server }) => /^http:/i.test(server))
+    const unchecked = inspected.unverified.some(({ server }) => !/^http:/i.test(server))
     return (
-      <Panel icon={ShieldAlert} title="Lumovi can’t check it’s the right server">
-        <p>
-          This kubeconfig turns off the server’s certificate check (
-          <code className="font-mono">insecure-skip-tls-verify</code>), so whatever answers at that
-          address gets its credentials. Allow sends them now and each time Lumovi connects; with the
-          server’s CA in the kubeconfig, Lumovi checks it instead.
-        </p>
-        {inspected.unverified.map((entry) => (
-          <p key={entry.consent} className="mt-1.5 text-ink-2">
-            Its credentials go to{' '}
-            <span className="font-mono text-ink-1">
-              <Visible text={entry.server} />
-            </span>
-            , which isn’t verified.
+      <Panel
+        icon={ShieldAlert}
+        title={
+          plain
+            ? 'Its credentials would travel unencrypted'
+            : 'Lumovi can’t check it’s the right server'
+        }
+      >
+        {plain && (
+          <p>
+            The server’s address starts with http://, not https://, so anyone on the network in
+            between can read what Lumovi sends it, credentials too.
+            {unchecked ? '' : ' Allow sends them now and each time Lumovi connects.'}
           </p>
-        ))}
+        )}
+        {unchecked && (
+          <p className={cn(plain && 'mt-1.5')}>
+            This kubeconfig turns off the server’s certificate check (
+            <code className="font-mono">insecure-skip-tls-verify</code>), so whatever answers at
+            that address gets its credentials. Allow sends them now and each time Lumovi connects;
+            with the server’s CA in the kubeconfig, Lumovi checks it instead.
+          </p>
+        )}
       </Panel>
     )
   }

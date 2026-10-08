@@ -32,7 +32,7 @@ export function ManagedBadge({ reason }: { reason: string }) {
           {managed?.source && (
             // Cut from the start: the policy's file name shows.
             <p
-              className="mt-2 truncate font-mono text-2xs text-ink-3 [direction:rtl] selectable"
+              className="mt-2 truncate text-left font-mono text-2xs text-ink-3 [direction:rtl] selectable"
               title={managed.source}
             >
               <bdi>{managed.source}</bdi>
