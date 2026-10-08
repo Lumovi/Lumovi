@@ -24,6 +24,15 @@ All notable changes to Lumovi are documented here. The format follows
   only admins see the cluster, as whoever first used the token is trusted. Making, cancelling,
   joining and removing are admin-only, need Lumovi's admins configured and its state kept, and
   are recorded in the audit log.
+- A fleet's admins name, label and share each cluster from its card on the Fleet page (its ⋯,
+  then Settings…): the name it's shown by, its labels, and its groups, who sees it besides
+  admins, which applies at once. What a cluster's source sets (a Secret's `lumovi.dev/*`
+  annotations or Argo CD's labels, a kubeconfig's `lumovi.dev` extension, `LUMOVI_CLUSTER_LABELS`,
+  `LUMOVI_FLEET_AGENTS`) stays the source's: shown locked, with where to change it, never
+  overridden. The page's settings are kept in Lumovi's own state, never in a Secret, and put back
+  if an older copy is put back where they're kept. Each change is in the audit log, with who saw
+  the cluster before and after. Only Lumovi's admins change them, and only where it has some;
+  and admins now see every cluster, whichever groups it's shared with.
 
 ### Changed
 

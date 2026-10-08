@@ -1,15 +1,19 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
+  ArrowRight,
   Cable,
   Check,
   ChevronDown,
+  Copy,
   CornerDownLeft,
+  Ellipsis,
   Layers,
   PackageSearch,
   Plus,
   Search,
   ServerOff,
+  Settings2,
   ShieldAlert,
   Tag,
 } from 'lucide-react'
@@ -55,6 +59,7 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
 import { ThemeMenu } from '../shell/ThemeMenu'
+import { ClusterSettingsDialog } from './ClusterSettingsDialog'
 import { ConnectDialog, FINGERPRINT_COMMAND, timeOf } from './ConnectDialog'
 
 /** How often each cluster is summed up again, while the page is open. */
@@ -139,7 +144,7 @@ export function FleetPage() {
     (i) =>
       hasLabels(i.context, wanted) &&
       matchWords(
-        `${i.context.name} ${Object.entries(i.context.labels!)
+        `${i.context.title ?? ''} ${i.context.name} ${Object.entries(i.context.labels!)
           .map(([k, v]) => labelText(k, v))
           .join(' ')}`,
         q,
@@ -481,11 +486,20 @@ function useFresh(joins: FleetJoin[]): Set<string> {
 }
 
 function Cards({ items, fresh }: { items: Item[]; fresh?: Set<string> }) {
+  // Admins change a cluster's settings from its card.
+  const admin = Boolean(useMyAccess()?.admin)
+  const [settings, setSettings] = useState<string>()
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
-        <ClusterCard key={item.context.name} {...item} fresh={fresh?.has(item.context.name)} />
+        <ClusterCard
+          key={item.context.name}
+          {...item}
+          fresh={fresh?.has(item.context.name)}
+          onSettings={admin ? () => setSettings(item.context.name) : undefined}
+        />
       ))}
+      {settings && <ClusterSettingsDialog name={settings} onClose={() => setSettings(undefined)} />}
     </div>
   )
 }
@@ -507,47 +521,107 @@ function LabelChips({ labels }: { labels: Record<string, string> }) {
   )
 }
 
-/** A cluster, summed up as its overview's tiles: it opens the cluster. */
-function ClusterCard({ context, summary, status, fresh }: Item & { fresh?: boolean }) {
+/**
+ * A cluster, summed up as its overview's tiles: it opens the cluster. For admins, its ⋯ beside
+ * it, outside the link (not a link in a link), shown on hover or focus.
+ */
+function ClusterCard({
+  context,
+  summary,
+  status,
+  fresh,
+  onSettings,
+}: Item & { fresh?: boolean; onSettings?: () => void }) {
   const version = summary?.version
+  const { name, title } = context
   return (
-    <Link
-      data-cluster-card
-      data-fresh={fresh || undefined}
-      to={clusterPath(context.name)}
-      aria-label={`${context.name}, ${status.label}`}
-      className={cn(
-        '@container flex min-w-0 flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4 shadow-panel transition-colors hover:border-line-strong hover:bg-surface',
-        // Just connected: it lands tinted, fading to its own.
-        fresh ? 'animate-landed' : 'animate-rise',
-      )}
-    >
-      <div className="flex min-w-0 items-start gap-2.5">
-        <StatusDot health={status.health} className="mt-[7px]" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold text-ink-1">{context.name}</p>
-          <p className={cn('truncate text-xs', HEALTH_STYLE[status.health].text)}>{status.label}</p>
-        </div>
-        {version?.ok && (
-          <span className="shrink-0 pt-0.5 text-right font-mono text-xs text-ink-3">
-            {version.data.gitVersion}
-            <span className="block">{version.data.latencyMs} ms</span>
-          </span>
+    <div className="group relative flex min-w-0">
+      <Link
+        data-cluster-card
+        data-fresh={fresh || undefined}
+        to={clusterPath(name)}
+        aria-label={`${title ? `${title} (${name})` : name}, ${status.label}`}
+        className={cn(
+          '@container flex min-w-0 flex-1 flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4 shadow-panel transition-colors hover:border-line-strong hover:bg-surface',
+          // Just connected: it lands tinted, fading to its own.
+          fresh ? 'animate-landed' : 'animate-rise',
         )}
-      </div>
-      <LabelChips labels={context.labels!} />
-      {!summary ? (
-        <div aria-hidden className="grid grid-cols-2 gap-3 @md:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <span key={i} className="h-11 animate-shimmer rounded-md bg-surface-3" />
-          ))}
+      >
+        <div className="flex min-w-0 items-start gap-2.5">
+          <StatusDot health={status.health} className="mt-[7px]" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold text-ink-1">
+              {title ?? name}
+              {title && (
+                <small className="ml-1.5 font-mono text-xs font-normal text-ink-3">{name}</small>
+              )}
+            </p>
+            <p className={cn('truncate text-xs', HEALTH_STYLE[status.health].text)}>
+              {status.label}
+            </p>
+          </div>
+          {version?.ok && (
+            <span className="shrink-0 pt-0.5 text-right font-mono text-xs text-ink-3">
+              {version.data.gitVersion}
+              <span className="block">{version.data.latencyMs} ms</span>
+            </span>
+          )}
+          {/* Room for the ⋯, which is outside the link. */}
+          {onSettings && <span aria-hidden className="-mt-1 -mr-1.5 size-7 shrink-0" />}
         </div>
-      ) : !summary.version.ok ? (
-        <Problem error={summary.version.error} />
-      ) : (
-        <Answered summary={summary as Required<ClusterSummary>} />
-      )}
-    </Link>
+        <LabelChips labels={context.labels!} />
+        {!summary ? (
+          <div aria-hidden className="grid grid-cols-2 gap-3 @md:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} className="h-11 animate-shimmer rounded-md bg-surface-3" />
+            ))}
+          </div>
+        ) : !summary.version.ok ? (
+          <Problem error={summary.version.error} />
+        ) : (
+          <Answered summary={summary as Required<ClusterSummary>} />
+        )}
+      </Link>
+      {onSettings && <CardMenu context={context} onSettings={onSettings} />}
+    </div>
+  )
+}
+
+/** A card's ⋯, an admin's: open the cluster, its settings, or copy its name. */
+function CardMenu({ context, onSettings }: { context: KubeContext; onSettings: () => void }) {
+  const navigate = useNavigate()
+  const { name, title } = context
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <IconButton
+          label={`${title ?? name}’s actions`}
+          className="absolute top-3 right-2.5 size-7 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+        >
+          <Ellipsis />
+        </IconButton>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={4} className={menuContent}>
+          <DropdownMenu.Item className={menuItem} onSelect={() => navigate(clusterPath(name))}>
+            <ArrowRight className="size-4 text-ink-3" /> Open
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={menuItem} onSelect={onSettings}>
+            <Settings2 className="size-4 text-ink-3" /> Settings…
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={menuItem}
+            onSelect={() =>
+              void navigator.clipboard
+                .writeText(name)
+                .then(() => toast({ tone: 'success', title: `Copied ${name}` }))
+            }
+          >
+            <Copy className="size-4 text-ink-3" /> Copy its name
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   )
 }
 
