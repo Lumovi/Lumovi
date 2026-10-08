@@ -205,7 +205,7 @@ export function ReadOnlyBadge() {
                 : locked
                   ? 'LUMOVI_READ_ONLY is set, so Lumovi can’t change any cluster.'
                   : by
-                    ? `${by.by} made it read-only for everyone on this server on ${formatDateTime(by.at)}. Lumovi won’t change anything in it for anyone until it’s allowed again.`
+                    ? `${by.outside ? 'It was made read-only for everyone on this server outside Lumovi' : `${by.by} made it read-only for everyone on this server on ${formatDateTime(by.at)}`}. Lumovi won’t change anything in it for anyone until it’s allowed again.`
                     : shared
                       ? 'Lumovi won’t change anything in this cluster for anyone on this server until it’s allowed again.'
                       : 'Lumovi won’t change anything in this cluster until you allow it.'}
