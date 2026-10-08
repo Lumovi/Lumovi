@@ -13,7 +13,11 @@
  */
 import { createHmac, randomBytes } from 'node:crypto'
 import {
+  closeSync,
+  constants,
+  fstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -84,11 +88,7 @@ export class AddedClusters {
       this.#mayChange()
       const path = await this.deps.pick()
       if (!path) return { ok: true, data: null }
-      // A file, whole: a device's or a pipe's would be read for ever.
-      const stat = statSync(path)
-      if (!stat.isFile()) throw new KubeRequestError('invalid', `${path} isn’t a file.`)
-      if (stat.size > MAX_TEXT) throw tooLarge()
-      return { ok: true, data: readFileSync(path, 'utf8') }
+      return { ok: true, data: readPicked(path) }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
@@ -969,18 +969,49 @@ function refuseIrregular(raw: Raw): void {
   }
 }
 
+/**
+ * A picked file's text, whole, from the file opened once and checked as it is (not as it was a
+ * moment before): never waiting on what isn't a file (a FIFO, a device), nor reading one larger
+ * than any kubeconfig.
+ */
+function readPicked(path: string): string {
+  let fd: number
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0))
+  } catch (error) {
+    // A folder, on Windows: not opened at all.
+    if ((error as NodeJS.ErrnoException).code === 'EISDIR') {
+      throw new KubeRequestError('invalid', `${path} isn’t a file.`)
+    }
+    throw error
+  }
+  try {
+    const stat = fstatSync(fd)
+    if (!stat.isFile()) throw new KubeRequestError('invalid', `${path} isn’t a file.`)
+    if (stat.size > MAX_TEXT) throw tooLarge()
+    return readFileSync(fd, 'utf8')
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /** The files on this computer these connections read. */
 function filesOf(raw: Raw): string[] {
   const files = [
     ...raw.clusters.map(({ cluster }) => cluster['certificate-authority']),
-    ...raw.users.flatMap(({ user }) => [
-      user['client-certificate'],
-      user['client-key'],
-      user['token-file'],
-      user.tokenFile,
-      (user['auth-provider'] as { config?: Record<string, unknown> } | undefined)?.config
-        ?.tokenFile,
-    ]),
+    ...raw.users.flatMap(({ user }) => {
+      const provider = (user['auth-provider'] as { config?: Record<string, unknown> } | undefined)
+        ?.config
+      return [
+        user['client-certificate'],
+        user['client-key'],
+        user['token-file'],
+        user.tokenFile,
+        provider?.tokenFile,
+        // Its identity provider's CA.
+        provider?.['idp-certificate-authority'],
+      ]
+    }),
   ]
   return [...new Set(files.filter((file): file is string => typeof file === 'string' && !!file))]
 }

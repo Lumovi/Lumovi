@@ -7,9 +7,12 @@
  */
 import {
   chmodSync,
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -26,6 +29,16 @@ import type { Page } from '@playwright/test'
 import { parse, stringify } from 'yaml'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { DEMO, expect, test } from './fixtures.ts'
+
+/** A file's text and when it last changed, from the one file opened. */
+function snapshot(path: string) {
+  const fd = openSync(path, 'r')
+  try {
+    return { text: readFileSync(fd, 'utf8'), changed: fstatSync(fd).mtimeMs }
+  } finally {
+    closeSync(fd)
+  }
+}
 
 const posix = process.platform !== 'win32'
 /** A kubeconfig, as parsed. */
@@ -115,10 +128,7 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
     ]),
   )
   const kubeconfigEnv = await app.evaluate(() => process.env.KUBECONFIG!)
-  const before = {
-    text: readFileSync(kubeconfigEnv, 'utf8'),
-    changed: statSync(kubeconfigEnv).mtimeMs,
-  }
+  const before = snapshot(kubeconfigEnv)
   // Named as one already read (the fixture's), as a copied kubeconfig often is.
   const text = kubeconfig('demo', clusters.demo.url, clusters.demo.caPem)
 
@@ -267,10 +277,37 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
   expect(own(userDataDir)).toEqual([])
   expect(await contexts(again.page)).not.toContain('pasted')
   // The person's own kubeconfig never written.
-  expect({
-    text: readFileSync(kubeconfigEnv, 'utf8'),
-    changed: statSync(kubeconfigEnv).mtimeMs,
-  }).toEqual(before)
+  expect(snapshot(kubeconfigEnv)).toEqual(before)
+})
+
+test('a kubeconfig imported is read whole from the file picked, and only if it’s one', async ({
+  launch,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-import-'))
+  const file = join(dir, 'config')
+  writeFileSync(file, 'apiVersion: v1\n')
+  const big = join(dir, 'big')
+  writeFileSync(big, 'x'.repeat(1024 * 1024 + 1))
+  const { page, app } = await launch()
+  const picked = async (path: string | null) => {
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: path === null,
+        filePaths: path === null ? [] : [path],
+      })) as never
+    }, path)
+    return page.evaluate(() => window.lumovi!.addedClusters!.import())
+  }
+  expect(await picked(file)).toEqual({ ok: true, data: 'apiVersion: v1\n' })
+  expect(await picked(null)).toEqual({ ok: true, data: null })
+  expect(await picked(dir)).toMatchObject({
+    ok: false,
+    error: { code: 'invalid', message: `${dir} isn’t a file.` },
+  })
+  expect(await picked(big)).toMatchObject({
+    ok: false,
+    error: { code: 'invalid', message: 'It’s larger than any kubeconfig (over 1 MB).' },
+  })
 })
 
 test('the line for kubectl keeps a path whole, whatever it holds, and one in the home folder from $HOME', async ({
@@ -367,6 +404,10 @@ test('a check says what doesn’t work: the server, or the credentials; and what
     [
       'contexts: [{name: rel, context: {cluster: rel, user: rel}}]\nclusters: [{name: rel, cluster: {server: "https://localhost", certificate-authority: ca.crt}}]\nusers: [{name: rel, user: {}}]\n',
       '“ca.crt” relative',
+    ],
+    [
+      'contexts: [{name: rel, context: {cluster: rel, user: rel}}]\nclusters: [{name: rel, cluster: {server: "https://localhost"}}]\nusers: [{name: rel, user: {auth-provider: {name: oidc, config: {idp-issuer-url: "https://issuer", idp-certificate-authority: idp-ca.crt}}}}]\n',
+      '“idp-ca.crt” relative',
     ],
   ] as const) {
     expect(
