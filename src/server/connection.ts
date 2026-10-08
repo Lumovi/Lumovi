@@ -341,6 +341,7 @@ export class PageConnection {
             [IPC.fleetJoins]: () => ({
               ...joins!.list(identity.user),
               addFromPage: added?.on ?? false,
+              ...(added?.where ? { addNamespace: added.where } : {}),
               added: added?.names() ?? [],
             }),
             [IPC.fleetConnect]: (request: unknown) => joins!.create(request, identity.user, actor),

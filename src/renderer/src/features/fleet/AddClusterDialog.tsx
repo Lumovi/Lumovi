@@ -38,10 +38,13 @@ export type AddKind = 'kubeconfig' | 'token'
 
 export function AddClusterDialog({
   kind: first,
+  namespace,
   onConnect,
   onClose,
 }: {
   kind: AddKind
+  /** Where it's kept. */
+  namespace?: string
   /** Connecting it with an agent instead. */
   onConnect: () => void
   onClose: () => void
@@ -143,7 +146,7 @@ export function AddClusterDialog({
         </DialogIcon>
       }
       title="Add a cluster"
-      subtitle="Lumovi keeps it as a Secret in its namespace, labelled lumovi.dev/cluster."
+      subtitle={`Lumovi keeps it as a Secret in ${namespace ?? 'its namespace'}, labelled lumovi.dev/cluster.`}
       top="top-[8vh]"
       error={error}
       onSubmit={() => void (!checked ? check() : checked.passed && add())}

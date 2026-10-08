@@ -198,6 +198,11 @@ export class AddedClusters {
     return this.enabled
   }
 
+  /** Where they're kept: their namespace. */
+  get where(): string | undefined {
+    return this.enabled ? this.namespace : undefined
+  }
+
   /** The clusters added from the page. */
   names(): string[] {
     return this.state.entries<Kept>('added').map(([name]) => name)
@@ -530,7 +535,6 @@ export class AddedClusters {
         title: 'It’s reached through a proxy',
         // Where, never who it signs in to it as.
         detail: URL.parse(read.cluster.proxyUrl)?.host ?? 'its proxy-url',
-        hint: 'Its server is still checked against its certificate authority, so the proxy sees only where it connects.',
       })
     }
     const problems = signInProblems(read)
@@ -641,8 +645,8 @@ export class AddedClusters {
     if (everything) {
       checks.push({
         result: 'warn',
-        title: 'It may do anything there, not only act as each person',
-        hint: 'Lumovi needs only that, and keeps the credentials: a service account that may only impersonate users and groups is safer.',
+        title: 'Its credentials can do more than act as each person',
+        hint: 'Lumovi only needs to act as each person, to see what they may see. A service account that may only do that is safer: the chart’s member mode sets one up.',
       })
     }
     return done(read)
