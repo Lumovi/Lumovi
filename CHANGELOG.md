@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-10-09
+
+The desktop app has a clusters page: clusters added from a pasted kubeconfig, the kubeconfig files
+it reads chosen there, and each cluster's own name, color, group and labels. Statuses look as the
+brand's do, and dark mode's buttons are readable.
+
 ### Added
 
 - The desktop app's clusters page is new. Each cluster is a tile in its color, with its status on
@@ -763,7 +769,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/Lumovi/Lumovi/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/Lumovi/Lumovi/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/Lumovi/Lumovi/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/Lumovi/Lumovi/compare/v1.13.0...v1.14.0
