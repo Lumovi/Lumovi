@@ -94,10 +94,12 @@ export interface Settings {
   /** Node shells are turned off (on a server, LUMOVI_NODE_SHELL=off); not stored. */
   nodeShellsOff?: boolean
   /**
-   * The desktop app's: the kubeconfig files chosen in Lumovi, in the order kubectl would merge
-   * them (none: KUBECONFIG's, or ~/.kube/config). Read, never written.
+   * The desktop app's: the kubeconfig files chosen in Lumovi in place of KUBECONFIG's (or
+   * ~/.kube/config), in the order kubectl would merge them (none: those). Read, never written.
    */
   kubeconfigFiles?: string[]
+  /** The desktop app's: kubeconfig files added after those (chosen, or KUBECONFIG's). */
+  kubeconfigAdded?: string[]
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
   autoUpdate?: boolean
   /** Whether terminals get a kubectl matching each cluster's version (View → Match kubectl to Each Cluster). */
@@ -245,9 +247,15 @@ export interface KubeContext {
 
 /** The kubeconfig files the desktop app reads, merged as kubectl would (the first to name a thing wins). */
 export interface KubeconfigFiles {
-  /** Each, in order; one that isn't there is skipped, as kubectl does. */
-  files: { path: string; exists: boolean }[]
-  /** Where the list comes from: chosen in Lumovi, KUBECONFIG, or the default (~/.kube/config). */
+  /**
+   * Each, in order, where it is; one that isn't there is skipped, as kubectl does. Those added in
+   * Lumovi after the rest are `added`, and those it was given (chosen or added) `removable`.
+   */
+  files: { path: string; exists: boolean; added?: true; removable?: true }[]
+  /**
+   * Where the files before those added come from: chosen in Lumovi, KUBECONFIG, or the default
+   * (~/.kube/config).
+   */
   from: 'chosen' | 'env' | 'default'
   /** Why it can't be changed in Lumovi (the organization's policy), if it can't. */
   locked?: string
@@ -893,11 +901,12 @@ export interface LumoviApi {
   kubeconfigFiles?: {
     list(): Promise<KubeconfigFiles>
     /**
-     * Asks for kubeconfig files: in place of those read (`replace`) or after them (`add`); null
-     * if the user cancels.
+     * Asks for kubeconfig files: in place of those read (`replace`), or after them (`add`: those
+     * before still come from KUBECONFIG, if that's where they come from); null if the user
+     * cancels.
      */
     choose(how: 'replace' | 'add'): Promise<Result<KubeconfigFiles | null>>
-    /** No longer read (the file itself is left as it is). */
+    /** One Lumovi was given (chosen or added) no longer read; the file itself is left as it is. */
     remove(path: string): Promise<Result<KubeconfigFiles>>
     /** Back to KUBECONFIG's, or ~/.kube/config. */
     useDefault(): Promise<Result<KubeconfigFiles>>

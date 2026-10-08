@@ -32,44 +32,71 @@ export class KubeconfigFiles {
     },
   ) {}
 
+  /** Each where it is (what show and remove take), and which Lumovi was given. */
   list(): Files {
-    const { paths, from } = this.deps.store.paths()
+    const { base, added, from } = this.deps.store.paths()
     const locked = lockedBy(this.deps.managed)
+    const file = (path: string, more: { added?: true; removable?: true }) => ({
+      path: resolve(path),
+      exists: existsSync(path),
+      ...more,
+    })
     return {
-      files: paths.map((path) => ({ path, exists: existsSync(path) })),
+      files: [
+        ...base.map((path) => file(path, from === 'chosen' ? { removable: true } : {})),
+        ...added.map((path) => file(path, { added: true, removable: true })),
+      ],
       from,
       ...(locked ? { locked } : {}),
     }
   }
 
-  /** In place of those read (`replace`), or after them (`add`). */
+  /**
+   * In place of those read (`replace`: added ones too), or after them (`add`: those before still
+   * come from KUBECONFIG, if that's where they come from).
+   */
   async choose(how: 'replace' | 'add'): Promise<Result<Files | null>> {
     try {
       this.#mayChange()
       const picked = await this.deps.pick()
       if (!picked?.length) return { ok: true, data: null }
-      const before = how === 'add' ? this.#read() : []
-      return { ok: true, data: this.#keep([...before, ...picked]) }
+      const { chosen, added } = this.deps.settings.kubeconfigFiles()
+      return {
+        ok: true,
+        data:
+          how === 'replace' ? this.#keep(picked, []) : this.#keep(chosen, [...added, ...picked]),
+      }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
   }
 
-  /** No longer read: the file itself is left as it is. The last gone, the default again. */
+  /**
+   * One Lumovi was given, no longer read; the file itself is left as it is. The last chosen
+   * gone, KUBECONFIG's are read again. KUBECONFIG's own (or the default) aren't Lumovi's to drop.
+   */
   remove(path: string): Result<Files> {
     try {
       this.#mayChange()
-      return { ok: true, data: this.#keep(this.#read().filter((file) => file !== path)) }
+      const { chosen, added } = this.deps.settings.kubeconfigFiles()
+      if (added.includes(path)) return { ok: true, data: this.#keep(chosen, without(added, path)) }
+      if (chosen.includes(path)) return { ok: true, data: this.#keep(without(chosen, path), added) }
+      throw new KubeRequestError(
+        'invalid',
+        this.deps.store.paths().from === 'env'
+          ? `${path} is in KUBECONFIG, which Lumovi reads as it’s set: change KUBECONFIG, or choose a kubeconfig in its place.`
+          : `${path} is read where no other kubeconfig is chosen: choose one in its place.`,
+      )
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
   }
 
-  /** Back to KUBECONFIG's, or ~/.kube/config. */
+  /** Back to KUBECONFIG's, or ~/.kube/config, and nothing added. */
   useDefault(): Result<Files> {
     try {
       this.#mayChange()
-      return { ok: true, data: this.#keep([]) }
+      return { ok: true, data: this.#keep([], []) }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
@@ -77,7 +104,7 @@ export class KubeconfigFiles {
 
   /** Only one of those read: not any path the page names. */
   show(path: string): void {
-    if (this.#read().includes(path)) this.deps.reveal(path)
+    if (this.list().files.some((file) => file.path === path)) this.deps.reveal(path)
   }
 
   #mayChange(): void {
@@ -85,15 +112,17 @@ export class KubeconfigFiles {
     if (locked) throw new KubeRequestError('not-allowed', locked, 403)
   }
 
-  /** Those read now, each where it is (a relative one in KUBECONFIG, from where Lumovi started). */
-  #read(): string[] {
-    return this.deps.store.paths().paths.map((path) => resolve(path))
-  }
-
-  /** Kept (each once, in order), and read again. */
-  #keep(files: string[]): Files {
-    this.deps.settings.update({ kubeconfigFiles: [...new Set(files.map((file) => resolve(file)))] })
+  /** Kept (each where it is, once, in order), and read again. */
+  #keep(chosen: string[], added: string[]): Files {
+    const kubeconfigFiles = [...new Set(chosen.map((file) => resolve(file)))]
+    const kubeconfigAdded = [...new Set(added.map((file) => resolve(file)))].filter(
+      (file) => !kubeconfigFiles.includes(file),
+    )
+    this.deps.settings.update({ kubeconfigFiles, kubeconfigAdded })
     this.deps.store.load()
     return this.list()
   }
 }
+
+/** A list, without `path`. */
+const without = (files: string[], path: string) => files.filter((file) => file !== path)
