@@ -57,6 +57,27 @@ export async function addRule(page: Page, rule: RuleGiven): Promise<void> {
   await expect
     .poll(async () => (await rulesNow(page)).map((r) => r.name))
     .toEqual([...before, rule.name])
+  await settled(page)
+}
+
+/**
+ * Once what's kept stops changing: rules are kept a moment after the last edit (400 ms), and a
+ * save made between two of a rule's edits can show its name before its settings. A second
+ * without a change means the last of them is kept.
+ */
+async function settled(page: Page): Promise<void> {
+  let last: string | undefined
+  await expect
+    .poll(
+      async () => {
+        const now = JSON.stringify(await rulesNow(page))
+        const same = now === last
+        last = now
+        return same
+      },
+      { intervals: [1_000] },
+    )
+    .toBe(true)
 }
 
 /** The person's own rules, as they're kept now. */
