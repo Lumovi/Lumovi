@@ -17,12 +17,13 @@
  *    Lumovi, on every replica that knew it, from its next refresh; never an older copy's.
  * 3. Lumovi's own changes, on any replica, in whatever order of reads, writes, conflicts and
  *    failed writes, are never recorded as made outside it.
- * 4. A copy put back (or a deletion) is recorded, naming the copy (`found`, its count), once by
- *    each replica that finds it behind what it knew: the first to, and one that knew more than
- *    that one's fix holds.
- * 5. What a key no longer in use opens doesn't outlive the rotation that left it unopened by
- *    more than its grace period (state.ts), and while it lasts, it's left as it is: never taken
- *    for entries deleted.
+ * 4. A copy put back (or a deletion) is recorded once by each replica that finds it behind what
+ *    it knew (the first to, and one that knew more than that one's fix holds), never more often
+ *    than such things were done since it started, naming the copy where entries tell it apart
+ *    (`found`: its count; none for a deletion).
+ * 5. What a key no longer in use opens doesn't outlive its last change (the rotation, or the end
+ *    of a rollout) by more than the grace period, and while it lasts, it's left as it is: never
+ *    taken for entries deleted (state.ts).
  * 6. A store full of junk shaped like entries never holds a replica up for long (state.ts).
  *
  * How: each setting in an entry carries the count of the write that last set it (unset too), and
@@ -36,9 +37,20 @@
  * they're written, and over the fix of what was lost, where something was. As settings are each
  * as last set, it doesn't matter which replica fixes what, from how old a view, nor in what order.
  *
- * Limits: a replica that starts knows nothing older, and takes what's kept as it finds it; two
- * writes in the same millisecond, of the same setting, by replicas that didn't see each other's
- * (one written over a copy put back), can come out either way; a state key is one install's.
+ * A setting the entry a replica knows never had is unset as of that entry, where what's found is
+ * no newer: an older copy's (from before the entry was made again, after a deletion) is put back
+ * as unset, and recorded; its read-only, kept, as made outside Lumovi.
+ *
+ * Limits:
+ * - A replica that starts knows nothing older, and takes what's kept as it finds it.
+ * - Two writes of the same setting, by replicas that didn't see each other's (one written over a
+ *   copy put back), come out by their clocks: a replica whose clock is behind loses to older
+ *   copies from correct clocks, as does one writing in the same millisecond.
+ * - An entry made again after a deletion, then an older copy put back and written over by a
+ *   replica that never read the new entry, keeps that copy's settings (unrecorded).
+ * - A copy that was itself written over a deletion is named, put back, as a deletion.
+ * - Replicas on two keys for longer than the grace period let each other's entries go (LMV-94).
+ * - A state key is one install's.
  */
 import { isDeepStrictEqual } from 'node:util'
 import type { AuditLog } from '@backend/audit/log'
@@ -72,8 +84,8 @@ export interface ClusterEntry {
 /** What an entry sets, each counted by the write that last set it. */
 const FIELDS = ['readOnly', 'metricsSource', 'nodeShell', 'outside'] as const
 type Field = (typeof FIELDS)[number]
-/** How many entries back an entry says it was written over. */
-const TRAIL = 16
+/** How many entries back an entry says it was written over (enough to name a copy). */
+const TRAIL = 4
 
 /** The settings besides read-only, which have nothing stricter: as Lumovi last set them. */
 const OTHERS = ['metricsSource', 'nodeShell'] as const
@@ -131,7 +143,12 @@ interface Fix {
  */
 function fixOf(was: ClusterEntry, now: ClusterEntry | undefined, at: string, version: number): Fix {
   const how = now ? 'replaced' : 'deleted'
-  const from = (field: Field) => (countOf(now, field) > countOf(was, field) ? now! : was)
+  // A setting `was` never had is unset as of `was`, where `now` is no newer: one set in an older
+  // copy is from before `was` was made again (after a deletion), not a change made knowing it.
+  const older = !now || !((now.version ?? 0) > (was.version ?? 0))
+  const before = (field: Field) => older && countOf(was, field) === 0
+  const from = (field: Field) =>
+    countOf(now, field) > countOf(was, field) && !before(field) ? now! : was
   const counts: Partial<Record<Field, number>> = Object.fromEntries(
     FIELDS.map((field) => [field, countOf(from(field), field)]).filter(([, count]) => count),
   )

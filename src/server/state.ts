@@ -20,7 +20,14 @@
  * the changes since, so another replica's (or a restart's) are never written over. What mustn't
  * be lost (a sign-out, an assistant let go) is written before it's answered (flush, strictly).
  */
-import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from 'node:crypto'
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  hkdfSync,
+  randomBytes,
+} from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -107,12 +114,13 @@ const SEALED = /^[A-Za-z0-9_-]{40,}$/
 
 /**
  * For tests: the time it is, how long what doesn't open is left as it is, and how long after a
- * change it's written (a test that writes when it says gives a long one).
+ * change, or a write that failed, it's written (a test that writes when it says gives long ones).
  */
 export interface StateOptions {
   now?: () => number
   unopenedGraceMs?: number
   writeAfterMs?: number
+  retryMs?: number
 }
 
 /** A length of time, in minutes. */
@@ -153,8 +161,12 @@ export class ServerState {
   #timer?: NodeJS.Timeout
   /** What went wrong writing, said once until it's put right. */
   #failing?: string
-  /** Since when each entry that doesn't open with this server's key has been there, by name. */
-  readonly #unopenedSince = new Map<string, number>()
+  /** Since when entries that don't open with this server's key have been there (see #track). */
+  #unopenedSince?: number
+  /** What they were then (a digest of them all): another such time, if they change. */
+  #unopenedAs?: string
+  /** How many there were, as they were last read. */
+  #unopened = 0
   /** Each entry as it opened (or didn't), by its name and what's sealed: opened once. */
   #opening = new Map<string, Required<Change> | null>()
   /** How many writes met another's (for tests). */
@@ -164,6 +176,7 @@ export class ServerState {
   readonly #now: () => number
   readonly #grace: number
   readonly #writeAfter: number
+  readonly #retry: number
 
   private constructor(
     private readonly keeper: Keeper<Document>,
@@ -176,6 +189,7 @@ export class ServerState {
     this.#now = options.now ?? Date.now
     this.#grace = options.unopenedGraceMs ?? UNOPENED_GRACE_MS
     this.#writeAfter = options.writeAfterMs ?? WRITE_AFTER_MS
+    this.#retry = options.retryMs ?? RETRY_MS
     this.#document = document
     // As the server starts: nothing else waits on it yet.
     for (const [name, sealed] of Object.entries(document.entries)) {
@@ -210,44 +224,55 @@ export class ServerState {
   }
 
   /**
-   * Since when each entry that doesn't open with this server's key has been there: its key
-   * changed, or they were, or another replica seals with another key (while keys are rotated).
-   * They're left as they are for the grace period (never taken for entries deleted), then let go:
-   * what an old key (a leaked one) opens doesn't outlive a rotation. The earliest sighting counts,
-   * this server's own or the one kept (sealed with its key, so that restarts don't put it off;
-   * deleted, it only counts from this server's own sighting), and when one runs out, it's written
-   * at once, which lets them go.
+   * Since when the entries that don't open with this server's key have been as they are: its
+   * key changed, or they were, or another replica seals with another key (while keys are
+   * rotated). They're left as they are (never taken for entries deleted) until they've been so
+   * for the grace period, then let go together: what an old key (a leaked one) opens doesn't
+   * outlive a rotation, while a key still in use, whose replicas write, keeps its own. Kept as one
+   * time and a digest of them, however many there are (sealed with this key, so that a restart
+   * doesn't put it off; deleted, it counts from this server's own sighting). When it runs out,
+   * it's written at once, which lets them go; so is anything not even shaped like an entry,
+   * which no key made.
    */
   #track(document: Document): void {
     const now = this.#now()
     const keptName = this.#nameOf('unopened', 'since')
     const sealedKept = document.entries[keptName]
-    const kept =
-      ((sealedKept ? this.#opened(keptName, sealedKept)?.value : undefined) as
-        Record<string, number> | undefined) ?? {}
-    const since: Record<string, number> = {}
+    const value = sealedKept ? this.#opened(keptName, sealedKept)?.value : undefined
+    const kept = (value as { since?: unknown; as?: unknown } | undefined) ?? {}
+    const unopened: string[] = []
+    let junk = 0
     for (const [name, sealed] of Object.entries(document.entries)) {
-      if (this.#opened(name, sealed)) continue
-      since[name] = Math.min(kept[name] ?? now, this.#unopenedSince.get(name) ?? now, now)
+      if (!NAME.test(name) || !SEALED.test(sealed)) junk++
+      else if (!this.#opened(name, sealed)) unopened.push(`${name}\0${sealed}`)
     }
-    const before = this.#unopenedSince.size
-    this.#unopenedSince.clear()
-    for (const [name, at] of Object.entries(since)) this.#unopenedSince.set(name, at)
-    const unopened = this.#unopenedSince.size
-    if (unopened > 0 && unopened !== before) {
+    const as =
+      unopened.length > 0
+        ? createHash('sha256').update(unopened.sort().join('\n')).digest('base64url')
+        : undefined
+    const keptSince = kept.as === as && typeof kept.since === 'number' ? kept.since : undefined
+    const ownSince = this.#unopenedAs === as ? this.#unopenedSince : undefined
+    const since = as ? Math.min(keptSince ?? now, ownSince ?? now) : undefined
+    if (unopened.length > 0 && unopened.length !== this.#unopened) {
       log(
-        `${unopened} of what Lumovi kept doesn’t open with its key (it changed, they were, or another replica uses another): left as they are, unused, for ${minutes(this.#grace)}, then let go.`,
+        `${unopened.length} of what Lumovi kept doesn’t open with its key (it changed, they were, or another replica uses another): left as they are, unused, until they’ve been so for ${minutes(this.#grace)}, then let go.`,
       )
     }
+    this.#unopened = unopened.length
+    this.#unopenedSince = since
+    this.#unopenedAs = as
     if (this.keeper.kept === 'memory') return
-    const runOut = Object.values(since).some((at) => now - at >= this.#grace)
-    if (runOut || !isDeepStrictEqual(since, kept)) {
-      // Kept as the earliest of each, over another replica's (with the same key) meanwhile.
-      this.set('unopened', 'since', since, (current) => {
-        const theirs = (current ?? {}) as Record<string, number>
-        return Object.fromEntries(
-          Object.entries(since).map(([name, at]) => [name, Math.min(at, theirs[name] ?? at)]),
-        )
+    const runOut = since !== undefined && now - since >= this.#grace
+    if (since === keptSince && kept.as === as && !runOut && junk === 0) return
+    if (!as) this.delete('unopened', 'since')
+    // Kept as the earliest, over another replica's (with the same key) meanwhile, if it saw them
+    // as they are.
+    else {
+      this.set('unopened', 'since', { since, as }, (current) => {
+        const theirs = (current ?? {}) as { since?: unknown; as?: unknown }
+        return theirs.as === as && typeof theirs.since === 'number'
+          ? { since: Math.min(theirs.since, since!), as }
+          : { since, as }
       })
     }
   }
@@ -255,6 +280,16 @@ export class ServerState {
   /** How many writes met another replica's, and were tried again (for tests). */
   get conflicts(): number {
     return this.#conflicts
+  }
+
+  /** For tests: how many of a section's changes aren't written yet. */
+  unwritten(section: Section): number {
+    return [...this.#changes.values()].filter((change) => change.section === section).length
+  }
+
+  /** For tests: once what's being written now is (without writing what isn't yet). */
+  get writing(): Promise<void> {
+    return this.#writing
   }
 
   static async open(
@@ -328,6 +363,11 @@ export class ServerState {
       () => undefined,
     )
     return reading
+  }
+
+  /** No more writes later (a server that stops, once it's flushed): what isn't written isn't. */
+  close(): void {
+    clearTimeout(this.#timer)
   }
 
   /** `rebase` makes it again over another's write, if one met it (see Change). */
@@ -423,11 +463,26 @@ export class ServerState {
     for (let attempt = 1; ; attempt++) {
       // Made again over the entry as it's there now, where a change says how: another replica
       // may have written it since this one read it (a write that met theirs reads it again).
+      const held = new Map<string, Change>()
       for (const [name, change] of changes) {
         if (!change.rebase) continue
         const sealed = base.entries[name]
-        change.value = change.rebase(sealed ? this.#opened(name, sealed)?.value : undefined)
+        try {
+          change.value = change.rebase(sealed ? this.#opened(name, sealed)?.value : undefined)
+        } catch (error) {
+          // Not made again: held back to be tried again, not the rest with it (sign-outs, say).
+          log(
+            `Lumovi couldn’t make a change again over what’s kept (${(error as Error).message}): it’s tried again in a moment.`,
+          )
+          held.set(name, change)
+          continue
+        }
         if (!this.#changes.has(name)) this.#open.get(change.section)!.set(change.key, change.value)
+      }
+      if (held.size > 0) {
+        for (const name of held.keys()) changes.delete(name)
+        this.#again(held)
+        if (changes.size === 0) return
       }
       // What's there, with these changes: never another's written over.
       const next: Document = { entries: { ...base.entries } }
@@ -457,21 +512,26 @@ export class ServerState {
           )
         }
         this.#failing = message
-        // Tried again later: before what's changed again since, which was made from it.
-        for (const [name, change] of changes) {
-          const since = this.#changes.get(name)
-          if (!since) this.#changes.set(name, change)
-          else if (since.rebase && change.rebase) {
-            const first = change.rebase
-            const then = since.rebase
-            since.rebase = (current) => then(first(current))
-          }
-        }
-        this.#timer = setTimeout(() => void this.flush(), RETRY_MS)
-        this.#timer.unref()
+        this.#again(changes)
         throw error
       }
     }
+  }
+
+  /** Changes not written, tried again later: before what's changed since, made from them. */
+  #again(changes: Map<string, Change>): void {
+    for (const [name, change] of changes) {
+      const since = this.#changes.get(name)
+      if (!since) this.#changes.set(name, change)
+      else if (since.rebase && change.rebase) {
+        const first = change.rebase
+        const then = since.rebase
+        since.rebase = (current) => then(first(current))
+      }
+    }
+    clearTimeout(this.#timer)
+    this.#timer = setTimeout(() => void this.flush(), this.#retry)
+    this.#timer.unref()
   }
 
   /**
@@ -484,16 +544,24 @@ export class ServerState {
     const now = this.#now()
     const sessions: { name: string; expires: number }[] = []
     const unopened: { name: string; expires: number }[] = []
+    const graceOver = this.#unopenedSince !== undefined && now - this.#unopenedSince >= this.#grace
+    let junk = 0
     for (const [name, sealed] of Object.entries(document.entries)) {
+      // Not even shaped like an entry: no key made it.
+      if (!NAME.test(name) || !SEALED.test(sealed)) {
+        delete document.entries[name]
+        junk++
+        continue
+      }
       const entry = this.#opened(name, sealed)
       const expires = (entry?.value as { expires?: number } | undefined)?.expires
       if (!entry) {
-        const since = this.#unopenedSince.get(name) ?? now
-        if (now - since >= this.#grace) delete document.entries[name]
+        if (graceOver) delete document.entries[name]
         else unopened.push({ name, expires: -Infinity })
       } else if ((expires ?? Infinity) < Date.now()) delete document.entries[name]
       else if (entry.section === 'sessions') sessions.push({ name, expires: expires ?? Infinity })
     }
+    if (junk > 0) log(`${junk} of what’s where Lumovi keeps its state isn’t Lumovi’s: let go.`)
     let size = Buffer.byteLength(KEPT.write(document))
     if (size <= MAX_BYTES) return
     sessions.sort((a, b) => a.expires - b.expires)
