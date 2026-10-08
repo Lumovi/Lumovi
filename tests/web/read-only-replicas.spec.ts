@@ -283,12 +283,35 @@ test.describe('replicas over one kept state', () => {
     )
     expect([...old.outside(), ...rolled.outside()]).toEqual([])
     expect(old.settings.isReadOnly('demo')).toBe(true)
+    // Nothing changing, neither writes: what each keeps of the other's is by name, which a
+    // write of the other's doesn't change.
+    const kept = readFileSync(join(dir, 'state.json'), 'utf8')
+    await old.refreshed()
+    await rolled.refreshed()
+    expect(readFileSync(join(dir, 'state.json'), 'utf8')).toBe(kept)
     // Past it, the new key's replica lets the old key's go: what it opens is gone.
     time.turn(GRACE)
     await rolled.refreshed()
     expect(Object.keys(entries(dir))).not.toContain(demoName(key))
     expect(rolled.outside()).toEqual([])
     expect(rolled.settings.isReadOnly('demo')).toBe(true)
+  })
+
+  test('a change that can’t be made again over what’s kept holds back only itself, and is written as it was made after a few tries', async () => {
+    const a = await replica(dir, key, time)
+    a.state.set('clusters', 'stuck', { mine: true }, () => {
+      throw new Error('no')
+    })
+    a.state.set('clusters', 'other', { fine: true })
+    // The rest is written; whoever waits for it all is told it isn't.
+    await expect(a.written()).rejects.toThrow('held back')
+    const b = await replica(dir, key, time)
+    expect(b.state.get('clusters', 'other')).toEqual({ fine: true })
+    expect(b.state.get('clusters', 'stuck')).toBeUndefined()
+    await expect(a.written()).rejects.toThrow('held back')
+    await a.written()
+    const c = await replica(dir, key, time)
+    expect(c.state.get('clusters', 'stuck')).toEqual({ mine: true })
   })
 
   test('junk shaped like entries, rewritten before every read, never holds a replica up long', async () => {
@@ -307,10 +330,12 @@ test.describe('replicas over one kept state', () => {
       }
       return made
     }
+    // Made beforehand: what's timed is the replica's reading, not the test's making it.
+    const rounds = [junk(), junk(), junk()]
     const delay = monitorEventLoopDelay({ resolution: 1 })
     delay.enable()
-    for (let round = 0; round < 3; round++) {
-      keep(dir, junk())
+    for (const round of rounds) {
+      keep(dir, round)
       await a.settings.refresh()
     }
     delay.disable()
@@ -590,7 +615,10 @@ for (const seed of SEEDS) {
       time.turn(STEP_MS)
       const i = Math.floor(rand() * members.length)
       const m = members[i]!
-      const action = pick([
+      // Replicas on two keys for longer than the grace let each other's entries go (LMV-94): a
+      // rollout that has taken a third of it is done.
+      const due = mixedSince !== undefined && time.now() - mixedSince > GRACE / 3
+      const picked = pick([
         'change',
         'change',
         'later',
@@ -609,6 +637,7 @@ for (const seed of SEEDS) {
         'rotate',
         'rollout',
       ] as const)
+      const action = due ? 'rollout' : picked
       if (action === 'change') {
         change(i)
         await m.r.written()
