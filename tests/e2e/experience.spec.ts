@@ -684,11 +684,15 @@ test('lists fall back to their defaults', async ({ page }) => {
   await size.selectOption('100')
   await expect(page).not.toHaveURL(/size=/)
 
-  // An unknown sort column sorts by the first column, the name.
+  // An unknown sort column sorts as the list does unasked: by status, the worst first.
   await page.evaluate(() => {
     window.location.hash = '#/cluster/demo/pods?sort=bogus'
   })
-  await expect(rows(page, 'Pods').first()).toContainText(/^cart-/)
+  await expect(page.getByRole('columnheader', { name: 'Status', exact: true })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  )
+  await expect(rows(page, 'Pods').first()).toContainText('CrashLoopBackOff')
 
   // Label selectors apply on Enter; the filter clears with its button.
   const labels = page.getByLabel('Label selector')
