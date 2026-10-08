@@ -68,10 +68,11 @@ export function ActionDialog({
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
   const canSubmit = ready && confirmed && !pending
 
-  // Enter can't submit while the confirm button is disabled, so this only runs when ready.
+  // Enter can't submit while the confirm button is disabled; while it's pending (only marked
+  // so, to keep the focus), it does nothing.
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    onSubmit()
+    if (canSubmit) onSubmit()
   }
 
   return (
@@ -201,12 +202,16 @@ export function ActionDialog({
                   <Button variant="ghost" data-cancel onClick={onClose}>
                     Cancel
                   </Button>
+                  {/* Pending, it keeps the focus (a disabled button drops it to the page, where a
+                      keyboard or screen reader's user would be as the error comes): it's only
+                      marked disabled, and does nothing until the answer comes. */}
                   <Button
                     type="submit"
                     data-confirm
                     variant={tone === 'danger' ? 'danger' : 'primary'}
-                    disabled={!canSubmit}
-                    className="min-w-20"
+                    disabled={!canSubmit && !pending}
+                    aria-disabled={pending || undefined}
+                    className="min-w-20 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                   >
                     {pending && <LoaderCircle className="animate-spin" />}
                     {confirmLabel}

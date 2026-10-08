@@ -369,16 +369,21 @@ test('a dialog’s error is in view at the smallest window, by the button just p
   await dialog(page)
     .getByRole('checkbox', { name: /Delete local data/ })
     .check()
-  clusters.demo.fail(`/api/v1/nodes/${DEMO.nodes.worker2}`, {
-    status: 403,
-    body: 'nodes "worker-2" is forbidden',
-  })
+  // Focused in the page (whether or not its window has the system's focus: a Windows runner's
+  // may not).
   const drain = dialog(page).getByRole('button', { name: 'Drain', exact: true })
+  const focused = () => drain.evaluate((button) => button === document.activeElement)
+  // Cordoning waits on the cluster: Drain says it's busy, and keeps the focus.
+  clusters.demo.fail(`/api/v1/nodes/${DEMO.nodes.worker2}`, { hang: true })
   await drain.click()
+  await expect(drain).toBeDisabled()
+  await expect.poll(focused).toBe(true)
+  // Then it fails (the connection ends): the error's in view, and Drain still has the focus.
+  clusters.demo.reset()
   await expect(dialog(page).getByRole('alert')).toBeInViewport({ ratio: 1 })
   await expect(drain).toBeInViewport({ ratio: 1 })
-  // The error doesn't take the focus.
-  expect(await page.evaluate(() => document.activeElement?.closest('[role="alert"]'))).toBeNull()
+  await expect(drain).toBeEnabled()
+  await expect.poll(focused).toBe(true)
 })
 
 test('draining an empty node', async ({ page }) => {
