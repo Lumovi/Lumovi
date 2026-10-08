@@ -4,6 +4,12 @@ import type { KubeObject } from '../mock-cluster/types.ts'
 import { focusDisabled, toasts, writes } from './action-helpers.ts'
 import { CONTEXTS, DEMO, expect, openCluster, panel, test } from './fixtures.ts'
 
+/**
+ * A CPU amount, as the page says it: the mock's usage follows the time of day, so it can be under a
+ * core ("850m") or over ("1.2 cores").
+ */
+const CPU = String.raw`(\d+m|[\d.]+ cores?)`
+
 const PROMETHEUS = '/api/v1/namespaces/monitoring/services/prometheus:web/proxy'
 const REDIS = '/apis/apps/v1/namespaces/data/statefulsets/redis'
 const MINUTE = 60_000
@@ -136,7 +142,9 @@ test.describe('right-sizing', () => {
     ).toBeVisible()
 
     // What's freed and what's needed, across replicas; and what needs attention.
-    await expect(tile(page, 'CPU requests')).toContainText(/\d+m to free · \d+m more needed/)
+    await expect(tile(page, 'CPU requests')).toContainText(
+      new RegExp(`${CPU} to free · ${CPU} more needed`),
+    )
     await expect(tile(page, 'Memory requests')).toContainText(/GiB to free · .+ more needed/)
     await expect(tile(page, 'Need more')).toContainText('4')
     await expect(tile(page, 'Need more')).toContainText('1 OOM-killed · 1 throttled')
@@ -299,13 +307,15 @@ test.describe('right-sizing', () => {
     const dialog = page.getByRole('dialog', { name: 'Right-size redis' })
     await expect(dialog).toContainText('Its pods are replaced with the new resources')
     await expect(dialog.getByRole('status')).toContainText('The API server accepts this change')
-    await expect(dialog).toContainText(/Across its 2 pods, it frees \d+m of CPU and .+ of memory\./)
+    await expect(dialog).toContainText(
+      new RegExp(`Across its 2 pods, it frees ${CPU} of CPU and .+ of memory\\.`),
+    )
     await expect(dialog).toContainText(
       /kubectl set resources statefulset\/redis -c redis --requests=cpu=\d+m,memory=\d+Mi -n data --context demo/,
     )
     // Only the memory.
     await dialog.getByRole('checkbox', { name: /^CPU request/ }).uncheck()
-    await expect(dialog).toContainText(/--requests=memory=\d+Mi -n data/)
+    await expect(dialog).toContainText(/--requests=memory=\d+(Mi|Gi) -n data/)
     await expect(dialog.getByRole('status')).toContainText('The API server accepts this change')
     const checks = writes(clusters.demo, 'PATCH', REDIS)
     expect(checks.every((w) => w.query.dryRun === 'All')).toBe(true)
@@ -315,7 +325,7 @@ test.describe('right-sizing', () => {
       },
     })
     await dialog.getByRole('button', { name: 'Apply' }).click()
-    await expect(toasts(page)).toContainText(/Set redis’s memory request in redis to \d+Mi/)
+    await expect(toasts(page)).toContainText(/Set redis’s memory request in redis to \d+(Mi|Gi)/)
     const saved = writes(clusters.demo, 'PATCH', REDIS).filter((w) => !w.query.dryRun)
     expect(saved).toHaveLength(1)
     expect(saved[0]!.body.spec.template.spec.containers[0].resources).toEqual({
@@ -351,7 +361,7 @@ test.describe('right-sizing', () => {
     await proxy.getByRole('checkbox', { name: /^CPU request/ }).uncheck()
     await proxy.getByRole('checkbox', { name: /^Memory request/ }).uncheck()
     await expect(proxy.getByRole('button', { name: 'Apply' })).toBeDisabled()
-    await expect(proxy).toContainText(/--requests=cpu=\d+m,memory=\d+Mi/)
+    await expect(proxy).toContainText(/--requests=cpu=\d+m,memory=\d+(Mi|Gi)/)
     await proxy.getByRole('checkbox', { name: /^CPU request/ }).check()
     await proxy.getByRole('checkbox', { name: /^Memory request/ }).check()
     await expect(proxy.getByRole('status')).toContainText('The API server accepts this change')
