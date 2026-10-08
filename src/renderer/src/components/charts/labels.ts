@@ -116,9 +116,18 @@ export function placeLabels({
       return sum
     }
     const costs = spots.map(cost)
-    // The first that's clear; or, on a background, the least in the way of those beside the line
-    // (one further off would only look like another's).
-    const clearOne = costs.indexOf(0)
+    // How far a spot keeps from the nearest other line: halfway between two, it reads as either's.
+    const room = ({ box }: Placement) =>
+      Math.min(Infinity, ...others.map((y) => Math.max(box.y0 - y, y - box.y1)))
+    // The first that's clear (or, if the other side of the line there is clear too, the one further
+    // from another line); or, on a background, the least in the way of those beside the line (one
+    // further off would only look like another's).
+    let clearOne = costs.indexOf(0)
+    // Spots come in pairs, above then below, at the same end and step.
+    const pair = clearOne ^ 1
+    if (clearOne >= 0 && costs[pair] === 0 && room(spots[pair]!) > room(spots[clearOne]!)) {
+      clearOne = pair
+    }
     const near = costs.slice(0, 4)
     const best = clearOne >= 0 ? clearOne : near.indexOf(Math.min(...near))
     taken.push(spots[best]!.box)
