@@ -168,6 +168,19 @@ test('a pasted kubeconfig is read, checked, kept as Lumovi’s own, edited and r
   const savedText = (saved as { data: string }).data
   expect(savedText).not.toContain(DEMO_TOKEN)
   expect(savedText).toContain('token: (kept by Lumovi)')
+  // Checked as it's edited: with its secrets for its placeholders (not the placeholders sent).
+  expect(
+    await page.evaluate(
+      ([text, file]) => window.lumovi!.addedClusters!.check(text!, 'pasted', [], file),
+      [savedText, file],
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { ok: true, allowed: true } } })
+  expect(
+    await page.evaluate(
+      (text) => window.lumovi!.addedClusters!.check(text, 'pasted', []),
+      savedText,
+    ),
+  ).toMatchObject({ ok: true, data: { credentials: { ok: false } } })
   const edited = savedText.replace(
     /(\n\s+)user: (lumovi-[0-9a-f]+)\n/,
     '$1user: $2$1namespace: team-a\n',
@@ -402,7 +415,10 @@ test('a credential that sends a file to the server is shown, and the file isn’
     ok: true,
     data: {
       contexts: [{ name: 'tokened', auth: 'token' }],
-      tokenFiles: [{ user: 'tokened', path: token, consent: expect.any(String) }],
+      // With the server it's sent to.
+      tokenFiles: [
+        { user: 'tokened', path: token, server: clusters.demo.url, consent: expect.any(String) },
+      ],
     },
   })
   const { consent } = (inspected as { data: { tokenFiles: { consent: string }[] } }).data
@@ -423,7 +439,10 @@ test('a credential that sends a file to the server is shown, and the file isn’
     await page.evaluate((text) => window.lumovi!.addedClusters!.add(text, { agreed: [] }), text),
   ).toMatchObject({
     ok: false,
-    error: { code: 'not-allowed', message: expect.stringContaining(`send ${token}`) },
+    error: {
+      code: 'not-allowed',
+      message: `Its credentials would send ${token} to ${clusters.demo.url}. Agree to that to keep it.`,
+    },
   })
   expect(own(userDataDir)).toEqual([])
 
@@ -548,6 +567,33 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
     ),
   ).toMatchObject({ ok: true })
   expect(await contexts(page)).toContain('plugged')
+
+  // Its program's environment is kept from the page as its other secrets are, and kept on edit:
+  // what it runs is what was agreed to, needing no agreement again.
+  const [file] = own(userDataDir)
+  const saved = (
+    (await page.evaluate((file) => window.lumovi!.addedClusters!.read(file), file!)) as {
+      data: string
+    }
+  ).data
+  expect(saved).not.toMatch(/value: a\b/)
+  expect(saved).toContain('value: (kept by Lumovi)')
+  expect(
+    await page.evaluate(
+      ([text, file]) => window.lumovi!.addedClusters!.inspect(text!, file),
+      [saved, file],
+    ),
+  ).toMatchObject({
+    ok: true,
+    data: { commands: [{ consent, env: [{ name: 'TEAM', value: 'a' }] }] },
+  })
+  expect(
+    await page.evaluate(
+      ([file, text]) => window.lumovi!.addedClusters!.edit(file!, text!, []),
+      [file, saved],
+    ),
+  ).toMatchObject({ ok: true })
+  expect(readFileSync(file!, 'utf8')).toMatch(/value: a\b/)
 })
 
 test('an organization’s policy that keeps Lumovi to the default locks adding, and what was added isn’t read', async ({

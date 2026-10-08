@@ -291,8 +291,11 @@ export interface PastedKubeconfig {
   }[]
   /** The programs its credentials run: shown, and never run before the person agrees. */
   commands: CredentialCommand[]
-  /** Files whose text its credentials send to its server: shown, and never read before the person agrees. */
-  tokenFiles: { user: string; path: string; consent: string }[]
+  /**
+   * Files whose text its credentials send, and the server each goes to: shown, and never read
+   * before the person agrees.
+   */
+  tokenFiles: { user: string; path: string; server: string; consent: string }[]
   /** The files on this computer its connections read (a token file's text is sent to its server). */
   files: string[]
   /** Its contexts named as some already read are: kubectl would take those, not these. */
@@ -974,10 +977,18 @@ export interface LumoviApi {
   addedClusters?: {
     /** Asks for a kubeconfig file to import, and gives its text; null if the user cancels. */
     import(): Promise<Result<string | null>>
-    /** What a kubeconfig holds, and what it would run: nothing run, nothing reached. */
-    inspect(text: string): Promise<Result<PastedKubeconfig>>
-    /** Whether one of its contexts can be used. */
-    check(text: string, context: string, agreed: string[]): Promise<Result<ClusterCheck>>
+    /**
+     * What a kubeconfig holds, and what it would run or send: nothing run, nothing reached. Of one
+     * Lumovi keeps being edited (`editing`, its path), as its placeholders' secrets make it.
+     */
+    inspect(text: string, editing?: string): Promise<Result<PastedKubeconfig>>
+    /** Whether one of its contexts can be used (of one being edited, with its secrets). */
+    check(
+      text: string,
+      context: string,
+      agreed: string[],
+      editing?: string,
+    ): Promise<Result<ClusterCheck>>
     /**
      * Kept, as a file of Lumovi's own, and read after the rest: its contexts (or those named),
      * each renamed as `names` says (to not be taken for one already read).

@@ -145,15 +145,17 @@ export function registerIpc(deps: Dependencies): void {
       kubeconfigFiles.show(path)
     },
     [IPC.addedImport]: () => addedClusters.import(),
-    [IPC.addedInspect]: (text) => {
+    [IPC.addedInspect]: (text, editing) => {
       assertString(text, 'text')
-      return addedClusters.inspect(text)
+      if (editing !== undefined) assertString(editing, 'editing')
+      return addedClusters.inspect(text, editing)
     },
-    [IPC.addedCheck]: (text, context, agreed) => {
+    [IPC.addedCheck]: (text, context, agreed, editing) => {
       assertString(text, 'text')
       assertString(context, 'context')
       if (!isStrings(agreed)) throw invalid('agreed must be what was agreed to')
-      return addedClusters.check(text, context, agreed)
+      if (editing !== undefined) assertString(editing, 'editing')
+      return addedClusters.check(text, context, agreed, editing)
     },
     [IPC.addedAdd]: (text, options) => {
       assertString(text, 'text')
