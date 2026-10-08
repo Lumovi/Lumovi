@@ -79,8 +79,8 @@ const addedNamespace = (clusters: TestClusters) =>
 /** What the demo cluster's token may do, besides acting as each person: anything. */
 const EVERYTHING = {
   result: 'warn',
-  title: 'It may do anything there, not only act as each person',
-  hint: 'Lumovi needs only that, and keeps the credentials: a service account that may only impersonate users and groups is safer.',
+  title: 'Its credentials can do more than act as each person',
+  hint: 'Lumovi only needs to act as each person, to see what they may see. A service account that may only do that is safer: the chart’s member mode sets one up.',
 }
 
 const names = (page: Page) =>
@@ -123,7 +123,9 @@ test('an admin adds a cluster by kubeconfig: checked, kept as Lumovi’s Secret,
 
   await as(context, 'admin@example.com')
   await page.reload()
-  expect(await call(page, 'joins')).toMatchObject({ value: { addFromPage: true, added: [] } })
+  expect(await call(page, 'joins')).toMatchObject({
+    value: { addFromPage: true, addNamespace: ADDED, added: [] },
+  })
   const host = new URL(clusters.demo.url).host
   expect(await call(page, 'check', { kubeconfig: kubeconfig(clusters) })).toEqual({
     value: {
@@ -324,7 +326,6 @@ test('what the hub can’t use is refused, saying why; a token, a server and its
     title: 'It’s reached through a proxy',
     // Where, never who it signs in to it as.
     detail: 'proxy.example:3128',
-    hint: 'Its server is still checked against its certificate authority, so the proxy sees only where it connects.',
   })
   // Its credentials don't work; or they do, but can't act as each person.
   expect(
@@ -381,6 +382,9 @@ test('an admin adds a cluster from the Fleet page: pasted, checked, named, then 
   await page.getByRole('button', { name: 'Add cluster' }).click()
   await page.getByRole('menuitem', { name: /^Paste a kubeconfig…/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Add a cluster' })
+  await expect(dialog).toContainText(
+    `Lumovi keeps it as a Secret in ${ADDED}, labelled lumovi.dev/cluster.`,
+  )
   const paste = async (text: string) => {
     await dialog.getByRole('textbox', { name: 'Its kubeconfig' }).click()
     await page.keyboard.press('ControlOrMeta+a')

@@ -85,6 +85,8 @@ export interface FleetJoins {
   whyNot?: string
   /** Whether clusters may be added by kubeconfig or token here (the chart's fleet.addFromPage). */
   addFromPage: boolean
+  /** Where they're kept, if they may be: the namespace (the chart's fleet.addNamespace). */
+  addNamespace?: string
   /** The clusters added that way, which the page may remove. */
   added: string[]
 }

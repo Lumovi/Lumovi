@@ -201,6 +201,7 @@ export function FleetPage() {
                   <div className="mt-4 flex justify-center">
                     <AddCluster
                       addFromPage={addFromPage}
+                      namespace={joins.data?.addNamespace}
                       onConnect={() => setConnecting({})}
                       onAdd={setAdding}
                     />
@@ -230,6 +231,7 @@ export function FleetPage() {
                 {admin && (
                   <AddCluster
                     addFromPage={addFromPage}
+                    namespace={joins.data?.addNamespace}
                     onConnect={() => setConnecting({})}
                     onAdd={setAdding}
                   />
@@ -345,6 +347,7 @@ export function FleetPage() {
       {adding && (
         <AddClusterDialog
           kind={adding}
+          namespace={joins.data?.addNamespace}
           onConnect={() => {
             setAdding(undefined)
             setConnecting({})
@@ -402,11 +405,14 @@ function GroupMenu({
 /** An admin's: adding a cluster, connected with its agent. */
 function AddCluster({
   addFromPage,
+  namespace,
   onConnect,
   onAdd,
 }: {
   /** Whether the server allows adding by kubeconfig or token (the chart's fleet.addFromPage). */
   addFromPage: boolean
+  /** Where those are kept. */
+  namespace?: string
   onConnect: () => void
   onAdd: (kind: AddKind) => void
 }) {
@@ -455,7 +461,9 @@ function AddCluster({
             <ClipboardPaste className="mt-0.5 size-4 shrink-0 text-ink-3" />
             <span>
               Paste a kubeconfig…
-              <span className="block text-xs text-ink-3">Kept as a Secret in its namespace.</span>
+              <span className="block text-xs text-ink-3">
+                Kept as a Secret in {namespace ?? 'its namespace'}.
+              </span>
             </span>
           </DropdownMenu.Item>
           <DropdownMenu.Item
