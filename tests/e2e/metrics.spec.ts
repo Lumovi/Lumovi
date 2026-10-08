@@ -575,7 +575,8 @@ test.describe('the Metrics tab', () => {
     await expect(legend(cpu).getByRole('button')).toHaveText(['app', 'envoy'])
     await expect(cpu).toContainText('Requests')
     await expect(cpu).toContainText('↑ Limit')
-    await expect(cpu).toContainText(/Now \d+m/)
+    // The mock's CPU follows the clock: under 100m it has a decimal ("Now 96.6m").
+    await expect(cpu).toContainText(/Now \d+(\.\d+)?m/)
     const memory = detail.getByRole('region', { name: 'Memory', exact: true })
     await expect(memory).toContainText('Limit')
     await expect(memory).toContainText('Requests')
