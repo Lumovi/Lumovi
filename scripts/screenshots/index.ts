@@ -426,9 +426,20 @@ async function shoot(
  */
 const OF_THIS_COMPUTER = [tmpdir(), 'lumovi-screenshots-home-', '/Users/runner', '/_temp/']
 
-/** Fails when the page's text shows one of the folders the screenshots are taken in. */
+/**
+ * Fails when the page shows one of the folders the screenshots are taken in: in its text, or in
+ * what a field holds (or suggests). Not what's drawn on a canvas, like a terminal's lines.
+ */
 async function nothingOfThisComputer(page: Page) {
-  const text = await page.locator('body').innerText()
+  const text = await page.evaluate(() =>
+    [
+      document.body.innerText,
+      ...Array.from(document.querySelectorAll('input, textarea'), (field) => {
+        const { value, placeholder } = field as HTMLInputElement | HTMLTextAreaElement
+        return `${value}\n${placeholder}`
+      }),
+    ].join('\n'),
+  )
   const shown = OF_THIS_COMPUTER.find((folder) => text.includes(folder))
   if (shown === undefined) return
   const line = text.split('\n').find((line) => line.includes(shown))
