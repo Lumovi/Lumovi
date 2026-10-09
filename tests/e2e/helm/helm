@@ -3,10 +3,11 @@
 // $FAKE_HELM_DIR/calls.jsonl) and answers like helm does, or as
 // $FAKE_HELM_DIR/responses.json says ({ "<subcommand>": { code, stdout, stderr, signal } }).
 import fs from 'node:fs'
+import http from 'node:http'
 import https from 'node:https'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { parse } from 'yaml'
+import { parse, parseAllDocuments } from 'yaml'
 
 const args = process.argv.slice(2)
 const dir = process.env.FAKE_HELM_DIR
@@ -63,6 +64,57 @@ if (scripted) {
 const option = (name) => {
   const i = args.indexOf(name)
   return i === -1 ? undefined : args[i + 1]
+}
+
+// Lumovi's metrics stack ($FAKE_HELM_STACK: what the chart Lumovi ships renders to, with its
+// values) is made in the cluster, as helm would, and its release recorded there; uninstalled,
+// it's deleted from it. The cluster is the kubeconfig's, by --kube-context.
+const stack = process.env.FAKE_HELM_STACK && args[1] === 'lumovi-metrics'
+if (stack && (command === 'install' || command === 'uninstall')) {
+  const manifest = fs.readFileSync(process.env.FAKE_HELM_STACK, 'utf8')
+  const namespace = option('--namespace')
+  const dryRun = args.includes('--dry-run=server')
+  const record = {
+    name: args[1],
+    namespace,
+    version: 1,
+    info: { status: dryRun ? 'pending-install' : 'deployed', notes: '' },
+    chart: { metadata: { name: 'prometheus', version: '29.36.1', appVersion: 'v3.15.0' } },
+    manifest,
+  }
+  const objects = [
+    ...parseAllDocuments(manifest)
+      .map((document) => document.toJS())
+      .filter(Boolean),
+    {
+      apiVersion: 'v1',
+      kind: 'Secret',
+      type: 'helm.sh/release.v1',
+      metadata: {
+        name: `sh.helm.release.v1.${args[1]}.v1`,
+        labels: { name: args[1], owner: 'helm', status: 'deployed', version: '1' },
+      },
+      data: {
+        release: Buffer.from(zlib.gzipSync(JSON.stringify(record)).toString('base64')).toString(
+          'base64',
+        ),
+      },
+    },
+  ]
+  if (!dryRun) {
+    for (const object of command === 'install' ? objects : objects.reverse()) {
+      const status = await send(command === 'install' ? 'POST' : 'DELETE', object, namespace)
+      // Like helm: what's there already isn't taken over, and what the cluster refuses stops it.
+      if (status >= 400 && !(command === 'uninstall' && status === 404)) {
+        console.error(
+          `Error: ${command === 'install' ? 'INSTALLATION FAILED' : 'uninstallation failed'}: ${object.kind} ${object.metadata.name}: the cluster answered ${status}`,
+        )
+        process.exit(1)
+      }
+    }
+  }
+  console.log(command === 'install' ? JSON.stringify(record) : `release "${args[1]}" uninstalled`)
+  process.exit(0)
 }
 
 switch (command) {
@@ -183,4 +235,48 @@ function chartYaml(chart) {
     offset += 512 + Math.ceil(size / 512) * 512
   }
   throw new Error(`${chart} has no Chart.yaml`)
+}
+
+/** Where each kind of the metrics stack's is, in the API. */
+function collection(object, namespace) {
+  const cluster = { ClusterRole: 'clusterroles', ClusterRoleBinding: 'clusterrolebindings' }
+  const plural = `${object.kind.toLowerCase()}s`
+  const root = object.apiVersion === 'v1' ? '/api/v1' : `/apis/${object.apiVersion}`
+  return cluster[object.kind] ? `${root}/${plural}` : `${root}/namespaces/${namespace}/${plural}`
+}
+
+/** Creates or deletes an object in the cluster --kube-context names: the answer's status. */
+function send(method, object, namespace) {
+  const config = parse(fs.readFileSync(kubeconfig, 'utf8'))
+  const context = config.contexts.find((c) => c.name === option('--kube-context')).context
+  const { cluster } = config.clusters.find((c) => c.name === context.cluster)
+  const { user } = config.users.find((u) => u.name === context.user)
+  const where = collection(object, namespace)
+  const url = new URL(
+    `${cluster.server}${method === 'POST' ? where : `${where}/${object.metadata.name}`}`,
+  )
+  const body = method === 'POST' ? JSON.stringify(object) : undefined
+  return new Promise((resolve, reject) => {
+    const request = (url.protocol === 'https:' ? https : http).request(
+      url,
+      {
+        method,
+        ...(cluster['certificate-authority-data']
+          ? { ca: Buffer.from(cluster['certificate-authority-data'], 'base64') }
+          : {}),
+        servername: cluster['tls-server-name'],
+        headers: {
+          ...(user.token ? { Authorization: `Bearer ${user.token}` } : {}),
+          ...(user.as ? { 'Impersonate-User': user.as } : {}),
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+      },
+      (response) => {
+        response.resume()
+        response.on('end', () => resolve(response.statusCode))
+      },
+    )
+    request.on('error', reject)
+    request.end(body)
+  })
 }

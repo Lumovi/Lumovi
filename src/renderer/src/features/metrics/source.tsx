@@ -1,12 +1,13 @@
-import { ChartSpline, RotateCw, Settings2 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ChartSpline, PackagePlus, RotateCw, Settings2 } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { HistorySource, MetricsService } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { Loading } from '@renderer/components/States'
-import { useHistorySource, useResetSource } from '@renderer/hooks/history'
+import { useHistorySource, useMetricsStack, useResetSource } from '@renderer/hooks/history'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
+import { InstallStackDialog } from './StackDialogs'
 
 export const FLAVOR_NAMES = { prometheus: 'Prometheus', victoriametrics: 'VictoriaMetrics' }
 
@@ -73,10 +74,44 @@ export function HistoryGate({
   const reset = useResetSource()
   const open = useUi((ui) => ui.setMetricsSource)
   const [looking, setLooking] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  // Lumovi's own stack is offered where nothing was found; once installed, it's waited for.
+  const found = source.data?.state
+  const stack = useMetricsStack(found === 'missing' || found === 'error').data
+  const starting = found !== 'ready' && stack?.state === 'installed'
+  const up = starting && stack.ready === true
+  useEffect(() => {
+    // Its Prometheus is up: history is looked for again until it answers, and the charts come.
+    if (!up) return
+    void reset()
+    const again = setInterval(() => void reset(), 5_000)
+    return () => clearInterval(again)
+    // Only as it comes up: `reset` is made anew with every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [up])
   // Looking for a source answers rather than fails: a problem is a state of its own.
   if (!source.data) return <Loading label="Looking for Prometheus…" />
   if (source.data.state === 'ready') return children
   const { state } = source.data
+  if (starting && !(source.data.state === 'error' && source.data.configured)) {
+    return (
+      <div
+        className={cn(
+          'mx-auto flex max-w-md animate-rise flex-col items-center text-center',
+          compact ? 'py-10' : 'py-16',
+        )}
+      >
+        <Loading label="The metrics stack is starting…" />
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
+          The cluster is pulling its images and starting Prometheus in {stack.namespace}. Charts
+          fill in a minute or two after it’s up.
+        </p>
+      </div>
+    )
+  }
+  // Offered where there's none, unless a policy says no (then it isn't mentioned).
+  const offer =
+    state === 'missing' && stack?.state !== 'installed' && stack?.off?.reason !== 'policy'
   const again = async () => {
     setLooking(true)
     await reset()
@@ -100,7 +135,21 @@ export function HistoryGate({
           {source.data.message}
         </p>
       )}
-      <div className="mt-5 flex gap-2">
+      {offer && stack && (
+        <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
+          {stack.off
+            ? stack.off.reason === 'admins'
+              ? 'Lumovi can install a small one. Only its admins do: ask one of them.'
+              : 'Lumovi can install a small one, once the cluster isn’t read-only.'
+            : 'Or let Lumovi install a small one: you review everything it makes first.'}
+        </p>
+      )}
+      <div className="mt-5 flex flex-wrap justify-center gap-2">
+        {offer && stack && !stack.off && (
+          <Button variant="primary" onClick={() => setInstalling(true)}>
+            <PackagePlus /> Install a metrics stack…
+          </Button>
+        )}
         <Button onClick={() => open(true)}>
           <Settings2 /> {state === 'off' ? 'Change' : 'Choose a service'}
         </Button>
@@ -110,6 +159,9 @@ export function HistoryGate({
           </Button>
         )}
       </div>
+      {installing && stack && (
+        <InstallStackDialog stack={stack} onClose={() => setInstalling(false)} />
+      )}
     </div>
   )
 }

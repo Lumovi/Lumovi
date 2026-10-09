@@ -354,6 +354,7 @@ test('the server says what’s wrong with its configuration, and stops', async (
     ],
     [{ LUMOVI_URL: 'https://' }, 'LUMOVI_URL must be an http or https URL, not "https://".'],
     [{ LUMOVI_NODE_SHELL: 'maybe' }, 'LUMOVI_NODE_SHELL must be on or off, not "maybe".'],
+    [{ LUMOVI_METRICS_STACK: 'yes' }, 'LUMOVI_METRICS_STACK must be on or off, not "yes".'],
     [
       { LUMOVI_NODE_SHELL_IMAGE: 'has space' },
       'LUMOVI_NODE_SHELL_NAMESPACE must be a namespace\'s name and LUMOVI_NODE_SHELL_IMAGE an image, not "kube-system" and "has space".',

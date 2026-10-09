@@ -606,6 +606,9 @@
         "source": {
           "type": "string",
           "pattern": "^(auto|off|[^/:]+/[^/:]+:[^/]+(/.*)?)$"
+        },
+        "stack": {
+          "type": "boolean"
         }
       }
     },

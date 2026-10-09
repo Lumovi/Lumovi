@@ -43,6 +43,43 @@ function run(command: string, args: string[], options: ExecFileSyncOptions = {})
 const quiet = (command: string, args: string[]) =>
   execFileSync(command, args, { env, encoding: 'utf8' }).trim()
 
+/**
+ * kube-prometheus-stack, in monitoring: what most tests read history from. (One takes it away
+ * for a while, to install Lumovi's own, and puts it back.)
+ */
+export function installPrometheus() {
+  run('helm', [
+    'upgrade',
+    '--install',
+    'kps',
+    'kube-prometheus-stack',
+    '--repo',
+    CHARTS.prometheus.repo,
+    '--version',
+    CHARTS.prometheus.version,
+    '--namespace',
+    'monitoring',
+    '--create-namespace',
+    '--values',
+    join(HERE, 'prometheus-values.yaml'),
+    '--wait',
+    '--timeout',
+    '10m',
+  ])
+  run('kubectl', [
+    '--context',
+    CONTEXT,
+    'wait',
+    '--for=condition=Ready',
+    'pods',
+    '--all',
+    '--namespace',
+    'monitoring',
+    '--timeout',
+    '5m',
+  ])
+}
+
 function up() {
   mkdirSync(dirname(KUBECONFIG), { recursive: true })
   const clusters = quiet('kind', ['get', 'clusters']).split('\n')
@@ -81,36 +118,7 @@ function up() {
     '--timeout',
     '5m',
   ])
-  run('helm', [
-    'upgrade',
-    '--install',
-    'kps',
-    'kube-prometheus-stack',
-    '--repo',
-    CHARTS.prometheus.repo,
-    '--version',
-    CHARTS.prometheus.version,
-    '--namespace',
-    'monitoring',
-    '--create-namespace',
-    '--values',
-    join(HERE, 'prometheus-values.yaml'),
-    '--wait',
-    '--timeout',
-    '10m',
-  ])
-  run('kubectl', [
-    '--context',
-    CONTEXT,
-    'wait',
-    '--for=condition=Ready',
-    'pods',
-    '--all',
-    '--namespace',
-    'monitoring',
-    '--timeout',
-    '5m',
-  ])
+  installPrometheus()
   // Built here unless it was already (CI builds it first). After changing Lumovi,
   // `docker build --tag lumovi:integration .` and run this again.
   if (spawnSync('docker', ['image', 'inspect', SERVED_IMAGE], { stdio: 'ignore' }).status !== 0) {

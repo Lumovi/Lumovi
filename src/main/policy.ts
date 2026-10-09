@@ -24,6 +24,8 @@
  *                                        dl.k8s.io's always: one keeping none isn't used
  *     "kubeconfigFiles": "locked",       only KUBECONFIG's kubeconfig, or ~/.kube/config: the one
  *                                        IT manages, none chosen in Lumovi
+ *     "metricsStack": false,             Lumovi doesn't offer to install a metrics stack (nor
+ *                                        remove one) where a cluster has no usage history
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -89,6 +91,7 @@ const KEYS = [
   'kubectl',
   'kubectlSignatures',
   'kubeconfigFiles',
+  'metricsStack',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -346,6 +349,7 @@ function checked(given: unknown, path: string): Policy {
     kubectl,
     kubectlSignatures,
     kubeconfigFiles,
+    metricsStack,
     network = {},
   } = policy
   if (
@@ -358,6 +362,7 @@ function checked(given: unknown, path: string): Policy {
   for (const [key, value] of [
     ['assistants', assistants],
     ['updates', updates],
+    ['metricsStack', metricsStack],
   ] as const) {
     if (value !== undefined && typeof value !== 'boolean') {
       throw new Error(`${key} must be true or false.`)
@@ -413,6 +418,7 @@ function checked(given: unknown, path: string): Policy {
     ...(typeof kubectl === 'string' ? { kubectlMirror: kubectl } : {}),
     ...(kubectlSignatures === 'required' ? { kubectlSignatures: 'required' as const } : {}),
     ...(kubeconfigFiles === 'locked' ? { kubeconfigFilesLocked: true as const } : {}),
+    ...(metricsStack === false ? { metricsStackOff: true as const } : {}),
   }
   return {
     managed,

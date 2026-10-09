@@ -181,6 +181,11 @@ metrics:
   # off, or a service: monitoring/prometheus-operated:9090 (with a path after the port for
   # vmselect: vm/vmselect:8481/select/0/prometheus). Each person can choose another.
   source: auto
+  # Where a cluster has no usage history, Lumovi offers its admins (LUMOVI_ADMINS; anyone where
+  # it has none) to install a small metrics stack: Prometheus and kube-state-metrics, from a
+  # chart it ships, in a namespace of its own (lumovi-metrics), as whoever installs it, so their
+  # RBAC decides. false: it's never offered, installed or removed by Lumovi.
+  stack: true
 
 # Shells on nodes (a node's Shell tab): Lumovi starts a privileged pod on the node, as
 # whoever asks, so their RBAC and the namespace's Pod Security decide, and deletes it when the

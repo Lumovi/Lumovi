@@ -15,3 +15,5 @@ build/Lumovi.icon/
 # Fetched by `npm run crds`, one CRD a line.
 tests/views/crds/*.json
 !tests/views/crds/sources.json
+# What helm renders of the chart Lumovi ships, as helm prints it.
+tests/e2e/helm/metrics-stack.yaml

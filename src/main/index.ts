@@ -8,6 +8,7 @@ import icon from '../../build/icon.png?asset'
 import { AuditLog } from '@backend/audit/log'
 import { recorder } from '@backend/audit/recorder'
 import { FileStore, MemoryStore, type AuditStore } from '@backend/audit/store'
+import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { HelmService } from '@backend/helm/service'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
 import { LogStreams } from '@backend/kube/logs'
@@ -168,6 +169,16 @@ if (stdio) {
       isReadOnly,
       localCharts: true,
       command: existsSync(shipped) ? shipped : undefined,
+    })
+    const metricsStack = new MetricsStackService(kube, helm, {
+      isReadOnly,
+      off: () =>
+        settings.get().managed?.metricsStackOff
+          ? {
+              reason: 'policy',
+              message: 'Your organization has turned off installing a metrics stack from Lumovi.',
+            }
+          : undefined,
     })
     // The page loads asynchronously, so the handlers below are in place before it can call them.
     const win = createMainWindow(url, settings.get().window, (window) =>
@@ -340,6 +351,7 @@ if (stdio) {
       assistants,
       kube,
       helm,
+      metricsStack,
       usage,
       settings,
       terminals,

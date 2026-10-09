@@ -86,6 +86,8 @@ export function startServer(
     LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
     LUMOVI_HELM: FAKE_HELM,
     FAKE_HELM_DIR: helmDir,
+    // What Lumovi's metrics stack is made of, which the stand-in makes in the cluster.
+    FAKE_HELM_STACK: resolve('tests/e2e/helm/metrics-stack.yaml'),
     // Never anyone's own: an empty folder unless a test makes one.
     LUMOVI_VIEWS_DIR: join(helmDir, 'views'),
     // The mock repositories and registries run here.

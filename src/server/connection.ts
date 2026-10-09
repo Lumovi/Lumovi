@@ -22,6 +22,7 @@ import { auditHandlers } from '@backend/audit/handlers'
 import type { AuditLog } from '@backend/audit/log'
 import { recorder } from '@backend/audit/recorder'
 import { handlers, type Handler } from '@backend/handlers'
+import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
 import { KubeRequestError } from '@backend/kube/errors'
@@ -265,9 +266,30 @@ export class PageConnection {
         end: (id, error) => this.emit(IPC.logsEnd, id, error),
       },
     )
+    // Lumovi's metrics stack makes cluster roles, and is everyone's once it's there: its admins'
+    // to install and remove (anyone's where it has none), as the clusters' settings are.
+    const metricsStack = new MetricsStackService(kube, helm, {
+      isReadOnly,
+      off: () => {
+        if (!config.metricsStack) {
+          return {
+            reason: 'policy',
+            message:
+              'Installing a metrics stack is turned off on this Lumovi server (LUMOVI_METRICS_STACK=off).',
+          }
+        }
+        return clusters.whyNot(identity.user)
+          ? {
+              reason: 'admins',
+              message: 'Only Lumovi’s admins install or remove its metrics stack. Ask one of them.',
+            }
+          : undefined
+      },
+    })
     const shared = handlers({
       kube,
       helm,
+      metricsStack,
       usage: new UsageHistory(kube, (context) => preferences.metricsSource(context)),
       settings: preferences,
       terminals,

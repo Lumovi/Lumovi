@@ -143,6 +143,8 @@ export interface ManagedSettings {
   kubectlSignatures?: 'required'
   /** Only KUBECONFIG's kubeconfig, or ~/.kube/config: none can be chosen in Lumovi. */
   kubeconfigFilesLocked?: true
+  /** No metrics stack is offered, installed or removed by Lumovi. */
+  metricsStackOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -213,6 +215,43 @@ export type HistorySource =
   /** Nothing Prometheus-like was found among the cluster's services. */
   | { state: 'missing' }
   | { state: 'error'; message: string; configured: boolean; service?: MetricsService }
+
+/**
+ * The metrics stack Lumovi can install where a cluster has no history: a chart it ships, with
+ * the values it sets, as one Helm release in a namespace of its own.
+ */
+export interface MetricsStack {
+  /** Where it is, or would go; and whether that's taken (a namespace of that name, not Lumovi's). */
+  state: 'absent' | 'installed' | 'taken'
+  namespace: string
+  release: string
+  chart: {
+    name: string
+    version: string
+    appVersion: string
+    /** The packaged chart's SHA-256, as its repository publishes it. */
+    sha256: string
+    repository: string
+  }
+  /** The values it's installed with. */
+  values: string
+  /** The images it runs, each by its digest. */
+  images: string[]
+  /** Installed: whether its Prometheus is up and answering. */
+  ready?: boolean
+  /** Why it can't be installed or removed here, whoever asks (a policy, a read-only cluster…). */
+  off?: { reason: 'policy' | 'read-only' | 'admins'; message: string }
+  /** What the cluster doesn't let this person do, of what installing (or removing) it takes. */
+  missing: string[]
+  /** The cluster, where it's more than the stack is sized for. */
+  large?: { nodes: number; pods: number }
+}
+
+export interface MetricsStackRequest {
+  context: string
+  /** Asks the API server, and changes nothing. */
+  dryRun?: boolean
+}
 
 /** PromQL to evaluate over a time range; times in milliseconds. */
 export interface RangeQuery {
@@ -971,6 +1010,14 @@ export interface LumoviApi {
     range(query: RangeQuery): Promise<Result<RangeResult>>
     instant(query: InstantQuery): Promise<Result<InstantResult>>
   }
+  /** A metrics stack of Lumovi's own, where a cluster has no history. */
+  metricsStack: {
+    status(context: string): Promise<Result<MetricsStack>>
+    /** Installs it, or (a dry run) answers with what it would make. */
+    install(request: MetricsStackRequest): Promise<Result<HelmDeployed>>
+    /** Removes it, and its namespace: only one Lumovi installed. */
+    uninstall(request: MetricsStackRequest): Promise<Result<null>>
+  }
   kube: {
     contexts(): Promise<ContextsResult>
     version(context: string): Promise<Result<ClusterVersion>>
@@ -1302,6 +1349,9 @@ export const IPC = {
   usageTest: 'usage:test',
   usageRange: 'usage:range',
   usageInstant: 'usage:instant',
+  metricsStackStatus: 'metrics-stack:status',
+  metricsStackInstall: 'metrics-stack:install',
+  metricsStackUninstall: 'metrics-stack:uninstall',
   terminalOpen: 'terminal:open',
   terminalInput: 'terminal:input',
   terminalResize: 'terminal:resize',

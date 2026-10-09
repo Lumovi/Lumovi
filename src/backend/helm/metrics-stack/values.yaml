@@ -1,0 +1,119 @@
+# What Lumovi's charts read, and nothing else: each container's usage, from the nodes' kubelets
+# (cAdvisor), and where pods run and how often they restart, from kube-state-metrics. No
+# Alertmanager, no Pushgateway, no node exporter, and nothing scraped but those two.
+alertmanager:
+  enabled: false
+prometheus-pushgateway:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+configmapReload:
+  prometheus:
+    enabled: false
+
+server:
+  image:
+    digest: sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+  global:
+    scrape_interval: 30s
+    scrape_timeout: 10s
+  # None of the chart's own (--web.enable-lifecycle): nothing reloads or stops it over HTTP.
+  extraFlags: []
+  # A week of history, or as much of it as fits: the oldest goes first.
+  retention: 7d
+  retentionSize: 3GB
+  # Kept on the node Prometheus runs on, so history starts over when its pod moves. No volume
+  # to claim, and none left behind.
+  persistentVolume:
+    enabled: false
+  emptyDir:
+    sizeLimit: 4Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+  # The role below, in place of the chart's (which also reads every Service, Pod, Ingress and
+  # ConfigMap): the nodes, to find their kubelets, and the kubelets' metrics.
+  useExistingClusterRoleName: lumovi-metrics-server
+
+extraManifests:
+  - |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: lumovi-metrics-server
+      labels:
+        {{- include "prometheus.server.labels" . | nindent 4 }}
+    rules:
+      - apiGroups: [""]
+        resources: [nodes]
+        verbs: [get, list, watch]
+      - apiGroups: [""]
+        resources: [nodes/metrics]
+        verbs: [get]
+  - |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: lumovi-metrics-server
+      labels:
+        {{- include "prometheus.server.labels" . | nindent 4 }}
+    subjects:
+      - kind: ServiceAccount
+        name: {{ include "prometheus.serviceAccountName.server" . }}
+        namespace: {{ include "prometheus.namespace" . }}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: lumovi-metrics-server
+
+scrapeConfigs:
+  prometheus:
+    enabled: false
+  kubernetes-api-servers:
+    enabled: false
+  kubernetes-nodes:
+    enabled: false
+  kubernetes-service-endpoints:
+    enabled: false
+  kubernetes-service-endpoints-slow:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
+  kubernetes-services:
+    enabled: false
+  kubernetes-pods:
+    enabled: false
+  kubernetes-pods-slow:
+    enabled: false
+  kubernetes-nodes-cadvisor:
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|network_receive_bytes_total|network_transmit_bytes_total)
+        action: keep
+  kube-state-metrics:
+    static_configs:
+      - targets:
+          - lumovi-metrics-kube-state-metrics.lumovi-metrics.svc:8080
+
+kube-state-metrics:
+  image:
+    sha: sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
+  # Pods, and nothing else: its role lists and watches them only (no Secrets, no ConfigMaps).
+  collectors:
+    - pods
+  metricAllowlist:
+    - kube_pod_info
+    - kube_pod_container_status_restarts_total
+  # Lumovi's Prometheus scrapes it by name: nothing else has to find it.
+  prometheusScrape: false
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

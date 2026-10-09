@@ -206,6 +206,8 @@ spec:
             {{- end }}
             - name: LUMOVI_METRICS_SOURCE
               value: {{ .Values.metrics.source | quote }}
+            - name: LUMOVI_METRICS_STACK
+              value: {{ ternary "on" "off" .Values.metrics.stack | quote }}
             - name: LUMOVI_ALLOW_PRIVATE_CHARTS
               value: {{ .Values.helm.allowPrivateCharts | quote }}
             - name: LUMOVI_ARTIFACT_HUB_URL

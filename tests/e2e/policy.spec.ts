@@ -109,7 +109,7 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       // default kubeconfig (kubeconfig-files.spec.ts).
       kubectlOff: true,
       kubeconfigFilesLocked: true,
-      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, network.`,
+      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, network.`,
     },
   })
   await openCluster(page)

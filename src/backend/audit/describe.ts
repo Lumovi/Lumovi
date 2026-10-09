@@ -13,11 +13,13 @@ import type {
   KubeError,
   KubeErrorCode,
   KubeObject,
+  MetricsStackRequest,
   Result,
 } from '@shared/api'
 import type { AiPermissions } from '@shared/ai-permissions'
 import type { AuditAction, AuditDetail, AuditOutcome } from '@shared/audit'
 import { helm, kubectl, objectArg } from '@shared/kubectl'
+import { METRICS_STACK, metricsStackChartArgs } from '@shared/metrics-stack'
 import { apiKindOf } from '@shared/resources'
 import type { Recorded } from './recorder'
 
@@ -316,6 +318,37 @@ export const describeUninstall = (r: HelmUninstall, result: Result<unknown>): Re
   ),
   details: { keepHistory: r.keepHistory },
 })
+
+/** Lumovi's metrics stack, installed: the chart it ships, as the command that installs the same. */
+export function describeStackInstall(r: MetricsStackRequest, result: Result<unknown>): Recorded {
+  const { namespace, release: name, chart } = METRICS_STACK
+  return {
+    action: 'helm.install',
+    ...outcomeOf(result),
+    ...release({ context: r.context, namespace, name }),
+    summary: `${result.ok ? 'Installed' : 'Install'} Lumovi’s metrics stack (${chart.name} ${chart.version}) as ${name}`,
+    command: helm(r.context, namespace, 'install', name, ...metricsStackChartArgs),
+    details: {
+      chart: chart.name,
+      version: chart.version,
+      repository: chart.repository,
+      sha256: chart.sha256,
+    },
+  }
+}
+
+/** Lumovi's metrics stack, removed: its release, and the namespace made for it. */
+export function describeStackUninstall(r: MetricsStackRequest, result: Result<unknown>): Recorded {
+  const { namespace, release: name } = METRICS_STACK
+  return {
+    action: 'helm.uninstall',
+    ...outcomeOf(result),
+    ...release({ context: r.context, namespace, name }),
+    summary: `${result.ok ? 'Removed' : 'Remove'} Lumovi’s metrics stack (${name}, and its namespace)`,
+    command: `${helm(r.context, namespace, 'uninstall', name)} && ${kubectl(r.context, undefined, 'delete', 'namespace', namespace)}`,
+    details: { namespace },
+  }
+}
 
 /** What AI assistants may do, as someone set it: their defaults, and their rules' names. */
 export function describePermissions({ defaults, rules }: AiPermissions): Recorded {

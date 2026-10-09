@@ -2,7 +2,7 @@ import { CircleCheck, CircleX, LoaderCircle, Settings2 } from 'lucide-react'
 import { useState } from 'react'
 import type { HistorySource, KubeObject, MetricsService, MetricsSourceSetting } from '@shared/api'
 import { Button } from '@renderer/components/Button'
-import { useHistorySource, useResetSource } from '@renderer/hooks/history'
+import { useHistorySource, useMetricsStack, useResetSource } from '@renderer/hooks/history'
 import { useList } from '@renderer/hooks/queries'
 import { ADMINS_ONLY, useSettings, useSharedSettings } from '@renderer/hooks/settings'
 import { api, unwrap } from '@renderer/lib/api'
@@ -13,6 +13,7 @@ import { toast } from '@renderer/state/toasts'
 import { useUi } from '@renderer/state/ui'
 import { ActionDialog } from '../actions/ActionDialog'
 import { FLAVOR_NAMES, proxyPath, serviceName } from './source'
+import { RemoveStackDialog } from './StackDialogs'
 
 type Mode = MetricsSourceSetting['mode']
 
@@ -44,6 +45,8 @@ function Dialog({ onClose }: { onClose: () => void }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
   const { shared, mayChange } = useSharedSettings()
+  const stack = useMetricsStack().data
+  const [removing, setRemoving] = useState(false)
   const change = (patch: Partial<MetricsService>) => {
     setService({ ...service, ...patch })
     setTest(undefined)
@@ -143,6 +146,30 @@ function Dialog({ onClose }: { onClose: () => void }) {
           note="Live usage only, from the metrics API."
         />
       </div>
+      {stack?.state === 'installed' && stack.off?.reason !== 'policy' && (
+        <section
+          aria-label="Lumovi’s metrics stack"
+          className="mt-3 flex items-center gap-3 rounded-xl border border-line px-3.5 py-3"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-medium text-ink-1">Lumovi’s metrics stack</span>
+            <span className="block text-xs leading-relaxed text-ink-3">
+              Installed by Lumovi in {stack.namespace}: {stack.chart.name} {stack.chart.version}
+              {stack.ready ? '' : ', starting'}. Removing it leaves nothing in the cluster.
+            </span>
+          </span>
+          <Button onClick={() => setRemoving(true)}>Remove…</Button>
+        </section>
+      )}
+      {removing && stack && (
+        <RemoveStackDialog
+          stack={stack}
+          onClose={(removed) => {
+            setRemoving(false)
+            if (removed) onClose()
+          }}
+        />
+      )}
     </ActionDialog>
   )
 }
