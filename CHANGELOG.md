@@ -14,6 +14,11 @@ All notable changes to Lumovi are documented here. The format follows
   the mouse. Alt on its own, or F10, opens it too.
 - Help → Documentation opens docs.lumovi.dev, on every platform.
 
+### Changed
+
+- The project's contact address is peter@lumovi.dev: in the Code of Conduct, the Linux and AUR
+  packages' maintainer and the chart repository's Artifact Hub owner.
+
 ### Fixed
 
 - A server keeps running when a WebSocket connection it refused (a page's that isn't signed in,

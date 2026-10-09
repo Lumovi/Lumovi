@@ -127,7 +127,7 @@ linux:
   synopsis: Calm, fast Kubernetes dashboard, on your desktop or in your cluster
   # Drawn for each size.
   icon: build/icons
-  maintainer: Peter Kota <kotapeter@gmail.com>
+  maintainer: Peter Kota <peter@lumovi.dev>
   # node-pty as built here, for this architecture (each is built on its own: see release.yml).
   files:
     - '!node_modules/node-pty/prebuilds/**'
