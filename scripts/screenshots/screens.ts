@@ -26,6 +26,11 @@ export interface Screen {
   server?: 'token' | 'sso' | 'proxy' | 'fleet' | 'audit' | 'access'
   /** Where it starts: a path in the app. */
   path: string
+  /**
+   * `relative`: the desktop app started with KUBECONFIG=.kube/config, for a page that shows the
+   * kubeconfig's path as it was given. As ~/.kube/config, it'd show the temporary home's.
+   */
+  kubeconfig?: 'relative'
   /** What to do there before the screenshot, if anything. */
   steps?: (page: Page) => Promise<void>
   /** What to put back afterwards, for the screenshots after it. */
@@ -356,6 +361,7 @@ export const SCREENS: Screen[] = [
       'AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.',
     app: 'desktop',
     path: cluster,
+    kubeconfig: 'relative',
     async steps(page) {
       await assistantConnects(page)
       await page.getByRole('button', { name: /^AI assistants/ }).click()
@@ -370,6 +376,7 @@ export const SCREENS: Screen[] = [
       'What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.',
     app: 'desktop',
     path: cluster,
+    kubeconfig: 'relative',
     async steps(page) {
       await permitForScreens(page)
       await page.getByRole('button', { name: /^AI assistants/ }).click()
@@ -390,6 +397,7 @@ export const SCREENS: Screen[] = [
       'A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.',
     app: 'desktop',
     path: cluster,
+    kubeconfig: 'relative',
     async steps(page) {
       await permitForScreens(page)
       await page.getByRole('button', { name: /^AI assistants/ }).click()
@@ -626,6 +634,8 @@ export const SCREENS: Screen[] = [
     description: 'Services with their ports and endpoints.',
     app: 'desktop',
     path: `${cluster}/services?open=Service/shop/${DEMO.services.storefront}`,
+    // The row that's open is the last: all of it in view.
+    steps: (page) => reveal(row(page, DEMO.services.storefront)),
   },
   {
     name: 'port-forward',
@@ -633,7 +643,10 @@ export const SCREENS: Screen[] = [
     description: 'Forwarding a local port to a service.',
     app: 'desktop',
     path: `${cluster}/services?open=Service/shop/${DEMO.services.storefront}`,
-    steps: (page) => moreActions(page, 'Forward a port…'),
+    async steps(page) {
+      await reveal(row(page, DEMO.services.storefront))
+      await moreActions(page, 'Forward a port…')
+    },
   },
   {
     name: 'secret',
