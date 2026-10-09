@@ -209,6 +209,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // A fleet's agents: each signs in with its name and token (which no browser page can send).
   const agentSockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
+    // Its socket is ours now, without Node's error handler: one its peer resets (once it's
+    // refused, say; a process that stops does, on Windows) is closed, not the server.
+    socket.on('error', () => socket.destroy())
     if (address(req).path === PATHS.agent && hosted.agents) {
       const name = String(req.headers['lumovi-agent'] ?? '')
       const token = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
