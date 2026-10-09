@@ -1,0 +1,430 @@
+# What the chart Lumovi ships renders to, with its values (src/backend/helm/metrics-stack):
+#   helm template lumovi-metrics prometheus-29.36.1.tgz --namespace lumovi-metrics --values values.yaml
+---
+# Source: prometheus/charts/kube-state-metrics/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  labels:    
+    helm.sh/chart: kube-state-metrics-8.6.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-state-metrics
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: "2.20.0"
+  name: lumovi-metrics-kube-state-metrics
+  namespace: lumovi-metrics
+---
+# Source: prometheus/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: v3.15.0
+    helm.sh/chart: prometheus-29.36.1
+    app.kubernetes.io/part-of: prometheus
+  name: lumovi-metrics-prometheus-server
+  namespace: lumovi-metrics
+  annotations:
+    {}
+
+---
+# Source: prometheus/templates/cm.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: v3.15.0
+    helm.sh/chart: prometheus-29.36.1
+    app.kubernetes.io/part-of: prometheus
+  name: lumovi-metrics-prometheus-server
+  namespace: lumovi-metrics
+data:
+  allow-snippet-annotations: "false"
+  alerting_rules.yml: |
+    {}
+  alerts: |
+    {}
+  prometheus.yml: |
+    global:
+      evaluation_interval: 1m
+      scrape_interval: 30s
+      scrape_timeout: 10s
+    scrape_configs:
+    - job_name: kube-state-metrics
+      static_configs:
+      - targets:
+        - lumovi-metrics-kube-state-metrics.lumovi-metrics.svc:8080
+    - job_name: kubernetes-nodes-cadvisor
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      kubernetes_sd_configs:
+      - role: node
+      metric_relabel_configs:
+      - action: keep
+        regex: container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|network_receive_bytes_total|network_transmit_bytes_total)
+        source_labels:
+        - __name__
+      metrics_path: /metrics/cadvisor
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - source_labels:
+        - __metrics_path__
+        target_label: metrics_path
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+    rule_files:
+    - /etc/config/recording_rules.yml
+    - /etc/config/alerting_rules.yml
+    - /etc/config/rules
+    - /etc/config/alerts
+  recording_rules.yml: |
+    {}
+  rules: |
+    {}
+---
+# Source: prometheus/charts/kube-state-metrics/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:    
+    helm.sh/chart: kube-state-metrics-8.6.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-state-metrics
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: "2.20.0"
+  name: lumovi-metrics-kube-state-metrics
+rules:
+
+- apiGroups: [""]
+  resources:
+  - pods
+  verbs: ["list", "watch"]
+
+
+---
+# Source: prometheus/templates/extra-manifests.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lumovi-metrics-server
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: v3.15.0
+    helm.sh/chart: prometheus-29.36.1
+    app.kubernetes.io/part-of: prometheus
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes/metrics]
+    verbs: [get]
+
+
+
+---
+# Source: prometheus/charts/kube-state-metrics/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:    
+    helm.sh/chart: kube-state-metrics-8.6.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-state-metrics
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: "2.20.0"
+  name: lumovi-metrics-kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lumovi-metrics-kube-state-metrics
+subjects:
+- kind: ServiceAccount
+  name: lumovi-metrics-kube-state-metrics
+  namespace: lumovi-metrics
+---
+# Source: prometheus/templates/extra-manifests.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lumovi-metrics-server
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: v3.15.0
+    helm.sh/chart: prometheus-29.36.1
+    app.kubernetes.io/part-of: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: lumovi-metrics-prometheus-server
+    namespace: lumovi-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lumovi-metrics-server
+
+
+
+---
+# Source: prometheus/charts/kube-state-metrics/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: lumovi-metrics-kube-state-metrics
+  namespace: lumovi-metrics
+  labels:    
+    helm.sh/chart: kube-state-metrics-8.6.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-state-metrics
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: "2.20.0"
+  annotations:
+spec:
+  type: "ClusterIP"
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8080
+    targetPort: http
+  selector:    
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: lumovi-metrics
+
+---
+# Source: prometheus/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: v3.15.0
+    helm.sh/chart: prometheus-29.36.1
+    app.kubernetes.io/part-of: prometheus
+  name: lumovi-metrics-prometheus-server
+  namespace: lumovi-metrics
+spec:
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 9090
+  selector:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+  sessionAffinity: None
+  type: "ClusterIP"
+---
+# Source: prometheus/charts/kube-state-metrics/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lumovi-metrics-kube-state-metrics
+  namespace: lumovi-metrics
+  labels:    
+    helm.sh/chart: kube-state-metrics-8.6.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-state-metrics
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: "2.20.0"
+spec:
+  selector:
+    matchLabels:      
+      app.kubernetes.io/name: kube-state-metrics
+      app.kubernetes.io/instance: lumovi-metrics
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  revisionHistoryLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: metrics
+        app.kubernetes.io/instance: lumovi-metrics
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: kube-state-metrics
+        app.kubernetes.io/part-of: kube-state-metrics
+        app.kubernetes.io/version: 2.20.0
+    spec:
+      automountServiceAccountToken: true
+      hostNetwork: false
+      serviceAccountName: lumovi-metrics-kube-state-metrics
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: kube-state-metrics
+        args:
+        - --port=8080
+        - --resources=pods
+        - --metric-allowlist=kube_pod_info,kube_pod_container_status_restarts_total
+        imagePullPolicy: IfNotPresent
+        image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8081
+          name: metrics
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /livez
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: metrics
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+
+---
+# Source: prometheus/templates/deploy.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: lumovi-metrics
+    app.kubernetes.io/version: v3.15.0
+    helm.sh/chart: prometheus-29.36.1
+    app.kubernetes.io/part-of: prometheus
+  name: lumovi-metrics-prometheus-server
+  namespace: lumovi-metrics
+spec:
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: server
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/instance: lumovi-metrics
+  replicas: 1
+  revisionHistoryLimit: 10
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: prometheus-server
+      labels:
+        app.kubernetes.io/component: server
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/instance: lumovi-metrics
+        app.kubernetes.io/version: v3.15.0
+        helm.sh/chart: prometheus-29.36.1
+        app.kubernetes.io/part-of: prometheus
+    spec:
+      enableServiceLinks: true
+      serviceAccountName: lumovi-metrics-prometheus-server
+      containers:
+
+        - name: prometheus-server
+          image: "quay.io/prometheus/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e"
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --storage.tsdb.retention.time=7d
+            - --storage.tsdb.retention.size=3GB
+            - --config.file=/etc/config/prometheus.yml
+            - --storage.tsdb.path=/data
+            - --web.console.libraries=/etc/prometheus/console_libraries
+            - --web.console.templates=/etc/prometheus/consoles
+          ports:
+            - containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+            - name: storage-volume
+              mountPath: /data
+              subPath: ""
+      dnsPolicy: ClusterFirst
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      terminationGracePeriodSeconds: 300
+      volumes:
+        - name: config-volume
+          configMap:
+            name: lumovi-metrics-prometheus-server
+        - name: storage-volume
+          emptyDir:
+            sizeLimit: 4Gi

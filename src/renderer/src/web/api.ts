@@ -120,6 +120,11 @@ export function createWebApi(): LumoviApi {
       range: invoke(IPC.usageRange),
       instant: invoke(IPC.usageInstant),
     },
+    metricsStack: {
+      status: invoke(IPC.metricsStackStatus),
+      install: invoke(IPC.metricsStackInstall),
+      uninstall: invoke(IPC.metricsStackUninstall),
+    },
     kube: {
       contexts: invoke(IPC.contexts),
       version: invoke(IPC.version),

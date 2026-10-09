@@ -152,3 +152,18 @@ export function useSeriesColors(keys: string[]): (key: string) => string {
   }
   return (key) => (key === OTHER ? 'var(--series-other)' : `var(--series-${chart.get(key)! + 1})`)
 }
+
+/**
+ * Lumovi's own metrics stack on the current cluster: whether it's there, and what installing
+ * (or removing) it would take. Asked while it's starting, until its Prometheus answers.
+ */
+export function useMetricsStack(enabled = true) {
+  const { context } = useCluster()
+  return useQuery({
+    queryKey: ['metrics-stack', context],
+    queryFn: () => unwrap(api.metricsStack.status(context)),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.state === 'installed' && !query.state.data.ready ? 5_000 : false,
+  })
+}

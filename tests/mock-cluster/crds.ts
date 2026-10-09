@@ -93,6 +93,16 @@ const MORE_KINDS: Served[] = [
     verbs: ALL_VERBS,
   },
   {
+    kind: 'ClusterRoleBinding.rbac.authorization.k8s.io',
+    apiKind: 'ClusterRoleBinding',
+    plural: 'clusterrolebindings',
+    group: 'rbac.authorization.k8s.io',
+    version: 'v1',
+    namespaced: false,
+    label: 'ClusterRoleBindings',
+    verbs: ALL_VERBS,
+  },
+  {
     kind: 'CustomResourceDefinition.apiextensions.k8s.io',
     apiKind: 'CustomResourceDefinition',
     plural: 'customresourcedefinitions',

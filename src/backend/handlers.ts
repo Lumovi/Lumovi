@@ -12,6 +12,7 @@ import {
   type HelmRollback,
   type HelmUninstall,
   type KubeObject,
+  type MetricsStackRequest,
   type Result,
   type Settings,
 } from '@shared/api'
@@ -19,12 +20,15 @@ import {
   describeChange,
   describeDeploy,
   describeRollback,
+  describeStackInstall,
+  describeStackUninstall,
   describeUninstall,
   isRefusal,
   malformed,
   outcomeOf,
 } from './audit/describe'
 import type { Recorded, Recorder } from './audit/recorder'
+import type { MetricsStackService } from './helm/metrics-stack'
 import type { HelmService } from './helm/service'
 import type { LogStreams } from './kube/logs'
 import { KubeRequestError } from './kube/errors'
@@ -40,6 +44,7 @@ export type Handler = (...args: unknown[]) => unknown
 export interface Backend {
   kube: KubeService
   helm: HelmService
+  metricsStack: MetricsStackService
   usage: UsageHistory
   settings: SettingsAccess
   terminals: Terminals
@@ -60,6 +65,7 @@ export interface Handlers {
 export function handlers({
   kube,
   helm,
+  metricsStack,
   usage,
   settings,
   terminals,
@@ -246,6 +252,18 @@ export function handlers({
       [IPC.helmVersions]: (repository, chart) => helm.versions(repository, chart),
       [IPC.helmSearch]: (query) => helm.search(query),
 
+      [IPC.metricsStackStatus]: (context) => metricsStack.status(context),
+      // History is looked for again after either: there's a source now, or there's none.
+      [IPC.metricsStackInstall]: recorded(async (request: MetricsStackRequest) => {
+        const result = await metricsStack.install(request)
+        if (result.ok && request.dryRun !== true) usage.forget(request.context)
+        return result
+      }, describeStackInstall),
+      [IPC.metricsStackUninstall]: recorded(async (request: MetricsStackRequest) => {
+        const result = await metricsStack.uninstall(request)
+        if (result.ok) usage.forget(request.context)
+        return result
+      }, describeStackUninstall),
       [IPC.usageSource]: (context, refresh) => usage.source(context, refresh),
       [IPC.usageTest]: (context, service) => usage.test(context, service),
       [IPC.usageRange]: (query) => usage.range(query),

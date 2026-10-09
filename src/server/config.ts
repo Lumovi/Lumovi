@@ -132,6 +132,8 @@ export interface ServerConfig {
   metricsSource: MetricsSourceSetting
   /** Where node shells run unless a page says otherwise, and whether they're turned off. */
   nodeShell: { setting: NodeShellSetting; off: boolean }
+  /** Whether Lumovi's admins may install its metrics stack where a cluster has no history. */
+  metricsStack: boolean
   /** Whether charts may come from addresses inside private networks. */
   allowPrivateCharts: boolean
   /** Files of certificate authorities to trust besides Node's and the system's (LUMOVI_CA_FILE). */
@@ -322,6 +324,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
     nodeShell: nodeShell(value),
+    metricsStack: metricsStack(value('LUMOVI_METRICS_STACK')),
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     caFiles: list(value('LUMOVI_CA_FILE')),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
@@ -880,6 +883,14 @@ function nodeShell(value: (name: string) => string | undefined): ServerConfig['n
     throw new ConfigError(`LUMOVI_NODE_SHELL must be on or off, not "${switched}".`)
   }
   return { setting, off: switched === 'off' }
+}
+
+/** Lumovi's metrics stack: offered (to its admins) unless LUMOVI_METRICS_STACK is off. */
+function metricsStack(switched = 'on'): boolean {
+  if (!['on', 'off'].includes(switched)) {
+    throw new ConfigError(`LUMOVI_METRICS_STACK must be on or off, not "${switched}".`)
+  }
+  return switched === 'on'
 }
 
 /** `auto` (detected), `off`, or the service to use. */

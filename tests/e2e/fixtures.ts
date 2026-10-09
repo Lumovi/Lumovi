@@ -385,6 +385,8 @@ export const test = base.extend<
         env: {
           LUMOVI_HELM: FAKE_HELM,
           FAKE_HELM_DIR: helmDir,
+          // What Lumovi's metrics stack is made of, which the stand-in makes in the cluster.
+          FAKE_HELM_STACK: resolve('tests/e2e/helm/metrics-stack.yaml'),
           // Never dl.k8s.io itself, nor Sigstore's trust root: their stand-ins.
           LUMOVI_KUBECTL_MIRROR: downloads.url,
           LUMOVI_KUBECTL_OFFICIAL: downloads.url,

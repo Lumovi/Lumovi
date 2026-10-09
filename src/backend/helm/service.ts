@@ -257,6 +257,56 @@ export class HelmService {
     })
   }
 
+  /**
+   * Installs a chart Lumovi ships (a file of its own, with the values it sets): never one the
+   * page names, so a server takes it too. A dry run asks the API server and changes nothing.
+   */
+  async shipped(r: {
+    context: string
+    namespace: string
+    name: string
+    /** The packaged chart: its bytes, written down for helm and removed after. */
+    chart: Buffer
+    values: string
+    dryRun: boolean
+  }): Promise<HelmDeployed> {
+    this.#assertChangeable(r)
+    await this.#allowed(r, 'install', 'install charts')
+    const directory = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
+    try {
+      const chart = join(directory, 'chart.tgz')
+      const values = join(directory, 'values.yaml')
+      await writeFile(chart, r.chart)
+      await writeFile(values, r.values)
+      const output = await this.#onCluster(r.context, (args, env) =>
+        this.#helm(
+          [
+            'install',
+            r.name,
+            chart,
+            '--namespace',
+            r.namespace,
+            ...args,
+            '--values',
+            values,
+            '--output',
+            'json',
+            ...(r.dryRun ? ['--dry-run=server'] : []),
+          ],
+          env,
+        ),
+      )
+      const deployed = JSON.parse(output) as StoredRelease
+      return {
+        revision: deployed.version,
+        manifest: deployed.manifest,
+        notes: deployed.info.notes,
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  }
+
   /** A chart's default values, as its values.yaml has them. */
   defaults(source: unknown): Promise<Result<string>> {
     return this.#result(async () =>

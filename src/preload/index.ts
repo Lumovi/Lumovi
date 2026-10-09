@@ -91,6 +91,11 @@ const api: LumoviApi = {
     range: (query) => invoke(IPC.usageRange, query),
     instant: (query) => invoke(IPC.usageInstant, query),
   },
+  metricsStack: {
+    status: (context) => invoke(IPC.metricsStackStatus, context),
+    install: (request) => invoke(IPC.metricsStackInstall, request),
+    uninstall: (request) => invoke(IPC.metricsStackUninstall, request),
+  },
   terminal: {
     open: (id, request) => invoke(IPC.terminalOpen, id, request),
     write: (id, data) => ipcRenderer.send(IPC.terminalInput, id, data),

@@ -41,5 +41,15 @@ export function sandboxCluster(now = Date.now()): ClusterFixture {
   // Karpenter is installed, but has nothing to do yet.
   karpenterKinds(b)
   const { metrics: _metrics, ...fixture } = b.build()
-  return fixture
+  return {
+    ...fixture,
+    // No Prometheus: but the one Lumovi's metrics stack installs answers, once it's there.
+    prometheus: [
+      {
+        namespace: 'lumovi-metrics',
+        service: 'lumovi-metrics-prometheus-server',
+        flavor: 'prometheus',
+      },
+    ],
+  }
 }
