@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import { connect as connectTo, type AddressInfo } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import type { TestClusters } from '../mock-cluster/kubeconfig.ts'
@@ -278,6 +278,68 @@ test('a join token that isn’t one, or expired, is refused; an agent stopped ha
   expect(expired.log()).toContain(
     `The hub at ${origin} refused this agent: its join token expired: make a new command on the Fleet page.`,
   )
+})
+
+/**
+ * An agent's connection, refused, then reset by it (as a process that stops does on Windows): at
+ * once, while the hub reads its token, or once it's answered.
+ */
+function resetAgent(hub: string, headers: Record<string, string>, when: 'at once' | 'answered') {
+  const url = new URL('api/agent', hub)
+  return new Promise<void>((done, failed) => {
+    const socket = connectTo(Number(url.port), url.hostname, () => {
+      socket.write(
+        [
+          `GET ${url.pathname} HTTP/1.1`,
+          `Host: ${url.host}`,
+          'Upgrade: websocket',
+          'Connection: Upgrade',
+          'Sec-WebSocket-Version: 13',
+          `Sec-WebSocket-Key: ${Buffer.from('lumovi-reset-key').toString('base64')}`,
+          ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`),
+          '',
+          '',
+        ].join('\r\n'),
+      )
+      if (when === 'at once') {
+        socket.resetAndDestroy()
+        done()
+      }
+    })
+    socket.once('data', (data) => {
+      expect(String(data)).toMatch(/^HTTP\/1\.1 401 /)
+      socket.resetAndDestroy()
+      done()
+    })
+    socket.on('error', failed)
+  })
+}
+
+test('an agent refused that resets its connection leaves the hub running', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const hub = await serve({ env: hubEnv(clusters) })
+  await as(context, 'admin@example.com')
+  await page.goto(hub.url)
+  const token = await connect(page)
+  const join = { Authorization: `Bearer ${token}x`, 'Lumovi-Agent': EDGE, 'Lumovi-Join': '1' }
+  await resetAgent(hub.url, join, 'answered')
+  await resetAgent(hub.url, join, 'at once')
+  await resetAgent(hub.url, { Authorization: 'Bearer nobody', 'Lumovi-Agent': EDGE }, 'answered')
+  await expect
+    .poll(() => hub.log().split('An agent was refused').length - 1)
+    .toBeGreaterThanOrEqual(2)
+  await page.waitForTimeout(500)
+  // Still there: its join waits, and its agent joins with it.
+  expect(hub.log()).not.toContain('ECONNRESET')
+  expect(await call(page, 'joins')).toMatchObject({ value: { joins: [{ name: EDGE }] } })
+  agentSecret(clusters, { 'join-token': token })
+  const agent = agentOf(hub.url, clusters, { LUMOVI_AGENT_JOIN_TOKEN: token })
+  await expect.poll(() => agent.log()).toContain(`Joined ${hub.url.replace(/\/$/, '')} as ${EDGE}`)
+  await agent.stop()
 })
 
 test('an admin connects a cluster from the Fleet page: a command, a wait, then its CA checked', async ({
