@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A server keeps running when a WebSocket connection it refused (a page's that isn't signed in,
+  or an agent's with a token it doesn't know) is then reset by the other end, which stopped it
+  before.
+
 ## [1.17.0] - 2026-10-09
 
 The desktop app has a clusters page: clusters added from a pasted kubeconfig, the kubeconfig files
