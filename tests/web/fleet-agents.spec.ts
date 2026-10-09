@@ -564,6 +564,66 @@ function connect(served: Served, headers: Record<string, string>): Promise<FakeA
   })
 }
 
+/**
+ * A WebSocket upgrade to `path` the server refuses, whose connection its client then resets (as a
+ * process that stops does, on Windows): at once, or once it's answered. Its answer's first line.
+ */
+function refusedThenReset(
+  served: string,
+  path: string,
+  headers: Record<string, string>,
+  when: 'at once' | 'answered',
+) {
+  const url = new URL(path, served)
+  return new Promise<string | undefined>((done, failed) => {
+    const socket = connectTo(Number(url.port), url.hostname, () => {
+      socket.write(
+        [
+          `GET ${url.pathname} HTTP/1.1`,
+          `Host: ${url.host}`,
+          'Upgrade: websocket',
+          'Connection: Upgrade',
+          'Sec-WebSocket-Version: 13',
+          `Sec-WebSocket-Key: ${Buffer.from('a refused upgrade').toString('base64')}`,
+          ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`),
+          '',
+          '',
+        ].join('\r\n'),
+      )
+      if (when === 'at once') {
+        socket.resetAndDestroy()
+        done(undefined)
+      }
+    })
+    socket.once('data', (data) => {
+      socket.resetAndDestroy()
+      done(String(data).split('\r\n')[0])
+    })
+    socket.on('error', failed)
+  })
+}
+
+test('a refused upgrade whose connection is reset leaves the server running', async ({ serve }) => {
+  const served = await serve({ env: HUB })
+  // A page's socket, not signed in; an agent's, with a token the hub doesn't know.
+  const agent = { Authorization: 'Bearer not-the-token', 'Lumovi-Agent': NAME }
+  expect(await refusedThenReset(served.url, 'api/socket', {}, 'answered')).toBe(
+    'HTTP/1.1 403 Forbidden',
+  )
+  expect(await refusedThenReset(served.url, 'api/agent', agent, 'answered')).toBe(
+    'HTTP/1.1 401 Unauthorized',
+  )
+  await refusedThenReset(served.url, 'api/agent', agent, 'at once')
+  await refusedThenReset(served.url, 'api/socket', {}, 'at once')
+  await expect
+    .poll(() => served.log().split(`An agent was refused: “${NAME}”`).length - 1)
+    .toBeGreaterThanOrEqual(1)
+  await new Promise((settled) => setTimeout(settled, 500))
+  // Still there, and nothing was thrown.
+  expect((await fetch(served.url)).status).toBe(200)
+  expect(served.log()).not.toContain('ECONNRESET')
+})
+
 function frame(kind: number, id: number, payload = Buffer.alloc(0)): Buffer {
   const header = Buffer.alloc(5)
   header.writeUInt8(kind, 0)
