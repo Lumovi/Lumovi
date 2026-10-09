@@ -534,7 +534,7 @@ jobs:
           cd "$RUNNER_TEMP/aur"
           git add PKGBUILD .SRCINFO
           if git diff --cached --quiet; then echo "lumovi-bin is on $VERSION already."; exit 0; fi
-          git -c user.name='Peter Kota' -c user.email='kotapeter@gmail.com' \
+          git -c user.name='Peter Kota' -c user.email='peter@lumovi.dev' \
             commit --quiet --message "lumovi-bin $VERSION"
           git push --quiet origin HEAD:master
 
