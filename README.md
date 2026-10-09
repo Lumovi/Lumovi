@@ -258,6 +258,15 @@ and the [Changelog](CHANGELOG.md).
 - **In a cluster:** Helm 3.8 or later to install the chart, on `linux/amd64` or
   `linux/arm64` nodes. The image includes everything else.
 
+## Lumovi and other tools
+
+Lens, Freelens, Headlamp, k9s and the Kubernetes Dashboard do much of what Lumovi does. Three
+things, taken together, are what we found in none of them: an audit log of what's done through
+it, team rules on top of RBAC in an open-source tool, and an MCP server AI agents change things
+through, with your approval.
+[Lumovi and other Kubernetes tools](https://docs.lumovi.dev/reference/compare) compares them,
+with sources, and says when another is the better pick.
+
 ## Questions and support
 
 Ask in [Discussions](https://github.com/Lumovi/Lumovi/discussions): questions in
