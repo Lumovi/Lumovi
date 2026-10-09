@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-10-09
+
+A fleet is run from its page: its admins connect a private cluster with an agent, add one from a
+kubeconfig or a token where the chart allows it, and name, label and share each one. On Windows
+and Linux, the desktop app's menu is a button away.
+
 ### Added
 
 - On Windows and Linux, the desktop app's menu has a button in the window's top left corner, in
@@ -815,7 +821,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.17.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/Lumovi/Lumovi/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/Lumovi/Lumovi/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/Lumovi/Lumovi/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/Lumovi/Lumovi/compare/v1.14.0...v1.15.0
