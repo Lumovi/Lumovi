@@ -56,13 +56,13 @@ test('on Windows and Linux, a button in the window’s corner opens the app’s 
   await expect(button).toHaveAttribute('aria-expanded', 'false')
   await hoverForTooltip(button, /Menu\s*Alt/)
   await button.click()
-  // The whole menu, 4 px under the button's bottom left corner (in the window's pixels, to the
-  // nearest one).
+  // The whole menu, 4 px under the button's bottom left corner (in the window's pixels, rounded:
+  // under a pixel off).
   const last = (await app.evaluate(() =>
     (globalThis as unknown as { opened: unknown[] }).opened.at(-1),
   )) as { x: number; y: number; menus: string[] }
-  expect(Math.abs(last.x - 12 * zoom)).toBeLessThanOrEqual(1)
-  expect(Math.abs(last.y - 46 * zoom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(last.x - 12 * zoom)).toBeLessThan(1)
+  expect(Math.abs(last.y - 46 * zoom)).toBeLessThan(1)
   // (macOS's has its app's own first.)
   expect(last.menus).toEqual([
     ...(process.platform === 'darwin' ? ['Lumovi'] : []),
