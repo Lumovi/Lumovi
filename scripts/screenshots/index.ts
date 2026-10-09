@@ -403,6 +403,7 @@ async function shoot(
   try {
     await page.waitForTimeout(500)
     await screen.steps?.(page)
+    await nothingOfThisComputer(page)
     const png = await capture(page, screenshot)
     await screen.after?.(page)
     await sizeCheck(png)
@@ -417,6 +418,21 @@ async function shoot(
       cause: error,
     })
   }
+}
+
+/**
+ * What a screenshot mustn't show: the temporary folders it's taken in, which
+ * name this computer and differ each time.
+ */
+const OF_THIS_COMPUTER = [tmpdir(), 'lumovi-screenshots-home-', '/Users/runner', '/_temp/']
+
+/** Fails when the page's text shows one of the folders the screenshots are taken in. */
+async function nothingOfThisComputer(page: Page) {
+  const text = await page.locator('body').innerText()
+  const shown = OF_THIS_COMPUTER.find((folder) => text.includes(folder))
+  if (shown === undefined) return
+  const line = text.split('\n').find((line) => line.includes(shown))
+  throw new Error(`The page shows a folder of this computer's (${shown}): ${line?.trim()}`)
 }
 
 /**
@@ -462,18 +478,24 @@ const servers = new Map<string, Awaited<ReturnType<typeof startServer>>>()
 try {
   const desktop = screens.filter((screen) => screen.app === 'desktop')
   for (const theme of desktop.length > 0 ? THEMES : []) {
-    const app = await launchDesktop(theme, clusters.kubeconfig, {
-      LUMOVI_ARTIFACT_HUB_URL: hub.url,
-    })
-    try {
-      for (const screen of desktop) {
-        await take(screen, theme, async () => {
-          await app.open(screen.path)
-          return shoot(screen, app.page, app.screenshot)
-        })
+    // An app for the screens that show the kubeconfig's path as given, started with a relative one.
+    for (const kubeconfig of [undefined, 'relative'] as const) {
+      const these = desktop.filter((screen) => screen.kubeconfig === kubeconfig)
+      if (these.length === 0) continue
+      const app = await launchDesktop(theme, clusters.kubeconfig, {
+        LUMOVI_ARTIFACT_HUB_URL: hub.url,
+        ...(kubeconfig === 'relative' ? { KUBECONFIG: join('.kube', 'config') } : {}),
+      })
+      try {
+        for (const screen of these) {
+          await take(screen, theme, async () => {
+            await app.open(screen.path)
+            return shoot(screen, app.page, app.screenshot)
+          })
+        }
+      } finally {
+        await app.close()
       }
-    } finally {
-      await app.close()
     }
   }
 
