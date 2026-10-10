@@ -38,9 +38,6 @@ All notable changes to Lumovi are documented here. The format follows
   its actions, as a view of any kind with its own page does: its columns, status, details and
   related lists no longer show, since those kinds have pages of their own now. An add-on of
   your own that names one of them is refused, and the API resources page says which.
-
-### Changed
-
 - A note at the bottom of the window (that a change was made, say) stays while a mouse points at
   it, and no longer while a finger's last tap happens to be where it appeared: on a touch screen
   it now always leaves after its few seconds.

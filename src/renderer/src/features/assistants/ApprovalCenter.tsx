@@ -491,16 +491,25 @@ const APPROVE_MOMENT_MS = 600
 const APPROVE_MOMENT_ON: Layout[] = ['phone']
 
 /**
- * Whether the wait there was when this was first asked has passed. It's a timer that always
- * runs out: what the screen does meanwhile (turned on its side, a window made wider) neither
- * stops it nor starts it again.
+ * Whether the wait there was when this was first asked has passed, counted from when what was
+ * drawn then is on the screen: from the frame that paints it, not from when it was made (on a
+ * slow computer the two are apart by what the drawing took, and the wait would be that much
+ * shorter exactly there). Once started it's a timer that always runs out: what the screen does
+ * meanwhile (turned on its side, a window made wider) neither stops it nor starts it again.
  */
 function useLiveAfter(after: number): boolean {
   const [wait] = useState(after)
   const [live, setLive] = useState(wait === 0)
   useEffect(() => {
-    const timer = setTimeout(() => setLive(true), wait)
-    return () => clearTimeout(timer)
+    if (wait === 0) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => setLive(true), wait)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+    }
   }, [wait])
   return live
 }
