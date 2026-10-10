@@ -37,6 +37,9 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+/** How the console says a call was refused, before its channel. */
+export const REFUSED_CALL = 'Lumovi didn’t send a call the page may not make:'
+
 /** A call that wasn't sent: the page itself doesn't make it (from a phone, say). */
 export class RefusedCall extends Error {
   readonly code = 'not-allowed'
@@ -68,7 +71,11 @@ export class Connection {
 
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     const refusal = this.refused(channel, args)
-    if (refusal) return Promise.reject(new RefusedCall(refusal))
+    if (refusal) {
+      // Nothing on the page should have asked: said aloud, so a surface that still offers it shows.
+      console.warn(`${REFUSED_CALL} ${channel}`)
+      return Promise.reject(new RefusedCall(refusal))
+    }
     return new Promise((resolve, reject) => {
       const send = () => {
         const id = this.#nextId++
