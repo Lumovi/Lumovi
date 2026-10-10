@@ -284,11 +284,17 @@ A good first contribution is support for a tool you run: an add-on and views, wr
 and checked against the tool's CRDs, with no code to write. See
 [Adding a tool](CONTRIBUTING.md#adding-a-tool).
 
-## Sponsoring
+## Sponsors
 
-Lumovi is free and open source, made in spare time. If it saves you time, you can
-[sponsor its development](https://github.com/sponsors/Lumovi) on GitHub. The app's **Help**
-menu and the card in its sidebar lead to the same page.
+Lumovi is free and open source, made in spare time. Its sponsors keep it that way.
+
+Nobody is listed here yet. Sponsors whose sponsorship includes a place in this README appear
+in this section, by name or by logo, each with a link.
+
+If Lumovi saves you time, you can
+[sponsor its development](https://github.com/sponsors/Lumovi) on GitHub: the listing says
+what each way of sponsoring includes. The app's **Help** menu and the card in its sidebar lead
+to the same page.
 
 ## License
 
