@@ -1,17 +1,33 @@
 /**
  * A CronJob's schedule, read back in words (`lib/cron-words`): what Create's form says under
- * the schedule as it's typed, so it can be seen to mean what was meant.
+ * the schedule as it's typed, so it can be seen to mean what was meant. Each schedule is
+ * typed into the form's field, in the built app, and the line under it is what's read.
  */
-import { scheduleWords } from '../../src/renderer/src/lib/cron-words.ts'
-import { expect, test } from './fixtures.ts'
+import type { Page } from '@playwright/test'
+import { dialog } from './action-helpers.ts'
+import { expect, openCluster, test } from './fixtures.ts'
 
-const words = (schedule: string) => {
-  const read = scheduleWords(schedule)
-  return read.ok ? (read.words ?? read.never ?? '(no words)') : `not a schedule: ${read.why}`
+const form = (page: Page) => dialog(page).getByRole('group', { name: 'Form', exact: true })
+const schedule = (page: Page) => form(page).getByRole('textbox', { name: 'Schedule', exact: true })
+
+/** Create's form for a CronJob, with nothing typed yet. */
+async function open(page: Page) {
+  await openCluster(page)
+  await page.keyboard.press('ControlOrMeta+n')
+  await dialog(page).getByRole('radio', { name: 'CronJob', exact: true }).click()
+  await expect(schedule(page)).toBeVisible()
 }
 
-test('a schedule is read back in words', () => {
-  for (const [schedule, said] of [
+/** What's said under the field (after its path, which is said with it). */
+const says = (page: Page, said: string, typed: string) =>
+  expect(schedule(page), typed).toHaveAccessibleDescription(`spec.schedule ${said}`)
+
+const NO_WORDS =
+  'A valid schedule, though not one this can put into words. Check it against what you meant.'
+
+test('a schedule is read back in words', async ({ page }) => {
+  await open(page)
+  for (const [typed, said] of [
     ['30 2 * * *', 'Every day at 02:30'],
     ['0 0 * * *', 'Every day at 00:00'],
     ['* * * * *', 'Every minute'],
@@ -37,9 +53,14 @@ test('a schedule is read back in words', () => {
     ['0 0-23 * * *', 'Every hour from 00:00 to 23:00'],
     ['*/10 9-17 * * *', 'Every 10 minutes from 09:00 to 17:59'],
     ['* 3 * * *', 'Every minute from 03:00 to 03:59'],
+    ['* 9-17 * * *', 'Every minute from 09:00 to 17:59'],
+    ['*/10 3 * * *', 'Every 10 minutes from 03:00 to 03:59'],
     ['0 0 1 * *', 'On the 1st of every month at 00:00'],
     ['15 6 1,15 * *', 'On the 1st and 15th of every month at 06:15'],
     ['0 0 22-24 * *', 'From the 22nd to the 24th of every month at 00:00'],
+    ['0 0 22-24 6 *', 'From the 22nd to the 24th of June at 00:00'],
+    ['0 0 22-24 6-8 *', 'From the 22nd to the 24th of every month from June to August at 00:00'],
+    ['0 0 1,15 6-8 *', 'On the 1st and 15th of every month from June to August at 00:00'],
     // A day of one month is a date.
     ['0 0 1 1 *', 'On 1 January at 00:00'],
     ['59 23 31 12 *', 'On 31 December at 23:59'],
@@ -78,12 +99,22 @@ test('a schedule is read back in words', () => {
     ['0 0 29 2 *', 'On 29 February at 00:00'],
     ['0 0 31 1,2 *', 'On the 31st of January and February at 00:00'],
   ] as const) {
-    expect(words(schedule), schedule).toBe(said)
+    await schedule(page).fill(typed)
+    // (A sentence that never comes is said whole; any other, with where its clock is.)
+    await says(
+      page,
+      said.startsWith('It never runs')
+        ? said
+        : `${said}, in the cluster’s time zone (usually UTC).`,
+      typed,
+    )
+    await expect(schedule(page), typed).not.toHaveAttribute('aria-invalid', 'true')
   }
 })
 
-test('a schedule that’s right but involved gets no words put in its mouth', () => {
-  for (const schedule of [
+test('a schedule that’s right but involved gets no words put in its mouth', async ({ page }) => {
+  await open(page)
+  for (const typed of [
     // "Every 7 minutes" isn't true: it starts over at each hour. Nor are these short to say:
     // steps within a range, lists of minutes, every other day.
     '*/7 * * * *',
@@ -97,19 +128,32 @@ test('a schedule that’s right but involved gets no words put in its mouth', ()
     '@every 1h30m',
     '@every 90s',
     '10-40/5 * * * *',
+    // From five past, every fifteen; and a star among other minutes, which is every minute.
+    '5/15 * * * *',
+    '*,5 * * * *',
     '0,20,40 * * * *',
     '0 0 */2 * *',
     '0 0 * */3 *',
     '15,45 9-17/2 * * *',
     '0 1,2,3,4,5,6,7 * * *',
   ]) {
-    expect(scheduleWords(schedule), schedule).toEqual({ ok: true })
+    await schedule(page).fill(typed)
+    await says(page, NO_WORDS, typed)
+    await expect(schedule(page), typed).not.toHaveAttribute('aria-invalid', 'true')
   }
 })
 
-test('what isn’t a schedule is said to be wrong, and where', () => {
-  for (const [schedule, why] of [
-    ['', 'A schedule is five fields, like 30 2 * * * for every day at 02:30.'],
+test('what isn’t a schedule is said to be wrong, and where', async ({ page }) => {
+  await open(page)
+  // Nothing typed isn't wrong yet: it's asked for.
+  await says(
+    page,
+    'Five fields, as cron has them: minute, hour, day of the month, month, day of the week.',
+    '',
+  )
+  for (const [typed, why] of [
+    // (Only spaces is something typed, and no schedule.)
+    ['   ', 'A schedule is five fields, like 30 2 * * * for every day at 02:30.'],
     [
       '30 2 * *',
       'A schedule is five fields (minute, hour, day of the month, month, day of the week), and this has 4.',
@@ -146,6 +190,8 @@ test('what isn’t a schedule is said to be wrong, and where', () => {
     ['5-1 * * * *', 'The minute is “5-1”, and a range goes from the lower to the higher.'],
     ['1-2-3 * * * *', 'The minute is “1-2-3”, and minutes go from 0 to 59.'],
     ['1,,2 * * * *', 'The minute has nothing between two of its commas.'],
+    ['/5 * * * *', 'The minute is “/5”, and minutes go from 0 to 59.'],
+    ['1/2/3 * * * *', 'The minute is “1/2/3”, and minutes go from 0 to 59.'],
     // A time zone isn't the schedule's to say, and that's why, not the count of its fields.
     [
       'CRON_TZ=UTC 0 0 * * *',
@@ -164,6 +210,9 @@ test('what isn’t a schedule is said to be wrong, and where', () => {
       '“@fortnightly” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly, @yearly, and @every with a length of time (@every 1h30m).',
     ],
   ] as const) {
-    expect(scheduleWords(schedule), JSON.stringify(schedule)).toEqual({ ok: false, why })
+    await schedule(page).fill(typed)
+    await says(page, why, typed)
+    await expect(schedule(page), typed).toHaveAttribute('aria-invalid', 'true')
+    await expect(form(page).getByRole('alert'), typed).toHaveText(why)
   }
 })
