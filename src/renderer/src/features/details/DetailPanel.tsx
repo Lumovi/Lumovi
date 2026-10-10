@@ -64,11 +64,13 @@ function ObjectDetail({ value, ...frame }: PanelFrame) {
 function Detail({
   target,
   expanded,
+  over,
   onExpand,
   onClose,
 }: {
   target: ObjectRef
   expanded: boolean
+  over: boolean
   onExpand: () => void
   onClose: () => void
 }) {
@@ -114,13 +116,15 @@ function Detail({
             </div>
           )}
         </div>
-        <IconButton
-          label={expanded ? 'Restore panel' : 'Expand panel'}
-          onClick={onExpand}
-          className="mt-0.5"
-        >
-          {expanded ? <Minimize2 /> : <Maximize2 />}
-        </IconButton>
+        {!over && (
+          <IconButton
+            label={expanded ? 'Restore panel' : 'Expand panel'}
+            onClick={onExpand}
+            className="mt-0.5"
+          >
+            {expanded ? <Minimize2 /> : <Maximize2 />}
+          </IconButton>
+        )}
         <IconButton label="Close (Esc)" onClick={onClose} className="mt-0.5">
           <X />
         </IconButton>

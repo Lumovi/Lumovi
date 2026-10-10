@@ -46,7 +46,7 @@ export function ReleasePanel() {
 
 type Dialog = 'upgrade' | 'rollback' | 'uninstall'
 
-function ReleaseDetail({ value, expanded, onExpand, onClose }: PanelFrame) {
+function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame) {
   const [namespace, name] = value.split('/') as [string, string]
   const release = useHelmRelease(namespace, name)
   const [dialog, setDialog] = useState<Dialog>()
@@ -71,13 +71,15 @@ function ReleaseDetail({ value, expanded, onExpand, onClose }: PanelFrame) {
           {data && <ReleaseActions release={data} onAction={setDialog} />}
         </div>
         {data && <StatusPill status={releaseStatus(data.status)} className="mt-2.5 shrink-0" />}
-        <IconButton
-          label={expanded ? 'Restore panel' : 'Expand panel'}
-          onClick={onExpand}
-          className="mt-0.5"
-        >
-          {expanded ? <Minimize2 /> : <Maximize2 />}
-        </IconButton>
+        {!over && (
+          <IconButton
+            label={expanded ? 'Restore panel' : 'Expand panel'}
+            onClick={onExpand}
+            className="mt-0.5"
+          >
+            {expanded ? <Minimize2 /> : <Maximize2 />}
+          </IconButton>
+        )}
         <IconButton label="Close (Esc)" onClick={onClose} className="mt-0.5">
           <X />
         </IconButton>

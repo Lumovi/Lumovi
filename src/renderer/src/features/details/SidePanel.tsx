@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import {
   useEffect,
   useEffectEvent,
@@ -23,6 +24,8 @@ export interface PanelFrame {
   /** What the search param names. */
   value: string
   expanded: boolean
+  /** It's over the list, as it always is on a narrow page: there's no beside to go back to. */
+  over: boolean
   onExpand: () => void
   onClose: () => void
 }
@@ -53,6 +56,8 @@ export function SidePanel({
   const closing = !value && shown !== null
   const returnFocus = useRef<Element | null>(null)
   const [expanded, setExpanded] = useState(false)
+  // On a narrow page there's no room beside the list: it opens over it.
+  const over = useLayout() !== 'wide'
   const storedWidth = usePrefs((prefs) => prefs.panelWidth)
   const setStoredWidth = usePrefs((prefs) => prefs.setPanelWidth)
   const [width, setWidth] = useState(storedWidth ?? DEFAULT_WIDTH)
@@ -109,42 +114,58 @@ export function SidePanel({
   }
 
   return (
-    <aside
-      aria-label={label(shown)}
-      onAnimationEnd={() => {
-        if (closing) setShown(null)
-      }}
-      style={{ width: expanded ? undefined : width }}
-      className={cn(
-        'flex min-w-0 shrink-0 flex-col bg-surface',
-        // Expanded, it covers the list; otherwise it sits beside it.
-        expanded
-          ? 'absolute inset-0 z-20'
-          : 'relative max-w-[calc(100%-280px)] border-l border-line',
-        closing ? 'animate-slide-out' : 'animate-slide-in',
-      )}
-    >
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panel"
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={startResize}
-        onKeyDown={onHandleKey}
-        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:bg-accent after:opacity-0 after:transition-opacity hover:after:opacity-60 focus-visible:after:opacity-100"
-      />
-      <ErrorBoundary
-        key={shown}
-        fallback={(error) => <CrashView error={error} title={crashTitle} />}
-      >
-        <Content
-          value={shown}
-          expanded={expanded}
-          onExpand={() => setExpanded(!expanded)}
-          onClose={close}
+    <>
+      {over && !closing && (
+        // Where the list still shows beside it (a tablet), what's behind is set back, and closes it.
+        <div
+          aria-hidden
+          onClick={close}
+          className="absolute inset-0 z-10 animate-fade-in bg-black/30"
         />
-      </ErrorBoundary>
-    </aside>
+      )}
+      <aside
+        aria-label={label(shown)}
+        onAnimationEnd={() => {
+          if (closing) setShown(null)
+        }}
+        style={{ width: expanded || over ? undefined : width }}
+        className={cn(
+          'flex min-w-0 shrink-0 flex-col bg-surface',
+          over
+            ? // From the right at the width it has beside a list; all of a page too narrow for that.
+              'absolute inset-y-0 right-0 z-20 w-full border-line shadow-pop min-[700px]:w-[600px] min-[700px]:border-l'
+            : // Expanded, it covers the list; otherwise it sits beside it.
+              expanded
+              ? 'absolute inset-0 z-20'
+              : 'relative max-w-[calc(100%-280px)] border-l border-line',
+          closing ? 'animate-slide-out' : 'animate-slide-in',
+        )}
+      >
+        {!over && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            aria-valuenow={width}
+            tabIndex={0}
+            onPointerDown={startResize}
+            onKeyDown={onHandleKey}
+            className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:bg-accent after:opacity-0 after:transition-opacity hover:after:opacity-60 focus-visible:after:opacity-100"
+          />
+        )}
+        <ErrorBoundary
+          key={shown}
+          fallback={(error) => <CrashView error={error} title={crashTitle} />}
+        >
+          <Content
+            value={shown}
+            expanded={expanded}
+            over={over}
+            onExpand={() => setExpanded(!expanded)}
+            onClose={close}
+          />
+        </ErrorBoundary>
+      </aside>
+    </>
   )
 }
