@@ -3,6 +3,8 @@ import { ArrowRight, ChevronRight, CircleCheck, Gauge, type LucideIcon } from 'l
 import { useState, type ReactNode } from 'react'
 import type { KubeObject, UsageSample } from '@shared/api'
 import type { ResourceKind } from '@shared/resources'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { useLayout } from '@renderer/lib/layout'
 import { Button } from '@renderer/components/Button'
 import { Card } from '@renderer/components/Card'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
@@ -37,6 +39,7 @@ import {
 } from '@renderer/lib/usage'
 import { useCluster } from '@renderer/state/cluster'
 import { useUsageHistory } from '@renderer/state/usage-history'
+import { PhoneRow } from '../resources/ResourceRows'
 import { lastSeen, nodeRoles } from '../resources/columns'
 
 const WORKLOAD_KINDS: ResourceKind[] = ['Deployment', 'StatefulSet', 'DaemonSet']
@@ -593,6 +596,7 @@ function Attention({
   workloads: { kind: ResourceKind; object: KubeObject }[]
 }) {
   const open = useOpen()
+  const phone = useLayout() === 'phone'
   const items = [...workloads, ...pods.map((object) => ({ kind: 'Pod' as ResourceKind, object }))]
     .map((item) => ({ ...item, status: statusOf(item.kind, item.object) }))
     .filter((item) => item.status.health === 'critical' || item.status.health === 'warning')
@@ -610,25 +614,44 @@ function Attention({
   const shown = expanded ? items : items.slice(0, ATTENTION_ROWS)
   return (
     <>
-      <ul aria-label="Needs attention" className="-mx-2 space-y-0.5">
+      <ul aria-label="Needs attention" className="-mx-2 space-y-0.5 phone:space-y-0">
         {shown.map(({ kind, object, status }) => (
           <li key={`${kind}/${object.metadata.namespace}/${object.metadata.name}`}>
-            <button
-              type="button"
-              onClick={() => open(kind, object.metadata.name, object.metadata.namespace)}
-              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-3/60"
-            >
-              <span className="w-40 shrink-0">
-                <StatusPill status={status} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{object.metadata.name}</span>
-                <span className="block truncate text-xs text-ink-3">
-                  {kind} · {object.metadata.namespace}
-                  {status.detail && ` · ${status.detail}`}
+            {phone ? (
+              <PhoneRow
+                className="h-[60px] px-2"
+                onOpen={() => open(kind, object.metadata.name, object.metadata.namespace)}
+                name={
+                  <MiddleTruncate
+                    text={object.metadata.name}
+                    className="min-w-[120px] flex-1 font-medium text-ink-1"
+                  />
+                }
+                status={<StatusPill status={status} />}
+                facts={[
+                  kind,
+                  ...(object.metadata.namespace ? [object.metadata.namespace] : []),
+                  ...(status.detail ? [status.detail] : []),
+                ]}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => open(kind, object.metadata.name, object.metadata.namespace)}
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-3/60"
+              >
+                <span className="w-40 shrink-0">
+                  <StatusPill status={status} />
                 </span>
-              </span>
-            </button>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{object.metadata.name}</span>
+                  <span className="block truncate text-xs text-ink-3">
+                    {kind} · {object.metadata.namespace}
+                    {status.detail && ` · ${status.detail}`}
+                  </span>
+                </span>
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -647,6 +670,7 @@ function Attention({
 
 function Warnings({ events }: { events: KubeObject[] }) {
   const open = useOpen()
+  const phone = useLayout() === 'phone'
   const warnings = events
     .filter((e) => e.type === 'Warning')
     .sort((a, b) => Date.parse(lastSeen(b)) - Date.parse(lastSeen(a)))
@@ -657,7 +681,7 @@ function Warnings({ events }: { events: KubeObject[] }) {
     )
   }
   return (
-    <ul aria-label="Recent warnings" className="-mx-2 space-y-0.5">
+    <ul aria-label="Recent warnings" className="-mx-2 space-y-0.5 phone:space-y-0">
       {warnings.map((event) => {
         const target = event.involvedObject as {
           kind: ResourceKind
@@ -666,29 +690,43 @@ function Warnings({ events }: { events: KubeObject[] }) {
         }
         return (
           <li key={event.metadata.name}>
-            <button
-              type="button"
-              onClick={() => open(target.kind, target.name, target.namespace)}
-              className="flex w-full gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-3/60"
-            >
-              <span
-                aria-hidden
-                className={cn('mt-1.5 size-2 shrink-0 rounded-full', HEALTH_STYLE.warning.dot)}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline gap-2">
-                  <span className="font-medium">{event.reason as string}</span>
-                  <span className="truncate text-xs text-ink-3">
-                    {target.kind}/{target.name}
+            {phone ? (
+              <PhoneRow
+                className="h-[60px] px-2"
+                onOpen={() => open(target.kind, target.name, target.namespace)}
+                name={
+                  <span className="min-w-[120px] flex-1 truncate font-medium text-ink-1">
+                    {event.reason as string}
                   </span>
-                  <span className="flex-1" />
-                  <span className="shrink-0 text-xs text-ink-3">{age(lastSeen(event))}</span>
+                }
+                facts={[`${target.kind}/${target.name}`, event.message as string]}
+                when={age(lastSeen(event))}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => open(target.kind, target.name, target.namespace)}
+                className="flex w-full gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-3/60"
+              >
+                <span
+                  aria-hidden
+                  className={cn('mt-1.5 size-2 shrink-0 rounded-full', HEALTH_STYLE.warning.dot)}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2">
+                    <span className="font-medium">{event.reason as string}</span>
+                    <span className="truncate text-xs text-ink-3">
+                      {target.kind}/{target.name}
+                    </span>
+                    <span className="flex-1" />
+                    <span className="shrink-0 text-xs text-ink-3">{age(lastSeen(event))}</span>
+                  </span>
+                  <span className="line-clamp-2 text-xs leading-relaxed text-ink-2">
+                    {event.message as string}
+                  </span>
                 </span>
-                <span className="line-clamp-2 text-xs leading-relaxed text-ink-2">
-                  {event.message as string}
-                </span>
-              </span>
-            </button>
+              </button>
+            )}
           </li>
         )
       })}
