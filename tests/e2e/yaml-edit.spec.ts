@@ -331,6 +331,26 @@ test('what doesn’t parse, or holds several documents, is left as it is', () =>
   const broken = 'metadata:\n  name: [web\n'
   expect(trySet(broken, ['metadata', 'name'], 'x')).toBeNull()
   expect(tryRemove(broken, ['metadata', 'name'])).toBeNull()
+  // Nor is an edit made where there's no map or list for it to be made in: nothing comes
+  // back, and nothing is thrown.
+  for (const [text, path] of [
+    ['# only a comment\n', ['metadata', 'name']],
+    ['', ['metadata', 'name']],
+    ['just a string\n', ['metadata', 'name']],
+    ['- a\n- b\n', ['metadata', 'name']],
+    ['metadata: web\n', ['metadata', 'name']],
+    ['a: &x {}\nb: *x\n', ['b', 'name']],
+  ] as const) {
+    expect(trySet(text, path, 'x'), JSON.stringify(text)).toBeNull()
+  }
+  expect(tryRemove('just a string\n', ['metadata', 'name'])).toBe('just a string\n')
+  expect(tryRemove('- a\n- b\n', ['metadata', 'name'])).toBe('- a\n- b\n')
+  expect(tryRemove('', ['metadata'])).toBe('')
+  // An empty map or list takes what's set below it, as a key with nothing does.
+  expect(
+    setAt('spec:\n  containers: []\n  other: 1\n', ['spec', 'containers', 0, 'image'], 'nginx'),
+  ).toBe('spec:\n  containers:\n    - image: nginx\n  other: 1\n')
+  expect(setAt('a: {}\n', ['a', 'b', 'c'], 1)).toBe('a:\n  b:\n    c: 1\n')
 })
 
 /**
