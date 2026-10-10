@@ -71,7 +71,8 @@ const option = (name) => {
 // it's deleted from it. The cluster is the kubeconfig's, by --kube-context.
 const stack = process.env.FAKE_HELM_STACK && args[1] === 'lumovi-metrics'
 if (stack && (command === 'install' || command === 'uninstall')) {
-  const manifest = fs.readFileSync(process.env.FAKE_HELM_STACK, 'utf8')
+  // (Without the file's own first lines, which say what it is: helm prints none.)
+  const manifest = fs.readFileSync(process.env.FAKE_HELM_STACK, 'utf8').replace(/^(#.*\n)+/, '')
   const namespace = option('--namespace')
   const dryRun = args.includes('--dry-run=server')
   const record = {
