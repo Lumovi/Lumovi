@@ -3,6 +3,7 @@ import { Fragment, useEffect, useImperativeHandle, useRef, type ReactNode, type 
 import type { KubeObject } from '@shared/api'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { objectKey } from '@renderer/hooks/queries'
+import { cn } from '@renderer/lib/cn'
 import type { CellContext, Column } from './columns'
 
 /** A row's height: two lines, and a finger's worth around them. */
@@ -77,13 +78,10 @@ export function ResourceRows({
               className="absolute inset-x-0 top-0"
               style={{ height: PHONE_ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
             >
-              <button
-                type="button"
-                onClick={() => onOpen(object)}
-                className="flex h-full w-full flex-col justify-center gap-[3px] border-b border-line px-4 text-left outline-offset-[-2px] active:bg-surface-3/50"
-              >
-                <span className="flex w-full items-center gap-3">
-                  {lead ? (
+              <PhoneRow
+                onOpen={() => onOpen(object)}
+                name={
+                  lead ? (
                     <span className="flex min-w-[120px] flex-1 font-medium text-ink-1 [&>*]:truncate">
                       {factOf(lead, object)}
                     </span>
@@ -92,27 +90,64 @@ export function ResourceRows({
                       text={object.metadata.name}
                       className="min-w-[120px] flex-1 font-medium text-ink-1"
                     />
-                  )}
-                  {status && (
-                    <span className="flex max-w-[200px] shrink-0">{status.cell(object, ctx)}</span>
-                  )}
-                </span>
-                <span className="flex w-full gap-3 text-xs text-ink-3">
-                  <span className="min-w-0 flex-1 truncate [&_*]:text-xs">
-                    {line.map((fact, i) => (
-                      <Fragment key={i}>
-                        {i > 0 && ' · '}
-                        {fact}
-                      </Fragment>
-                    ))}
-                  </span>
-                  {when && <span className="shrink-0 tabular-nums">{when.cell(object, ctx)}</span>}
-                </span>
-              </button>
+                  )
+                }
+                status={status?.cell(object, ctx)}
+                facts={line}
+                when={when?.cell(object, ctx)}
+              />
             </li>
           )
         })}
       </ul>
     </div>
+  )
+}
+
+/**
+ * The row itself, wherever a phone lists objects (a list, the overview's cards): its name and
+ * its status, whole; then a line of facts, which gives way at its end, and when.
+ */
+export function PhoneRow({
+  name,
+  status,
+  facts,
+  when,
+  onOpen,
+  className,
+}: {
+  /** Its first line's start: it takes the room, and at least 120 px. */
+  name: ReactNode
+  status?: ReactNode
+  facts: ReactNode[]
+  when?: ReactNode
+  onOpen: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        'flex h-full w-full flex-col justify-center gap-[3px] border-b border-line px-4 text-left outline-offset-[-2px] active:bg-surface-3/50',
+        className,
+      )}
+    >
+      <span className="flex w-full items-center gap-3">
+        {name}
+        {status && <span className="flex max-w-[200px] shrink-0">{status}</span>}
+      </span>
+      <span className="flex w-full gap-3 text-xs text-ink-3">
+        <span className="min-w-0 flex-1 truncate [&_*]:text-xs">
+          {facts.map((fact, i) => (
+            <Fragment key={i}>
+              {i > 0 && ' · '}
+              {fact}
+            </Fragment>
+          ))}
+        </span>
+        {when && <span className="shrink-0 tabular-nums">{when}</span>}
+      </span>
+    </button>
   )
 }
