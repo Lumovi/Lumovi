@@ -26,6 +26,7 @@ import { Button } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { MOD_KEY } from '@renderer/components/Kbd'
+import { sheetBody, sheetFrame, SheetGrabber, sheetHeader } from '@renderer/components/Sheet'
 import { refreshAfterChange } from '@renderer/hooks/change'
 import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
@@ -226,9 +227,15 @@ function ApprovalDialog({
             event.preventDefault()
             setRejecting(false)
           }}
-          className="fixed top-[8vh] left-1/2 z-50 flex max-h-[84vh] w-[680px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
+          className={cn(
+            'fixed top-[8vh] left-1/2 z-50 flex max-h-[84vh] w-[680px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none',
+            // On a phone it's a sheet: dragged down, or its scrim tapped, the change is put
+            // aside as Later does. It isn't rejected: it waits, and its pill stays.
+            sheetFrame,
+          )}
         >
-          <header className="flex items-start gap-3 px-5 pt-5 pb-1">
+          <SheetGrabber onClose={hide} className="hidden phone:block" />
+          <header className={cn('flex items-start gap-3 px-5 pt-5 pb-1', sheetHeader)}>
             <div
               className={cn(
                 'grid size-9 shrink-0 place-items-center rounded-xl',
@@ -244,8 +251,9 @@ function ApprovalDialog({
               <Dialog.Title className="mt-0.5 truncate text-[15px] leading-snug font-semibold text-ink-1">
                 {proposal.title}
               </Dialog.Title>
-              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3">
-                <span className="truncate">
+              {/* On a phone the cluster and its Production mark are never cut short: they wrap. */}
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
+                <span className="truncate phone:whitespace-normal">
                   {apiKindOf(target.kind)}
                   {target.namespace && ` · ${target.namespace}`} ·{' '}
                   <span className="font-medium text-ink-2">{context}</span>
@@ -280,13 +288,13 @@ function ApprovalDialog({
             <Dialog.Close
               aria-label="Later"
               title="Later: it waits at the bottom of the window"
-              className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1"
+              className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 phone:m-0 phone:size-11 phone:[&_svg]:size-5"
             >
               <X className="size-4" />
             </Dialog.Close>
           </header>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pt-4 pb-5">
+          <div className={cn('min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pt-4 pb-5', sheetBody)}>
             <figure className="rounded-lg border-l-2 border-accent bg-accent-soft/40 py-2 pr-3 pl-3">
               <figcaption className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
                 Why
@@ -369,7 +377,9 @@ function ApprovalDialog({
                   onChange={(event) => setTyped(event.target.value)}
                   spellCheck={false}
                   autoComplete="off"
-                  className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15 phone:h-11"
                 />
               </label>
             )}
@@ -393,10 +403,12 @@ function ApprovalDialog({
             )}
           </div>
 
-          <footer className="flex items-center gap-2 border-t border-line bg-surface px-5 py-3">
+          {/* On a phone the wait has a line of its own, and under it the quiet button is at the
+              left edge and the one that acts at the right, a finger's height, apart. */}
+          <footer className="flex items-center gap-2 border-t border-line bg-surface px-5 py-3 phone:flex-wrap phone:justify-between phone:px-4 phone:[&>button]:h-11 phone:[&>button]:px-4 phone:[&>button:first-of-type]:-ml-4 phone:[&>button:last-of-type]:min-w-[120px]">
             <span
               className={cn(
-                'mr-auto flex items-center gap-1.5 text-xs tabular-nums',
+                'mr-auto flex items-center gap-1.5 text-xs tabular-nums phone:mb-3 phone:w-full',
                 left <= 60 ? 'text-warn-text' : 'text-ink-3',
               )}
               title={`${client} gets “not approved” if nobody answers by then`}
@@ -439,7 +451,8 @@ function ApprovalDialog({
 /** The shortcut that answers, on its button. */
 function Keys() {
   return (
-    <span aria-hidden className="text-[11px] font-normal opacity-70">
+    // (Keys to press: of no use to a finger.)
+    <span aria-hidden className="text-[11px] font-normal opacity-70 touch:hidden">
       {MOD_KEY === '⌘' ? '⌘↩' : 'Ctrl+↩'}
     </span>
   )
@@ -462,7 +475,7 @@ function NavButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="grid size-7 place-items-center rounded-md text-ink-2 hover:bg-surface-3 hover:text-ink-1 disabled:opacity-40 [&_svg]:size-4"
+      className="grid size-7 place-items-center rounded-md text-ink-2 hover:bg-surface-3 hover:text-ink-1 disabled:opacity-40 touch:size-11 [&_svg]:size-4"
     >
       {children}
     </button>
@@ -477,7 +490,8 @@ function Waiting({ queue }: { queue: ChangeProposal[] }) {
     <button
       type="button"
       onClick={() => show()}
-      className="fixed bottom-12 left-1/2 z-50 flex -translate-x-1/2 animate-pop-in items-center gap-2 rounded-full border border-accent/30 bg-surface-2 py-1.5 pr-3 pl-2 text-[13px] text-ink-1 shadow-pop hover:border-accent/60"
+      // On a phone it's as wide as the screen lets it be, its words on more lines if they must.
+      className="fixed bottom-12 left-1/2 z-50 flex -translate-x-1/2 animate-pop-in items-center gap-2 rounded-full border border-accent/30 bg-surface-2 py-1.5 pr-3 pl-2 text-[13px] text-ink-1 shadow-pop hover:border-accent/60 phone:w-max phone:max-w-[calc(100vw-32px)] phone:rounded-2xl phone:py-2.5 phone:text-left touch:min-h-11"
     >
       <span className="grid size-6 place-items-center rounded-full bg-accent-soft text-accent-strong">
         <Sparkles className="size-3.5" />

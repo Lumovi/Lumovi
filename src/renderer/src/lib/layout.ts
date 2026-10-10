@@ -37,6 +37,21 @@ function useMedia(query: string): boolean {
   )
 }
 
+/**
+ * How much of the screen's bottom a phone's keyboard covers, as `--keyboard` on the page: a
+ * sheet stands on it, so what's typed into and the buttons under it stay in view. (The page
+ * itself isn't made smaller by a keyboard, on iOS: only what of it shows is.)
+ */
+if (NARROWS && window.visualViewport) {
+  const viewport = window.visualViewport
+  const covered = () => {
+    const keyboard = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+    document.documentElement.style.setProperty('--keyboard', `${Math.round(keyboard)}px`)
+  }
+  viewport.addEventListener('resize', covered)
+  viewport.addEventListener('scroll', covered)
+}
+
 /** The layout the page has room for now. */
 export function useLayout(): Layout {
   const phone = useMedia(PHONE)
