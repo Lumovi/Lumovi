@@ -377,6 +377,8 @@ function Explorer({
         title={
           q ? 'Nothing matches' : metric === 'restarts' ? 'No restarts' : 'No data for this time'
         }
+        // Where it would come from, and the way to its settings, with nothing charted to say so.
+        footer={<SourceChip />}
       >
         {q
           ? `No ${plural} named like “${q}” have ${USAGE_METRICS[metric].noun} in this time.`

@@ -17,8 +17,8 @@ All notable changes to Lumovi are documented here. The format follows
   Secrets, no ConfigMaps. History is kept for 7 days on the node's disk, without a volume. Nothing
   is made before the review: what will run, the values, and a dry run on the API server showing
   every object. It's installed with helm into a namespace of its own (`lumovi-metrics`), which
-  Lumovi marks as its own, and recorded in the audit log with the helm command that does the
-  same. Removing it, from the metrics source's settings, uninstalls the release and deletes the
+  Lumovi marks as its own, and recorded in the audit log with a helm command that installs the same chart
+  from its repository. Removing it, from the metrics source's settings, uninstalls the release and deletes the
   namespace, leaving nothing in the cluster; a namespace Lumovi didn't make is never taken or
   removed. Without the cluster's permission for all of it, Lumovi says what's missing and
   installs nothing, and an install that fails is undone. Not offered on a read-only cluster. An

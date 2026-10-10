@@ -23,8 +23,9 @@ function whyNot(stack: MetricsStack, doing: 'create' | 'delete'): string | undef
   if (stack.state === 'taken' && doing === 'create') {
     return `This cluster has a namespace named ${stack.namespace} that Lumovi didn’t make, so it installs nothing there.`
   }
-  if (stack.missing.length) {
-    return `The cluster doesn’t let you ${doing} ${listed(stack.missing)}, which ${doing === 'create' ? 'installing' : 'removing'} it takes. Ask someone who administers the cluster.`
+  const missing = doing === 'create' ? stack.missing.install : stack.missing.remove
+  if (missing.length) {
+    return `The cluster doesn’t let you ${doing} ${listed(missing)}, which ${doing === 'create' ? 'installing' : 'removing'} it takes. Ask someone who administers the cluster.`
   }
   return undefined
 }
@@ -159,7 +160,9 @@ export function InstallStackDialog({
               </li>
               <li>
                 Two services inside the cluster. Nothing is exposed outside it: Lumovi asks
-                Prometheus through the API server, as you.
+                Prometheus through the API server, as you. Inside it, Prometheus asks nobody who
+                they are, as usual: any pod can read the usage it keeps, with every namespace’s pod,
+                container and node names.
               </li>
               <li>
                 Prometheus asks for 0.1 CPU and 256 MiB of memory, and is limited to 1 CPU and 1
@@ -249,8 +252,9 @@ export function RemoveStackDialog({
     >
       <p className="text-[13px] leading-relaxed text-ink-2">
         Uninstalls {release}, which Lumovi installed, and deletes the namespace {namespace} with
-        everything in it: Prometheus, kube-state-metrics, their cluster roles, and the usage history
-        collected so far. Nothing of it stays in {context}.
+        everything in it: Prometheus, kube-state-metrics, their cluster roles, the usage history
+        collected so far, and anything else put in {namespace} since. Nothing of it stays in{' '}
+        {context}.
       </p>
       <p className="text-[13px] leading-relaxed text-ink-2">
         The Metrics page, each object’s charts and right-sizing go back to having no history.

@@ -200,11 +200,14 @@ export function EmptyState({
   icon: Icon,
   title,
   children,
+  footer,
   className,
 }: {
   icon: LucideIcon
   title: string
   children?: ReactNode
+  /** Under what it says: where to go from here. */
+  footer?: ReactNode
   className?: string
 }) {
   return (
@@ -214,6 +217,7 @@ export function EmptyState({
       </div>
       <h3 className="text-[14px] font-semibold text-ink-1">{title}</h3>
       <div className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{children}</div>
+      {footer && <div className="mt-4 flex max-w-full justify-center">{footer}</div>}
     </div>
   )
 }

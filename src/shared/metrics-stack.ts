@@ -14,6 +14,10 @@ export const METRICS_STACK = {
     sha256: '8492d3a0e99f99a12bb389f1c83f3636e3fc5d68f995a09e815044773246217e',
     repository: 'https://prometheus-community.github.io/helm-charts',
   },
+  /** kube-state-metrics' version, as the chart's: its image's tag, beside its digest. */
+  kubeStateMetrics: 'v2.20.0',
+  /** How long it's given to come up before Lumovi says it hasn't. */
+  startsWithinMs: 3 * 60_000,
   /** On the namespace Lumovi makes for it: only one that carries it is ever removed. */
   label: { key: 'app.kubernetes.io/managed-by', value: 'lumovi' },
   /** Past either, the offer warns: it's sized for small clusters. */

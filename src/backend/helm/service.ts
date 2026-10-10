@@ -257,6 +257,12 @@ export class HelmService {
     })
   }
 
+  /** Refuses unless they may install charts there: asked before anything is made for one. */
+  async mayInstall(r: { context: string; namespace: string; name: string }): Promise<void> {
+    this.#assertChangeable(r)
+    await this.#allowed(r, 'install', 'install charts')
+  }
+
   /**
    * Installs a chart Lumovi ships (a file of its own, with the values it sets): never one the
    * page names, so a server takes it too. A dry run asks the API server and changes nothing.

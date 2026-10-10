@@ -270,6 +270,7 @@ export class PageConnection {
     // to install and remove, and nobody's where it names none (as connecting clusters is).
     const metricsStack = new MetricsStackService(kube, helm, {
       isReadOnly,
+      chartFile: env.LUMOVI_TEST_STACK_CHART,
       off: () => {
         if (!config.metricsStack) {
           return {
