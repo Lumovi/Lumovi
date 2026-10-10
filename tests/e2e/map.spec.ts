@@ -736,6 +736,41 @@ function postgres(cluster: MockCluster) {
     spec: { minAvailable: 1, selector: { matchLabels: labels } },
     status: {},
   })
+  // Autoscalers that name each other as what they scale, one of them owning the other two:
+  // lines both ways with nothing that owns between them, and, once those are sorted out, two
+  // that are related and would sit level. Nobody means to; the map shows it all the same.
+  for (const [name, target, owned] of [
+    ['loop-a', 'loop-b', false],
+    ['loop-b', 'loop-a', true],
+    ['loop-c', 'loop-b', true],
+  ] as const) {
+    const kind = { apiVersion: 'autoscaling/v2', kind: 'HorizontalPodAutoscaler' }
+    cluster.upsert({
+      ...kind,
+      metadata: {
+        name,
+        namespace: 'shop',
+        creationTimestamp: now,
+        uid: `pg-${name}`,
+        ...(owned
+          ? { ownerReferences: [{ ...kind, name: 'loop-a', uid: 'pg-loop-a', controller: true }] }
+          : {}),
+      },
+      spec: {
+        scaleTargetRef: { ...kind, name: target },
+        minReplicas: 1,
+        maxReplicas: 2,
+        // (As the API server fills it in where none is given.)
+        metrics: [
+          {
+            type: 'Resource',
+            resource: { name: 'cpu', target: { type: 'Utilization', averageUtilization: 80 } },
+          },
+        ],
+      },
+      status: {},
+    })
+  }
   // And something of somebody else's that uses the database: it isn't the Cluster's.
   cluster.upsert({
     apiVersion: 'apps/v1',
@@ -776,6 +811,7 @@ test('a custom resource that owns its pods and what selects them has a map, from
     ['Services', 'Service', 'Service', 'pg-rw'],
     ['Pods', 'Pod', 'Pod', 'pg-1'],
     ['Volume Claims', 'PersistentVolumeClaim', 'Volume claim', 'pg-1'],
+    ['Autoscalers', 'HorizontalPodAutoscaler', 'Autoscaler', 'loop-a'],
     ['Deployments', 'Deployment', 'Deployment', 'pg-client'],
   ] as const) {
     const detail = await openMap(page, list, kind, name).catch(async (error: unknown) => {
@@ -788,6 +824,16 @@ test('a custom resource that owns its pods and what selects them has a map, from
     await openAll(detail)
     await expect(own(detail, label, name), `${kind} ${name}`).toBeVisible()
     await expect(page.getByRole('alert')).toHaveCount(0)
+    if (name !== 'loop-a') continue
+    // The three autoscalers are each on a row of their own: there's a line between each two.
+    const rows = new Set<number>()
+    for (const other of ['loop-a', 'loop-b', 'loop-c']) {
+      const at = await map(detail)
+        .getByLabel(new RegExp(`^Autoscaler ${other}\\b`))
+        .boundingBox()
+      rows.add(Math.round(at!.y))
+    }
+    expect(rows.size).toBe(3)
   }
   // And as it was found: from the Cluster's own map, to one of its Secrets.
   const client = panel(page, 'Deployment', 'pg-client')

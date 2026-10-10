@@ -263,8 +263,6 @@ export function layoutMap(graph: MapGraph, width: number, open: ReadonlySet<numb
       PlacedCard,
       PlacedCard,
     ]
-    // One card both ways: a node's line to itself, or two nodes behind one “+N more”.
-    if (from === to) continue
     pairs.set(`${from.key}>${to.key}`, pairs.get(`${from.key}>${to.key}`) ?? { from, to, edge })
   }
   const center = (card: PlacedCard) => card.x + card.width / 2
