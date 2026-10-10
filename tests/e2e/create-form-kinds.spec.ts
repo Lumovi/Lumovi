@@ -11,10 +11,9 @@ import {
   masked,
   read,
   unowned,
-  unquoted,
 } from '../../src/renderer/src/lib/create-form.ts'
 import { pathText } from '../../src/renderer/src/lib/yaml-edit.ts'
-import { dialog, toasts, writes } from './action-helpers.ts'
+import { dialog, menuAction, open as openObject, toasts, writes } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
 
 const form = (page: Page) => dialog(page).getByRole('group', { name: 'Form', exact: true })
@@ -433,14 +432,31 @@ stringData:
   await page.keyboard.press('ControlOrMeta+z')
   expect(await everything(page)).not.toContain('6d2a57e41a4b1f0c')
 
-  // YAML that doesn't parse can't have its values told from the rest: it stays shown until
-  // it's YAML again.
+  // YAML that doesn't parse can't have its values told from the rest, nor can a value that's
+  // written elsewhere and brought in by an alias: it stays shown until they can.
   await show.click()
   const whole = await yaml(page)
   await type(page, whole.replace('stringData:', 'stringData: [unclosed'))
   await expect(hide).toBeDisabled()
-  await type(page, whole)
+  await type(
+    page,
+    whole
+      .replace(
+        '  name: payments-credentials',
+        '  name: payments-credentials\n  labels: {k: &v S3CR3T}',
+      )
+      .replace('API_KEY: 6d2a57e41a4b1f0c', 'API_KEY: *v'),
+  )
+  await expect(hide).toBeDisabled()
+  await expect(hide).toHaveAttribute('title', /a value comes through an alias or a merge key/)
+  // A comment among the values is where an old one is left: its words are hidden with them.
+  await type(page, whole.replace('  API_KEY:', '  # API_KEY: 0ld-v4lue\n  API_KEY:'))
   await expect(hide).toBeEnabled()
+  await hide.click()
+  expect(await yaml(page)).toContain(`stringData:\n  # ${HIDDEN}\n  API_KEY: ${HIDDEN}\n`)
+  expect(await everything(page)).not.toContain('0ld-v4lue')
+  await show.click()
+  await type(page, whole)
   // Another type isn't the form's; hidden, its values still are.
   await type(page, whole.replace('type: Opaque', 'type: kubernetes.io/tls'))
   await expect(stepped(page)).toContainText(
@@ -480,9 +496,13 @@ test('what the cluster says of a Secret is shown without its values, while they�
   await page.keyboard.type('password')
   await field(page, 'password’s value').fill('registry-pull')
   await create(page).click()
+  // None of the cluster's words are shown: it may quote a value in any form.
   const results = dialog(page).getByRole('list', { name: 'Results' })
-  await expect(results).toContainText(`"${HIDDEN}" already exists`)
-  await expect(results).not.toContainText('"registry-pull" already exists')
+  await expect(results).toContainText(
+    'The cluster refused it. Choose Show values to read what it said.',
+  )
+  await expect(results).not.toContainText('already exists')
+  await expect(status(page)).toHaveText('Nothing was created.')
   // Shown, it's as the cluster said it.
   await dialog(page).getByRole('button', { name: 'Show values' }).click()
   await expect(results).toContainText('"registry-pull" already exists')
@@ -491,6 +511,26 @@ test('what the cluster says of a Secret is shown without its values, while they�
   await dialog(page).getByRole('radio', { name: 'Secret', exact: true }).click()
   await expect(dialog(page).getByRole('button', { name: 'Show values' })).toBeVisible()
   await expect(editor(page)).toHaveAttribute('aria-readonly', 'true')
+})
+
+test('a Secret’s change that fails is in the activity log as that, without the cluster’s words', async ({
+  page,
+  clusters,
+}) => {
+  // (Any change to one: here, a delete the cluster doesn't allow.)
+  await openCluster(page)
+  await openObject(page, 'Secrets', 'registry-pull')
+  await menuAction(page, 'Secret', 'registry-pull', 'Delete…')
+  clusters.demo.deny({ verb: 'delete', resource: 'secrets', namespace: 'shop' })
+  await dialog(page).getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(dialog(page).getByRole('alert')).toContainText('registry-pull')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Activity' }).click()
+  const log = page.getByRole('dialog', { name: 'Activity' })
+  await expect(log.getByRole('listitem').first()).toContainText(
+    'What the cluster said of the Secret isn’t kept here: it can quote its values.',
+  )
+  await expect(log.getByRole('listitem').first()).not.toContainText('registry-pull" is forbidden')
 })
 
 test('a PersistentVolumeClaim: a size, a class, and who can mount it', async ({
@@ -613,65 +653,83 @@ test('each of these kinds, new, fits its form and asks for what it must have', (
 })
 
 test('a Secret’s values are hidden wherever one is written, or nothing is shown', () => {
-  const text = `apiVersion: v1
+  const text = `# A comment of the document's stays.
+apiVersion: v1
 kind: Secret
 metadata:
   name: x # a note
 data:
-  enc: aGVsbG8=
+  # old: b2xk
+  enc: aGVsbG8= # was b2xk
 stringData:
-  A: hunter2 # kept
-  B: "two words"
+  A: hunter2
+  "k #1": "two #words"
   C: |
-    several
+    # not a comment: a line of it
     lines
   D:
   E: { nested: deep }
   F: &f anchored
-  G: *f
+  #
+# old-password: hunter1
 ---
 kind: List
 items:
   - kind: Secret
-    stringData: {a: inner, c: also}
+    stringData: {a: inner, c: also} # and this
   - kind: ConfigMap
-    data: {shown: as-it-is}
+    data: {shown: as-it-is} # and not this
 `
-  expect(masked(text)).toBe(`apiVersion: v1
+  // Every value, and the words of every comment among them, which is where an old one is left.
+  expect(masked(text)).toBe(`# A comment of the document's stays.
+apiVersion: v1
 kind: Secret
 metadata:
   name: x # a note
 data:
-  enc: ${HIDDEN}
+  # ${HIDDEN}
+  enc: ${HIDDEN} # ${HIDDEN}
 stringData:
-  A: ${HIDDEN} # kept
-  B: ${HIDDEN}
+  A: ${HIDDEN}
+  "k #1": ${HIDDEN}
   C: ${HIDDEN}
   D:
   E: ${HIDDEN}
   F: &f ${HIDDEN}
-  G: ${HIDDEN}
+  #
+# ${HIDDEN}
 ---
 kind: List
 items:
   - kind: Secret
-    stringData: {a: ${HIDDEN}, c: ${HIDDEN}}
+    stringData: {a: ${HIDDEN}, c: ${HIDDEN}} # ${HIDDEN}
   - kind: ConfigMap
-    data: {shown: as-it-is}
+    data: {shown: as-it-is} # and not this
 `)
-  // Something in place of its keys and values is hidden whole.
+  // Something in place of its keys and values is hidden whole; line ends stay as they were.
   expect(masked('kind: Secret\nstringData: just-this\n')).toBe(
     `kind: Secret\nstringData: ${HIDDEN}\n`,
+  )
+  expect(masked('kind: Secret\r\nstringData:\r\n  a: b # c\r\n')).toBe(
+    `kind: Secret\r\nstringData:\r\n  a: ${HIDDEN} # ${HIDDEN}\r\n`,
   )
   // What can't be read has no values to tell from the rest: there's no text to show.
   expect(masked('kind: Secret\nstringData: [unclosed\n')).toBeNull()
   expect(masked('kind: Secret\nstringData:\n  a: b\n  a: c\n')).toBeNull()
-  // What the cluster says has none of them in it: as written, or as read.
-  expect(unquoted('Invalid value: "hunter2", and two words, and "two words"', text)).toBe(
-    `Invalid value: "${HIDDEN}", and ${HIDDEN}, and ${HIDDEN}`,
-  )
-  expect(unquoted('nothing of it here', text)).toBe('nothing of it here')
-  expect(unquoted('Invalid value: "x"', 'kind: Secret\nstringData: [unclosed\n')).toBe(
-    'The cluster refused it. Show values to read what it said.',
-  )
+  // Nor has one whose value is written elsewhere and brought in: by an alias, as a whole map,
+  // or through a merge key; nor one that's a Secret by a kind said elsewhere.
+  for (const elsewhere of [
+    'kind: Secret\nmetadata:\n  annotations: {k: &v S3CR3T}\nstringData: {a: *v}\n',
+    'x: &d {a: S3CR3T}\nkind: Secret\nstringData: *d\n',
+    'base: &b {a: S3CR3T}\nkind: Secret\nstringData:\n  <<: *b\n',
+    'kind: Secret\nstringData:\n  a: {deep: [*v]}\nv: &v S3CR3T\n',
+    'k: &k Secret\nkind: *k\nstringData: {a: S3CR3T}\n',
+    'b: &b {kind: Secret}\n<<: *b\nstringData: {a: S3CR3T}\n',
+    'b: &b {stringData: {a: S3CR3T}}\nkind: Secret\n<<: *b\n',
+  ]) {
+    expect(masked(elsewhere), elsewhere).toBeNull()
+  }
+  // (An alias in what isn't a Secret is nobody's value.)
+  const other = 'kind: ConfigMap\nx: &a 1\ndata: {a: *a}\n'
+  expect(masked(other)).toBe(other)
 })
