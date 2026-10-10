@@ -176,7 +176,8 @@ function Rightsizing() {
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-ink-2">
+        {/* On a phone the words have the row, and where the usage comes from goes under them. */}
+        <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-ink-2 phone:basis-full">
           What each workload should request, from the last 7 days of its containers’ usage.
           <Method />
         </p>
