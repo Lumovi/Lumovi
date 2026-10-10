@@ -3,6 +3,7 @@
  * desktop app's preload script makes over IPC, over the page's WebSocket.
  * What only a desktop app can do (its own files, port forwards, updates) isn't there.
  */
+import { refusedOnAPhone } from './phone-gate'
 import {
   IPC,
   type KubeError,
@@ -48,14 +49,19 @@ export function createWebApi(): LumoviApi {
   const streams = new Set<string>()
   const socketUrl = serverUrl(PATHS.socket)
   socketUrl.protocol = socketUrl.protocol.replace('http', 'ws')
-  const connection = new Connection(socketUrl.href, stillSignedIn, () => {
-    for (const id of shells)
-      connection.emit(IPC.terminalExit, id, { message: LOST } satisfies ShellExit)
-    for (const id of streams) {
-      connection.emit(IPC.logsEnd, id, { code: 'unreachable', message: LOST } satisfies KubeError)
-    }
-    files.dropped()
-  })
+  const connection = new Connection(
+    socketUrl.href,
+    stillSignedIn,
+    () => {
+      for (const id of shells)
+        connection.emit(IPC.terminalExit, id, { message: LOST } satisfies ShellExit)
+      for (const id of streams) {
+        connection.emit(IPC.logsEnd, id, { code: 'unreachable', message: LOST } satisfies KubeError)
+      }
+      files.dropped()
+    },
+    refusedOnAPhone,
+  )
   const files = webFiles(connection)
   // Audit events come while a page listens: asked for again on each connection (a new server
   // knows nothing of the last one's).
