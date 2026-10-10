@@ -107,6 +107,10 @@
   --ansi-5: #8250df;
   --ansi-6: #1b7c83;
   --ansi-7: #6e7781;
+  /* How strongly an editor's line is tinted when it's set apart: lit, wrong, shaded. */
+  --tint-lit: 8%;
+  --tint-wrong: 10%;
+  --tint-shaded: 10%;
   --ansi-8: #57606a;
   --ansi-9: #a40e26;
   --ansi-10: #1a7f37;
@@ -163,6 +167,9 @@
     --ansi-5: #bc8cff;
     --ansi-6: #39c5cf;
     --ansi-7: #b1bac4;
+    --tint-lit: 20%;
+    --tint-wrong: 22%;
+    --tint-shaded: 18%;
     --ansi-8: #8b949e;
     --ansi-9: #ffa198;
     --ansi-10: #56d364;
