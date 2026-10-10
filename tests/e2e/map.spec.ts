@@ -588,6 +588,205 @@ test('missing references, odd ones, and what refers to nothing', async ({ page, 
   )
 })
 
+/**
+ * A database as CloudNativePG runs one: a Cluster that owns its pods outright, and owns the
+ * Services and the disruption budget that select them, and the Secrets they and others use.
+ */
+function postgres(cluster: MockCluster) {
+  const now = new Date().toISOString()
+  const owner = {
+    apiVersion: 'postgresql.cnpg.io/v1',
+    kind: 'Cluster',
+    name: 'pg',
+    uid: 'pg-cluster',
+    controller: true,
+    blockOwnerDeletion: true,
+  }
+  const labels = { 'cnpg.io/cluster': 'pg' }
+  const meta = (name: string, owned = true) => ({
+    name,
+    namespace: 'shop',
+    creationTimestamp: now,
+    uid: `pg-${name}`,
+    labels,
+    ...(owned ? { ownerReferences: [owner] } : {}),
+  })
+  cluster.upsert({
+    apiVersion: 'apiextensions.k8s.io/v1',
+    kind: 'CustomResourceDefinition',
+    metadata: { name: 'clusters.postgresql.cnpg.io', creationTimestamp: now, uid: 'pg-crd' },
+    spec: {
+      group: 'postgresql.cnpg.io',
+      names: { kind: 'Cluster', listKind: 'ClusterList', plural: 'clusters', singular: 'cluster' },
+      scope: 'Namespaced',
+      versions: [
+        {
+          name: 'v1',
+          served: true,
+          storage: true,
+          schema: {
+            openAPIV3Schema: {
+              type: 'object',
+              properties: {
+                spec: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
+                status: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
+              },
+            },
+          },
+          subresources: { status: {} },
+        },
+      ],
+    },
+    status: {
+      acceptedNames: { kind: 'Cluster', plural: 'clusters' },
+      conditions: [{ type: 'Established', status: 'True', reason: 'InitialNamesAccepted' }],
+      storedVersions: ['v1'],
+    },
+  })
+  cluster.upsert({
+    apiVersion: 'postgresql.cnpg.io/v1',
+    kind: 'Cluster',
+    metadata: { ...meta('pg', false), uid: 'pg-cluster' },
+    spec: { instances: 2, storage: { size: '1Gi' } },
+    status: { instances: 2, readyInstances: 2, phase: 'Cluster in healthy state' },
+  })
+  for (const name of ['pg-app', 'pg-superuser']) {
+    cluster.upsert({
+      apiVersion: 'v1',
+      kind: 'Secret',
+      metadata: meta(name),
+      type: 'kubernetes.io/basic-auth',
+      data: { username: 'YXBw', password: 'c2VjcmV0' },
+    })
+  }
+  for (const name of ['pg-1', 'pg-2']) {
+    cluster.upsert({
+      apiVersion: 'v1',
+      kind: 'PersistentVolumeClaim',
+      metadata: meta(name),
+      spec: {
+        accessModes: ['ReadWriteOnce'],
+        storageClassName: 'standard',
+        resources: { requests: { storage: '1Gi' } },
+      },
+      status: { phase: 'Pending' },
+    })
+    cluster.upsert({
+      apiVersion: 'v1',
+      kind: 'Pod',
+      metadata: meta(name),
+      spec: {
+        nodeName: 'worker-1',
+        serviceAccountName: 'pg',
+        containers: [
+          {
+            name: 'postgres',
+            image: 'ghcr.io/cloudnative-pg/postgresql:17',
+            env: [
+              {
+                name: 'PGPASSWORD',
+                valueFrom: { secretKeyRef: { name: 'pg-superuser', key: 'password' } },
+              },
+            ],
+          },
+        ],
+        volumes: [{ name: 'pgdata', persistentVolumeClaim: { claimName: name } }],
+      },
+      status: {
+        phase: 'Running',
+        startTime: now,
+        conditions: [{ type: 'Ready', status: 'True' }],
+        containerStatuses: [
+          {
+            name: 'postgres',
+            image: 'ghcr.io/cloudnative-pg/postgresql:17',
+            ready: true,
+            restartCount: 0,
+            state: { running: { startedAt: now } },
+          },
+        ],
+      },
+    })
+  }
+  cluster.upsert({ apiVersion: 'v1', kind: 'ServiceAccount', metadata: meta('pg') })
+  for (const name of ['pg-rw', 'pg-ro']) {
+    cluster.upsert({
+      apiVersion: 'v1',
+      kind: 'Service',
+      metadata: meta(name),
+      spec: { type: 'ClusterIP', selector: labels, ports: [{ port: 5432, protocol: 'TCP' }] },
+    })
+  }
+  cluster.upsert({
+    apiVersion: 'policy/v1',
+    kind: 'PodDisruptionBudget',
+    metadata: meta('pg'),
+    spec: { minAvailable: 1, selector: { matchLabels: labels } },
+    status: {},
+  })
+  // And something of somebody else's that uses the database: it isn't the Cluster's.
+  cluster.upsert({
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: { ...meta('pg-client', false), labels: { app: 'pg-client' } },
+    status: {},
+    spec: {
+      replicas: 0,
+      selector: { matchLabels: { app: 'pg-client' } },
+      template: {
+        metadata: { labels: { app: 'pg-client' } },
+        spec: {
+          containers: [
+            {
+              name: 'app',
+              image: 'client:1',
+              envFrom: [{ secretRef: { name: 'pg-app' } }],
+            },
+          ],
+        },
+      },
+    },
+  })
+}
+
+test('a custom resource that owns its pods and what selects them has a map, from any of them', async ({
+  page,
+  clusters,
+}) => {
+  postgres(clusters.demo)
+  await openCluster(page)
+  const own = (detail: Locator, kind: string, name: string) =>
+    map(detail).getByRole('img', { name: new RegExp(`^${kind} ${name}\\b.*\\(this .+\\)$`) })
+  // The Cluster owns the Service, and the Service selects the Cluster's pods: lines both ways.
+  for (const [list, kind, label, name] of [
+    ['Secrets', 'Secret', 'Secret', 'pg-app'],
+    ['Secrets', 'Secret', 'Secret', 'pg-superuser'],
+    ['Services', 'Service', 'Service', 'pg-rw'],
+    ['Pods', 'Pod', 'Pod', 'pg-1'],
+    ['Volume Claims', 'PersistentVolumeClaim', 'Volume claim', 'pg-1'],
+    ['Deployments', 'Deployment', 'Deployment', 'pg-client'],
+  ] as const) {
+    const detail = await openMap(page, list, kind, name)
+    await openAll(detail)
+    await expect(own(detail, label, name), `${kind} ${name}`).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+  }
+  // And as it was found: from the Cluster's own map, to one of its Secrets.
+  const client = panel(page, 'Deployment', 'pg-client')
+  await card(client, 'Secret pg-app').click()
+  const secret = panel(page, 'Secret', 'pg-app')
+  await card(secret, 'Cluster pg').click()
+  const cluster = panel(page, 'Cluster', 'pg')
+  await expect(own(cluster, 'Cluster', 'pg')).toBeVisible()
+  await openAll(cluster)
+  // The Services that select its pods are above it, as a Deployment's are; what it owns, below.
+  const y = async (name: string | RegExp) => (await card(cluster, name).boundingBox())!.y
+  expect(await y('Service pg-rw, 2/2 ready')).toBeLessThan(await y(/^Pods pg, /))
+  await card(cluster, 'Secret pg-superuser').click()
+  await expect(own(panel(page, 'Secret', 'pg-superuser'), 'Secret', 'pg-superuser')).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
 test('Secrets it can’t list are there, unknown', async ({ page, clusters }) => {
   kitchenSink(clusters.demo)
   clusters.demo.fail('/api/v1/namespaces/shop/secrets', {

@@ -17,6 +17,12 @@ All notable changes to Lumovi are documented here. The format follows
   less room still, the label selector is a button that opens its field under it, and says what's
   applied; health chips stay whole and take a row of their own only when they don't fit. Lists,
   Workloads, add-ons and Helm releases share the one bar.
+- The Map opens for an object beside a custom resource that owns both its pods and the Services
+  that select them, as CloudNativePG's `Cluster` does: opening one of its Secrets from the
+  Cluster's Map showed "Cannot read properties of undefined (reading 'sort')" in place of the
+  Secret. Lines that led round in a circle (the Cluster owns the Service, the Service selects
+  the Cluster's pods) left rows of the Map empty; now such a Service is above the Cluster, as
+  a Deployment's is, and no row is empty whatever the lines.
 
 ## [1.20.0] - 2026-10-10
 
