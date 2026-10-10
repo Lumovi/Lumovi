@@ -124,6 +124,8 @@ export class FileStore implements AuditStore {
   #days: string[] = []
   /** The day whose file was last written to: checked, as it was first, for a line left unfinished. */
   #writing: string | undefined
+  /** The newest day's file as this Lumovi found or left it: which day's, and how long. */
+  #end: { day: string; size: number } | undefined
   readonly #lock: HistoryLock
 
   /**
@@ -150,6 +152,8 @@ export class FileStore implements AuditStore {
     lock.unmoved = () => this.#unmoved()
     this.#days = this.#listDays()
     for (const day of this.#days) ownOnly(this.#path(day), 0o600)
+    const newest = this.#days.at(-1)
+    if (newest) this.#end = { day: newest, size: sizeOf(this.#path(newest)) }
     // Where the chain goes on from: the newest file's last event that can be read.
     for (const day of [...this.#days].reverse()) {
       this.#last = lastEventIn(this.#path(day))
@@ -177,10 +181,19 @@ export class FileStore implements AuditStore {
 
   /**
    * Whether the folder's history still ends where this Lumovi left it: with the last event it
-   * kept, or with none at all. If it ends with another, another Lumovi has written to it.
+   * kept (or none at all), in the newest file as long as it left it. If it ends otherwise,
+   * another Lumovi has written to it.
    */
   #unmoved(): boolean {
-    for (const day of this.#listDays().reverse()) {
+    const days = this.#listDays()
+    // (Nothing there at all, its folder gone and back: nobody's writing.)
+    if (days.length === 0) return true
+    // To the byte: a line another is still writing isn't an event yet, and is there all the same.
+    if (this.#end) {
+      const newest = days.at(-1)
+      if (newest !== this.#end.day || sizeOf(this.#path(newest)) !== this.#end.size) return false
+    }
+    for (const day of days.reverse()) {
       const last = lastEventIn(this.#path(day))
       if (last) return last.seq === this.#last?.seq && last.hash === this.#last.hash
     }
@@ -208,7 +221,11 @@ export class FileStore implements AuditStore {
       // A line left unfinished (the computer stopped as it was written) stays as it is, on its own.
       if (endsUnfinished(path)) line = `\n${line}`
     }
+    // How long the file is once this is in it, from how long this Lumovi left it (asked of the
+    // file only as a day starts): if another writes to it, the two no longer agree.
+    const size = this.#end?.day === day ? this.#end.size : sizeOf(path)
     appendFileSync(path, line, { mode: 0o600 })
+    this.#end = { day, size: size + Buffer.byteLength(line) }
     this.#last = event
   }
 
@@ -272,6 +289,16 @@ export class FileStore implements AuditStore {
 
   close() {
     this.#lock.release()
+  }
+}
+
+/** How long a file is: nothing, if it isn't there. */
+function sizeOf(path: string): number {
+  try {
+    return statSync(path).size
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    throw error
   }
 }
 

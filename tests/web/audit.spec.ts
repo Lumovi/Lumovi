@@ -1824,86 +1824,90 @@ test('started at the same moment on one folder, only one Lumovi keeps its histor
   }
 })
 
-test('a Lumovi that can’t reach its lock stops writing the history after a hold’s time, until it can', async ({
-  page,
-  context,
-  serve,
-}) => {
-  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
-  const lock = join(dir, 'audit.lock')
-  const env = {
-    LUMOVI_AUTH: 'proxy',
-    LUMOVI_AUDIT_DIR: dir,
-    LUMOVI_AUDITORS: 'auditors',
-    LUMOVI_AUDIT_LOCK_STALE_MS: '1500',
-  }
-  const served = await serve({ env })
-  await as(context, 'alice@example.com', 'auditors, developers')
-  await page.goto(`${served.url}cluster/demo/pods`)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
-  const act = () =>
-    page.evaluate(() =>
-      window.lumovi!.kube.change({
-        context: 'demo',
-        kind: 'ConfigMap',
-        name: 'never-made',
-        namespace: 'shop',
-        change: { action: 'delete' },
-      } as never),
-    )
-  await act()
-  const kept = linesOf(dayFile(dir)).length
-  // Its lock out of reach: here a folder in its place, which can't be read as a file or renamed
-  // over. (Put there as soon as the lock isn't: Lumovi puts its own back when it finds none.)
-  await expect(() => {
-    rmSync(lock, { force: true })
-    mkdirSync(lock)
-  }).toPass()
-  // For as long as a hold lasts it's still this one's. After that another may have taken the
-  // history over unseen: nothing more is written to it.
-  await new Promise((done) => setTimeout(done, 2000))
-  const before = linesOf(dayFile(dir)).length
-  expect(before).toBeGreaterThanOrEqual(kept)
-  await act()
-  await expect
-    .poll(() => served.log())
-    .toContain(
-      'The audit history can’t be kept: This Lumovi hasn’t been able to renew its hold on the audit history for 2 seconds (',
-    )
-  expect(linesOf(dayFile(dir))).toHaveLength(before)
-  // In reach again, and nobody else's meanwhile: its own, said again, and kept as before.
-  rmSync(lock, { recursive: true })
-  await act()
-  await expect.poll(() => linesOf(dayFile(dir)).length).toBeGreaterThan(before)
-  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
+for (const wrote of ['an event', 'half of one'] as const) {
+  test(`a Lumovi that can’t reach its lock stops writing the history after a hold’s time, until it can (${wrote} written meanwhile)`, async ({
+    page,
+    context,
+    serve,
+  }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+    const lock = join(dir, 'audit.lock')
+    const env = {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_AUDIT_DIR: dir,
+      LUMOVI_AUDITORS: 'auditors',
+      LUMOVI_AUDIT_LOCK_STALE_MS: '1500',
+    }
+    const served = await serve({ env })
+    await as(context, 'alice@example.com', 'auditors, developers')
+    await page.goto(`${served.url}cluster/demo/pods`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+    const act = () =>
+      page.evaluate(() =>
+        window.lumovi!.kube.change({
+          context: 'demo',
+          kind: 'ConfigMap',
+          name: 'never-made',
+          namespace: 'shop',
+          change: { action: 'delete' },
+        } as never),
+      )
+    await act()
+    const kept = linesOf(dayFile(dir)).length
+    // Its lock out of reach: here a folder in its place, which can't be read as a file or renamed
+    // over. (Put there as soon as the lock isn't: Lumovi puts its own back when it finds none.)
+    await expect(() => {
+      rmSync(lock, { force: true })
+      mkdirSync(lock)
+    }).toPass()
+    // For as long as a hold lasts it's still this one's. After that another may have taken the
+    // history over unseen: nothing more is written to it.
+    await new Promise((done) => setTimeout(done, 2000))
+    const before = linesOf(dayFile(dir)).length
+    expect(before).toBeGreaterThanOrEqual(kept)
+    await act()
+    await expect
+      .poll(() => served.log())
+      .toContain(
+        'The audit history can’t be kept: This Lumovi hasn’t been able to renew its hold on the audit history for 2 seconds (',
+      )
+    expect(linesOf(dayFile(dir))).toHaveLength(before)
+    // In reach again, and nobody else's meanwhile: its own, said again, and kept as before.
+    rmSync(lock, { recursive: true })
+    await act()
+    await expect.poll(() => linesOf(dayFile(dir)).length).toBeGreaterThan(before)
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
 
-  // Out of reach again, for longer than a hold lasts: and this time another Lumovi took the
-  // history over meanwhile, wrote to it, and let go of it again as it stopped. There's no lock
-  // to say so: the history does, which no longer ends where this one left it.
-  await expect(() => {
-    rmSync(lock, { force: true })
-    mkdirSync(lock)
-  }).toPass()
-  await new Promise((done) => setTimeout(done, 2000))
-  const [last] = eventsIn(dayFile(dir)).slice(-1)
-  const others = { ...last!, id: 'another-lumovis', seq: last!.seq + 1, prev: last!.hash }
-  appendFileSync(dayFile(dir), `${JSON.stringify({ ...others, hash: hashOf(others) })}\n`)
-  const taken = linesOf(dayFile(dir)).length
-  rmSync(lock, { recursive: true })
-  await act()
-  await expect
-    .poll(() => served.log())
-    .toContain(
-      'The audit history can’t be kept: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
-    )
-  // For good: nothing more is written, and it doesn't put its lock back, then or as it stops.
-  await new Promise((done) => setTimeout(done, 1200))
-  await act()
-  expect(linesOf(dayFile(dir))).toHaveLength(taken)
-  expect(existsSync(lock)).toBe(false)
-  await served.stop()
-  expect(existsSync(lock)).toBe(false)
-})
+    // Out of reach again, for longer than a hold lasts: and this time another Lumovi took the
+    // history over meanwhile, wrote to it, and let go of it again as it stopped. There's no lock
+    // to say so: the history does, which no longer ends where this one left it.
+    await expect(() => {
+      rmSync(lock, { force: true })
+      mkdirSync(lock)
+    }).toPass()
+    await new Promise((done) => setTimeout(done, 2000))
+    const [last] = eventsIn(dayFile(dir)).slice(-1)
+    const others = { ...last!, id: 'another-lumovis', seq: last!.seq + 1, prev: last!.hash }
+    const line = `${JSON.stringify({ ...others, hash: hashOf(others) })}\n`
+    // (All of an event; or the start of one, as it is while it's being written.)
+    appendFileSync(dayFile(dir), wrote === 'an event' ? line : line.slice(0, 40))
+    const taken = readFileSync(dayFile(dir), 'utf8')
+    rmSync(lock, { recursive: true })
+    await act()
+    await expect
+      .poll(() => served.log())
+      .toContain(
+        'The audit history can’t be kept: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
+      )
+    // For good: nothing more is written, and it doesn't put its lock back, then or as it stops.
+    await new Promise((done) => setTimeout(done, 1200))
+    await act()
+    expect(readFileSync(dayFile(dir), 'utf8')).toBe(taken)
+    expect(existsSync(lock)).toBe(false)
+    await served.stop()
+    expect(existsSync(lock)).toBe(false)
+  })
+}
 
 test('a Lumovi held up while another took its history, wrote to it and stopped, writes no more', async ({
   clusters,
