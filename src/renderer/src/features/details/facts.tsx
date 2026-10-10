@@ -78,8 +78,9 @@ const account = (pod: { serviceAccountName?: string } | undefined, namespace?: s
   pod?.serviceAccountName && (
     <ObjectLink kind="ServiceAccount" name={pod.serviceAccountName} namespace={namespace} />
   )
-/** A workload's pods' account. */
-const podsAccount = (o: KubeObject) => account(o.spec.template?.spec, o.metadata.namespace)
+/** A workload's pods' account: its namespace's `default`, where its template names none. */
+const podsAccount = (o: KubeObject, pod = o.spec.template?.spec) =>
+  pod && account({ serviceAccountName: pod.serviceAccountName ?? 'default' }, o.metadata.namespace)
 
 /** A service account's own secrets, or those its pods pull images with, each a link. */
 const secrets = (names: { name?: string }[] | undefined, namespace?: string) =>
@@ -182,10 +183,7 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Concurrency', o.spec.concurrencyPolicy),
     fact('Last scheduled', when(o.status.lastScheduleTime)),
     fact('Last successful', when(o.status.lastSuccessfulTime)),
-    fact(
-      'Service account',
-      account(o.spec.jobTemplate?.spec?.template?.spec, o.metadata.namespace),
-    ),
+    fact('Service account', podsAccount(o, o.spec.jobTemplate?.spec?.template?.spec)),
   ],
   HorizontalPodAutoscaler: (o) => [
     fact(
@@ -271,7 +269,7 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
       'API token',
       o.automountServiceAccountToken === false
         ? 'Not mounted in its pods, unless a pod asks'
-        : 'Mounted in its pods',
+        : 'Mounted in its pods, unless a pod says not to',
     ),
     fact('Secrets', secrets(o.secrets as { name?: string }[] | undefined, o.metadata.namespace)),
     fact(
