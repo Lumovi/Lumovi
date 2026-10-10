@@ -223,7 +223,8 @@ export function Tile({
             sits in the tile's corner, out of its way. */}
         <div className="flex items-center gap-2 text-[13px] text-ink-2 phone:gap-1.5 phone:whitespace-nowrap">
           <Icon className="size-4 shrink-0 text-ink-3" />
-          {label}
+          {/* (At a larger text size it's cut short, rather than making one tile taller.) */}
+          <span className="min-w-0 phone:truncate">{label}</span>
           <ChevronRight className="ml-auto size-4 shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 phone:absolute phone:top-2 phone:right-2 phone:size-3.5 touch:opacity-100" />
         </div>
         <div className="mt-2.5 text-[28px] leading-none font-semibold tracking-[-0.02em] text-ink-1">

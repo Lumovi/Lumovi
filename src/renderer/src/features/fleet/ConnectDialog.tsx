@@ -435,7 +435,7 @@ export function Box({
   children: ReactNode
 }) {
   return (
-    <div className="group relative rounded-lg bg-surface-3/70 px-3 py-2.5">
+    <div className="group relative rounded-lg bg-surface-3/70 px-3 py-2.5 touch:pr-11">
       <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">{label}</p>
       {children}
       <span className="absolute top-1.5 right-1.5">

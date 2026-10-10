@@ -7,7 +7,9 @@ const VARIANTS = {
     'bg-accent text-white shadow-sm hover:bg-accent-hover active:translate-y-px disabled:opacity-50',
   secondary:
     'border border-line-strong bg-surface-2 text-ink-1 shadow-xs hover:bg-surface-3 active:translate-y-px',
-  ghost: 'text-ink-2 hover:bg-surface-3 hover:text-ink-1',
+  // (Under a finger there's no hovering: what was last tapped would stay filled.)
+  ghost:
+    'text-ink-2 hover:bg-surface-3 hover:text-ink-1 touch:hover:bg-transparent touch:active:bg-surface-3',
   danger:
     'bg-critical text-white shadow-sm hover:bg-critical-hover active:translate-y-px disabled:opacity-50',
 }
