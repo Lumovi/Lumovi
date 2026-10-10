@@ -13,7 +13,9 @@
  * Where a block isn't written the plain way (`{ a: 1 }` on one line, a value over several
  * lines), the block the edit is in is written again by `yaml`, which keeps its comments and
  * its meaning but not its spacing; no line outside that block changes. Whatever the way, the
- * result is read back and must mean what was asked: otherwise the edit isn't made.
+ * result is read back and must mean what was asked. An edit that couldn't be made without
+ * writing the whole document again isn't made: `null` comes back in place of a text, and
+ * what the form does then is step back and say so. Text that doesn't parse gets the same.
  *
  * Every edit reads the text it's given, there and then: positions are never kept from one
  * text to the next. What's written new is quoted wherever an older YAML (1.1, which kubectl
@@ -204,7 +206,7 @@ function checked(next: string, wanted: unknown): string | undefined {
  * The text with the block at `block` written again by `yaml`, after `edit`: every line
  * outside that block is as it was. The whole document, where even that can't be done.
  */
-function rewritten(text: string, block: Path, edit: (doc: Document) => void): string {
+function rewritten(text: string, block: Path, edit: (doc: Document) => void): string | null {
   const doc = parsed(text)
   const old = parsed(text)
   edit(doc)
@@ -219,11 +221,22 @@ function rewritten(text: string, block: Path, edit: (doc: Document) => void): st
   // map, whose first key follows the dash): that's kept as it was, and the rest laid under.
   const LEADS = /^\s*(-\s+)*$/
   // The block the edit is in, or the nearest one above it that can be laid over line by line.
-  for (let depth = block.length; depth > 0; depth--) {
+  for (let depth = block.length; depth >= 0; depth--) {
     const before = nodeAt(old, block.slice(0, depth))
     const after = nodeAt(fresh, block.slice(0, depth))
     if (!before || !after || !(isMap(before) || isSeq(before))) continue
     if (!(isMap(after) || isSeq(after)) || before.flow !== after.flow) continue
+    // A map or a list written in brackets is its own characters, wherever on a line it is:
+    // those are written again, and nothing else.
+    if (before.flow) {
+      const again = whole.slice(after.range[0], endOf(after))
+      const next = text.slice(0, before.range[0]) + again + text.slice(endOf(before))
+      const kept = checked(ending ? next.replace(/\r?\n/g, '\r\n') : next, wanted)
+      if (kept !== undefined) return kept
+      continue
+    }
+    // The document's own top block is the whole document: that's not a block's worth.
+    if (depth === 0) break
     const [oldFrom, oldTo] = [lineOf(olds, before.range[0]), lineOf(olds, endOf(before) - 1)]
     const [newFrom, newTo] = [lineOf(news, after.range[0]), lineOf(news, endOf(after) - 1)]
     const newLines = whole.split('\n').slice(newFrom, newTo + 1)
@@ -249,7 +262,9 @@ function rewritten(text: string, block: Path, edit: (doc: Document) => void): st
     const kept = checked(next, wanted)
     if (kept !== undefined) return kept
   }
-  return ending ? whole.replace(/\r?\n/g, '\r\n') : whole
+  // Nothing short of writing the whole document again would do it: that's more than an edit's
+  // own, so it isn't made, and whoever asked is told so.
+  return null
 }
 
 /** The column a block's keys (or a list's dashes) start at; undefined if it isn't a plain block. */
@@ -300,9 +315,9 @@ export function setAt(
   path: Path,
   value: unknown,
   order: readonly string[] = [],
-): string {
+): string | null {
   const doc = parsed(text)
-  if (doc.errors.length > 0 || path.length === 0) return text
+  if (doc.errors.length > 0 || path.length === 0) return null
   // A key above it with nothing after it (`resources:`) takes what's below as its value.
   for (let depth = 1; depth < path.length; depth++) {
     const above = nodeAt(doc, path.slice(0, depth))
@@ -434,9 +449,10 @@ export function setAt(
  * Removes what's at `path`: its lines go, and so does each key above it that's left with
  * nothing, as far up as `upTo` allows (the number of parts of the path that always stay).
  */
-export function removeAt(text: string, path: Path, upTo = 1): string {
+export function removeAt(text: string, path: Path, upTo = 1): string | null {
   const doc = parsed(text)
-  if (doc.errors.length > 0 || path.length === 0 || !doc.hasIn([...path])) return text
+  if (doc.errors.length > 0 || path.length === 0) return null
+  if (!doc.hasIn([...path])) return text
   // As far up as taking it away leaves nothing behind.
   let target = [...path]
   while (target.length > upTo) {
