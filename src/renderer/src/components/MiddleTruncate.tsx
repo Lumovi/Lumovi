@@ -67,7 +67,7 @@ export function MiddleTruncate({ text, className }: { text: string; className?: 
     >
       {/* All of it, unseen: what a screen reader reads, and how wide it would like to be. */}
       <span className="text-transparent">{text}</span>
-      <span aria-hidden className="absolute inset-0">
+      <span aria-hidden className="absolute inset-0 select-none">
         {shown}
       </span>
     </span>

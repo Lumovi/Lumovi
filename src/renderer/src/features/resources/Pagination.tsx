@@ -26,7 +26,7 @@ export function Pagination({
     // What it says fits its width (a list beside a panel is narrow): less, never wrapped.
     <nav
       aria-label="Pagination"
-      className="@container flex h-11 shrink-0 items-center gap-3 border-t border-line px-5 text-xs whitespace-nowrap text-ink-2"
+      className="@container flex h-11 shrink-0 items-center gap-3 border-t border-line px-5 text-xs whitespace-nowrap text-ink-2 phone:px-2 touch:h-[52px]"
     >
       {onSize && (
         <label className="flex items-center gap-2">
@@ -35,7 +35,7 @@ export function Pagination({
             aria-label="Rows per page"
             value={size}
             onChange={(event) => onSize(Number(event.target.value))}
-            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
+            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 touch:h-11 touch:rounded-lg touch:px-2"
           >
             {PAGE_SIZES.map((option) => (
               <option key={option} value={option}>

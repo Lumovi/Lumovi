@@ -84,7 +84,7 @@ export function OverviewPage() {
   )
 
   return (
-    <div className="@container space-y-4 px-6 py-5">
+    <div className="@container space-y-4 px-6 py-5 phone:px-4 phone:py-4">
       {stale && (
         <div className="overflow-hidden rounded-xl border border-warn/25">
           <StaleNotice

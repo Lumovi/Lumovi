@@ -1,3 +1,5 @@
+import { useActionsUi } from '@renderer/state/actions'
+import { ON_A_PHONE } from '@renderer/web/phone-gate'
 import { WifiOff } from 'lucide-react'
 import { useEffect } from 'react'
 import { Navigate, Outlet, useLocation, useParams } from 'react-router'
@@ -45,6 +47,17 @@ export function ClusterLayout() {
   const namespace = stored === undefined ? (opensIn ?? contextInfo?.namespace ?? null) : stored
 
   useEffect(() => touchRecent(context), [context, touchRecent])
+  // What was opened with room for it doesn't outlive the room (a tablet turned upright, a
+  // window made narrow): on a phone no dialog that changes more than a phone does stays open,
+  // and nothing stays in the editor.
+  useEffect(() => {
+    if (layout !== 'phone') return
+    const actions = useActionsUi.getState()
+    if (actions.active && !ON_A_PHONE.has(actions.active.id)) actions.close()
+    actions.edit(null)
+    actions.setMenu(false)
+    useUi.setState({ create: false, metricsSource: false, shortcuts: false })
+  }, [layout])
 
   // A server shows one cluster (unless it has a fleet): an address with another (a link from
   // before it was renamed) goes there.

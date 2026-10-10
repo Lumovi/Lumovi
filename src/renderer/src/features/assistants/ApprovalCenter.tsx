@@ -288,7 +288,7 @@ function ApprovalDialog({
             <Dialog.Close
               aria-label="Later"
               title="Later: it waits at the bottom of the window"
-              className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 phone:m-0 phone:size-11 phone:[&_svg]:size-5"
+              className="-mt-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 touch:m-0 touch:size-11 touch:[&_svg]:size-5"
             >
               <X className="size-4" />
             </Dialog.Close>

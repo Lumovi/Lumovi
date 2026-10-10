@@ -26,7 +26,12 @@ export async function signInNarrow(page: Page, url: string, token: string): Prom
  * scrolls. (A strip of tabs scrolls inside itself, and says so: `data-scrolls-sideways`.)
  */
 export async function expectNoSidewaysScroll(page: Page, where: string): Promise<void> {
-  const wide = await page.evaluate(() => {
+  // (Asked until it holds: a table drops the columns that don't fit a frame after it's measured.)
+  await expect.poll(() => sideways(page), { message: `${where} scrolls sideways` }).toEqual([])
+}
+
+function sideways(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
     const found: string[] = []
     const named = (element: Element) =>
       `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${
@@ -61,7 +66,6 @@ export async function expectNoSidewaysScroll(page: Page, where: string): Promise
     }
     return found
   })
-  expect(wide, `${where} scrolls sideways`).toEqual([])
 }
 
 /**
@@ -70,7 +74,13 @@ export async function expectNoSidewaysScroll(page: Page, where: string): Promise
  * what's drawn: a chip 28 px high takes the 8 px above and below it too).
  */
 export async function expectFingerSized(page: Page, where: string): Promise<void> {
-  const small = await page.evaluate((least) => {
+  await expect
+    .poll(() => missed(page), { message: `${where} has targets a finger would miss` })
+    .toEqual([])
+}
+
+function missed(page: Page): Promise<string[]> {
+  return page.evaluate((least) => {
     const pressed =
       'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="option"], [role="menuitem"], [role="switch"], [role="checkbox"], [role="radio"], summary'
     const reach = least / 2 - 1
@@ -83,16 +93,15 @@ export async function expectFingerSized(page: Page, where: string): Promise<void
       if (box.width === 0 || box.height === 0 || style.visibility === 'hidden') continue
       // What's only for a keyboard, or disabled, or under something else isn't a thing to press.
       if (element.closest('[aria-hidden="true"], [inert]') || element.matches(':disabled')) continue
+      // Nor is what its cell answers for (a row's checkbox, whose cell takes the tap).
+      if (element.tabIndex < 0) continue
       const at = (dx: number, dy: number) => {
         const px = x + dx
         const py = y + dy
         // (Past the screen's edge there's nothing to miss it by.)
         if (px < 0 || py < 0 || px >= window.innerWidth || py >= window.innerHeight) return true
         const hit = document.elementFromPoint(px, py)
-        return (
-          hit !== null &&
-          (element.contains(hit) || hit.contains(element) || labelOf(hit) === element)
-        )
+        return hit !== null && (element.contains(hit) || labelOf(hit) === element)
       }
       const labelOf = (hit: Element) => hit.closest('label')?.querySelector(pressed)
       if (!at(0, 0)) continue // Scrolled away, or covered: not there to press now.
@@ -112,5 +121,4 @@ export async function expectFingerSized(page: Page, where: string): Promise<void
     }
     return found
   }, FINGER)
-  expect(small, `${where} has targets a finger would miss`).toEqual([])
 }

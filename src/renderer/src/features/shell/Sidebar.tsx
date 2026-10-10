@@ -77,7 +77,7 @@ const SIDEBAR_CATEGORIES: ResourceCategory[] = ['cluster', 'network', 'config', 
 const navItem = (isActive: boolean) =>
   cn(
     // (A finger's height in the drawer.)
-    'group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-100 no-drag narrow:h-11',
+    'group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-100 no-drag narrow:h-11 touch:h-11',
     isActive
       ? 'bg-surface-3 font-medium text-ink-1 shadow-[inset_0_0_0_1px_var(--line)]'
       : 'text-ink-2 hover:bg-surface-3/60 hover:text-ink-1',
@@ -240,7 +240,7 @@ export function Sidebar() {
         <CustomResources addOns={addOns} />
       </nav>
       <Sponsor />
-      <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag narrow:px-1 narrow:pb-[max(0.5rem,env(safe-area-inset-bottom))] narrow:[&_button]:size-11">
+      <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag narrow:px-1 narrow:pb-[max(0.5rem,env(safe-area-inset-bottom))] touch:flex-wrap narrow:[&_button]:size-11 touch:[&_button]:size-11">
         <ThemeMenu />
         {api.assistants && <AssistantsButton assistants={api.assistants} />}
         {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}

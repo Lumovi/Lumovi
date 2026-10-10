@@ -10,7 +10,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { menuItem } from './menu-styles'
 
 const trigger =
-  'flex h-8 max-w-56 items-center gap-2 rounded-lg px-2.5 text-[13px] text-ink-2 transition-colors no-drag'
+  'flex h-8 max-w-56 items-center gap-2 rounded-lg px-2.5 text-[13px] text-ink-2 transition-colors no-drag touch:h-11'
 
 /**
  * A chip of the context row, under a narrow page's top bar: 32 px high, in a row whose 44 px

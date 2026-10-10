@@ -150,7 +150,7 @@ function Detail({
                   .join(' · ')}
               />
             </p>
-            <div className="flex min-w-0 items-start gap-1">
+            <div className="flex min-w-0 items-center gap-1 [&>button]:-my-2.5 [&>button]:-mr-2">
               <h2 className="line-clamp-2 min-w-0 flex-1 text-[17px] leading-snug font-semibold tracking-[-0.01em] wrap-anywhere selectable">
                 {title}
               </h2>

@@ -310,7 +310,7 @@ export function ListBar({
       ref={bar}
       role="group"
       aria-label="Filters"
-      className="flex shrink-0 flex-col gap-2 border-b border-line px-5 py-3"
+      className="flex shrink-0 flex-col gap-2 border-b border-line px-5 py-3 touch:gap-4"
     >
       <div className="flex items-center gap-2">
         <span

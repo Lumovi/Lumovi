@@ -178,7 +178,7 @@ function Chip({
       title={title}
       onClick={onClick}
       className={cn(
-        'flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-xs transition-colors',
+        'flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-xs transition-colors touch:finger',
         pressed
           ? 'border-line-strong bg-surface-3 text-ink-1'
           : 'border-line text-ink-2 hover:border-line-strong hover:text-ink-1',
@@ -616,7 +616,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
         <div
           role="group"
           aria-label="Show lines from"
-          className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-5 py-1.5 phone:flex-wrap phone:gap-2 phone:overflow-visible phone:px-4 phone:py-2"
+          className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-5 py-1.5 phone:flex-wrap phone:gap-x-2 phone:gap-y-5 phone:overflow-visible phone:px-4 phone:py-2.5"
         >
           {(['error', 'warn'] as const)
             .filter((level) => levelCounts.has(level))
