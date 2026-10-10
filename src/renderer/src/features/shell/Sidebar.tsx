@@ -75,7 +75,8 @@ const SIDEBAR_CATEGORIES: ResourceCategory[] = ['cluster', 'network', 'config', 
 
 const navItem = (isActive: boolean) =>
   cn(
-    'group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-100 no-drag',
+    // (A finger's height in the drawer.)
+    'group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-100 no-drag narrow:h-11',
     isActive
       ? 'bg-surface-3 font-medium text-ink-1 shadow-[inset_0_0_0_1px_var(--line)]'
       : 'text-ink-2 hover:bg-surface-3/60 hover:text-ink-1',
@@ -363,7 +364,7 @@ export function ClusterSwitcher({ chip = false }: { chip?: boolean }) {
             placeholder="Switch to…"
             className="h-10 w-full border-b border-line bg-transparent px-3 text-[13px] text-ink-1 outline-none placeholder:text-ink-3"
           />
-          <Command.List className="max-h-80 overflow-y-auto p-1">
+          <Command.List className="max-h-80 overflow-y-auto p-1 phone:max-h-none phone:px-2">
             <Command.Empty className="px-3 py-6 text-center text-xs text-ink-3">
               No clusters match.
             </Command.Empty>
