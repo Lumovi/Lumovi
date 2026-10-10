@@ -4,8 +4,8 @@
  * user), and found on its Audit page, its objects' Audit tabs, and from
  * wherever else changes show.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir, userInfo } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
@@ -298,6 +298,37 @@ test('a folder the history can’t be kept in: kept in memory, and said why', as
   await expect(page.getByRole('main')).toContainText(
     /Kept in memory until Lumovi quits: \S*lumovi-user-\w+[/\\]audit can’t be used: EEXIST/,
   )
+})
+
+test('a history another Lumovi keeps is left to it; one it stopped keeping long ago is taken', async ({
+  launch,
+}) => {
+  // Another computer's Lumovi, with this one's folder on a disk they share: heard from just now.
+  const held = { id: 'another', pid: 4321, host: 'another-mac', at: Date.now() }
+  const shared = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
+  mkdirSync(join(shared, 'audit'))
+  const lock = join(shared, 'audit', 'audit.lock')
+  writeFileSync(lock, JSON.stringify(held))
+  const first = await launch({ userDataDir: shared })
+  await go(first.page, '/audit')
+  // (The app doesn't wait for it, as a server does: it goes by when the lock says it was said.)
+  await expect(first.page.getByRole('main')).toContainText(
+    /Kept in memory until Lumovi quits: \S*audit can’t be used: Another Lumovi \(process 4321 on another-mac\) keeps its audit history in/,
+  )
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(held)
+  await first.close()
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(held)
+
+  // Not heard from in ten minutes: it stopped, without letting go. The history is this one's.
+  writeFileSync(lock, JSON.stringify({ ...held, at: Date.now() - 10 * 60_000 }))
+  const second = await launch({ userDataDir: shared })
+  await go(second.page, '/audit')
+  await expect(second.page.getByRole('main')).not.toContainText('Kept in memory')
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({
+    host: hostname(),
+    pid: expect.any(Number),
+  })
+  expect(JSON.parse(readFileSync(lock, 'utf8')).id).not.toBe('another')
 })
 
 test('who may do what is a server’s: the desktop app has no Access pages', async ({ page }) => {

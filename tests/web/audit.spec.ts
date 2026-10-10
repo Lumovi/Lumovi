@@ -19,6 +19,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
@@ -1754,7 +1755,8 @@ for (const volume of [
     // One that can't be read is someone's all the same (it may be being written, where a volume
     // can't put it in place whole): waited for, and taken over only once it's as old as one nobody
     // renews. Empty, as a file just made is; or not a lock at all.
-    for (const unreadable of ['', 'not a lock']) {
+    // (Or text that reads as JSON and says none of what a hold says.)
+    for (const unreadable of ['', 'not a lock', 'null', '{"pid":"one","host":7}']) {
       writeFileSync(lock, unreadable)
       const served = await serve({ env })
       expect(served.log()).toContain(
@@ -2013,6 +2015,127 @@ for (const volume of [
     expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
   })
 }
+
+test('what’s left beside a lock by a Lumovi stopped as it wrote one is cleared, once it’s old', async ({
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const beside = (name: string) => join(dir, name)
+  // An hour is how old it must be: another Lumovi may be writing one this moment.
+  const long = new Date(Date.now() - 2 * 3_600_000)
+  for (const name of ['audit.lock.left-long-ago', 'audit.lock.left-long-ago.stale']) {
+    writeFileSync(beside(name), 'left')
+    utimesSync(beside(name), long, long)
+  }
+  writeFileSync(beside('audit.lock.being-written'), 'new')
+  // (Not a lock's, however old: left alone.)
+  writeFileSync(beside('notes.txt'), 'kept')
+  utimesSync(beside('notes.txt'), long, long)
+  const served = await serve({ env: { LUMOVI_AUDIT_DIR: dir } })
+  expect(days(dir).filter((name) => !name.endsWith('.jsonl'))).toEqual([
+    'audit.lock.being-written',
+    'notes.txt',
+  ])
+  await served.stop()
+})
+
+test('a lock that stops being one while its Lumovi runs is said again, and the history kept', async ({
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const lock = join(dir, 'audit.lock')
+  const served = await serve({
+    env: { LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDIT_LOCK_STALE_MS: '1500' },
+  })
+  const its = JSON.parse(readFileSync(lock, 'utf8')) as { id: string }
+  // Written over by something that isn't Lumovi (a careless hand, a restore): nobody's hold is
+  // there, so it isn't taken for a takeover. Its holder says its own again as it next renews.
+  writeFileSync(lock, 'not a lock')
+  await expect
+    .poll(() => {
+      try {
+        return (JSON.parse(readFileSync(lock, 'utf8')) as { id?: string }).id
+      } catch {
+        return undefined
+      }
+    })
+    .toBe(its.id)
+  expect(served.log()).not.toContain('The audit history can’t be')
+  await served.stop()
+})
+
+test('a history whose folder is gone for longer than a hold is in doubt, and back empty: kept again', async ({
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const lock = join(dir, 'audit.lock')
+  const served = await serve({
+    env: {
+      LUMOVI_AUDIT_DIR: dir,
+      LUMOVI_AUDIT_LOCK_STALE_MS: '1500',
+      LUMOVI_AUDIT_WATCH_MS: '300',
+    },
+  })
+  rmSync(dir, { recursive: true })
+  await expect.poll(() => served.log()).toContain('The audit history can’t be looked after: ENOENT')
+  // Longer than the quickest takeover takes: another could have had it. But nothing is there
+  // that another wrote (nothing is there at all), so it's this one's again.
+  await new Promise((done) => setTimeout(done, 1300))
+  mkdirSync(dir)
+  await expect.poll(() => existsSync(lock)).toBe(true)
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
+  expect(served.log()).not.toContain('took this audit history over')
+  await served.stop()
+})
+
+test('a Lumovi held up for less than its hold lasts renews late and goes on; held up while another wrote, it doesn’t', async ({
+  clusters,
+}) => {
+  test.skip(process.platform === 'win32', 'needs SIGSTOP')
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const lock = join(dir, 'audit.lock')
+  // (A hold of three seconds: renewed every one, in doubt after two.)
+  const env = {
+    LUMOVI_AUDIT_DIR: dir,
+    LUMOVI_AUDIT_LOCK_STALE_MS: '3000',
+    LUMOVI_AUDIT_WATCH_MS: '300',
+  }
+  const held = () => JSON.parse(readFileSync(lock, 'utf8')) as { id: string; at: number }
+  const served = await startServer(clusters, { env })
+  try {
+    const its = held()
+    // Held up for longer than two renewals, and nobody the wiser: its lock is still its own,
+    // the history as it left it. It says its hold again, late, and goes on.
+    served.process.kill('SIGSTOP')
+    await new Promise((done) => setTimeout(done, 2300))
+    const before = held().at
+    served.process.kill('SIGCONT')
+    await expect.poll(() => held().at).toBeGreaterThan(before)
+    expect(held().id).toBe(its.id)
+    expect(served.log()).not.toContain('took this audit history over')
+
+    // Held up again: and this time another took the history and wrote to it, and this one's
+    // own late renewal then went over the other's lock. The lock reads as its own; the history
+    // doesn't end where it left it.
+    served.process.kill('SIGSTOP')
+    await new Promise((done) => setTimeout(done, 2300))
+    const [last] = eventsIn(dayFile(dir)).slice(-1)
+    const others = { ...last!, id: 'another-lumovis', seq: last!.seq + 1, prev: last!.hash }
+    appendFileSync(dayFile(dir), `${JSON.stringify({ ...others, hash: hashOf(others) })}\n`)
+    const written = readFileSync(dayFile(dir), 'utf8')
+    served.process.kill('SIGCONT')
+    await expect
+      .poll(() => served.log())
+      .toContain(
+        'The audit history can’t be looked after: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
+      )
+    await new Promise((done) => setTimeout(done, 1500))
+    expect(readFileSync(dayFile(dir), 'utf8')).toBe(written)
+  } finally {
+    served.process.kill('SIGCONT')
+    await served.stop()
+  }
+})
 
 test('a history whose folder goes while Lumovi runs: said once, and again if it goes again', async ({
   serve,
