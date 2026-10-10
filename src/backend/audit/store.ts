@@ -377,21 +377,25 @@ class HistoryLock {
     const path = join(dir, 'audit.lock')
     const id = randomUUID()
     sweep(dir)
-    // Long enough for one that stopped renewing it to be stale; not for one that renews it.
-    const until = Date.now() + (wait ? LOCK_STALE_MS + LOCK_RENEW_MS : 0)
+    // How long it waits: long enough for one that stopped renewing it to be seen stale, not for
+    // one that renews it. Counted from when the lock is first seen (reading it takes a moment,
+    // on a slow volume more), with a second to spare for the looking itself.
+    let until = wait ? Infinity : 0
     let told = false
     // The lock as it was last seen to change, by this one's own clock: one that waits tells a
     // lock nobody renews by watching it, not by its holder's clock (or a file server's), which
     // may be half a minute off this one's.
     let seen: { text: string; since: number } | undefined
     while (!place(path, id)) {
-      const found = await settled(path)
+      // (One that can't be read is given its moment to be whole once, not at every look.)
+      const found = await settled(path, seen ? 0 : READ_AGAIN.times)
       // Let go of meanwhile: taken on the next turn, if nobody is quicker.
       if (!found) {
         seen = undefined
         continue
       }
       if (seen?.text !== found.text) seen = { text: found.text, since: Date.now() }
+      if (until === Infinity) until = Date.now() + LOCK_STALE_MS + LOCK_RENEW_MS + 1000
       const holder = holderOf(found, wait ? Date.now() - seen.since : undefined)
       if (!holder) {
         discard(path, id, found)
@@ -613,8 +617,8 @@ function read(path: string): Found {
  * What's in a lock's place, given a moment to be whole: one that can't be read (being written,
  * on a volume without links; or not to be looked at just now) is read again a few times first.
  */
-async function settled(path: string): Promise<Found> {
-  for (let again = READ_AGAIN.times; ; again--) {
+async function settled(path: string, times: number): Promise<Found> {
+  for (let again = times; ; again--) {
     try {
       const found = read(path)
       if (!found || 'hold' in found || again === 0) return found
