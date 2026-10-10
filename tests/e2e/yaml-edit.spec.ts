@@ -9,6 +9,7 @@ import {
   linesAt,
   pathText,
   removeAt as tryRemove,
+  renameAt,
   setAt as trySet,
   type Path,
 } from '../../src/renderer/src/lib/yaml-edit.ts'
@@ -291,6 +292,65 @@ test('a block that isn’t written the plain way is written again, and nothing o
   // A plain value that runs over two lines, too.
   const folded = 'a:\n  b: one\n    two\n  c: 3\n'
   expect(parse(setAt(folded, ['a', 'b'], 'x'))).toEqual({ a: { b: 'x', c: 3 } })
+})
+
+test('a key is renamed where it is, and its value isn’t touched', () => {
+  const text = `data:
+  LOG_LEVEL: info # how loud
+  other: { a: 1, b: 2 }
+  block: |
+    one
+`
+  expect(renameAt(text, ['data', 'LOG_LEVEL'], 'LEVEL')).toBe(text.replace('LOG_LEVEL', 'LEVEL'))
+  // A name an older YAML would read as something else is quoted, as a value is.
+  expect(renameAt(text, ['data', 'LOG_LEVEL'], 'no')).toBe(text.replace('LOG_LEVEL', '"no"'))
+  expect(renameAt(text, ['data', 'other', 'a'], 'z')).toBe(text.replace('{ a:', '{ z:'))
+  expect(renameAt(text, ['data', 'block'], 'key: with a colon')).toBe(
+    text.replace('block:', '"key: with a colon":'),
+  )
+  expect(renameAt(text, ['data', 'LOG_LEVEL'], 'LOG_LEVEL')).toBe(text)
+  // A map has each key once; and there's no renaming what isn't there, or isn't a key.
+  expect(renameAt(text, ['data', 'LOG_LEVEL'], 'other')).toBeNull()
+  expect(renameAt(text, ['data', 'missing'], 'x')).toBeNull()
+  expect(renameAt('list:\n  - a\n', ['list', 0], 'x')).toBeNull()
+  expect(renameAt('data: [unclosed', ['data'], 'x')).toBeNull()
+})
+
+test('a value’s own comment stays with it, however many lines the value comes to take', () => {
+  const text = `data:
+  LOG_LEVEL: info # how loud
+  block: | # as written
+    one
+    two
+  last: x
+`
+  // One line to several: the comment goes after the block's mark, the only place it can.
+  const several = setAt(text, ['data', 'LOG_LEVEL'], 'info\ndebug\n')
+  expect(several).toBe(
+    text.replace('LOG_LEVEL: info # how loud', 'LOG_LEVEL: | # how loud\n    info\n    debug'),
+  )
+  // And back.
+  expect(setAt(several, ['data', 'LOG_LEVEL'], 'info')).toBe(text)
+  expect(setAt(text, ['data', 'block'], 'single')).toBe(
+    text.replace('block: | # as written\n    one\n    two', 'block: single # as written'),
+  )
+  expect(setAt(text, ['data', 'block'], 'three\nfour\n')).toBe(
+    text.replace('    one\n    two', '    three\n    four'),
+  )
+})
+
+test('a key the order puts first goes before the first, on a line of its own', () => {
+  const text = 'spec:\n  accessModes:\n    - ReadWriteOnce\n  resources: {}\n'
+  expect(
+    setAt(text, ['spec', 'storageClassName'], 'fast', ['storageClassName', 'accessModes']),
+  ).toBe('spec:\n  storageClassName: fast\n  accessModes:\n    - ReadWriteOnce\n  resources: {}\n')
+  // (Not where the first key shares its line with a list's dash: it goes after, then.)
+  const item = 'ports:\n  - port: 80\n    protocol: TCP\n'
+  expect(at(setAt(item, ['ports', 0, 'name'], 'http', ['name', 'port']), ['ports', 0])).toEqual({
+    port: 80,
+    protocol: 'TCP',
+    name: 'http',
+  })
 })
 
 test('what’s an alias, anchored, or merged in isn’t one value in one place', () => {

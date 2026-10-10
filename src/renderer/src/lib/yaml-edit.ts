@@ -8,7 +8,8 @@
  * - a key or a list's item that isn't there is written on lines of its own, among the lines
  *   of the block it joins, and no line that was there changes;
  * - one that's removed takes its own lines with it (and the key above, if that leaves it
- *   with nothing).
+ *   with nothing);
+ * - a key that's renamed has its own characters replaced, and its value isn't touched.
  *
  * Where a block isn't written the plain way (`{ a: 1 }` on one line, a value over several
  * lines), the block the edit is in is written again by `yaml`, which keeps its comments and
@@ -35,6 +36,7 @@ import {
   visit,
   type Node,
   type Pair,
+  type Scalar,
   type YAMLMap,
   type YAMLSeq,
 } from 'yaml'
@@ -428,7 +430,15 @@ function setting(
       if (place < 0 || (after < 0 && !keys.some((name) => order.indexOf(name) > place))) {
         after = keys.length - 1
       }
-      // Before a map's first key means its first line, which a list's dash may share.
+      // Before a map's first key: on the line above it, where that key starts its own line
+      // (a list's dash may share it, and then it's left to below).
+      const head = (parent.items[0]!.key as Ranged).range[0]
+      const top = lineOf(starts, head)
+      if (after < 0 && /^\s*$/.test(text.slice(starts[top]!, head).replace(/^\ufeff/, ''))) {
+        const lines = indented(written({ [key]: within }), at)
+        const kept = checked(inserted(text, starts, starts[top]! - 1, lines), wanted)
+        if (kept !== undefined) return kept
+      }
       if (after >= 0) {
         const last = parent.items[after]!
         const end = last.value
@@ -456,11 +466,21 @@ function setting(
     const to = lineOf(starts, Math.max(span[0], span[1] - 1))
     const all = text.split('\n')
     const lead = all[from]!.slice(0, span[0] - starts[from]!)
-    // (A comment after what's there, on its last line, would go with it: that's left to below.)
+    // A comment that's the value's own is kept: after it on its last line, or, for one
+    // written as a block (`|`), after that mark on its first.
     const after = text.slice(span[1], starts[to + 1] ?? text.length)
-    if (/^\s*$/.test(lead) && !after.includes('#')) {
+    const first = node ? text.slice(node.range[0], starts[from + 1] ?? text.length) : ''
+    const comment = (/^[ \t]*(#[^\r\n]*)/.exec(after) ??
+      /^[|>][-+\d]*[ \t]+(#[^\r\n]*)/.exec(first))?.[1]
+    if (/^\s*$/.test(lead) && (comment !== undefined || !after.includes('#'))) {
       const ending = text.includes('\r\n') ? '\r' : ''
-      const lines = indented(written({ [name]: value }), lead.length).map((line) => line + ending)
+      const fresh = indented(written({ [name]: value }), lead.length)
+      if (comment !== undefined) {
+        // Where the new one is a block, that's after its mark too: its lines are all value.
+        const at = /:\s+[|>][-+\d]*$/.test(fresh[0]!) ? 0 : fresh.length - 1
+        fresh[at] += ` ${comment}`
+      }
+      const lines = fresh.map((line) => line + ending)
       if (ending && !all[to]!.endsWith('\r')) lines[lines.length - 1] = lines.at(-1)!.slice(0, -1)
       const kept = checked(
         [...all.slice(0, from), ...lines, ...all.slice(to + 1)].join('\n'),
@@ -520,4 +540,27 @@ function removing(text: string, path: Path, upTo: number): string | null {
     }
   }
   return rewritten(text, target.slice(0, -1), (d) => void d.deleteIn(target))
+}
+
+/**
+ * Renames the key at `path` to `name`, where it is: its value, and what's around it, stay as
+ * they were. `null` if it can't be (there's no such key, or one called `name` is there too).
+ */
+export function renameAt(text: string, path: Path, name: string): string | null {
+  return orNot(() => {
+    const doc = parsed(text)
+    const pair = pairAt(doc, path)
+    const old = path.at(-1)
+    if (doc.errors.length > 0 || !pair || typeof old !== 'string') return null
+    if (name === old) return text
+    // A map has each key once.
+    if (pairAt(doc, [...path.slice(0, -1), name])) return null
+    const key = pair.key as Ranged
+    const said = inline(name)
+    if (said === undefined) return null
+    const wanted = meaning(text, (d) => {
+      ;(pairAt(d, path)!.key as Scalar).value = name
+    })
+    return checked(text.slice(0, key.range[0]) + said + text.slice(endOf(key)), wanted) ?? null
+  })
 }
