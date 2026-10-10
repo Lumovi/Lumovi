@@ -37,8 +37,11 @@ All notable changes to Lumovi are documented here. The format follows
   waited for like any other, and a server that finds another has taken its history over stops
   writing to it and says so, on its output and on the Audit page. A lock nobody renews is told
   by watching it, not by comparing two computers' clocks, and two containers that share a
-  hostname no longer take each other's. Checking a history that two servers did write now names
-  that as a possible cause.
+  hostname no longer take each other's. A server that can't read or renew its lock for as long as
+  one holds (30 seconds) stops writing the history until it can again, as another may have taken
+  it over meanwhile. A server started again after a crash waits up to 20 seconds on its own old
+  lock before it serves. Checking a history that two servers did write now names that as a
+  possible cause.
 - The Metrics page no longer fails on a Prometheus that keeps each node's own network series, which
   name no pod: choosing Network in or Network out could replace the page with an error. Network
   usage now counts only pods' traffic, on the page and in a node's charts, and a series that doesn't

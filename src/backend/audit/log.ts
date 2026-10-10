@@ -261,10 +261,12 @@ export class AuditLog {
     this.#head = { seq: event.seq, hash: event.hash, chain: event.chain }
     try {
       this.#store.append(event)
+      // Kept again (its folder back, its lock in reach): the problem is over, and a next one said.
+      this.#storeProblem = undefined
     } catch (error) {
       const { message } = error as Error
       this.#storeLosses.set(message, (this.#storeLosses.get(message) ?? 0) + 1)
-      if (!this.#storeProblem) this.#warn(`The audit history can’t be kept: ${message}`)
+      if (message !== this.#storeProblem) this.#warn(`The audit history can’t be kept: ${message}`)
       this.#storeProblem = message
     }
     for (const sink of this.#sinks) sink.send(event)
