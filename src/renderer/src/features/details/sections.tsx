@@ -1,7 +1,7 @@
 import { useLayout } from '@renderer/lib/layout'
 import { Check, CircleHelp, Eye, EyeOff, Lock, TriangleAlert } from 'lucide-react'
 import { Tail } from '@renderer/components/Tail'
-import { useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { ContainerUsage, KubeObject } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
@@ -267,12 +267,16 @@ export function IngressRules({ ingress }: { ingress: KubeObject }) {
   return <SimpleTable headers={['Host', 'Path', 'Backend']} rows={rows} />
 }
 
+/** Between a card's facts, in px (its `gap-3`). */
+const FACTS_GAP = 12
+
 export function SimpleTable({
   label,
   headers,
   rows,
   fits = false,
   widths,
+  named = true,
 }: {
   /** What the table is, said to whoever can't see it. */
   label?: string
@@ -282,31 +286,61 @@ export function SimpleTable({
   fits?: boolean
   /** Each column's share of the width, where they aren't alike: `['44%', '36%', '20%']`. */
   widths?: string[]
+  /** Whether a row's first cell is what it's called. A role's rule has no name: it isn't. */
+  named?: boolean
 }) {
   const phone = useLayout() === 'phone'
+  // A card's facts stand side by side only where every value of every card fits its third on
+  // one line: a name isn't broken while there's room on a line of its own.
+  const cards = useRef<HTMLUListElement>(null)
+  useLayoutEffect(() => {
+    const list = cards.current
+    if (!list || !fits) return
+    const values = [...list.querySelectorAll<HTMLElement>('[data-value]')]
+    list.dataset.apart = String(
+      values.some((value) => {
+        const third = (value.closest('dl')!.clientWidth - 2 * FACTS_GAP) / 3
+        // (As wide as it would be on one line, for as long as it takes to read that.)
+        value.style.width = 'max-content'
+        const wide = value.getBoundingClientRect().width
+        value.style.width = ''
+        return wide > third
+      }),
+    )
+  })
   // On a phone a table is cards, one a row: what names the row, then its other columns side by
   // side, each under its heading.
   if (phone) {
     return (
       <ul
+        ref={cards}
         aria-label={label}
-        className="divide-y divide-line overflow-hidden rounded-xl border border-line"
+        className="group/cards divide-y divide-line overflow-hidden rounded-xl border border-line"
       >
         {rows.map((row, i) => (
           // A card with a link in it has a finger's reach around the link, in its own padding;
           // and a link under the first line has a line to itself, a finger's height from it.
           <li key={i} className="group px-3.5 py-2.5 has-[button]:py-3.5">
-            <p className="font-mono text-xs font-medium wrap-anywhere text-ink-1 selectable">
-              <span className="sr-only">{headers[0]}: </span>
-              {row[0]}
-            </p>
-            <dl className="mt-2 grid grid-cols-3 gap-3 text-xs group-has-[button]:mt-2.5">
-              {row.slice(1).map((cell, j) => (
-                <div key={j} className="min-w-0 has-[button]:col-span-full">
-                  <dt className="text-ink-3">{headers[j + 1]}</dt>
-                  <dd className="mt-0.5 font-mono wrap-anywhere text-ink-1 selectable">{cell}</dd>
-                </div>
-              ))}
+            {named && (
+              <p className="mb-2 font-mono text-xs font-medium wrap-anywhere text-ink-1 selectable group-has-[button]:mb-2.5">
+                <span className="sr-only">{headers[0]}: </span>
+                {row[0]}
+              </p>
+            )}
+            <dl className="grid grid-cols-3 gap-3 text-xs group-data-[apart=true]/cards:grid-cols-1">
+              {row.map(
+                (cell, j) =>
+                  (j > 0 || !named) && (
+                    <div key={j} className="min-w-0 has-[button]:col-span-full">
+                      <dt className="text-ink-3">{headers[j]}</dt>
+                      <dd className="mt-0.5 font-mono wrap-anywhere text-ink-1 selectable">
+                        <span data-value className="block">
+                          {cell}
+                        </span>
+                      </dd>
+                    </div>
+                  ),
+              )}
             </dl>
           </li>
         ))}
@@ -341,11 +375,12 @@ export function SimpleTable({
         </thead>
         <tbody className="divide-y divide-line">
           {rows.map((row, i) => (
-            <tr key={i}>
+            // (Under a finger, a row with a link is a finger's height: the next row's is its own.)
+            <tr key={i} className="group">
               {row.map((cell, j) => (
                 <td
                   key={j}
-                  className="px-3 py-2 font-mono text-xs wrap-anywhere text-ink-1 selectable"
+                  className="px-3 py-2 font-mono text-xs wrap-anywhere text-ink-1 selectable touch:group-has-[button]:py-3.5"
                 >
                   {cell}
                 </td>

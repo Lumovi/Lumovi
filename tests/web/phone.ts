@@ -85,9 +85,13 @@ function missed(page: Page): Promise<string[]> {
   return page.evaluate((least) => {
     const pressed =
       'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="option"], [role="menuitem"], [role="switch"], [role="checkbox"], [role="radio"], summary'
-    const reach = least / 2 - 1
     const found: string[] = []
     for (const element of document.querySelectorAll<HTMLElement>(pressed)) {
+      // Running text is design's exception: where a sentence names more than one object, each
+      // link answers on its own line of text, 24 px. Only there: a link marked as in a sentence
+      // that stands alone in its paragraph is asked for a finger's size like anything else.
+      const among = element.closest('p')?.querySelectorAll('[data-in-text]').length ?? 0
+      const reach = (element.matches('[data-in-text]') && among > 1 ? 24 : least) / 2 - 1
       const box = element.getBoundingClientRect()
       const style = getComputedStyle(element)
       const x = box.left + box.width / 2
