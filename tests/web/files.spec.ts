@@ -4,10 +4,12 @@
  * container sends (and what ends the copy), who may copy, and what's recorded.
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { get } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserContext, Page } from '@playwright/test'
 import { extract, type Header } from 'tar-stream'
+import WebSocket from 'ws'
 import { PageFiles, Transfers } from '../../src/server/file-transfers.ts'
 import type { Crafted } from '../mock-cluster/files.ts'
 import { audited, DEMO, DEMO_TOKEN, expect, signIn, test, type Served } from './fixtures.ts'
@@ -878,7 +880,28 @@ test('a container without tar says so, and what reaches its files instead', asyn
     .poll(() => ended(served, 'files.download'))
     .toMatchObject([{ outcome: 'failure', error: expect.stringContaining('app has no tar') }])
 
-  // A Windows container has none either: said before anything is tried.
+  // The same of a file put in: said in place of tar's own failure.
+  await action(page, 'Upload files…')
+  const choosing = page.waitForEvent('filechooser')
+  await dialog(page).getByRole('button', { name: 'Choose a file…' }).click()
+  await (
+    await choosing
+  ).setFiles({
+    name: 'report.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('id,total\n1,20\n'),
+  })
+  await expect(dialog(page).locator('[data-picked]')).toHaveText('report.csv · 14 bytes')
+  await dialog(page).getByRole('button', { name: 'Upload' }).click()
+  await expect(dialog(page).getByRole('alert')).toContainText(
+    'app has no tar, which copying files needs, as kubectl cp does.',
+  )
+  await expect(dialog(page).getByRole('alert')).toContainText(
+    `kubectl debug -it ${POD} --image=busybox --target=app -n shop --context demo`,
+  )
+  await page.keyboard.press('Escape')
+
+  // A Windows container has none either: said before anything is tried, either way.
   pod.spec.os = { name: 'windows' }
   clusters.demo.upsert(pod)
   await page.reload()
@@ -887,6 +910,61 @@ test('a container without tar says so, and what reaches its files instead', asyn
     'Copying files isn’t supported for Windows containers: it runs tar in the container, and they have none.',
   )
   await expect(dialog(page).getByRole('button', { name: 'Upload' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await action(page, 'Download files…')
+  await expect(dialog(page)).toContainText(
+    'Copying files isn’t supported for Windows containers: it runs tar in the container, and they have none.',
+  )
+  await expect(dialog(page).getByRole('button', { name: 'Download' })).toBeDisabled()
+})
+
+test('the container’s root is a path like another; an upload that’s stopped says what may be there', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  await signIn(page, podPage(served), DEMO_TOKEN)
+  // The root has no name of its own: what's downloaded takes the container's.
+  await action(page, 'Download files…')
+  await dialog(page).getByLabel('File or folder in the container').fill('/')
+  await expect(dialog(page)).toContainText(`kubectl cp shop/${POD}:/ app -c app --context demo`)
+  // (One that leads above where it starts is nowhere: shown as typed, and not run.)
+  await dialog(page).getByLabel('File or folder in the container').fill('../etc')
+  await expect(dialog(page)).toContainText(`kubectl cp shop/${POD}:../etc . -c app --context demo`)
+  await expect(dialog(page).getByRole('button', { name: 'Download' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  const all = page.waitForEvent('download')
+  expect((await download(page, '/')).end).toMatchObject({ outcome: 'done' })
+  expect((await all).suggestedFilename()).toBe('app.tar')
+  expect(ran(clusters).at(-1)).toEqual(['tar', 'cf', '-', '-C', '/', '--', './.'])
+
+  // Put in the root, a file is named from it; and stopped on its way, it may be there in part.
+  clusters.demo.files.interrupt('/', 'hold')
+  await action(page, 'Upload files…')
+  await dialog(page).getByLabel('Folder in the container').fill('/')
+  const choosing = page.waitForEvent('filechooser')
+  await dialog(page).getByRole('button', { name: 'Choose a file…' }).click()
+  await (
+    await choosing
+  ).setFiles({
+    name: 'report.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.alloc(200_000, 'x'),
+  })
+  await expect(dialog(page)).toContainText(
+    `kubectl cp report.csv shop/${POD}:/report.csv -c app --context demo`,
+  )
+  await dialog(page).getByLabel('Folder in the container').fill('../up')
+  await expect(dialog(page)).toContainText(`shop/${POD}:../up/report.csv`)
+  await expect(dialog(page).getByRole('button', { name: 'Upload' })).toBeDisabled()
+  await dialog(page).getByLabel('Folder in the container').fill('/')
+  await dialog(page).getByRole('button', { name: 'Upload' }).click()
+  await dialog(page).getByRole('button', { name: 'Stop' }).click()
+  await expect(dialog(page)).toContainText(
+    'The copy was stopped. What was sent before that may be in the container.',
+  )
+  await expect.poll(() => ended(served, 'files.upload')).toMatchObject([{ outcome: 'cancelled' }])
 })
 
 test('what a page says it will upload is held for the copy it’s for, and no longer', () => {
@@ -1075,4 +1153,169 @@ test('read-only, a download still reads; nothing is uploaded; and copying can be
     'forbidden: Copying files is turned off here. LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (off turns copying off).',
   )
   expect(await uploading(page)).toMatch(/^forbidden: Copying files is turned off here/)
+})
+
+// ——— What isn't Lumovi's page: a client of its own, on the page's connection ———
+
+/** Signs in as the page does, without one: the session's cookie. */
+async function sessionCookie(served: Served): Promise<string> {
+  const response = await fetch(`${served.url}api/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: new URL(served.url).origin },
+    body: JSON.stringify({ token: DEMO_TOKEN }),
+  })
+  expect(response.status).toBe(200)
+  return response.headers.get('set-cookie')!.split(';')[0]!
+}
+
+interface Answer {
+  type: string
+  id?: number
+  channel?: string
+  args?: unknown[]
+  value?: { ok: boolean; data?: { url?: string }; error?: { code: string; message: string } }
+}
+
+/** A page's connection, without a page: what it's asked, and everything that comes back. */
+async function client(served: Served, cookie: string) {
+  const ws = new WebSocket(`${served.url.replace('http', 'ws')}api/socket`, {
+    headers: { Cookie: cookie, Origin: new URL(served.url).origin },
+  })
+  const received: Answer[] = []
+  ws.on('message', (data) => received.push(JSON.parse(String(data)) as Answer))
+  await new Promise((resolve, reject) => {
+    ws.once('open', resolve)
+    ws.once('error', reject)
+  })
+  let asked = 0
+  return {
+    received,
+    close: () => ws.close(),
+    async call(channel: string, ...args: unknown[]) {
+      const id = (asked += 1)
+      ws.send(JSON.stringify({ type: 'invoke', id, channel, args }))
+      await expect.poll(() => received.find((message) => message.id === id)).toBeTruthy()
+      return received.find((message) => message.id === id)!.value!
+    },
+    /** How the copy `id` ended, once it has. */
+    async ended(id: string) {
+      const end = () =>
+        received.find((message) => message.channel === 'files:end' && message.args?.[0] === id)
+      await expect.poll(end).toBeTruthy()
+      return end()!.args![1] as Copied['end']
+    },
+  }
+}
+
+test('what a client says it will upload is taken as nothing but its word', async ({
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  const cookie = await sessionCookie(served)
+  const page = await client(served, cookie)
+  const to = { ...IN, path: '/tmp' }
+  const report = {
+    name: 'report.csv',
+    entries: [{ names: ['report.csv'], folder: false, size: 14 }],
+  }
+  const refusal = async (id: string, said: unknown) => {
+    const { ok, error } = await page.call('files:upload', id, to, said)
+    return ok ? 'taken' : `${error!.code}: ${error!.message}`
+  }
+  // No name of its own, or nothing in it; more than a copy carries; a file that isn't under
+  // the name it gave.
+  expect(await refusal('copy-0001', { name: '../report.csv', entries: [] })).toBe(
+    'invalid: What’s uploaded has a name, and at least one file or folder',
+  )
+  expect(
+    await refusal('copy-0002', { name: 'site', entries: Array<number>(100_001).fill(0) }),
+  ).toBe('invalid: That’s more than the 100000 files and folders one copy carries')
+  expect(
+    await refusal('copy-0003', {
+      name: 'site',
+      entries: [{ names: ['elsewhere', 'index.html'], folder: false, size: 1 }],
+    }),
+  ).toBe('invalid: Each file or folder uploaded has its names from the top, and its size')
+  // A copy's id is a new one, and an id.
+  expect(await refusal('x', report)).toBe('invalid: A new copy needs a new id')
+  expect(ran(clusters)).toEqual([])
+
+  // It says 14 bytes, and sends 5: they aren't put in, and the copy ends, saying so.
+  const begun = await page.call('files:upload', 'copy-0004', to, report)
+  expect(begun.ok).toBe(true)
+  const sent = await fetch(new URL(begun.data!.url!, served.url), {
+    method: 'POST',
+    headers: { Cookie: cookie, Origin: new URL(served.url).origin },
+    body: 'id,to',
+  })
+  expect(sent.status).toBe(400)
+  expect(await sent.json()).toEqual({ error: 'That isn’t the size of what was picked.' })
+  expect(await page.ended('copy-0004')).toMatchObject({
+    outcome: 'failed',
+    files: 0,
+    error: { code: 'invalid', message: 'What the page sent isn’t what it said it would.' },
+  })
+  // The id of a copy that's over is free again; one that's under way isn't.
+  clusters.demo.files.interrupt('/tmp', 'hold')
+  expect((await page.call('files:upload', 'copy-0005', to, report)).ok).toBe(true)
+  expect(await refusal('copy-0005', report)).toBe('invalid: A new copy needs a new id')
+  page.close()
+})
+
+test('a folder’s archive is sent no faster than whoever downloads it reads', async ({
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  const cookie = await sessionCookie(served)
+  const page = await client(served, cookie)
+  // Twelve megabytes, to a reader that takes none of it for a while.
+  const piece = Buffer.alloc(512 * 1024, 'x')
+  clusters.demo.files.craft('/bulk', {
+    entries: [
+      { name: './bulk/', type: 'directory' },
+      ...Array.from({ length: 24 }, (_, i) => ({ name: `./bulk/part-${i}`, content: piece })),
+    ],
+  })
+  const begun = await page.call('files:download', 'copy-0001', { ...IN, path: '/bulk' })
+  expect(begun.ok).toBe(true)
+  const got = await new Promise<{ status?: number; bytes: number }>((resolve, reject) => {
+    get(new URL(begun.data!.url!, served.url), { headers: { Cookie: cookie } }, (response) => {
+      let bytes = 0
+      response.pause()
+      response.on('data', (chunk: Buffer) => (bytes += chunk.length))
+      response.on('end', () => resolve({ status: response.statusCode, bytes }))
+      response.on('error', reject)
+      setTimeout(() => response.resume(), 1500)
+    }).on('error', reject)
+  })
+  // All of it came, once it was read: the files, and a header for each.
+  expect(got.status).toBe(200)
+  expect(got.bytes).toBeGreaterThan(24 * piece.length)
+  expect(await page.ended('copy-0001')).toMatchObject({
+    outcome: 'done',
+    files: 24,
+    bytes: 24 * piece.length,
+  })
+  page.close()
+})
+
+test('a file with nothing in it is uploaded, with nothing for the browser to send', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  await signIn(page, podPage(served), DEMO_TOKEN)
+  const sent: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST') sent.push(new URL(request.url()).pathname)
+  })
+  expect((await upload(page, '/tmp', 0)).end).toMatchObject({ outcome: 'done', files: 1, bytes: 0 })
+  expect(clusters.demo.files.unpacked().at(-1)).toMatchObject({
+    folder: '/tmp',
+    entries: [{ name: 'x.txt', type: 'file', size: 0, content: '' }],
+  })
+  expect(sent).toEqual([])
 })
