@@ -13,7 +13,14 @@ import { createReadStream } from 'node:fs'
 import { lstat, mkdir, open, readdir, rename, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { Writable } from 'node:stream'
-import type { Arriving, FilesHost, Saving, Sending, Sent } from '@backend/kube/files'
+import {
+  recordedAs,
+  type Arriving,
+  type FilesHost,
+  type Saving,
+  type Sending,
+  type Sent,
+} from '@backend/kube/files'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
 import { invalid } from '@backend/kube/validate'
 import {
@@ -47,7 +54,10 @@ function under(root: string, names: string[]): string {
   const target = resolve(root, ...names)
   const from = relative(root, target)
   if (from.startsWith('..') || isAbsolute(from)) {
-    throw new KubeRequestError('invalid', `${names.join('/')} would be outside ${root}`)
+    throw recordedAs(
+      new KubeRequestError('invalid', `${names.join('/')} would be outside ${root}`),
+      'A name in it would have led outside where it was being saved. Nothing of it was kept.',
+    )
   }
   return target
 }
@@ -64,9 +74,12 @@ async function created(path: string, mode: number, names: string[]): Promise<Wri
   const file = await open(path, 'wx', (mode & 0o777) | 0o600).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     // Two names that differ only in their letters' case, where this computer tells none apart.
-    throw new KubeRequestError(
-      'conflict',
-      `${names.join('/')} is in it twice, as this computer reads names. Nothing of it was kept.`,
+    throw recordedAs(
+      new KubeRequestError(
+        'conflict',
+        `${names.join('/')} is in it twice, as this computer reads names. Nothing of it was kept.`,
+      ),
+      'Two names in it are the same, as this computer reads names. Nothing of it was kept.',
     )
   })
   return file.createWriteStream()
@@ -89,9 +102,12 @@ function fileSaving(path: string): Saving {
 /** A folder, unpacked into a new one of its own and renamed into place once it's all there. */
 async function folderSaving(path: string): Promise<Saving> {
   if (await lstat(path).catch(() => undefined)) {
-    throw new KubeRequestError(
-      'conflict',
-      `${path} is there already, and a folder isn’t copied over one. Save it under a new name.`,
+    throw recordedAs(
+      new KubeRequestError(
+        'conflict',
+        `${path} is there already, and a folder isn’t copied over one. Save it under a new name.`,
+      ),
+      'A folder was there already where it was to be saved, and a folder isn’t copied over one.',
     )
   }
   const part = partial(path)
