@@ -19,8 +19,12 @@
  *
  * Every edit reads the text it's given, there and then: positions are never kept from one
  * text to the next. What's written new is quoted wherever an older YAML (1.1, which kubectl
- * reads) would take it for something else: `on`, `yes`, `no`, `~`. New lines end as the
- * text's own do.
+ * reads) would take it for something else: `on`, `yes`, `no`, `~`.
+ *
+ * The text's lines end plainly, with a line feed: it comes from the editor beside the form,
+ * which hands its document over so whatever was pasted into it (`CodeEditor`; a test pastes
+ * Windows' line endings in and reads what the editor holds). Nothing here writes or expects
+ * a carriage return, and whoever feeds it text from another door gives it plain line ends.
  *
  * A path that's an alias, carries an anchor, or comes through a merge key isn't one value in
  * one place, and isn't edited here: `elsewhere` says so, for whoever asks before editing.
@@ -213,7 +217,6 @@ function rewritten(text: string, block: Path, edit: (doc: Document) => void): st
   const whole = doc.toString(WRITING)
   const fresh = parsed(whole)
   const wanted = doc.toJS()
-  const ending = text.includes('\r\n') ? '\r' : ''
   const olds = lineStarts(text)
   const news = lineStarts(whole)
   const oldLines = text.split('\n')
@@ -231,7 +234,7 @@ function rewritten(text: string, block: Path, edit: (doc: Document) => void): st
     if (before.flow) {
       const again = whole.slice(after.range[0], endOf(after))
       const next = text.slice(0, before.range[0]) + again + text.slice(endOf(before))
-      const kept = checked(ending ? next.replace(/\r?\n/g, '\r\n') : next, wanted)
+      const kept = checked(next, wanted)
       if (kept !== undefined) return kept
       continue
     }
@@ -246,16 +249,11 @@ function rewritten(text: string, block: Path, edit: (doc: Document) => void): st
     const head = oldLines[oldFrom]!.slice(0, oldIndent)
     if (!LEADS.test(head) || !LEADS.test(newLines[0]!.slice(0, newIndent))) continue
     // Nothing but the block is on its lines (a comment after it stays where it was).
-    const tail = text.slice(endOf(before), olds[oldTo + 1] ?? text.length).replace(/\r?\n$/, '')
-    const shifted = newLines.map(
-      (line, i) =>
-        (line.trim() === ''
-          ? line
-          : (i === 0 ? head : ' '.repeat(oldIndent)) + line.slice(newIndent)) + ending,
+    const tail = text.slice(endOf(before), olds[oldTo + 1] ?? text.length).replace(/\n$/, '')
+    const shifted = newLines.map((line, i) =>
+      line.trim() === '' ? line : (i === 0 ? head : ' '.repeat(oldIndent)) + line.slice(newIndent),
     )
-    shifted[shifted.length - 1] = shifted.at(-1)!.replace(/\r$/, '') + tail.replace(/\r$/, '')
-    // The block's last line ends as the line it replaces did.
-    if (oldLines[oldTo]!.endsWith('\r')) shifted[shifted.length - 1] += '\r'
+    shifted[shifted.length - 1] = shifted.at(-1)! + tail
     const next = [...oldLines.slice(0, oldFrom), ...shifted, ...oldLines.slice(oldTo + 1)].join(
       '\n',
     )
@@ -287,17 +285,7 @@ function column(text: string, starts: number[], block: Ranged): number | undefin
 function inserted(text: string, starts: number[], after: number, lines: string[]): string {
   const all = text.split('\n')
   const at = after < 0 ? 0 : lineOf(starts, after) + 1
-  const ending = text.includes('\r\n') ? '\r' : ''
-  // The line it follows may be the text's last, with no ending of its own yet.
-  const before = all.slice(0, at)
-  if (ending && before.length > 0 && !before.at(-1)!.endsWith('\r')) {
-    before[before.length - 1] += ending
-  }
-  const added = lines.map((line, i) =>
-    // The last line added, at the very end of a text that ends without a newline, has none.
-    i === lines.length - 1 && at === all.length ? line : line + ending,
-  )
-  return [...before, ...added, ...all.slice(at)].join('\n')
+  return [...all.slice(0, at), ...lines, ...all.slice(at)].join('\n')
 }
 
 const indented = (block: string, by: number) =>
@@ -459,9 +447,11 @@ function setting(
     // (A comment after what's there, on its last line, would go with it: that's left to below.)
     const after = text.slice(span[1], starts[to + 1] ?? text.length)
     if (/^\s*$/.test(lead) && !after.includes('#')) {
-      const ending = text.includes('\r\n') ? '\r' : ''
-      const lines = indented(written({ [name]: value }), lead.length).map((line) => line + ending)
-      if (ending && !all[to]!.endsWith('\r')) lines[lines.length - 1] = lines.at(-1)!.slice(0, -1)
+      // (What's before its key is kept as it is: spaces, or the mark a file can start with,
+      // which is no column of its own.)
+      const indent = lead.replace(/^\ufeff/, '').length
+      const lines = indented(written({ [name]: value }), indent)
+      lines[0] = lead + lines[0]!.slice(indent)
       const kept = checked(
         [...all.slice(0, from), ...lines, ...all.slice(to + 1)].join('\n'),
         wanted,
