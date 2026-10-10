@@ -16,9 +16,10 @@ import { CopyButton } from '@renderer/components/CopyButton'
 import { useList } from '@renderer/hooks/queries'
 import { useProduction, useReadOnly } from '@renderer/hooks/settings'
 import { cn } from '@renderer/lib/cn'
+import { scheduleWords } from '@renderer/lib/cron-words'
 import {
-  CONTAINER_PATH,
-  FIELD_PATHS,
+  CONCURRENCY_POLICIES,
+  dig,
   FORM_KINDS,
   fieldLines,
   missing,
@@ -26,14 +27,19 @@ import {
   problems,
   read,
   refusals,
-  RESOURCE_PATHS,
+  resourcePaths,
+  RESTART_POLICIES,
+  shown,
+  storagePaths,
   unowned,
   workloadValues,
-  write,
+  writer,
   type FieldId,
+  type FormKind,
   type FormKindName,
   type Problem,
   type Resources,
+  type WorkloadValues,
 } from '@renderer/lib/create-form'
 import { linesAt, pathText, type Path } from '@renderer/lib/yaml-edit'
 import { useCluster } from '@renderer/state/cluster'
@@ -79,7 +85,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
   if (reading.fits && fitting !== text) setFitting(text)
   const last = useMemo(() => read(fitting, form), [fitting, form])
   const object = reading.fits ? reading.object : last.fits ? last.object : {}
-  const values = workloadValues(object)
+  const values = workloadValues(object, form)
   const namespace = values.namespace || start
   const { outcomes, setOutcomes, pending, create } = useCreating(namespace, onClose)
   const command = createCommand(context, namespace)
@@ -97,10 +103,13 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
     else change(next)
   }
 
-  const typed = reading.fits ? problems(values) : []
-  const empty = reading.fits ? missing(values) : []
+  const typed = reading.fits ? problems(values, form) : []
+  const empty = reading.fits ? missing(values, form) : []
   const refused = reading.fits
-    ? refusals(outcomes.flatMap((outcome) => (outcome.ok ? [] : (outcome.causes ?? []))))
+    ? refusals(
+        outcomes.flatMap((outcome) => (outcome.ok ? [] : (outcome.causes ?? []))),
+        form,
+      )
     : []
   const wrong: Problem[] = [...typed, ...refused]
   const extras = reading.fits ? unowned(reading.object, form) : []
@@ -118,6 +127,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
       ? fieldLines(
           text,
           reading.object,
+          form,
           focus.field,
           focus.field === 'name' ? undefined : focus.path,
         )
@@ -129,8 +139,8 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
           problem.path
             ? linesOf([problem.path])
             : problem.field === 'name'
-              ? nameLines(text, reading.object)
-              : fieldLines(text, reading.object, problem.field),
+              ? nameLines(text, reading.object, form)
+              : fieldLines(text, reading.object, form, problem.field),
         )
       : [],
     shaded: reading.fits
@@ -280,6 +290,9 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                       className={cn('flex min-w-0 flex-col gap-3.5', !reading.fits && 'opacity-45')}
                     >
                       <WorkloadFields
+                        // A kind's own: what was being added to one isn't the next one's.
+                        key={kind}
+                        form={form}
                         values={values}
                         wrong={wrong}
                         focus={focus}
@@ -386,6 +399,7 @@ function Labelled({
   optional,
   path,
   on,
+  stack = false,
   error,
   help,
   children,
@@ -394,6 +408,8 @@ function Labelled({
   optional?: boolean
   path: string
   on: boolean
+  /** Its path under its label, not beside it: for one too long to fit there. */
+  stack?: boolean
   error?: string
   help?: ReactNode
   children: (ids: { label: string; describedBy: string }) => ReactNode
@@ -401,7 +417,8 @@ function Labelled({
   const id = useId()
   return (
     <div className="min-w-0">
-      <div className="mb-1 flex items-baseline justify-between gap-2">
+      {/* A path too long to sit beside its label is under it, whole. */}
+      <div className={cn('mb-1', !stack && 'flex items-baseline justify-between gap-2')}>
         <span className="shrink-0 text-xs font-medium text-ink-2">
           <span id={`${id}-label`}>{label}</span>
           {optional && <small className="ml-1 text-2xs font-normal text-ink-3">optional</small>}
@@ -409,9 +426,10 @@ function Labelled({
         {/* The end of a long path is what tells it from the others: it's cut at its start. */}
         <span
           id={`${id}-path`}
-          dir="rtl"
+          dir={stack ? undefined : 'rtl'}
           className={cn(
-            'min-w-0 truncate text-right font-mono text-[10.5px] leading-4',
+            'min-w-0 font-mono text-[10.5px] leading-4',
+            stack ? 'block wrap-anywhere' : 'truncate text-right',
             on ? 'text-accent-strong' : 'text-ink-3',
           )}
         >
@@ -471,8 +489,77 @@ const RESOURCE_FIELDS: [keyof Resources, string, string][] = [
   ['memoryLimit', 'Memory limit', '256Mi'],
 ]
 
-/** What a workload asks: its name and where it goes, how many, and its one container. */
+type Focus = { field: FieldId; path: Path }
+
+/** A choice among a few, as the system's own select: its arrow is ours. */
+function Choice({
+  bad = false,
+  children,
+  ...props
+}: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'className'> & { bad?: boolean }) {
+  return (
+    <span className="relative block">
+      <select {...props} className={cn(input(bad), 'appearance-none pr-8')}>
+        {children}
+      </select>
+      <ChevronsUpDown className="pointer-events-none absolute top-2 right-2.5 size-3.5 text-ink-3" />
+    </span>
+  )
+}
+
+/** A whole number, typed or stepped by its buttons and the arrow keys. */
+function Count({
+  value,
+  bad,
+  fewer,
+  more,
+  onChange,
+  ...props
+}: Omit<TextProps, 'onChange' | 'value'> & {
+  value: string
+  fewer: string
+  more: string
+  onChange: (typed: string) => void
+}) {
+  const count = /^\d+$/.test(value) ? Number(value) : undefined
+  return (
+    <div className="flex items-center gap-2">
+      <StepButton
+        label={fewer}
+        disabled={count === undefined || count <= 0}
+        onClick={() => onChange(String(count! - 1))}
+      >
+        <Minus className="size-4" />
+      </StepButton>
+      <Text
+        {...props}
+        aria-invalid={bad}
+        inputMode="numeric"
+        value={value}
+        bad={bad}
+        className="w-16 text-center font-semibold tabular-nums"
+        onChange={(typed) => onChange(typed.trim())}
+        onKeyDown={(event) => {
+          const step = { ArrowUp: 1, ArrowDown: -1 }[event.key]
+          if (!step || count === undefined || count + step < 0) return
+          event.preventDefault()
+          onChange(String(count + step))
+        }}
+      />
+      <StepButton
+        label={more}
+        disabled={count === undefined}
+        onClick={() => onChange(String(count! + 1))}
+      >
+        <Plus className="size-4" />
+      </StepButton>
+    </div>
+  )
+}
+
+/** What a workload asks: its name and where it goes, what's its kind's own, and its one container. */
 function WorkloadFields({
+  form,
   values,
   wrong,
   focus,
@@ -482,15 +569,18 @@ function WorkloadFields({
   edit,
   object,
 }: {
-  values: ReturnType<typeof workloadValues>
+  form: FormKind
+  values: WorkloadValues
   wrong: Problem[]
-  focus: { field: FieldId; path: Path } | undefined
-  onFocus: (focus: { field: FieldId; path: Path } | undefined) => void
+  focus: Focus | undefined
+  onFocus: (focus: Focus | undefined) => void
   allNamespaces: boolean
   start: string
   edit: (how: (text: string) => string | null) => void
   object: Record<string, unknown>
 }) {
+  const write = useMemo(() => writer(form), [form])
+  const has = (field: FieldId) => form.fields.includes(field)
   const namespaces = useList('Namespace', { namespace: null })
   const names = [
     ...new Set([
@@ -498,11 +588,18 @@ function WorkloadFields({
       ...(values.namespace ? [values.namespace] : []),
     ]),
   ].sort()
+  // The Services and the storage classes there are to choose from, where a kind asks.
+  const services = useList('Service', {
+    namespace: values.namespace || start,
+    enabled: has('serviceName'),
+  })
+  const classes = useList('StorageClass', { namespace: null, enabled: has('storage') })
   // Rows for variables that aren't in the YAML yet: one is, once it has a name.
   const [drafts, setDrafts] = useState(0)
   // The four amounts show once asked for, or as soon as the YAML sets one.
   const [amounts, setAmounts] = useState(false)
   const anyAmount = Object.values(values.resources).some((amount) => amount !== '')
+  const claimed = dig(object, form.paths.storage ?? []) !== undefined && has('storage')
 
   const said = (field: FieldId, path?: Path) =>
     wrong.find(
@@ -515,12 +612,66 @@ function WorkloadFields({
     )?.message
   const on = (field: FieldId) => focus?.field === field
   /** Says which field has the focus, and where it writes, for the YAML to light its lines. */
-  const focused = (field: FieldId, path: Path = FIELD_PATHS[field]) => ({
+  const focused = (field: FieldId, path: Path = form.paths[field]!) => ({
     onFocus: () => onFocus({ field, path }),
     onBlur: () => onFocus(undefined),
   })
-  const replicas = /^\d+$/.test(values.replicas) ? Number(values.replicas) : undefined
-  const containerPath = pathText(CONTAINER_PATH)
+  /** A path under the container's, as its fields name theirs: `.image`. */
+  const within = (field: FieldId) =>
+    pathText(form.paths[field]!).slice(pathText(form.container).length)
+  const schedule = values.schedule === '' ? undefined : scheduleWords(values.schedule)
+  const resources = resourcePaths(form)
+  const storage = storagePaths(form)
+  const gibibytes = /^(\d+)Gi$/.exec(values.storage.size)?.[1]
+  const defaultClass = (classes.data ?? []).find(
+    (item) => item.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true',
+  )?.metadata.name
+  const pick = (field: 'restartPolicy' | 'concurrencyPolicy', options: Record<string, string>) => (
+    <Labelled
+      label={field === 'restartPolicy' ? 'When a pod fails' : 'If the last run is still going'}
+      path={pathText(form.paths[field]!)}
+      on={on(field)}
+      stack={pathText(form.paths[field]!).length > 40}
+      error={said(field)}
+      help={
+        field === 'restartPolicy' ? (
+          values.restartPolicy === 'OnFailure' ? (
+            <>
+              <Code>OnFailure</Code>: the pod stays, and its container is started again.
+            </>
+          ) : (
+            <>
+              <Code>Never</Code>: the failed pod is kept, to read its logs.
+            </>
+          )
+        ) : undefined
+      }
+    >
+      {(ids) => (
+        <Choice
+          aria-labelledby={ids.label}
+          aria-describedby={ids.describedBy}
+          value={values[field]}
+          bad={said(field) !== undefined}
+          onChange={(event) => {
+            const chosen = event.target.value
+            edit((text) => write[field](text, chosen))
+          }}
+          {...focused(field)}
+        >
+          {/* What the YAML says, where it's none of these: shown, and said to be wrong. */}
+          {!(values[field] in options) && (
+            <option value={values[field]}>{values[field] || 'Choose…'}</option>
+          )}
+          {Object.entries(options).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Choice>
+      )}
+    </Labelled>
+  )
 
   return (
     <>
@@ -541,27 +692,24 @@ function WorkloadFields({
         </Labelled>
         <Labelled label="Namespace" path="metadata.namespace" on={on('namespace')}>
           {(ids) => (
-            <span className="relative block">
-              <select
-                aria-labelledby={ids.label}
-                aria-describedby={`${ids.describedBy} create-who-said`}
-                value={values.namespace}
-                onChange={(event) => {
-                  const chosen = event.target.value
-                  edit((text) => write.namespace(text, chosen))
-                }}
-                className={cn(input(said('namespace') !== undefined), 'appearance-none pr-8')}
-                {...focused('namespace')}
-              >
-                {values.namespace === '' && <option value="">Choose…</option>}
-                {names.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <ChevronsUpDown className="pointer-events-none absolute top-2 right-2.5 size-3.5 text-ink-3" />
-            </span>
+            <Choice
+              aria-labelledby={ids.label}
+              aria-describedby={`${ids.describedBy} create-who-said`}
+              value={values.namespace}
+              bad={said('namespace') !== undefined}
+              onChange={(event) => {
+                const chosen = event.target.value
+                edit((text) => write.namespace(text, chosen))
+              }}
+              {...focused('namespace')}
+            >
+              {values.namespace === '' && <option value="">Choose…</option>}
+              {names.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </Choice>
           )}
         </Labelled>
       </div>
@@ -575,60 +723,144 @@ function WorkloadFields({
       </div>
       {allNamespaces && values.namespace === start && (
         <p className="-mt-2 text-xs leading-[17px] text-ink-3">
-          No namespace is chosen in the header, so it starts at{' '}
-          <code className="font-mono text-[11px] text-ink-2">default</code>. Choose another here.
+          No namespace is chosen in the header, so it starts at <Code>default</Code>. Choose another
+          here.
         </p>
       )}
 
-      <Labelled label="Replicas" path="spec.replicas" on={on('replicas')} error={said('replicas')}>
-        {(ids) => (
-          <div className="flex items-center gap-2">
-            <StepButton
-              label="Fewer replicas"
-              disabled={replicas === undefined || replicas <= 0}
-              onClick={() => edit((text) => write.replicas(text, String(replicas! - 1)))}
+      {(has('replicas') || has('serviceName') || has('backoffLimit')) && (
+        <div className="grid grid-cols-2 gap-3">
+          {has('replicas') && (
+            <Labelled
+              label="Replicas"
+              path="spec.replicas"
+              on={on('replicas')}
+              error={said('replicas')}
             >
-              <Minus className="size-4" />
-            </StepButton>
+              {(ids) => (
+                <Count
+                  aria-labelledby={ids.label}
+                  aria-describedby={ids.describedBy}
+                  value={values.replicas}
+                  bad={said('replicas') !== undefined}
+                  fewer="Fewer replicas"
+                  more="More replicas"
+                  onChange={(typed) => edit((text) => write.replicas(text, typed))}
+                  {...focused('replicas')}
+                />
+              )}
+            </Labelled>
+          )}
+          {has('backoffLimit') && (
+            <Labelled
+              label="Retries"
+              path="spec.backoffLimit"
+              on={on('backoffLimit')}
+              error={said('backoffLimit')}
+            >
+              {(ids) => (
+                <Count
+                  aria-labelledby={ids.label}
+                  aria-describedby={ids.describedBy}
+                  value={values.backoffLimit}
+                  bad={said('backoffLimit') !== undefined}
+                  fewer="Fewer retries"
+                  more="More retries"
+                  onChange={(typed) => edit((text) => write.backoffLimit(text, typed))}
+                  {...focused('backoffLimit')}
+                />
+              )}
+            </Labelled>
+          )}
+          {has('serviceName') && (
+            <Labelled
+              label="Service"
+              path="spec.serviceName"
+              on={on('serviceName')}
+              error={said('serviceName')}
+            >
+              {(ids) => (
+                <Choice
+                  aria-labelledby={ids.label}
+                  aria-describedby={`${ids.describedBy} create-service-said`}
+                  value={values.serviceName}
+                  bad={said('serviceName') !== undefined}
+                  onChange={(event) => {
+                    const chosen = event.target.value
+                    edit((text) => write.serviceName(text, chosen))
+                  }}
+                  {...focused('serviceName')}
+                >
+                  {values.serviceName === '' && <option value="">Choose…</option>}
+                  {[
+                    ...new Set([
+                      ...(services.data ?? []).map((service) => service.metadata.name),
+                      ...(values.serviceName ? [values.serviceName] : []),
+                    ]),
+                  ]
+                    .sort()
+                    .map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                </Choice>
+              )}
+            </Labelled>
+          )}
+        </div>
+      )}
+      {has('serviceName') && (
+        <p id="create-service-said" className="-mt-2 text-xs leading-[17px] text-ink-3">
+          The headless Service that names its pods. It isn’t created here: make it first, as a
+          Service.
+        </p>
+      )}
+
+      {has('schedule') && (
+        <Labelled
+          label="Schedule"
+          path="spec.schedule"
+          on={on('schedule')}
+          error={said('schedule')}
+          help={
+            schedule?.ok
+              ? schedule.words
+                ? // (Its clock is the cluster's controller manager's, unless the YAML says whose.)
+                  `${schedule.words}, in ${shown(dig(object, ['spec', 'timeZone'])) || 'the cluster’s time zone (usually UTC)'}.`
+                : 'A valid schedule, though not one this can put into words. Check it against what you meant.'
+              : 'Five fields, as cron has them: minute, hour, day of the month, month, day of the week.'
+          }
+        >
+          {(ids) => (
             <Text
               aria-labelledby={ids.label}
               aria-describedby={ids.describedBy}
-              aria-invalid={said('replicas') !== undefined}
-              inputMode="numeric"
-              value={values.replicas}
-              bad={said('replicas') !== undefined}
-              className="w-16 text-center font-semibold tabular-nums"
-              onChange={(typed) => edit((text) => write.replicas(text, typed.trim()))}
-              onKeyDown={(event) => {
-                const step = { ArrowUp: 1, ArrowDown: -1 }[event.key]
-                if (!step || replicas === undefined || replicas + step < 0) return
-                event.preventDefault()
-                edit((text) => write.replicas(text, String(replicas + step)))
-              }}
-              {...focused('replicas')}
+              aria-invalid={said('schedule') !== undefined}
+              mono
+              value={values.schedule}
+              placeholder="30 2 * * *"
+              bad={said('schedule') !== undefined}
+              onChange={(typed) => edit((text) => write.schedule(text, typed))}
+              {...focused('schedule')}
             />
-            <StepButton
-              label="More replicas"
-              disabled={replicas === undefined}
-              onClick={() => edit((text) => write.replicas(text, String(replicas! + 1)))}
-            >
-              <Plus className="size-4" />
-            </StepButton>
-          </div>
-        )}
-      </Labelled>
+          )}
+        </Labelled>
+      )}
+      {has('concurrencyPolicy') && pick('concurrencyPolicy', CONCURRENCY_POLICIES)}
+      {has('restartPolicy') && pick('restartPolicy', RESTART_POLICIES)}
 
       <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-line pt-3.5 text-2xs leading-4 font-medium tracking-wider text-ink-3 uppercase">
-        <span id="create-container">Container</span>
+        <span>Container</span>
         <span
           dir="rtl"
           className="min-w-0 truncate font-mono text-[10.5px] font-normal tracking-normal normal-case"
         >
-          <bdi>{containerPath}</bdi>
+          <bdi>{pathText(form.container)}</bdi>
         </span>
       </div>
 
-      <Labelled label="Image" path=".image" on={on('image')} error={said('image')}>
+      <Labelled label="Image" path={within('image')} on={on('image')} error={said('image')}>
         {(ids) => (
           <Text
             aria-labelledby={ids.label}
@@ -644,36 +876,155 @@ function WorkloadFields({
         )}
       </Labelled>
 
-      <Labelled
-        label="Port"
-        optional
-        path=".ports[0].containerPort"
-        on={on('port')}
-        error={said('port')}
-      >
-        {(ids) => (
-          <Text
-            aria-labelledby={ids.label}
-            aria-describedby={ids.describedBy}
-            aria-invalid={said('port') !== undefined}
-            mono
-            inputMode="numeric"
-            value={values.port}
-            placeholder="80"
-            bad={said('port') !== undefined}
-            onChange={(port) => edit((text) => write.port(text, port.trim()))}
-            {...focused('port')}
-          />
-        )}
-      </Labelled>
+      {has('command') && (
+        <Labelled
+          label="Command"
+          optional
+          path={within('command')}
+          on={on('command')}
+          error={said('command')}
+          help={
+            <>
+              Run as <Code>sh -c</Code>. Empty runs the image’s own command.
+            </>
+          }
+        >
+          {(ids) => (
+            <Text
+              aria-labelledby={ids.label}
+              aria-describedby={ids.describedBy}
+              mono
+              value={values.command}
+              placeholder="echo hello"
+              onChange={(command) => edit((text) => write.command(text, command))}
+              {...focused('command')}
+            />
+          )}
+        </Labelled>
+      )}
 
-      <Labelled label="Environment" optional path=".env" on={on('env')} error={said('env')}>
+      {has('port') && (
+        <Labelled label="Port" optional path={within('port')} on={on('port')} error={said('port')}>
+          {(ids) => (
+            <Text
+              aria-labelledby={ids.label}
+              aria-describedby={ids.describedBy}
+              aria-invalid={said('port') !== undefined}
+              mono
+              inputMode="numeric"
+              value={values.port}
+              placeholder="80"
+              bad={said('port') !== undefined}
+              onChange={(port) => edit((text) => write.port(text, port.trim()))}
+              {...focused('port')}
+            />
+          )}
+        </Labelled>
+      )}
+
+      {has('storage') && (
+        <Labelled
+          label="Storage for each pod"
+          optional
+          path="spec.volumeClaimTemplates[0]"
+          on={on('storage')}
+          error={said('storage')}
+        >
+          {(ids) =>
+            claimed ? (
+              <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-x-3">
+                  <Text
+                    aria-label="Size"
+                    aria-describedby={ids.describedBy}
+                    mono
+                    // In gibibytes, as a number, where that's how it's written; any other
+                    // amount (500Mi) is shown, and typed, whole.
+                    unit={gibibytes === undefined && values.storage.size !== '' ? undefined : 'Gi'}
+                    value={gibibytes ?? values.storage.size}
+                    placeholder="20"
+                    bad={said('storage', storage.size) !== undefined}
+                    onChange={(typed) => {
+                      const size = typed.trim()
+                      edit((text) =>
+                        write.storage(text, 'size', /^\d+$/.test(size) ? `${size}Gi` : size),
+                      )
+                    }}
+                    {...focused('storage', storage.size)}
+                  />
+                  <Choice
+                    aria-label="Storage class"
+                    value={values.storage.storageClass}
+                    onChange={(event) => {
+                      const chosen = event.target.value
+                      edit((text) => write.storage(text, 'storageClass', chosen))
+                    }}
+                    {...focused('storage', storage.storageClass)}
+                  >
+                    {/* No class said is the cluster's default one, which is named if it has one. */}
+                    <option value="">
+                      {defaultClass ? `${defaultClass} (default)` : 'The cluster’s default'}
+                    </option>
+                    {[
+                      ...new Set([
+                        ...(classes.data ?? []).map((item) => item.metadata.name),
+                        ...(values.storage.storageClass ? [values.storage.storageClass] : []),
+                      ]),
+                    ]
+                      // (The default by its name is offered only where the YAML says it so.)
+                      .filter(
+                        (name) => name !== defaultClass || name === values.storage.storageClass,
+                      )
+                      .sort()
+                      .map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                  </Choice>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Text
+                    aria-label="Mounted at"
+                    mono
+                    unit="Mounted at"
+                    value={values.storage.mountPath}
+                    placeholder="/data"
+                    bad={said('storage', storage.mountPath) !== undefined}
+                    className="flex-1"
+                    onChange={(path) =>
+                      edit((text) => write.storage(text, 'mountPath', path.trim()))
+                    }
+                    {...focused('storage', storage.mountPath)}
+                  />
+                  <RemoveButton
+                    label="Remove the storage"
+                    onClick={() => edit((text) => write.removeStorage(text))}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AddButton onClick={() => edit((text) => write.addStorage(text))}>
+                Add storage
+              </AddButton>
+            )
+          }
+        </Labelled>
+      )}
+
+      <Labelled
+        label="Environment"
+        optional
+        path={within('env')}
+        on={on('env')}
+        error={said('env')}
+      >
         {(ids) => (
           <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
             {/* One list, so a new row that's named is the same row, and keeps the focus. */}
             {[
               ...values.env.map((variable, index) => {
-                const row: Path = [...FIELD_PATHS.env, index]
+                const row: Path = [...form.paths.env!, index]
                 const bad = wrong.some(
                   (problem) => problem.path && pathText(problem.path) === pathText(row),
                 )
@@ -733,7 +1084,7 @@ function WorkloadFields({
                     onChange={(name) => {
                       // Named, it's in the YAML, and a row like the others.
                       setDrafts(drafts - 1)
-                      edit((text) => write.addVariable(text, object, name, ''))
+                      edit((text) => write.addVariable(text, object, name))
                     }}
                   />
                   <span aria-hidden className="text-ink-3">
@@ -760,59 +1111,73 @@ function WorkloadFields({
         )}
       </Labelled>
 
-      <Labelled
-        label="Requests and limits"
-        optional
-        path=".resources"
-        on={on('resources')}
-        error={said('resources')}
-      >
-        {(ids) =>
-          amounts || anyAmount ? (
-            <div
-              role="group"
-              aria-labelledby={ids.label}
-              className="grid grid-cols-2 gap-x-3 gap-y-2"
-            >
-              {RESOURCE_FIELDS.map(([which, label, example]) => (
-                <Text
-                  key={which}
-                  aria-label={label}
-                  aria-describedby={ids.describedBy}
-                  mono
-                  unit={label}
-                  value={values.resources[which]}
-                  placeholder={example}
-                  bad={wrong.some(
-                    (problem) =>
-                      problem.field === 'resources' &&
-                      problem.path !== undefined &&
-                      pathText(RESOURCE_PATHS[which]).startsWith(pathText(problem.path)) &&
-                      // The cluster names the pair (the requests): the amounts in it are marked.
-                      (pathText(problem.path) !== pathText(FIELD_PATHS.resources) ||
-                        values.resources[which] !== ''),
-                  )}
-                  onChange={(amount) => edit((text) => write.resource(text, which, amount.trim()))}
-                  {...focused('resources', RESOURCE_PATHS[which])}
-                />
-              ))}
-            </div>
-          ) : (
-            <AddButton onClick={() => setAmounts(true)}>Set them</AddButton>
-          )
-        }
-      </Labelled>
+      {has('resources') && (
+        <Labelled
+          label="Requests and limits"
+          optional
+          path={within('resources')}
+          on={on('resources')}
+          error={said('resources')}
+        >
+          {(ids) =>
+            amounts || anyAmount ? (
+              <div
+                role="group"
+                aria-labelledby={ids.label}
+                className="grid grid-cols-2 gap-x-3 gap-y-2"
+              >
+                {RESOURCE_FIELDS.map(([which, label, example]) => (
+                  <Text
+                    key={which}
+                    aria-label={label}
+                    aria-describedby={ids.describedBy}
+                    mono
+                    unit={label}
+                    value={values.resources[which]}
+                    placeholder={example}
+                    bad={wrong.some(
+                      (problem) =>
+                        problem.field === 'resources' &&
+                        problem.path !== undefined &&
+                        pathText(resources[which]).startsWith(pathText(problem.path)) &&
+                        // The cluster names the pair (the requests): the amounts in it are marked.
+                        (pathText(problem.path) !== pathText(form.paths.resources!) ||
+                          values.resources[which] !== ''),
+                    )}
+                    onChange={(amount) =>
+                      edit((text) => write.resource(text, which, amount.trim()))
+                    }
+                    {...focused('resources', resources[which])}
+                  />
+                ))}
+              </div>
+            ) : (
+              <AddButton onClick={() => setAmounts(true)}>Set them</AddButton>
+            )
+          }
+        </Labelled>
+      )}
 
-      <p className="flex items-start gap-1.5 text-xs leading-[17px] text-ink-3">
-        <Link2 className="mt-0.5 size-3 shrink-0" />
-        <span>
-          Labelled{' '}
-          <code className="font-mono text-[11px] text-ink-2">app={values.name || '…'}</code>: its
-          selector and its pods’ labels follow the name.
-        </span>
-      </p>
+      {form.kind === 'DaemonSet' && (
+        <p className="-mt-1.5 text-xs leading-[17px] text-ink-3">
+          One pod on every node, so there’s no replica count.
+        </p>
+      )}
+      {form.follows.length > 1 && (
+        <p className="flex items-start gap-1.5 text-xs leading-[17px] text-ink-3">
+          <Link2 className="mt-0.5 size-3 shrink-0" />
+          <span>
+            Labelled <Code>app={values.name || '…'}</Code>: its selector and its pods’ labels follow
+            the name.
+          </span>
+        </p>
+      )}
     </>
   )
+}
+
+function Code({ children }: { children: ReactNode }) {
+  return <code className="font-mono text-[11px] text-ink-2">{children}</code>
 }
 
 function StepButton({

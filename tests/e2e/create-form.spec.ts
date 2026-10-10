@@ -11,7 +11,7 @@ import {
   refusals,
   unowned,
   workloadValues,
-  write,
+  writer,
 } from '../../src/renderer/src/lib/create-form.ts'
 import { pathText } from '../../src/renderer/src/lib/yaml-edit.ts'
 import { dialog, toasts, writes, yamlSide } from './action-helpers.ts'
@@ -696,22 +696,25 @@ status: {}
 })
 
 test('what’s wrong with what’s typed, and what the cluster’s causes are about', () => {
-  const values = workloadValues(fitted(WEB))
-  expect(problems(values)).toEqual([])
+  const values = workloadValues(fitted(WEB), DEPLOYMENT)
+  expect(problems(values, DEPLOYMENT)).toEqual([])
   expect(
-    problems({
-      ...values,
-      name: 'a'.repeat(64),
-      namespace: 'Shop',
-      replicas: '-1',
-      port: '0',
-      env: [
-        { name: 'A', value: '1' },
-        { name: 'A', value: '2' },
-        { name: '', value: 'x' },
-      ],
-      resources: { ...values.resources, cpuLimit: 'lots' },
-    }).map((problem) => `${problem.field}: ${problem.message}`),
+    problems(
+      {
+        ...values,
+        name: 'a'.repeat(64),
+        namespace: 'Shop',
+        replicas: '-1',
+        port: '0',
+        env: [
+          { name: 'A', value: '1' },
+          { name: 'A', value: '2' },
+          { name: '', value: 'x' },
+        ],
+        resources: { ...values.resources, cpuLimit: 'lots' },
+      },
+      DEPLOYMENT,
+    ).map((problem) => `${problem.field}: ${problem.message}`),
   ).toEqual([
     'name: At most 63 characters: the container and the app label take the same name.',
     'namespace: A namespace’s name: lowercase letters, digits and “-”.',
@@ -723,30 +726,33 @@ test('what’s wrong with what’s typed, and what the cluster’s causes are ab
   ])
   // The API names a field, or its parent; one the form has no field for is nobody's.
   expect(
-    refusals([
-      { field: 'spec.template.spec.containers[0].image', message: 'Required value' },
-      { field: 'spec.template.spec.containers[0].resources.requests', message: 'too much' },
-      { field: 'metadata.name', message: 'bad' },
-      { field: 'spec.template.spec.containers[0].env[1].name', message: 'odd' },
-      { field: 'spec.strategy.type', message: 'Unsupported value' },
-      { message: 'no field at all' },
-    ]).map((refusal) => `${refusal.field} ${pathText(refusal.path)}: ${refusal.message}`),
+    refusals(
+      [
+        { field: 'spec.template.spec.containers[0].image', message: 'Required value' },
+        { field: 'spec.template.spec.containers[0].resources.requests', message: 'too much' },
+        { field: 'metadata.name', message: 'bad' },
+        { field: 'spec.template.spec.containers[0].env[1].name', message: 'odd' },
+        { field: 'spec.strategy.type', message: 'Unsupported value' },
+        { message: 'no field at all' },
+      ],
+      DEPLOYMENT,
+    ).map((refusal) => `${refusal.field} ${pathText(refusal.path)}: ${refusal.message}`),
   ).toEqual([
     'image spec.template.spec.containers[0].image: The cluster refused it: Required value',
     'resources spec.template.spec.containers[0].resources.requests: The cluster refused it: too much',
     'name metadata.name: The cluster refused it: bad',
     'env spec.template.spec.containers[0].env[1].name: The cluster refused it: odd',
   ])
-  expect(refusals(undefined)).toEqual([])
+  expect(refusals(undefined, DEPLOYMENT)).toEqual([])
 })
 
 test('the name takes with it only what was the name', () => {
   const object = fitted(WEB)
-  const renamed = write.name(WEB, object, 'api')
+  const renamed = writer(DEPLOYMENT).name(WEB, object, 'api')
   expect(renamed).toBe(WEB.replaceAll(': web\n', ': api\n'))
   // A label of its own is left alone.
   const own = WEB.replace('      labels:\n        app: web', '      labels:\n        app: frontend')
-  expect(write.name(own, fitted(own), 'api')).toBe(
+  expect(writer(DEPLOYMENT).name(own, fitted(own), 'api')).toBe(
     own
       .replace('  name: web\n', '  name: api\n')
       .replace('      app: web\n', '      app: api\n')
