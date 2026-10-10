@@ -34,6 +34,7 @@ import {
 } from './crds.ts'
 import { jsonPatch, mergePatch, PatchError, strategicMergePatch } from './patch.ts'
 import { prometheusApi } from './prometheus.ts'
+import type { containerFiles } from './files.ts'
 import { streamingEndpoints } from './streams.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
@@ -130,6 +131,8 @@ export interface MockCluster {
   shells(): number
   /** How many port-forward streams are open. */
   tunnels(): number
+  /** The containers' files, as `tar` over exec reads and writes them (`kubectl cp`). */
+  files: Pick<ReturnType<typeof containerFiles>, 'craft' | 'put' | 'interrupt' | 'unpacked'>
   setMetricsAvailable(available: boolean): void
   /**
    * Makes the next `times` requests that carry a `continue` token fail with 410 Gone
@@ -1568,6 +1571,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     logFollowers: () => followers.size,
     shells: streams.shells,
     tunnels: streams.tunnels,
+    files: streams.files,
     setMetricsAvailable(available) {
       metricsAvailable = available
     },
@@ -1589,6 +1593,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       appended.clear()
       controllers.stop()
       streams.closeAll()
+      streams.files.reset()
       load()
     },
     close() {
