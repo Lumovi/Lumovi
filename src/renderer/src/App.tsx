@@ -65,7 +65,7 @@ const routes: RouteObject[] = [
         element: (
           <OnALargerScreen
             title="AI assistants"
-            to="connect an assistant or set what it may do. What one asks to change still comes to this phone to approve"
+            says="Set up an assistant in Lumovi on a larger screen. When one asks to connect, you can answer it here."
           >
             <AssistantsPage />
           </OnALargerScreen>

@@ -30,6 +30,34 @@ test.afterEach(() => {
   expect(refused, 'calls the page refused itself').toEqual([])
 })
 
+/** Starts noting when an Approve button is there, and whether it can be pressed. */
+const watchApprove = (page: Page) =>
+  page.evaluate(() => {
+    const seen: [number, boolean][] = []
+    ;(window as unknown as { approveSeen: typeof seen }).approveSeen = seen
+    const look = () => {
+      const button = [...document.querySelectorAll('button')].find((b) =>
+        /^Approve/.test(b.textContent ?? ''),
+      )
+      if (button) seen.push([performance.now(), button.disabled])
+    }
+    new MutationObserver(look).observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    })
+  })
+/** How long (ms) the Approve button last shown couldn't be pressed, from when it appeared. */
+const approveCameAlive = (page: Page) =>
+  page.evaluate(() => {
+    const { approveSeen } = window as unknown as { approveSeen: [number, boolean][] }
+    const alive = approveSeen.findLastIndex(([, disabled]) => !disabled)
+    let from = alive
+    while (from > 0 && approveSeen[from - 1]![1]) from--
+    return from === alive ? 0 : approveSeen[alive]![0] - approveSeen[from]![0]
+  })
+
 const menu = (page: Page) => page.getByRole('button', { name: 'Menu' })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Sidebar' })
 
@@ -414,6 +442,17 @@ test('an assistant’s change is approved from a sheet; put aside, it waits', as
     reason: 'Busy.',
   })
   const sheet = page.getByRole('dialog', { name: 'Scale Deployment cart to 3 replicas' })
+  // It comes as the pill: nothing opens under a finger by itself.
+  const arrived = page.getByRole('button', { name: /1 change from Claude Code waits for you/ })
+  await expect(arrived).toBeVisible()
+  await expect(sheet).toHaveCount(0)
+  await watchApprove(page)
+  await arrived.click()
+  // For a moment after it opens Approve can't be pressed (a tap meant for the pill answers
+  // nothing); Reject… can, which only leads to a second step.
+  await expect(sheet.getByRole('button', { name: /^Approve/ })).toBeEnabled()
+  expect(await approveCameAlive(page)).toBeGreaterThanOrEqual(550)
+  await expect(sheet.getByRole('button', { name: 'Reject…' })).toBeEnabled()
   await expectAPhonesPage(page, 'an approval', async () => {
     await expect(sheet).toContainText('Claude Code asks')
   })
@@ -433,7 +472,8 @@ test('an assistant’s change is approved from a sheet; put aside, it waits', as
   await expect(waiting).toBeVisible()
   await expectNoSidewaysScroll(page, 'the waiting pill')
   await waiting.click()
-  // Dragged down by its grabber, the same.
+  // Dragged down by its grabber, the same (once it has come to rest).
+  await expect(sheet.getByRole('button', { name: /^Approve/ })).toBeEnabled()
   const grabber = (await sheet.locator('[data-sheet-grabber]').boundingBox())!
   await page.mouse.move(grabber.x + grabber.width / 2, grabber.y + 6)
   await page.mouse.down()
@@ -446,6 +486,76 @@ test('an assistant’s change is approved from a sheet; put aside, it waits', as
   await sheet.getByRole('button', { name: /^Approve/ }).click()
   await expect(sheet).toHaveCount(0)
   await expect(waiting).toHaveCount(0)
+})
+
+test('of two changes waiting, a double tap approves one; a long name is cut, never what’s asked', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  // (A name may be 253 characters; this one is 103.)
+  const long =
+    'checkout-payments-reconciliation-worker-with-ledger-export-and-settlement-retries-eu-west-1-blue-canary'
+  const cart = clusters.demo.object('Deployment', 'shop', DEMO.deployments.cart)!
+  clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name: long, uid: undefined } })
+  const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1500' } })
+  await page.setViewportSize({ width: 1440, height: 920 })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  await page.setViewportSize(PHONE)
+  await page.goto(`${served.url}cluster/demo`)
+  for (const name of [DEMO.deployments.cart, long]) {
+    await call(client, 'scale', {
+      cluster: 'demo',
+      kind: 'deploy',
+      namespace: 'shop',
+      name,
+      replicas: 4,
+      reason: 'Busy.',
+    })
+  }
+  await page.getByRole('button', { name: /2 changes from Claude Code wait for you/ }).click()
+  // The one that has waited longest comes first. A title that fits is whole.
+  const first = page.getByRole('dialog', { name: 'Scale Deployment cart to 4 replicas' })
+  await expect(first.getByRole('heading').locator('[aria-hidden]')).toHaveText(
+    'Scale Deployment cart to 4 replicas',
+  )
+  // The next one's title: three lines at most, the name cut in its middle with its end kept,
+  // and what's asked whole. All of the name is in the body.
+  await first.getByRole('button', { name: 'Next change' }).click()
+  const second = page.getByRole('dialog', { name: `Scale Deployment ${long} to 4 replicas` })
+  // (The dialog is still called by all of it.)
+  const title = second.getByRole('heading').locator('[aria-hidden]')
+  await expect(title).toHaveText(/^Scale Deployment c.*…canary to 4 replicas$/)
+  const lines = await title.evaluate(
+    (node) => node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
+  )
+  expect(lines).toBeLessThanOrEqual(3.1)
+  await expect(second).toContainText(long)
+  await expectNoSidewaysScroll(page, 'a long name’s approval')
+  // Moved to another change, Approve can't be pressed for a moment again.
+  await watchApprove(page)
+  await second.getByRole('button', { name: 'Previous change' }).click()
+  await expect(first.getByRole('button', { name: /^Approve/ })).toBeEnabled()
+  expect(await approveCameAlive(page)).toBeGreaterThanOrEqual(550)
+  // Tapped twice, with a finger: the first answers this one; the second, where the next one's
+  // Approve is coming to be, answers nothing. That one still waits: in its sheet, or put aside
+  // (if the tap met the page behind the sheet as it came up).
+  const spot = (await first.getByRole('button', { name: /^Approve/ }).boundingBox())!
+  await page.touchscreen.tap(spot.x + spot.width / 2, spot.y + spot.height / 2)
+  await page.touchscreen.tap(spot.x + spot.width / 2, spot.y + spot.height / 2)
+  await expect(first).toHaveCount(0)
+  const aside = page.getByRole('button', { name: /1 change from Claude Code waits for you/ })
+  await expect(second.or(aside)).toBeVisible()
+  // (The note that the first was made goes from over the sheet's foot by itself: a finger
+  // doesn't hold it there, as a mouse resting on it would.)
+  await expect(page.getByText('As Claude Code asked, in demo.')).toHaveCount(0, {
+    timeout: 15_000,
+  })
+  await expect(second.or(aside)).toBeVisible()
+  if (await aside.isVisible()) await aside.click()
+  await second.getByRole('button', { name: /^Approve/ }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 test('a tablet keeps the table, with the drawer and a detail over the list', async ({
