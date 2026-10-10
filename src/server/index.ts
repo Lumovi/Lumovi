@@ -5,6 +5,7 @@
  */
 import { version } from '../../package.json'
 import { setUpNetwork } from '@backend/network'
+import { sized } from '@shared/files'
 import { startServer } from './app'
 import { HostedCluster, type Hosted } from './cluster'
 import { readConfig, RENDERER_DIR } from './config'
@@ -33,6 +34,11 @@ try {
         labels: config.clusterLabels,
       })
   const server = await startServer({ config, hosted, env: process.env, version })
+  log(
+    config.fileCopyMaxBytes > 0
+      ? `Files are copied to and from containers, ${sized(config.fileCopyMaxBytes)} a copy at most (LUMOVI_FILE_COPY_MAX_BYTES)`
+      : 'Copying files to and from containers is turned off (LUMOVI_FILE_COPY_MAX_BYTES)',
+  )
   log(
     `Lumovi ${version} shows ${hosted.describe()} at ${server.url}; people sign in with ${SIGN_IN[config.auth.mode]}`,
   )

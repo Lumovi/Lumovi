@@ -15,6 +15,8 @@ import type { AuthMode } from '@shared/server'
 import type { WebhookFormat } from '@backend/audit/sinks'
 import type { Keeping, SettingsKeeping } from './kept'
 import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
+import { fileCopyMaxBytes } from '@backend/kube/files'
+import { FILE_COPY_MAX_BYTES } from '@shared/files'
 import { MAX_SESSION_HOURS } from './sessions'
 
 export type AuthConfig =
@@ -134,6 +136,8 @@ export interface ServerConfig {
   nodeShell: { setting: NodeShellSetting; off: boolean }
   /** Whether Lumovi's admins may install its metrics stack where a cluster has no history. */
   metricsStack: boolean
+  /** The most one copy of files to or from a container carries, in bytes; 0: none is made. */
+  fileCopyMaxBytes: number
   /** Whether charts may come from addresses inside private networks. */
   allowPrivateCharts: boolean
   /** Files of certificate authorities to trust besides Node's and the system's (LUMOVI_CA_FILE). */
@@ -325,6 +329,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
     nodeShell: nodeShell(value),
     metricsStack: metricsStack(value('LUMOVI_METRICS_STACK')),
+    fileCopyMaxBytes: fileCopyLimit(value('LUMOVI_FILE_COPY_MAX_BYTES')),
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     caFiles: list(value('LUMOVI_CA_FILE')),
     viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
@@ -883,6 +888,15 @@ function nodeShell(value: (name: string) => string | undefined): ServerConfig['n
     throw new ConfigError(`LUMOVI_NODE_SHELL must be on or off, not "${switched}".`)
   }
   return { setting, off: switched === 'off' }
+}
+
+/** How much a copy of files carries: LUMOVI_FILE_COPY_MAX_BYTES, checked here so that one that isn't a limit stops the server from starting. */
+function fileCopyLimit(text: string | undefined): number {
+  try {
+    return fileCopyMaxBytes(text) ?? FILE_COPY_MAX_BYTES
+  } catch (error) {
+    throw new ConfigError((error as Error).message)
+  }
 }
 
 /** Lumovi's metrics stack: offered (to its admins) unless LUMOVI_METRICS_STACK is off. */

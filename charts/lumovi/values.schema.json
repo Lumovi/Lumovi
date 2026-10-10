@@ -612,6 +612,18 @@
         }
       }
     },
+    "fileCopy": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "nodeShell": {
       "type": "object",
       "properties": {

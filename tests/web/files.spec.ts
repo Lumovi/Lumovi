@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserContext, Page } from '@playwright/test'
 import { extract, type Header } from 'tar-stream'
+import { PageFiles, Transfers } from '../../src/server/file-transfers.ts'
 import type { Crafted } from '../mock-cluster/files.ts'
 import { audited, DEMO, DEMO_TOKEN, expect, signIn, test, type Served } from './fixtures.ts'
 
@@ -15,6 +16,12 @@ const POD = DEMO.pods.storefront[0]!
 const IN = { context: 'demo', namespace: 'shop', pod: POD, container: 'app' }
 const detail = (page: Page) => page.getByRole('complementary', { name: `Pod ${POD}` })
 const dialog = (page: Page) => page.getByRole('dialog')
+/** How copies ended (or why they never began), as the audit log has it; and that they began. */
+const ended = (served: Served, action?: string) =>
+  audited(served, action).filter((event) => event.details?.stage !== 'began')
+const began = (served: Served, action?: string) =>
+  audited(served, action).filter((event) => event.details?.stage === 'began')
+
 const podPage = (served: Served) => `${served.url}cluster/demo/pods?open=Pod/shop/${POD}`
 
 async function action(page: Page, name: string) {
@@ -136,8 +143,8 @@ test('a file and a folder are downloaded by the browser, and recorded', async ({
   await dialog(page).getByRole('button', { name: 'Done' }).click()
 
   // Both are in the audit log: who, where, which path, how much. Not what was in them.
-  await expect.poll(() => audited(served, 'files.download')).toHaveLength(2)
-  expect(audited(served, 'files.download')).toMatchObject([
+  await expect.poll(() => ended(served, 'files.download')).toHaveLength(2)
+  expect(ended(served, 'files.download')).toMatchObject([
     {
       category: 'access',
       outcome: 'success',
@@ -157,6 +164,22 @@ test('a file and a folder are downloaded by the browser, and recorded', async ({
       outcome: 'success',
       details: { path: '/etc/app/', bytes: 69, files: 4, leftOut: '1 link' },
     },
+  ])
+  // And that each began, before anything of it moved: one that never ends leaves that.
+  expect(began(served, 'files.download')).toMatchObject([
+    {
+      outcome: 'success',
+      summary: `Began to download /var/log/./app.log from Pod ${POD} (app)`,
+      command: `kubectl cp shop/${POD}:/var/log/app.log app.log -c app --context demo`,
+      details: { container: 'app', path: '/var/log/./app.log', direction: 'download' },
+    },
+    { summary: `Began to download /etc/app/ from Pod ${POD} (app)` },
+  ])
+  expect(audited(served, 'files.download').map((event) => event.details!.stage)).toEqual([
+    'began',
+    'ended',
+    'began',
+    'ended',
   ])
   expect(JSON.stringify(audited(served))).not.toContain('listening on')
 })
@@ -185,9 +208,9 @@ test('a path is only ever a path, whatever it looks like', async ({ page, serve,
   ])
   // Each is recorded: the three that ran, and those turned down for where they lead, as
   // refused, with the path as it was given but nothing in it that isn't printable.
-  await expect.poll(() => audited(served, 'files.download')).toHaveLength(6)
+  await expect.poll(() => ended(served, 'files.download')).toHaveLength(6)
   expect(
-    audited(served, 'files.download').map((event) => `${event.outcome} ${event.details!.path}`),
+    ended(served, 'files.download').map((event) => `${event.outcome} ${event.details!.path}`),
   ).toEqual([
     'failure --checkpoint-action=exec=sh',
     'failure -rf',
@@ -196,7 +219,7 @@ test('a path is only ever a path, whatever it looks like', async ({ page, serve,
     'refused a/../../b',
     'refused a\\u0000b',
   ])
-  expect(audited(served, 'files.download').at(-1)).toMatchObject({
+  expect(ended(served, 'files.download').at(-1)).toMatchObject({
     target: { kind: 'Pod', name: POD, namespace: 'shop' },
     summary: `Download a\\u0000b from Pod ${POD} (app)`,
     error:
@@ -323,7 +346,7 @@ test('what a container sends isn’t trusted: only what was asked for is kept', 
       note: 'It changed while it was read: what was there when the copy began is whole.',
     },
   })
-  const recorded = audited(served, 'files.download')
+  const recorded = ended(served, 'files.download')
   expect(recorded.at(-2)).toMatchObject({
     details: { leftOut: '2 links and 2 devices or pipes' },
   })
@@ -332,6 +355,78 @@ test('what a container sends isn’t trusted: only what was asked for is kept', 
     details: { note: expect.stringContaining('changed while it was read') },
   })
   expect(recorded.filter((event) => event.outcome === 'failure')).toHaveLength(CRAFTED.length)
+})
+
+test('the audit log has what happened, never what a container said or a file in a folder is called', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  await signIn(page, podPage(served), DEMO_TOKEN)
+  const { files } = clusters.demo
+  // tar says which file it couldn't read: said on the page, as text; not in the log.
+  files.craft('/loot', {
+    stderr:
+      'tar: ./loot/payroll-2026.xlsx: Cannot open: Permission denied\n\u001b[31mtar: Exiting\n',
+    exit: 2,
+  })
+  expect((await download(page, '/loot')).error).toMatchObject({
+    message:
+      'tar in app couldn’t read /loot: tar: ./loot/payroll-2026.xlsx: Cannot open: Permission denied \\u001b[31mtar: Exiting',
+  })
+  // An entry that isn't under what was asked for: named on the page, with nothing unprintable.
+  files.craft('/loot', {
+    entries: [
+      { name: './loot/', type: 'directory' },
+      { name: './elsewhere/keys\u0007.pem', content: 'x' },
+    ],
+  })
+  const unsafe = await download(page, '/loot')
+  expect((unsafe.error ?? unsafe.end?.error)?.message).toBe(
+    'The archive from app names “./elsewhere/keys\\u0007.pem”, which isn’t under /loot. Nothing of it was kept.',
+  )
+  await expect.poll(() => ended(served, 'files.download')).toHaveLength(2)
+  expect(ended(served, 'files.download').map((event) => event.error)).toEqual([
+    'tar in the container failed as it read (it ended with 2).',
+    'The archive from the container named something that isn’t under the path asked for. Nothing of it was kept.',
+  ])
+  expect(JSON.stringify(audited(served))).not.toMatch(/payroll|elsewhere|keys|\\u001b/)
+})
+
+test('a folder’s archive leaves out names that would lead elsewhere where it’s unpacked', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const served = await serve()
+  await signIn(page, podPage(served), DEMO_TOKEN)
+  clusters.demo.files.craft('/loot', {
+    entries: [
+      { name: './loot/', type: 'directory' },
+      { name: './loot/..\\..\\startup.bat', content: 'x' },
+      { name: './loot/C:\\Windows', content: 'x' },
+      { name: './loot/c:autoexec', content: 'x' },
+      { name: './loot/bell\u0007', content: 'x' },
+      { name: './loot/line\nbreak', content: 'x' },
+      { name: './loot/notes: a colon later is no drive', content: 'kept' },
+      { name: './loot/kept.txt', content: 'kept' },
+    ],
+  })
+  const archive = page.waitForEvent('download')
+  expect((await download(page, '/loot')).end).toMatchObject({
+    outcome: 'done',
+    files: 2,
+    leftOut: { links: 0, special: 0, unnamed: 5 },
+  })
+  expect((await entriesOf((await (await archive).path())!)).map((entry) => entry.name)).toEqual([
+    'loot/',
+    'loot/notes: a colon later is no drive',
+    'loot/kept.txt',
+  ])
+  expect(ended(served, 'files.download').at(-1)).toMatchObject({
+    details: { leftOut: expect.stringContaining('5') },
+  })
 })
 
 test('a copy has a size limit, can be stopped, and doesn’t wait for ever', async ({
@@ -349,7 +444,7 @@ test('a copy has a size limit, can be stopped, and doesn’t wait for ever', asy
       code: 'invalid',
       reason: 'too-large',
       message:
-        'That’s more than one copy carries here, which is 1 MiB. LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (0 turns copying off).',
+        'That’s more than one copy carries here, which is 1 MiB. LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (off turns copying off).',
     },
   })
   // A folder's files add up to it too.
@@ -393,7 +488,7 @@ test('a copy has a size limit, can be stopped, and doesn’t wait for ever', asy
   )
   await expect(dialog(page).getByLabel('File or folder in the container')).toHaveValue('/loot')
   await expect
-    .poll(() => audited(served, 'files.download').at(-1))
+    .poll(() => ended(served, 'files.download').at(-1))
     .toMatchObject({ outcome: 'cancelled', summary: `Download /loot from Pod ${POD} (app)` })
 })
 
@@ -453,7 +548,7 @@ test('a copy cut short takes nothing down, and nothing of it is kept', async ({
   await page.close()
   const copies = () =>
     audited(served)
-      .filter((event) => event.action.startsWith('files.'))
+      .filter((event) => event.action.startsWith('files.') && event.details?.stage !== 'began')
       .map((event) => `${event.action} ${event.outcome}`)
   await expect.poll(copies).toHaveLength(8)
   expect(copies().slice(1, 6)).toEqual([
@@ -477,6 +572,7 @@ test('a copy’s address works once, soon, and only for whoever asked', async ({
   page,
   browser,
   serve,
+  clusters,
 }) => {
   const served = await serve({ env: { LUMOVI_FILE_COPY_CLAIM_MS: '3000' } })
   await signIn(page, podPage(served), DEMO_TOKEN)
@@ -514,6 +610,36 @@ test('a copy’s address works once, soon, and only for whoever asked', async ({
   expect((await page.request.get(await address())).status()).toBe(404)
   expect((await copying).end).toMatchObject({ outcome: 'done', bytes: 33 })
   await other.close()
+
+  // One that's stopped, or whose container goes away, before the browser fetches it: its
+  // address is no copy's from then on.
+  const before = await address()
+  clusters.demo.files.craft('/loot', {
+    entries: [{ name: './loot', content: 'x'.repeat(4000) }],
+    then: 'hold',
+  })
+  const id = await page.evaluate(
+    async (request) => {
+      const id = crypto.randomUUID()
+      await window.lumovi!.files.download(id, request)
+      return id
+    },
+    { ...IN, path: '/loot' },
+  )
+  await expect.poll(address).not.toBe(before)
+  await page.evaluate((id) => window.lumovi!.files.cancel(id), id)
+  await expect.poll(() => ended(served, 'files.download').at(-1)?.outcome).toBe('cancelled')
+  expect((await page.request.get(await address())).status()).toBe(404)
+  clusters.demo.files.craft('/loot', {
+    entries: [{ name: './loot', content: 'x'.repeat(4000) }],
+    cut: true,
+    stderr: 'Killed\n',
+    exit: 137,
+  })
+  const stopped = await address()
+  expect((await download(page, '/loot')).end).toMatchObject({ outcome: 'failed' })
+  expect(await address()).not.toBe(stopped)
+  expect((await page.request.get(await address())).status()).toBe(404)
 
   // One the browser never fetches is given up on.
   expect((await download(page, '/var/log/app.log')).end).toMatchObject({
@@ -620,8 +746,8 @@ test('a file and a folder are uploaded from the browser, and recorded', async ({
     ['tar', 'xmf', '-', '-C', '/readonly'],
   ])
 
-  await expect.poll(() => audited(served, 'files.upload')).toHaveLength(4)
-  expect(audited(served, 'files.upload')).toMatchObject([
+  await expect.poll(() => ended(served, 'files.upload')).toHaveLength(4)
+  expect(ended(served, 'files.upload')).toMatchObject([
     {
       category: 'change',
       outcome: 'success',
@@ -655,7 +781,7 @@ test('a container without tar says so, and what reaches its files instead', asyn
   )
   await page.keyboard.press('Escape')
   await expect
-    .poll(() => audited(served, 'files.download'))
+    .poll(() => ended(served, 'files.download'))
     .toMatchObject([{ outcome: 'failure', error: expect.stringContaining('app has no tar') }])
 
   // A Windows container has none either: said before anything is tried.
@@ -667,6 +793,36 @@ test('a container without tar says so, and what reaches its files instead', asyn
     'Copying files isn’t supported for Windows containers: it runs tar in the container, and they have none.',
   )
   await expect(dialog(page).getByRole('button', { name: 'Upload' })).toBeDisabled()
+})
+
+test('what a page says it will upload is held for the copy it’s for, and no longer', () => {
+  // (The server's own, without a server: nothing outside it can see what it holds.)
+  const files = new PageFiles(new Transfers(), 'ada@example.com')
+  const said = {
+    name: 'report.csv',
+    entries: [{ names: ['report.csv'], folder: false, size: 14 }],
+  }
+  // A copy takes it, once.
+  const taken = files.picked(said)
+  const sending = files.sending('copy-1', taken)
+  expect(sending).toMatchObject({ name: 'report.csv', files: 1, bytes: 14 })
+  sending!.close()
+  expect(files.sending('copy-2', taken)).toBeUndefined()
+  // An upload that's refused lets go of it: its handle is nothing's afterwards.
+  const refused = files.picked(said)
+  files.forget(refused)
+  expect(files.sending('copy-3', refused)).toBeUndefined()
+  // It's checked when a copy takes it, after whether its person may upload at all; and one
+  // that isn't what a page may say isn't kept either.
+  const odd = files.picked({ name: '../report.csv', entries: [] })
+  expect(() => files.sending('copy-4', odd)).toThrow(
+    'What’s uploaded has a name, and at least one file or folder',
+  )
+  expect(files.sending('copy-5', odd)).toBeUndefined()
+  // No more than a few are held at once, whatever a page sends.
+  const first = files.picked(said)
+  for (let i = 0; i < 8; i++) files.picked(said)
+  expect(files.sending('copy-6', first)).toBeUndefined()
 })
 
 const POLICY = `
@@ -777,7 +933,7 @@ test('who may copy: shells for a download, shells and changes for an upload; nev
 
   const copies = () =>
     audited(served)
-      .filter((event) => event.action.startsWith('files.'))
+      .filter((event) => event.action.startsWith('files.') && event.details?.stage !== 'began')
       .map((event) => `${event.actor.user} ${event.action} ${event.outcome}`)
   await expect.poll(copies).toHaveLength(6)
   expect(copies()).toEqual([
@@ -805,12 +961,15 @@ test('read-only, a download still reads; nothing is uploaded; and copying can be
   expect(await uploading(page)).toMatch(/^read-only: /)
   // What ran in the container read-only is tar reading, and nothing else.
   expect(ran(clusters)).toEqual([['tar', 'cf', '-', '-C', '/var/log', '--', './app.log']])
-  await expect.poll(() => audited(readOnly, 'files.upload')).toMatchObject([{ outcome: 'refused' }])
+  await expect.poll(() => ended(readOnly, 'files.upload')).toMatchObject([{ outcome: 'refused' }])
   await readOnly.stop()
 
   // Whose cluster says no to exec: the cluster's refusal, said as what it stops.
   clusters.demo.deny({ verb: 'create', resource: 'pods', subresource: 'exec', namespace: 'shop' })
-  const off = await serve({ env: { LUMOVI_FILE_COPY_MAX_BYTES: '0' } })
+  const off = await serve({ env: { LUMOVI_FILE_COPY_MAX_BYTES: 'off' } })
+  expect(off.log()).toContain(
+    'Copying files to and from containers is turned off (LUMOVI_FILE_COPY_MAX_BYTES)',
+  )
   await page.context().clearCookies()
   await signIn(page, podPage(off), DEMO_TOKEN)
   await detail(page).getByRole('button', { name: 'More actions' }).click()
@@ -819,7 +978,7 @@ test('read-only, a download still reads; nothing is uploaded; and copying can be
   }
   await page.keyboard.press('Escape')
   expect(await refused(page)).toBe(
-    'forbidden: Copying files is turned off here. LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (0 turns copying off).',
+    'forbidden: Copying files is turned off here. LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (off turns copying off).',
   )
   expect(await uploading(page)).toMatch(/^forbidden: Copying files is turned off here/)
 })

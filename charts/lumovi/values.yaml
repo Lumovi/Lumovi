@@ -187,6 +187,16 @@ metrics:
   # RBAC decides. false: it's never offered, installed or removed by Lumovi.
   stack: true
 
+# Copying files to and from a pod's container (a pod's Download files… and Upload files…):
+# Lumovi runs tar in the container, as kubectl cp does, as whoever asks, so their RBAC (exec)
+# and Lumovi's access rules decide. A download needs what a shell needs; an upload also needs
+# changes allowed. Each copy is in the audit log.
+fileCopy:
+  # false: no copy is made.
+  enabled: true
+  # The most one copy carries, in bytes (of the files' contents).
+  maxBytes: 2147483648
+
 # Shells on nodes (a node's Shell tab): Lumovi starts a privileged pod on the node, as
 # whoever asks, so their RBAC and the namespace's Pod Security decide, and deletes it when the
 # shell ends. Each person can choose another namespace and image for themselves.

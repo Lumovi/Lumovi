@@ -167,12 +167,21 @@ export function entryPath(entry: string, root: string): string[] | undefined {
 }
 
 /** A name Windows can't give a file, or gives a meaning of its own (a device, a stream). */
-const WINDOWS_UNNAMEABLE = /[<>:"|?*\\]|[. ]$|^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i
+const WINDOWS_UNNAMEABLE =
+  /[<>:"|?*\\]|[. ]$|^(con|prn|aux|nul|conin\$|conout\$|com\d|lpt\d)(\.|$)/i
+/** A name that leads elsewhere where `\` parts a path, or a drive starts one. */
+const ELSEWHERE_ON_WINDOWS = /\\|^[a-z]:/i
 const controls = (name: string) => [...name].some((character) => character < ' ')
 
-/** Whether this computer can name a file so. */
+/**
+ * Whether a file can be named so where it's kept: on this computer; or, for a browser's
+ * download of a folder's archive, wherever that's unpacked, where the name mustn't lead out
+ * of the folder on any system, nor hold what a terminal would act on.
+ */
 export function nameable(name: string, platform: string): boolean {
-  return platform !== 'win32' || !(WINDOWS_UNNAMEABLE.test(name) || controls(name))
+  if (platform === 'win32') return !(WINDOWS_UNNAMEABLE.test(name) || controls(name))
+  if (platform === 'browser') return !(ELSEWHERE_ON_WINDOWS.test(name) || controls(name))
+  return true
 }
 
 /** What a download is saved as, from its path: its name, or the container's for its root. */

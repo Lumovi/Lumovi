@@ -122,7 +122,8 @@ const upload = (page: Page, path: string, what: 'file' | 'folder' = 'file') =>
 const events = (page: Page, action: string) =>
   page
     .evaluate((action) => window.lumovi!.audit.query({ actions: [action as never] }), action)
-    .then((found) => found.events.reverse())
+    // How each ended; that each began is recorded too, before it.
+    .then((found) => found.events.reverse().filter((event) => event.details?.stage !== 'began'))
 
 async function downloadDialog(page: Page, path: string) {
   await menuAction(page, 'Pod', POD, 'Download files…')
