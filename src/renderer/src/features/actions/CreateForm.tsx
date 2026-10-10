@@ -1678,7 +1678,6 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                         unit="Name"
                         className="pr-16"
                         value={port.name}
-                        placeholder="http"
                         bad={bad('name')}
                         onChange={(typed) =>
                           edit((text) => write.portName(text, index, typed.trim()))
