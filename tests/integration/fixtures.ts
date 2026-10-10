@@ -56,11 +56,7 @@ export const test = base.extend<Fixtures>({
   launch: async ({}, use) => {
     const launched: Lumovi[] = []
     await use(async (options = {}) => {
-      const instance = await launchApp(options.kubeconfig ?? KUBECONFIG, {
-        ...options,
-        // Create's form, which the built app keeps to itself until all its kinds are there.
-        env: { LUMOVI_CREATE_FORM: '1', ...options.env },
-      })
+      const instance = await launchApp(options.kubeconfig ?? KUBECONFIG, options)
       launched.push(instance)
       return instance
     })

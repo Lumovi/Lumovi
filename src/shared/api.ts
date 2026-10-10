@@ -52,11 +52,6 @@ export interface AppInfo {
   electron?: string
   chrome?: string
   node: string
-  /**
-   * Create's form, beside its YAML: on only where LUMOVI_CREATE_FORM=1 says so, while its
-   * kinds are being built. (To go, with the variable, once they're all there.)
-   */
-  createForm?: boolean
 }
 
 export interface WindowState {

@@ -126,7 +126,7 @@
     {
       "name": "create",
       "title": "Create",
-      "description": "Creating resources from YAML, checked as it's typed.",
+      "description": "Creating a Deployment from a form, with the YAML it writes beside it.",
       "app": "desktop",
       "light": { "2x": "create-light.webp", "1x": "create-light-1x.webp" },
       "dark": { "2x": "create-dark.webp", "1x": "create-dark-1x.webp" }
