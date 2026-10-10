@@ -726,6 +726,9 @@ items:
     'k: &k Secret\nkind: *k\nstringData: {a: S3CR3T}\n',
     'b: &b {kind: Secret}\n<<: *b\nstringData: {a: S3CR3T}\n',
     'b: &b {stringData: {a: S3CR3T}}\nkind: Secret\n<<: *b\n',
+    // (Or whose key is said elsewhere: `*k` is `stringData`, or `kind`.)
+    'k: &k stringData\nkind: Secret\n*k :\n  a: S3CR3T\n',
+    'k: &k kind\n*k : Secret\nstringData:\n  a: S3CR3T\n',
   ]) {
     expect(masked(elsewhere), elsewhere).toBeNull()
   }
