@@ -124,7 +124,8 @@ function GoHint({ target }: { target: string }) {
   return (
     <span
       aria-hidden
-      className="ml-auto font-mono text-2xs text-ink-3 opacity-0 transition-opacity group-hover:opacity-100"
+      // (Keys to press: of no use to a finger.)
+      className="ml-auto font-mono text-2xs text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 touch:hidden"
     >
       {entry && `G ${entry.key.toUpperCase()}`}
     </span>

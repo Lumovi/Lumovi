@@ -219,7 +219,7 @@ export function Tile({
         <div className="flex items-center gap-2 text-[13px] text-ink-2">
           <Icon className="size-4 text-ink-3" />
           {label}
-          <ChevronRight className="ml-auto size-4 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
+          <ChevronRight className="ml-auto size-4 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 touch:opacity-100" />
         </div>
         <div className="mt-2.5 text-[28px] leading-none font-semibold tracking-[-0.02em] text-ink-1">
           {value ?? '—'}
