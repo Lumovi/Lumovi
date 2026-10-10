@@ -13,7 +13,6 @@ import {
   ScrollText,
   ShipWheel,
 } from 'lucide-react'
-import { Popover } from 'radix-ui'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
 import type { KubeContext } from '@shared/api'
@@ -25,6 +24,8 @@ import {
   type ResourceDefinition,
 } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { Picker } from '@renderer/components/Picker'
 import { AddOnIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { GithubMark } from '@renderer/components/GithubMark'
 import { StatusDot } from '@renderer/components/Status'
@@ -54,7 +55,8 @@ import { useSession, useSwitching } from '@renderer/state/session'
 import { AdminButton } from '../access/AdminButton'
 import { AccountMenu } from '../session/AccountMenu'
 import { REPO_URL } from '../welcome/WelcomePage'
-import { menuContent, menuItem } from './menu-styles'
+import { menuItem } from './menu-styles'
+import { contextChip } from './NamespacePicker'
 import { Sponsor, useSponsorShown } from './Sponsor'
 import { AssistantsButton } from '../assistants/DesktopConnect'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
@@ -160,7 +162,11 @@ export function Sidebar() {
   // one more of its sections.
   const fades = useSponsorShown() && (goesOn.up || goesOn.down)
   return (
-    <aside aria-label="Sidebar" className="flex w-[244px] shrink-0 flex-col drag">
+    <aside
+      aria-label="Sidebar"
+      // In a drawer (a narrow page) it's as wide as the drawer, and as tall.
+      className="flex w-[244px] shrink-0 flex-col drag narrow:min-h-0 narrow:w-full narrow:flex-1"
+    >
       {HAS_MENU_BUTTON ? (
         // Windows' and Linux's menu, on their window controls' line.
         <div className="flex h-[52px] shrink-0 items-center px-3">
@@ -232,7 +238,7 @@ export function Sidebar() {
         <CustomResources addOns={addOns} />
       </nav>
       <Sponsor />
-      <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag">
+      <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag narrow:px-1 narrow:pb-[max(0.5rem,env(safe-area-inset-bottom))] narrow:[&_button]:size-11">
         <ThemeMenu />
         {api.assistants && <AssistantsButton assistants={api.assistants} />}
         {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}
@@ -285,7 +291,7 @@ function useGoesOn(ref: RefObject<HTMLElement | null>): { up: boolean; down: boo
  * The cluster, and whether Lumovi may change it; in the desktop app, also
  * the other clusters to switch to (a server shows one).
  */
-function ClusterSwitcher() {
+export function ClusterSwitcher({ chip = false }: { chip?: boolean }) {
   const switching = useSwitching()
   const { context } = useCluster()
   const navigateTo = useGo()
@@ -301,105 +307,119 @@ function ClusterSwitcher() {
     navigateTo(path)
   }
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        aria-label={switching ? 'Switch cluster' : 'Cluster'}
-        className="flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-left shadow-panel transition-colors no-drag hover:bg-surface-3 data-[state=open]:bg-surface-3"
-      >
-        <StatusDot health={health} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink-1">
-            <span className="truncate">{clusterName(context)}</span>
+    <Picker
+      open={open}
+      onOpenChange={setOpen}
+      title={switching ? 'Switch cluster' : 'Cluster'}
+      className="w-[300px] p-0"
+      trigger={
+        chip ? (
+          <button
+            type="button"
+            aria-label={switching ? 'Switch cluster' : 'Cluster'}
+            className={cn(contextChip, 'max-w-[60%]')}
+          >
+            <StatusDot health={health} />
+            <MiddleTruncate text={clusterName(context)} />
             {readOnly.readOnly && (
               <Lock aria-label="Read-only" className="size-3 shrink-0 text-ink-3" />
             )}
-          </span>
-          <span className="block truncate text-xs text-ink-3">
-            {version.isSuccess
-              ? `Kubernetes ${version.data.gitVersion}`
-              : version.isError
-                ? 'Unavailable'
-                : (server ?? 'Connecting…')}
-          </span>
-        </span>
-        {switching ? (
-          <ChevronsUpDown className="size-4 shrink-0 text-ink-3" />
+            <ChevronsUpDown className="size-3.5 shrink-0 text-ink-3" />
+          </button>
         ) : (
-          <ChevronDown className="size-4 shrink-0 text-ink-3" />
-        )}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content align="start" sideOffset={6} className={cn(menuContent, 'w-[300px] p-0')}>
-          {switching ? (
-            <Command loop filter={matchWords} label="Clusters">
-              <Command.Input
-                placeholder="Switch to…"
-                className="h-10 w-full border-b border-line bg-transparent px-3 text-[13px] text-ink-1 outline-none placeholder:text-ink-3"
-              />
-              <Command.List className="max-h-80 overflow-y-auto p-1">
-                <Command.Empty className="px-3 py-6 text-center text-xs text-ink-3">
-                  No clusters match.
-                </Command.Empty>
-                {contexts.map((c) => (
-                  <SwitcherItem
-                    key={c.name}
-                    context={c}
-                    active={c.name === context}
-                    onSelect={go}
-                  />
-                ))}
-                <Command.Separator className="mx-1 my-1 h-px bg-line" />
-                <Command.Item value="All clusters" onSelect={() => go('/')} className={menuItem}>
-                  <List className="size-4 text-ink-3" /> All clusters
-                </Command.Item>
-              </Command.List>
-            </Command>
-          ) : (
-            <div className="px-3 py-2.5">
-              <p className="truncate text-[13px] font-medium text-ink-1">{context}</p>
-              <p className="truncate font-mono text-xs text-ink-3 selectable" title={server}>
-                {server}
-              </p>
-            </div>
-          )}
-          <div className="flex items-center gap-3 border-t border-line px-3 py-2.5">
-            <Lock className="size-4 shrink-0 text-ink-3" />
+          <button
+            type="button"
+            aria-label={switching ? 'Switch cluster' : 'Cluster'}
+            className="flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-left shadow-panel transition-colors no-drag hover:bg-surface-3 data-[state=open]:bg-surface-3"
+          >
+            <StatusDot health={health} />
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] text-ink-1">Read-only</span>
-              <span className="block text-xs leading-snug text-ink-3">
-                {readOnly.locked
-                  ? api.host === 'desktop'
-                    ? readOnly.byPolicy
-                      ? 'Set by your organization'
-                      : 'Set by LUMOVI_READ_ONLY'
-                    : 'For everyone, on this server'
-                  : readOnly.shared
-                    ? `Lumovi won’t change ${context} for anyone on this server`
-                    : `Lumovi won’t change ${context}`}
+              <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink-1">
+                <span className="truncate">{clusterName(context)}</span>
+                {readOnly.readOnly && (
+                  <Lock aria-label="Read-only" className="size-3 shrink-0 text-ink-3" />
+                )}
               </span>
-              {readOnly.by && (
-                <span className="block text-xs leading-snug text-ink-3">
-                  {readOnly.by.outside
-                    ? 'Turned on outside Lumovi'
-                    : `Turned on by ${readOnly.by.by}, ${formatDateTime(readOnly.by.at)}`}
-                </span>
-              )}
-              {readOnly.shared && !readOnly.locked && !readOnly.mayChange && (
-                <span className="block text-xs leading-snug text-ink-3">
-                  Only Lumovi’s admins change it
-                </span>
-              )}
+              <span className="block truncate text-xs text-ink-3">
+                {version.isSuccess
+                  ? `Kubernetes ${version.data.gitVersion}`
+                  : version.isError
+                    ? 'Unavailable'
+                    : (server ?? 'Connecting…')}
+              </span>
             </span>
-            <Switch
-              label="Read-only"
-              checked={readOnly.readOnly}
-              disabled={!readOnly.mayChange}
-              onCheckedChange={(checked) => void readOnly.set(checked)}
-            />
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+            {switching ? (
+              <ChevronsUpDown className="size-4 shrink-0 text-ink-3" />
+            ) : (
+              <ChevronDown className="size-4 shrink-0 text-ink-3" />
+            )}
+          </button>
+        )
+      }
+    >
+      {switching ? (
+        <Command loop filter={matchWords} label="Clusters">
+          <Command.Input
+            placeholder="Switch to…"
+            className="h-10 w-full border-b border-line bg-transparent px-3 text-[13px] text-ink-1 outline-none placeholder:text-ink-3"
+          />
+          <Command.List className="max-h-80 overflow-y-auto p-1">
+            <Command.Empty className="px-3 py-6 text-center text-xs text-ink-3">
+              No clusters match.
+            </Command.Empty>
+            {contexts.map((c) => (
+              <SwitcherItem key={c.name} context={c} active={c.name === context} onSelect={go} />
+            ))}
+            <Command.Separator className="mx-1 my-1 h-px bg-line" />
+            <Command.Item value="All clusters" onSelect={() => go('/')} className={menuItem}>
+              <List className="size-4 text-ink-3" /> All clusters
+            </Command.Item>
+          </Command.List>
+        </Command>
+      ) : (
+        <div className="px-3 py-2.5">
+          <p className="truncate text-[13px] font-medium text-ink-1">{context}</p>
+          <p className="truncate font-mono text-xs text-ink-3 selectable" title={server}>
+            {server}
+          </p>
+        </div>
+      )}
+      <div className="flex items-center gap-3 border-t border-line px-3 py-2.5">
+        <Lock className="size-4 shrink-0 text-ink-3" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] text-ink-1">Read-only</span>
+          <span className="block text-xs leading-snug text-ink-3">
+            {readOnly.locked
+              ? api.host === 'desktop'
+                ? readOnly.byPolicy
+                  ? 'Set by your organization'
+                  : 'Set by LUMOVI_READ_ONLY'
+                : 'For everyone, on this server'
+              : readOnly.shared
+                ? `Lumovi won’t change ${context} for anyone on this server`
+                : `Lumovi won’t change ${context}`}
+          </span>
+          {readOnly.by && (
+            <span className="block text-xs leading-snug text-ink-3">
+              {readOnly.by.outside
+                ? 'Turned on outside Lumovi'
+                : `Turned on by ${readOnly.by.by}, ${formatDateTime(readOnly.by.at)}`}
+            </span>
+          )}
+          {readOnly.shared && !readOnly.locked && !readOnly.mayChange && (
+            <span className="block text-xs leading-snug text-ink-3">
+              Only Lumovi’s admins change it
+            </span>
+          )}
+        </span>
+        <Switch
+          label="Read-only"
+          checked={readOnly.readOnly}
+          disabled={!readOnly.mayChange}
+          onCheckedChange={(checked) => void readOnly.set(checked)}
+        />
+      </div>
+    </Picker>
   )
 }
 

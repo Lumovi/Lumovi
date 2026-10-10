@@ -18,6 +18,8 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { apiKindOf, resourceByPlural } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { barButton } from '@renderer/components/Sheet'
 import { addOnIcon, KindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useAddOns } from '@renderer/hooks/add-ons'
@@ -31,6 +33,7 @@ import { useUi } from '@renderer/state/ui'
 import { ActivityButton } from '../activity/ActivityButton'
 import { ForwardsButton } from '../activity/ForwardsButton'
 import { NamespacePicker } from './NamespacePicker'
+import { ClusterSwitcher } from './Sidebar'
 
 const PAGES: Record<string, [string, LucideIcon]> = {
   '': ['Overview', LayoutDashboard],
@@ -79,23 +82,79 @@ export function Header() {
     setRefreshing(false)
   }
 
+  // Narrower than the desktop app's window gets: a top bar, and under it where you are.
+  if (layout !== 'wide') {
+    const clusterScoped = kind
+      ? resource?.namespaced === false
+      : Boolean(addOn?.kinds.every((r) => !r.namespaced))
+    return (
+      <>
+        <header className="flex h-[52px] shrink-0 items-center border-b border-line bg-surface px-1">
+          <button
+            type="button"
+            aria-label="Menu"
+            onClick={() => setSidebar(true)}
+            className={barButton}
+          >
+            <Menu />
+          </button>
+          <h1 className="min-w-0 flex-1 px-1 text-[15px] leading-5 font-semibold tracking-[-0.01em] [view-transition-name:page-title]">
+            <MiddleTruncate text={title} />
+          </h1>
+          <button
+            type="button"
+            aria-label="Search"
+            onClick={() => setPalette(true)}
+            className={barButton}
+          >
+            <Search />
+          </button>
+          {/* Nothing is written on a phone: there, objects are read, and a few things done. */}
+          {layout === 'tablet' && (
+            <>
+              <button
+                type="button"
+                aria-label="Create from YAML"
+                onClick={() => setCreate(true)}
+                className={barButton}
+              >
+                <Plus />
+              </button>
+              {api.forwards && <ForwardsButton api={api.forwards} />}
+              <ActivityButton />
+            </>
+          )}
+          <button
+            type="button"
+            aria-label="Refresh"
+            onClick={() => void refresh()}
+            className={barButton}
+          >
+            <RotateCw className={cn(refreshing && 'animate-spin [animation-duration:0.8s]')} />
+          </button>
+        </header>
+        {/* Which cluster, and which namespace: it scrolls away where the screen is short. */}
+        <div
+          data-context-row
+          className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-4"
+        >
+          <ClusterSwitcher chip />
+          <NamespacePicker chip clusterScoped={clusterScoped} />
+        </div>
+      </>
+    )
+  }
+
   return (
     <header className="titlebar-trailing flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-3 pl-3 drag">
-      {layout === 'wide' ? (
-        <div className="flex items-center">
-          <IconButton label={`Back (${MOD_KEY}[)`} onClick={() => navigate(-1)}>
-            <ArrowLeft />
-          </IconButton>
-          <IconButton label={`Forward (${MOD_KEY}])`} onClick={() => navigate(1)}>
-            <ArrowRight />
-          </IconButton>
-        </div>
-      ) : (
-        // The sidebar is a drawer here; back and forward are the browser's own.
-        <IconButton label="Menu" onClick={() => setSidebar(true)}>
-          <Menu />
+      <div className="flex items-center">
+        <IconButton label={`Back (${MOD_KEY}[)`} onClick={() => navigate(-1)}>
+          <ArrowLeft />
         </IconButton>
-      )}
+        <IconButton label={`Forward (${MOD_KEY}])`} onClick={() => navigate(1)}>
+          <ArrowRight />
+        </IconButton>
+      </div>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-1 [view-transition-name:page-title]">
         {kind ? (
           <KindIcon kind={kind} className="size-4 shrink-0 text-ink-3" />
@@ -109,31 +168,22 @@ export function Header() {
           kind ? resource?.namespaced === false : Boolean(addOn?.kinds.every((r) => !r.namespaced))
         }
       />
-      {layout === 'phone' ? (
-        <IconButton label="Search" onClick={() => setPalette(true)}>
-          <Search />
-        </IconButton>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setPalette(true)}
-          className="flex h-8 w-52 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1.5 pl-2.5 text-ink-3 transition-colors no-drag hover:border-line-strong hover:text-ink-2"
-        >
-          <Search className="size-3.5" />
-          <span className="flex-1 text-left">Search…</span>
-          <Kbd>{MOD_KEY}</Kbd>
-          <Kbd>K</Kbd>
-        </button>
-      )}
-      {/* Nothing is written on a phone: there, objects are read, and a few things done to them. */}
-      {layout !== 'phone' && (
-        <IconButton
-          label={WINDOW_SHORTCUTS ? `Create from YAML (${MOD_KEY}N)` : 'Create from YAML'}
-          onClick={() => setCreate(true)}
-        >
-          <Plus />
-        </IconButton>
-      )}
+      <button
+        type="button"
+        onClick={() => setPalette(true)}
+        className="flex h-8 w-52 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1.5 pl-2.5 text-ink-3 transition-colors no-drag hover:border-line-strong hover:text-ink-2"
+      >
+        <Search className="size-3.5" />
+        <span className="flex-1 text-left">Search…</span>
+        <Kbd>{MOD_KEY}</Kbd>
+        <Kbd>K</Kbd>
+      </button>
+      <IconButton
+        label={WINDOW_SHORTCUTS ? `Create from YAML (${MOD_KEY}N)` : 'Create from YAML'}
+        onClick={() => setCreate(true)}
+      >
+        <Plus />
+      </IconButton>
       {api.forwards && <ForwardsButton api={api.forwards} />}
       <ActivityButton />
       <IconButton label={`Refresh (${MOD_KEY}R)`} onClick={() => void refresh()}>
