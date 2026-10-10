@@ -31,6 +31,18 @@ servers that share a volume no longer end up both keeping the audit history ther
   organization's policy (`fileCopy`) says otherwise; `off` (`fileCopy.enabled: false`), or the
   policy, turns copying off, and a server doesn't start with a limit that isn't a whole number.
   It isn't offered to AI assistants.
+- A server's web UI works on a phone and a tablet. Under 1024 px wide the sidebar is a drawer
+  behind a menu button, with the cluster and the namespace as two chips under the top bar. Under
+  640 px a list is two lines an object (its name, cut in the middle so replicas stay apart, and
+  its status; then its kind's first facts and its age), sorted and filtered from sheets; a detail
+  is a page of its own with Back, its facts stacked and its tables as cards; logs wrap, with what
+  runs over set in; and every menu, picker and dialog is a sheet from the bottom, an assistant's
+  change to approve among them, with Reject and Approve at its two edges. Dragging that sheet
+  down or tapping outside it puts the change aside: it isn't an answer. On a phone an object
+  offers Restart, Scale, Cordon and Uncordon, each behind its usual confirmation, and nothing
+  else: no deleting, editing or shells there. Wherever the page is used by touch, what's pressed
+  answers on at least 44 px and nothing needs a hover. Nothing scrolls sideways but a strip of
+  tabs. The desktop app, whose window stops at 1024 px, is unchanged.
 
 ### Fixed
 
