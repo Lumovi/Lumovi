@@ -123,6 +123,32 @@ test('a StatefulSet: its Service, and storage for each pod', async ({ page, clus
   await expect(form(page)).toContainText(
     'The headless Service that names its pods. It isn’t created here: make it first, as a Service.',
   )
+  // The headless ones come first; `shop` has none, and says so over the ones it has.
+  const listed = () =>
+    choice(page, 'Service').evaluate((select) =>
+      [...select.children].map((child) =>
+        child instanceof HTMLOptGroupElement
+          ? `${child.label}: ${[...child.children].map((option) => option.textContent).join(', ')}`
+          : child.textContent,
+      ),
+    )
+  expect(await listed()).toEqual([
+    'Choose…',
+    'Not headless: cart, checkout, edge, legacy-gateway, payments-gateway, storefront',
+  ])
+  await choice(page, 'Namespace').selectOption('data')
+  await expect
+    .poll(listed)
+    .toEqual(['Choose…', 'postgres', 'redis', 'Not headless: prometheus-archive'])
+  // Where there's no Service to choose, its name is typed, with the same words under it.
+  await choice(page, 'Namespace').selectOption('batch')
+  await expect(choice(page, 'Service')).toHaveCount(0)
+  await field(page, 'Service').fill('reports')
+  await expect(field(page, 'Service')).toHaveAccessibleDescription(/It isn’t created here/)
+  expect(await yaml(page)).toContain('  serviceName: reports\n')
+  // A name the YAML has that no Service there does is still what's chosen.
+  await choice(page, 'Namespace').selectOption('shop')
+  await expect(choice(page, 'Service')).toHaveValue('reports')
   await choice(page, 'Service').focus()
   await choice(page, 'Service').selectOption('storefront')
   await expect(lines(page, 'lit')).toHaveText(['  serviceName: storefront'])
@@ -398,6 +424,12 @@ test('a CronJob: a schedule read back in words, and what to do if the last run i
   await expect(create(page)).toBeDisabled()
   await expect(status(page)).toHaveText('Image is still empty.')
   // One that's wrong is said under it, and which field of it; nothing can be created.
+  // One whose day never comes is valid, and that's what's said of it.
+  await field(page, 'Schedule').fill('0 0 31 2 *')
+  await expect(field(page, 'Schedule')).toHaveAccessibleDescription(
+    'spec.schedule It never runs: February has no 31st.',
+  )
+  await expect(field(page, 'Schedule')).not.toHaveAttribute('aria-invalid', 'true')
   await field(page, 'Schedule').fill('30 25 * * *')
   await expect(form(page).getByRole('alert')).toHaveText(
     'The hour is “25”, and hours go from 0 to 23.',
