@@ -237,12 +237,19 @@ export interface MetricsStack {
   values: string
   /** The images it runs, each by its digest. */
   images: string[]
-  /** Installed: whether its Prometheus is up and answering. */
+  /** Installed: whether both its Deployments are up. */
   ready?: boolean
+  /** Installed: when (ISO), as Helm records it. */
+  installedAt?: string
+  /** Installed and not up: why, as its Deployments and pods say (an image that can't be pulled…). */
+  problems?: string[]
   /** Why it can't be installed or removed here, whoever asks (a policy, a read-only cluster…). */
   off?: { reason: 'policy' | 'read-only' | 'admins'; message: string }
-  /** What the cluster doesn't let this person do, of what installing (or removing) it takes. */
-  missing: string[]
+  /**
+   * What the cluster doesn't let this person create, of what installing it takes, and delete, of
+   * what removing it does. Not asked (and so empty) where it's off for them.
+   */
+  missing: { install: string[]; remove: string[] }
   /** The cluster, where it's more than the stack is sized for. */
   large?: { nodes: number; pods: number }
 }

@@ -3,10 +3,13 @@
  * chart, its values, and a dry run that shows every object), installed with helm, and removed
  * without a trace. Never without the review; never half of it; never a namespace it didn't make.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { parse } from 'yaml'
+import { byNodeQuery, nodeQuery, usageQuery } from '../../src/renderer/src/lib/promql.ts'
+import { rightsizingQueries } from '../../src/renderer/src/lib/rightsizing.ts'
 import type { AuditEvent } from '../../src/shared/audit.ts'
 import { METRICS_STACK } from '../../src/shared/metrics-stack.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
@@ -82,13 +85,14 @@ test('reviewed, installed, charted, and removed without a trace', async ({ lumov
   // What it is, said plainly: what runs, how long history is kept, how it goes, and the chart.
   await expect(dialog).toContainText(`Two Deployments in a new namespace, ${NAMESPACE}`)
   await expect(dialog).toContainText('Neither can read Secrets or ConfigMaps')
+  await expect(dialog).toContainText('any pod can read the usage it keeps')
   await expect(dialog).toContainText('Kept for 7 days, in up to 4 GiB')
   await expect(dialog).toContainText('history starts over if its pod is replaced')
   await expect(dialog).toContainText(`${CHART.name} ${CHART.version}, from ${CHART.repository}`)
   await expect(dialog).toContainText(CHART.sha256)
   await expect(dialog.getByRole('list', { name: 'Images' }).getByRole('listitem')).toHaveText([
     /^quay\.io\/prometheus\/prometheus@sha256:[0-9a-f]{64}$/,
-    /^registry\.k8s\.io\/kube-state-metrics\/kube-state-metrics@sha256:[0-9a-f]{64}$/,
+    /^registry\.k8s\.io\/kube-state-metrics\/kube-state-metrics:v2\.20\.0@sha256:[0-9a-f]{64}$/,
   ])
   await dialog.getByText('The values it’s installed with').click()
   await expect(dialog.getByLabel('Values')).toContainText('useExistingClusterRoleName')
@@ -103,6 +107,7 @@ test('reviewed, installed, charted, and removed without a trace', async ({ lumov
   await expect(reviewed).toContainText('kind: Namespace')
   await expect(reviewed).toContainText('app.kubernetes.io/managed-by: lumovi')
   await expect(reviewed).toContainText('--resources=pods')
+  await expect(reviewed).toContainText('readOnlyRootFilesystem: true')
   const dryRun = helmCalls(lumovi).at(-1)!
   expect(dryRun.slice(0, 2)).toEqual(['install', RELEASE])
   expect(dryRun).toContain('--dry-run=server')
@@ -117,8 +122,10 @@ test('reviewed, installed, charted, and removed without a trace', async ({ lumov
   expect(clusters.sandbox.object('Namespace', undefined, NAMESPACE)!.metadata.labels).toEqual(
     expect.objectContaining({ 'app.kubernetes.io/managed-by': 'lumovi' }),
   )
-  // History comes from it as soon as it answers, without looking again by hand.
+  // History comes from it as soon as it answers, without looking again by hand: none yet, in
+  // its first minute, and where it would come from said all the same.
   await expect(source(page)).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('main')).toContainText('Prometheus has no CPU samples for this time.')
   const [installed] = await audited(page)
   expect(installed).toMatchObject({
     action: 'helm.install',
@@ -140,6 +147,7 @@ test('reviewed, installed, charted, and removed without a trace', async ({ lumov
   await expect(removing).toContainText(
     `helm uninstall ${RELEASE} --namespace ${NAMESPACE} --kube-context ${CONTEXTS.sandbox} && kubectl delete namespace ${NAMESPACE} --context ${CONTEXTS.sandbox}`,
   )
+  await expect(removing).toContainText(`and anything else put in ${NAMESPACE} since`)
   await expect(removing.getByRole('button', { name: 'Remove' })).toBeDisabled()
   await removing.getByRole('textbox').fill(NAMESPACE)
   await removing.getByRole('button', { name: 'Remove' }).click()
@@ -201,7 +209,7 @@ test('an install that fails leaves nothing behind', async ({ lumovi, clusters })
   })
   await dialog.getByRole('button', { name: 'Install' }).click()
   await expect(dialog.getByRole('alert')).toContainText(
-    'INSTALLATION FAILED: Deployment lumovi-metrics-kube-state-metrics: the cluster answered 500',
+    'INSTALLATION FAILED: Deployment lumovi-metrics-kube-state-metrics: the cluster answered 500 Nothing of it is left.',
   )
   expect(helmCalls(lumovi).at(-1)!.slice(0, 2)).toEqual(['uninstall', RELEASE])
   expect(there(clusters.sandbox)).toEqual([])
@@ -231,6 +239,196 @@ test('a namespace of its name that isn’t Lumovi’s is never taken, nor remove
   expect(removed).toMatchObject({ ok: false, error: { code: 'not-found' } })
   expect(clusters.sandbox.object('Namespace', undefined, NAMESPACE)).toBeDefined()
   expect(helmCalls(lumovi)).toEqual([])
+})
+
+test('a chart that isn’t the one published is never used', async ({ launch, clusters }) => {
+  // A byte off, as a copy changed on the way (or on disk) would be.
+  const chart = readFileSync('src/backend/helm/metrics-stack/prometheus-29.36.1.tgz')
+  chart[chart.length - 1]! ^= 1
+  const changed = join(mkdtempSync(join(tmpdir(), 'lumovi-chart-')), 'chart.tgz')
+  writeFileSync(changed, chart)
+  const lumovi = await launch({ env: { LUMOVI_TEST_STACK_CHART: changed } })
+  const { page } = lumovi
+  await openMetrics(page)
+  await offer(page).click()
+  const dialog = installing(page)
+  await dialog.getByRole('button', { name: 'Review' }).click()
+  const REFUSED = new RegExp(
+    `^The chart Lumovi ships isn’t ${CHART.name} ${CHART.version} as it was published \\(its SHA-256 is [0-9a-f]{64}, not ${CHART.sha256}\\), so Lumovi installs nothing from it\\. Install Lumovi again\\.$`,
+  )
+  await expect(dialog.getByRole('alert')).toHaveText(REFUSED)
+  await expect(dialog.getByRole('button', { name: 'Install' })).toHaveCount(0)
+  // Nor installed, asked for without the review: helm never runs, and nothing is made.
+  const refused = await page.evaluate(
+    (context) => window.lumovi!.metricsStack.install({ context }),
+    CONTEXTS.sandbox,
+  )
+  expect(refused).toMatchObject({ ok: false, error: { code: 'helm' } })
+  expect(helmCalls(lumovi)).toEqual([])
+  expect(there(clusters.sandbox)).toEqual([])
+  const [event, ...others] = await audited(page)
+  expect(event).toMatchObject({ action: 'helm.install', outcome: 'failure' })
+  expect(event!.error).toMatch(REFUSED)
+  // The dry run that was refused isn't an install: not recorded as one.
+  expect(others).toEqual([])
+})
+
+test('installed and not coming up: why, as the cluster says, and the way out', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page } = lumovi
+  await openMetrics(page)
+  await offer(page).click()
+  const dialog = installing(page)
+  await dialog.getByRole('button', { name: 'Review' }).click()
+  await expect(dialog).toContainText('The cluster accepts it')
+  // The cluster takes the release, and refuses Prometheus' pod (its Pod Security, say).
+  const REFUSAL = `pods "${SERVICE}-6fb44f6d65-" is forbidden: violates PodSecurity "restricted:latest"`
+  clusters.sandbox.fail(`/apis/apps/v1/namespaces/${NAMESPACE}/deployments/${SERVICE}`, {
+    status: 200,
+    method: 'GET',
+    body: JSON.stringify({
+      apiVersion: 'apps/v1',
+      kind: 'Deployment',
+      metadata: { name: SERVICE, namespace: NAMESPACE, uid: 'refused' },
+      spec: { replicas: 1 },
+      status: {
+        conditions: [{ type: 'ReplicaFailure', status: 'True', message: REFUSAL }],
+      },
+    }),
+  })
+  clusters.sandbox.fail(new RegExp(`/services/${SERVICE}:http/proxy/`), {
+    status: 503,
+    body: '{"kind":"Status","message":"no endpoints available for service"}',
+  })
+  await dialog.getByRole('button', { name: 'Install' }).click()
+  await expect(toasts(page)).toContainText('Installed the metrics stack')
+  const stuck = page.getByRole('main').getByRole('alert')
+  await expect(stuck).toContainText('The metrics stack isn’t starting', { timeout: 30_000 })
+  await expect(stuck).toContainText(`${SERVICE}: ${REFUSAL}`)
+  await stuck.getByRole('button', { name: 'Remove…' }).click()
+  const removing = page.getByRole('dialog', { name: /Remove the metrics stack/ })
+  await removing.getByRole('textbox').fill(NAMESPACE)
+  await removing.getByRole('button', { name: 'Remove' }).click()
+  await expect(toasts(page)).toContainText('Removed the metrics stack')
+  expect(there(clusters.sandbox)).toEqual([])
+  await expect(offer(page)).toBeVisible()
+})
+
+test('removing asks the cluster for what removing takes', async ({ lumovi, clusters }) => {
+  const { page } = lumovi
+  const role = (name: string, labels?: Record<string, string>) => ({
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'ClusterRole',
+    metadata: { name, uid: name, creationTimestamp: '2026-01-01T00:00:00Z', labels },
+    rules: [],
+  })
+  // Lumovi's namespace, Helm's record of the release gone, and its cluster roles still there:
+  // one the release's own, one of its name that someone else made.
+  clusters.sandbox.upsert({
+    apiVersion: 'v1',
+    kind: 'Namespace',
+    metadata: {
+      name: NAMESPACE,
+      uid: 'lumovis',
+      creationTimestamp: '2026-01-01T00:00:00Z',
+      labels: { 'app.kubernetes.io/managed-by': 'lumovi' },
+    },
+    status: { phase: 'Active' },
+  })
+  clusters.sandbox.upsert(role(`${RELEASE}-server`, { 'app.kubernetes.io/instance': RELEASE }))
+  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`))
+  await openMetrics(page)
+  const uninstall = () =>
+    page.evaluate((context) => window.lumovi!.metricsStack.uninstall({ context }), CONTEXTS.sandbox)
+  // Someone who may create it all, but not delete cluster roles, is told so, and nothing goes.
+  clusters.sandbox.deny({ verb: 'delete', resource: 'clusterroles' })
+  expect(await uninstall()).toEqual({
+    ok: false,
+    error: {
+      code: 'forbidden',
+      message:
+        'The cluster doesn’t let you delete cluster roles, which removing it takes. Nothing was removed.',
+    },
+  })
+  const status = await page.evaluate(async (context) => {
+    const found = await window.lumovi!.metricsStack.status(context)
+    return found.ok ? found.data.missing : undefined
+  }, CONTEXTS.sandbox)
+  expect(status).toEqual({ install: [], remove: ['cluster roles'] })
+  expect(clusters.sandbox.object('Namespace', undefined, NAMESPACE)).toBeDefined()
+})
+
+test('what Helm lost track of is removed with the namespace, and no more', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page } = lumovi
+  const ROLE = 'ClusterRole.rbac.authorization.k8s.io'
+  const role = (name: string, labels?: Record<string, string>) => ({
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'ClusterRole',
+    metadata: { name, uid: name, creationTimestamp: '2026-01-01T00:00:00Z', labels },
+    rules: [],
+  })
+  clusters.sandbox.upsert({
+    apiVersion: 'v1',
+    kind: 'Namespace',
+    metadata: {
+      name: NAMESPACE,
+      uid: 'lumovis',
+      creationTimestamp: '2026-01-01T00:00:00Z',
+      labels: { 'app.kubernetes.io/managed-by': 'lumovi' },
+    },
+    status: { phase: 'Active' },
+  })
+  clusters.sandbox.upsert(role(`${RELEASE}-server`, { 'app.kubernetes.io/instance': RELEASE }))
+  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`))
+  await openMetrics(page)
+  const removed = await page.evaluate(
+    (context) => window.lumovi!.metricsStack.uninstall({ context }),
+    CONTEXTS.sandbox,
+  )
+  expect(removed).toEqual({ ok: true, data: null })
+  expect(clusters.sandbox.object('Namespace', undefined, NAMESPACE)).toBeUndefined()
+  // The release's own went; one of its name that someone else made stays.
+  expect(clusters.sandbox.object(ROLE, undefined, `${RELEASE}-server`)).toBeUndefined()
+  expect(clusters.sandbox.object(ROLE, undefined, `${RELEASE}-kube-state-metrics`)).toBeDefined()
+  // Helm had nothing to uninstall.
+  expect(helmCalls(lumovi)).toEqual([])
+})
+
+/** Every metric a file's PromQL names: cAdvisor's and kube-state-metrics'. */
+const metricsIn = (text: string) => text.match(/\b(?:container|kube)_[a-z0-9_]+/g) ?? []
+
+test('the stack keeps every series Lumovi asks for, and no other', () => {
+  // Asked for: by the queries as they're built, and by name anywhere in the app's code.
+  const built = [
+    ...(['cpu', 'memory', 'rx', 'tx', 'restarts'] as const).flatMap((metric) => [
+      usageQuery(metric, [], ['pod'], 120),
+      nodeQuery(metric, 'node', ['pod'], 120),
+      byNodeQuery(metric, [], 120),
+    ]),
+    ...rightsizingQueries(['default']).map((query) => query.expr),
+  ].flatMap(metricsIn)
+  const written = readdirSync('src', { recursive: true, encoding: 'utf8' })
+    .filter((file) => /\.tsx?$/.test(file))
+    .flatMap((file) => metricsIn(readFileSync(join('src', file), 'utf8')))
+  const asked = [...new Set([...built, ...written])].sort()
+
+  // Kept: what Prometheus keeps of cAdvisor's, and what kube-state-metrics is let to say.
+  const values = parse(readFileSync('src/backend/helm/metrics-stack/values.yaml', 'utf8'))
+  const [keep] = values.scrapeConfigs['kubernetes-nodes-cadvisor'].metric_relabel_configs
+  expect(keep).toMatchObject({ action: 'keep', source_labels: ['__name__'] })
+  const [, prefix, names] = /^(\w+)\((.+)\)$/.exec(keep.regex)!
+  const kept = [
+    ...names!.split('|').map((name) => `${prefix}${name}`),
+    ...values['kube-state-metrics'].metricAllowlist,
+  ].sort()
+  expect(kept).toEqual(asked)
+  // And only pods are listed for them.
+  expect(values['kube-state-metrics'].collectors).toEqual(['pods'])
 })
 
 /** A policy file, as IT would deploy it (LUMOVI_POLICY points at it, for trying one out). */

@@ -172,6 +172,7 @@ if (stdio) {
     })
     const metricsStack = new MetricsStackService(kube, helm, {
       isReadOnly,
+      chartFile: process.env.LUMOVI_TEST_STACK_CHART,
       off: () =>
         settings.get().managed?.metricsStackOff
           ? {

@@ -40,10 +40,20 @@ test('only Lumovi’s admins install it and remove it, as themselves', async ({
   await as(context, 'dev@example.com', 'developers')
   await page.goto(`${served.url}cluster/demo`)
   const ONLY_ADMINS = 'Only Lumovi’s admins install or remove its metrics stack. Ask one of them.'
+  clusters.demo.requests.length = 0
   expect(await status(page)).toMatchObject({
     state: 'absent',
     off: { reason: 'admins', message: ONLY_ADMINS },
+    missing: { install: [], remove: [] },
   })
+  // Nothing is asked of the cluster for them that only matters to who may install: neither what
+  // it would let them do, nor how many nodes and pods it has (more than their access may show).
+  expect(await status(page)).not.toHaveProperty('large')
+  expect(
+    clusters.demo.requests.filter(
+      (request) => request.search === 'limit=1' || /selfsubjectaccessreviews/.test(request.path),
+    ),
+  ).toEqual([])
   for (const refused of [await install(page, true), await install(page), await uninstall(page)]) {
     expect(refused).toEqual({ ok: false, error: { code: 'not-allowed', message: ONLY_ADMINS } })
   }
@@ -52,7 +62,10 @@ test('only Lumovi’s admins install it and remove it, as themselves', async ({
   // An admin: installed as them (helm goes as who they are), and recorded as theirs.
   await as(context, 'root@example.com', 'platform-admins')
   await page.reload()
-  expect(await status(page)).toMatchObject({ state: 'absent', missing: [] })
+  expect(await status(page)).toMatchObject({
+    state: 'absent',
+    missing: { install: [], remove: [] },
+  })
   expect((await status(page)) as object).not.toHaveProperty('off')
   expect(await install(page)).toMatchObject({ ok: true, data: { revision: 1 } })
   expect(made()!.metadata.labels).toMatchObject({ 'app.kubernetes.io/managed-by': 'lumovi' })

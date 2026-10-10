@@ -35,6 +35,19 @@ server:
     limits:
       cpu: '1'
       memory: 1Gi
+  # As Pod Security's "restricted" asks: the chart's own user and group, and no more than that.
+  securityContext:
+    runAsUser: 65534
+    runAsNonRoot: true
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
   # The role below, in place of the chart's (which also reads every Service, Pod, Ingress and
   # ConfigMap): the nodes, to find their kubelets, and the kubelets' metrics.
   useExistingClusterRoleName: lumovi-metrics-server
@@ -90,6 +103,8 @@ scrapeConfigs:
   kubernetes-pods-slow:
     enabled: false
   kubernetes-nodes-cadvisor:
+    # None of the chart's: the nodes' labels aren't copied onto every series.
+    relabel_configs: []
     metric_relabel_configs:
       - source_labels: [__name__]
         regex: container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|network_receive_bytes_total|network_transmit_bytes_total)
@@ -108,6 +123,7 @@ kube-state-metrics:
   metricAllowlist:
     - kube_pod_info
     - kube_pod_container_status_restarts_total
+    - kube_pod_container_status_last_terminated_reason
   # Lumovi's Prometheus scrapes it by name: nothing else has to find it.
   prometheusScrape: false
   resources:

@@ -6,7 +6,7 @@
  *
  * The cluster's own Prometheus is taken away while this runs, and put back after.
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,6 +30,7 @@ const SERIES = [
   'container_memory_working_set_bytes',
   'container_network_receive_bytes_total',
   'container_network_transmit_bytes_total',
+  'kube_pod_container_status_last_terminated_reason',
   'kube_pod_container_status_restarts_total',
   'kube_pod_info',
 ]
@@ -204,7 +205,8 @@ test('one reviewed install charts the cluster; removing it leaves nothing', asyn
     await expect(page.getByRole('region', { name: 'Ranked pods' }), name).toContainText(pod, {
       timeout: 120_000,
     })
-    await expect(page.getByRole('alert'), name).toHaveCount(0)
+    // (None, and what one says if there is one.)
+    await expect(page.getByRole('alert'), name).toHaveText([])
   }
   // By node too: its series carry no node, so kube-state-metrics says where each pod runs.
   await metric.getByRole('button', { name: 'CPU' }).click()
@@ -226,7 +228,36 @@ test('one reviewed install charts the cluster; removing it leaves nothing', asyn
 
   // It keeps what Lumovi reads and no more, and its accounts read what was said and no more.
   const kept = query('count by (__name__) ({__name__=~".+"})').map((s) => s.metric.__name__)
-  expect(kept.filter((name) => !/^(up|scrape_)/.test(name!)).sort()).toEqual(SERIES)
+  const series = kept.filter((name) => !/^(up|scrape_)/.test(name!))
+  expect(series.filter((name) => !SERIES.includes(name!))).toEqual([])
+  // (Throttling's are there where a container has a CPU limit; a last termination, where one ended.)
+  expect(series).toEqual(
+    expect.arrayContaining([
+      'container_cpu_usage_seconds_total',
+      'container_memory_working_set_bytes',
+      'container_network_receive_bytes_total',
+      'container_network_transmit_bytes_total',
+      'kube_pod_container_status_restarts_total',
+      'kube_pod_info',
+    ]),
+  )
+  // Its pods are ones Pod Security's "restricted" level takes: asked of the cluster, changing nothing.
+  const restricted = spawnSync(
+    'kubectl',
+    [
+      '--kubeconfig',
+      KUBECONFIG,
+      'label',
+      '--dry-run=server',
+      '--overwrite',
+      'namespace',
+      NAMESPACE,
+      'pod-security.kubernetes.io/enforce=restricted',
+    ],
+    { encoding: 'utf8' },
+  )
+  expect(restricted.status, restricted.stderr).toBe(0)
+  expect(restricted.stderr).not.toMatch(/violat/i)
   expect(canI(`${RELEASE}-kube-state-metrics`, 'list', 'pods', '-A')).toBe('yes')
   expect(canI(`${RELEASE}-prometheus-server`, 'get', 'nodes/metrics')).toBe('yes')
   for (const account of [`${RELEASE}-kube-state-metrics`, `${RELEASE}-prometheus-server`]) {

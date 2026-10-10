@@ -319,7 +319,11 @@ export const describeUninstall = (r: HelmUninstall, result: Result<unknown>): Re
   details: { keepHistory: r.keepHistory },
 })
 
-/** Lumovi's metrics stack, installed: the chart it ships, as the command that installs the same. */
+/**
+ * Lumovi's metrics stack, installed: the chart it ships, as the command that installs the same
+ * chart from its repository. Its values are Lumovi's own, the same for a version: should they
+ * ever be the person's to change, the event must say what they set (as describeDeploy does).
+ */
 export function describeStackInstall(r: MetricsStackRequest, result: Result<unknown>): Recorded {
   const { namespace, release: name, chart } = METRICS_STACK
   return {
