@@ -81,6 +81,19 @@ test('only Lumovi’s admins install it and remove it, as themselves', async ({
   ).toBeUndefined()
 })
 
+test('a server that names no admins installs none', async ({ page, context, serve, clusters }) => {
+  const served = await serve({ env: { LUMOVI_AUTH: 'proxy' } })
+  await as(context, 'root@example.com', 'platform-admins')
+  await page.goto(`${served.url}cluster/demo`)
+  const NONE =
+    'Lumovi’s admins install or remove its metrics stack, and this server names none. Whoever runs it sets them with LUMOVI_ADMINS (the chart’s access.admins).'
+  expect(await status(page)).toMatchObject({ off: { reason: 'admins', message: NONE } })
+  for (const refused of [await install(page, true), await install(page), await uninstall(page)]) {
+    expect(refused).toEqual({ ok: false, error: { code: 'not-allowed', message: NONE } })
+  }
+  expect(clusters.demo.object('Namespace', undefined, NAMESPACE)).toBeUndefined()
+})
+
 test('a server that turned it off', async ({ page, context, serve, clusters }) => {
   const served = await serve({ env: { ...ADMINS, LUMOVI_METRICS_STACK: 'off' } })
   await as(context, 'root@example.com', 'platform-admins')

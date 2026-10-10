@@ -87,7 +87,8 @@ async function openMetrics(page: Page) {
 
 test.beforeAll(() => {
   test.setTimeout(600_000)
-  // No Prometheus, and nothing of an earlier run's.
+  // No Prometheus (its operator's service for the kubelets stays, as it does for anyone who
+  // uninstalls it: Lumovi doesn't take it for Prometheus), and nothing of an earlier run's.
   execFileSync(
     'helm',
     ['uninstall', 'kps', '-n', 'monitoring', '--ignore-not-found', '--wait', '--timeout', '5m'],

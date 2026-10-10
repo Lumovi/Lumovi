@@ -28,9 +28,10 @@ const MAX_POINTS = 11_000
 const MAX_QUERIES = 16
 const MAX_EXPR = 4_000
 
-// Services that come with Prometheus but don't answer PromQL themselves.
+// Services that come with Prometheus but don't answer PromQL themselves. (The operator's
+// service for the kubelets stays when it's uninstalled: no reason to think Prometheus is there.)
 const NOT_QUERYABLE =
-  /alertmanager|operator|exporter|kube-state-metrics|pushgateway|adapter|blackbox|grafana|vmagent|vmalert|vminsert|vmauth|vmstorage|sidecar/
+  /alertmanager|operator|exporter|kube-state-metrics|kubelet|pushgateway|adapter|blackbox|grafana|vmagent|vmalert|vminsert|vmauth|vmstorage|sidecar/
 const MONITORING_NAMESPACES = ['monitoring', 'prometheus', 'observability', 'victoria-metrics']
 
 /** How a service looks like it answers PromQL, if it does: what it is and which port to use. */

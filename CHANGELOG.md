@@ -23,7 +23,7 @@ All notable changes to Lumovi are documented here. The format follows
   removed. Without the cluster's permission for all of it, Lumovi says what's missing and
   installs nothing, and an install that fails is undone. Not offered on a read-only cluster. An
   organization turns it off with `"metricsStack": false` in its policy; on a server, only
-  Lumovi's admins install or remove it, and `metrics.stack: false` (`LUMOVI_METRICS_STACK=off`)
+  Lumovi's admins install or remove it (nobody, where it names none), and `metrics.stack: false` (`LUMOVI_METRICS_STACK=off`)
   turns it off.
 
 ## [1.18.0] - 2026-10-09

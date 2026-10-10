@@ -99,7 +99,7 @@ test('reviewed, installed, charted, and removed without a trace', async ({ lumov
   // The review: a dry run, which makes nothing.
   await dialog.getByRole('button', { name: 'Review' }).click()
   await expect(dialog).toContainText('The cluster accepts it · 12 objects')
-  const reviewed = dialog.getByRole('region', { name: 'What it makes' })
+  const reviewed = dialog.getByLabel('What it makes')
   await expect(reviewed).toContainText('kind: Namespace')
   await expect(reviewed).toContainText('app.kubernetes.io/managed-by: lumovi')
   await expect(reviewed).toContainText('--resources=pods')
@@ -193,10 +193,16 @@ test('an install that fails leaves nothing behind', async ({ lumovi, clusters })
   const dialog = installing(page)
   await dialog.getByRole('button', { name: 'Review' }).click()
   await expect(dialog).toContainText('The cluster accepts it')
-  // The cluster takes the first of it, then refuses the Deployments (a quota, say).
-  clusters.sandbox.deny({ verb: 'create', resource: 'deployments', namespace: NAMESPACE })
+  // The cluster takes the first of it, then fails on the Deployments.
+  clusters.sandbox.fail(`/apis/apps/v1/namespaces/${NAMESPACE}/deployments`, {
+    status: 500,
+    body: '{"kind":"Status","message":"etcd is down"}',
+    method: 'POST',
+  })
   await dialog.getByRole('button', { name: 'Install' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('INSTALLATION FAILED')
+  await expect(dialog.getByRole('alert')).toContainText(
+    'INSTALLATION FAILED: Deployment lumovi-metrics-kube-state-metrics: the cluster answered 500',
+  )
   expect(helmCalls(lumovi).at(-1)!.slice(0, 2)).toEqual(['uninstall', RELEASE])
   expect(there(clusters.sandbox)).toEqual([])
 })

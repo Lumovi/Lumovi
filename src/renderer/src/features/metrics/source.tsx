@@ -139,7 +139,7 @@ export function HistoryGate({
         <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
           {stack.off
             ? stack.off.reason === 'admins'
-              ? 'Lumovi can install a small one. Only its admins do: ask one of them.'
+              ? `Lumovi can install a small one. ${stack.off.message}`
               : 'Lumovi can install a small one, once the cluster isn’t read-only.'
             : 'Or let Lumovi install a small one: you review everything it makes first.'}
         </p>

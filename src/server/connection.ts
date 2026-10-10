@@ -267,7 +267,7 @@ export class PageConnection {
       },
     )
     // Lumovi's metrics stack makes cluster roles, and is everyone's once it's there: its admins'
-    // to install and remove (anyone's where it has none), as the clusters' settings are.
+    // to install and remove, and nobody's where it names none (as connecting clusters is).
     const metricsStack = new MetricsStackService(kube, helm, {
       isReadOnly,
       off: () => {
@@ -278,12 +278,19 @@ export class PageConnection {
               'Installing a metrics stack is turned off on this Lumovi server (LUMOVI_METRICS_STACK=off).',
           }
         }
-        return clusters.whyNot(identity.user)
-          ? {
+        if (!access.administered) {
+          return {
+            reason: 'admins',
+            message:
+              'Lumovi’s admins install or remove its metrics stack, and this server names none. Whoever runs it sets them with LUMOVI_ADMINS (the chart’s access.admins).',
+          }
+        }
+        return access.isAdmin(identity.user)
+          ? undefined
+          : {
               reason: 'admins',
               message: 'Only Lumovi’s admins install or remove its metrics stack. Ask one of them.',
             }
-          : undefined
       },
     })
     const shared = handlers({
