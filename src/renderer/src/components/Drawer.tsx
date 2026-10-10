@@ -25,7 +25,8 @@ export function Drawer({
         <Dialog.Content
           aria-label={label}
           aria-describedby={undefined}
-          className="fixed inset-y-0 left-0 z-50 flex max-w-[calc(100vw-56px)] animate-slide-from-left bg-app shadow-pop outline-none"
+          // Its open edge has a hairline and the pop shadow: what sets it apart from the page in dark.
+          className="fixed inset-y-0 left-0 z-50 flex w-[min(320px,calc(100%-56px))] animate-slide-from-left flex-col border-r border-line-strong bg-app shadow-pop outline-none"
         >
           {children}
         </Dialog.Content>
