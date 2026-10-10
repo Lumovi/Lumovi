@@ -9,7 +9,17 @@
  *   its kind, or has something where a field is that the field can't show (two containers);
  * - what the YAML sets that no field owns is kept, and named, at the highest key that's so.
  */
-import { isMap, isScalar, parseAllDocuments, visit } from 'yaml'
+import {
+  isAlias,
+  isMap,
+  isNode,
+  isScalar,
+  isSeq,
+  Lexer,
+  parseAllDocuments,
+  visit,
+  type YAMLMap,
+} from 'yaml'
 import type { KubeErrorCause } from '@shared/api'
 import { scheduleWords } from './cron-words'
 import { elsewhere, linesAt, pathText, removeAt, renameAt, setAt, type Path } from './yaml-edit'
@@ -1219,7 +1229,10 @@ export function problems(values: WorkloadValues, form: FormKind, object: Json = 
 export interface Pair {
   key: string
   value: string
-  /** What the value is, where the YAML has it as something other than text: "a number". */
+  /**
+   * What the value is, where the YAML has it as something other than text: "a number". (Its
+   * kind, and never the value: it's said where a Secret's values are hidden.)
+   */
   odd?: string
 }
 
@@ -1233,7 +1246,7 @@ export function pairsAt(object: Json, base: Path): Pair[] {
     ...(typeof value === 'number'
       ? { odd: 'a number' }
       : typeof value === 'boolean'
-        ? { odd: value ? 'true' : 'false' }
+        ? { odd: 'a boolean' }
         : {}),
   }))
 }
@@ -1298,7 +1311,7 @@ export function plainWriter(form: FormKind) {
       set(text, [...base, key], value),
     /** A key gone; the map it was in stays, with what's left. */
     removePair: (text: string, base: Path, key: string) =>
-      remove(text, [...base, key], base.length),
+      remove(text, [...base, key], base.length + 1),
     /** One more port, by its number. */
     addPort: (text: string, object: Json, typed: string) => {
       const at = ((dig(object, PORTS) ?? []) as unknown[]).length
@@ -1525,77 +1538,128 @@ export function check(object: Json, form: FormKind): { missing: string[]; proble
 /** What stands for a value that's hidden, whatever its length. */
 export const HIDDEN = '••••••••'
 
+/** Where each comment of the text is: its `#`, and where it ends. */
+function comments(text: string): [number, number][] {
+  const found: [number, number][] = []
+  let at = 0
+  // (The lexer's own reading: a `#` in a quoted key or value isn't one.)
+  for (const token of new Lexer().lex(text)) {
+    // (Its marks for where a document, a flow collection or a scalar is aren't the text's.)
+    if (token === '\x02' || token === '\x18' || token === '\x1f') continue
+    if (token.startsWith('#')) found.push([at, at + token.length])
+    at += token.length
+  }
+  return found
+}
+
 /**
- * Where every Secret's values are in the text, and what they are: wherever a Secret is
- * written (the document itself, or one of a List's items), whatever its `data` and its
- * `stringData` hold. Undefined where the text can't be read well enough to say.
+ * The characters of the text that are a Secret's values, wherever one is written (the
+ * document itself, or one of a List's items): whatever its `data` and its `stringData` hold,
+ * and the words of the comments among them, which are where an old value is left.
+ *
+ * Undefined where the values can't be told from the rest: the text doesn't parse, or a
+ * Secret's kind or its values come through an alias or a merge key, so that a value is
+ * written somewhere else in the text.
  */
-function secrets(text: string): { cuts: [number, number][]; values: string[] } | undefined {
+function secrets(text: string): [number, number][] | undefined {
   let documents
   try {
     documents = parseAllDocuments(text)
   } catch {
     return undefined
   }
-  const cuts: [number, number][] = []
-  const values: string[] = []
+  const values: [number, number][] = []
+  const blocks: [number, number][] = []
+  let apart = true
+  const aliased = (node: unknown) => {
+    let found = isAlias(node)
+    if (isNode(node)) visit(node, { Alias: () => void (found = true) })
+    return found
+  }
+  const merges = (map: YAMLMap) =>
+    map.items.some((pair) => isScalar(pair.key) && pair.key.value === '<<')
   for (const document of documents) {
     if (document.errors.length > 0) return undefined
     visit(document, {
       Map(_key, map) {
-        if ((map.get('kind') as unknown) !== 'Secret') return undefined
-        for (const held of ['data', 'stringData']) {
-          const under = map.get(held, true) as unknown
-          if (under === undefined || under === null) continue
+        const kind = map.get('kind', true) as unknown
+        // A kind that's said elsewhere, or a map that takes a Secret's keys from elsewhere,
+        // may be a Secret without saying so here.
+        if (isAlias(kind)) apart = false
+        if (merges(map)) {
+          const SECRETS = ['kind', 'data', 'stringData']
+          const from = map.items
+            .filter((pair) => isScalar(pair.key) && pair.key.value === '<<')
+            .flatMap((pair) => (isSeq(pair.value) ? pair.value.items : [pair.value]))
+            .map((source) => (isAlias(source) ? source.resolve(document) : source))
+          if (
+            [map, ...from].some((source) => isMap(source) && SECRETS.some((key) => source.has(key)))
+          ) {
+            apart = false
+          }
+        }
+        if (!isScalar(kind) || kind.value !== 'Secret') return undefined
+        map.items.forEach((pair, index) => {
+          const held = isScalar(pair.key) ? pair.key.value : undefined
+          if (held !== 'data' && held !== 'stringData') return
+          const under = pair.value as unknown
+          if (aliased(under) || (isMap(under) && merges(under))) apart = false
+          // The block: from its key to the next key of the Secret's, comments and all.
+          const from = (pair.key as unknown as { range: [number, number, number] }).range[0]
+          const next = map.items[index + 1]?.key as { range?: [number, number, number] } | undefined
+          // (The last of a document's own keys: to the document's end.)
+          const end = map === document.contents ? document.range[2] : map.range?.[2]
+          blocks.push([from, next?.range?.[0] ?? end ?? text.length])
           // Whatever is there in place of keys and values is hidden whole.
-          const nodes: unknown[] = isMap(under) ? under.items.map((pair) => pair.value) : [under]
+          const nodes: unknown[] = isMap(under) ? under.items.map((item) => item.value) : [under]
           for (const node of nodes) {
             const range = (node as { range?: [number, number, number] } | null)?.range
             if (!range || (isScalar(node) && node.value === null)) continue
-            const [from, to] = [range[0], Math.max(range[0], range[1])]
-            cuts.push([from, to])
-            // As it's written, and as it's read: the cluster may quote either.
-            values.push(text.slice(from, to).trim())
-            if (isScalar(node)) values.push(String(node.value).trim())
+            values.push([range[0], Math.max(range[0], range[1])])
           }
-        }
+        })
         return visit.SKIP
       },
     })
   }
-  return { cuts, values: [...new Set(values)].filter((value) => value !== '') }
+  if (!apart) return undefined
+  const within = (ranges: [number, number][], at: number) =>
+    ranges.some(([from, to]) => at >= from && at < to)
+  // A comment's words, after its `#`; not one that's part of a value, which goes whole.
+  const said = comments(text)
+    .filter(([from]) => within(blocks, from) && !within(values, from))
+    .map(([from, to]): [number, number] => [from + 1, to])
+    .filter(([from, to]) => text.slice(from, to).trim() !== '')
+  return [...values, ...said]
 }
 
 /**
  * The text with every Secret's values replaced by `HIDDEN`: what's shown while they're hidden.
- * It's a text of its own, with nothing of a value in it. `null` where the text can't be read
- * well enough to say which characters are values.
+ * It's a text of its own, with nothing of a value in it. `null` where the values can't be told
+ * from the rest (see `secrets`): there's no such text to show then.
  */
 export function masked(text: string): string | null {
-  const found = secrets(text)
-  if (!found) return null
+  const cuts = secrets(text)
+  if (!cuts) return null
   let next = text
-  for (const [from, to] of found.cuts.sort((a, b) => b[0] - a[0])) {
-    // (A value written as a block ends with its last line's end, which stays.)
-    const tail = /(\r?\n)$/.exec(text.slice(from, to))?.[1] ?? ''
-    next = next.slice(0, from) + HIDDEN + tail + next.slice(to)
+  for (const [from, to] of cuts.sort((a, b) => b[0] - a[0])) {
+    const was = text.slice(from, to)
+    // (A value written as a block ends with its last line's end, which stays; a comment's
+    // words follow its `#` after a space.)
+    const tail = /(\r?\n)$/.exec(was)?.[1] ?? ''
+    const lead = text[from - 1] === '#' ? ' ' : ''
+    next = next.slice(0, from) + lead + HIDDEN + tail + next.slice(to)
   }
-  // Read again: it's shown only if it still reads, and holds no value.
+  // Read again: it's shown only if it still reads, and all it holds there is the mark.
   const again = secrets(next)
-  return again && again.values.every((value) => value === HIDDEN) ? next : null
+  return again?.every(([from, to]) => next.slice(from, to).trim() === HIDDEN) ? next : null
 }
 
 /**
- * What the cluster said of the YAML in `text`, with none of a Secret's values in it, should
- * it quote one. Nothing of it, where the text can't be read to know what its values are.
+ * What's said in place of the cluster's own words about a Secret, while its values are
+ * hidden: the cluster may quote a value, in any form, so none of what it said is shown.
  */
-export function unquoted(message: string, text: string): string {
-  const found = secrets(text)
-  if (!found) return 'The cluster refused it. Show values to read what it said.'
-  return found.values
-    .sort((a, b) => b.length - a.length)
-    .reduce((said, value) => said.split(value).join(HIDDEN), message)
-}
+export const UNSAID = 'The cluster refused it. Choose Show values to read what it said.'
 
 // ——— What the cluster said, by the field it names ———
 

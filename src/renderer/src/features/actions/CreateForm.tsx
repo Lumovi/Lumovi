@@ -54,7 +54,7 @@ import {
   shown,
   storagePaths,
   unowned,
-  unquoted,
+  UNSAID,
   workloadValues,
   writer,
   type FieldId,
@@ -127,19 +127,15 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
               ? answer
               : {
                   ...answer,
-                  error: unquoted(answer.error, text),
+                  error: UNSAID,
+                  // (The field it names is still named: only its words are kept back.)
                   ...(answer.causes
-                    ? {
-                        causes: answer.causes.map((cause) => ({
-                          ...cause,
-                          message: unquoted(cause.message, text),
-                        })),
-                      }
+                    ? { causes: answer.causes.map((cause) => ({ ...cause, message: UNSAID })) }
                     : {}),
                 },
           )
         : answers,
-    [answers, hidden, text],
+    [answers, hidden],
   )
 
   const change = (next: string) => {
@@ -387,12 +383,12 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     <button
                       type="button"
                       aria-pressed={showing}
-                      // What can't be read can't be hidden value by value: it stays shown
-                      // until it's YAML again.
+                      // Where the values can't be told from the rest, they can't be hidden one
+                      // by one: it stays shown until they can.
                       disabled={showing && cover === null}
                       title={
                         showing && cover === null
-                          ? 'It isn’t YAML as it stands, so its values can’t be told from the rest.'
+                          ? 'Its values can’t be told from the rest as it’s written: it isn’t YAML as it stands, or a value comes through an alias or a merge key.'
                           : undefined
                       }
                       onClick={() => setShowing(!showing)}
@@ -1491,6 +1487,9 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
   // A port that isn't in the YAML yet: it is, once it has a number.
   const [draft, setDraft] = useState(false)
   const base = form.paths.ports!
+  /** Whether a problem is with a port's name. */
+  const unnamed = (problem: Problem) => problem.path?.at(-1) === 'name'
+  const firstUnnamed = wrong.find((problem) => problem.field === 'ports' && unnamed(problem))
   const rows = [
     ...values.ports.map((port) => ({ ...port, draft: false })),
     ...(draft ? [NEW_PORT] : []),
@@ -1558,6 +1557,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
             pairs={values.selector}
             noun="label"
             example={['app', 'web']}
+            wide="key"
             wrong={wrong}
             onFocus={onFocus}
             edit={edit}
@@ -1587,7 +1587,8 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
         label="Ports"
         path="spec.ports"
         on={focus?.field === 'ports'}
-        error={saidOf(wrong, 'ports')}
+        // (What's wrong with a port's name is said under that name.)
+        error={wrong.find((problem) => problem.field === 'ports' && !unnamed(problem))?.message}
       >
         {(ids) => (
           <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
@@ -1669,7 +1670,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                   </div>
                   {/* With more than one, the cluster asks a name of each. */}
                   {!port.draft && (values.ports.length > 1 || port.name !== '') && (
-                    <span className="mr-[38px]">
+                    <span className="mr-[38px] block">
                       <Text
                         aria-label={`${nth}’s name`}
                         aria-invalid={bad('name')}
@@ -1684,6 +1685,15 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                         }
                         {...focused('ports', at('name'))}
                       />
+                      {firstUnnamed?.path &&
+                        pathText(firstUnnamed.path) === pathText(at('name')) && (
+                          <p
+                            role="alert"
+                            className="mt-1.5 text-xs leading-[17px] text-critical-text selectable"
+                          >
+                            {firstUnnamed.message}
+                          </p>
+                        )}
                     </span>
                   )}
                 </div>
@@ -1746,6 +1756,7 @@ function DataFields({
             pairs={pairsAt(object, base)}
             noun="key"
             example={secret ? ['API_KEY', ''] : ['LOG_LEVEL', 'info']}
+            wide="value"
             area
             hidden={secret && hidden}
             wrong={wrong}
@@ -1964,6 +1975,7 @@ function Pairs({
   pairs,
   noun,
   example,
+  wide,
   area = false,
   hidden = false,
   wrong,
@@ -1979,6 +1991,8 @@ function Pairs({
   /** What a key is called here: "Add a label". */
   noun: 'label' | 'key'
   example: [string, string]
+  /** Which of the two is the long one, and gets the wider share: a label's key, a setting's value. */
+  wide: 'key' | 'value'
   /** Whether a value can have several lines. */
   area?: boolean
   /** Whether values are hidden: a Secret's, until they're asked for. */
@@ -2000,6 +2014,8 @@ function Pairs({
     ...(draft === undefined ? [] : [{ key: draft, value: '', draft: true }]),
   ]
   const Value = area ? Area : Text
+  const [keyShare, valueShare] =
+    wide === 'key' ? ['flex-[1.4]', 'flex-1'] : ['flex-1', 'flex-[1.4]']
   return (
     <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
       {rows.map((pair, index) => {
@@ -2023,7 +2039,7 @@ function Pairs({
               value={typing}
               placeholder={pair.draft ? example[0] : undefined}
               bad={bad || refused?.index === index}
-              className="flex-1"
+              className={keyShare}
               onChange={(typed) => {
                 const cannot = typed === '' || taken(typed, pair.draft ? undefined : index)
                 if (pair.draft) {
@@ -2052,7 +2068,7 @@ function Pairs({
                 disabled
                 value=""
                 placeholder={`after its ${noun === 'label' ? 'key' : 'name'}`}
-                className="flex-[1.4]"
+                className={valueShare}
                 onChange={() => undefined}
               />
             ) : hidden ? (
@@ -2060,7 +2076,7 @@ function Pairs({
                 aria-label={`${nth}’s value`}
                 set={pair.value !== ''}
                 bad={bad}
-                className="flex-[1.4]"
+                className={valueShare}
                 onChange={(value) => edit((text) => write.pairValue(text, base, pair.key, value))}
                 {...focused}
               />
@@ -2071,7 +2087,7 @@ function Pairs({
                 value={pair.value}
                 placeholder={index === 0 ? example[1] : undefined}
                 bad={bad}
-                className="flex-[1.4]"
+                className={valueShare}
                 onChange={(value) => edit((text) => write.pairValue(text, base, pair.key, value))}
                 {...focused}
               />
