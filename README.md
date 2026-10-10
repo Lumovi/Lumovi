@@ -18,7 +18,7 @@ in your own cluster for your whole team to open in a browser.
 [![CI](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml/badge.svg)](https://github.com/Lumovi/Lumovi/actions/workflows/ci.yml)
 [![E2E coverage](https://img.shields.io/badge/e2e%20coverage-%3E95%25-3fb950)](docs/development.md#testing)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/kotapeter)
+[![Sponsor](https://img.shields.io/badge/sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Lumovi)
 
 [**Download**](#desktop-app) · [**Install in a cluster**](#in-your-cluster) ·
 [**Documentation**](https://docs.lumovi.dev) · [**lumovi.dev**](https://lumovi.dev)
@@ -287,8 +287,8 @@ and checked against the tool's CRDs, with no code to write. See
 ## Sponsoring
 
 Lumovi is free and open source, made in spare time. If it saves you time, you can
-[sponsor its development](https://github.com/sponsors/kotapeter) on GitHub; the app has a
-link in its **Help** menu too.
+[sponsor its development](https://github.com/sponsors/Lumovi) on GitHub. The app's **Help**
+menu and the card in its sidebar lead to the same page.
 
 ## License
 

@@ -3,12 +3,14 @@
  * server works it out from Lumovi/main-sponsor (backend/sponsor).
  */
 
+import { SPONSOR_URL } from './app'
+
 /** Lumovi's own card: built in, at launch, and whenever a sponsor's can't be shown. */
 export const LUMOVI_CARD = {
   line: 'Help keep Lumovi free.',
   alt: 'Lumovi',
-  /** Until sponsor.json gives another. */
-  link: 'https://github.com/sponsors/Lumovi',
+  /** Until sponsor.json gives another: where the Help menu's link goes too. */
+  link: SPONSOR_URL,
 } as const
 
 /** A picture, as the page can show it without fetching anything: a data: URL of Lumovi's copy. */
