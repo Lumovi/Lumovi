@@ -1,15 +1,18 @@
 import { WifiOff } from 'lucide-react'
 import { useEffect } from 'react'
-import { Navigate, Outlet, useParams } from 'react-router'
+import { Navigate, Outlet, useLocation, useParams } from 'react-router'
 import { Button } from '@renderer/components/Button'
+import { Drawer } from '@renderer/components/Drawer'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
+import { useLayout } from '@renderer/lib/layout'
 import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { useClusterSettings } from '@renderer/hooks/settings'
 import { usePrefs } from '@renderer/state/prefs'
 import { useSession, useSwitching } from '@renderer/state/session'
+import { useUi } from '@renderer/state/ui'
 import { ReadOnlyOutsideBanner } from '../session/ReadOnlyOutsideBanner'
 import { ServerBanner } from '../session/ServerBanner'
 import { TerminalDock } from '../terminal/TerminalDock'
@@ -59,9 +62,9 @@ export function ClusterLayout() {
         >
           Skip to content
         </button>
-        <Sidebar />
-        <main className="flex min-w-0 flex-1 flex-col py-2 pr-2 drag">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel no-drag">
+        <SidebarOrDrawer />
+        <main className="flex min-w-0 flex-1 flex-col py-2 pr-2 drag narrow:p-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel no-drag narrow:rounded-none narrow:border-0 narrow:shadow-none">
             <Header />
             {api.host === 'server' && <ServerBanner />}
             {api.host === 'server' && <ReadOnlyOutsideBanner />}
@@ -89,6 +92,24 @@ export function ClusterLayout() {
       <SourceDialog />
       <UsageSampler />
     </ClusterContext.Provider>
+  )
+}
+
+/**
+ * The sidebar: beside the page where there's room, and a drawer behind the header's menu button
+ * where there isn't (a narrow browser window, a phone), which going anywhere closes.
+ */
+function SidebarOrDrawer() {
+  const layout = useLayout()
+  const open = useUi((ui) => ui.sidebar)
+  const setOpen = useUi((ui) => ui.setSidebar)
+  const { pathname } = useLocation()
+  useEffect(() => setOpen(false), [pathname, layout, setOpen])
+  if (layout === 'wide') return <Sidebar />
+  return (
+    <Drawer open={open} onOpenChange={setOpen} label="Sidebar">
+      <Sidebar />
+    </Drawer>
   )
 }
 
