@@ -342,6 +342,7 @@ export class PageConnection {
       version,
       platform: process.platform,
       node: process.versions.node,
+      ...(env.LUMOVI_CREATE_FORM === '1' ? { createForm: true } : {}),
     }
     this.#invoke = {
       ...shared.invoke,

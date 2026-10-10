@@ -140,8 +140,11 @@ export function CodeEditor({
   label: string
   /** Lines set apart: lit, wrong, shaded. */
   lines?: LineMarks
-  /** A line to bring into view, when it changes. */
-  reveal?: number
+  /**
+   * A line to bring into view, when it changes: just into view, or (`high`) about a third of
+   * the way down, with what follows it below.
+   */
+  reveal?: number | { line: number; high: true }
   /** Shown, and not edited. */
   readOnly?: boolean
   /** Whether it takes the focus as it opens (it does, where it's all there is to fill in). */
@@ -256,16 +259,26 @@ export function CodeEditor({
     view.current!.dispatch({ effects: setMarks.of({ lit, wrong, shaded }) })
   }, [marked, value])
 
+  const line = typeof reveal === 'object' ? reveal.line : reveal
+  const high = typeof reveal === 'object'
   useEffect(() => {
-    const { state } = view.current!
-    if (reveal === undefined || reveal < 1 || reveal > state.doc.lines) return
-    view.current!.dispatch({
-      effects: EditorView.scrollIntoView(state.doc.line(reveal).from, {
-        y: 'nearest',
-        yMargin: 40,
-      }),
+    if (line === undefined) return
+    // Once what's around the editor has settled (a list of results under it takes some of
+    // its height), so "a third of the way down" is of the pane as it then is.
+    const frame = requestAnimationFrame(() => {
+      const { state, dom } = view.current!
+      if (line < 1 || line > state.doc.lines) return
+      view.current!.dispatch({
+        effects: EditorView.scrollIntoView(
+          state.doc.line(line).from,
+          high
+            ? { y: 'start', yMargin: Math.round(dom.clientHeight / 3) }
+            : { y: 'nearest', yMargin: 40 },
+        ),
+      })
     })
-  }, [reveal])
+    return () => cancelAnimationFrame(frame)
+  }, [line, high])
 
   return <div ref={host} className="h-full min-h-0 overflow-hidden" />
 }
