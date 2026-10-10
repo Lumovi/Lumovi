@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-10-10
+
+A cluster without Prometheus can have its usage history all the same: Lumovi offers to install a
+small metrics stack of its own, shows everything it makes before making it, and removes it
+without a trace.
+
 ### Added
 
 - Where a cluster has no Prometheus, Lumovi offers to install a small metrics stack, so the
@@ -25,6 +31,18 @@ All notable changes to Lumovi are documented here. The format follows
   organization turns it off with `"metricsStack": false` in its policy; on a server, only Lumovi's
   admins install or remove it (nobody, where it names none), and `metrics.stack: false`
   (`LUMOVI_METRICS_STACK=off`) turns it off.
+
+### Changed
+
+- With a metrics source that has no samples yet (a Prometheus in its first minute), the Metrics
+  page says where history comes from under "No data for this time", which is also the way to the
+  source's settings.
+
+### Fixed
+
+- A cluster the Prometheus operator was uninstalled from no longer shows "Can't read usage
+  history": the service the operator leaves behind for the kubelets isn't taken for Prometheus,
+  so the cluster is said to have none.
 
 ## [1.18.0] - 2026-10-09
 
@@ -841,7 +859,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.18.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/Lumovi/Lumovi/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/Lumovi/Lumovi/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/Lumovi/Lumovi/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/Lumovi/Lumovi/compare/v1.15.0...v1.16.0
