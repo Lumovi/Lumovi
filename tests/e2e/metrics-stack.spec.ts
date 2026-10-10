@@ -215,6 +215,30 @@ test('an install that fails leaves nothing behind', async ({ lumovi, clusters })
   expect(there(clusters.sandbox)).toEqual([])
 })
 
+test('another release’s cluster role of the same name stops the install, and stays', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page } = lumovi
+  const ROLE = 'ClusterRole.rbac.authorization.k8s.io'
+  // kube-state-metrics' own chart, installed as lumovi-metrics elsewhere, makes one of this name.
+  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`, 'monitoring'))
+  await openMetrics(page)
+  await offer(page).click()
+  const dialog = installing(page)
+  await dialog.getByRole('button', { name: 'Review' }).click()
+  await expect(dialog).toContainText('The cluster accepts it')
+  await dialog.getByRole('button', { name: 'Install' }).click()
+  await expect(dialog.getByRole('alert')).toContainText(
+    'INSTALLATION FAILED: ClusterRole lumovi-metrics-kube-state-metrics: the cluster answered 409 Nothing of it is left.',
+  )
+  // Undone: all of Lumovi's is gone, and what wasn't Lumovi's is as it was.
+  expect(there(clusters.sandbox)).toEqual(['ClusterRole lumovi-metrics-kube-state-metrics'])
+  expect(
+    clusters.sandbox.object(ROLE, undefined, `${RELEASE}-kube-state-metrics`)!.metadata.annotations,
+  ).toMatchObject({ 'meta.helm.sh/release-namespace': 'monitoring' })
+})
+
 test('a namespace of its name that isn’t Lumovi’s is never taken, nor removed', async ({
   lumovi,
   clusters,
@@ -318,12 +342,6 @@ test('installed and not coming up: why, as the cluster says, and the way out', a
 
 test('removing asks the cluster for what removing takes', async ({ lumovi, clusters }) => {
   const { page } = lumovi
-  const role = (name: string, labels?: Record<string, string>) => ({
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRole',
-    metadata: { name, uid: name, creationTimestamp: '2026-01-01T00:00:00Z', labels },
-    rules: [],
-  })
   // Lumovi's namespace, Helm's record of the release gone, and its cluster roles still there:
   // one the release's own, one of its name that someone else made.
   clusters.sandbox.upsert({
@@ -337,8 +355,9 @@ test('removing asks the cluster for what removing takes', async ({ lumovi, clust
     },
     status: { phase: 'Active' },
   })
-  clusters.sandbox.upsert(role(`${RELEASE}-server`, { 'app.kubernetes.io/instance': RELEASE }))
-  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`))
+  clusters.sandbox.upsert(role(`${RELEASE}-server`, NAMESPACE))
+  // Someone's own release of that name, in a namespace of theirs: the same name and labels.
+  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`, 'monitoring'))
   await openMetrics(page)
   const uninstall = () =>
     page.evaluate((context) => window.lumovi!.metricsStack.uninstall({ context }), CONTEXTS.sandbox)
@@ -366,12 +385,6 @@ test('what Helm lost track of is removed with the namespace, and no more', async
 }) => {
   const { page } = lumovi
   const ROLE = 'ClusterRole.rbac.authorization.k8s.io'
-  const role = (name: string, labels?: Record<string, string>) => ({
-    apiVersion: 'rbac.authorization.k8s.io/v1',
-    kind: 'ClusterRole',
-    metadata: { name, uid: name, creationTimestamp: '2026-01-01T00:00:00Z', labels },
-    rules: [],
-  })
   clusters.sandbox.upsert({
     apiVersion: 'v1',
     kind: 'Namespace',
@@ -383,8 +396,9 @@ test('what Helm lost track of is removed with the namespace, and no more', async
     },
     status: { phase: 'Active' },
   })
-  clusters.sandbox.upsert(role(`${RELEASE}-server`, { 'app.kubernetes.io/instance': RELEASE }))
-  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`))
+  clusters.sandbox.upsert(role(`${RELEASE}-server`, NAMESPACE))
+  // Someone's own release of that name, in a namespace of theirs: the same name and labels.
+  clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`, 'monitoring'))
   await openMetrics(page)
   const removed = await page.evaluate(
     (context) => window.lumovi!.metricsStack.uninstall({ context }),
@@ -392,11 +406,28 @@ test('what Helm lost track of is removed with the namespace, and no more', async
   )
   expect(removed).toEqual({ ok: true, data: null })
   expect(clusters.sandbox.object('Namespace', undefined, NAMESPACE)).toBeUndefined()
-  // The release's own went; one of its name that someone else made stays.
+  // The release's own went; the other release's, of the same name, stays.
   expect(clusters.sandbox.object(ROLE, undefined, `${RELEASE}-server`)).toBeUndefined()
   expect(clusters.sandbox.object(ROLE, undefined, `${RELEASE}-kube-state-metrics`)).toBeDefined()
   // Helm had nothing to uninstall.
   expect(helmCalls(lumovi)).toEqual([])
+})
+
+/** A cluster role as a release named lumovi-metrics makes it, in `namespace`: Helm's mark says whose. */
+const role = (name: string, namespace: string) => ({
+  apiVersion: 'rbac.authorization.k8s.io/v1',
+  kind: 'ClusterRole',
+  metadata: {
+    name,
+    uid: name,
+    creationTimestamp: '2026-01-01T00:00:00Z',
+    labels: { 'app.kubernetes.io/instance': RELEASE, 'app.kubernetes.io/managed-by': 'Helm' },
+    annotations: {
+      'meta.helm.sh/release-name': RELEASE,
+      'meta.helm.sh/release-namespace': namespace,
+    },
+  },
+  rules: [],
 })
 
 /** Every metric a file's PromQL names: cAdvisor's and kube-state-metrics'. */
