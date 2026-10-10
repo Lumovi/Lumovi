@@ -355,7 +355,33 @@ test('a service account: its secrets, the bindings that name it, and the workloa
   )
 })
 
-test('what’s only half an object is still drawn, as what it says', async ({ page, clusters }) => {
+test('a service account’s secret with no name is a dash, and the rest are links', async ({
+  page,
+  clusters,
+}) => {
+  // (An entry of `secrets` needn't name anything: the API takes it.)
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'ServiceAccount',
+    metadata: { name: 'half-kept', namespace: 'shop' },
+    secrets: [{}, { name: 'half-kept-token' }],
+  })
+  await open(page, 'Service Accounts', 'half-kept')
+  await expect(panel(page, 'ServiceAccount', 'half-kept')).toContainText(
+    'Secrets—Secret/half-kept-token',
+  )
+})
+
+// A guard, and tested as one. The API server refuses every object below: a binding with no
+// role or a role of a kind that isn't Role or ClusterRole, a subject with no name or no kind,
+// a rule with no verbs. The mock cluster takes them because it doesn't validate these kinds.
+// Nobody meets them on a cluster that works as it should; this holds that, if half an object
+// ever arrives (from an older or aggregated API, or something else serving under the kind's
+// name), its page still draws and says what's missing, and doesn't go blank.
+test('a guard: half an object, which the API would refuse, is still drawn as what it says', async ({
+  page,
+  clusters,
+}) => {
   const RBAC = 'rbac.authorization.k8s.io/v1'
   // A binding to a kind of role nobody knows, with a subject that says only what it is, one
   // that says only its name, and one that says nothing.
@@ -380,13 +406,6 @@ test('what’s only half an object is still drawn, as what it says', async ({ pa
     kind: 'Role',
     metadata: { name: 'half-ruled', namespace: 'shop' },
     rules: [{ resources: ['pods'] }, { apiGroups: ['apps'], verbs: ['get'] }],
-  })
-  // A service account whose list of secrets has an entry with no name.
-  clusters.demo.upsert({
-    apiVersion: 'v1',
-    kind: 'ServiceAccount',
-    metadata: { name: 'half-kept', namespace: 'shop' },
-    secrets: [{}, { name: 'half-kept-token' }],
   })
 
   await goTo(page, 'Role Bindings')
@@ -416,10 +435,6 @@ test('what’s only half an object is still drawn, as what it says', async ({ pa
       ['', 'pods', ''],
       ['apps', '', 'get'],
     ])
-  await open(page, 'Service Accounts', 'half-kept')
-  await expect(panel(page, 'ServiceAccount', 'half-kept')).toContainText(
-    'Secrets—Secret/half-kept-token',
-  )
 })
 
 test('someone who may not list them is told so, on the page and in a panel', async ({
