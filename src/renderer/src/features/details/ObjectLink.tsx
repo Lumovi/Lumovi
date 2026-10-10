@@ -23,7 +23,13 @@ export function ObjectLink({
   // Re-renders once discovery says which kinds the cluster serves.
   useResources()
   const target = apiVersion ? kindFor(apiVersion, kind) : kind
-  const label = `${apiKindOf(target)}/${name}`
+  // Where it's too long for its place, it breaks after its kind first: the kind stays whole.
+  const label = (
+    <>
+      {apiKindOf(target)}/<wbr />
+      {name}
+    </>
+  )
   if (!isBuiltinKind(target) && !resourceFor(target)) {
     return <span className="font-mono text-xs wrap-anywhere text-ink-2">{label}</span>
   }

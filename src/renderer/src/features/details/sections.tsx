@@ -9,6 +9,7 @@ import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { Meter } from '@renderer/components/Meter'
 import { StatusDot } from '@renderer/components/Status'
+import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, percent } from '@renderer/lib/format'
 import type { Health } from '@renderer/lib/health'
 import { allocatable } from '@renderer/lib/usage'
@@ -270,11 +271,17 @@ export function SimpleTable({
   label,
   headers,
   rows,
+  fits = false,
+  widths,
 }: {
   /** What the table is, said to whoever can't see it. */
   label?: string
   headers: string[]
   rows: ReactNode[][]
+  /** Its cells are short, and wrap: it's never wider than the panel, however narrow. */
+  fits?: boolean
+  /** Each column's share of the width, where they aren't alike: `['44%', '36%', '20%']`. */
+  widths?: string[]
 }) {
   const phone = useLayout() === 'phone'
   // On a phone a table is cards, one a row: what names the row, then its other columns side by
@@ -306,9 +313,21 @@ export function SimpleTable({
   }
   return (
     // Columns share the width alike (a long host doesn't squeeze its path to nothing), and a
-    // panel too narrow for them scrolls them sideways.
-    <div className="overflow-x-auto rounded-xl border border-line">
-      <table aria-label={label} className="w-full min-w-[36rem] table-fixed text-left text-[13px]">
+    // panel too narrow for them scrolls them sideways; unless they're ones that fit any panel.
+    <div
+      className={cn('rounded-xl border border-line', fits ? 'overflow-hidden' : 'overflow-x-auto')}
+    >
+      <table
+        aria-label={label}
+        className={cn('w-full table-fixed text-left text-[13px]', !fits && 'min-w-[36rem]')}
+      >
+        {widths && (
+          <colgroup>
+            {widths.map((width, i) => (
+              <col key={i} style={{ width }} />
+            ))}
+          </colgroup>
+        )}
         <thead className="bg-surface-2 text-2xs tracking-wider text-ink-3 uppercase">
           <tr>
             {headers.map((h) => (
