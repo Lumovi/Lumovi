@@ -6,6 +6,11 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-10-10
+
+Files are copied out of a pod's container and into one, from the pod's own actions. And two Lumovi
+servers that share a volume no longer end up both keeping the audit history there.
+
 ### Added
 
 - Files are copied out of a pod's container and into one, from the pod's actions: **Download
@@ -39,9 +44,9 @@ All notable changes to Lumovi are documented here. The format follows
   by watching it, not by comparing two computers' clocks, and two containers that share a
   hostname no longer take each other's. A server that can't read or renew its lock for as long as
   one holds (30 seconds) stops writing the history until it can again, and only if nobody wrote
-  to the history meanwhile. A server started again after a crash waits up to 20 seconds on its own old
-  lock before it serves. Checking a history that two servers did write now names that as a
-  possible cause.
+  to the history meanwhile. A server started again after a crash waits up to 20 seconds on its
+  own old lock before it serves. Checking a history that two servers did write now names that as
+  a possible cause.
 - The Metrics page no longer fails on a Prometheus that keeps each node's own network series, which
   name no pod: choosing Network in or Network out could replace the page with an error. Network
   usage now counts only pods' traffic, on the page and in a node's charts, and a series that doesn't
@@ -921,7 +926,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.20.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.21.0...HEAD
+[1.21.0]: https://github.com/Lumovi/Lumovi/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/Lumovi/Lumovi/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/Lumovi/Lumovi/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/Lumovi/Lumovi/compare/v1.17.0...v1.18.0
