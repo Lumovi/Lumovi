@@ -31,8 +31,20 @@ export interface Column {
   /** 1 is always shown; 2 and then 3 are dropped first when the table is narrow. */
   priority?: 1 | 2 | 3
   cell: (object: KubeObject, ctx: CellContext) => ReactNode
+  /**
+   * How it reads in a phone's row, where a list is two lines an object and its columns are a
+   * line of facts with no header over them: a number says what it counts ("3 restarts"). Its
+   * cell, unless said here; `false` for what a line can't hold (a meter).
+   */
+  fact?: ((object: KubeObject, ctx: CellContext) => ReactNode) | false
+  /** The name column's: it says each object's namespace (every namespace is listed). */
+  namespaced?: boolean
   sort?: (object: KubeObject, ctx: CellContext) => string | number
 }
+
+/** "1 restart", "3 restarts": a count that says what it's of. */
+const counted = (count: number, one: string, many = `${one}s`) =>
+  `${count} ${count === 1 ? one : many}`
 
 export function metricsKey(namespace: string | undefined, name: string): string {
   return `${namespace ?? ''}/${name}`
@@ -67,6 +79,7 @@ export const nameColumn = (showNamespace: boolean): Column => ({
   id: 'name',
   header: 'Name',
   width: 'minmax(220px, 1.8fr)',
+  namespaced: showNamespace,
   cell: (o) => (
     <span className="flex min-w-0 flex-col">
       <span className="truncate font-medium text-ink-1">{o.metadata.name}</span>
@@ -111,6 +124,10 @@ const readyColumn: Column = {
     const { ready, desired } = replicaCounts(o)
     return <span className="tabular-nums">{`${ready}/${desired}`}</span>
   },
+  fact: (o) => {
+    const { ready, desired } = replicaCounts(o)
+    return `${ready}/${desired} ready`
+  },
 }
 
 const imagesColumn: Column = {
@@ -149,6 +166,8 @@ const podColumns: Column[] = [
         <span className="tabular-nums">{`${statuses.filter((c) => c.ready).length}/${o.spec.containers.length}`}</span>
       )
     },
+    fact: (o) =>
+      `${containerStatuses(o).filter((c) => c.ready).length}/${o.spec.containers.length} ready`,
   },
   {
     id: 'restarts',
@@ -165,6 +184,14 @@ const podColumns: Column[] = [
           }
         >
           {restarts}
+        </span>
+      )
+    },
+    fact: (o) => {
+      const restarts = podRestarts(o)
+      return (
+        <span className={restarts > 0 ? 'font-medium text-warn-text' : undefined}>
+          {counted(restarts, 'restart')}
         </span>
       )
     },
@@ -227,6 +254,7 @@ const nodeColumns: Column[] = [
       const ratio = usage.cpu / allocatable(o).cpu
       return usageMeter(usage.cpu, allocatable(o).cpu, `${o.metadata.name} CPU`, percent(ratio))
     },
+    fact: false,
     sort: (o, ctx) => (usageOf(o, ctx)?.cpu ?? -1) / allocatable(o).cpu,
   },
   {
@@ -244,6 +272,7 @@ const nodeColumns: Column[] = [
         percent(ratio),
       )
     },
+    fact: false,
     sort: (o, ctx) => (usageOf(o, ctx)?.memory ?? -1) / allocatable(o).memory,
   },
   {
@@ -325,6 +354,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       cell: (o) => (
         <span className="tabular-nums">{`${o.status.succeeded ?? 0}/${o.spec.completions}`}</span>
       ),
+      fact: (o) => `${o.status.succeeded ?? 0}/${o.spec.completions} completed`,
     },
     {
       id: 'duration',
@@ -377,6 +407,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '64px',
       align: 'right',
       cell: (o) => <span className="tabular-nums">{o.status.active?.length ?? 0}</span>,
+      fact: (o) => `${o.status.active?.length ?? 0} active`,
     },
   ],
   HorizontalPodAutoscaler: [
@@ -475,6 +506,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '72px',
       align: 'right',
       cell: (o) => <span className="tabular-nums">{dataKeys(o)}</span>,
+      fact: (o) => counted(dataKeys(o), 'key'),
     },
   ],
   Secret: [
@@ -490,6 +522,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '72px',
       align: 'right',
       cell: (o) => <span className="tabular-nums">{dataKeys(o)}</span>,
+      fact: (o) => counted(dataKeys(o), 'key'),
     },
   ],
   PersistentVolumeClaim: [
@@ -602,6 +635,11 @@ const eventColumns: Column[] = [
         </button>
       )
     },
+    // (The row is the thing to tap: nothing in it is one of its own.)
+    fact: (o) => {
+      const target = o.involvedObject as { kind: string; name: string }
+      return `${target.kind}/${target.name}`
+    },
   },
   {
     id: 'message',
@@ -619,6 +657,7 @@ const eventColumns: Column[] = [
     width: '88px',
     align: 'right',
     cell: (o) => <span className="tabular-nums">{eventCount(o)}</span>,
+    fact: (o) => `×${eventCount(o)}`,
     sort: eventCount,
   },
   {
