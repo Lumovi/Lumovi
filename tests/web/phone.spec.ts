@@ -496,8 +496,16 @@ test('of two changes waiting, a double tap approves one; a long name is cut, nev
   // (A name may be 253 characters; this one is 103.)
   const long =
     'checkout-payments-reconciliation-worker-with-ledger-export-and-settlement-retries-eu-west-1-blue-canary'
+  // Some kinds' names (a role's, a binding's) aren't held to letters and dashes: they may hold
+  // what means something to a text replacement. The stand-in has no roles, so a Deployment put
+  // there under such a name stands for one (a cluster would refuse to make it; deleting it is
+  // asked of the name alone).
+  const odd =
+    "ledger$&-export-and-settlement\\retries-for-checkout-payments-reconciliation-in-eu-west-1-blue-c$'ary"
   const cart = clusters.demo.object('Deployment', 'shop', DEMO.deployments.cart)!
-  clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name: long, uid: undefined } })
+  for (const name of [long, odd]) {
+    clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name, uid: undefined } })
+  }
   const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1500' } })
   await page.setViewportSize({ width: 1440, height: 920 })
   await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
@@ -526,7 +534,7 @@ test('of two changes waiting, a double tap approves one; a long name is cut, nev
   const second = page.getByRole('dialog', { name: `Scale Deployment ${long} to 4 replicas` })
   // (The dialog is still called by all of it.)
   const title = second.getByRole('heading').locator('[aria-hidden]')
-  await expect(title).toHaveText(/^Scale Deployment c.*…canary to 4 replicas$/)
+  await expect(title).toHaveText(/^Scale Deployment checkout-.+…canary to 4 replicas$/)
   const lines = await title.evaluate(
     (node) => node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
   )
@@ -553,9 +561,91 @@ test('of two changes waiting, a double tap approves one; a long name is cut, nev
     timeout: 15_000,
   })
   await expect(second.or(aside)).toBeVisible()
-  if (await aside.isVisible()) await aside.click()
-  await second.getByRole('button', { name: /^Approve/ }).click()
+  if (await aside.isVisible()) await aside.tap()
+  await second.getByRole('button', { name: /^Approve/ }).tap()
   await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText('As Claude Code asked, in demo.')).toHaveCount(0, {
+    timeout: 15_000,
+  })
+  // A name with characters of its own is cut the same, and is still itself: nothing in it is
+  // taken for anything but the name.
+  await call(client, 'delete_resource', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: odd,
+    reason: 'Unused.',
+  })
+  await page.getByRole('button', { name: /1 change from Claude Code waits for you/ }).tap()
+  const deletion = page.getByRole('dialog', { name: `Delete Deployment ${odd}` })
+  const [start, end] = (await deletion
+    .getByRole('heading')
+    .locator('[aria-hidden]')
+    .textContent())!.split('…')
+  expect(start!.length).toBeGreaterThan('Delete Deployment ledger$&'.length)
+  expect(`Delete Deployment ${odd}`.startsWith(start!)).toBe(true)
+  expect(end).toBe(odd.slice(-6))
+})
+
+test('on a touch screen of any width Approve waits its moment, which always ends; with a mouse it doesn’t wait', async ({
+  page,
+  browser,
+  serve,
+}) => {
+  const TABLET = { width: 820, height: 1180 }
+  const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1500' } })
+  await page.setViewportSize({ width: 1440, height: 920 })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  // The same person at a screen of the same width, with a mouse.
+  const desk = await browser.newContext({
+    viewport: { width: 1440, height: 920 },
+    hasTouch: false,
+    isMobile: false,
+  })
+  const mouse = await desk.newPage()
+  await signIn(mouse, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await mouse.setViewportSize(TABLET)
+  await page.setViewportSize(TABLET)
+  await page.goto(`${served.url}cluster/demo`)
+  await watchApprove(page)
+  await watchApprove(mouse)
+  await call(client, 'scale', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+    replicas: 3,
+    reason: 'Busy.',
+  })
+  // Wider than a phone, the change opens by itself, as on a desktop: on both.
+  for (const [where, least, most] of [
+    [page, 550, Infinity],
+    [mouse, 0, 0],
+  ] as const) {
+    const dialog = where.getByRole('dialog', { name: 'Scale Deployment cart to 3 replicas' })
+    await expect(dialog.getByRole('button', { name: /^Approve/ })).toBeEnabled()
+    const waited = await approveCameAlive(where)
+    expect(waited).toBeGreaterThanOrEqual(least)
+    expect(waited).toBeLessThanOrEqual(most)
+  }
+  // The moment always ends, whatever the screen does inside it. A phone turned on its side as
+  // the sheet opens (put aside first, to open it from the pill):
+  await page.setViewportSize(PHONE)
+  const sheet = page.getByRole('dialog', { name: 'Scale Deployment cart to 3 replicas' })
+  await sheet.getByRole('button', { name: 'Later' }).click()
+  await page.getByRole('button', { name: /1 change from Claude Code waits for you/ }).click()
+  await page.setViewportSize(PHONE_ON_ITS_SIDE)
+  await expect(sheet.getByRole('button', { name: /^Approve/ })).toBeEnabled({ timeout: 1500 })
+  // A window as narrow as a phone, made wider across 640 px as it opens:
+  const windowed = mouse.getByRole('dialog', { name: 'Scale Deployment cart to 3 replicas' })
+  await windowed.getByRole('button', { name: 'Later' }).click()
+  await mouse.setViewportSize({ width: 600, height: 900 })
+  await mouse.getByRole('button', { name: /1 change from Claude Code waits for you/ }).click()
+  await expect(windowed.getByRole('button', { name: /^Approve/ })).toBeDisabled()
+  await mouse.setViewportSize({ width: 900, height: 900 })
+  await expect(windowed.getByRole('button', { name: /^Approve/ })).toBeEnabled({ timeout: 1500 })
+  await desk.close()
 })
 
 test('a tablet keeps the table, with the drawer and a detail over the list', async ({
