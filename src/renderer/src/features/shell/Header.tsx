@@ -26,7 +26,7 @@ import { useAddOns } from '@renderer/hooks/add-ons'
 import { useResource } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { useLayout } from '@renderer/lib/layout'
+import { useLayout, useShort } from '@renderer/lib/layout'
 import { useClusterName } from '@renderer/hooks/settings'
 import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
@@ -45,6 +45,39 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   'add-ons': ['Add-ons', Puzzle],
 }
 
+/**
+ * A narrow page's context row: which cluster, and which namespace, each a chip that changes it.
+ */
+export function ContextRow({ clusterScoped }: { clusterScoped: boolean }) {
+  return (
+    <div
+      data-context-row
+      className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-4"
+    >
+      <ClusterSwitcher chip />
+      <NamespacePicker chip clusterScoped={clusterScoped} />
+    </div>
+  )
+}
+
+/** What a page lists, by where it is: whether its kind (or all its add-on's) has no namespace. */
+export function usePage() {
+  const [page = '', custom] = useLocation().pathname.split('/').slice(3)
+  // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
+  const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
+  const resource = useResource(kind).resource
+  // An add-on's page is add-ons/<name>; its kinds' are theirs.
+  const served = useAddOns()
+  const addOn =
+    page === 'add-ons'
+      ? served.find((s) => s.addOn.name === decodeURIComponent(custom!))
+      : undefined
+  const clusterScoped = kind
+    ? resource?.namespaced === false
+    : Boolean(addOn?.kinds.every((r) => !r.namespaced))
+  return { clusterScoped }
+}
+
 export function Header() {
   const { context } = useCluster()
   const navigate = useNavigate()
@@ -53,6 +86,7 @@ export function Header() {
   const setCreate = useUi((ui) => ui.setCreate)
   const setSidebar = useUi((ui) => ui.setSidebar)
   const layout = useLayout()
+  const short = useShort()
   const [refreshing, setRefreshing] = useState(false)
   const [page = '', custom] = useLocation().pathname.split('/').slice(3)
   // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
@@ -133,14 +167,8 @@ export function Header() {
             <RotateCw className={cn(refreshing && 'animate-spin [animation-duration:0.8s]')} />
           </button>
         </header>
-        {/* Which cluster, and which namespace: it scrolls away where the screen is short. */}
-        <div
-          data-context-row
-          className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-4"
-        >
-          <ClusterSwitcher chip />
-          <NamespacePicker chip clusterScoped={clusterScoped} />
-        </div>
+        {/* Where the screen is short it's the page's first thing, and scrolls away with it. */}
+        {!short && <ContextRow clusterScoped={clusterScoped} />}
       </>
     )
   }

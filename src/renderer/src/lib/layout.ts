@@ -59,6 +59,14 @@ export function useLayout(): Layout {
   return phone ? 'phone' : narrow ? 'tablet' : 'wide'
 }
 
+/**
+ * Whether the screen is short: a phone on its side. What says where you are then scrolls away
+ * with the page, and only the top bar stays.
+ */
+export function useShort(): boolean {
+  return useMedia('(height < 500px)')
+}
+
 /** Whether the page is used by touch: nothing may need a hover, and targets are a finger's size. */
 export function useTouch(): boolean {
   return useMedia(TOUCH)
