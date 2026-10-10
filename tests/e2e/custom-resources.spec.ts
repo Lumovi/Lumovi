@@ -241,7 +241,7 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(custom).toContainText('cert, certs')
   // Two kinds named Gateway, in two groups.
   await expect(custom.getByRole('row').filter({ hasText: 'Gateways' })).toHaveCount(2)
-  await expect(kubernetes).toContainText('ServiceAccounts')
+  await expect(kubernetes).toContainText('LimitRanges')
   await expect(kubernetes).toContainText('rbac.authorization.k8s.io/v1')
   await expect(kubernetes).toContainText('Pods')
   await expect(page.getByText(/\d+ views from Lumovi/)).toBeVisible()
@@ -269,25 +269,25 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(pinned).toHaveCount(0)
   await page.evaluate(() => (location.hash = '#/cluster/demo/api-resources'))
   await expect(pinned).toBeVisible()
-  await kubernetes.getByRole('button', { name: /^ServiceAccounts/ }).click()
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('ServiceAccounts')
-  await page.getByRole('button', { name: 'Pin ServiceAccounts to the sidebar' }).click()
-  await expect(sidebar(page).getByRole('link', { name: 'ServiceAccounts' })).toBeVisible()
-  await page.getByRole('button', { name: 'Unpin ServiceAccounts from the sidebar' }).click()
-  await expect(sidebar(page).getByRole('link', { name: 'ServiceAccounts' })).toHaveCount(0)
+  await kubernetes.getByRole('button', { name: /^Endpoints/ }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Endpoints')
+  await page.getByRole('button', { name: 'Pin Endpoints to the sidebar' }).click()
+  await expect(sidebar(page).getByRole('link', { name: 'Endpoints' })).toBeVisible()
+  await page.getByRole('button', { name: 'Unpin Endpoints from the sidebar' }).click()
+  await expect(sidebar(page).getByRole('link', { name: 'Endpoints' })).toHaveCount(0)
 
   // Kubernetes' other kinds come with the server's columns, and core schemas explain them.
-  await expect(headers(page, 'ServiceAccounts')).toHaveText(['', 'Name', 'Age'])
-  await openRow(page, 'ServiceAccounts', 'storefront')
-  const account = panel(page, 'ServiceAccount', 'storefront')
+  await expect(headers(page, 'Endpoints')).toHaveText(['', 'Name', 'Age'])
+  await openRow(page, 'Endpoints', 'storefront')
+  const endpoints = panel(page, 'Endpoints', 'storefront')
   await hoverForTooltip(
-    account.getByRole('tree', { name: 'Fields' }).getByText('automountServiceAccountToken'),
-    'API token automatically mounted',
+    endpoints.getByRole('tree', { name: 'Fields' }).getByText('subsets'),
+    'the union of all subsets',
   )
 
   // Kinds whose group the OpenAPI documents don't describe, or don't describe in full.
   for (const [label, name, kind] of <[string, string, string][]>[
-    ['ClusterRoles', 'view', 'ClusterRole'],
+    ['LimitRanges', 'defaults', 'LimitRange'],
     ['ControllerRevisions', 'postgres', 'ControllerRevision'],
   ]) {
     await sidebar(page).getByRole('link', { name: 'API resources' }).click()

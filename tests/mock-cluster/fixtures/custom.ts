@@ -838,16 +838,14 @@ export function demoCustomResources(b: Builder, now: number): void {
   karpenter(b, now)
   widgets(b)
   databases(b, now)
-  for (const namespace of ['default', 'shop']) {
-    b.simple('v1', 'ServiceAccount', 'default', namespace, 88 * DAY, {})
-  }
-  b.simple('v1', 'ServiceAccount', 'storefront', 'shop', 70 * DAY, {
-    automountServiceAccountToken: false,
+  // Kinds of Kubernetes' own that Lumovi has no page for: found through discovery.
+  b.simple('v1', 'Endpoints', 'storefront', 'shop', 88 * DAY, {
+    subsets: [{ addresses: [{ ip: '10.244.1.17' }], ports: [{ port: 8080, protocol: 'TCP' }] }],
   })
-  b.simple('v1', 'ServiceAccount', 'checkout', 'shop', 88 * DAY, {})
-  b.simple('rbac.authorization.k8s.io/v1', 'ClusterRole', 'view', undefined, 800 * DAY, {
-    rules: [{ apiGroups: [''], resources: ['pods', 'services'], verbs: ['get', 'list', 'watch'] }],
+  b.simple('v1', 'LimitRange', 'defaults', 'shop', 88 * DAY, {
+    spec: { limits: [{ type: 'Container', defaultRequest: { cpu: '100m', memory: '64Mi' } }] },
   })
+  accessControl(b)
 }
 
 /** Karpenter's CRDs, as it installs them on AWS. */
@@ -1419,4 +1417,90 @@ export function manyCustomResources(b: Builder): void {
       })
     }
   }
+}
+
+/**
+ * Who may do what: service accounts, roles and the bindings between them. Among them, what a
+ * page must still draw: a role with no rules, a binding to nobody, a subject of a kind
+ * nobody knows, an account with no secrets.
+ */
+function accessControl(b: Builder): void {
+  const RBAC = 'rbac.authorization.k8s.io/v1'
+  const role = (kind: 'Role' | 'ClusterRole', name: string) => ({
+    apiGroup: 'rbac.authorization.k8s.io',
+    kind,
+    name,
+  })
+  for (const namespace of ['default', 'shop']) {
+    b.simple('v1', 'ServiceAccount', 'default', namespace, 88 * DAY, {})
+  }
+  b.simple('v1', 'ServiceAccount', 'storefront', 'shop', 70 * DAY, {
+    automountServiceAccountToken: false,
+  })
+  b.simple('v1', 'ServiceAccount', 'checkout', 'shop', 88 * DAY, {
+    secrets: [{ name: 'checkout-token' }],
+    imagePullSecrets: [{ name: 'registry-pull' }],
+  })
+
+  b.simple(RBAC, 'ClusterRole', 'view', undefined, 800 * DAY, {
+    rules: [{ apiGroups: [''], resources: ['pods', 'services'], verbs: ['get', 'list', 'watch'] }],
+  })
+  b.simple(RBAC, 'ClusterRole', 'cluster-admin', undefined, 800 * DAY, {
+    rules: [
+      { apiGroups: ['*'], resources: ['*'], verbs: ['*'] },
+      { nonResourceURLs: ['*'], verbs: ['*'] },
+    ],
+  })
+  // Its rules are the cluster's to gather, from the roles its selector names: none yet.
+  b.simple(RBAC, 'ClusterRole', 'shop-admin', undefined, 88 * DAY, {
+    aggregationRule: {
+      clusterRoleSelectors: [
+        { matchLabels: { 'rbac.example.com/aggregate-to-shop-admin': 'true' } },
+      ],
+    },
+    rules: null,
+  })
+  b.simple(RBAC, 'Role', 'config-reader', 'shop', 70 * DAY, {
+    rules: [
+      { apiGroups: [''], resources: ['configmaps'], verbs: ['get', 'list', 'watch'] },
+      {
+        apiGroups: [''],
+        resources: ['secrets'],
+        resourceNames: ['payments-credentials'],
+        verbs: ['get'],
+      },
+      { apiGroups: ['batch'], resources: ['jobs'], verbs: ['create', 'delete'] },
+    ],
+  })
+  // (A role as `kubectl create role` leaves one that's given nothing: no rules at all.)
+  b.simple(RBAC, 'Role', 'nothing-yet', 'shop', 3 * DAY, {})
+
+  // A service account named without its namespace is the binding's own.
+  b.simple(RBAC, 'RoleBinding', 'checkout-reads-config', 'shop', 70 * DAY, {
+    roleRef: role('Role', 'config-reader'),
+    subjects: [{ kind: 'ServiceAccount', name: 'checkout' }],
+  })
+  b.simple(RBAC, 'RoleBinding', 'shop-viewers', 'shop', 60 * DAY, {
+    roleRef: role('ClusterRole', 'view'),
+    subjects: [
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'Group', name: 'shop-team' },
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'User', name: 'jane@example.com' },
+      { kind: 'ServiceAccount', name: 'storefront', namespace: 'shop' },
+    ],
+  })
+  b.simple(RBAC, 'RoleBinding', 'nobody-yet', 'shop', 3 * DAY, {
+    roleRef: role('Role', 'nothing-yet'),
+  })
+  b.simple(RBAC, 'ClusterRoleBinding', 'platform-admins', undefined, 800 * DAY, {
+    roleRef: role('ClusterRole', 'cluster-admin'),
+    subjects: [
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'Group', name: 'platform-team' },
+      // (A kind of subject no Kubernetes has: it's shown as it's written.)
+      { apiGroup: 'example.com', kind: 'Robot', name: 'deployer' },
+    ],
+  })
+  b.simple(RBAC, 'ClusterRoleBinding', 'checkout-views-everything', undefined, 70 * DAY, {
+    roleRef: role('ClusterRole', 'view'),
+    subjects: [{ kind: 'ServiceAccount', name: 'checkout', namespace: 'shop' }],
+  })
 }

@@ -51,8 +51,8 @@ const DEPLOYMENTS = [`${RELEASE}-prometheus-server`, `${RELEASE}-kube-state-metr
 
 /** The release's objects outside its namespace, which deleting the namespace leaves. */
 const CLUSTER_WIDE: [kind: AccessCheck['kind'], name: string][] = [
-  'ClusterRoleBinding.rbac.authorization.k8s.io',
-  'ClusterRole.rbac.authorization.k8s.io',
+  'ClusterRoleBinding',
+  'ClusterRole',
 ].flatMap((kind) =>
   [`${RELEASE}-server`, `${RELEASE}-kube-state-metrics`].map((name): [string, string] => [
     kind,
@@ -69,12 +69,8 @@ const STARTING = ['ContainerCreating', 'PodInitializing']
 /** What installing it creates (and removing it deletes), which the cluster must allow. */
 const NEEDS: { kind: AccessCheck['kind']; said: string; namespaced: boolean }[] = [
   { kind: 'Namespace', said: 'namespaces', namespaced: false },
-  { kind: 'ClusterRole.rbac.authorization.k8s.io', said: 'cluster roles', namespaced: false },
-  {
-    kind: 'ClusterRoleBinding.rbac.authorization.k8s.io',
-    said: 'cluster role bindings',
-    namespaced: false,
-  },
+  { kind: 'ClusterRole', said: 'cluster roles', namespaced: false },
+  { kind: 'ClusterRoleBinding', said: 'cluster role bindings', namespaced: false },
   { kind: 'Deployment', said: 'deployments', namespaced: true },
   { kind: 'Service', said: 'services', namespaced: true },
   { kind: 'ServiceAccount', said: 'service accounts', namespaced: true },

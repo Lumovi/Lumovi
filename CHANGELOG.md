@@ -20,6 +20,14 @@ All notable changes to Lumovi are documented here. The format follows
   else: no deleting, editing or shells there. Wherever the page is used by touch, what's pressed
   answers on at least 44 px and nothing needs a hover. Nothing scrolls sideways but a strip of
   tabs. The desktop app, whose window stops at 1024 px, is unchanged.
+- Service accounts, roles and bindings have pages of their own, under **Access control** in the
+  sidebar: Roles, Cluster Roles, Role Bindings, Cluster Role Bindings and Service Accounts, each
+  also in the command palette and `g` navigation (`g r`, `g k`, `g b`, `g g`, `g t`). A role's
+  rules read as a table of API groups, resources and verbs. The links go both ways: a binding
+  links its role and its subjects, a role lists the bindings that grant it and to whom, a
+  service account lists the bindings that name it and the role each grants, and a workload and
+  its pods link the service account they act as. Someone who may not list one of these kinds
+  is told so, on its page and in the panels that would have listed it.
 
 ## [1.21.0] - 2026-10-10
 

@@ -38,6 +38,11 @@ export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'f', target: 'ConfigMap' },
   { key: 'x', target: 'Secret' },
   { key: 'l', target: 'PersistentVolumeClaim' },
+  { key: 'r', target: 'Role' },
+  { key: 'k', target: 'ClusterRole' },
+  { key: 'b', target: 'RoleBinding' },
+  { key: 'g', target: 'ClusterRoleBinding' },
+  { key: 't', target: 'ServiceAccount' },
 ]
 
 /** ⌘/Ctrl + 1…6, also listed in the Go menu. */

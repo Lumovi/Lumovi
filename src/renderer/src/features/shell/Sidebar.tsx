@@ -70,9 +70,10 @@ export const CATEGORY_LABELS: Record<ResourceCategory, string> = {
   network: 'Network',
   config: 'Configuration',
   storage: 'Storage',
+  access: 'Access control',
 }
 
-const SIDEBAR_CATEGORIES: ResourceCategory[] = ['cluster', 'network', 'config', 'storage']
+const SIDEBAR_CATEGORIES: ResourceCategory[] = ['cluster', 'network', 'config', 'storage', 'access']
 
 const navItem = (isActive: boolean) =>
   cn(

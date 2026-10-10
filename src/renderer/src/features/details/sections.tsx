@@ -266,13 +266,25 @@ export function IngressRules({ ingress }: { ingress: KubeObject }) {
   return <SimpleTable headers={['Host', 'Path', 'Backend']} rows={rows} />
 }
 
-function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
+export function SimpleTable({
+  label,
+  headers,
+  rows,
+}: {
+  /** What the table is, said to whoever can't see it. */
+  label?: string
+  headers: string[]
+  rows: ReactNode[][]
+}) {
   const phone = useLayout() === 'phone'
   // On a phone a table is cards, one a row: what names the row, then its other columns side by
   // side, each under its heading.
   if (phone) {
     return (
-      <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+      <ul
+        aria-label={label}
+        className="divide-y divide-line overflow-hidden rounded-xl border border-line"
+      >
         {rows.map((row, i) => (
           <li key={i} className="px-3.5 py-2.5">
             <p className="font-mono text-xs font-medium wrap-anywhere text-ink-1 selectable">
@@ -296,7 +308,7 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][]
     // Columns share the width alike (a long host doesn't squeeze its path to nothing), and a
     // panel too narrow for them scrolls them sideways.
     <div className="overflow-x-auto rounded-xl border border-line">
-      <table className="w-full min-w-[36rem] table-fixed text-left text-[13px]">
+      <table aria-label={label} className="w-full min-w-[36rem] table-fixed text-left text-[13px]">
         <thead className="bg-surface-2 text-2xs tracking-wider text-ink-3 uppercase">
           <tr>
             {headers.map((h) => (
