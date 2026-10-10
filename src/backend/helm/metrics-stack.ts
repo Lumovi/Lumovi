@@ -220,7 +220,8 @@ export class MetricsStackService {
       const found = await this.kube.get({ context, kind, name })
       // Only this release's own, as Helm marked it: one of that name that someone else made, or
       // a release of this name in another namespace, stays.
-      const marks = found.ok ? found.data.metadata.annotations : undefined
+      if (!found.ok) continue
+      const marks = found.data.metadata.annotations
       if (marks?.[RELEASE_NAME] !== RELEASE || marks[RELEASE_NAMESPACE] !== NAMESPACE) continue
       const deleted = await this.kube.change({
         context,
