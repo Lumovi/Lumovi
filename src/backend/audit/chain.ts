@@ -78,13 +78,13 @@ export class ChainCheck {
     if (!this.#last) return undefined
     const last = this.#lasts.get(event.chain) ?? this.#last
     if (event.seq === 1 && event.prev === '') {
-      return `A new chain starts here, after event ${last.seq}: Lumovi started again without the events before it (they were removed, or couldn’t be read).`
+      return `A new chain starts here, after event ${last.seq}: Lumovi started again without the events before it (they were removed, or couldn’t be read), or two of Lumovi’s servers kept this history at once.`
     }
     if (!this.#lasts.has(event.chain)) {
       return 'It’s from another chain than the events before it: two of Lumovi’s servers kept their events here at once, or one was put in.'
     }
     if (event.seq <= last.seq) {
-      return `It’s number ${event.seq}, after number ${last.seq}: one was repeated, or moved.`
+      return `It’s number ${event.seq}, after number ${last.seq}: one was repeated, or moved, or two of Lumovi’s servers kept this history at once.`
     }
     if (event.seq !== last.seq + 1) {
       return event.seq === last.seq + 2
