@@ -6,7 +6,7 @@ import { Drawer } from '@renderer/components/Drawer'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
-import { useLayout } from '@renderer/lib/layout'
+import { useLayout, useShort } from '@renderer/lib/layout'
 import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { useClusterSettings } from '@renderer/hooks/settings'
@@ -23,7 +23,7 @@ import { DetailPanel } from '../details/DetailPanel'
 import { ReleasePanel } from '../helm/ReleasePanel'
 import { CommandPalette } from './CommandPalette'
 import { Commands } from './Commands'
-import { Header } from './Header'
+import { ContextRow, Header, usePage } from './Header'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { Sidebar } from './Sidebar'
 import { UsageSampler } from './UsageSampler'
@@ -75,6 +75,7 @@ export function ClusterLayout() {
                 tabIndex={-1}
                 className="min-w-0 flex-1 overflow-y-auto outline-none [view-transition-name:page]"
               >
+                <ShortContextRow />
                 <Outlet />
               </div>
               <DetailPanel />
@@ -111,6 +112,17 @@ function SidebarOrDrawer() {
       <Sidebar />
     </Drawer>
   )
+}
+
+/**
+ * Where a narrow page's screen is short (a phone on its side), which cluster and namespace it
+ * shows is the first thing in the page, and scrolls away with it: the top bar alone stays.
+ */
+function ShortContextRow() {
+  const narrow = useLayout() !== 'wide'
+  const short = useShort()
+  const { clusterScoped } = usePage()
+  return narrow && short ? <ContextRow clusterScoped={clusterScoped} /> : null
 }
 
 /** Keeps checking the connection and says so when the cluster stops answering. */
