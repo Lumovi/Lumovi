@@ -223,6 +223,9 @@ export class FileStore implements AuditStore {
     }
     // How long the file is once this is in it, from how long this Lumovi left it (asked of the
     // file only as a day starts): if another writes to it, the two no longer agree.
+    // (A write of its own that fails part-way leaves the file longer than this says. If its hold
+    // is ever in doubt after that, its own half line reads as another's, and it gives the
+    // history up though nobody else wrote: the safe side of a rare pair.)
     const size = this.#end?.day === day ? this.#end.size : sizeOf(path)
     appendFileSync(path, line, { mode: 0o600 })
     this.#end = { day, size: size + Buffer.byteLength(line) }
