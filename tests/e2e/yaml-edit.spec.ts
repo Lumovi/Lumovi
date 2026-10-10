@@ -8,13 +8,21 @@ import {
   elsewhere,
   linesAt,
   pathText,
-  removeAt,
-  setAt,
+  removeAt as tryRemove,
+  setAt as trySet,
   type Path,
 } from '../../src/renderer/src/lib/yaml-edit.ts'
 import { expect, test } from './fixtures.ts'
 
 const C = ['spec', 'template', 'spec', 'containers', 0] as const
+
+/** An edit that's made: `null` (it couldn't be, without writing the whole document again) fails the test. */
+function made(text: string | null): string {
+  if (text === null) throw new Error('The edit wasn’t made')
+  return text
+}
+const setAt = (...edit: Parameters<typeof trySet>) => made(trySet(...edit))
+const removeAt = (...edit: Parameters<typeof tryRemove>) => made(tryRemove(...edit))
 
 /** A Deployment as someone wrote it: comments, an order of their own, keys no form knows. */
 const WRITTEN = `# The shop's front end.
@@ -321,8 +329,8 @@ test('which lines a path is on', () => {
 
 test('what doesn’t parse, or holds several documents, is left as it is', () => {
   const broken = 'metadata:\n  name: [web\n'
-  expect(setAt(broken, ['metadata', 'name'], 'x')).toBe(broken)
-  expect(removeAt(broken, ['metadata', 'name'])).toBe(broken)
+  expect(trySet(broken, ['metadata', 'name'], 'x')).toBeNull()
+  expect(tryRemove(broken, ['metadata', 'name'])).toBeNull()
 })
 
 /**
