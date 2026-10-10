@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs: ${{ steps.what.outputs.docs }}
+      macos: ${{ steps.what.outputs.macos }}
       e2e: ${{ steps.what.outputs.e2e }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -320,7 +321,8 @@ jobs:
         with:
           name: coverage-${{ runner.os }}-${{ matrix.part }}
           path: coverage-${{ runner.os }}-${{ matrix.part }}.json
-          retention-days: 7
+          # Main's are borrowed by later runs (the coverage job): kept for a quiet month.
+          retention-days: ${{ github.ref == 'refs/heads/main' && 30 || 7 }}
       - name: Upload test report
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -333,9 +335,13 @@ jobs:
 
   coverage:
     name: Coverage (all platforms)
-    needs: e2e
+    needs: [changes, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # To read main's coverage (below).
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -349,6 +355,14 @@ jobs:
           pattern: coverage-*
           path: .nyc_output
           merge-multiple: true
+      # A change that touches nothing macOS does differently ran only the smoke set there, and so
+      # reached less than main does, having lost nothing. What only macOS reaches is taken from
+      # main's newest green run, so that the gate judges like with like.
+      - name: What macOS alone reaches, from main
+        if: needs.changes.outputs.macos == 'smoke'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/borrow-coverage.ts
       # One pass: the report, then the gate, from the report's one merged file.
       - name: Report, and require more than 95%
         run: |

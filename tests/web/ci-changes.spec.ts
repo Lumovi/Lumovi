@@ -5,6 +5,7 @@
  * is), and what's in them, then and now.
  */
 import { expect, test } from '@playwright/test'
+import { withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { plan } from '../../scripts/ci-changes.ts'
 
 /** A pull request changing `changed`, whose files hold `texts` (now, or then: deleted). */
@@ -88,6 +89,16 @@ test('macOS runs the smoke set for the rest; Linux and Windows always run everyt
   expect(result.said).toContain('macOS runs the smoke set')
 })
 
+test('a change to a file macOS covers, that asks nothing of the platform: the smoke set, and its borrowed coverage dropped', () => {
+  // The renderer's own file: macOS reaches it on main, as every platform does.
+  const path = 'src/renderer/src/features/overview/OverviewPage.tsx'
+  expect(macos(pr([path], { [path]: ['export function OverviewPage() {}', ''] }))).toEqual([
+    'smoke',
+  ])
+  const main = { [path]: { s: { 0: 9 } }, 'src/main/menu.ts': { s: { 0: 2 } } }
+  expect(Object.keys(withoutChanged(main, [path]))).toEqual(['src/main/menu.ts'])
+})
+
 test('main, a release’s pull request, and a run by hand run everything', () => {
   for (const result of [
     plan({ event: 'push', changed: ['README.md'] }),
@@ -98,4 +109,24 @@ test('main, a release’s pull request, and a run by hand run everything', () =>
     expect(result).toMatchObject({ everything: true, docs: false, macos: true })
     expect(result.e2e).toHaveLength(12)
   }
+})
+
+test('where macOS ran the smoke set, main’s macOS coverage is borrowed: not of files that changed', () => {
+  const main = {
+    'src/main/terminal-keys.ts': { s: { 0: 3 } },
+    'src/renderer/src/features/lists/ResourceList.tsx': { s: { 0: 1 } },
+    // (As Windows writes a path, should a run there ever be borrowed.)
+    'src\\main\\menu.ts': { s: { 0: 2 } },
+  }
+  // What only macOS reaches is what main reached; a file that isn't main's any more has other
+  // lines than its coverage counts, and this run's Linux and Windows speak for it.
+  expect(
+    Object.keys(
+      withoutChanged(main, [
+        'src/renderer/src/features/lists/ResourceList.tsx',
+        'src/main/menu.ts',
+      ]),
+    ),
+  ).toEqual(['src/main/terminal-keys.ts'])
+  expect(withoutChanged(main, [])).toEqual(main)
 })

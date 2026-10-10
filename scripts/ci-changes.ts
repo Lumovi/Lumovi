@@ -9,6 +9,10 @@
  *   and the test harness, or a file that asks which platform it's on); otherwise a short smoke
  *   set (tests/e2e/smoke.txt), as macOS runners are few.
  *
+ * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what only
+ *   macOS reaches is borrowed from main (scripts/borrow-coverage.ts), so the gate judges like
+ *   with like.
+ *
  * Main, a release's pull request (`release-*`) and a run by hand run everything.
  *
  *   node scripts/ci-changes.ts [changed files...]   (by default, HEAD's against its first parent)
@@ -104,14 +108,19 @@ if (import.meta.main) {
         })
           .split('\n')
           .filter(Boolean)
-  const { docs, e2e, said } = plan({
+  const { docs, macos, e2e, said } = plan({
     event: process.env.GITHUB_EVENT_NAME,
     branch: process.env.GITHUB_HEAD_REF,
     changed,
   })
   console.log(said)
   const output = process.env.GITHUB_OUTPUT
-  if (output) appendFileSync(output, `docs=${docs}\ne2e=${JSON.stringify({ include: e2e })}\n`)
+  if (output) {
+    appendFileSync(
+      output,
+      `docs=${docs}\nmacos=${macos ? 'full' : 'smoke'}\ne2e=${JSON.stringify({ include: e2e })}\n`,
+    )
+  }
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${said}\n`)
   }
