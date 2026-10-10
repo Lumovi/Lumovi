@@ -254,6 +254,88 @@ test('a detail is a page: which cluster, two actions at most, and its tabs', asy
   await expect(page.getByRole('menuitem', { name: /^Delete/ })).toBeVisible()
 })
 
+test('a link to another object is a finger’s size: alone, and one under another', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'ServiceAccount',
+    metadata: { name: 'deploys', namespace: 'shop' },
+    secrets: [{ name: 'deploys-token' }, { name: 'deploys-registry' }],
+  })
+  const served = await serve()
+  // A pod's node, its account and what owns it: each a line of text, reached from around it.
+  const pod = DEMO.pods.storefront[0]!
+  await signInNarrow(page, `${served.url}cluster/demo/pods?open=Pod/shop/${pod}`, DEMO_TOKEN)
+  const detail = page.getByRole('complementary', { name: `Pod ${pod}` })
+  const node = detail.getByRole('button', { name: /^Node\// })
+  await expectAPhonesPage(page, 'a pod’s page', async () => {
+    await expect(node).toBeVisible()
+    await expect(detail.getByRole('button', { name: 'ServiceAccount/storefront' })).toBeVisible()
+  })
+  // (Drawn no taller than its text: the row doesn't grow for it.)
+  expect((await node.boundingBox())!.height).toBeLessThan(20)
+  await node.tap()
+  await expect(page.getByRole('complementary', { name: /^Node / })).toBeVisible()
+
+  // Two in one value are a finger's height apart, so neither is pressed for the other.
+  await page.goto(`${served.url}cluster/demo/serviceaccounts?open=ServiceAccount/shop/deploys`)
+  const account = page.getByRole('complementary', { name: 'ServiceAccount deploys' })
+  const token = account.getByRole('button', { name: 'Secret/deploys-token' })
+  const registry = account.getByRole('button', { name: 'Secret/deploys-registry' })
+  await expectAPhonesPage(page, 'a service account’s page', async () => {
+    await expect(registry).toBeVisible()
+  })
+  expect((await registry.boundingBox())!.y - (await token.boundingBox())!.y).toBeGreaterThanOrEqual(
+    44,
+  )
+})
+
+test('a role’s rules are cards that say what its table says, and its bindings links to press', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(
+    page,
+    `${served.url}cluster/demo/roles?open=Role/shop/config-reader`,
+    DEMO_TOKEN,
+  )
+  const role = page.getByRole('complementary', { name: 'Role config-reader' })
+  const granted = role.getByRole('button', { name: 'RoleBinding/checkout-reads-config' })
+  await expectAPhonesPage(page, 'a role’s page', async () => {
+    await expect(granted).toBeVisible()
+  })
+  // A card a rule, with every column of the table's row: the names that narrow it among them.
+  await expect(role.getByRole('list', { name: 'Rules' }).getByRole('listitem')).toHaveText([
+    'API groups: coreResourcesconfigmapsVerbsgetlistwatch',
+    'API groups: coreResourcessecretsonly those named payments-credentialsVerbsget',
+    'API groups: batchResourcesjobsVerbscreatedelete',
+  ])
+  // Who it's granted to, and the way there: the first card's link, pressed from its edge.
+  const card = role.getByRole('list', { name: 'Granted by' }).getByRole('listitem')
+  await expect(card).toHaveText([
+    'Binding: RoleBinding/checkout-reads-configToServiceAccount shop/checkoutInshop',
+  ])
+  const box = (await granted.boundingBox())!
+  await page.touchscreen.tap(box.x + box.width / 2, box.y - 12)
+  await expect(
+    page.getByRole('complementary', { name: 'RoleBinding checkout-reads-config' }),
+  ).toBeVisible()
+  // A binding's subjects: an account that's an object is a link, on a line of its own.
+  const subjects = page
+    .getByRole('complementary', { name: 'RoleBinding checkout-reads-config' })
+    .getByRole('list', { name: 'Subjects' })
+  await expectAPhonesPage(page, 'a binding’s page', async () => {
+    await expect(page.getByRole('button', { name: 'ServiceAccount/checkout' }).last()).toBeVisible()
+  })
+  await expect(subjects.getByRole('listitem')).toHaveText([
+    'Kind: ServiceAccountNameServiceAccount/checkoutNamespaceshop',
+  ])
+})
+
 test('logs wrap, and what’s done to them is a finger’s size', async ({ page, serve }) => {
   const served = await serve()
   const pod = DEMO.pods.storefront[0]!
