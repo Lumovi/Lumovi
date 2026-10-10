@@ -127,6 +127,7 @@ export function Header() {
           <button
             type="button"
             aria-label="Menu"
+            data-opens="sidebar"
             onClick={() => setSidebar(true)}
             className={barButton}
           >

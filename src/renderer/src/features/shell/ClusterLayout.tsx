@@ -123,7 +123,12 @@ function SidebarOrDrawer() {
   useEffect(() => setOpen(false), [pathname, layout, setOpen])
   if (layout === 'wide') return <Sidebar />
   return (
-    <Drawer open={open} onOpenChange={setOpen} label="Sidebar">
+    <Drawer
+      open={open}
+      onOpenChange={setOpen}
+      label="Sidebar"
+      opener={() => document.querySelector<HTMLElement>('[data-opens="sidebar"]')}
+    >
       <Sidebar />
     </Drawer>
   )

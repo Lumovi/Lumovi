@@ -42,7 +42,7 @@ export function SearchInput({
   return (
     <label
       className={cn(
-        'flex h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft phone:h-11 phone:px-3 phone:[&>svg]:size-4',
+        'flex h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft phone:px-3 touch:h-11 phone:[&>svg]:size-4',
         className,
       )}
     >

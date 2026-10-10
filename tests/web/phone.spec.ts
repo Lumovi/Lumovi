@@ -118,7 +118,13 @@ test('a list is two lines an object, sorted from a sheet, and opens a page', asy
   await signInNarrow(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
   const list = page.getByRole('list', { name: 'Pods' })
   await expectAPhonesPage(page, 'the list of pods', async () => {
-    await expect(list.getByRole('listitem').first()).toBeVisible()
+    // (On its side a phone is as wide as a tablet, and has the table.)
+    await expect(
+      list
+        .getByRole('listitem')
+        .first()
+        .or(page.getByRole('grid', { name: 'Pods' })),
+    ).toBeVisible()
   })
   // No table: no header row to sort by, nothing to tick.
   await expect(page.getByRole('grid')).toHaveCount(0)
@@ -143,9 +149,9 @@ test('a list is two lines an object, sorted from a sheet, and opens a page', asy
   expect([...ascending].sort()).toEqual(ascending)
   // A tap opens it as a page with Back, which comes back to the list.
   await first.getByRole('button').click()
-  await expect(page.getByRole('button', { name: 'Back' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
   await expect(page.getByRole('complementary', { name: /^Pod / })).toBeVisible()
-  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
   await expect(page.getByRole('complementary', { name: /^Pod / })).toHaveCount(0)
   await expect(list).toBeVisible()
 })

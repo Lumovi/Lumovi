@@ -91,6 +91,9 @@ function Detail({
   const listName = useResource(target.kind).resource?.label ?? apiKindOf(target.kind)
   // Whether the object's own header has scrolled out from under the top bar (a phone's page).
   const page = useRef<HTMLDivElement>(null)
+  // The tab chosen, kept here: a phone turned on its side is a tablet, whose detail is laid out
+  // anew, and it shouldn't go back to the overview for that.
+  const [chosen, setChosen] = useState<{ of: string; tab: string }>()
   const header = useRef<HTMLDivElement>(null)
   const [scrolledAway, setScrolledAway] = useState(false)
   useEffect(() => {
@@ -114,7 +117,11 @@ function Detail({
       {object.isError && (
         <StaleNotice error={object.error as KubeApiError} onRetry={() => void object.refetch()} />
       )}
-      <DetailTabs object={object.data} />
+      <DetailTabs
+        object={object.data}
+        chosen={chosen?.of === formatRef(target) ? chosen.tab : undefined}
+        onChoose={(tab) => setChosen({ of: formatRef(target), tab })}
+      />
     </>
   )
 
@@ -150,7 +157,7 @@ function Detail({
                   .join(' · ')}
               />
             </p>
-            <div className="flex min-w-0 items-center gap-1 [&>button]:-my-2.5 [&>button]:-mr-2">
+            <div className="flex min-w-0 items-center gap-1 [&>button]:relative [&>button]:z-1 [&>button]:-my-2.5 [&>button]:-mr-2">
               <h2 className="line-clamp-2 min-w-0 flex-1 text-[17px] leading-snug font-semibold tracking-[-0.01em] wrap-anywhere selectable">
                 {title}
               </h2>
@@ -230,7 +237,16 @@ function Detail({
 const MAPLESS = new Set(['Event', 'Namespace'])
 const NOT_ON_A_PHONE = new Set(['shell', 'map'])
 
-function DetailTabs({ object }: { object: KubeObject }) {
+function DetailTabs({
+  object,
+  chosen,
+  onChoose,
+}: {
+  object: KubeObject
+  /** The tab chosen before the detail was laid out anew, if one was. */
+  chosen?: string
+  onChoose: (tab: string) => void
+}) {
   const kind = kindOf(object)
   const { context } = useCluster()
   // A view's pods are the ones it relates the object to; other related kinds get a tab each.
@@ -245,7 +261,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
   const editing = useActionsUi((state) => state.editing === ref)
   const requested = useActionsUi((state) => (state.tab?.ref === ref ? state.tab.tab : null))
   const tabShown = useActionsUi((state) => state.tabShown)
-  const [tab, setTab] = useState(requested ?? 'overview')
+  const [tab, setTab] = useState(requested ?? chosen ?? 'overview')
   // Editing happens in the YAML tab, and stays there until it's saved or cancelled.
   if (editing && tab !== 'yaml') setTab('yaml')
   // Actions like "Shell" ask for a tab; the request is done once it shows.
@@ -288,7 +304,9 @@ function DetailTabs({ object }: { object: KubeObject }) {
     <Tabs
       value={shown}
       onValueChange={(value) => {
-        if (!editing) setTab(value)
+        if (editing) return
+        setTab(value)
+        onChoose(value)
       }}
       className="flex min-h-0 flex-1 flex-col phone:min-h-[calc(100dvh-52px)] phone:flex-none"
     >
