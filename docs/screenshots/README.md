@@ -179,7 +179,7 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [![Scaling a deployment, with what will change.](scale-light-1x.webp)](scale-light.webp) | [![Scaling a deployment, with what will change.](scale-dark-1x.webp)](scale-dark.webp) |
 
-### Create from YAML
+### Create
 
 `create`: Creating resources from YAML, checked as it's typed.
 

@@ -295,13 +295,10 @@ test('a field in error is said under it as it’s typed, with its lines marked',
     'Lowercase letters, digits and “-”, starting and ending with a letter or digit. The container takes the same name.',
   )
   await expect(field(page, 'Name')).toHaveAttribute('aria-invalid', 'true')
-  // Every line it writes: a workload's name is also its labels' and its container's.
-  await expect(lines(page, 'wrong')).toHaveText([
-    '  name: Web_API',
-    '      app: Web_API',
-    '        app: Web_API',
-    '        - name: Web_API',
-  ])
+  // Where it's a name: the object's and its container's. Its app labels took it too, and
+  // what can't be a name can still be a label's value: those lines aren't wrong.
+  await expect(lines(page, 'wrong')).toHaveText(['  name: Web_API', '        - name: Web_API'])
+  expect(await yaml(page)).toContain('      app: Web_API\n')
   await expect(status(page)).toHaveText('1 field to fix before it can be created.')
   await expect(create(page)).toBeDisabled()
   // Enter creates nothing either.
