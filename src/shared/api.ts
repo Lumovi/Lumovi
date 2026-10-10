@@ -457,6 +457,20 @@ export interface KubeError {
   code: KubeErrorCode
   message: string
   status?: number
+  /**
+   * What the API server found wrong, field by field (its Status' `details.causes`), where it
+   * says: a refused object's fields, by their paths. An admission webhook's refusal has none.
+   */
+  causes?: KubeErrorCause[]
+}
+
+/** One thing wrong with an object, as the API server says it. */
+export interface KubeErrorCause {
+  /** `spec.template.spec.containers[0].image`: often the parent of what's wrong. */
+  field?: string
+  message: string
+  /** `FieldValueInvalid`, `FieldValueRequired`… */
+  reason?: string
 }
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: KubeError }
