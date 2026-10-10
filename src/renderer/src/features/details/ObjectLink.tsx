@@ -1,4 +1,5 @@
 import { apiKindOf, isBuiltinKind, kindFor } from '@shared/resources'
+import { cn } from '@renderer/lib/cn'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { resourceFor, useResources } from '@renderer/hooks/resources'
 
@@ -13,11 +14,14 @@ export function ObjectLink({
   kind,
   name,
   namespace,
+  inText = false,
 }: {
   apiVersion?: string
   kind: string
   name: string
   namespace?: string
+  /** One of several in a sentence: under a finger its reach is its line, not a finger's height. */
+  inText?: boolean
 }) {
   const open = useOpenObject()
   // Re-renders once discovery says which kinds the cluster serves.
@@ -37,7 +41,13 @@ export function ObjectLink({
     <button
       type="button"
       onClick={() => open(target, name, namespace)}
-      className="text-left font-mono text-xs wrap-anywhere text-accent-strong hover:underline touch:finger"
+      data-in-text={inText || undefined}
+      className={cn(
+        'text-left font-mono text-xs wrap-anywhere text-accent-strong hover:underline',
+        inText
+          ? 'touch:relative touch:before:absolute touch:before:inset-x-0 touch:before:-inset-y-1'
+          : 'touch:finger',
+      )}
     >
       {label}
     </button>

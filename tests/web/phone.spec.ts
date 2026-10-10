@@ -291,6 +291,19 @@ test('a link to another object is a finger’s size: alone, and one under anothe
   expect((await registry.boundingBox())!.y - (await token.boundingBox())!.y).toBeGreaterThanOrEqual(
     44,
   )
+
+  // With room for a table (a tablet), its rows of links are a finger's height apart too.
+  await page.setViewportSize({ width: 768, height: 1024 })
+  await page.goto(`${served.url}cluster/demo/serviceaccounts?open=ServiceAccount/shop/storefront`)
+  const bindings = page
+    .getByRole('complementary', { name: 'ServiceAccount storefront' })
+    .getByRole('table', { name: 'Bindings' })
+  await expect(bindings.getByRole('row')).toHaveCount(4)
+  const tops = await bindings
+    .getByRole('button', { name: /^RoleBinding\// })
+    .evaluateAll((links) => links.map((link) => link.getBoundingClientRect().top))
+  for (const [i, top] of tops.entries())
+    if (i > 0) expect(top - tops[i - 1]!).toBeGreaterThanOrEqual(44)
 })
 
 test('a role’s rules are cards that say what its table says, and its bindings links to press', async ({
@@ -309,16 +322,27 @@ test('a role’s rules are cards that say what its table says, and its bindings 
     await expect(granted).toBeVisible()
   })
   // A card a rule, with every column of the table's row: the names that narrow it among them.
-  await expect(role.getByRole('list', { name: 'Rules' }).getByRole('listitem')).toHaveText([
-    'API groups: coreResourcesconfigmapsVerbsgetlistwatch',
-    'API groups: coreResourcessecretsonly those named payments-credentialsVerbsget',
-    'API groups: batchResourcesjobsVerbscreatedelete',
+  // A rule has no name: its API groups are a fact like the others.
+  const rules = role.getByRole('list', { name: 'Rules' }).getByRole('listitem')
+  await expect(rules).toHaveText([
+    'API groupscoreResourcesconfigmapsVerbsgetlistwatch',
+    'API groupscoreResourcessecretsonly those named payments-credentialsVerbsget',
+    'API groupsbatchResourcesjobsVerbscreatedelete',
   ])
+  // No name is broken while there's a line for it: one fact a line, where one wouldn't fit.
+  const named = rules.nth(1).getByText('payments-credentials')
+  expect((await named.boundingBox())!.height).toBeLessThan(20)
+  const facts = await rules
+    .nth(1)
+    .locator('dt')
+    .evaluateAll((all) => all.map((dt) => dt.getBoundingClientRect().left))
+  expect(new Set(facts).size).toBe(1)
   // Who it's granted to, and the way there: the first card's link, pressed from its edge.
   const card = role.getByRole('list', { name: 'Granted by' }).getByRole('listitem')
   await expect(card).toHaveText([
     'Binding: RoleBinding/checkout-reads-configToServiceAccount shop/checkoutInshop',
   ])
+  await granted.scrollIntoViewIfNeeded()
   const box = (await granted.boundingBox())!
   await page.touchscreen.tap(box.x + box.width / 2, box.y - 12)
   await expect(

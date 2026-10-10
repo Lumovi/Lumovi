@@ -78,6 +78,7 @@ export function RulesSection({ object }: { object: KubeObject }) {
         ) : (
           <SimpleTable
             fits
+            named={false}
             label="Rules"
             headers={['API groups', 'Resources', 'Verbs']}
             rows={rules.map((rule) =>
@@ -249,18 +250,18 @@ function BoundBy({ role }: { role: KubeObject }) {
       ]}
     >
       {into.length > 0 && (
-        // (Under a finger, two links on two lines are a finger's height apart.)
+        // (Under a finger, a sentence with two links has taller lines, and each link its line.)
         <p
           className={cn(
             'mt-2 text-[13px] leading-[21px] text-ink-2',
-            into.length > 1 && 'touch:leading-[44px]',
+            into.length > 1 && 'touch:leading-6',
           )}
         >
           Its rules are also part of{' '}
           {into.map((other, i) => (
             <span key={other.metadata.name}>
               {i > 0 && (i === into.length - 1 ? ' and ' : ', ')}
-              <ObjectLink kind="ClusterRole" name={other.metadata.name} />
+              <ObjectLink kind="ClusterRole" name={other.metadata.name} inText={into.length > 1} />
             </span>
           ))}
           , which {into.length === 1 ? 'gathers' : 'gather'} them: whoever{' '}
