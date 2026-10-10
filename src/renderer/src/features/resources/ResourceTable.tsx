@@ -21,7 +21,9 @@ import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { RowActions } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { menuContent, menuItem } from '../shell/menu-styles'
+import { useLayout } from '@renderer/lib/layout'
 import type { CellContext, Column } from './columns'
+import { ResourceRows } from './ResourceRows'
 
 const ROW_HEIGHT = 46
 /** The checkbox column of tables that can pick rows. */
@@ -57,28 +59,7 @@ export function fitColumns(columns: Column[], width: number): Column[] {
   return visible
 }
 
-/**
- * A virtualized, keyboard-driven data grid. The grid itself takes focus and
- * tracks an active row (aria-activedescendant): arrow keys or j/k move it,
- * Enter opens it, and ←/→ ask for the previous/next page.
- */
-export function ResourceTable({
-  ref,
-  label,
-  columns,
-  rows,
-  ctx,
-  selected,
-  sort,
-  onSort,
-  onOpen,
-  onPage,
-  followSelection = false,
-  resetKey,
-  picked,
-  onPick,
-  rowKey = objectKey,
-}: {
+export interface ResourceTableProps {
   ref?: Ref<HTMLDivElement>
   label: string
   columns: Column[]
@@ -99,7 +80,38 @@ export function ResourceTable({
   onPick?: (keys: Set<string>) => void
   /** Each row's identity, for selection and picking: `namespace/name` unless kinds mix. */
   rowKey?: (object: KubeObject) => string
-}) {
+}
+
+/**
+ * A list of objects: a grid with a column for each thing worth knowing where there's room, and
+ * on a phone two lines an object (ResourceRows), from the same columns.
+ */
+export function ResourceTable(props: ResourceTableProps) {
+  return useLayout() === 'phone' ? <ResourceRows {...props} /> : <ResourceGrid {...props} />
+}
+
+/**
+ * A virtualized, keyboard-driven data grid. The grid itself takes focus and
+ * tracks an active row (aria-activedescendant): arrow keys or j/k move it,
+ * Enter opens it, and ←/→ ask for the previous/next page.
+ */
+function ResourceGrid({
+  ref,
+  label,
+  columns,
+  rows,
+  ctx,
+  selected,
+  sort,
+  onSort,
+  onOpen,
+  onPage,
+  followSelection = false,
+  resetKey,
+  picked,
+  onPick,
+  rowKey = objectKey,
+}: ResourceTableProps) {
   const id = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(ref, () => scrollRef.current!, [])
