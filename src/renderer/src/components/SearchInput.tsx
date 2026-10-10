@@ -42,7 +42,7 @@ export function SearchInput({
   return (
     <label
       className={cn(
-        'flex h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
+        'flex h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft phone:h-11 phone:px-3 phone:[&>svg]:size-4',
         className,
       )}
     >
@@ -72,13 +72,14 @@ export function SearchInput({
           type="button"
           aria-label="Clear filter"
           onClick={() => change('')}
-          className="grid size-4 place-items-center rounded-full bg-ink-3/30 text-ink-1 hover:bg-ink-3/50"
+          className="grid size-4 place-items-center rounded-full bg-ink-3/30 text-ink-1 hover:bg-ink-3/50 touch:finger"
         >
           <X className="size-3" />
         </button>
       ) : (
         hint && (
-          <span className="peer-focus:hidden">
+          // (A key to press: of no use to a finger.)
+          <span className="peer-focus:hidden touch:hidden">
             <Kbd>/</Kbd>
           </span>
         )

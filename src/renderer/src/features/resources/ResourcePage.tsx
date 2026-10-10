@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import { Info, Pin, PinOff, SearchX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
@@ -33,8 +34,16 @@ import {
   sortRows,
   type CellContext,
 } from './columns'
+import { SearchInput } from '@renderer/components/SearchInput'
 import { useListState } from './list-state'
-import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from './ListToolbar'
+import {
+  countBy,
+  HealthChips,
+  LabelSelector,
+  ListBar,
+  SortButton,
+  type LabelSelectorHandle,
+} from './ListToolbar'
 import { Pagination } from './Pagination'
 import { ResourceTable } from './ResourceTable'
 import { TableSkeleton } from './TableSkeleton'
@@ -94,6 +103,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     : undefined
   const [state, update] = useListState(builtinColumns?.defaultSort ?? 'status')
   const gridRef = useRef<HTMLDivElement>(null)
+  const phone = useLayout() === 'phone'
   // Rows picked for bulk actions, for this list only.
   const scopeKey = `${kind}/${namespace}`
   const [picked, setPicked] = useState<{ scope: string; keys: ReadonlySet<string> }>({
@@ -232,28 +242,62 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     <div className="relative flex h-full flex-col">
       {isWorkloadType(kind) && <WorkloadTabs current={kind} />}
       {addOn && <AddOnTabs served={addOn} current={kind} />}
-      <ListBar
-        count={`${number.format(items.length)} ${items.length === 1 ? 'item' : 'items'}`}
-        chips={
-          counts.size > 0 && (
+      {phone ? (
+        // On a phone: the filter with its two buttons, then what's listed and how it's doing.
+        <div className="shrink-0 border-b border-line px-4 pt-3">
+          <div className="flex gap-2">
+            <SearchInput
+              value={state.q}
+              onChange={(q) => update({ q })}
+              onArrowDown={() => gridRef.current?.focus()}
+              placeholder={`Filter ${noun}`}
+              className="min-w-0 flex-1"
+            />
+            <LabelSelector
+              ref={labelsRef}
+              value={state.labels}
+              onApply={(labels) => update({ labels })}
+              compact
+            />
+            <SortButton columns={columns} sort={{ id: column.id, desc }} onSort={onSort} />
+          </div>
+          <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-4 py-2">
+            <span className="mr-1 text-[13px] text-ink-2">
+              <span className="tabular-nums">{number.format(items.length)}</span>{' '}
+              {items.length === 1 ? 'item' : 'items'}
+            </span>
             <HealthChips
               counts={counts}
               active={state.health}
               onToggle={toggleHealth}
               name={(health) => healthName(kind, health)}
             />
-          )
-        }
-        before={!builtin && <PinButton kind={kind} label={resource.label} />}
-        note={metrics.data?.available === false ? 'Live usage needs metrics-server' : undefined}
-        labels={state.labels}
-        onLabels={(labels) => update({ labels })}
-        labelsRef={labelsRef}
-        filter={state.q}
-        noun={noun}
-        onFilter={(q) => update({ q })}
-        onArrowDown={() => gridRef.current?.focus()}
-      />
+          </div>
+        </div>
+      ) : (
+        <ListBar
+          count={`${number.format(items.length)} ${items.length === 1 ? 'item' : 'items'}`}
+          chips={
+            counts.size > 0 && (
+              <HealthChips
+                counts={counts}
+                active={state.health}
+                onToggle={toggleHealth}
+                name={(health) => healthName(kind, health)}
+              />
+            )
+          }
+          before={!builtin && <PinButton kind={kind} label={resource.label} />}
+          note={metrics.data?.available === false ? 'Live usage needs metrics-server' : undefined}
+          labels={state.labels}
+          onLabels={(labels) => update({ labels })}
+          labelsRef={labelsRef}
+          filter={state.q}
+          noun={noun}
+          onFilter={(q) => update({ q })}
+          onArrowDown={() => gridRef.current?.focus()}
+        />
+      )}
 
       {totals?.truncated && (
         <p

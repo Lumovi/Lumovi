@@ -17,7 +17,7 @@ const trigger =
  * are what a finger gets (the chip's own before reaches them).
  */
 export const contextChip =
-  'relative flex h-8 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 text-[13px] font-medium text-ink-1 before:absolute before:-inset-x-1 before:-inset-y-1.5'
+  'finger flex h-8 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 text-[13px] font-medium text-ink-1'
 
 export function NamespacePicker({
   clusterScoped,
