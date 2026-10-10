@@ -593,6 +593,16 @@ function WorkloadFields({
     namespace: values.namespace || start,
     enabled: has('serviceName'),
   })
+  const headless = (services.data ?? [])
+    .filter((service) => dig(service, ['spec', 'clusterIP']) === 'None')
+    .map((service) => service.metadata.name)
+    .sort()
+  const others = (services.data ?? [])
+    .map((service) => service.metadata.name)
+    .filter((name) => !headless.includes(name))
+    .sort()
+  /** Whether the Service the YAML names is one of them (or it names none). */
+  const named = values.serviceName === '' || [...headless, ...others].includes(values.serviceName)
   const classes = useList('StorageClass', { namespace: null, enabled: has('storage') })
   // Rows for variables that aren't in the YAML yet: one is, once it has a name.
   const [drafts, setDrafts] = useState(0)
@@ -779,33 +789,50 @@ function WorkloadFields({
               on={on('serviceName')}
               error={said('serviceName')}
             >
-              {(ids) => (
-                <Choice
-                  aria-labelledby={ids.label}
-                  aria-describedby={`${ids.describedBy} create-service-said`}
-                  value={values.serviceName}
-                  bad={said('serviceName') !== undefined}
-                  onChange={(event) => {
-                    const chosen = event.target.value
-                    edit((text) => write.serviceName(text, chosen))
-                  }}
-                  {...focused('serviceName')}
-                >
-                  {values.serviceName === '' && <option value="">Choose…</option>}
-                  {[
-                    ...new Set([
-                      ...(services.data ?? []).map((service) => service.metadata.name),
-                      ...(values.serviceName ? [values.serviceName] : []),
-                    ]),
-                  ]
-                    .sort()
-                    .map((name) => (
+              {(ids) =>
+                // With no Service there to choose, its name is typed: it can be made after.
+                services.data?.length === 0 ? (
+                  <Text
+                    aria-labelledby={ids.label}
+                    aria-describedby={`${ids.describedBy} create-service-said`}
+                    aria-invalid={said('serviceName') !== undefined}
+                    value={values.serviceName}
+                    bad={said('serviceName') !== undefined}
+                    onChange={(typed) => edit((text) => write.serviceName(text, typed))}
+                    {...focused('serviceName')}
+                  />
+                ) : (
+                  <Choice
+                    aria-labelledby={ids.label}
+                    aria-describedby={`${ids.describedBy} create-service-said`}
+                    value={values.serviceName}
+                    bad={said('serviceName') !== undefined}
+                    onChange={(event) => {
+                      const chosen = event.target.value
+                      edit((text) => write.serviceName(text, chosen))
+                    }}
+                    {...focused('serviceName')}
+                  >
+                    {values.serviceName === '' && <option value="">Choose…</option>}
+                    {/* The headless ones first, being what it asks for; with them, a name the
+                        YAML has that no Service there does. */}
+                    {[...headless, ...(named ? [] : [values.serviceName])].sort().map((name) => (
                       <option key={name} value={name}>
                         {name}
                       </option>
                     ))}
-                </Choice>
-              )}
+                    {others.length > 0 && (
+                      <optgroup label="Not headless">
+                        {others.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </Choice>
+                )
+              }
             </Labelled>
           )}
         </div>
@@ -825,10 +852,12 @@ function WorkloadFields({
           error={said('schedule')}
           help={
             schedule?.ok
-              ? schedule.words
-                ? // (Its clock is the cluster's controller manager's, unless the YAML says whose.)
-                  `${schedule.words}, in ${shown(dig(object, ['spec', 'timeZone'])) || 'the cluster’s time zone (usually UTC)'}.`
-                : 'A valid schedule, though not one this can put into words. Check it against what you meant.'
+              ? schedule.never
+                ? schedule.never
+                : schedule.words
+                  ? // (Its clock is the cluster's controller manager's, unless the YAML says whose.)
+                    `${schedule.words}, in ${shown(dig(object, ['spec', 'timeZone'])) || 'the cluster’s time zone (usually UTC)'}.`
+                  : 'A valid schedule, though not one this can put into words. Check it against what you meant.'
               : 'Five fields, as cron has them: minute, hour, day of the month, month, day of the week.'
           }
         >
