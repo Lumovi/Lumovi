@@ -12,9 +12,9 @@
  * object's actions): but it's this that holds, whatever a page shows, by a key, the palette or
  * an address.
  *
- * It's a rule of the phone's interface, not a wall: the server can't know how wide a screen
- * is, and what protects a cluster is what always does (its RBAC, Lumovi's access and read-only
- * mode). Nothing on a phone is laxer than on a larger screen: only narrower.
+ * It's a rule of the phone's interface, not a security boundary: the server can't know how
+ * wide a screen is, and what protects a cluster is what always does (its RBAC, Lumovi's access
+ * and read-only mode). Nothing on a phone is laxer than on a larger screen: only narrower.
  */
 import { IPC, type ChangeRequest } from '@shared/api'
 import { LAYOUT_WIDTHS } from '@renderer/lib/layout'
