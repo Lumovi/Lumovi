@@ -213,7 +213,7 @@ function KindTable({
                         label={isPinned ? `Unpin ${resource.label}` : `Pin ${resource.label}`}
                         data-pinned={isPinned || undefined}
                         onClick={() => setPinned(resource.kind, !isPinned)}
-                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-pinned:opacity-100"
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-pinned:opacity-100 touch:opacity-100"
                       >
                         {isPinned ? <PinOff /> : <Pin />}
                       </IconButton>

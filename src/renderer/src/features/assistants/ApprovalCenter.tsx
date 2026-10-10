@@ -348,7 +348,7 @@ function ApprovalDialog({
               <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
                 {proposal.command}
               </code>
-              <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                 <CopyButton text={proposal.command} label="Copy command" />
               </span>
             </div>

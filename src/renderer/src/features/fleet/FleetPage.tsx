@@ -720,7 +720,7 @@ function CardMenu({
       <DropdownMenu.Trigger asChild>
         <IconButton
           label={`${title ?? name}’s actions`}
-          className="absolute top-3 right-2.5 size-7 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          className="absolute top-3 right-2.5 size-7 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 touch:opacity-100"
         >
           <Ellipsis />
         </IconButton>

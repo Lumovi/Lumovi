@@ -366,6 +366,16 @@
   }
 }
 
+/*
+ * On a phone, what's typed into is set at 16 px: under that, iOS zooms the whole page in as a
+ * field takes focus. (Unlayered, so it holds whatever size a field's own classes give it.)
+ */
+@media (width < 640px) {
+  [data-host='server'] :is(input, textarea, select) {
+    font-size: 16px;
+  }
+}
+
 @utility drag {
   -webkit-app-region: drag;
 }
