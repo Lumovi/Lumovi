@@ -1,4 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
+import { layoutMap, ranks } from '../../src/renderer/src/lib/map-layout.ts'
+import type { MapGraph, MapNode } from '../../src/renderer/src/lib/map.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { open } from './action-helpers.ts'
 import { CONTEXTS, DEMO, expect, goTo, LARGE, openCluster, panel, test } from './fixtures.ts'
@@ -766,7 +768,13 @@ test('a custom resource that owns its pods and what selects them has a map, from
     ['Volume Claims', 'PersistentVolumeClaim', 'Volume claim', 'pg-1'],
     ['Deployments', 'Deployment', 'Deployment', 'pg-client'],
   ] as const) {
-    const detail = await openMap(page, list, kind, name)
+    const detail = await openMap(page, list, kind, name).catch(async (error: unknown) => {
+      // What the view said in the map's place, if it said anything.
+      const alert = page.getByRole('alert')
+      throw (await alert.count()) > 0
+        ? new Error(`${kind} ${name}: ${await alert.first().innerText()}`)
+        : error
+    })
     await openAll(detail)
     await expect(own(detail, label, name), `${kind} ${name}`).toBeVisible()
     await expect(page.getByRole('alert')).toHaveCount(0)
@@ -785,6 +793,49 @@ test('a custom resource that owns its pods and what selects them has a map, from
   await card(cluster, 'Secret pg-superuser').click()
   await expect(own(panel(page, 'Secret', 'pg-superuser'), 'Secret', 'pg-superuser')).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+test('whatever leads round in circles, every row has a card and every line is drawn', () => {
+  // Graphs of a few nodes with lines every which way, the same ones each run.
+  let seed = 207
+  const random = (below: number) => {
+    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648
+    return seed % below
+  }
+  const relations = ['owns', 'selects', 'uses'] as const
+  let circled = 0
+  for (let n = 0; n < 4000; n++) {
+    const ids = Array.from({ length: 3 + random(5) }, (_, i) => `n${i}`)
+    const nodes = new Map(ids.map((id): [string, MapNode] => [id, { id, kind: 'Pod', name: id }]))
+    const edges = new Map<string, MapGraph['edges'][number]>()
+    for (let e = 2 + random(ids.length * 2); e > 0; e--) {
+      const from = ids[random(ids.length)]!
+      const to = ids[random(ids.length)]!
+      if (from !== to) edges.set(`${from}>${to}`, { from, to, relation: relations[random(3)]! })
+    }
+    const graph: MapGraph = { nodes, edges: [...edges.values()], focus: 'n0' }
+    const said = JSON.stringify(graph.edges.map((e) => `${e.from}>${e.to}`))
+    if (graph.edges.some((e) => edges.has(`${e.to}>${e.from}`))) circled += 1
+
+    const rows = ranks(graph)
+    const used = [...new Set(rows.values())].sort((a, b) => a - b)
+    expect(used, said).toEqual(used.map((_, i) => i))
+    const layout = layoutMap(graph, 100_000, new Set())
+    expect(layout.cards, said).toHaveLength(ids.length)
+    for (const { from, to } of graph.edges) {
+      // Two cards with a line between them aren't side by side, where it couldn't be drawn.
+      expect(rows.get(from), `${from} and ${to} of ${said}`).not.toBe(rows.get(to))
+      expect(
+        layout.edges.some(
+          (line) =>
+            (line.from === from && line.to === to) || (line.from === to && line.to === from),
+        ),
+        `${from} to ${to} of ${said}`,
+      ).toBe(true)
+    }
+  }
+  // Circles were among them, and not a few.
+  expect(circled).toBeGreaterThan(1000)
 })
 
 test('Secrets it can’t list are there, unknown', async ({ page, clusters }) => {

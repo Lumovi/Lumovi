@@ -119,10 +119,22 @@ function circleIn(graph: MapGraph, edges: MapEdge[]): MapEdge[] | undefined {
 
 /**
  * Each node's row: one below everything that leads to it; sources just above what they lead
- * to. No row is empty, whatever the edges.
+ * to. No row is empty, whatever the edges, and no two nodes with a line between them share one.
  */
 export function ranks(graph: MapGraph): Map<string, number> {
-  const edges = downward(graph)
+  let edges = downward(graph)
+  for (;;) {
+    const rank = rowsBy(graph, edges)
+    // Where circles share a line, what was left out of each can leave two related nodes
+    // level, with nothing to say which is above: then the line left out says it, turned round.
+    const level = graph.edges.find((e) => e.from !== e.to && rank.get(e.from) === rank.get(e.to))
+    if (!level) return rank
+    edges = [...edges, { ...level, from: level.to, to: level.from }]
+  }
+}
+
+/** Rows by `edges`, which lead round in no circle. */
+function rowsBy(graph: MapGraph, edges: MapEdge[]): Map<string, number> {
   const rank = new Map([...graph.nodes.keys()].map((id) => [id, 0]))
   // Longest paths: with no circles, at most as many rounds as there are nodes.
   for (let round = 0; round < graph.nodes.size; round++) {
@@ -251,7 +263,8 @@ export function layoutMap(graph: MapGraph, width: number, open: ReadonlySet<numb
       PlacedCard,
       PlacedCard,
     ]
-    if (from.y === to.y) continue
+    // One card both ways: a node's line to itself, or two nodes behind one “+N more”.
+    if (from === to) continue
     pairs.set(`${from.key}>${to.key}`, pairs.get(`${from.key}>${to.key}`) ?? { from, to, edge })
   }
   const center = (card: PlacedCard) => card.x + card.width / 2
