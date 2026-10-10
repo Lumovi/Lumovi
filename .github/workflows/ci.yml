@@ -554,12 +554,38 @@ jobs:
             test-results-integration/
           retention-days: 7
 
+  # What rests on how a browser's engine draws something, in the two engines the suite doesn't
+  # otherwise run: a Secret's value, typed while values are hidden, is drawn as dots by CSS
+  # that each engine honours in its own way. A server's page is opened in any of them.
+  browsers:
+    name: Browsers (Firefox, WebKit)
+    needs: [changes, checks]
+    if: needs.changes.outputs.docs != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install the three browsers
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run build
+      - name: Run what's drawn differently by engine
+        env:
+          # Here, a browser that isn't installed or doesn't start fails its test.
+          LUMOVI_E2E_BROWSERS: all
+        run: npx playwright test --project=web tests/web/create.spec.ts --grep "typed while hidden"
+
   # One check for the main branch's ruleset to require: whether every job above passed (theirs
   # are many, and change with the matrix).
   passed:
     name: CI passed
     if: always()
-    needs: [changes, checks, e2e, coverage, package, integration]
+    needs: [changes, checks, e2e, coverage, package, integration, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

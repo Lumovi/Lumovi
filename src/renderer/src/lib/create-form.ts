@@ -1586,6 +1586,11 @@ function secrets(text: string): [number, number][] | undefined {
         // A kind that's said elsewhere, or a map that takes a Secret's keys from elsewhere,
         // may be a Secret without saying so here.
         if (isAlias(kind)) apart = false
+        // Nor is a key that's an alias one that can be read here: `*k` may be `stringData`.
+        if (map.items.some((pair) => isAlias(pair.key))) {
+          const read = map.toJS(document) as { kind?: unknown } | null
+          if (read?.kind === 'Secret') apart = false
+        }
         if (merges(map)) {
           const SECRETS = ['kind', 'data', 'stringData']
           const from = map.items

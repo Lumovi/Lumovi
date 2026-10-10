@@ -1,7 +1,6 @@
 /**
  * Create, served: its form is there, as on the desktop.
  */
-import { existsSync } from 'node:fs'
 import { chromium, firefox, webkit } from '@playwright/test'
 import { DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
 
@@ -30,9 +29,18 @@ for (const [name, browsers] of [
   test(`a Secret’s value, typed while hidden, isn’t drawn as what it is: ${name}`, async ({
     serve,
   }) => {
-    test.skip(!existsSync(browsers.executablePath()), `${name} isn’t installed here`)
+    // Chromium is every run's. The other two are CI's Browsers job's, which says so
+    // (LUMOVI_E2E_BROWSERS=all): there, one that isn't installed or doesn't start fails the
+    // test. Elsewhere they run where they can, and are skipped where they can't.
+    const must = name === 'Chromium' || process.env.LUMOVI_E2E_BROWSERS === 'all'
+    test.skip(!must && Boolean(process.env.CI), 'CI’s Browsers job runs it')
     const served = await serve()
-    const browser = await browsers.launch()
+    const browser = await browsers.launch().catch((error: unknown) => {
+      if (must) throw error
+      return undefined
+    })
+    test.skip(!browser, `${name} doesn’t start on this computer`)
+    if (!browser) return
     try {
       const page = await browser.newPage()
       await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
