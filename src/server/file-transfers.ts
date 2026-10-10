@@ -11,7 +11,15 @@ import { once } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable, Writable } from 'node:stream'
 import { pack as tar, type Pack } from 'tar-stream'
-import type { Arriving, FilesHost, SavedFile, Saving, Sending, Sent } from '@backend/kube/files'
+import {
+  recordedAs,
+  type Arriving,
+  type FilesHost,
+  type SavedFile,
+  type Saving,
+  type Sending,
+  type Sent,
+} from '@backend/kube/files'
 import { KubeRequestError } from '@backend/kube/errors'
 import { invalid } from '@backend/kube/validate'
 import { FILE_COPY_MAX_ENTRIES, type FileDownloadRequest } from '@shared/files'
@@ -233,6 +241,10 @@ function folderSaving(res: ServerResponse, arriving: Arriving): Saving {
   }
 }
 
+/** An error whose words are this server's own, of no file: recorded as they are. */
+const said = (code: 'timeout' | 'invalid', message: string) =>
+  recordedAs(new KubeRequestError(code, message), message)
+
 interface Manifest {
   name: string
   files: number
@@ -340,7 +352,7 @@ export class PageFiles implements FilesHost {
       },
       () =>
         never(
-          new KubeRequestError(
+          said(
             'timeout',
             'The browser didn’t fetch it in time, so the copy was stopped. Try again. (Where Lumovi runs as several replicas, a browser’s requests must stay with one.)',
           ),
@@ -359,9 +371,14 @@ export class PageFiles implements FilesHost {
 
   sending(_id: string, source: string): Sending | undefined {
     if (!this.#picked.has(source)) return undefined
-    const said = this.#picked.get(source)
+    const told = this.#picked.get(source)
     this.#picked.delete(source)
-    const picked = manifest(said)
+    let picked: Manifest
+    try {
+      picked = manifest(told)
+    } catch (error) {
+      throw recordedAs(error as Error, (error as Error).message)
+    }
     let arrived!: (req: IncomingMessage) => void
     let never!: (error: Error) => void
     const body = new Promise<IncomingMessage>((resolve, reject) => {
@@ -378,7 +395,7 @@ export class PageFiles implements FilesHost {
       (req, res) => {
         if (Number(req.headers['content-length']) !== picked.bytes) {
           sendJson(res, 400, { error: 'That isn’t the size of what was picked.' })
-          never(new KubeRequestError('invalid', 'What the page sent isn’t what it said it would.'))
+          never(said('invalid', 'What the page sent isn’t what it said it would.'))
           return
         }
         claimed = { req, res }
@@ -386,7 +403,7 @@ export class PageFiles implements FilesHost {
       },
       () =>
         never(
-          new KubeRequestError(
+          said(
             'timeout',
             'The page didn’t send what it picked in time, so the copy was stopped. Try again. (Where Lumovi runs as several replicas, a browser’s requests must stay with one.)',
           ),

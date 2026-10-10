@@ -215,7 +215,11 @@ test.describe('in a cluster', () => {
         details: { container: 'app', path: '/var/log/app.log', direction: 'download', bytes: 33 },
       },
       { outcome: 'success', summary: expect.stringContaining('Downloaded /etc/app') },
-      { outcome: 'failure', error: expect.stringContaining('is there already') },
+      {
+        outcome: 'failure',
+        error:
+          'A folder was there already where it was to be saved, and a folder isn’t copied over one.',
+      },
       { outcome: 'cancelled', summary: `Download /etc/app from Pod ${POD} (app)` },
     ])
   })
@@ -258,11 +262,12 @@ test.describe('in a cluster', () => {
         {
           entries: [
             { name: './loot/', type: 'directory' },
-            { name: './loot/a', content: 'first' },
-            { name: './loot/a', content: 'second' },
+            { name: './loot/src/', type: 'directory' },
+            { name: './loot/src/Makefile', content: 'first' },
+            { name: './loot/src/Makefile', content: 'second' },
           ],
         },
-        /^a is in it twice, as this computer reads names\. Nothing of it was kept\.$/,
+        /^src\/Makefile is in it twice, as this computer reads names\. Nothing of it was kept\.$/,
       ],
       [
         'a file where a folder is',
@@ -315,6 +320,18 @@ test.describe('in a cluster', () => {
     }
 
     // A link is never written, so what's named through one is a file of the folder's own.
+    // The audit log says what happened to each, in Lumovi's words: no name of a file in the
+    // folder, nor where on this computer it was to be.
+    const failures = (await events(page, 'files.download')).map((event) => event.error)
+    expect(failures).toContain(
+      'Two names in it are the same, as this computer reads names. Nothing of it was kept.',
+    )
+    // (EEXIST or ENOTDIR, by the system.)
+    expect(failures.join('\n')).toMatch(
+      /^This computer couldn’t keep or read a file of it \(E[A-Z]+\)\.$/m,
+    )
+    expect(JSON.stringify(failures)).not.toMatch(/Makefile|loot\/|lumovi-files-/)
+
     clusters.demo.files.craft('/loot', {
       entries: [
         { name: './loot/', type: 'directory' },

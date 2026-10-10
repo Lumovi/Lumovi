@@ -210,8 +210,26 @@ const failed = (reason: FileCopyReason, code: FileCopyError['code'], message: st
  * wrote, or the name of a file in a folder. `recorded` is what the log says of it instead:
  * what happened, in words of Lumovi's own.
  */
-const recordedAs = <E extends Error>(error: E, recorded: string) =>
+export const recordedAs = <E extends Error>(error: E, recorded: string) =>
   Object.assign(error, { recorded })
+
+/**
+ * What the host does with a copy (keeps it where its person said, reads what they picked),
+ * with what it says when it can't kept out of the audit log unless it gave words for that
+ * itself: its words are of files, by their names, on its side.
+ */
+const hosted = <T>(work: Promise<T> | T): Promise<T> =>
+  Promise.resolve(work).catch((error: unknown) => {
+    const known = error as Error & { recorded?: string; path?: string }
+    // (What this computer says of a file is recorded as that, without the file's name.)
+    if (known.recorded !== undefined || (!(error instanceof KubeRequestError) && known.path)) {
+      throw error
+    }
+    throw recordedAs(
+      known,
+      `It couldn’t be kept, or read, where it was copied to or from on this side (${toKubeError(error).code}).`,
+    )
+  })
 
 function copyError(error: unknown): FileCopyError {
   const reason = (error as { reason?: FileCopyReason }).reason
@@ -372,7 +390,9 @@ export class FileCopies {
       if (readOnly) throw readOnlyRefusal(r.context, readOnly)
       const { source } = r as FileUploadRequest
       assertString(source, 'source')
-      const sending = this.host.sending(copy.id, source)
+      const sending = await hosted(
+        new Promise<Sending | undefined>((resolve) => resolve(this.host.sending(copy.id, source))),
+      )
       if (!sending) {
         throw new TurnedDown('Pick what to upload again: what was picked is no longer held')
       }
@@ -676,7 +696,7 @@ export class FileCopies {
         begun({ ...(url ? { url } : {}), ...(kind === 'file' ? { total: header.size } : {}) })
         // Its person takes as long as they like to say where.
         idle.hold(true)
-        saving = await Promise.race([chosen, copy.halting.then(() => null)])
+        saving = await Promise.race([hosted(chosen), copy.halting.then(() => null)])
         if (copy.halted) throw copy.halted
         if (!saving) throw new Cancelled()
         withdraw = undefined
@@ -695,12 +715,14 @@ export class FileCopies {
         copy.leftOut.unnamed += 1
         return skip()
       }
-      if (folder) return names.length > 0 ? saving!.folder(names) : undefined
-      const out = await saving!.file(names, {
-        size: header.size,
-        mode: header.mode & 0o777,
-        mtime: header.mtime,
-      })
+      if (folder) return names.length > 0 ? hosted(saving!.folder(names)) : undefined
+      const out = await hosted(
+        saving!.file(names, {
+          size: header.size,
+          mode: header.mode & 0o777,
+          mtime: header.mtime,
+        }),
+      )
       try {
         for await (const chunk of contents) {
           copy.bytes += chunk.length
@@ -780,7 +802,7 @@ export class FileCopies {
               : `${printable(at.path)} is neither a file nor a folder, so there’s nothing to copy.`,
           )
         }
-        return await saving!.done()
+        return await hosted(saving!.done())
       } catch (error) {
         run?.socket.close()
         parse.destroy()
@@ -849,7 +871,11 @@ export class FileCopies {
     }
     const fill = async () => {
       let entries = 0
-      for await (const sent of sending.entries()) {
+      const picked = sending.entries()[Symbol.asyncIterator]()
+      for (;;) {
+        const next = await hosted(picked.next())
+        if (next.done) break
+        const sent = next.value
         entries += 1
         if (
           entries > FILE_COPY_MAX_ENTRIES ||
@@ -864,7 +890,7 @@ export class FileCopies {
           continue
         }
         if (copy.bytes + sent.size > this.limits.maxBytes) throw this.#tooLarge()
-        const from = await sent.open()
+        const from = await hosted(sent.open())
         try {
           await put(
             pack,
@@ -967,8 +993,8 @@ export class FileCopies {
       target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
       summary: down
         ? `Began to download ${r.path} from ${where}`
-        : `Began to upload ${copy.name ?? 'files'} to ${r.path} in ${where}`,
-      command: down ? downloadKubectl(r) : uploadKubectl(r, copy.name ?? '<what was picked>'),
+        : `Began to upload ${r.name ?? 'files'} to ${r.path} in ${where}`,
+      command: down ? downloadKubectl(r) : uploadKubectl(r, r.name ?? '<what was picked>'),
       details: { container: r.container, path: r.path, direction: copy.direction, stage: 'began' },
     })
   }
@@ -979,6 +1005,8 @@ export class FileCopies {
       ...copy.request,
       path: printable(copy.request.path),
       container: printable(copy.request.container, 100),
+      // What's sent, as its page (a server's) or its person's disk names it.
+      name: copy.name === undefined ? undefined : printable(copy.name, 255),
     }
   }
 
@@ -990,7 +1018,7 @@ export class FileCopies {
     const where = `Pod ${r.pod} (${r.container})`
     const what = down
       ? `${done ? 'Downloaded' : 'Download'} ${r.path} from ${where}`
-      : `${done ? 'Uploaded' : 'Upload'} ${copy.name ?? 'files'} to ${r.path} in ${where}`
+      : `${done ? 'Uploaded' : 'Upload'} ${r.name ?? 'files'} to ${r.path} in ${where}`
     const left = leftOutText(copy.leftOut)
     this.deps.audit.record({
       action: down ? 'files.download' : 'files.upload',
@@ -1008,7 +1036,7 @@ export class FileCopies {
       summary: done
         ? `${what}: ${copy.files} ${copy.files === 1 ? 'file' : 'files'}, ${sized(copy.bytes)}`
         : what,
-      command: down ? downloadKubectl(r) : uploadKubectl(r, copy.name ?? '<what was picked>'),
+      command: down ? downloadKubectl(r) : uploadKubectl(r, r.name ?? '<what was picked>'),
       details: {
         container: r.container,
         path: r.path,
