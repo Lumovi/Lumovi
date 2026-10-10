@@ -19,7 +19,7 @@ const SECTIONS: {
         ? [
             {
               keys: [MOD_KEY, 'N'],
-              label: 'Create from YAML (on the clusters page, add a cluster)',
+              label: 'Create… (on the clusters page, add a cluster)',
             },
             { keys: [MOD_KEY, '↵'], label: 'Approve an AI assistant’s change' },
           ]

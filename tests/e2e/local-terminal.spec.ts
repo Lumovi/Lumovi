@@ -296,7 +296,7 @@ test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
     await expect(tabs.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Meta+Shift+BracketRight')
     await expect(tabs.getByRole('tab').last()).toHaveAttribute('aria-selected', 'true')
-    // ⌘N too, not the menu's New from YAML; and ⌘K clears it, as Terminal's do.
+    // ⌘N too, not the menu's Create…; and ⌘K clears it, as Terminal's do.
     await ready(page)
     await page.keyboard.type('echo before-clear')
     await page.keyboard.press('Enter')
@@ -323,7 +323,7 @@ test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
   await page.keyboard.press('Control+Backquote')
   await expect(bar).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('#content')).toBeFocused()
-  // Its keys do nothing then; ⌘T and ⌘N are the menu's again (New from YAML).
+  // Its keys do nothing then; ⌘T and ⌘N are the menu's again (Create…).
   await page.keyboard.press('Control+PageDown')
   if (MAC) {
     await native(app, 'N', ['meta'])

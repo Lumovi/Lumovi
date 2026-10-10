@@ -145,6 +145,7 @@ test('YAML edits: the API server validates them, and catches changes made meanwh
 
 test('create several objects from YAML, then delete them together', async ({ page }) => {
   await page.keyboard.press('ControlOrMeta+n')
+  await page.getByRole('dialog').getByRole('radio', { name: 'YAML', exact: true }).click()
   const editor = dialog(page).getByRole('textbox', { name: 'YAML to create' })
   await editor.click()
   await page.keyboard.press('ControlOrMeta+a')
@@ -177,6 +178,7 @@ metadata:
 
   // A name that's taken is refused before anything else is created.
   await page.keyboard.press('ControlOrMeta+n')
+  await page.getByRole('dialog').getByRole('radio', { name: 'YAML', exact: true }).click()
   await dialog(page).getByRole('textbox', { name: 'YAML to create' }).click()
   await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.insertText(

@@ -39,6 +39,9 @@ interface Prefs {
   /** Whether the clusters page shows the clusters hidden from it. */
   showHidden: boolean
   setShowHidden: (showHidden: boolean) => void
+  /** The side of Create used last, which opens first: its form, or its YAML. */
+  createSide: 'form' | 'yaml'
+  setCreateSide: (side: Prefs['createSide']) => void
 }
 
 const toggled = (list: string[], item: string, on: boolean) =>
@@ -85,6 +88,8 @@ export const usePrefs = create<Prefs>()(
       setClusterGrouping: (clusterGrouping) => set({ clusterGrouping }),
       showHidden: false,
       setShowHidden: (showHidden) => set({ showHidden }),
+      createSide: 'form',
+      setCreateSide: (createSide) => set({ createSide }),
     }),
     { name: 'lumovi:prefs' },
   ),
