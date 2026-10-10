@@ -1,3 +1,4 @@
+import { ON_A_PHONE } from '@renderer/web/phone-gate'
 import { useLayout } from '@renderer/lib/layout'
 import type { AccessCheck, KubeObject } from '@shared/api'
 import { useAccess } from '@renderer/hooks/access'
@@ -75,20 +76,6 @@ function notAllowed(action: Action, check: AccessCheck, object: KubeObject, here
   }
   return here.whyNot('changes', 'write', where)
 }
-
-/**
- * What's offered on a phone: what someone on call reaches for, each changing one thing and
- * each confirmed as it always is. Deleting, draining, editing and shells need more room, a
- * keyboard, or more care than a thumb gives.
- */
-export const ON_A_PHONE = new Set([
-  'scale',
-  'scale-custom',
-  'restart',
-  'restart-pod',
-  'cordon',
-  'uncordon',
-])
 
 /**
  * The actions that apply to `object`, each with the reason it is disabled, if

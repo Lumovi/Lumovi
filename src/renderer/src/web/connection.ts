@@ -37,6 +37,15 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+/** A call that wasn't sent: the page itself doesn't make it (from a phone, say). */
+export class RefusedCall extends Error {
+  readonly code = 'not-allowed'
+  constructor(message: string) {
+    super(message)
+    this.name = 'RefusedCall'
+  }
+}
+
 export class Connection {
   #socket?: WebSocket
   #nextId = 1
@@ -52,9 +61,14 @@ export class Connection {
     private readonly signedIn: () => Promise<boolean>,
     /** Called when the connection drops: whatever streamed over it has stopped. */
     private readonly dropped: () => void,
+    /** Why a call isn't to be sent, if it isn't (a phone's page changes little): asked of each. */
+    private readonly refused: (channel: string, args: unknown[]) => string | undefined = () =>
+      undefined,
   ) {}
 
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
+    const refusal = this.refused(channel, args)
+    if (refusal) return Promise.reject(new RefusedCall(refusal))
     return new Promise((resolve, reject) => {
       const send = () => {
         const id = this.#nextId++
