@@ -94,7 +94,7 @@ test('a cluster role: everything, URLs, and rules gathered from others', async (
   const admin = panel(page, 'ClusterRole', 'cluster-admin')
   expect(await table(admin, 'Rules')).toEqual([
     ['All groups', 'All resources', 'All verbs'],
-    ['—', 'URLs: *', 'All verbs'],
+    ['Not a resource', 'URLs: *', 'All verbs'],
   ])
   expect(await table(admin, 'Granted by')).toEqual([
     ['ClusterRoleBinding/platform-admins', 'Group platform-team, Robot deployer', 'Everywhere'],

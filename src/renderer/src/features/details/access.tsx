@@ -69,13 +69,16 @@ export function RulesSection({ object }: { object: KubeObject }) {
           <Quiet>No rules: it allows nothing.</Quiet>
         ) : (
           <SimpleTable
+            fits
             label="Rules"
             headers={['API groups', 'Resources', 'Verbs']}
             rows={rules.map((rule) =>
               rule.nonResourceURLs?.length
                 ? // (A cluster role can allow URLs that are no resource's: /healthz, /metrics.)
                   [
-                    '—',
+                    <span key="none" className="font-sans text-[13px] text-ink-3">
+                      Not a resource
+                    </span>,
                     `URLs: ${rule.nonResourceURLs.join(', ')}`,
                     <Verbs key="verbs" verbs={rule.verbs} />,
                   ]
@@ -161,7 +164,14 @@ function BindingsTable({
   return (
     <Section title={title}>
       {matching.length > 0 ? (
-        <SimpleTable label={title} headers={headers} rows={matching.map(row)} />
+        <SimpleTable
+          fits
+          // (A binding's kind and name are the long ones; where it reaches is a word.)
+          widths={['40%', '34%', '26%']}
+          label={title}
+          headers={headers}
+          rows={matching.map(row)}
+        />
       ) : pending ? (
         <Quiet>Looking for them…</Quiet>
       ) : (
@@ -212,6 +222,7 @@ export function SubjectsSection({ object }: { object: KubeObject }) {
         <Quiet>No subjects: it grants its role to nobody.</Quiet>
       ) : (
         <SimpleTable
+          fits
           label="Subjects"
           headers={['Kind', 'Name', 'Namespace']}
           rows={subjects.map((subject) => {
