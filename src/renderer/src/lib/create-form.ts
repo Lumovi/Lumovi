@@ -430,6 +430,21 @@ export function fieldLines(text: string, object: Json, field: FieldId, part?: Pa
   return [...lines].sort((a, b) => a - b)
 }
 
+/**
+ * The lines a name that can't be one is wrong on: the object's, and its container's while
+ * that's the same. (Its app labels take the name too, and are lit with it; but what can't be
+ * a name can still be a label's value, so those lines aren't wrong.)
+ */
+export function nameLines(text: string, object: Json): number[] {
+  const name = dig(object, FIELD_PATHS.name)
+  const lines: number[] = []
+  for (const path of [FIELD_PATHS.name, [...C, 'name']]) {
+    const span = dig(object, path) === name ? linesAt(text, path) : undefined
+    if (span) for (let line = span[0]; line <= span[1]; line++) lines.push(line)
+  }
+  return lines
+}
+
 /** A value as it's written: a whole number as a number, anything else as it was typed. */
 const numbered = (typed: string): string | number =>
   /^\d{1,9}$/.test(typed) ? Number(typed) : typed

@@ -348,7 +348,7 @@ export const SCREENS: Screen[] = [
   },
   {
     name: 'create',
-    title: 'Create from YAML',
+    title: 'Create',
     description: "Creating resources from YAML, checked as it's typed.",
     app: 'desktop',
     path: `${cluster}/pods`,

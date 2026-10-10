@@ -125,7 +125,7 @@
     },
     {
       "name": "create",
-      "title": "Create from YAML",
+      "title": "Create",
       "description": "Creating resources from YAML, checked as it's typed.",
       "app": "desktop",
       "light": { "2x": "create-light.webp", "1x": "create-light-1x.webp" },

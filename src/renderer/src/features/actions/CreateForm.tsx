@@ -22,6 +22,7 @@ import {
   FORM_KINDS,
   fieldLines,
   missing,
+  nameLines,
   problems,
   read,
   refusals,
@@ -125,7 +126,11 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
     lit,
     wrong: reading.fits
       ? wrong.flatMap((problem) =>
-          problem.path ? linesOf([problem.path]) : fieldLines(text, reading.object, problem.field),
+          problem.path
+            ? linesOf([problem.path])
+            : problem.field === 'name'
+              ? nameLines(text, reading.object)
+              : fieldLines(text, reading.object, problem.field),
         )
       : [],
     shaded: reading.fits
