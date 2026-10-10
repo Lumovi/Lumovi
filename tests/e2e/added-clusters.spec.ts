@@ -485,6 +485,96 @@ test('a check says what doesn’t work: the server, or the credentials; and what
   })
 })
 
+test('a kubeconfig with parts missing is shown with what it has, and refused for what it lacks', async ({
+  launch,
+  clusters,
+}) => {
+  const { page } = await launch()
+  const add = (text: string, names?: Record<string, string>) =>
+    page.evaluate(
+      ([text, names]) =>
+        window.lumovi!.addedClusters!.add(text as string, {
+          ...(names ? { names: names as Record<string, string> } : {}),
+          agreed: [],
+        }),
+      [text, names] as const,
+    )
+  const refused = (says: string) => ({
+    ok: false,
+    error: { code: 'invalid', message: expect.stringContaining(says) },
+  })
+
+  // Written by hand, and not finished: entries with only a name, a context with no user.
+  const sparse = stringify({
+    clusters: [{ name: 'bare' }, { name: 'team', cluster: { server: clusters.demo.url } }],
+    users: [
+      { name: 'nobody' },
+      { name: 'ops', user: { username: 'ops', password: 'hunter2' } },
+      { name: 'cert', user: { 'client-certificate-data': 'LS0t', 'client-key-data': 'LS0t' } },
+    ],
+    contexts: [
+      { name: 'bare', context: { cluster: 'bare', namespace: 'team-a' } },
+      { name: 'nobody', context: { cluster: 'team', user: 'nobody' } },
+      { name: 'ops', context: { cluster: 'team', user: 'ops' } },
+      { name: 'cert', context: { cluster: 'team', user: 'cert' } },
+      { name: 'empty' },
+    ],
+  })
+  const inspected = await page.evaluate(
+    (text) => window.lumovi!.addedClusters!.inspect(text),
+    sparse,
+  )
+  expect(inspected).toMatchObject({
+    ok: true,
+    data: {
+      contexts: [
+        { name: 'bare', namespace: 'team-a', auth: 'none' },
+        { name: 'nobody', server: clusters.demo.url, user: 'nobody', auth: 'none' },
+        { name: 'ops', server: clusters.demo.url, user: 'ops', auth: 'basic' },
+        { name: 'cert', server: clusters.demo.url, user: 'cert', auth: 'certificate' },
+        { name: 'empty', auth: 'none' },
+      ],
+    },
+  })
+  const [bare] = (inspected as { data: { contexts: Record<string, unknown>[] } }).data.contexts
+  expect(bare).not.toHaveProperty('server')
+  expect(bare).not.toHaveProperty('user')
+
+  const one = (context: object, rest: object = {}) =>
+    stringify({
+      clusters: [{ name: 'team', cluster: { server: clusters.demo.url } }],
+      users: [{ name: 'ops', user: { token: 'wrong' } }],
+      contexts: [{ name: 'team', context }],
+      ...rest,
+    })
+  for (const [text, says] of [
+    // Only a comment: the head of a file, without the file.
+    ['# kubeconfig\n', 'It has no contexts'],
+    // A map where kubectl writes a list; an entry with no name; one that's only text.
+    [stringify({ contexts: { team: { cluster: 'team' } } }), 'Its contexts aren’t a kubeconfig’s'],
+    [
+      one({ cluster: 'team' }, { clusters: [{ cluster: { server: clusters.demo.url } }] }),
+      'Its clusters aren’t a kubeconfig’s: each needs a name.',
+    ],
+    [one({ cluster: 'team' }, { users: ['ops'] }), 'Its users aren’t a kubeconfig’s'],
+    [
+      one({ cluster: 'team' }, { clusters: [{ name: 'team', cluster: clusters.demo.url }] }),
+      'Its clusters aren’t a kubeconfig’s',
+    ],
+    // A context whose cluster or user was left out when it was cut from a larger file.
+    [one({ cluster: 'prod', user: 'ops' }), '“team” is on cluster “prod”, which it doesn’t have.'],
+    [one({ cluster: 'team', user: 'dev' }), '“team” signs in as “dev”, which it doesn’t have.'],
+    // Larger than any kubeconfig: not even parsed.
+    [`# ${'x'.repeat(1024 * 1024)}\n${one({ cluster: 'team' })}`, 'larger than any kubeconfig'],
+  ] as const) {
+    expect(await add(text), says).toMatchObject(refused(says))
+  }
+  // A name cleared in the dialog.
+  expect(await add(one({ cluster: 'team', user: 'ops' }), { team: '  ' })).toMatchObject(
+    refused('“team” needs a name.'),
+  )
+})
+
 test('a credential that sends a file to the server is shown, and the file isn’t even read before the person agrees', async ({
   launch,
   clusters,

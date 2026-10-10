@@ -11,13 +11,42 @@ import { inRegistry } from '../../src/main/policy.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockProxy } from '../mock-proxy/server.ts'
 import { open } from './action-helpers.ts'
-import { clusterOption, DEMO, DEMO_TOKEN, expect, openCluster, panel, test } from './fixtures.ts'
+import {
+  clusterOption,
+  DEMO,
+  DEMO_TOKEN,
+  expect,
+  openCluster,
+  panel,
+  test,
+  type LaunchOptions,
+  type Lumovi,
+} from './fixtures.ts'
 
 /** A policy file, as IT would deploy it (LUMOVI_POLICY points at it, for trying one out). */
 function policyFile(policy: unknown): string {
   const path = join(mkdtempSync(join(tmpdir(), 'lumovi-policy-')), 'policy.json')
   writeFileSync(path, typeof policy === 'string' ? policy : JSON.stringify(policy))
   return path
+}
+
+/** Each policy (its file, and what's wrong with it) locks the most it could, and says why. */
+async function cantBeUsed(
+  launch: (options: LaunchOptions) => Promise<Lumovi>,
+  cases: [string, string][],
+) {
+  for (const [path, problem] of cases) {
+    const { page, app } = await launch({ env: { LUMOVI_POLICY: path } })
+    expect(await page.evaluate(() => window.lumovi!.app.settings())).toMatchObject({
+      managed: {
+        readOnly: true,
+        assistantsOff: true,
+        kubectlOff: true,
+        problem: expect.stringContaining(problem),
+      },
+    })
+    await app.close()
+  }
 }
 
 test('what an organization’s policy sets is locked', async ({ launch }) => {
@@ -148,19 +177,43 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
     ]),
   ]
   if (process.platform !== 'win32') cases.push([fifo, `${fifo} must be a file.`])
-  for (const [path, problem] of cases) {
-    // (Nothing waits on a FIFO: Lumovi starts.)
-    const { page, app } = await launch({ env: { LUMOVI_POLICY: path } })
-    expect(await page.evaluate(() => window.lumovi!.app.settings())).toMatchObject({
-      managed: {
-        readOnly: true,
-        assistantsOff: true,
-        kubectlOff: true,
-        problem: expect.stringContaining(problem),
-      },
-    })
-    await app.close()
-  }
+  // (Nothing waits on a FIFO: Lumovi starts.)
+  await cantBeUsed(launch, cases)
+})
+
+test('a policy with a value of the wrong kind can’t be used, and says which', async ({
+  launch,
+}) => {
+  await cantBeUsed(launch, [
+    [policyFile(['readOnly']), 'can’t be used: it must be a JSON object.'],
+    // Cut short, as a copy that didn't finish: there's no place to name.
+    [policyFile('{ "readOnly": true'), 'can’t be used: it isn’t JSON'],
+    [
+      policyFile({ readOnly: 'production' }),
+      'readOnly must be true, false, or a list of cluster names (with * for any).',
+    ],
+    [policyFile({ updates: 'never' }), 'updates must be true or false.'],
+    [
+      policyFile({ network: 'http://proxy.corp.example.com:3128' }),
+      'network must be an object: proxy, noProxy and caFiles.',
+    ],
+    [
+      policyFile({ network: { proxy: 'http://proxy.corp.example.com:3128', pac: 'proxy.pac' } }),
+      'network has pac: it takes proxy, noProxy, caFiles.',
+    ],
+    [
+      policyFile({ network: { proxy: 'proxy.corp.example.com:3128' } }),
+      'network.proxy must be the proxy’s http or https URL.',
+    ],
+    [
+      policyFile({ network: { noProxy: ['localhost', '.corp.example.com'] } }),
+      'network.noProxy must be text, as NO_PROXY is: names and addresses.',
+    ],
+    [
+      policyFile({ network: { caFiles: '/etc/ssl/corp-ca.pem' } }),
+      'network.caFiles must be a list of files.',
+    ],
+  ])
 })
 
 test('the network a policy says: its proxy, over the one the environment says', async ({
