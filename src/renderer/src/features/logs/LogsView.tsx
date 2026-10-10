@@ -27,7 +27,7 @@ import {
 import { useList } from '@renderer/hooks/queries'
 import { api, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { useLayout } from '@renderer/lib/layout'
+import { useLayout, useTouch } from '@renderer/lib/layout'
 import { shortNames, type Level, type LogLine, type Segment } from '@renderer/lib/logs'
 import { toast } from '@renderer/state/toasts'
 import type { PodQuery } from '../details/PodsTab'
@@ -217,11 +217,15 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
   const [range, setRange] = useState('500')
   const [previous, setPrevious] = useState(false)
   const [follow, setFollow] = useState(true)
-  // On a phone lines always wrap (nothing scrolls sideways there), and the time each was
-  // written, a third of a line's width, starts off.
-  const phone = useLayout() === 'phone'
-  const [wraps, setWrap] = useState(false)
-  const wrap = wraps || phone
+  // On a narrow page lines always wrap (nothing scrolls sideways under 1024 px: a panel there is
+  // too narrow for whole lines, with a mouse too). With room, wrapping is chosen, and starts on
+  // under a finger. On a phone the time each line was written, a third of its width, starts off.
+  const layout = useLayout()
+  const phone = layout === 'phone'
+  const narrow = layout !== 'wide'
+  const touch = useTouch()
+  const [wraps, setWrap] = useState(touch)
+  const wrap = wraps || narrow
   const [timestamps, setTimestamps] = useState(!phone)
   const [more, setMore] = useState(false)
   const [search, setSearch] = useState('')
@@ -397,7 +401,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
                   )}
                   <span
                     className={
-                      phone
+                      narrow
                         ? // What runs over hangs under its line, so one long line doesn't read as two.
                           'min-w-0 wrap-hanging'
                         : wrap
@@ -596,9 +600,11 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
           <Toggle label="Timestamps" pressed={timestamps} onChange={setTimestamps}>
             <Clock />
           </Toggle>
-          <Toggle label="Wrap lines" pressed={wraps} onChange={setWrap}>
-            <WrapText />
-          </Toggle>
+          {!narrow && (
+            <Toggle label="Wrap lines" pressed={wraps} onChange={setWrap}>
+              <WrapText />
+            </Toggle>
+          )}
           <CopyButton text={text} label="Copy logs" />
           <Tooltip content="Download">
             <button

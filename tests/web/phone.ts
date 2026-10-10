@@ -107,6 +107,17 @@ function missed(page: Page): Promise<string[]> {
       }
       const labelOf = (hit: Element) => hit.closest('label')?.querySelector(pressed)
       if (!at(0, 0)) continue // Scrolled away, or covered: not there to press now.
+      // Nor is what's half scrolled out of what scrolls it (a drawer's last link showing): the
+      // rest of it is a scroll away, not missing.
+      const cut = (() => {
+        for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+          if (!/auto|scroll/.test(getComputedStyle(parent).overflowY)) continue
+          const frame = parent.getBoundingClientRect()
+          if (box.top < frame.top - 1 || box.bottom > frame.bottom + 1) return true
+        }
+        return false
+      })()
+      if (cut) continue
       // Nor is what a detail over the list has half covered: the detail is what's pressed there.
       const under = (dx: number, dy: number) => {
         const over = document.elementFromPoint(x + dx, y + dy)?.closest('[data-over]')
