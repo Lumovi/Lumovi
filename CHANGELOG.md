@@ -6,11 +6,15 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-10-10
+
+Every way to sponsor Lumovi leads to one place: its listing on GitHub Sponsors.
+
 ### Changed
 
-- Help → Sponsor Lumovi… and the README's sponsor links open
-  [github.com/sponsors/Lumovi](https://github.com/sponsors/Lumovi), the organization's listing,
-  where the sidebar's card already led. They pointed at a personal page that has no listing.
+- Help → Sponsor Lumovi…, the sidebar's card and the README's sponsor links all open
+  [github.com/sponsors/Lumovi](https://github.com/sponsors/Lumovi), Lumovi's listing on GitHub
+  Sponsors.
 
 ## [1.19.0] - 2026-10-10
 
@@ -865,7 +869,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/Lumovi/Lumovi/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/Lumovi/Lumovi/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/Lumovi/Lumovi/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/Lumovi/Lumovi/compare/v1.16.0...v1.17.0
