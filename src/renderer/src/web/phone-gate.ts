@@ -93,6 +93,8 @@ export function phoneMakes(request: unknown): boolean {
   const { kind, change } = (request ?? {}) as Partial<ChangeRequest>
   if (!change) return false
   // A pod restarted: deleted, for its controller to make another.
+  // (Restart is offered only for a pod that has a controller; the gate sees the request, not
+  // the pod, so a bare pod's delete would pass here too. The page never sends one from a phone.)
   if (change.action === 'delete') return kind === 'Pod'
   if (change.action !== 'patch' || !only(change.patch, 'spec')) return false
   const { spec } = change.patch
