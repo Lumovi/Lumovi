@@ -319,6 +319,8 @@ function ownOnly(path: string, mode: number) {
  */
 const LOCK_STALE_MS = Number(process.env.LUMOVI_AUDIT_LOCK_STALE_MS) || 30_000
 const LOCK_RENEW_MS = LOCK_STALE_MS / 3
+/** Whether the volume is taken to have links (an env for tests: off, as on a share without). */
+const LINKS = process.env.LUMOVI_AUDIT_LOCK_LINKS !== 'off'
 /** This process's number (an env for tests: in a container the first process is always 1). */
 const PID = Number(process.env.LUMOVI_AUDIT_LOCK_PID) || process.pid
 /** How often a lock that can't be read is read again before it's taken for unreadable. */
@@ -540,14 +542,16 @@ const mine = (id: string) =>
  * a reader gives one it can't read yet the time to be written (`settled`, `holderOf`).
  */
 function putNew(path: string, text: string, beside: string): boolean {
-  writeFileSync(beside, text, { mode: 0o600 })
-  try {
-    linkSync(beside, path)
-    return true
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
-  } finally {
-    rmSync(beside, { force: true })
+  if (LINKS) {
+    writeFileSync(beside, text, { mode: 0o600 })
+    try {
+      linkSync(beside, path)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    } finally {
+      rmSync(beside, { force: true })
+    }
   }
   try {
     writeFileSync(path, text, { flag: 'wx', mode: 0o600 })
