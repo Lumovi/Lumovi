@@ -499,16 +499,41 @@ test('a copy has a size limit, can be stopped, and doesn’t wait for ever', asy
     error: { reason: 'too-large' },
   })
 
-  // One that stops arriving is stopped. (Its name is a log's: on Windows, a browser gives up
-  // a download a script began whose name has no ending it knows, which would stop it first.)
+  // One that stops arriving is stopped. What's asked here is the server's patience, so the
+  // page fetches it itself and waits: a browser's own download isn't as patient everywhere.
   clusters.demo.files.craft('/held.log', {
     entries: [{ name: './held.log', content: 'x'.repeat(4000) }],
     then: 'hold',
+  })
+  const click = await page.evaluateHandle(() => HTMLAnchorElement.prototype.click)
+  await page.evaluate(() => {
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      void fetch(this.href)
+        .then((got) => got.arrayBuffer())
+        .catch(() => undefined)
+    }
   })
   expect((await download(page, '/held.log')).end).toMatchObject({
     outcome: 'failed',
     error: { code: 'timeout', message: 'Nothing moved for 0s, so the copy was stopped.' },
   })
+  // With the browser's own download, it ends one of two ways, and with no file either way:
+  // the server's patience runs out, or (seen on Windows) the browser's does first, and a
+  // browser that goes away is a copy stopped.
+  await page.evaluate((click) => (HTMLAnchorElement.prototype.click = click), click)
+  const kept = page.waitForEvent('download')
+  const began = Date.now()
+  const { end } = await download(page, '/held.log')
+  const failure = await (await kept).failure()
+  test.info().annotations.push({
+    type: 'a stalled download',
+    description: `the copy was ${end?.outcome} after ${Date.now() - began} ms; the browser said: ${failure}`,
+  })
+  console.log(
+    `A stalled download: ${end?.outcome} after ${Date.now() - began} ms; browser: ${failure}`,
+  )
+  expect(['failed', 'cancelled']).toContain(end?.outcome)
+  expect(failure).not.toBeNull()
 
   // Stopped by its person, in its dialog: said, and the form is there again.
   await action(page, 'Download files…')
