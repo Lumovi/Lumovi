@@ -9,6 +9,34 @@
 @custom-variant hover (&:hover);
 
 /*
+ * A browser's page (a server's: `data-host`) with less room than the desktop app's window can
+ * have, which stops at 1024 px: `narrow:` under that (the sidebar is a drawer), `phone:` under
+ * 640 px (one column). The desktop app never matches either, at any size or zoom. And `touch:`,
+ * for a page used with a finger at any width: asked of the pointer, as lib/layout.ts does.
+ */
+@custom-variant narrow {
+  @media (width < 1024px) {
+    :where([data-host='server']) & {
+      @slot;
+    }
+  }
+}
+@custom-variant phone {
+  @media (width < 640px) {
+    :where([data-host='server']) & {
+      @slot;
+    }
+  }
+}
+@custom-variant touch {
+  @media (hover: none), (pointer: coarse) {
+    :where([data-host='server']) & {
+      @slot;
+    }
+  }
+}
+
+/*
  * The dark theme: the system's, unless Light is chosen, or Dark. In the desktop
  * app Electron's nativeTheme drives `prefers-color-scheme` from the user's
  * System / Light / Dark preference, so the native window controls and the page
@@ -190,6 +218,8 @@
 
   --animate-slide-in: slide-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-slide-out: slide-out 160ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-slide-from-left: slide-from-left 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-from-bottom: slide-from-bottom 240ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-rise: rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
   /* A fleet's card, just connected: it lands tinted, fading to its own. */
   --animate-landed: rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both, landed 1.2s ease-out both;
@@ -206,6 +236,17 @@
   --animate-added: added 1200ms ease-out;
 }
 
+/* A drawer, and a sheet: in from the edge they belong to. */
+@keyframes slide-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes slide-from-bottom {
+  from {
+    transform: translateY(100%);
+  }
+}
 @keyframes slide-in {
   from {
     transform: translateX(24px);
@@ -333,6 +374,17 @@
 }
 @utility selectable {
   user-select: text;
+}
+/*
+ * Monospaced text that wraps: what runs over goes on under its line, set in by two characters,
+ * so one long line never reads as two. It breaks where it must, and no hyphen is added.
+ */
+@utility wrap-hanging {
+  padding-left: 2ch;
+  text-indent: -2ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  hyphens: none;
 }
 /* A headline, as the brand sets them: Inter's display cut, semibold and tracked tight. */
 @utility headline {

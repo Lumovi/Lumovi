@@ -15,6 +15,9 @@ api.desktop?.onFullScreen((fullScreen) =>
   document.documentElement.toggleAttribute('data-fullscreen', fullScreen),
 )
 
+// Where it runs: a server's page can be narrower than the desktop app's window ever is.
+document.documentElement.dataset.host = api.host
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

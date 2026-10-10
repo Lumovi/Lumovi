@@ -51,7 +51,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         type="button"
         aria-label={label}
         className={cn(
-          'inline-flex size-8 items-center justify-center rounded-lg text-ink-2 transition-colors duration-150 no-drag hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3 data-[state=open]:text-ink-1 [&_svg]:size-4',
+          // A finger's size where it's used with one (a server's page on a phone or a tablet).
+          'inline-flex size-8 items-center justify-center rounded-lg text-ink-2 transition-colors duration-150 no-drag hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3 data-[state=open]:text-ink-1 touch:size-11 [&_svg]:size-4 touch:[&_svg]:size-5',
           className,
         )}
         {...props}
