@@ -1,10 +1,8 @@
 import { CircleCheck, CircleX, FilePlus2 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { useResources } from '@renderer/hooks/resources'
 import { useReadOnly } from '@renderer/hooks/settings'
-import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
@@ -24,13 +22,8 @@ export function CreateDialog() {
 }
 
 function Create({ onClose }: { onClose: () => void }) {
-  // The form is there only where the app says so, while its kinds are being built: without
-  // it, Create is its YAML alone, with no switch.
-  const info = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() })
-  const withForm = info.data?.createForm === true
   // The side used last opens first; the first time, the form.
-  const last = usePrefs((prefs) => prefs.createSide)
-  const side = withForm ? last : 'yaml'
+  const side = usePrefs((prefs) => prefs.createSide)
   const setSide = usePrefs((prefs) => prefs.setCreateSide)
   // What the cluster serves decides what can be created.
   useResources()
@@ -54,12 +47,10 @@ function Create({ onClose }: { onClose: () => void }) {
       }}
     />
   )
-  // (What the app is comes at once, having been asked already: until it has, nothing opens.)
-  if (info.isPending) return null
   return side === 'form' ? (
     <CreateForm sides={sides} onClose={onClose} />
   ) : (
-    <CreateYaml sides={withForm ? sides : null} onClose={onClose} />
+    <CreateYaml sides={sides} onClose={onClose} />
   )
 }
 
@@ -166,7 +157,7 @@ function CreateYaml({ sides, onClose }: { sides: React.ReactNode; onClose: () =>
       onClose={onClose}
       onSubmit={() => void create(text)}
     >
-      {sides && <div>{sides}</div>}
+      <div>{sides}</div>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Templates">
         {Object.entries(TEMPLATES).map(([kind, template]) => (
           <button
@@ -184,12 +175,7 @@ function CreateYaml({ sides, onClose }: { sides: React.ReactNode; onClose: () =>
       </div>
       {/* (With the switch above it, the editor gives up the switch's height: the dialog is no
           taller than it was.) */}
-      <div
-        className={cn(
-          'overflow-hidden rounded-xl border border-line bg-surface-2/60',
-          sides ? 'h-[calc(40vh-48px)]' : 'h-[40vh]',
-        )}
-      >
+      <div className="h-[calc(40vh-48px)] overflow-hidden rounded-xl border border-line bg-surface-2/60">
         <CodeEditor
           value={text}
           onChange={(next) => {
