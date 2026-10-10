@@ -35,7 +35,7 @@ export function Stepper({
         aria-label={`Decrease ${label.toLowerCase()}`}
         disabled={base <= min}
         onClick={() => onChange(clamp(base - 1))}
-        className={cn(button, large ? 'size-10' : 'size-8')}
+        className={cn(button, large ? 'size-10' : 'size-8', 'touch:size-11')}
       >
         <Minus className="size-4" />
       </button>
@@ -66,7 +66,7 @@ export function Stepper({
         aria-label={`Increase ${label.toLowerCase()}`}
         disabled={base >= max}
         onClick={() => onChange(clamp(base + 1))}
-        className={cn(button, large ? 'size-10' : 'size-8')}
+        className={cn(button, large ? 'size-10' : 'size-8', 'touch:size-11')}
       >
         <Plus className="size-4" />
       </button>

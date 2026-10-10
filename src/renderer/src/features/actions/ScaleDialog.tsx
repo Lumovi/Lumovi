@@ -135,7 +135,7 @@ function ScaleForm({
                   type="button"
                   onClick={() => setReplicas(preset)}
                   aria-pressed={replicas === preset}
-                  className="h-6 min-w-7 rounded-md border border-line px-1.5 text-xs font-medium text-ink-2 tabular-nums transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:border-accent aria-pressed:bg-accent-soft aria-pressed:text-accent-strong"
+                  className="h-6 min-w-7 rounded-md border border-line px-1.5 text-xs font-medium text-ink-2 tabular-nums transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:border-accent aria-pressed:bg-accent-soft aria-pressed:text-accent-strong touch:h-11 touch:min-w-11 touch:rounded-lg touch:text-[13px]"
                 >
                   {preset}
                 </button>
