@@ -674,7 +674,7 @@ test('a tablet keeps the table, with the drawer and a detail over the list', asy
   await signInNarrow(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
   await expect(page.getByRole('grid', { name: 'Pods' })).toBeVisible()
   await expect(menu(page)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Create from YAML' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create…', exact: true })).toBeVisible()
   await expectNoSidewaysScroll(page, 'a tablet’s list')
   await expectFingerSized(page, 'a tablet’s list')
   await page.getByRole('grid', { name: 'Pods' }).getByRole('row').nth(1).click()
