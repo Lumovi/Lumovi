@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import type { AccessCheck, KubeObject } from '@shared/api'
 import { useAccess } from '@renderer/hooks/access'
 import { useChange } from '@renderer/hooks/change'
@@ -76,12 +77,29 @@ function notAllowed(action: Action, check: AccessCheck, object: KubeObject, here
 }
 
 /**
+ * What's offered on a phone: what someone on call reaches for, each changing one thing and
+ * each confirmed as it always is. Deleting, draining, editing and shells need more room, a
+ * keyboard, or more care than a thumb gives.
+ */
+const ON_A_PHONE = new Set([
+  'scale',
+  'scale-custom',
+  'restart',
+  'restart-pod',
+  'cordon',
+  'uncordon',
+])
+
+/**
  * The actions that apply to `object`, each with the reason it is disabled, if
  * it is: the cluster is read-only, a server's access doesn't let its person,
  * or RBAC doesn't allow it.
  */
 export function useObjectActions(object: KubeObject): AvailableAction[] {
-  const actions = actionsFor(object)
+  // On a phone, objects are read, and a few things done to them: the rest isn't there at all,
+  // on any surface (not there and hidden: there's nothing to reach by keyboard either).
+  const phone = useLayout() === 'phone'
+  const actions = actionsFor(object).filter((action) => !phone || ON_A_PHONE.has(action.id))
   const checks = actions.map((action) => action.access(object))
   const access = useAccess(checks)
   const { readOnly, why: readOnlyWhy } = useReadOnly()

@@ -55,9 +55,14 @@ export function ActionBar({ object }: { object: KubeObject }) {
         setOpen(true)
         return
       }
-      // Every kind with actions can be deleted.
-      const remove = available.find(({ action }) => action.id === 'delete')!
-      if (event.key === 'Backspace' && (event.metaKey || event.ctrlKey) && !remove.disabled) {
+      // Every kind with actions can be deleted (but not on a phone, where it isn't offered).
+      const remove = available.find(({ action }) => action.id === 'delete')
+      if (
+        event.key === 'Backspace' &&
+        (event.metaKey || event.ctrlKey) &&
+        remove &&
+        !remove.disabled
+      ) {
         event.preventDefault()
         run(remove.action, object)
       }
