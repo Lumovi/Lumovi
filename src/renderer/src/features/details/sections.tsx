@@ -293,14 +293,16 @@ export function SimpleTable({
         className="divide-y divide-line overflow-hidden rounded-xl border border-line"
       >
         {rows.map((row, i) => (
-          <li key={i} className="px-3.5 py-2.5">
+          // A card with a link in it has a finger's reach around the link, in its own padding;
+          // and a link under the first line has a line to itself, a finger's height from it.
+          <li key={i} className="group px-3.5 py-2.5 has-[button]:py-3.5">
             <p className="font-mono text-xs font-medium wrap-anywhere text-ink-1 selectable">
               <span className="sr-only">{headers[0]}: </span>
               {row[0]}
             </p>
-            <dl className="mt-2 grid grid-cols-3 gap-3 text-xs">
+            <dl className="mt-2 grid grid-cols-3 gap-3 text-xs group-has-[button]:mt-2.5">
               {row.slice(1).map((cell, j) => (
-                <div key={j} className="min-w-0">
+                <div key={j} className="min-w-0 has-[button]:col-span-full">
                   <dt className="text-ink-3">{headers[j + 1]}</dt>
                   <dd className="mt-0.5 font-mono wrap-anywhere text-ink-1 selectable">{cell}</dd>
                 </div>

@@ -17,6 +17,7 @@ import {
   subjectText,
   type LabelSelector,
 } from '@renderer/lib/rbac'
+import { cn } from '@renderer/lib/cn'
 import { ObjectLink } from './ObjectLink'
 import { Section, SimpleTable } from './sections'
 
@@ -248,7 +249,13 @@ function BoundBy({ role }: { role: KubeObject }) {
       ]}
     >
       {into.length > 0 && (
-        <p className="mt-2 text-[13px] leading-[21px] text-ink-2">
+        // (Under a finger, two links on two lines are a finger's height apart.)
+        <p
+          className={cn(
+            'mt-2 text-[13px] leading-[21px] text-ink-2',
+            into.length > 1 && 'touch:leading-[44px]',
+          )}
+        >
           Its rules are also part of{' '}
           {into.map((other, i) => (
             <span key={other.metadata.name}>

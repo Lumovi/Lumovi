@@ -37,7 +37,7 @@ export function ObjectLink({
     <button
       type="button"
       onClick={() => open(target, name, namespace)}
-      className="text-left font-mono text-xs wrap-anywhere text-accent-strong hover:underline"
+      className="text-left font-mono text-xs wrap-anywhere text-accent-strong hover:underline touch:finger"
     >
       {label}
     </button>

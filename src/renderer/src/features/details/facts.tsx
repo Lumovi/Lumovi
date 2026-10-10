@@ -85,7 +85,8 @@ const podsAccount = (o: KubeObject, pod = o.spec.template?.spec) =>
 /** A service account's own secrets, or those its pods pull images with, each a link. */
 const secrets = (names: { name?: string }[] | undefined, namespace?: string) =>
   names?.length ? (
-    <span className="flex flex-col items-start gap-0.5">
+    // (Under a finger, each a finger's height from the next.)
+    <span className="flex flex-col items-start gap-0.5 touch:gap-7">
       {names.map(({ name }, i) =>
         name ? (
           <ObjectLink key={name} kind="Secret" name={name} namespace={namespace} />
