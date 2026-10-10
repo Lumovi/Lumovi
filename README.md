@@ -286,10 +286,10 @@ and checked against the tool's CRDs, with no code to write. See
 
 ## Sponsors
 
-Lumovi is free and open source, made in spare time. Its sponsors keep it that way.
+Lumovi is free and open source, made in spare time. Sponsors help keep it that way.
 
-Nobody is listed here yet. Sponsors whose sponsorship includes a place in this README appear
-in this section, by name or by logo, each with a link.
+This is where they're listed, by name or by logo, each with a link, when their sponsorship
+includes a place in this README. The first place is open.
 
 If Lumovi saves you time, you can
 [sponsor its development](https://github.com/sponsors/Lumovi) on GitHub: the listing says
