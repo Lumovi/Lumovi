@@ -5,7 +5,7 @@
  * is), and what's in them, then and now.
  */
 import { expect, test } from '@playwright/test'
-import { withoutChanged } from '../../scripts/borrow-coverage.ts'
+import { borrowedOf, withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { plan } from '../../scripts/ci-changes.ts'
 
 /** A pull request changing `changed`, whose files hold `texts` (now, or then: deleted). */
@@ -129,4 +129,40 @@ test('where macOS ran the smoke set, main’s macOS coverage is borrowed: not of
     ),
   ).toEqual(['src/main/terminal-keys.ts'])
   expect(withoutChanged(main, [])).toEqual(main)
+})
+
+test('what’s borrowed is every shard’s or nothing, and never a file that isn’t coverage', () => {
+  const shard = JSON.stringify({ 'src/main/menu.ts': { s: { 0: 2 } }, 'src/a.ts': { s: { 0: 1 } } })
+  expect(borrowedOf([shard, shard, shard, shard], ['src/a.ts'])).toEqual({
+    kept: Array.from({ length: 4 }, () => ({ 'src/main/menu.ts': { s: { 0: 2 } } })),
+  })
+  // Three of four would be most of what macOS reaches, and read as all of it.
+  expect(borrowedOf([shard, shard, shard], [])).toEqual({
+    nothing: '3 of macOS’s 4 coverage files are there, not all of them',
+  })
+  expect(borrowedOf([], [])).toEqual({
+    nothing: '0 of macOS’s 4 coverage files are there, not all of them',
+  })
+  expect(borrowedOf([shard, shard, shard, 'cut sh'], [])).toEqual({
+    nothing: 'one of its files isn’t JSON',
+  })
+  expect(borrowedOf([shard, shard, shard, '[]'], [])).toEqual({
+    nothing: 'one of its files isn’t coverage',
+  })
+})
+
+test('a test or its helper with lines taken away or changed runs macOS in full; one that only gains lines doesn’t', () => {
+  const spec = 'tests/web/audit.spec.ts'
+  const helper = 'tests/e2e/action-helpers.ts'
+  const was = "test('a', () => {\n  expect(1).toBe(1)\n})\n"
+  // A case added, a new file: nothing that was reached is taken away.
+  expect(pr([spec], { [spec]: [`${was}\ntest('b', () => {})\n`, was] }).macos).toBe(false)
+  expect(pr([spec], { [spec]: [was, ''] }).macos).toBe(false)
+  // A case weakened, a case gone, a file gone, a helper changed.
+  expect(pr([spec], { [spec]: [was.replace('toBe(1)', 'toBeTruthy()'), was] }).macos).toBe(true)
+  expect(pr([spec], { [spec]: ["test('a', () => {\n})\n", was] }).macos).toBe(true)
+  expect(pr([spec], { [spec]: ['', was] }).macos).toBe(true)
+  expect(
+    pr([helper], { [helper]: ['export const open = 2\n', 'export const open = 1\n'] }).macos,
+  ).toBe(true)
 })

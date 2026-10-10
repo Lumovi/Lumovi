@@ -6,8 +6,9 @@
  *   integration tests, and "CI passed" all the same.
  * - `e2e`: the E2E shards. Linux and Windows always run them all. macOS too, where the change
  *   touches what macOS does differently (the main process, Electron, packaging, the lockfile, CI
- *   and the test harness, or a file that asks which platform it's on); otherwise a short smoke
- *   set (tests/e2e/smoke.txt), as macOS runners are few.
+ *   and the test harness, or a file that asks which platform it's on), or takes away or changes
+ *   lines of a test or a test's helper; otherwise a short smoke set (tests/e2e/smoke.txt), as
+ *   macOS runners are few.
  *
  * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what only
  *   macOS reaches is borrowed from main (scripts/borrow-coverage.ts), so the gate judges like
@@ -23,7 +24,8 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 
 const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'] as const
-const SHARDS = 4
+/** How many machines a platform's tests are split over. */
+export const SHARDS = 4
 
 /** What only explains the app: Markdown, and images that aren't the app's (in docs/, say). */
 const isDocs = (path: string) =>
@@ -59,6 +61,17 @@ const versionsOf = (path: string): string[] => {
   })()
   return [existsSync(path) ? readFileSync(path, 'utf8') : '', was]
 }
+/** Whether a file only gained lines: every line it had is still there, in its order. */
+function onlyAdds([now = '', was = '']: string[]): boolean {
+  const lines = now.split('\n')
+  let at = 0
+  for (const line of was.split('\n')) {
+    at = lines.indexOf(line, at) + 1
+    if (at === 0) return false
+  }
+  return true
+}
+
 /** What the run needs, from the event, the pull request's branch and what it changes. */
 export function plan({
   event,
@@ -74,7 +87,11 @@ export function plan({
   const everything = event !== 'pull_request' || branch.startsWith('release-')
   const isMacos = (path: string) =>
     MACOS.some((pattern) => pattern.test(path)) ||
-    (/^src\/.*\.(tsx?|css)$/.test(path) && versions(path).some((text) => PLATFORM.test(text)))
+    (/^src\/.*\.(tsx?|css)$/.test(path) && versions(path).some((text) => PLATFORM.test(text))) ||
+    // A test or a test's helper with lines taken away or changed: what it reached on macOS may
+    // not be reached any more, and coverage borrowed from main (scripts/borrow-coverage.ts)
+    // would go on counting it. One that only gains lines takes nothing away.
+    (/^tests\//.test(path) && !onlyAdds(versions(path)))
   const docs = !everything && changed.length > 0 && changed.every(isDocs)
   const macos = everything || changed.some(isMacos)
   const e2e = OSES.flatMap((os) =>

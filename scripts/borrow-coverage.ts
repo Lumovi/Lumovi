@@ -6,7 +6,9 @@
  * newest green run of CI on main, and the gate judges like with like.
  *
  * Coverage of a file that differs from main's is left out: its lines aren't main's, and this
- * run's Linux and Windows speak for it. If main has nothing to borrow (a quiet month), it says
+ * run's Linux and Windows speak for it. What this can't see: a branch only macOS reaches, in a
+ * file the change didn't touch, that the change stops being reached (through shared code, or by
+ * taking away or weakening the test that reached it). Main's own run shows that, after. If main has nothing to borrow (a quiet month), it says
  * so, and what ran is judged as it is.
  *
  *   node scripts/borrow-coverage.ts        (GH_TOKEN, GITHUB_REPOSITORY; into .nyc_output/)
@@ -16,6 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { SHARDS } from './ci-changes.ts'
 
 /** Coverage as istanbul keeps it: a file's, by its path. */
 type Coverage = Record<string, unknown>
@@ -29,18 +32,54 @@ export function withoutChanged(coverage: Coverage, changed: string[]): Coverage 
   return Object.fromEntries(Object.entries(coverage).filter(([path]) => !differs.has(plain(path))))
 }
 
+/**
+ * What's borrowed of the files a run of main keeps (their texts): every shard's, without the
+ * files that changed; or why none of it is. All or nothing: a part, or a file that isn't
+ * coverage, would give a figure that's neither this run's nor main's.
+ */
+export function borrowedOf(
+  texts: string[],
+  changed: string[],
+): { kept: Coverage[] } | { nothing: string } {
+  if (texts.length !== SHARDS) {
+    return {
+      nothing: `${texts.length} of macOS’s ${SHARDS} coverage files are there, not all of them`,
+    }
+  }
+  const kept: Coverage[] = []
+  for (const text of texts) {
+    let coverage: unknown
+    try {
+      coverage = JSON.parse(text)
+    } catch {
+      return { nothing: 'one of its files isn’t JSON' }
+    }
+    if (typeof coverage !== 'object' || coverage === null || Array.isArray(coverage)) {
+      return { nothing: 'one of its files isn’t coverage' }
+    }
+    kept.push(withoutChanged(coverage as Coverage, changed))
+  }
+  return { kept }
+}
+
 if (import.meta.main) {
   const repo = process.env.GITHUB_REPOSITORY!
   const gh = (...args: string[]) => execFileSync('gh', args, { encoding: 'utf8' })
-  const [run] = JSON.parse(
-    gh(
-      ...['run', 'list', '--repo', repo, '--workflow', 'ci.yml', '--branch', 'main'],
-      ...['--event', 'push', '--status', 'success', '--limit', '1', '--json', 'databaseId,headSha'],
-    ),
-  ) as { databaseId: number; headSha: string }[]
-  const nothing = (why: string) => {
+  const nothing = (why: string): never => {
     console.log(`Nothing borrowed from main: ${why}. What ran here is judged as it is.`)
     process.exit(0)
+  }
+  let run: { databaseId: number; headSha: string } | undefined
+  try {
+    ;[run] = JSON.parse(
+      gh(
+        ...['run', 'list', '--repo', repo, '--workflow', 'ci.yml', '--branch', 'main'],
+        ...['--event', 'push', '--status', 'success', '--limit', '1'],
+        ...['--json', 'databaseId,headSha'],
+      ),
+    ) as { databaseId: number; headSha: string }[]
+  } catch (error) {
+    nothing(`its runs couldn’t be asked for (${(error as Error).message.split('\n')[0]})`)
   }
   if (!run) nothing('no green run of CI there')
   const borrowed = 'borrowed-coverage'
@@ -53,10 +92,8 @@ if (import.meta.main) {
   } catch {
     nothing(`run ${run!.databaseId} keeps no macOS coverage any more`)
   }
-  // All of it or none: a part borrowed, or a file that isn't coverage, would give a figure
-  // that's neither this run's nor main's.
-  const kept: Coverage[] = []
   let changed: string[] = []
+  let texts: string[] = []
   try {
     // What differs from that run's commit, here: fetched alone, to compare with.
     execFileSync('git', ['fetch', '--quiet', '--depth=1', 'origin', run!.headSha])
@@ -65,18 +102,15 @@ if (import.meta.main) {
     })
       .split('\n')
       .filter(Boolean)
-    for (const name of readdirSync(borrowed, { recursive: true, encoding: 'utf8' })) {
-      if (!name.endsWith('.json')) continue
-      const coverage = JSON.parse(readFileSync(join(borrowed, name), 'utf8')) as Coverage
-      if (typeof coverage !== 'object' || coverage === null || Array.isArray(coverage)) {
-        throw new Error(`${name} isn’t coverage`)
-      }
-      kept.push(withoutChanged(coverage, changed))
-    }
+    texts = readdirSync(borrowed, { recursive: true, encoding: 'utf8' })
+      .filter((name) => name.endsWith('.json'))
+      .map((name) => readFileSync(join(borrowed, name), 'utf8'))
   } catch (error) {
     nothing(`what run ${run!.databaseId} keeps couldn’t be used (${(error as Error).message})`)
   }
-  if (kept.length === 0) nothing(`run ${run!.databaseId} keeps no macOS coverage any more`)
+  const result = borrowedOf(texts, changed)
+  if ('nothing' in result) nothing(`of run ${run!.databaseId}, ${result.nothing}`)
+  const { kept } = result as { kept: Coverage[] }
   mkdirSync('.nyc_output', { recursive: true })
   kept.forEach((coverage, i) =>
     writeFileSync(join('.nyc_output', `main-${i}.json`), JSON.stringify(coverage)),
