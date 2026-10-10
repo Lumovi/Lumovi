@@ -51,6 +51,8 @@ export interface Crafted {
   then?: 'hold' | 'drop'
   /** Stops short of the archive's end, as a tar that's killed does. */
   cut?: boolean
+  /** How long it waits between the pieces it sends, in milliseconds: a slow disk, or a big file. */
+  slowly?: number
 }
 
 /**
@@ -286,6 +288,9 @@ async function send(ws: WebSocket, answer: Crafted): Promise<object | undefined>
     const bytes = answer.then || answer.cut ? whole.subarray(0, whole.length - 1024 - 512) : whole
     // In pieces, as a container's tar writes it.
     for (let at = 0; at < bytes.length; at += 32 * 1024) {
+      if (at > 0 && answer.slowly)
+        await new Promise((resolve) => setTimeout(resolve, answer.slowly))
+      if (ws.readyState !== ws.OPEN) return undefined
       ws.send(frame(STDOUT, bytes.subarray(at, at + 32 * 1024)))
     }
   }

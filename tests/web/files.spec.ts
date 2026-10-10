@@ -184,6 +184,39 @@ test('a file and a folder are downloaded by the browser, and recorded', async ({
   expect(JSON.stringify(audited(served))).not.toContain('listening on')
 })
 
+test('a file with no ending to its name, that takes a while to come, is the browser’s whole', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  // A browser is warier of a download whose name says nothing of what it is (on Windows,
+  // most of all), and one that takes seconds gives it time to act on that: a heap dump
+  // named `core`, here, a quarter of a megabyte over three seconds.
+  const core = Buffer.alloc(256 * 1024, 7)
+  clusters.demo.files.craft('/var/crash/core', {
+    entries: [{ name: './core', content: core }],
+    slowly: 400,
+  })
+  const served = await serve()
+  await signIn(page, podPage(served), DEMO_TOKEN)
+  // As its person does it: the button, which the browser takes for their say-so.
+  await action(page, 'Download files…')
+  await dialog(page).getByLabel('File or folder in the container').fill('/var/crash/core')
+  const saved = page.waitForEvent('download')
+  await dialog(page).getByRole('button', { name: 'Download' }).click()
+  await expect(dialog(page).getByRole('progressbar')).toBeVisible()
+  await expect(dialog(page).getByRole('status')).toContainText('Downloaded /var/crash/core from', {
+    timeout: 30_000,
+  })
+  const download = await saved
+  expect(download.suggestedFilename()).toBe('core')
+  expect(await download.failure()).toBeNull()
+  expect(readFileSync((await download.path())!).equals(core)).toBe(true)
+  await expect
+    .poll(() => ended(served, 'files.download'))
+    .toMatchObject([{ outcome: 'success', details: { bytes: core.length, files: 1 } }])
+})
+
 test('a path is only ever a path, whatever it looks like', async ({ page, serve, clusters }) => {
   const served = await serve()
   await signIn(page, podPage(served), DEMO_TOKEN)
