@@ -61,7 +61,17 @@ export function useChange() {
     })
     const result = await api.kube.change({ ...request, context })
     if (!result.ok) {
-      finish(id, 'failed', result.error.message)
+      // About a Secret, what the cluster said isn't kept in the activity log, as it isn't in
+      // the audit log: it can quote the Secret's values. (Lumovi's own refusals quote nothing.)
+      const { code, message } = result.error
+      const kept = request.kind !== 'Secret' || code === 'read-only' || code === 'not-allowed'
+      finish(
+        id,
+        'failed',
+        kept
+          ? message
+          : `It failed (${code}). What the cluster said of the Secret isn’t kept here: it can quote its values.`,
+      )
       return result
     }
     finish(id, 'done')
