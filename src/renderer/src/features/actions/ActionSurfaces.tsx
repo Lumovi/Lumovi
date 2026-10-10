@@ -8,6 +8,7 @@ import { Tooltip } from '@renderer/components/Tooltip'
 import { ADMINS_ONLY, useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { cn } from '@renderer/lib/cn'
+import { useLayout } from '@renderer/lib/layout'
 import { keepFocusInActionDialog, useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 import { menuContent, menuItem } from '../shell/menu-styles'
@@ -37,6 +38,7 @@ export function ActionBar({ object }: { object: KubeObject }) {
   const { readOnly } = useReadOnly()
   const open = useActionsUi((state) => state.menu)
   const setOpen = useActionsUi((state) => state.setMenu)
+  const phone = useLayout() === 'phone'
   // Kinds without a headline action (Secrets, Services…) offer their YAML instead.
   // Actions that depend on the object's state (Resume, Uncordon…) come first.
   const headline = available
@@ -95,32 +97,35 @@ export function ActionBar({ object }: { object: KubeObject }) {
           button
         )
       })}
-      <DropdownMenu.Root open={open} onOpenChange={setOpen}>
-        <DropdownMenu.Trigger
-          aria-label="More actions"
-          className="grid size-7 place-items-center rounded-lg border border-line-strong bg-surface-2 text-ink-2 shadow-xs transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3"
-        >
-          <Ellipsis className="size-4" />
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="start"
-            sideOffset={6}
-            onCloseAutoFocus={keepFocusInActionDialog}
-            className={cn(menuContent, 'min-w-56')}
+      {/* On a phone the few actions offered are all buttons: there's no more to open. */}
+      {!phone && (
+        <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+          <DropdownMenu.Trigger
+            aria-label="More actions"
+            className="grid size-7 place-items-center rounded-lg border border-line-strong bg-surface-2 text-ink-2 shadow-xs transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3"
           >
-            <DropdownMenu.Label className="flex items-center justify-between px-2 pt-1 pb-1.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-              Actions <Kbd>.</Kbd>
-            </DropdownMenu.Label>
-            <ActionItems
-              available={available}
-              object={object}
-              Item={DropdownMenu.Item}
-              Separator={DropdownMenu.Separator}
-            />
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+            <Ellipsis className="size-4" />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={6}
+              onCloseAutoFocus={keepFocusInActionDialog}
+              className={cn(menuContent, 'min-w-56')}
+            >
+              <DropdownMenu.Label className="flex items-center justify-between px-2 pt-1 pb-1.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                Actions <Kbd>.</Kbd>
+              </DropdownMenu.Label>
+              <ActionItems
+                available={available}
+                object={object}
+                Item={DropdownMenu.Item}
+                Separator={DropdownMenu.Separator}
+              />
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      )}
     </div>
   )
 }
