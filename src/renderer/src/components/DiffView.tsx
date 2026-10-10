@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+import { useLayout } from '@renderer/lib/layout'
 import { diffLines } from 'diff'
 import { cn } from '@renderer/lib/cn'
 
@@ -44,17 +46,30 @@ export function unifiedDiff(
 
 /** A diff's lines: additions in green, removals in red, the rest folded. */
 export function DiffView({ diff, label }: { diff: { lines: DiffLine[] }; label: string }) {
+  const phone = useLayout() === 'phone'
   return (
     <pre
       aria-label={label}
-      className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] selectable"
+      className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] selectable phone:overflow-x-hidden"
     >
       {diff.lines.map((line, i) => (
         <div
           key={i}
           data-change={line.type}
+          // On a phone a long line wraps, and what runs over goes under its own text, two
+          // characters in: past the sign's column and the line's own indent.
+          style={
+            phone && line.type !== 'gap'
+              ? ({
+                  '--lead': `${line.text.length - line.text.trimStart().length + 2}ch`,
+                } as CSSProperties)
+              : undefined
+          }
           className={cn(
             'px-5 whitespace-pre',
+            phone &&
+              line.type !== 'gap' &&
+              'pr-4 pl-[calc(1rem+1.5rem+var(--lead))] -indent-[calc(1.5rem+var(--lead))] wrap-anywhere whitespace-pre-wrap',
             line.type === 'added' && 'bg-good/10 text-good-text',
             line.type === 'removed' && 'bg-critical/10 text-critical-text',
             line.type === 'same' && 'text-ink-2',

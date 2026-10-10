@@ -4,11 +4,20 @@ import {
   SquareTerminal,
   TriangleAlert,
   type LucideIcon,
+  X,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
+import {
+  barButton,
+  sheetBody,
+  sheetFooter,
+  sheetFrame,
+  sheetHeader,
+  SheetGrabber,
+} from '@renderer/components/Sheet'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useProduction } from '@renderer/hooks/settings'
@@ -97,10 +106,13 @@ export function ActionDialog({
             'fixed top-[12vh] left-1/2 z-50 flex max-h-[76vh] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none',
             wide ? 'w-[600px]' : 'w-[480px]',
             'max-w-[calc(100vw-48px)]',
+            // On a phone it's a sheet, as tall as what it holds.
+            sheetFrame,
           )}
         >
+          <SheetGrabber onClose={onClose} className="hidden phone:block" />
           <form onSubmit={submit} className="flex min-h-0 flex-col">
-            <header className="flex items-start gap-3 px-5 pt-5 pb-1">
+            <header className={cn('flex items-start gap-3 px-5 pt-5 pb-1', sheetHeader)}>
               <div
                 className={cn(
                   'grid size-9 shrink-0 place-items-center rounded-xl',
@@ -115,8 +127,9 @@ export function ActionDialog({
                 <Dialog.Title className="truncate text-[15px] leading-snug font-semibold text-ink-1">
                   {title}
                 </Dialog.Title>
-                <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3">
-                  <span className="truncate">
+                {/* On a phone the cluster and its Production mark are never cut short: they wrap. */}
+                <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
+                  <span className="truncate phone:whitespace-normal">
                     {subject} · <span className="font-medium text-ink-2">{context}</span>
                   </span>
                   {production && (
@@ -126,9 +139,14 @@ export function ActionDialog({
                   )}
                 </p>
               </div>
+              <Dialog.Close aria-label="Close" className={cn(barButton, 'hidden phone:grid')}>
+                <X />
+              </Dialog.Close>
             </header>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pt-4 pb-5">
+            <div
+              className={cn('min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pt-4 pb-5', sheetBody)}
+            >
               {children}
 
               {typeToConfirm !== undefined && (
@@ -151,7 +169,9 @@ export function ActionDialog({
                     onChange={(event) => setTyped(event.target.value)}
                     spellCheck={false}
                     autoComplete="off"
-                    className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15 phone:h-11"
                   />
                 </label>
               )}
@@ -185,7 +205,12 @@ export function ActionDialog({
             {/* Outside what scrolls, just above the buttons: in view wherever the form was scrolled
                 to, where the button was just pressed. A long one scrolls on its own. */}
             {error && (
-              <div className="max-h-[25vh] shrink-0 overflow-y-auto border-t border-line px-5 py-3">
+              <div
+                className={cn(
+                  'max-h-[25vh] shrink-0 overflow-y-auto border-t border-line px-5 py-3',
+                  sheetBody,
+                )}
+              >
                 <div
                   role="alert"
                   className="flex gap-2.5 rounded-lg border border-critical/25 bg-critical/8 px-3 py-2.5 text-[13px] leading-relaxed text-critical-text"
@@ -196,7 +221,12 @@ export function ActionDialog({
               </div>
             )}
 
-            <footer className="flex items-center justify-end gap-2 border-t border-line bg-surface px-5 py-3">
+            <footer
+              className={cn(
+                'flex items-center justify-end gap-2 border-t border-line bg-surface px-5 py-3',
+                sheetFooter,
+              )}
+            >
               {footer ?? (
                 <>
                   <Button variant="ghost" data-cancel onClick={onClose}>
