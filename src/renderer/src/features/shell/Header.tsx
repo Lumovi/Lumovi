@@ -149,7 +149,7 @@ export function Header() {
             <>
               <button
                 type="button"
-                aria-label="Create from YAML"
+                aria-label="Create…"
                 onClick={() => setCreate(true)}
                 className={barButton}
               >
