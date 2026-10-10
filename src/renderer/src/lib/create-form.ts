@@ -9,12 +9,21 @@
  *   its kind, or has something where a field is that the field can't show (two containers);
  * - what the YAML sets that no field owns is kept, and named, at the highest key that's so.
  */
-import { parseAllDocuments } from 'yaml'
+import { isMap, isScalar, parseAllDocuments, visit } from 'yaml'
 import type { KubeErrorCause } from '@shared/api'
 import { scheduleWords } from './cron-words'
-import { elsewhere, linesAt, pathText, removeAt, setAt, type Path } from './yaml-edit'
+import { elsewhere, linesAt, pathText, removeAt, renameAt, setAt, type Path } from './yaml-edit'
 
-export type FormKindName = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'CronJob'
+export type FormKindName =
+  | 'Deployment'
+  | 'StatefulSet'
+  | 'DaemonSet'
+  | 'Job'
+  | 'CronJob'
+  | 'Service'
+  | 'ConfigMap'
+  | 'Secret'
+  | 'PersistentVolumeClaim'
 
 /** Where a new key goes among its map's own, for every map the form writes in. */
 const ORDER = [
@@ -24,6 +33,9 @@ const ORDER = [
   'name',
   'namespace',
   'spec',
+  'type',
+  'data',
+  'stringData',
   'serviceName',
   'replicas',
   'schedule',
@@ -195,12 +207,20 @@ const lined = (text: string, why: Why) =>
 
 // ——— What the YAML sets that the form has no field for ———
 
-/** A path with `*` for any index: what a field owns, or the form writes by rule. */
+/**
+ * A path with `*` for any index and `?` for any key: what a field owns, or the form writes
+ * by rule.
+ */
 type Pattern = readonly (string | number)[]
 
 const matches = (pattern: Pattern, path: Path, whole: boolean) =>
   (whole ? pattern.length === path.length : pattern.length >= path.length) &&
-  path.every((part, i) => pattern[i] === part || (pattern[i] === '*' && typeof part === 'number'))
+  path.every(
+    (part, i) =>
+      pattern[i] === part ||
+      (pattern[i] === '*' && typeof part === 'number') ||
+      (pattern[i] === '?' && typeof part === 'string'),
+  )
 
 /**
  * The paths the object sets that no field owns, each at the highest key that's so
@@ -242,10 +262,19 @@ export type FieldId =
   | 'storage'
   | 'env'
   | 'resources'
+  | 'type'
+  | 'selector'
+  | 'ports'
+  | 'data'
+  | 'size'
+  | 'storageClass'
+  | 'accessMode'
 
 export interface FormKind {
   kind: FormKindName
   apiVersion: string
+  /** Which fields it's drawn with: a workload's, a Service's, keys and values, or a claim's. */
+  family: 'workload' | 'service' | 'data' | 'claim'
   /** The YAML a new one starts as: what it must have, with nothing said yet. */
   blank(namespace: string): string
   shape: Shape
@@ -255,7 +284,7 @@ export interface FormKind {
   /** Its fields, in the order they're asked, and the path each writes (or a group's start). */
   fields: FieldId[]
   paths: Partial<Record<FieldId, Path>>
-  /** Its one container. */
+  /** Its one container; no path, for a kind that has none. */
   container: Path
   /** What takes the workload's name while it's the same: its container's, and its app label. */
   follows: Path[]
@@ -349,6 +378,7 @@ function workload(w: Workload): FormKind {
   return {
     kind: w.kind,
     apiVersion: w.apiVersion,
+    family: 'workload',
     blank: w.blank,
     fields,
     paths,
@@ -528,6 +558,209 @@ spec:
 `,
 })
 
+// ——— The kinds that run nothing: a Service, keys and values, a claim ———
+
+const WHO = { name: ['metadata', 'name'], namespace: ['metadata', 'namespace'] } as const
+
+/** A kind with no container: its form, from its own fields. */
+function plain(p: {
+  kind: FormKindName
+  apiVersion: string
+  family: FormKind['family']
+  /** Its fields after the name and the namespace, and where each writes. */
+  own: Partial<Record<FieldId, Path>>
+  shape: Shape
+  owns: Pattern[]
+  cannotShow: FormKind['cannotShow']
+  blank(namespace: string): string
+}): FormKind {
+  return {
+    kind: p.kind,
+    apiVersion: p.apiVersion,
+    family: p.family,
+    blank: p.blank,
+    fields: ['name', 'namespace', ...(Object.keys(p.own) as FieldId[])],
+    paths: { ...WHO, ...p.own },
+    container: [],
+    follows: [],
+    shape: {
+      ...p.shape,
+      maps: [['metadata'], ...p.shape.maps],
+      values: [WHO.name, WHO.namespace, ...p.shape.values],
+    },
+    owns: [['apiVersion'], ['kind'], WHO.name, WHO.namespace, ...p.owns],
+    cannotShow: p.cannotShow,
+  }
+}
+
+/** How a Service is reached, by its `type`. */
+export const SERVICE_TYPES = {
+  ClusterIP: 'Reached from inside the cluster only.',
+  NodePort: 'Reached on a port of every node, and from inside the cluster.',
+  LoadBalancer: 'Reached from outside, through a load balancer the cluster’s provider makes.',
+} as const
+
+export const PROTOCOLS = ['TCP', 'UDP', 'SCTP'] as const
+
+const SELECTOR = ['spec', 'selector'] as const
+const PORTS = ['spec', 'ports'] as const
+/** What the form's row for a port edits. */
+const PORT_KEYS = ['port', 'name', 'targetPort', 'protocol'] as const
+
+/** The first of a map's values that isn't one value: what a row of a key and a value can't show. */
+function nested(object: Json, base: Path): Why | undefined {
+  const map = dig(object, base)
+  if (!isObject(map)) return undefined
+  const key = Object.keys(map).find((name) => typeof map[name] === 'object' && map[name] !== null)
+  return key === undefined
+    ? undefined
+    : {
+        why: `${said([...base, key])} holds more than one value, and the form’s field there takes one.`,
+        at: [...base, key],
+      }
+}
+
+const SERVICE = plain({
+  kind: 'Service',
+  apiVersion: 'v1',
+  family: 'service',
+  own: { type: ['spec', 'type'], selector: SELECTOR, ports: PORTS },
+  shape: {
+    maps: [['spec'], SELECTOR],
+    lists: [],
+    listsOfMaps: [PORTS],
+    values: [['spec', 'type']],
+  },
+  owns: [['spec', 'type'], [...SELECTOR, '?'], ...PORT_KEYS.map((key) => [...PORTS, '*', key])],
+  cannotShow(object) {
+    const type = dig(object, ['spec', 'type'])
+    if (typeof type === 'string' && !(type in SERVICE_TYPES)) {
+      return {
+        why: `Its type is ${type}, and the form’s are ClusterIP, NodePort and LoadBalancer.`,
+        at: ['spec', 'type'],
+      }
+    }
+    const ports = (dig(object, PORTS) ?? []) as Json[]
+    for (const [index, port] of ports.entries()) {
+      const key = PORT_KEYS.find((name) => typeof port[name] === 'object' && port[name] !== null)
+      if (key) {
+        return {
+          why: `${said([...PORTS, index, key])} holds more than one value, and the form’s field there takes one.`,
+          at: [...PORTS, index, key],
+        }
+      }
+    }
+    return nested(object, SELECTOR)
+  },
+  blank: (namespace) => `apiVersion: v1
+kind: Service
+metadata:
+  name:
+  namespace: ${namespace}
+spec:
+  type: ClusterIP
+  selector:
+  ports:
+    - port:
+      protocol: TCP
+`,
+})
+
+const CONFIG_MAP = plain({
+  kind: 'ConfigMap',
+  apiVersion: 'v1',
+  family: 'data',
+  own: { data: ['data'] },
+  shape: { maps: [['data']], lists: [], listsOfMaps: [], values: [] },
+  owns: [['data', '?']],
+  cannotShow: (object) => nested(object, ['data']),
+  blank: (namespace) => `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name:
+  namespace: ${namespace}
+data:
+`,
+})
+
+const SECRET = plain({
+  kind: 'Secret',
+  apiVersion: 'v1',
+  family: 'data',
+  // (Its values as text, which the cluster encodes: `data` holds them encoded already, and is
+  // the YAML's to say.)
+  own: { type: ['type'], data: ['stringData'] },
+  shape: { maps: [['stringData']], lists: [], listsOfMaps: [], values: [['type']] },
+  owns: [['type'], ['stringData', '?']],
+  cannotShow(object) {
+    const type = object.type
+    if (type !== undefined && type !== null && type !== 'Opaque') {
+      return {
+        why: `Its type is ${shown(type)}, and the form is for an Opaque one: keys and values of your own.`,
+        at: ['type'],
+      }
+    }
+    return nested(object, ['stringData'])
+  },
+  blank: (namespace) => `apiVersion: v1
+kind: Secret
+metadata:
+  name:
+  namespace: ${namespace}
+type: Opaque
+stringData:
+`,
+})
+
+/** Who can mount a claim, by the one of `accessModes` it asks for. */
+export const ACCESS_MODES = {
+  ReadWriteOnce: 'One node, to read and write',
+  ReadOnlyMany: 'Many nodes, to read only',
+  ReadWriteMany: 'Many nodes, to read and write',
+  ReadWriteOncePod: 'One pod, to read and write',
+} as const
+
+const CLAIMED = {
+  size: ['spec', 'resources', 'requests', 'storage'],
+  storageClass: ['spec', 'storageClassName'],
+  accessMode: ['spec', 'accessModes', 0],
+} as const
+
+const VOLUME_CLAIM = plain({
+  kind: 'PersistentVolumeClaim',
+  apiVersion: 'v1',
+  family: 'claim',
+  own: CLAIMED,
+  shape: {
+    maps: [['spec'], ['spec', 'resources'], ['spec', 'resources', 'requests']],
+    lists: [['spec', 'accessModes']],
+    listsOfMaps: [],
+    values: Object.values(CLAIMED),
+  },
+  owns: Object.values(CLAIMED),
+  cannotShow(object) {
+    const modes = dig(object, ['spec', 'accessModes'])
+    return Array.isArray(modes) && modes.length > 1
+      ? {
+          why: `It asks for ${count(modes.length)} ways to be mounted, and the form’s field takes one.`,
+          at: ['spec', 'accessModes', 1],
+        }
+      : undefined
+  },
+  blank: (namespace) => `apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name:
+  namespace: ${namespace}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage:
+`,
+})
+
 /** The kinds the form knows, in the order of the sidebar's groups. */
 export const FORM_KINDS: Record<FormKindName, FormKind> = {
   Deployment: DEPLOYMENT,
@@ -535,6 +768,10 @@ export const FORM_KINDS: Record<FormKindName, FormKind> = {
   DaemonSet: DAEMON_SET,
   Job: JOB,
   CronJob: CRON_JOB,
+  Service: SERVICE,
+  ConfigMap: CONFIG_MAP,
+  Secret: SECRET,
+  PersistentVolumeClaim: VOLUME_CLAIM,
 }
 
 // ——— A workload's fields: what they show ———
@@ -680,7 +917,8 @@ export function fieldLines(
 export function nameLines(text: string, object: Json, form: FormKind): number[] {
   const name = dig(object, form.paths.name!)
   const lines: number[] = []
-  for (const path of [form.paths.name!, [...form.container, 'name']]) {
+  const named = form.container.length > 0 ? [[...form.container, 'name']] : []
+  for (const path of [form.paths.name!, ...named]) {
     const span = dig(object, path) === name ? linesAt(text, path) : undefined
     if (span) for (let line = span[0]; line <= span[1]; line++) lines.push(line)
   }
@@ -973,6 +1211,390 @@ export function problems(values: WorkloadValues, form: FormKind, object: Json = 
     }
   }
   return found
+}
+
+// ——— The other kinds' fields: what they show, where they write, what's wrong ———
+
+/** A key and its value, as a row shows them. */
+export interface Pair {
+  key: string
+  value: string
+  /** What the value is, where the YAML has it as something other than text: "a number". */
+  odd?: string
+}
+
+/** A map's keys and values, in the order they're written. */
+export function pairsAt(object: Json, base: Path): Pair[] {
+  const map = dig(object, base)
+  if (!isObject(map)) return []
+  return Object.entries(map).map(([key, value]) => ({
+    key,
+    value: shown(value),
+    ...(typeof value === 'number'
+      ? { odd: 'a number' }
+      : typeof value === 'boolean'
+        ? { odd: value ? 'true' : 'false' }
+        : {}),
+  }))
+}
+
+/** One of a Service's ports, as its row shows it. */
+export interface ServicePort {
+  name: string
+  port: string
+  targetPort: string
+  /** What the YAML says; none is TCP. */
+  protocol: string
+}
+
+export interface ServiceValues {
+  /** What the YAML says; none is ClusterIP. */
+  type: string
+  selector: Pair[]
+  ports: ServicePort[]
+}
+
+export function serviceValues(object: Json): ServiceValues {
+  const ports = (dig(object, PORTS) ?? []) as Json[]
+  return {
+    type: shown(dig(object, ['spec', 'type'])),
+    selector: pairsAt(object, SELECTOR),
+    ports: ports.map((port) => ({
+      name: shown(port.name),
+      port: shown(port.port),
+      targetPort: shown(port.targetPort),
+      protocol: shown(port.protocol),
+    })),
+  }
+}
+
+export interface ClaimValues {
+  size: string
+  storageClass: string
+  accessMode: string
+}
+
+export const claimValues = (object: Json): ClaimValues => ({
+  size: shown(dig(object, CLAIMED.size)),
+  storageClass: shown(dig(object, CLAIMED.storageClass)),
+  accessMode: shown(dig(object, CLAIMED.accessMode)),
+})
+
+/** The edits of a kind that runs nothing: each field's, as `yaml-edit` makes them. */
+export function plainWriter(form: FormKind) {
+  const { paths } = form
+  const port = (index: number, key: (typeof PORT_KEYS)[number]): Path => [...PORTS, index, key]
+  return {
+    name: (text: string, typed: string) => put(text, paths.name!, typed),
+    namespace: (text: string, typed: string) => put(text, paths.namespace!, typed),
+    type: (text: string, typed: string) => set(text, ['spec', 'type'], typed),
+    /** One more key, with nothing for its value yet. */
+    addPair: (text: string, base: Path, key: string) => set(text, [...base, key], ''),
+    /** A key by another name, where it is; `null` if a key has that name already. */
+    renamePair: (text: string, base: Path, old: string, key: string): Edited =>
+      renameAt(text, [...base, old], key),
+    /** A key's value: always text, whatever it looks like. */
+    pairValue: (text: string, base: Path, key: string, value: string) =>
+      set(text, [...base, key], value),
+    /** A key gone; the map it was in stays, with what's left. */
+    removePair: (text: string, base: Path, key: string) =>
+      remove(text, [...base, key], base.length),
+    /** One more port, by its number. */
+    addPort: (text: string, object: Json, typed: string) => {
+      const at = ((dig(object, PORTS) ?? []) as unknown[]).length
+      return set(text, [...PORTS, at], { port: numbered(typed), protocol: 'TCP' })
+    },
+    port: (text: string, index: number, typed: string) =>
+      put(text, port(index, 'port'), numbered(typed)),
+    /** The pod's port, by number or by name; none is the same as the Service's. */
+    targetPort: (text: string, index: number, typed: string) =>
+      typed === ''
+        ? remove(text, port(index, 'targetPort'), PORTS.length + 1)
+        : set(text, port(index, 'targetPort'), numbered(typed), PORT_KEYS),
+    protocol: (text: string, index: number, typed: string) =>
+      set(text, port(index, 'protocol'), typed, PORT_KEYS),
+    /** A port's name, which each has where there's more than one. */
+    portName: (text: string, index: number, typed: string) =>
+      typed === ''
+        ? remove(text, port(index, 'name'), PORTS.length + 1)
+        : set(text, port(index, 'name'), typed, PORT_KEYS),
+    removePort: (text: string, index: number) => remove(text, [...PORTS, index], PORTS.length),
+    /** A claim's size, or its key left with nothing. */
+    size: (text: string, typed: string) => put(text, CLAIMED.size, typed),
+    /** Its class; none, for the cluster's default. */
+    storageClass: (text: string, typed: string) =>
+      typed === ''
+        ? remove(text, CLAIMED.storageClass, 1)
+        : set(text, CLAIMED.storageClass, typed, ['storageClassName', 'accessModes', 'resources']),
+    accessMode: (text: string, typed: string) =>
+      set(text, CLAIMED.accessMode, typed, ['storageClassName', 'accessModes', 'resources']),
+  }
+}
+
+/** A name as most kinds take one: a DNS subdomain. */
+const DNS_SUBDOMAIN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/
+/** A Service's: a DNS label that starts with a letter. */
+const SERVICE_NAME = /^[a-z]([-a-z0-9]*[a-z0-9])?$/
+/** A label's key, after its prefix, and a label's value. */
+const LABEL_NAME = /^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$/
+/** A port by name: letters, digits and "-", with a letter in it, 15 at most. */
+const PORT_NAME = /^(?=.*[a-z])[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
+const DATA_KEY = /^[-._a-zA-Z0-9]+$/
+
+const isPort = (typed: string) => /^\d{1,5}$/.test(typed) && +typed >= 1 && +typed <= 65535
+
+function labelKeyProblem(key: string): string | undefined {
+  const [first, second, ...more] = key.split('/')
+  const [prefix, name] = second === undefined ? [undefined, first!] : [first!, second]
+  const fine =
+    more.length === 0 &&
+    LABEL_NAME.test(name) &&
+    name.length <= 63 &&
+    (prefix === undefined || (DNS_SUBDOMAIN.test(prefix) && prefix.length <= 253))
+  return fine
+    ? undefined
+    : `${key} can’t be a label’s key: letters, digits, “-”, “_” and “.”, starting and ending with a letter or digit, 63 at most.`
+}
+
+function serviceProblems(object: Json): Problem[] {
+  const found: Problem[] = []
+  const values = serviceValues(object)
+  if (values.type !== '' && !(values.type in SERVICE_TYPES)) {
+    found.push({ field: 'type', message: `${values.type} isn’t a type the form has.` })
+  }
+  for (const { key, value, odd } of values.selector) {
+    const path = [...SELECTOR, key]
+    const keyed = labelKeyProblem(key)
+    if (keyed) found.push({ field: 'selector', path, message: keyed })
+    else if (odd) {
+      found.push({
+        field: 'selector',
+        path,
+        message: `${key} is ${odd} in the YAML, and a label’s value is text: put it in quotes.`,
+      })
+    } else if (value === '') {
+      found.push({ field: 'selector', path, message: `${key} needs a value to match.` })
+    } else if (!LABEL_NAME.test(value) || value.length > 63) {
+      found.push({
+        field: 'selector',
+        path,
+        message: `${value} can’t be a label’s value: letters, digits, “-”, “_” and “.”, starting and ending with a letter or digit, 63 at most.`,
+      })
+    }
+  }
+  const names = values.ports.map((port) => port.name)
+  values.ports.forEach((port, index) => {
+    const at = (key: string): Path => [...PORTS, index, key]
+    if (port.port !== '' && !isPort(port.port)) {
+      found.push({
+        field: 'ports',
+        path: at('port'),
+        message: 'A port is a number from 1 to 65535.',
+      })
+    }
+    if (
+      port.targetPort !== '' &&
+      !isPort(port.targetPort) &&
+      !(PORT_NAME.test(port.targetPort) && port.targetPort.length <= 15)
+    ) {
+      found.push({
+        field: 'ports',
+        path: at('targetPort'),
+        message:
+          'The pod’s port is a number from 1 to 65535, or the name the pod gives it: lowercase letters, digits and “-”, 15 at most.',
+      })
+    }
+    if (port.protocol !== '' && !(PROTOCOLS as readonly string[]).includes(port.protocol)) {
+      found.push({
+        field: 'ports',
+        path: at('protocol'),
+        message: `${port.protocol} isn’t one of TCP, UDP and SCTP.`,
+      })
+    }
+    if (port.name === '') {
+      if (values.ports.length > 1) {
+        found.push({
+          field: 'ports',
+          path: at('name'),
+          message: 'With more than one port, each needs a name.',
+        })
+      }
+    } else if (!DNS_LABEL.test(port.name) || port.name.length > 63) {
+      found.push({
+        field: 'ports',
+        path: at('name'),
+        message: `${port.name} can’t be a port’s name: lowercase letters, digits and “-”.`,
+      })
+    } else if (names.indexOf(port.name) !== index) {
+      found.push({
+        field: 'ports',
+        path: at('name'),
+        message: `Two ports are named ${port.name}, and each needs its own.`,
+      })
+    }
+  })
+  return found
+}
+
+function dataProblems(object: Json, form: FormKind): Problem[] {
+  const base = form.paths.data!
+  const found: Problem[] = []
+  for (const { key, odd } of pairsAt(object, base)) {
+    const path = [...base, key]
+    if (!DATA_KEY.test(key) || key.length > 253) {
+      found.push({
+        field: 'data',
+        path,
+        message: `${key || 'An empty key'} can’t be a key: letters, digits, “-”, “_” and “.”.`,
+      })
+    } else if (odd) {
+      // (The cluster refuses it: said here, with what puts it right.)
+      found.push({
+        field: 'data',
+        path,
+        message: `${key} is ${odd} in the YAML, and a ${form.kind}’s values are text: put it in quotes.`,
+      })
+    }
+  }
+  return found
+}
+
+function claimProblems(object: Json): Problem[] {
+  const found: Problem[] = []
+  const { size, accessMode } = claimValues(object)
+  if (size !== '' && !(QUANTITY.test(size) && !size.startsWith('-') && parseFloat(size) !== 0)) {
+    found.push({
+      field: 'size',
+      message: 'The size isn’t an amount of storage Kubernetes reads: like 20Gi.',
+    })
+  }
+  if (accessMode !== '' && !(accessMode in ACCESS_MODES)) {
+    found.push({
+      field: 'accessMode',
+      message: `${accessMode} isn’t a way a claim is mounted: ${Object.keys(ACCESS_MODES).join(', ')}.`,
+    })
+  }
+  return found
+}
+
+/**
+ * What's still to say before it can be created, and what's wrong with what's said: for any
+ * kind, from the object its YAML reads as.
+ */
+export function check(object: Json, form: FormKind): { missing: string[]; problems: Problem[] } {
+  if (form.family === 'workload') {
+    const values = workloadValues(object, form)
+    return { missing: missing(values, form), problems: problems(values, form, object) }
+  }
+  const name = shown(dig(object, WHO.name))
+  const namespace = shown(dig(object, WHO.namespace))
+  const empty = [...(name === '' ? ['Name'] : []), ...(namespace === '' ? ['Namespace'] : [])]
+  const found: Problem[] = []
+  const rule = form.family === 'service' ? SERVICE_NAME : DNS_SUBDOMAIN
+  const most = form.family === 'service' ? 63 : 253
+  if (name !== '' && (!rule.test(name) || name.length > most)) {
+    found.push({
+      field: 'name',
+      message:
+        form.family === 'service'
+          ? 'Lowercase letters, digits and “-”, starting with a letter and ending with a letter or digit, 63 at most.'
+          : 'Lowercase letters, digits, “-” and “.”, starting and ending with a letter or digit.',
+    })
+  }
+  if (namespace !== '' && !DNS_LABEL.test(namespace)) {
+    found.push({
+      field: 'namespace',
+      message: 'A namespace’s name: lowercase letters, digits and “-”.',
+    })
+  }
+  if (form.family === 'service') {
+    const { ports } = serviceValues(object)
+    if (ports.length === 0 || ports.some((port) => port.port === '')) empty.push('Port')
+    found.push(...serviceProblems(object))
+  } else if (form.family === 'data') {
+    found.push(...dataProblems(object, form))
+  } else {
+    if (claimValues(object).size === '') empty.push('Size')
+    found.push(...claimProblems(object))
+  }
+  return { missing: empty, problems: found }
+}
+
+// ——— A Secret's values, hidden ———
+
+/** What stands for a value that's hidden, whatever its length. */
+export const HIDDEN = '••••••••'
+
+/**
+ * Where every Secret's values are in the text, and what they are: wherever a Secret is
+ * written (the document itself, or one of a List's items), whatever its `data` and its
+ * `stringData` hold. Undefined where the text can't be read well enough to say.
+ */
+function secrets(text: string): { cuts: [number, number][]; values: string[] } | undefined {
+  let documents
+  try {
+    documents = parseAllDocuments(text)
+  } catch {
+    return undefined
+  }
+  const cuts: [number, number][] = []
+  const values: string[] = []
+  for (const document of documents) {
+    if (document.errors.length > 0) return undefined
+    visit(document, {
+      Map(_key, map) {
+        if ((map.get('kind') as unknown) !== 'Secret') return undefined
+        for (const held of ['data', 'stringData']) {
+          const under = map.get(held, true) as unknown
+          if (under === undefined || under === null) continue
+          // Whatever is there in place of keys and values is hidden whole.
+          const nodes: unknown[] = isMap(under) ? under.items.map((pair) => pair.value) : [under]
+          for (const node of nodes) {
+            const range = (node as { range?: [number, number, number] } | null)?.range
+            if (!range || (isScalar(node) && node.value === null)) continue
+            const [from, to] = [range[0], Math.max(range[0], range[1])]
+            cuts.push([from, to])
+            // As it's written, and as it's read: the cluster may quote either.
+            values.push(text.slice(from, to).trim())
+            if (isScalar(node)) values.push(String(node.value).trim())
+          }
+        }
+        return visit.SKIP
+      },
+    })
+  }
+  return { cuts, values: [...new Set(values)].filter((value) => value !== '') }
+}
+
+/**
+ * The text with every Secret's values replaced by `HIDDEN`: what's shown while they're hidden.
+ * It's a text of its own, with nothing of a value in it. `null` where the text can't be read
+ * well enough to say which characters are values.
+ */
+export function masked(text: string): string | null {
+  const found = secrets(text)
+  if (!found) return null
+  let next = text
+  for (const [from, to] of found.cuts.sort((a, b) => b[0] - a[0])) {
+    // (A value written as a block ends with its last line's end, which stays.)
+    const tail = /(\r?\n)$/.exec(text.slice(from, to))?.[1] ?? ''
+    next = next.slice(0, from) + HIDDEN + tail + next.slice(to)
+  }
+  // Read again: it's shown only if it still reads, and holds no value.
+  const again = secrets(next)
+  return again && again.values.every((value) => value === HIDDEN) ? next : null
+}
+
+/**
+ * What the cluster said of the YAML in `text`, with none of a Secret's values in it, should
+ * it quote one. Nothing of it, where the text can't be read to know what its values are.
+ */
+export function unquoted(message: string, text: string): string {
+  const found = secrets(text)
+  if (!found) return 'The cluster refused it. Show values to read what it said.'
+  return found.values
+    .sort((a, b) => b.length - a.length)
+    .reduce((said, value) => said.split(value).join(HIDDEN), message)
 }
 
 // ——— What the cluster said, by the field it names ———
