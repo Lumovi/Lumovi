@@ -1,4 +1,4 @@
-import { Gauge, Info, Pin, PinOff, SearchX } from 'lucide-react'
+import { Info, Pin, PinOff, SearchX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
@@ -10,7 +10,6 @@ import {
 } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
-import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { useAddOnOf } from '@renderer/hooks/add-ons'
 import { useOpenObject } from '@renderer/hooks/open-object'
@@ -35,7 +34,7 @@ import {
   type CellContext,
 } from './columns'
 import { useListState } from './list-state'
-import { countBy, HealthChips, LabelSelector } from './ListToolbar'
+import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from './ListToolbar'
 import { Pagination } from './Pagination'
 import { ResourceTable } from './ResourceTable'
 import { TableSkeleton } from './TableSkeleton'
@@ -102,7 +101,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     keys: new Set(),
   })
   if (picked.scope !== scopeKey) setPicked({ scope: scopeKey, keys: new Set() })
-  const labelsRef = useRef<HTMLInputElement>(null)
+  const labelsRef = useRef<LabelSelectorHandle>(null)
 
   const query = {
     namespace: resource.namespaced ? undefined : null,
@@ -233,36 +232,28 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     <div className="relative flex h-full flex-col">
       {isWorkloadType(kind) && <WorkloadTabs current={kind} />}
       {addOn && <AddOnTabs served={addOn} current={kind} />}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
-        <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
-          {number.format(items.length)} {items.length === 1 ? 'item' : 'items'}
-        </span>
-        <HealthChips
-          counts={counts}
-          active={state.health}
-          onToggle={toggleHealth}
-          name={(health) => healthName(kind, health)}
-        />
-        <div className="flex-1" />
-        {!builtin && <PinButton kind={kind} label={resource.label} />}
-        {metrics.data?.available === false && (
-          <span className="flex items-center gap-1.5 text-xs text-ink-3">
-            <Gauge className="size-3.5" /> Live usage needs metrics-server
-          </span>
-        )}
-        <LabelSelector
-          ref={labelsRef}
-          value={state.labels}
-          onApply={(labels) => update({ labels })}
-        />
-        <SearchInput
-          value={state.q}
-          onChange={(q) => update({ q })}
-          onArrowDown={() => gridRef.current?.focus()}
-          placeholder={`Filter ${noun}`}
-          className="w-60"
-        />
-      </div>
+      <ListBar
+        count={`${number.format(items.length)} ${items.length === 1 ? 'item' : 'items'}`}
+        chips={
+          counts.size > 0 && (
+            <HealthChips
+              counts={counts}
+              active={state.health}
+              onToggle={toggleHealth}
+              name={(health) => healthName(kind, health)}
+            />
+          )
+        }
+        before={!builtin && <PinButton kind={kind} label={resource.label} />}
+        note={metrics.data?.available === false ? 'Live usage needs metrics-server' : undefined}
+        labels={state.labels}
+        onLabels={(labels) => update({ labels })}
+        labelsRef={labelsRef}
+        filter={state.q}
+        noun={noun}
+        onFilter={(q) => update({ q })}
+        onArrowDown={() => gridRef.current?.focus()}
+      />
 
       {totals?.truncated && (
         <p

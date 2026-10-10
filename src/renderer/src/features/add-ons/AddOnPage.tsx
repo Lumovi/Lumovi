@@ -5,7 +5,6 @@ import type { KubeObject } from '@shared/api'
 import { kindOf } from '@shared/resources'
 import { LinkTab, LinkTabs } from '@renderer/components/LinkTabs'
 import { KindIcon } from '@renderer/components/KindIcon'
-import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { useAddOns, type ServedAddOn } from '@renderer/hooks/add-ons'
@@ -27,7 +26,7 @@ import {
   type Column,
 } from '../resources/columns'
 import { useListState } from '../resources/list-state'
-import { countBy, HealthChips, LabelSelector } from '../resources/ListToolbar'
+import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
 import { ResourceTable } from '../resources/ResourceTable'
 import { TableSkeleton } from '../resources/TableSkeleton'
@@ -181,7 +180,7 @@ function AddOnObjects({ served }: { served: ServedAddOn }) {
   const [params] = useSearchParams()
   const [state, update] = useListState('status')
   const gridRef = useRef<HTMLDivElement>(null)
-  const labelsRef = useRef<HTMLInputElement>(null)
+  const labelsRef = useRef<LabelSelectorHandle>(null)
   const open = useOpenObject()
   // Rows picked for bulk actions, for this namespace only.
   const [picked, setPicked] = useState<{ scope: string | null; keys: ReadonlySet<string> }>({
@@ -278,36 +277,32 @@ function AddOnObjects({ served }: { served: ServedAddOn }) {
 
   return (
     <>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
-        <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
-          {number.format(objects.length)} {objects.length === 1 ? 'object' : 'objects'}
-        </span>
-        <HealthChips
-          counts={counts}
-          active={state.health}
-          onToggle={(health) =>
-            update({
-              health: state.health.includes(health)
-                ? state.health.filter((h) => h !== health)
-                : [...state.health, health],
-            })
-          }
-          name={(health) => HEALTH_NAMES[health]}
-        />
-        <div className="flex-1" />
-        <LabelSelector
-          ref={labelsRef}
-          value={state.labels}
-          onApply={(labels) => update({ labels })}
-        />
-        <SearchInput
-          value={state.q}
-          onChange={(q) => update({ q })}
-          onArrowDown={() => gridRef.current?.focus()}
-          placeholder={`Filter ${addOn.label}`}
-          className="w-60"
-        />
-      </div>
+      <ListBar
+        count={`${number.format(objects.length)} ${objects.length === 1 ? 'object' : 'objects'}`}
+        chips={
+          counts.size > 0 && (
+            <HealthChips
+              counts={counts}
+              active={state.health}
+              onToggle={(health) =>
+                update({
+                  health: state.health.includes(health)
+                    ? state.health.filter((h) => h !== health)
+                    : [...state.health, health],
+                })
+              }
+              name={(health) => HEALTH_NAMES[health]}
+            />
+          )
+        }
+        labels={state.labels}
+        onLabels={(labels) => update({ labels })}
+        labelsRef={labelsRef}
+        filter={state.q}
+        noun={addOn.label}
+        onFilter={(q) => update({ q })}
+        onArrowDown={() => gridRef.current?.focus()}
+      />
       {unread.length > 0 && unread.length < all.length && (
         <div role="status" className="shrink-0 border-b border-warn/25 bg-warn/10 px-5 py-1.5">
           {unread.map(([resource, q]) => (

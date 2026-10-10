@@ -1,9 +1,8 @@
-import { Boxes, Gauge, Info, SearchX } from 'lucide-react'
+import { Boxes, Info, SearchX } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { builtinResource, kindOf } from '@shared/resources'
-import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useList, useListResponse, useMetrics } from '@renderer/hooks/queries'
@@ -21,7 +20,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
 import { sortedBy, sortRows, type CellContext } from '../resources/columns'
 import { useListState } from '../resources/list-state'
-import { countBy, HealthChips, LabelSelector } from '../resources/ListToolbar'
+import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
 import { ResourceTable } from '../resources/ResourceTable'
 import { TableSkeleton } from '../resources/TableSkeleton'
@@ -45,7 +44,7 @@ export function WorkloadsPage() {
   const [params] = useSearchParams()
   const [state, update] = useListState('status')
   const gridRef = useRef<HTMLDivElement>(null)
-  const labelsRef = useRef<HTMLInputElement>(null)
+  const labelsRef = useRef<LabelSelectorHandle>(null)
   const open = useOpenObject()
   // Rows picked for bulk actions, for this namespace only.
   const [picked, setPicked] = useState<{ scope: string | null; keys: ReadonlySet<string> }>({
@@ -165,41 +164,33 @@ export function WorkloadsPage() {
   return (
     <div className="relative flex h-full flex-col">
       <WorkloadTabs />
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
-        <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
-          {number.format(workloads.length)} {workloads.length === 1 ? 'workload' : 'workloads'}
-        </span>
-        <HealthChips
-          counts={counts}
-          active={state.health}
-          onToggle={(health) =>
-            update({
-              health: state.health.includes(health)
-                ? state.health.filter((h) => h !== health)
-                : [...state.health, health],
-            })
-          }
-          name={(health) => HEALTH_NAMES[health]}
-        />
-        <div className="flex-1" />
-        {metrics.data?.available === false && (
-          <span className="flex items-center gap-1.5 text-xs text-ink-3">
-            <Gauge className="size-3.5" /> Live usage needs metrics-server
-          </span>
-        )}
-        <LabelSelector
-          ref={labelsRef}
-          value={state.labels}
-          onApply={(labels) => update({ labels })}
-        />
-        <SearchInput
-          value={state.q}
-          onChange={(q) => update({ q })}
-          onArrowDown={() => gridRef.current?.focus()}
-          placeholder="Filter workloads"
-          className="w-60"
-        />
-      </div>
+      <ListBar
+        count={`${number.format(workloads.length)} ${workloads.length === 1 ? 'workload' : 'workloads'}`}
+        chips={
+          counts.size > 0 && (
+            <HealthChips
+              counts={counts}
+              active={state.health}
+              onToggle={(health) =>
+                update({
+                  health: state.health.includes(health)
+                    ? state.health.filter((h) => h !== health)
+                    : [...state.health, health],
+                })
+              }
+              name={(health) => HEALTH_NAMES[health]}
+            />
+          )
+        }
+        note={metrics.data?.available === false ? 'Live usage needs metrics-server' : undefined}
+        labels={state.labels}
+        onLabels={(labels) => update({ labels })}
+        labelsRef={labelsRef}
+        filter={state.q}
+        noun="workloads"
+        onFilter={(q) => update({ q })}
+        onArrowDown={() => gridRef.current?.focus()}
+      />
       {unread.length > 0 && unread.length < all.length && (
         <div role="status" className="shrink-0 border-b border-warn/25 bg-warn/10 px-5 py-1.5">
           {unread.map(([kind, q]) => (

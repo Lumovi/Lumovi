@@ -14,6 +14,7 @@ export function SearchInput({
   placeholder,
   className,
   autoFocus,
+  hint = true,
 }: {
   value: string
   onChange: (value: string) => void
@@ -22,6 +23,8 @@ export function SearchInput({
   className?: string
   /** For pages whose first job is finding something. */
   autoFocus?: boolean
+  /** Whether it shows its key, `/`: not where it has little room. */
+  hint?: boolean
 }) {
   // The field shows what was typed right away, even if `value` catches up a
   // moment later (e.g. through the URL); changes made elsewhere replace it.
@@ -74,9 +77,11 @@ export function SearchInput({
           <X className="size-3" />
         </button>
       ) : (
-        <span className="peer-focus:hidden">
-          <Kbd>/</Kbd>
-        </span>
+        hint && (
+          <span className="peer-focus:hidden">
+            <Kbd>/</Kbd>
+          </span>
+        )
       )}
     </label>
   )

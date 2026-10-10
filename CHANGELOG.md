@@ -12,6 +12,11 @@ All notable changes to Lumovi are documented here. The format follows
   name no pod: choosing Network in or Network out could replace the page with an error. Network
   usage now counts only pods' traffic, on the page and in a node's charts, and a series that doesn't
   say which pod, node or namespace it is about is left out instead of breaking the list.
+- A list's bar keeps to one row beside an open object: its label selector and filter shrink
+  instead of dropping to a second line, as the Services list's did beside the map. Where there's
+  less room still, the label selector is a button that opens its field under it, and says what's
+  applied; health chips stay whole and take a row of their own only when they don't fit. Lists,
+  Workloads, add-ons and Helm releases share the one bar.
 
 ## [1.20.0] - 2026-10-10
 
