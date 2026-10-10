@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import { Check, CircleHelp, Eye, EyeOff, Lock, TriangleAlert } from 'lucide-react'
 import { Tail } from '@renderer/components/Tail'
 import { useState, type ReactNode } from 'react'
@@ -15,7 +16,7 @@ import { MASK } from './YamlTab'
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="px-5 py-4">
+    <section className="px-5 py-4 phone:px-4">
       <h3 className="mb-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">{title}</h3>
       {children}
     </section>
@@ -24,12 +25,17 @@ export function Section({ title, children }: { title: string; children: ReactNod
 
 export function KeyValueGrid({ entries }: { entries: { label: string; value: ReactNode }[] }) {
   return (
-    <dl className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-6 gap-y-2 text-[13px]">
+    // On a phone facts stack: each label, smaller, above its value.
+    <dl className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-6 gap-y-2 text-[13px] phone:flex phone:flex-col phone:gap-3">
       {entries.map((entry) => (
-        <div key={entry.label} className="contents">
+        <div key={entry.label} className="contents phone:block">
           {/* A long label (a container's name, an annotation's key) wraps: the value keeps room. */}
-          <dt className="max-w-64 wrap-anywhere text-ink-3">{entry.label}</dt>
-          <dd className="min-w-0 wrap-anywhere text-ink-1 selectable">{entry.value}</dd>
+          <dt className="max-w-64 wrap-anywhere text-ink-3 phone:max-w-none phone:text-xs">
+            {entry.label}
+          </dt>
+          <dd className="min-w-0 wrap-anywhere text-ink-1 selectable phone:mt-0.5">
+            {entry.value}
+          </dd>
         </div>
       ))}
     </dl>
@@ -261,6 +267,31 @@ export function IngressRules({ ingress }: { ingress: KubeObject }) {
 }
 
 function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
+  const phone = useLayout() === 'phone'
+  // On a phone a table is cards, one a row: what names the row, then its other columns side by
+  // side, each under its heading.
+  if (phone) {
+    return (
+      <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+        {rows.map((row, i) => (
+          <li key={i} className="px-3.5 py-2.5">
+            <p className="font-mono text-xs font-medium wrap-anywhere text-ink-1 selectable">
+              <span className="sr-only">{headers[0]}: </span>
+              {row[0]}
+            </p>
+            <dl className="mt-2 grid grid-cols-3 gap-3 text-xs">
+              {row.slice(1).map((cell, j) => (
+                <div key={j} className="min-w-0">
+                  <dt className="text-ink-3">{headers[j + 1]}</dt>
+                  <dd className="mt-0.5 font-mono wrap-anywhere text-ink-1 selectable">{cell}</dd>
+                </div>
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ul>
+    )
+  }
   return (
     // Columns share the width alike (a long host doesn't squeeze its path to nothing), and a
     // panel too narrow for them scrolls them sideways.
