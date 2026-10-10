@@ -466,12 +466,13 @@ test('a copy has a size limit, can be stopped, and doesn’t wait for ever', asy
     error: { reason: 'too-large' },
   })
 
-  // One that stops arriving is stopped.
-  clusters.demo.files.craft('/loot', {
-    entries: [{ name: './loot', content: 'x'.repeat(4000) }],
+  // One that stops arriving is stopped. (Its name is a log's: on Windows, a browser gives up
+  // a download a script began whose name has no ending it knows, which would stop it first.)
+  clusters.demo.files.craft('/held.log', {
+    entries: [{ name: './held.log', content: 'x'.repeat(4000) }],
     then: 'hold',
   })
-  expect((await download(page, '/loot')).end).toMatchObject({
+  expect((await download(page, '/held.log')).end).toMatchObject({
     outcome: 'failed',
     error: { code: 'timeout', message: 'Nothing moved for 0s, so the copy was stopped.' },
   })
@@ -523,9 +524,13 @@ test('a copy cut short takes nothing down, and nothing of it is kept', async ({
   expect(gone.error ?? gone.end?.error).toMatchObject({ code: 'unreachable' })
   // It stops with part of a file sent on to the browser: the browser's download fails, and
   // it keeps no file.
-  files.craft('/loot', { entries: loot, then: 'hold' })
+  // (A log by its name, for the browser to keep at it on Windows.)
+  files.craft('/held.log', {
+    entries: [{ name: './held.log', content: 'x'.repeat(4000) }],
+    then: 'hold',
+  })
   const partial = page.waitForEvent('download')
-  const stopped = download(page, '/loot')
+  const stopped = download(page, '/held.log')
   const failure = (await partial).failure()
   expect((await stopped).end).toMatchObject({ outcome: 'failed', error: { code: 'timeout' } })
   expect(await failure).not.toBeNull()
