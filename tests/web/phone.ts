@@ -53,26 +53,45 @@ export async function expectNoSidewaysScroll(page: Page, where: string): Promise
   expect(wide, `${where} scrolls sideways`).toEqual([])
 }
 
-/** Everything there is to press that shows is at least a finger's size, each way. */
+/**
+ * Everything there is to press that shows answers on at least a finger's size, each way: at
+ * its middle, and 21 px above, below and to either side of it (what answers may be more than
+ * what's drawn: a chip 28 px high takes the 8 px above and below it too).
+ */
 export async function expectFingerSized(page: Page, where: string): Promise<void> {
   const small = await page.evaluate((least) => {
     const pressed =
       'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="option"], [role="menuitem"], [role="switch"], [role="checkbox"], [role="radio"], summary'
+    const reach = least / 2 - 1
     const found: string[] = []
     for (const element of document.querySelectorAll<HTMLElement>(pressed)) {
       const box = element.getBoundingClientRect()
       const style = getComputedStyle(element)
-      const shown =
-        box.width > 0 &&
-        box.height > 0 &&
-        style.visibility !== 'hidden' &&
-        box.bottom > 0 &&
-        box.top < window.innerHeight &&
-        box.right > 0 &&
-        box.left < window.innerWidth
-      // What's only for a keyboard (it shows on focus alone) isn't a thing to press.
-      if (!shown || element.closest('[aria-hidden="true"]') || element.tabIndex < 0) continue
-      if (box.width < least - 0.5 || box.height < least - 0.5) {
+      const x = box.left + box.width / 2
+      const y = box.top + box.height / 2
+      if (box.width === 0 || box.height === 0 || style.visibility === 'hidden') continue
+      // What's only for a keyboard, or disabled, or under something else isn't a thing to press.
+      if (element.closest('[aria-hidden="true"], [inert]') || element.matches(':disabled')) continue
+      const at = (dx: number, dy: number) => {
+        const px = x + dx
+        const py = y + dy
+        // (Past the screen's edge there's nothing to miss it by.)
+        if (px < 0 || py < 0 || px >= window.innerWidth || py >= window.innerHeight) return true
+        const hit = document.elementFromPoint(px, py)
+        return (
+          hit !== null &&
+          (element.contains(hit) || hit.contains(element) || labelOf(hit) === element)
+        )
+      }
+      const labelOf = (hit: Element) => hit.closest('label')?.querySelector(pressed)
+      if (!at(0, 0)) continue // Scrolled away, or covered: not there to press now.
+      const misses = [
+        [0, -reach],
+        [0, reach],
+        [-reach, 0],
+        [reach, 0],
+      ].filter(([dx, dy]) => !at(dx!, dy!))
+      if (misses.length) {
         const name =
           element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 40) ?? ''
         found.push(
@@ -82,5 +101,5 @@ export async function expectFingerSized(page: Page, where: string): Promise<void
     }
     return found
   }, FINGER)
-  expect(small, `${where} has targets under ${FINGER} px`).toEqual([])
+  expect(small, `${where} has targets a finger would miss`).toEqual([])
 }
