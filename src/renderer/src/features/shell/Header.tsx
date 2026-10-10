@@ -208,7 +208,7 @@ export function Header() {
         <Kbd>K</Kbd>
       </button>
       <IconButton
-        label={WINDOW_SHORTCUTS ? `Create from YAML (${MOD_KEY}N)` : 'Create from YAML'}
+        label={WINDOW_SHORTCUTS ? `Create… (${MOD_KEY}N)` : 'Create…'}
         onClick={() => setCreate(true)}
       >
         <Plus />

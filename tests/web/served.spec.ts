@@ -85,12 +85,12 @@ test('what only the desktop app does isn’t there', async ({ page, serve }) => 
   await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
 
   // Browsers keep ⌘N and ⌘1…6 for themselves.
-  await expect(page.getByRole('button', { name: 'Create from YAML', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create…', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await page.keyboard.press('Shift+?')
   const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(shortcuts).toContainText('Command palette')
-  await expect(shortcuts).not.toContainText('Create from YAML')
+  await expect(shortcuts).not.toContainText('Create…')
   await expect(shortcuts).not.toContainText('New terminal')
   await page.keyboard.press('Escape')
   await page.keyboard.press('ControlOrMeta+k')
@@ -98,9 +98,7 @@ test('what only the desktop app does isn’t there', async ({ page, serve }) => 
   await palette.getByRole('combobox').fill('clusters')
   await expect(palette.getByRole('option', { name: /All clusters/ })).toHaveCount(0)
   await palette.getByRole('combobox').fill('create from yaml')
-  await expect(palette.getByRole('option', { name: /^Create from YAML/ })).toHaveText(
-    'Create from YAML',
-  )
+  await expect(palette.getByRole('option', { name: /^Create…/ })).toHaveText('Create…')
   await page.keyboard.press('Escape')
 
   // Charts come from repositories and registries, not this computer's files.
@@ -171,7 +169,7 @@ test('read-only for everyone on the server: one turns it on, and another sees wh
     bob.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
   ).toBeVisible()
   const writes = clusters.demo.requests.filter((r) => r.method !== 'GET').length
-  await bob.getByRole('button', { name: 'Create from YAML', exact: true }).click()
+  await bob.getByRole('button', { name: 'Create…', exact: true }).click()
   await expect(bob.getByRole('dialog')).toContainText(
     'Changes are turned off for this cluster: alice@example.com made it read-only for everyone.',
   )

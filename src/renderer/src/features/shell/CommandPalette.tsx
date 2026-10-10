@@ -329,11 +329,11 @@ function Palette({ onDone }: { onDone: () => void }) {
           {!phone && (
             <Item
               icon={<FilePlus2 />}
-              value="Create from YAML new object"
+              value="Create new object form from YAML"
               hint={WINDOW_SHORTCUTS && <Keys keys={[MOD_KEY, 'N']} />}
               onSelect={run(() => setCreate(true))}
             >
-              Create from YAML
+              Create…
             </Item>
           )}
           {api.host === 'desktop' && (

@@ -41,7 +41,7 @@ export function buildMenu(
     {
       label: 'File',
       submenu: [
-        command('create', 'New from YAML…', 'CmdOrCtrl+N'),
+        command('create', 'Create…', 'CmdOrCtrl+N'),
         { type: 'separator' },
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
       ],
