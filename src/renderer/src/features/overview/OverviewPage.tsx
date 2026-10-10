@@ -217,12 +217,14 @@ export function Tile({
       <button
         type="button"
         onClick={() => go(`${clusterPath(context)}/${to}`)}
-        className="group block w-full rounded-xl border border-line bg-surface-2 p-4 text-left shadow-panel transition-colors hover:border-line-strong hover:bg-surface-3/40"
+        className="group relative block w-full rounded-xl border border-line bg-surface-2 p-4 text-left shadow-panel transition-colors hover:border-line-strong hover:bg-surface-3/40"
       >
-        <div className="flex items-center gap-2 text-[13px] text-ink-2">
-          <Icon className="size-4 text-ink-3" />
+        {/* On a phone the tiles are two across, and a label has its line to itself: the chevron
+            sits in the tile's corner, out of its way. */}
+        <div className="flex items-center gap-2 text-[13px] text-ink-2 phone:gap-1.5 phone:whitespace-nowrap">
+          <Icon className="size-4 shrink-0 text-ink-3" />
           {label}
-          <ChevronRight className="ml-auto size-4 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 touch:opacity-100" />
+          <ChevronRight className="ml-auto size-4 shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 phone:absolute phone:top-2 phone:right-2 phone:size-3.5 touch:opacity-100" />
         </div>
         <div className="mt-2.5 text-[28px] leading-none font-semibold tracking-[-0.02em] text-ink-1">
           {value ?? '—'}

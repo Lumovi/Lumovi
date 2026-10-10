@@ -74,11 +74,14 @@ export function LabelSelector({
   value,
   onApply,
   compact = false,
+  grow = false,
   ref,
 }: {
   value: string
   onApply: (labels: string) => void
   compact?: boolean
+  /** Whether the field takes what room its row has, beyond its 240 px. */
+  grow?: boolean
   ref?: Ref<LabelSelectorHandle>
 }) {
   const [draft, setDraft] = useState(value)
@@ -108,6 +111,7 @@ export function LabelSelector({
         className={cn(
           'flex h-8 min-w-40 shrink basis-60 items-center gap-2 rounded-lg border bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft touch:h-11',
           value ? 'border-accent/60' : 'border-line',
+          grow && 'grow',
         )}
       >
         <Tag className="size-3.5 shrink-0" />
@@ -272,6 +276,9 @@ export function ListBar({
   const [width, setWidth] = useState(Infinity)
   const [stacked, setStacked] = useState(false)
   const compact = onLabels !== undefined && width < (chips ? BAR.compact : BAR.narrow)
+  // On a narrow page whose chips have their own row, the two fields take the first row's width
+  // from the count, rather than stand at its end with a gap before them.
+  const roomy = useLayout() !== 'wide' && stacked && !compact
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -320,7 +327,7 @@ export function ListBar({
           {count}
         </span>
         {!stacked && chipped}
-        <div className="flex-1" />
+        {!roomy && <div className="flex-1" />}
         {(before || note) && (
           <span ref={extras} className="flex shrink-0 items-center gap-2">
             {before}
@@ -349,6 +356,7 @@ export function ListBar({
             value={labels ?? ''}
             onApply={onLabels}
             compact={compact}
+            grow={roomy}
           />
         )}
         <SearchInput
@@ -357,7 +365,7 @@ export function ListBar({
           onArrowDown={onArrowDown}
           placeholder={width < BAR.narrow ? 'Filter' : `Filter ${noun}`}
           hint={width >= BAR.narrow}
-          className="min-w-32 shrink basis-60"
+          className={cn('min-w-32 shrink basis-60', roomy && 'grow')}
         />
       </div>
       {stacked && chipped}
