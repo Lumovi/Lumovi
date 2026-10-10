@@ -61,7 +61,13 @@ const versionsOf = (path: string): string[] => {
   })()
   return [existsSync(path) ? readFileSync(path, 'utf8') : '', was]
 }
-/** Whether a file only gained lines: every line it had is still there, in its order. */
+/**
+ * Whether a file only gained lines: every line it had is still there, in its order.
+ *
+ * Two things it doesn't see. A test weakened by lines added only (a `test.skip`, a `test.fixme`,
+ * an early `return`) still counts as only gaining. And a line taken away that occurs again later
+ * in the file (a second identical `expect`, a closing `})`) is found there, and not missed.
+ */
 function onlyAdds([now = '', was = '']: string[]): boolean {
   const lines = now.split('\n')
   let at = 0
