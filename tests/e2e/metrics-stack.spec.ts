@@ -230,8 +230,10 @@ test('another release’s cluster role of the same name stops the install, and s
   await expect(dialog).toContainText('The cluster accepts it')
   await dialog.getByRole('button', { name: 'Install' }).click()
   await expect(dialog.getByRole('alert')).toContainText(
-    'INSTALLATION FAILED: ClusterRole lumovi-metrics-kube-state-metrics: the cluster answered 409 Nothing of it is left.',
+    'INSTALLATION FAILED: Unable to continue with install: ClusterRole "lumovi-metrics-kube-state-metrics" exists and cannot be imported into the current release: invalid ownership metadata Nothing of it is left.',
   )
+  // Helm recorded no release, so there was none to uninstall.
+  expect(helmCalls(lumovi).at(-1)!.slice(0, 2)).toEqual(['install', RELEASE])
   // Undone: all of Lumovi's is gone, and what wasn't Lumovi's is as it was.
   expect(there(clusters.sandbox)).toEqual(['ClusterRole lumovi-metrics-kube-state-metrics'])
   expect(
@@ -298,30 +300,19 @@ test('a chart that isn’t the one published is never used', async ({ launch, cl
 })
 
 test('installed and not coming up: why, as the cluster says, and the way out', async ({
-  lumovi,
+  launch,
   clusters,
 }) => {
-  const { page } = lumovi
+  // Its images can't be pulled here (a cluster without a way out, say).
+  const { page } = await launch({
+    env: { FAKE_HELM_STACK_IMAGE: 'registry.internal/prometheus-does-not-exist:v3' },
+  })
   await openMetrics(page)
   await offer(page).click()
   const dialog = installing(page)
   await dialog.getByRole('button', { name: 'Review' }).click()
   await expect(dialog).toContainText('The cluster accepts it')
-  // The cluster takes the release, and refuses Prometheus' pod (its Pod Security, say).
-  const REFUSAL = `pods "${SERVICE}-6fb44f6d65-" is forbidden: violates PodSecurity "restricted:latest"`
-  clusters.sandbox.fail(`/apis/apps/v1/namespaces/${NAMESPACE}/deployments/${SERVICE}`, {
-    status: 200,
-    method: 'GET',
-    body: JSON.stringify({
-      apiVersion: 'apps/v1',
-      kind: 'Deployment',
-      metadata: { name: SERVICE, namespace: NAMESPACE, uid: 'refused' },
-      spec: { replicas: 1 },
-      status: {
-        conditions: [{ type: 'ReplicaFailure', status: 'True', message: REFUSAL }],
-      },
-    }),
-  })
+  // (The stand-in for Prometheus answers whether or not its pod runs: here it doesn't.)
   clusters.sandbox.fail(new RegExp(`/services/${SERVICE}:http/proxy/`), {
     status: 503,
     body: '{"kind":"Status","message":"no endpoints available for service"}',
@@ -330,7 +321,9 @@ test('installed and not coming up: why, as the cluster says, and the way out', a
   await expect(toasts(page)).toContainText('Installed the metrics stack')
   const stuck = page.getByRole('main').getByRole('alert')
   await expect(stuck).toContainText('The metrics stack isn’t starting', { timeout: 30_000 })
-  await expect(stuck).toContainText(`${SERVICE}: ${REFUSAL}`)
+  await expect(stuck).toContainText(
+    /lumovi-metrics-prometheus-server-\S+: ErrImagePull \(failed to pull and unpack image .*does-not-exist/,
+  )
   await stuck.getByRole('button', { name: 'Remove…' }).click()
   const removing = page.getByRole('dialog', { name: /Remove the metrics stack/ })
   await removing.getByRole('textbox').fill(NAMESPACE)
