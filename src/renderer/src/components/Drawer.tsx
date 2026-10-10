@@ -10,12 +10,15 @@ export function Drawer({
   open,
   onOpenChange,
   label,
+  opener,
   children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Its name, as the region it holds is named where it's always there. */
   label: string
+  /** Finds the button that opens it, which has the focus again once it's closed. */
+  opener: () => HTMLElement | null
   children: ReactNode
 }) {
   return (
@@ -25,6 +28,11 @@ export function Drawer({
         <Dialog.Content
           aria-label={label}
           aria-describedby={undefined}
+          // (Said here: a tap doesn't always leave the focus on what was tapped, to go back to.)
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            opener()?.focus()
+          }}
           // Its open edge has a hairline and the pop shadow: what sets it apart from the page in dark.
           className="fixed inset-y-0 left-0 z-50 flex w-[min(320px,calc(100%-56px))] animate-slide-from-left flex-col border-r border-line-strong bg-app shadow-pop outline-none"
         >

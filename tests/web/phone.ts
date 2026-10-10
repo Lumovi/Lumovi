@@ -107,6 +107,12 @@ function missed(page: Page): Promise<string[]> {
       }
       const labelOf = (hit: Element) => hit.closest('label')?.querySelector(pressed)
       if (!at(0, 0)) continue // Scrolled away, or covered: not there to press now.
+      // Nor is what a detail over the list has half covered: the detail is what's pressed there.
+      const under = (dx: number, dy: number) => {
+        const over = document.elementFromPoint(x + dx, y + dy)?.closest('[data-over]')
+        return over !== null && over !== undefined && !over.contains(element)
+      }
+      if ([-reach, reach].some((d) => under(d, 0) || under(0, d))) continue
       const misses = [
         [0, -reach],
         [0, reach],

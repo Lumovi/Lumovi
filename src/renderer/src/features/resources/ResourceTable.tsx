@@ -253,7 +253,7 @@ function ResourceGrid({
         className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur"
         style={{ minWidth: grid.minWidth }}
       >
-        <div role="row" className="grid h-9 items-center px-3" style={grid}>
+        <div role="row" className="grid h-9 items-center px-3 touch:h-11" style={grid}>
           {selectable && (
             <div
               role="columnheader"
@@ -282,7 +282,7 @@ function ResourceGrid({
                     onClick={() => onSort(column.id)}
                     // A header keeps to its line: cut short in a narrow column, its arrow kept.
                     className={cn(
-                      'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1 touch:finger',
+                      'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1 touch:finger touch:h-11',
                       isSorted ? 'text-ink-1' : 'text-ink-3',
                     )}
                     title={column.header}

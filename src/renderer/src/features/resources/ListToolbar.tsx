@@ -106,7 +106,7 @@ export function LabelSelector({
       <label
         ref={frame}
         className={cn(
-          'flex h-8 min-w-40 shrink basis-60 items-center gap-2 rounded-lg border bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
+          'flex h-8 min-w-40 shrink basis-60 items-center gap-2 rounded-lg border bg-surface px-2.5 text-ink-3 transition-colors no-drag focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft touch:h-11',
           value ? 'border-accent/60' : 'border-line',
         )}
       >

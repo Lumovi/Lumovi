@@ -102,7 +102,7 @@ export function ActionBar({ object }: { object: KubeObject }) {
         <DropdownMenu.Root open={open} onOpenChange={setOpen}>
           <DropdownMenu.Trigger
             aria-label="More actions"
-            className="grid size-7 place-items-center rounded-lg border border-line-strong bg-surface-2 text-ink-2 shadow-xs transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3"
+            className="grid size-7 place-items-center rounded-lg border border-line-strong bg-surface-2 text-ink-2 shadow-xs transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3 touch:size-11"
           >
             <Ellipsis className="size-4" />
           </DropdownMenu.Trigger>

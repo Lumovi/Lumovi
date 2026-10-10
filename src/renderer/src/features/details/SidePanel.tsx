@@ -119,12 +119,14 @@ export function SidePanel({
         // Where the list still shows beside it (a tablet), what's behind is set back, and closes it.
         <div
           aria-hidden
+          data-over
           onClick={close}
           className="absolute inset-0 z-10 animate-fade-in bg-black/30"
         />
       )}
       <aside
         aria-label={label(shown)}
+        data-over={over || undefined}
         onAnimationEnd={() => {
           if (closing) setShown(null)
         }}
