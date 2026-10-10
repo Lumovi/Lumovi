@@ -42,7 +42,13 @@ const ORDER = [
   'memory',
 ]
 
-const set = (text: string, path: Path, value: unknown) => setAt(text, path, value, ORDER)
+/** A text, or `null` once an edit of it couldn't be made (see `yaml-edit`): nothing follows that. */
+type Edited = string | null
+
+const set = (text: Edited, path: Path, value: unknown): Edited =>
+  text === null ? null : setAt(text, path, value, ORDER)
+const remove = (text: Edited, path: Path, upTo: number): Edited =>
+  text === null ? null : removeAt(text, path, upTo)
 
 type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json =>
@@ -429,18 +435,21 @@ const numbered = (typed: string): string | number =>
   /^\d{1,9}$/.test(typed) ? Number(typed) : typed
 
 /** Sets a single value, or leaves its key with nothing where nothing was typed. */
-const put = (text: string, path: Path, typed: string | number) =>
+const put = (text: Edited, path: Path, typed: string | number): Edited =>
   typed === '' ? set(text, path, null) : set(text, path, typed)
 
 export const write = {
   /** The name, and with it whatever was the same as the name before. */
-  name(text: string, object: Json, name: string): string {
+  name(text: string, object: Json, name: string): Edited {
     const old = dig(object, FIELD_PATHS.name)
     const follows = FOLLOWS_NAME.filter((path) => {
       const value = dig(object, path)
       return value === undefined || value === null || value === old
     })
-    return [FIELD_PATHS.name, ...follows].reduce((next, path) => put(next, path, name), text)
+    return [FIELD_PATHS.name, ...follows].reduce<Edited>(
+      (next, path) => put(next, path, name),
+      text,
+    )
   },
   namespace: (text: string, namespace: string) => put(text, FIELD_PATHS.namespace, namespace),
   replicas: (text: string, typed: string) => put(text, FIELD_PATHS.replicas, numbered(typed)),
@@ -448,7 +457,7 @@ export const write = {
   /** The port, or none: its list goes with the last of what it held. */
   port: (text: string, typed: string) =>
     typed === ''
-      ? removeAt(text, FIELD_PATHS.port, C.length)
+      ? remove(text, FIELD_PATHS.port, C.length)
       : set(text, FIELD_PATHS.port, numbered(typed)),
   /** One more variable, by its name: its value is said when one is typed. */
   addVariable: (text: string, object: Json, name: string, value: string) => {
@@ -460,14 +469,14 @@ export const write = {
   /** A variable's value: always text, whatever it looks like. */
   variableValue: (text: string, index: number, value: string) =>
     value === ''
-      ? removeAt(text, [...FIELD_PATHS.env, index, 'value'], C.length + 2)
+      ? remove(text, [...FIELD_PATHS.env, index, 'value'], C.length + 2)
       : set(text, [...FIELD_PATHS.env, index, 'value'], value),
   removeVariable: (text: string, index: number) =>
-    removeAt(text, [...FIELD_PATHS.env, index], C.length),
+    remove(text, [...FIELD_PATHS.env, index], C.length),
   /** A request or a limit, or none: what's left empty above it goes too. */
   resource: (text: string, which: keyof Resources, typed: string) =>
     typed === ''
-      ? removeAt(text, RESOURCE_PATHS[which], C.length)
+      ? remove(text, RESOURCE_PATHS[which], C.length)
       : set(text, RESOURCE_PATHS[which], typed),
 }
 

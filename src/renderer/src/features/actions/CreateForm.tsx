@@ -60,7 +60,19 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
   // The last text the form could show, which it goes back to when asked.
   const [fitting, setFitting] = useState(text)
   const [focus, setFocus] = useState<{ field: FieldId; path: Path }>()
-  const reading = useMemo(() => read(text, form), [text, form])
+  // An edit the form couldn't make without rewriting more of the YAML than its own lines.
+  const [stuck, setStuck] = useState(false)
+  const reading = useMemo(
+    () =>
+      stuck
+        ? {
+            fits: false as const,
+            why: 'A field’s edit would have rewritten more of this YAML than its own lines, the way it’s written, so it wasn’t made.',
+            lines: undefined,
+          }
+        : read(text, form),
+    [text, form, stuck],
+  )
   if (reading.fits && fitting !== text) setFitting(text)
   const last = useMemo(() => read(fitting, form), [fitting, form])
   const object = reading.fits ? reading.object : last.fits ? last.object : {}
@@ -72,9 +84,15 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
   const change = (next: string) => {
     setText(next)
     setOutcomes([])
+    setStuck(false)
   }
-  /** A field's edit, of the text as it is now. */
-  const edit = (how: (text: string) => string) => reading.fits && change(how(text))
+  /** A field's edit, of the text as it is now: made, or the form steps back and says why. */
+  const edit = (how: (text: string) => string | null) => {
+    if (!reading.fits) return
+    const next = how(text)
+    if (next === null) setStuck(true)
+    else change(next)
+  }
 
   const typed = reading.fits ? problems(values) : []
   const empty = reading.fits ? missing(values) : []
@@ -446,7 +464,7 @@ function WorkloadFields({
   onFocus: (focus: { field: FieldId; path: Path } | undefined) => void
   allNamespaces: boolean
   start: string
-  edit: (how: (text: string) => string) => void
+  edit: (how: (text: string) => string | null) => void
   object: Record<string, unknown>
 }) {
   const namespaces = useList('Namespace', { namespace: null })
@@ -664,7 +682,10 @@ function WorkloadFields({
                         aria-label={`${variable.name || `Variable ${index + 1}`}’s value`}
                         className="flex h-8 min-w-0 flex-[1.4] items-center truncate rounded-lg border border-line bg-surface-2 px-2.5 text-xs text-ink-2"
                       >
-                        <span className="truncate">from {variable.from}</span>
+                        {/* All of it on hover, where the row is too narrow for it. */}
+                        <span className="truncate" title={`from ${variable.from}`}>
+                          from {variable.from}
+                        </span>
                       </span>
                     )}
                     <RemoveButton
