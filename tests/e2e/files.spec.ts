@@ -119,6 +119,25 @@ const upload = (page: Page, path: string, what: 'file' | 'folder' = 'file') =>
     { request: { ...IN, path }, what },
   ) as Promise<Copied>
 
+/** An upload of what was picked before, by its handle, to its end. */
+const send = (page: Page, source: string, path: string) =>
+  page.evaluate(
+    async (request) => {
+      const api = window.lumovi!
+      const id = crypto.randomUUID()
+      const ended = new Promise((resolve) => {
+        const off = api.files.onEnd((its, end) => {
+          if (its !== id) return
+          off()
+          resolve(end)
+        })
+      })
+      const begun = await api.files.upload(id, request)
+      return (begun.ok ? { end: await ended } : { error: begun.error }) as never
+    },
+    { ...IN, path, source },
+  ) as Promise<Copied>
+
 const events = (page: Page, action: string) =>
   page
     .evaluate((action) => window.lumovi!.audit.query({ actions: [action as never] }), action)
@@ -546,6 +565,60 @@ test.describe('in a cluster', () => {
     ])
   })
 
+  test('a link isn’t what’s uploaded, and a folder’s links are counted', async ({ lumovi }) => {
+    test.skip(WINDOWS, 'Making a link takes a privilege there')
+    const { page, app } = lumovi
+    const dir = scratch()
+    writeFileSync(join(dir, 'notes.txt'), 'notes')
+    symlinkSync(join(dir, 'notes.txt'), join(dir, 'latest'))
+    await menuAction(page, 'Pod', POD, 'Upload files…')
+    // A link, picked: it's said in the dialog, and nothing is picked.
+    await pickAs(app, join(dir, 'latest'))
+    await dialog(page).getByRole('button', { name: 'Choose a file…' }).click()
+    await expect(dialog(page).getByRole('alert')).toContainText(
+      'What’s uploaded is a file, or a folder',
+    )
+    await expect(dialog(page).locator('[data-picked]')).toHaveCount(0)
+    await expect(dialog(page).getByRole('button', { name: 'Upload' })).toBeDisabled()
+    // A folder with two in it: what isn't sent is counted, and what was said is gone.
+    const site = join(dir, 'site')
+    mkdirSync(site)
+    writeFileSync(join(site, 'index.html'), '<h1>shop</h1>')
+    symlinkSync('/etc/hosts', join(site, 'hosts'))
+    symlinkSync(join(dir, 'notes.txt'), join(site, 'notes'))
+    await pickAs(app, site)
+    await dialog(page).getByRole('button', { name: 'Choose a folder…' }).click()
+    await expect(dialog(page).locator('[data-picked]')).toHaveText(
+      'site · 1 file, 13 bytes · 2 links in it aren’t sent',
+    )
+    await expect(dialog(page).getByRole('alert')).toHaveCount(0)
+    await expect(dialog(page).getByRole('button', { name: 'Upload' })).toBeEnabled()
+  })
+
+  test('a folder that can’t be kept as the archive has it is said, and nothing of it stays', async ({
+    lumovi,
+    clusters,
+  }) => {
+    const { page, app } = lumovi
+    const dir = scratch()
+    // A file, and then a file "in" that file: no folder on this computer holds both.
+    clusters.demo.files.craft('/odd', {
+      entries: [
+        { name: './odd/', type: 'directory' },
+        { name: './odd/a', content: 'one' },
+        { name: './odd/a/b', content: 'two' },
+      ],
+    })
+    await saveAs(app, { canceled: false, filePath: join(dir, 'odd') })
+    const { end } = await download(page, '/odd')
+    expect(end).toMatchObject({ outcome: 'failed', error: { code: 'invalid' } })
+    expect(end!.error!.message).toMatch(/^This computer said: E(EXIST|NOTDIR)/)
+    expect(readdirSync(dir)).toEqual([])
+    // What's recorded is that it couldn't be kept, not where on this computer.
+    const [recorded] = await events(page, 'files.download')
+    expect(recorded!.error).toMatch(/^This computer couldn’t keep or read a file of it \(E/)
+  })
+
   test('read-only, a download still reads, and nothing is uploaded', async ({ lumovi }) => {
     const { page, app } = lumovi
     const dir = scratch()
@@ -624,6 +697,20 @@ test('an organization’s policy sets how much a copy carries, or turns copying 
   writeFileSync(big, Buffer.alloc(2048))
   await pickAs(limited.app, big)
   expect((await upload(limited.page, '/tmp')).error).toMatchObject({ reason: 'too-large' })
+  // One that grew past it after it was picked: it's read as it's sent, and said then.
+  const grows = join(scratch(), 'grows.bin')
+  writeFileSync(grows, Buffer.alloc(100))
+  await pickAs(limited.app, grows)
+  const handle = await limited.page.evaluate(async () => {
+    const picked = await window.lumovi!.files.pick('file')
+    return picked.ok && picked.data ? picked.data.handle : ''
+  })
+  writeFileSync(grows, Buffer.alloc(4096))
+  expect((await send(limited.page, handle, '/tmp')).end).toMatchObject({
+    outcome: 'failed',
+    files: 0,
+    error: { code: 'invalid', reason: 'too-large' },
+  })
   await limited.close()
 
   const off = await launch({ env: { LUMOVI_POLICY: policyFile({ fileCopy: false }) } })
