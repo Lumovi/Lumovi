@@ -74,7 +74,7 @@ export function ActionBar({ object }: { object: KubeObject }) {
   })
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 phone:flex-wrap phone:gap-2">
       {readOnly && <ReadOnlyBadge />}
       {primary.map(({ action, disabled }) => {
         const button = (
@@ -82,9 +82,9 @@ export function ActionBar({ object }: { object: KubeObject }) {
             key={action.id}
             disabled={disabled !== undefined}
             onClick={() => run(action, object)}
-            className="h-7 px-2.5 text-xs disabled:opacity-50"
+            className="h-7 px-2.5 text-xs disabled:opacity-50 phone:h-11 phone:px-4 phone:text-[13px]"
           >
-            <action.icon className="!size-3.5" />
+            <action.icon className="!size-3.5 phone:!size-4" />
             {action.label}
           </Button>
         )
@@ -201,7 +201,7 @@ export function ReadOnlyBadge() {
   const { locked, byPolicy, policyProblem, shared, by, mayChange, set } = useReadOnly()
   return (
     <Popover.Root>
-      <Popover.Trigger className="flex h-7 items-center gap-1.5 rounded-lg bg-surface-3 px-2.5 text-xs font-medium text-ink-2 hover:text-ink-1">
+      <Popover.Trigger className="flex h-7 items-center gap-1.5 rounded-lg bg-surface-3 px-2.5 text-xs font-medium text-ink-2 hover:text-ink-1 phone:h-11 phone:px-4 phone:text-[13px]">
         <Lock className="size-3.5" /> Read-only
       </Popover.Trigger>
       <Popover.Portal>

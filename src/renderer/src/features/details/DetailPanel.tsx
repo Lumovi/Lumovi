@@ -1,18 +1,23 @@
-import { Maximize2, Minimize2, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeft, Maximize2, Minimize2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { apiKindOf, isBuiltinKind, kindOf } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { barButton } from '@renderer/components/Sheet'
 import { KindIcon } from '@renderer/components/KindIcon'
 import { ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useObject } from '@renderer/hooks/queries'
+import { useResource } from '@renderer/hooks/resources'
+import { useClusterName } from '@renderer/hooks/settings'
 import { useViews } from '@renderer/hooks/views'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { useLayout } from '@renderer/lib/layout'
 import { age } from '@renderer/lib/format'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
@@ -21,6 +26,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { ActionBar } from '../actions/ActionSurfaces'
 import { ObjectAudit } from '../audit/ObjectAudit'
 import { actionsFor } from '../actions/catalog'
+import { ON_A_PHONE } from '../actions/use-actions'
 import { EventsTab } from './EventsTab'
 import { LogsView, PodLogs } from '../logs/LogsView'
 import { MapTab } from './MapTab'
@@ -80,6 +86,92 @@ function Detail({
   const status = object.data && statusFor(target.kind, object.data)
   const involved = object.data?.involvedObject as { kind: string; name: string } | undefined
   const gone = (object.error as KubeApiError | null)?.code === 'not-found'
+  const phone = useLayout() === 'phone'
+  const clusterName = useClusterName()(useCluster().context)
+  const listName = useResource(target.kind).resource?.label ?? apiKindOf(target.kind)
+  // Whether the object's own header has scrolled out from under the top bar (a phone's page).
+  const page = useRef<HTMLDivElement>(null)
+  const header = useRef<HTMLDivElement>(null)
+  const [scrolledAway, setScrolledAway] = useState(false)
+  useEffect(() => {
+    if (!phone || !header.current) return
+    const seen = new IntersectionObserver(([entry]) => setScrolledAway(!entry!.isIntersecting), {
+      root: page.current,
+    })
+    seen.observe(header.current)
+    return () => seen.disconnect()
+  }, [phone])
+
+  const title = involved
+    ? `${object.data!.reason as string} · ${involved.kind}/${involved.name}`
+    : target.name
+  const body = object.isPending ? (
+    <Loading label="Loading…" />
+  ) : gone || !object.data ? (
+    <ErrorState error={object.error as KubeApiError} onRetry={() => void object.refetch()} />
+  ) : (
+    <>
+      {object.isError && (
+        <StaleNotice error={object.error as KubeApiError} onRetry={() => void object.refetch()} />
+      )}
+      <DetailTabs object={object.data} />
+    </>
+  )
+
+  // On a phone it's a page: a top bar with Back, and all of it scrolls under that, its tabs
+  // staying. The bar names the list it came from while the object's own header shows, and the
+  // object once that has scrolled away.
+  if (phone) {
+    const acts = object.data && !gone && actionsFor(object.data).some((a) => ON_A_PHONE.has(a.id))
+    return (
+      <>
+        <header className="flex h-[52px] shrink-0 items-center border-b border-line bg-surface px-1">
+          <button type="button" aria-label="Back" onClick={onClose} className={barButton}>
+            <ArrowLeft />
+          </button>
+          <p
+            aria-hidden={!scrolledAway}
+            className="min-w-0 flex-1 px-1 text-[15px] leading-5 font-semibold tracking-[-0.01em]"
+          >
+            <MiddleTruncate text={scrolledAway ? title : listName} />
+          </p>
+        </header>
+        <div
+          ref={page}
+          data-detail-page
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        >
+          <div ref={header} className="px-4 pt-4 pb-3">
+            {/* Which cluster: here is where Restart and Scale are, and no context row is. */}
+            <p className="text-xs text-ink-3">
+              <MiddleTruncate
+                text={[apiKindOf(target.kind), target.namespace, clusterName]
+                  .filter(Boolean)
+                  .join(' · ')}
+              />
+            </p>
+            <div className="flex min-w-0 items-start gap-1">
+              <h2 className="line-clamp-2 min-w-0 flex-1 text-[17px] leading-snug font-semibold tracking-[-0.01em] wrap-anywhere selectable">
+                {title}
+              </h2>
+              <CopyButton text={target.name} label="Copy name" />
+            </div>
+            {status && (
+              <div className="mt-2.5 flex max-w-full min-w-0">
+                <StatusPill status={status} />
+              </div>
+            )}
+            {acts && (
+              <div className="mt-3">
+                <ActionBar object={object.data!} />
+              </div>
+            )}
+          </div>
+          {body}
+        </div>
+      </>
+    )
+  }
 
   return (
     <>
@@ -129,27 +221,14 @@ function Detail({
           <X />
         </IconButton>
       </header>
-      {object.isPending ? (
-        <Loading label="Loading…" />
-      ) : gone || !object.data ? (
-        <ErrorState error={object.error as KubeApiError} onRetry={() => void object.refetch()} />
-      ) : (
-        <>
-          {object.isError && (
-            <StaleNotice
-              error={object.error as KubeApiError}
-              onRetry={() => void object.refetch()}
-            />
-          )}
-          <DetailTabs object={object.data} />
-        </>
-      )}
+      {body}
     </>
   )
 }
 
 /** Kinds that relate to everything in their scope, or to nothing: no map. */
 const MAPLESS = new Set(['Event', 'Namespace'])
+const NOT_ON_A_PHONE = new Set(['shell', 'map'])
 
 function DetailTabs({ object }: { object: KubeObject }) {
   const kind = kindOf(object)
@@ -178,6 +257,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
   const podLogs = pods && kind !== 'Node'
   // Custom kinds' pods have usage history too, found by name.
   const metrics = hasMetrics(kind) || (pods && !isBuiltinKind(kind))
+  const phone = useLayout() === 'phone'
   const tabs = [
     { value: 'overview', label: 'Overview' },
     ...(pods ? [{ value: 'pods', label: ownPods?.name ?? 'Pods' }] : []),
@@ -195,47 +275,54 @@ function DetailTabs({ object }: { object: KubeObject }) {
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'audit', label: 'Audit' },
     { value: 'yaml', label: 'YAML' },
-  ]
+    // A shell needs a keyboard, and a map more room than a phone has: neither is offered there.
+  ].filter((tab) => !phone || !NOT_ON_A_PHONE.has(tab.value))
+  const shown = tabs.some((t) => t.value === tab) ? tab : 'overview'
   const content = 'min-h-0 flex-1 animate-fade-in outline-none'
+  // On a phone the page scrolls, not the tab: what's as long as it is (facts, events) is just
+  // there, and what scrolls by itself (logs, a list) gets what the screen has under the top bar
+  // and the tabs.
+  const long = cn(content, 'overflow-y-auto phone:flex-none phone:overflow-visible')
+  const own = cn(content, 'flex flex-col phone:h-[calc(100dvh-96px)] phone:flex-none')
   return (
     <Tabs
-      value={tab}
+      value={shown}
       onValueChange={(value) => {
         if (!editing) setTab(value)
       }}
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 flex-1 flex-col phone:min-h-[calc(100dvh-52px)] phone:flex-none"
     >
       <TabList tabs={tabs} />
-      <TabContent value="overview" className={cn(content, 'overflow-y-auto')}>
+      <TabContent value="overview" className={long}>
         <OverviewTab object={object} />
       </TabContent>
       {pods && (
-        <TabContent value="pods" className={cn(content, 'flex flex-col')}>
+        <TabContent value="pods" className={own}>
           <PodsTab namespace={podsNamespace} query={pods} />
         </TabContent>
       )}
       {kind === 'Pod' && (
-        <TabContent value="logs" className={cn(content, 'flex flex-col')}>
+        <TabContent value="logs" className={own}>
           <LogsView pods={[object]} name={object.metadata.name} />
         </TabContent>
       )}
       {podLogs && (
-        <TabContent value="logs" className={cn(content, 'flex flex-col')}>
+        <TabContent value="logs" className={own}>
           <PodLogs namespace={podsNamespace} query={pods} name={object.metadata.name} />
         </TabContent>
       )}
-      {kind === 'Pod' && (
-        <TabContent value="shell" className={cn(content, 'flex flex-col')}>
+      {kind === 'Pod' && !phone && (
+        <TabContent value="shell" className={own}>
           <ShellTab pod={object} />
         </TabContent>
       )}
-      {kind === 'Node' && (
-        <TabContent value="shell" className={cn(content, 'flex flex-col')}>
+      {kind === 'Node' && !phone && (
+        <TabContent value="shell" className={own}>
           <NodeShellTab node={object} />
         </TabContent>
       )}
       {metrics && (
-        <TabContent value="metrics" className={cn(content, 'flex flex-col')}>
+        <TabContent value="metrics" className={own}>
           <MetricsTab
             object={object}
             pods={isBuiltinKind(kind) ? undefined : { query: pods!, namespace: podsNamespace }}
@@ -243,21 +330,21 @@ function DetailTabs({ object }: { object: KubeObject }) {
         </TabContent>
       )}
       {others.map((r, i) => (
-        <TabContent key={i} value={`related:${i}`} className={cn(content, 'flex flex-col')}>
+        <TabContent key={i} value={`related:${i}`} className={own}>
           <RelatedTab related={r} />
         </TabContent>
       ))}
       {kind !== 'Event' && (
-        <TabContent value="events" className={cn(content, 'overflow-y-auto')}>
+        <TabContent value="events" className={long}>
           <EventsTab object={object} />
         </TabContent>
       )}
-      {!MAPLESS.has(kind) && (
-        <TabContent value="map" className={cn(content, 'flex flex-col')}>
+      {!MAPLESS.has(kind) && !phone && (
+        <TabContent value="map" className={own}>
           <MapTab object={object} />
         </TabContent>
       )}
-      <TabContent value="audit" className={cn(content, 'overflow-y-auto')}>
+      <TabContent value="audit" className={long}>
         <ObjectAudit
           context={context}
           kind={kind}
@@ -265,7 +352,7 @@ function DetailTabs({ object }: { object: KubeObject }) {
           namespace={object.metadata.namespace}
         />
       </TabContent>
-      <TabContent value="yaml" className={cn(content, 'flex flex-col')}>
+      <TabContent value="yaml" className={own}>
         <YamlTab object={object} />
       </TabContent>
     </Tabs>

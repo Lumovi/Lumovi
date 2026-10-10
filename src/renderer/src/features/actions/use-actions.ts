@@ -81,7 +81,7 @@ function notAllowed(action: Action, check: AccessCheck, object: KubeObject, here
  * each confirmed as it always is. Deleting, draining, editing and shells need more room, a
  * keyboard, or more care than a thumb gives.
  */
-const ON_A_PHONE = new Set([
+export const ON_A_PHONE = new Set([
   'scale',
   'scale-custom',
   'restart',

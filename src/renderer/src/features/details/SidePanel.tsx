@@ -133,7 +133,8 @@ export function SidePanel({
           'flex min-w-0 shrink-0 flex-col bg-surface',
           over
             ? // From the right at the width it has beside a list; all of a page too narrow for that.
-              'absolute inset-y-0 right-0 z-20 w-full border-line shadow-pop min-[700px]:w-[600px] min-[700px]:border-l'
+              // On a phone it's a page of its own, over the top bar too: it has its own, with Back.
+              'absolute inset-y-0 right-0 z-20 w-full border-line-strong shadow-pop min-[700px]:w-[600px] min-[700px]:border-l phone:fixed phone:inset-0 phone:z-30 phone:shadow-none'
             : // Expanded, it covers the list; otherwise it sits beside it.
               expanded
               ? 'absolute inset-0 z-20'
