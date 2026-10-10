@@ -24,6 +24,7 @@ import { checkedDecision } from '@backend/mcp/approvals'
 import type { SponsorSource } from '@backend/sponsor/source'
 import type { Assistants } from './assistants'
 import type { AddedClusters } from './added-clusters'
+import type { DesktopFiles } from './file-copies'
 import type { KubeconfigFiles } from './kubeconfig-files'
 import { LocalTerminals } from './local-terminal'
 import type { SettingsStore } from './settings'
@@ -40,6 +41,8 @@ interface Dependencies extends Backend {
   local: LocalTerminals
   terminalKeys: TerminalKeys
   forwards: Forwards
+  /** What's saved and picked on this computer, for files copied out of and into containers. */
+  localFiles: DesktopFiles
   updates: Updates
   sponsor: SponsorSource
   /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
@@ -69,6 +72,7 @@ export function registerIpc(deps: Dependencies): void {
     local,
     terminalKeys,
     forwards,
+    localFiles,
     updates,
     sponsor,
     rendererUrl,
@@ -294,6 +298,7 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.forwardStart]: (request) => forwards.start(request),
     [IPC.forwardList]: () => forwards.list(),
     [IPC.forwardStop]: (id) => forwards.stop(id),
+    [IPC.filesPick]: (what) => localFiles.pick(what),
   }
 
   function aiPermissions(): AiPermissionsView {
@@ -333,6 +338,7 @@ export function registerIpc(deps: Dependencies): void {
       local.close(id)
     },
     [IPC.terminalFocus]: (focused) => terminalKeys.focus(focused),
+    [IPC.filesShow]: (saved) => localFiles.show(saved),
   }
   for (const [channel, handler] of Object.entries({ ...shared.send, ...desktopSend })) {
     on(channel, handler)

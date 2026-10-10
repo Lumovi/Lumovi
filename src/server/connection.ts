@@ -25,7 +25,8 @@ import { handlers, type Handler } from '@backend/handlers'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
-import { KubeRequestError } from '@backend/kube/errors'
+import { FileCopies, fileCopyLimits } from '@backend/kube/files'
+import { KubeRequestError, toKubeError } from '@backend/kube/errors'
 import type { ClusterConfigs } from '@backend/kube/kubeconfig'
 import { KubeService } from '@backend/kube/service'
 import { clusterSummary } from '@backend/kube/summary'
@@ -37,6 +38,7 @@ import { accessHandlers, type ServerAccess } from './access'
 import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import { fingerprint, type ServerConfig } from './config'
+import { PageFiles, type Transfers } from './file-transfers'
 import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
 import type { Joins } from './fleet/joins'
 import type { FleetSettings } from './fleet/settings'
@@ -156,6 +158,8 @@ export interface ConnectionOptions {
   rejected: () => void
   /** The sidebar's sponsor card, the same for every page. */
   sponsor: SponsorSource
+  /** Where the browser fetches files copied out of containers, and sends those copied in. */
+  transfers: Transfers
   /** The person's AI assistants: their changes, shown on this page, and its calls about them. */
   assistants: {
     invoke: Record<string, Handler>
@@ -205,6 +209,7 @@ export class PageConnection {
       fleetSettings,
       added,
       sponsor,
+      transfers,
     }: ConnectionOptions,
   ) {
     const recording = recorder(audit, () => actor)
@@ -294,6 +299,14 @@ export class PageConnection {
             }
       },
     })
+    // Files copied out of containers are the browser's downloads, and those copied in its
+    // uploads: for this page's person only.
+    const pageFiles = new PageFiles(transfers, identity.user.name)
+    const files = new FileCopies(deps, fileCopyLimits(env), pageFiles, {
+      progress: (id, progress) => this.emit(IPC.filesProgress, id, progress),
+      end: (id, end) => this.emit(IPC.filesEnd, id, end),
+    })
+    pageFiles.cancel = (id) => files.cancel(id)
     const shared = handlers({
       kube,
       helm,
@@ -302,6 +315,7 @@ export class PageConnection {
       settings: preferences,
       terminals,
       logs,
+      files,
       viewsDirectory: { path: config.viewsDir, shown: config.viewsDir },
       audit: recording,
     })
@@ -336,6 +350,15 @@ export class PageConnection {
       ...assistants.invoke,
       [IPC.appInfo]: () => info,
       [IPC.sponsorCard]: () => sponsor.card(),
+      // What's uploaded was picked in the browser: the page says what it will send, and that's
+      // checked and held for the copy.
+      [IPC.filesUpload]: (id: unknown, request: unknown, sent: unknown) => {
+        try {
+          return files.upload(id, { ...Object(request), source: pageFiles.picked(sent) })
+        } catch (error) {
+          return { ok: false, error: toKubeError(error) }
+        }
+      },
       // A fleet's page sums each cluster up; and an admin trusts an agent again, whose cluster's
       // certificate authority changed.
       ...(hosted.fleet
@@ -404,6 +427,7 @@ export class PageConnection {
         accessing.stop()
         assistants.detach()
         logs.stopAll()
+        void files.cancelAll()
         void terminals.closeAll().then(resolve)
       })
     })

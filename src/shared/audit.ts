@@ -40,6 +40,8 @@ export const AUDIT_ACTIONS = {
   'helm.upgrade': 'change',
   'helm.rollback': 'change',
   'helm.uninstall': 'change',
+  // Files put into a container change it.
+  'files.upload': 'change',
   // What was opened, or read, that could show what shouldn't be.
   'shell.open': 'access',
   'shell.close': 'access',
@@ -48,6 +50,7 @@ export const AUDIT_ACTIONS = {
   'port-forward.open': 'access',
   'port-forward.close': 'access',
   'logs.read': 'access',
+  'files.download': 'access',
   'secret.read': 'access',
   'helm.values.read': 'access',
   // Signing in to a server, and out.

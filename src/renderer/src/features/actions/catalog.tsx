@@ -6,6 +6,7 @@ import {
   Box,
   CirclePause,
   CirclePlay,
+  Download,
   FileCode2,
   HardDrive,
   History,
@@ -17,6 +18,7 @@ import {
   SquareTerminal,
   Tags,
   Trash2,
+  Upload,
   type LucideIcon,
 } from 'lucide-react'
 import type { ComponentType } from 'react'
@@ -31,6 +33,7 @@ import { kindOf, target, type ActionProps } from './common'
 import { EvictDialog, RestartDialog, RestartPodDialog, RunNowDialog } from './ConfirmDialogs'
 import { DeleteDialog } from './DeleteDialog'
 import { DrainDialog } from './DrainDialog'
+import { DownloadDialog, UploadDialog } from './FileDialogs'
 import { LabelsDialog } from './LabelsDialog'
 import { AutoscalerDialog, ExpandVolumeDialog } from './LimitDialogs'
 import { RollbackDialog } from './RollbackDialog'
@@ -351,6 +354,27 @@ export const ACTIONS: readonly Action[] = [
     when: running,
     access: can('patch', 'ephemeralcontainers'),
     dialog: DebugDialog,
+  },
+  // Files out of a container and into one, as kubectl cp copies them: tar, run there.
+  {
+    id: 'download-files',
+    label: 'Download files…',
+    icon: Download,
+    kinds: ['Pod'],
+    when: running,
+    access: can('create', 'exec'),
+    // It reads, and changes nothing there.
+    safe: true,
+    dialog: DownloadDialog,
+  },
+  {
+    id: 'upload-files',
+    label: 'Upload files…',
+    icon: Upload,
+    kinds: ['Pod'],
+    when: running,
+    access: can('create', 'exec'),
+    dialog: UploadDialog,
   },
   // To a port on this computer: only the desktop app has one.
   ...(api.forwards

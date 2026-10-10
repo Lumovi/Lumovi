@@ -96,6 +96,15 @@ const api: LumoviApi = {
     install: (request) => invoke(IPC.metricsStackInstall, request),
     uninstall: (request) => invoke(IPC.metricsStackUninstall, request),
   },
+  files: {
+    pick: (what) => invoke(IPC.filesPick, what),
+    download: (id, request) => invoke(IPC.filesDownload, id, request),
+    upload: (id, request) => invoke(IPC.filesUpload, id, request),
+    cancel: (id) => ipcRenderer.send(IPC.filesCancel, id),
+    onProgress: (listener) => subscribe(IPC.filesProgress, listener),
+    onEnd: (listener) => subscribe(IPC.filesEnd, listener),
+    show: (saved) => ipcRenderer.send(IPC.filesShow, saved),
+  },
   terminal: {
     open: (id, request) => invoke(IPC.terminalOpen, id, request),
     write: (id, data) => ipcRenderer.send(IPC.terminalInput, id, data),

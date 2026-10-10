@@ -57,6 +57,8 @@ export const PATHS = {
   socket: 'api/socket',
   /** Where a fleet's agents connect. */
   agent: 'api/agent',
+  /** Under it, a copy's address: a file fetched from a container, or sent to one. */
+  files: 'api/files',
   signIn: 'auth/sign-in',
   callback: 'auth/callback',
   health: 'healthz',

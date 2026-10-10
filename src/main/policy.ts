@@ -26,6 +26,8 @@
  *                                        IT manages, none chosen in Lumovi
  *     "metricsStack": false,             Lumovi doesn't offer to install a metrics stack (nor
  *                                        remove one) where a cluster has no usage history
+ *     "fileCopy": false,                 no files are copied out of containers or into them; or
+ *                                        the most one copy carries, in bytes (1073741824)
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -92,6 +94,7 @@ const KEYS = [
   'kubectlSignatures',
   'kubeconfigFiles',
   'metricsStack',
+  'fileCopy',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -350,6 +353,7 @@ function checked(given: unknown, path: string): Policy {
     kubectlSignatures,
     kubeconfigFiles,
     metricsStack,
+    fileCopy,
     network = {},
   } = policy
   if (
@@ -380,6 +384,15 @@ function checked(given: unknown, path: string): Policy {
   if (kubectlSignatures !== undefined && kubectlSignatures !== 'required') {
     throw new Error(
       'kubectlSignatures must be "required": a mirror’s kubectl is then used only with Kubernetes’ signature, as dl.k8s.io’s always is.',
+    )
+  }
+  if (
+    fileCopy !== undefined &&
+    fileCopy !== false &&
+    !(Number.isSafeInteger(fileCopy) && (fileCopy as number) > 0)
+  ) {
+    throw new Error(
+      'fileCopy must be false, or the most one copy of files carries: a number of bytes.',
     )
   }
   if (kubeconfigFiles !== undefined && kubeconfigFiles !== 'locked') {
@@ -419,6 +432,8 @@ function checked(given: unknown, path: string): Policy {
     ...(kubectlSignatures === 'required' ? { kubectlSignatures: 'required' as const } : {}),
     ...(kubeconfigFiles === 'locked' ? { kubeconfigFilesLocked: true as const } : {}),
     ...(metricsStack === false ? { metricsStackOff: true as const } : {}),
+    ...(fileCopy === false ? { fileCopyOff: true as const } : {}),
+    ...(typeof fileCopy === 'number' ? { fileCopyMaxBytes: fileCopy } : {}),
   }
   return {
     managed,

@@ -1,7 +1,7 @@
 /**
  * The LumoviApi of a page a Lumovi server serves: the calls the
  * desktop app's preload script makes over IPC, over the page's WebSocket.
- * What only a desktop app can do (files, port forwards, updates) isn't there.
+ * What only a desktop app can do (its own files, port forwards, updates) isn't there.
  */
 import {
   IPC,
@@ -13,6 +13,7 @@ import {
 } from '@shared/api'
 import { PATHS } from '@shared/server'
 import { Connection, LOST, useConnection } from './connection'
+import { webFiles } from './files'
 import { storedTheme, storeTheme } from './preferences'
 import { serverUrl, stillSignedIn } from './session'
 
@@ -53,7 +54,9 @@ export function createWebApi(): LumoviApi {
     for (const id of streams) {
       connection.emit(IPC.logsEnd, id, { code: 'unreachable', message: LOST } satisfies KubeError)
     }
+    files.dropped()
   })
+  const files = webFiles(connection)
   // Audit events come while a page listens: asked for again on each connection (a new server
   // knows nothing of the last one's).
   let auditListeners = 0
@@ -203,6 +206,7 @@ export function createWebApi(): LumoviApi {
       versions: invoke(IPC.helmVersions),
       search: invoke(IPC.helmSearch),
     },
+    files: files.api,
     terminal: {
       open: (id, request) => started(shells)(id, connection.invoke(IPC.terminalOpen, id, request)),
       write: (id, data) => connection.send(IPC.terminalInput, id, data),

@@ -70,7 +70,7 @@ function shellRecord(r: ContainerShellRequest | NodeShellRequest) {
 }
 
 /** The part of the connection checks the WebSocket client doesn't make itself. */
-async function prepare(kc: KubeConfig): Promise<void> {
+export async function prepare(kc: KubeConfig): Promise<void> {
   serverUrl(kc, '/')
   await authorize(kc, {})
 }
@@ -115,7 +115,7 @@ interface ExecTarget {
 const note = (text: string) => `\x1b[2m› ${text}\x1b[0m\r\n`
 
 /** How an exec status reads: an exit code, or why the command couldn't run. */
-function exitOf(status: {
+export function exitOf(status: {
   status?: string
   message?: string
   reason?: string

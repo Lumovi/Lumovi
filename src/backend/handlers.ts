@@ -32,6 +32,7 @@ import type { MetricsStackService } from './helm/metrics-stack'
 import type { HelmService } from './helm/service'
 import type { LogStreams } from './kube/logs'
 import { KubeRequestError } from './kube/errors'
+import type { FileCopies } from './kube/files'
 import type { KubeService } from './kube/service'
 import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
@@ -49,6 +50,7 @@ export interface Backend {
   settings: SettingsAccess
   terminals: Terminals
   logs: LogStreams
+  files: FileCopies
   /** Where the views of one's own are, and how that folder is shown. */
   viewsDirectory: { path: string; shown: string }
   /** The audit log, as the page's person records to it. */
@@ -70,6 +72,7 @@ export function handlers({
   settings,
   terminals,
   logs,
+  files,
   viewsDirectory,
   audit,
 }: Backend): Handlers {
@@ -271,12 +274,15 @@ export function handlers({
 
       [IPC.terminalOpen]: (id, request) => terminals.open(id, request),
       [IPC.logsStart]: (id, request) => logs.start(id, request),
+      [IPC.filesDownload]: (id, request) => files.download(id, request),
+      [IPC.filesUpload]: (id, request) => files.upload(id, request),
     },
     send: {
       [IPC.terminalInput]: (id, data) => terminals.write(id, data),
       [IPC.terminalResize]: (id, columns, rows) => terminals.resize(id, columns, rows),
       [IPC.terminalClose]: (id) => terminals.close(id),
       [IPC.logsStop]: (id) => logs.stop(id),
+      [IPC.filesCancel]: (id) => files.cancel(id),
     },
   }
 }
