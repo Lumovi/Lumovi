@@ -70,14 +70,64 @@ const kindRank = (node: MapNode) => {
   return i === -1 ? KIND_ORDER.length : i
 }
 
-/** Each node's row: one below everything that leads to it; sources just above what they lead to. */
+/**
+ * The edges that say which row a node is in: all of them, unless some lead round in a circle
+ * (a custom resource that owns the Service that selects its pods: each leads to the other).
+ * Of a circle, the line of what owns is left out, as a Service is above what it selects; where
+ * nothing in it owns, its last.
+ */
+function downward(graph: MapGraph): MapEdge[] {
+  let edges = graph.edges.filter((e) => e.from !== e.to)
+  for (;;) {
+    const circle = circleIn(graph, edges)
+    if (!circle) return edges
+    const out = circle.find((e) => e.relation === 'owns') ?? circle.at(-1)!
+    edges = edges.filter((e) => e !== out)
+  }
+}
+
+/** The edges of one circle among `edges`, if they make any. */
+function circleIn(graph: MapGraph, edges: MapEdge[]): MapEdge[] | undefined {
+  const outgoing = new Map<string, MapEdge[]>()
+  for (const e of edges) outgoing.set(e.from, [...(outgoing.get(e.from) ?? []), e])
+  const done = new Set<string>()
+  for (const start of graph.nodes.keys()) {
+    if (done.has(start)) continue
+    // Depth first, without recursion: the path from `start`, and what's still to try of each.
+    const path: MapEdge[] = []
+    const on = new Set([start])
+    const todo = [[...(outgoing.get(start) ?? [])]]
+    const at = () => path.at(-1)?.to ?? start
+    while (todo.length > 0) {
+      const next = todo.at(-1)!.pop()
+      if (!next) {
+        done.add(at())
+        on.delete(at())
+        todo.pop()
+        path.pop()
+      } else if (on.has(next.to)) {
+        return [...path.slice(path.findIndex((e) => e.from === next.to)), next]
+      } else if (!done.has(next.to)) {
+        path.push(next)
+        on.add(next.to)
+        todo.push([...(outgoing.get(next.to) ?? [])])
+      }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Each node's row: one below everything that leads to it; sources just above what they lead
+ * to. No row is empty, whatever the edges.
+ */
 export function ranks(graph: MapGraph): Map<string, number> {
+  const edges = downward(graph)
   const rank = new Map([...graph.nodes.keys()].map((id) => [id, 0]))
-  // Longest paths, as long as there are no cycles (owner references can't make one; a bad
-  // selector could): at most as many rounds as there are nodes.
+  // Longest paths: with no circles, at most as many rounds as there are nodes.
   for (let round = 0; round < graph.nodes.size; round++) {
     let changed = false
-    for (const { from, to } of graph.edges) {
+    for (const { from, to } of edges) {
       if (rank.get(to)! < rank.get(from)! + 1) {
         rank.set(to, rank.get(from)! + 1)
         changed = true
@@ -85,16 +135,15 @@ export function ranks(graph: MapGraph): Map<string, number> {
     }
     if (!changed) break
   }
-  // Sources (all lead somewhere: the map has no loose ends) sit just above what they lead to.
-  const sources = [...graph.nodes.keys()].filter((id) => !graph.edges.some((e) => e.to === id))
+  // Sources sit just above what they lead to (one that leads nowhere stays where it is).
+  const sources = [...graph.nodes.keys()].filter((id) => !edges.some((e) => e.to === id))
   for (const id of sources) {
-    rank.set(
-      id,
-      Math.min(...graph.edges.filter((e) => e.from === id).map((e) => rank.get(e.to)!)) - 1,
-    )
+    const targets = edges.filter((e) => e.from === id).map((e) => rank.get(e.to)!)
+    if (targets.length > 0) rank.set(id, Math.min(...targets) - 1)
   }
-  const top = Math.min(...rank.values())
-  return new Map([...rank].map(([id, r]) => [id, r - top]))
+  // Rows are counted from the top, with none left out.
+  const rows = [...new Set(rank.values())].sort((a, b) => a - b)
+  return new Map([...rank].map(([id, r]) => [id, rows.indexOf(r)]))
 }
 
 /** Down, across and down again, with rounded corners. */
@@ -197,8 +246,12 @@ export function layoutMap(graph: MapGraph, width: number, open: ReadonlySet<numb
   // Lines leave the middle of a card's bottom and arrive at the middle of another's top.
   const pairs = new Map<string, { from: PlacedCard; to: PlacedCard; edge: MapEdge }>()
   for (const edge of graph.edges) {
-    const from = at.get(edge.from)!
-    const to = at.get(edge.to)!
+    // A line that would lead up (one of a circle's) is drawn from the card above, like the rest.
+    const [from, to] = [at.get(edge.from)!, at.get(edge.to)!].sort((a, b) => a.y - b.y) as [
+      PlacedCard,
+      PlacedCard,
+    ]
+    if (from.y === to.y) continue
     pairs.set(`${from.key}>${to.key}`, pairs.get(`${from.key}>${to.key}`) ?? { from, to, edge })
   }
   const center = (card: PlacedCard) => card.x + card.width / 2
