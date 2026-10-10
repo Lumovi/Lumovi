@@ -203,12 +203,16 @@ const DAYS_IN = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 const either = (items: string[]) =>
   items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`
 
-/** A day no month it names has: what to say of a schedule that never comes. Else nothing. */
-function never(dom: Said, month: Said, dow: Said): string | undefined {
-  // With a day of the week too, cron runs on either: it comes.
-  if (dom.any || !dow.any) return undefined
+/**
+ * A day no month it names has: what to say of a schedule that never comes. Nothing to say
+ * (`null`), where it names a day of the week too: cron runs on either, so it comes, and not
+ * on the date it says. Undefined for every other schedule.
+ */
+function never(dom: Said, month: Said, dow: Said): string | null | undefined {
+  if (dom.any) return undefined
   const most = Math.max(...month.values.map((value) => DAYS_IN[value - 1]!))
   if (!dom.values.every((day) => day > most)) return undefined
+  if (!dow.any) return null
   const none = either(dom.values.map(ordinal))
   return month.values.length === 1
     ? `It never runs: ${MONTHS[month.values[0]! - 1]} has no ${none}.`
@@ -282,6 +286,13 @@ export function scheduleWords(schedule: string): Scheduled {
           why: `“${text}” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly, @yearly, and @every with a length of time (@every 1h30m).`,
         }
   }
+  // (Some crons take the clock's zone before the fields. Kubernetes refuses it there.)
+  if (/^(CRON_)?TZ=/i.test(text)) {
+    return {
+      ok: false,
+      why: 'Kubernetes doesn’t take a time zone in the schedule: say it as spec.timeZone, in the YAML.',
+    }
+  }
   const parts = text.split(/\s+/)
   if (parts.length !== 5) {
     return {
@@ -297,7 +308,7 @@ export function scheduleWords(schedule: string): Scheduled {
   // who typed it meant: no words for it.
   if ([minute, hour, dom, month, dow].some((field) => field.over)) return { ok: true }
   const none = never(dom, month, dow)
-  if (none) return { ok: true, never: none }
+  if (none !== undefined) return none === null ? { ok: true } : { ok: true, never: none }
   const when = times(minute, hour)
   const which = days(dom, month, dow)
   if (!when || !which) return { ok: true }
