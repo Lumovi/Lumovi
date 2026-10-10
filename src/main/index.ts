@@ -10,6 +10,7 @@ import { recorder } from '@backend/audit/recorder'
 import { FileStore, MemoryStore, type AuditStore } from '@backend/audit/store'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { HelmService } from '@backend/helm/service'
+import { FileCopies, fileCopyLimits } from '@backend/kube/files'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
 import { LogStreams } from '@backend/kube/logs'
 import { KubeService } from '@backend/kube/service'
@@ -19,6 +20,7 @@ import { setUpNetwork } from '@backend/network'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { viewsDirectory } from '@backend/views'
 import { Assistants } from './assistants'
+import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
 import { KubeconfigFiles } from './kubeconfig-files'
 import { AddedClusters, ownKubeconfigs } from './added-clusters'
@@ -232,6 +234,35 @@ if (stdio) {
       shellEvents,
     )
     const forwards = new Forwards(deps, (list) => send(IPC.forwardsChanged, list))
+    // Files copied out of containers and into them: saved where their person says, in the
+    // system's dialogs, and picked there too.
+    const localFiles = new DesktopFiles({
+      save: async (options) => {
+        const { canceled, filePath } = await dialog.showSaveDialog(win, options)
+        return canceled ? undefined : filePath
+      },
+      open: async ({ title, folder }) => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+          title,
+          properties: [folder ? 'openDirectory' : 'openFile', 'showHiddenFiles'],
+        })
+        return canceled ? undefined : filePaths[0]
+      },
+      downloads: () => app.getPath('downloads'),
+      show: (path) => shell.showItemInFolder(path),
+    })
+    const files = new FileCopies(
+      deps,
+      fileCopyLimits(process.env, {
+        off: policy.managed?.fileCopyOff,
+        maxBytes: policy.managed?.fileCopyMaxBytes,
+      }),
+      localFiles,
+      {
+        progress: (id, progress) => send(IPC.filesProgress, id, progress),
+        end: (id, end) => send(IPC.filesEnd, id, end),
+      },
+    )
     const logs = new LogStreams(
       { ...deps, timeoutMs: kube.timeoutMs },
       {
@@ -360,6 +391,8 @@ if (stdio) {
       terminalKeys,
       forwards,
       logs,
+      files,
+      localFiles,
       updates,
       sponsor,
       viewsDirectory: viewsDirectory(homedir()),
@@ -375,6 +408,7 @@ if (stdio) {
       local.closeAll()
       forwards.stopAll()
       logs.stopAll()
+      void files.cancelAll()
     }
     win.webContents.on('did-start-navigation', (details) => {
       if (!details.isSameDocument) closeStreams()
@@ -386,11 +420,12 @@ if (stdio) {
       closeStreams()
       void assistants.stop()
       void auditLog.close()
-      if (waited || !terminals.cleaning) return
+      // And a download stopped by quitting has what was saved of it removed first.
+      if (waited || (!terminals.cleaning && !files.active)) return
       waited = true
       event.preventDefault()
       void Promise.race([
-        terminals.closeAll(),
+        Promise.all([terminals.closeAll(), files.cancelAll()]),
         new Promise((resolve) => setTimeout(resolve, 3_000)),
       ]).then(() => app.quit())
     })

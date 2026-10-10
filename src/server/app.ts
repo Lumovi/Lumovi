@@ -16,6 +16,7 @@ import { auditorsOf, isAuditor, openAudit, personActor, SERVER_ACTOR, sessionAct
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
 import { PageConnection } from './connection'
+import { Transfers } from './file-transfers'
 import { cookies, redirect, sameOrigin, SECURITY_HEADERS, sendJson } from './http'
 import { log } from './log'
 import { OidcClient } from './oidc'
@@ -156,6 +157,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ? new OidcClient(config.auth, new URL(`${base}${PATHS.callback}`, config.publicUrl).href)
       : undefined
   const auth = new Auth(config, hosted, sessions, audit, oidc)
+  const transfers = new Transfers(Number(options.env.LUMOVI_FILE_COPY_CLAIM_MS) || undefined)
 
   /**
    * A request's address (null when it isn't one), and its path below the base
@@ -183,6 +185,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return caller && 'identity' in caller ? caller : undefined
     }
     if (await assistants.answer(req, res, path, url!, signer)) return
+    // A copy of files, fetched or sent by the page that asked for it: its person's only.
+    const copied = transfers.answer(
+      req,
+      res,
+      path,
+      () => signer()?.identity.user.name,
+      () => sameOrigin(req, config.publicUrl),
+    )
+    if (copied) return
     if (route === `GET ${PATHS.health}`) {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok')
     } else if (route === `GET ${PATHS.session}`) {
@@ -345,6 +356,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         fleetSettings,
         added,
         sponsor,
+        transfers,
         rejected: () =>
           sessions.end(
             caller.session!,

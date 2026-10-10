@@ -29,6 +29,15 @@ import type {
   FleetSetting,
   NewFleetJoin,
 } from './fleet'
+import type {
+  FileCopyBegun,
+  FileCopyEnd,
+  FileCopyProgress,
+  FileCopyResult,
+  FileDownloadRequest,
+  FileUploadRequest,
+  PickedFiles,
+} from './files'
 import type { AppCommand } from './navigation'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
@@ -145,6 +154,10 @@ export interface ManagedSettings {
   kubeconfigFilesLocked?: true
   /** No metrics stack is offered, installed or removed by Lumovi. */
   metricsStackOff?: true
+  /** No files are copied out of containers or into them. */
+  fileCopyOff?: true
+  /** The most one copy of files carries, in bytes. */
+  fileCopyMaxBytes?: number
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1167,6 +1180,28 @@ export interface LumoviApi {
     /** A stream ended: its container stopped, the connection closed, or it failed. */
     onEnd(listener: (id: string, error?: KubeError) => void): () => void
   }
+  /** Files copied out of a container and into one, as `kubectl cp` does it. */
+  files: {
+    /**
+     * Asks what to upload: a file, or a folder. The page gets its name and size and a handle
+     * for it, never where it is; null if nothing was picked.
+     */
+    pick(what: 'file' | 'folder'): Promise<FileCopyResult<PickedFiles | null>>
+    /**
+     * Starts copying a file or a folder out. The page picks the copy's id, to hear of it from
+     * the start. It's begun once the container sent the first of it; where it's saved is asked
+     * then (the desktop app's), or it's the browser's download.
+     */
+    download(id: string, request: FileDownloadRequest): Promise<FileCopyResult<FileCopyBegun>>
+    /** Starts copying what was picked into a folder of a container. */
+    upload(id: string, request: FileUploadRequest): Promise<FileCopyResult<FileCopyBegun>>
+    cancel(id: string): void
+    onProgress(listener: (id: string, progress: FileCopyProgress) => void): () => void
+    /** A copy ended: it's all there, it failed (and what there was of it is gone), or it was stopped. */
+    onEnd(listener: (id: string, end: FileCopyEnd) => void): () => void
+    /** Shows a download where it was saved (the desktop app's). */
+    show?(saved: string): void
+  }
   /** Ports on this computer forwarded to pods and services (`kubectl port-forward`): the desktop app's. */
   forwards?: {
     start(request: PortForwardRequest): Promise<Result<PortForward>>
@@ -1373,6 +1408,13 @@ export const IPC = {
   logsStop: 'logs:stop',
   logsLines: 'logs:lines',
   logsEnd: 'logs:end',
+  filesPick: 'files:pick',
+  filesDownload: 'files:download',
+  filesUpload: 'files:upload',
+  filesCancel: 'files:cancel',
+  filesShow: 'files:show',
+  filesProgress: 'files:progress',
+  filesEnd: 'files:end',
   fullScreen: 'window:full-screen',
   updateState: 'update:state',
   updateCheck: 'update:check',

@@ -6,6 +6,24 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Files are copied out of a pod's container and into one, from the pod's actions: **Download
+  files…** takes a file or a folder by its path, and **Upload files…** puts a file or a folder
+  in a folder there, as `kubectl cp` does (it runs `tar` in the container, and says so where
+  there's none, with the `kubectl debug` command that reaches its files instead). Each shows the
+  equivalent command and its progress, can be stopped, and stops by itself when nothing moves
+  for a minute; a copy that ends early leaves nothing half-saved. The desktop app asks where to
+  save in the system's dialog; a server's page gets a browser download (a folder as a `.tar`),
+  streamed, with nothing kept on the server. Of what a container sends, only files and folders
+  under the path asked for are kept: links, devices and pipes are left out and counted, and an
+  entry that names anything else ends the copy. A download needs the access a shell does and
+  works on read-only clusters, as it changes nothing; an upload also needs changes allowed, is
+  refused where it's read-only, and asks for the pod's name on production clusters. Both are in
+  the audit log (who, pod, container, path, size; never contents). One copy carries 2 GiB at
+  most unless `LUMOVI_FILE_COPY_MAX_BYTES` or the organization's policy (`fileCopy`) says
+  otherwise; either can turn copying off. It isn't offered to AI assistants.
+
 ### Fixed
 
 - The Metrics page no longer fails on a Prometheus that keeps each node's own network series, which

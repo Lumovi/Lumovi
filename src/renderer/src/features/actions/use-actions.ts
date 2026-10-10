@@ -47,6 +47,16 @@ function notAllowed(action: Action, check: AccessCheck, object: KubeObject, here
   const where = object.kind === 'Namespace' ? object.metadata.name : object.metadata.namespace
   const kind = check.subresource ? `${check.verb}/${check.subresource}` : check.verb
   if (action.id === 'node-shell') return here.whyNot('nodeShells', 'on', undefined)
+  // A file out of a container is read as a shell there would read it; one put in changes it.
+  if (action.id === 'download-files') {
+    return here.whyNot('shells', 'on', where, 'copy files out of containers')
+  }
+  if (action.id === 'upload-files') {
+    return (
+      here.whyNot('shells', 'on', where, 'copy files into containers') ??
+      here.whyNot('changes', 'write', where, 'copy files into containers')
+    )
+  }
   if (kind === 'create/exec') return here.whyNot('shells', 'on', where)
   // Forwarding a port changes nothing.
   if (kind === 'create/portforward') return undefined
