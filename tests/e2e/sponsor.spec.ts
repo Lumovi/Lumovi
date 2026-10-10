@@ -280,6 +280,75 @@ test('whatever doesn’t pass shows Lumovi’s own card, never an error', async 
   await acme()
 })
 
+test('a sponsor.json that breaks any of its rules shows Lumovi’s own card, built in', async ({
+  launchSponsored,
+  sponsor,
+}) => {
+  // A card change a second, back and forth, for each case: slow runners need the time.
+  test.slow()
+  // (Not even where the file says Lumovi's own card leads: nothing of it is taken.)
+  const lumovi = { link: 'https://lumovi.example/own' }
+  const file = (extra: object) => sponsorJson({ mode: 'lumovi', lumovi, ...extra })
+  const acme = (extra: object) =>
+    sponsorJson({ mode: 'sponsor', lumovi, sponsor: { ...ACME, ...extra } })
+  sponsor.serveAcme()
+  const { page } = await launchSponsored({ theme: 'light' })
+  await openCluster(page)
+  await expect(link(page)).toHaveAccessibleName(/^Acme/)
+
+  const cases: [string, string | Buffer][] = [
+    ['a list, not an object', '[]'],
+    ['a key it doesn’t have', file({ colour: 'blue' })],
+    ['another version', JSON.stringify({ version: 2, mode: 'lumovi' })],
+    ['a mode there isn’t', file({ mode: 'house' })],
+    ['Lumovi’s link, not in an object', file({ lumovi: lumovi.link })],
+    ['more than a link for Lumovi', file({ lumovi: { ...lumovi, description: 'Ours' } })],
+    ['Lumovi’s link, not text', file({ lumovi: { link: 404 } })],
+    ['a sponsor’s mode with no sponsor', file({ mode: 'sponsor' })],
+    ['a sponsor that’s only a name', file({ mode: 'sponsor', sponsor: 'Acme' })],
+    ['a key a sponsor doesn’t have', acme({ colour: 'blue' })],
+    ['no name', acme({ name: ' ' })],
+    ['spaces around the name', acme({ name: ' Acme' })],
+    ['a name too long', acme({ name: 'Acme '.repeat(8) + 'Acme' })],
+    ['a line break in the description', acme({ description: 'Rockets.\nAnvils.' })],
+    ['a pile of marks on a letter', acme({ name: 'Ac\u0301\u0302\u0303me' })],
+    ['an emoji', acme({ description: 'Rockets 🚀 and anvils.' })],
+    ['a link in the description', acme({ description: 'See www.acme.example' })],
+    ['a link too long', acme({ link: `https://acme.example/${'rockets/'.repeat(25)}` })],
+    ['a space in the link', acme({ link: 'https://acme.example/rockets and anvils' })],
+    ['a link that isn’t one', acme({ link: 'acme.example' })],
+    ['a user in the link', acme({ link: 'https://lumovi.dev@acme.example/' })],
+    ['a link to an address', acme({ link: 'https://192.0.2.10/' })],
+    ['a last day that isn’t a day', acme({ until: 'December' })],
+    ['a last day not on the calendar', acme({ until: '2099-02-30' })],
+    ['one picture for both modes', acme({ image: 'acme-light.png' })],
+    ['a third picture', acme({ image: { ...ACME.image, wide: 'acme-wide.png' } })],
+    ['a picture in a folder', acme({ image: { ...ACME.image, light: 'img/acme-light.png' } })],
+    ['a picture’s name with “..”', acme({ image: { ...ACME.image, dark: 'acme..png' } })],
+    ['a file larger than 16 KB', `${acme({})}${' '.repeat(16 * 1024)}`],
+    ['text that isn’t UTF-8', Buffer.from(acme({ name: 'Acmé' }), 'latin1')],
+  ]
+  for (const [what, text] of cases) {
+    await test.step(what, async () => {
+      sponsor.files.set('sponsor.json', text)
+      await expectLumovis(page)
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      sponsor.serveAcme()
+      await expect(link(page)).toHaveAccessibleName(/^Acme/)
+    })
+  }
+
+  // A last day still to come: the card shows until then.
+  sponsor.serveAcme({ until: '2099-12-31', description: 'Until the century ends.' })
+  await expect(link(page)).toHaveAccessibleName('Acme Until the century ends.')
+
+  // GitHub answering with an error keeps what was read last, as when it doesn’t answer.
+  sponsor.fail = 'error'
+  const asked = sponsor.requests.length
+  await expect.poll(() => sponsor.requests.length).toBeGreaterThan(asked + 2)
+  await expect(link(page)).toHaveAccessibleName('Acme Until the century ends.')
+})
+
 test('pictures are taken by what they are: PNG, GIF or WebP, still or playing once, for 5 s at most', async ({
   launchSponsored,
   sponsor,
