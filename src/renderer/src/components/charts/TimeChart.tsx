@@ -197,6 +197,8 @@ export function TimeChart({
     event.clientX - event.currentTarget.getBoundingClientRect().left
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    // A finger reads the value under it, and scrolls the page: it doesn't drag out a zoom.
+    if (event.pointerType === 'touch') return setHover(indexAt(pointer(event)))
     if (event.button !== 0 || !onZoom) return
     event.currentTarget.setPointerCapture(event.pointerId)
     setDrag({ from: pointer(event), to: pointer(event) })
@@ -267,7 +269,8 @@ export function TimeChart({
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            onPointerLeave={() => setHover(null)}
+            // (A finger lifted has left too: what it read stays, until it taps elsewhere.)
+            onPointerLeave={(event) => event.pointerType !== 'touch' && setHover(null)}
           >
             {yTicks.map((tick, i) => (
               <g key={tick}>
