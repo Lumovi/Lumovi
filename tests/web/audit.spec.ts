@@ -1702,20 +1702,25 @@ test('one Lumovi keeps a history: another waits for it, and doesn’t start whil
   const env = { LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDIT_LOCK_STALE_MS: '1500' }
   const held = (holder: object) => writeFileSync(lock, JSON.stringify(holder))
   const now = Date.now()
-  // Held by a process running here (this one), renewing it as it goes on: waited for, then said.
-  const renewing = setInterval(
-    () => held({ pid: process.pid, host: hostname(), at: Date.now() }),
-    200,
-  )
-  held({ pid: process.pid, host: hostname(), at: now })
-  const refused = await refusedConfig(clusters, env)
-  clearInterval(renewing)
+  // Held by a Lumovi that runs, renewing it as it goes on: waited for, then said. (One that
+  // holds it for six seconds, so a busy computer doesn't make it look stopped.)
+  const patient = { ...env, LUMOVI_AUDIT_LOCK_STALE_MS: '6000' }
+  const holder = await serve({ env: patient })
+  const hold = JSON.parse(readFileSync(lock, 'utf8')) as { id: string; pid: number; host: string }
+  expect(hold).toMatchObject({ host: hostname() })
+  const refused = await refusedConfig(clusters, patient)
   expect(refused).toContain(
-    `Another Lumovi (process ${process.pid} on ${hostname()}) keeps its audit history in ${dir}: waiting for it to stop (2 seconds at most).`,
+    `Another Lumovi (process ${hold.pid} on ${hostname()}) keeps its audit history in ${dir}: waiting for it to stop (6 seconds at most).`,
   )
   expect(refused).toContain(
-    `Another Lumovi (process ${process.pid} on ${hostname()}) keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
+    `Another Lumovi (process ${hold.pid} on ${hostname()}) keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
   )
+  // Still the first one's, and whole, however often it was renewed meanwhile: it's never read
+  // half written, and nothing is left beside it.
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ id: hold.id, pid: hold.pid })
+  expect(readdirSync(dir).filter((name) => name.startsWith('audit.lock'))).toEqual(['audit.lock'])
+  await holder.stop()
+  if (GRACEFUL) expect(existsSync(lock)).toBe(false)
   // Held by one elsewhere (a pod on a node that's gone, say), renewing it no more: waited for,
   // and taken over once it's stale.
   held({ pid: 4321, host: 'lumovi-7d9f-2', at: Date.now() })
@@ -1724,7 +1729,7 @@ test('one Lumovi keeps a history: another waits for it, and doesn’t start whil
   expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
   await waited.stop()
   // Left by one that stopped: here, a process that's gone; elsewhere, one not heard from in a
-  // while; or one that can't be read. Taken over at once, and let go of as it stops.
+  // while. Taken over at once, and let go of as it stops.
   for (const holder of [
     { pid: 2 ** 22 + 7, host: hostname(), at: now },
     { pid: 4321, host: 'lumovi-7d9f-2', at: now - 10 * 60_000 },
@@ -1735,9 +1740,18 @@ test('one Lumovi keeps a history: another waits for it, and doesn’t start whil
     await served.stop()
     if (GRACEFUL) expect(existsSync(lock)).toBe(false)
   }
-  writeFileSync(lock, 'not a lock')
-  const served = await serve({ env })
-  await served.stop()
+  // One that can't be read is someone's all the same (it may be being written, where a volume
+  // can't put it in place whole): waited for, and taken over only once it's as old as one nobody
+  // renews. Empty, as a file just made is; or not a lock at all.
+  for (const unreadable of ['', 'not a lock']) {
+    writeFileSync(lock, unreadable)
+    const served = await serve({ env })
+    expect(served.log()).toContain(
+      `Another Lumovi (its lock can’t be read yet) keeps its audit history in ${dir}: waiting for it to stop (2 seconds at most).`,
+    )
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
+    await served.stop()
+  }
   // A folder it can't write in (as one that isn't the system's administrator) stops it too.
   if (process.platform !== 'win32' && process.getuid?.() !== 0) {
     const said = await refusedConfig(clusters, { LUMOVI_AUDIT_DIR: '/' })
@@ -1748,6 +1762,82 @@ test('one Lumovi keeps a history: another waits for it, and doesn’t start whil
       `Lumovi runs as user ${process.getuid?.()}: in Kubernetes, the pod’s fsGroup (the Helm chart’s podSecurityContext.fsGroup) must be one that may write to its volume.`,
     )
   }
+})
+
+test('started at the same moment on one folder, only one Lumovi keeps its history', async ({
+  clusters,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const env = { LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDIT_LOCK_STALE_MS: '6000' }
+  const started = await Promise.allSettled(
+    Array.from({ length: 4 }, () => startServer(clusters, { env })),
+  )
+  const running = started.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []))
+  const refused = started.flatMap((s) => (s.status === 'rejected' ? [String(s.reason)] : []))
+  try {
+    expect(running).toHaveLength(1)
+    for (const said of refused) {
+      expect(said).toContain(`keeps its audit history in ${dir}: two can’t`)
+    }
+    // One history: its events numbered once each, from the one that keeps it.
+    const kept = eventsIn(dayFile(dir))
+    expect(kept.map((event) => event.seq)).toEqual(kept.map((_, i) => i + 1))
+    expect(new Set(kept.map((event) => event.chain)).size).toBe(1)
+  } finally {
+    await Promise.all(running.map((served) => served.stop()))
+  }
+})
+
+test('a Lumovi whose history another took over stops writing it, and says so', async ({
+  page,
+  context,
+  serve,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const lock = join(dir, 'audit.lock')
+  const env = {
+    LUMOVI_AUTH: 'proxy',
+    LUMOVI_AUDIT_DIR: dir,
+    LUMOVI_AUDITORS: 'auditors',
+    LUMOVI_AUDIT_LOCK_STALE_MS: '1500',
+  }
+  const served = await serve({ env })
+  await as(context, 'alice@example.com', 'auditors, developers')
+  await page.goto(`${served.url}cluster/demo/pods`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  // Something done, to be recorded: a ConfigMap that isn't there, deleted.
+  const act = () =>
+    page.evaluate(() =>
+      window.lumovi!.kube.change({
+        context: 'demo',
+        kind: 'ConfigMap',
+        name: 'never-made',
+        namespace: 'shop',
+        change: { action: 'delete' },
+      } as never),
+    )
+  await act()
+  const kept = linesOf(dayFile(dir)).length
+  expect(kept).toBeGreaterThan(0)
+  // Another takes the history over: as it would if this one had stopped for longer than its
+  // hold lasts (its node cut off from the volume, say), and then went on.
+  const taker = { id: 'another', pid: 4321, host: 'lumovi-7d9f-2', at: Date.now() + 60_000 }
+  writeFileSync(lock, JSON.stringify(taker))
+  const told = audited(served).length
+  await act()
+  // It's recorded as ever (on its output, to a webhook), and not written into the history.
+  await expect.poll(() => audited(served).length).toBeGreaterThan(told)
+  expect(linesOf(dayFile(dir))).toHaveLength(kept)
+  expect(served.log()).toContain(
+    'The audit history can’t be kept: Another Lumovi (process 4321 on lumovi-7d9f-2) took this audit history over, as this one had stopped for longer than its hold on it lasts (2 seconds). Two can’t keep one history: start this one again, and it waits its turn.',
+  )
+  // Nor does it take the lock back, as it renews, or as it stops: it's the other's.
+  await new Promise((done) => setTimeout(done, 1200))
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
+  await act()
+  expect(linesOf(dayFile(dir))).toHaveLength(kept)
+  await served.stop()
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
 })
 
 test('a history whose folder goes while Lumovi runs: said once, and again if it goes again', async ({

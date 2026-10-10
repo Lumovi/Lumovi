@@ -1,0 +1,85 @@
+name: Repeat a test
+
+# Runs chosen tests many times over on one platform, to show that one a runner's timing could
+# fail doesn't. Not part of CI: started by hand (Actions → Repeat a test), or by pushing a branch
+# named repeat/…, which runs what's set here by default.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: The spec file
+        default: tests/web/audit.spec.ts
+      grep:
+        description: Which of its tests (a pattern for their titles)
+        default: 'one Lumovi keeps a history|started at the same moment|another took over'
+      times:
+        description: How many times each
+        default: '50'
+      os:
+        description: Where
+        type: choice
+        default: windows-latest
+        options: [windows-latest, ubuntu-latest, macos-latest]
+  push:
+    branches: ['repeat/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  repeat:
+    name: ${{ inputs.times || '50' }} times on ${{ inputs.os || 'windows-latest' }}
+    runs-on: ${{ inputs.os || 'windows-latest' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+      - name: Allow Chromium's sandbox
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build with coverage instrumentation
+        run: npm run build:coverage
+      - name: Run them
+        shell: bash
+        env:
+          LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
+          SPEC: ${{ inputs.spec || 'tests/web/audit.spec.ts' }}
+          GREP: ${{ inputs.grep || 'one Lumovi keeps a history|started at the same moment|another took over' }}
+          TIMES: ${{ inputs.times || '50' }}
+        # No second tries: a test that passes on its retry has failed here.
+        run: |
+          run=(npx playwright test "$SPEC" --grep "$GREP" --repeat-each "$TIMES" --retries 0)
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum "${run[@]}"
+          else
+            "${run[@]}"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: ${{ failure() }}
+        with:
+          name: playwright-report-repeat
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
