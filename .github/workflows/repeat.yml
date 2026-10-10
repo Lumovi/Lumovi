@@ -12,7 +12,7 @@ on:
         default: tests/web/audit.spec.ts
       grep:
         description: Which of its tests (a pattern for their titles)
-        default: 'one Lumovi keeps a history|started at the same moment|another took over'
+        default: 'one Lumovi keeps a history|started at the same moment|another took over|two containers of one name'
       times:
         description: How many times each
         default: '50'
@@ -65,7 +65,7 @@ jobs:
         env:
           LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
           SPEC: ${{ inputs.spec || 'tests/web/audit.spec.ts' }}
-          GREP: ${{ inputs.grep || 'one Lumovi keeps a history|started at the same moment|another took over' }}
+          GREP: ${{ inputs.grep || 'one Lumovi keeps a history|started at the same moment|another took over|two containers of one name' }}
           TIMES: ${{ inputs.times || '50' }}
         # No second tries: a test that passes on its retry has failed here.
         run: |
