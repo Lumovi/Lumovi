@@ -11,9 +11,10 @@
  */
 import { parseAllDocuments } from 'yaml'
 import type { KubeErrorCause } from '@shared/api'
+import { scheduleWords } from './cron-words'
 import { elsewhere, linesAt, pathText, removeAt, setAt, type Path } from './yaml-edit'
 
-export type FormKindName = 'Deployment'
+export type FormKindName = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'CronJob'
 
 /** Where a new key goes among its map's own, for every map the form writes in. */
 const ORDER = [
@@ -23,11 +24,17 @@ const ORDER = [
   'name',
   'namespace',
   'spec',
+  'serviceName',
   'replicas',
+  'schedule',
+  'concurrencyPolicy',
+  'backoffLimit',
+  'jobTemplate',
   'selector',
   'matchLabels',
   'template',
   'labels',
+  'restartPolicy',
   'containers',
   'image',
   'command',
@@ -36,6 +43,11 @@ const ORDER = [
   'env',
   'value',
   'resources',
+  'volumeMounts',
+  'mountPath',
+  'volumeClaimTemplates',
+  'accessModes',
+  'storageClassName',
   'requests',
   'limits',
   'cpu',
@@ -45,8 +57,8 @@ const ORDER = [
 /** A text, or `null` once an edit of it couldn't be made (see `yaml-edit`): nothing follows that. */
 type Edited = string | null
 
-const set = (text: Edited, path: Path, value: unknown): Edited =>
-  text === null ? null : setAt(text, path, value, ORDER)
+const set = (text: Edited, path: Path, value: unknown, order: readonly string[] = ORDER): Edited =>
+  text === null ? null : setAt(text, path, value, order)
 const remove = (text: Edited, path: Path, upTo: number): Edited =>
   text === null ? null : removeAt(text, path, upTo)
 
@@ -54,14 +66,14 @@ type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const dig = (value: unknown, path: Path): unknown =>
+export const dig = (value: unknown, path: Path): unknown =>
   path.reduce<unknown>(
     (at, part) => (at as Record<string | number, unknown> | null | undefined)?.[part],
     value,
   )
 
 /** A single value as a field shows it: nothing, for none. */
-const shown = (value: unknown): string =>
+export const shown = (value: unknown): string =>
   value === undefined || value === null ? '' : String(value as string | number | boolean)
 
 // ——— Whether the form can show the YAML ———
@@ -214,6 +226,23 @@ export function unowned(object: Json, form: FormKind): Path[] {
 
 // ——— A kind's form ———
 
+/** A field of the form. Which a kind has, and where each writes, is the kind's to say. */
+export type FieldId =
+  | 'name'
+  | 'namespace'
+  | 'replicas'
+  | 'serviceName'
+  | 'backoffLimit'
+  | 'schedule'
+  | 'concurrencyPolicy'
+  | 'restartPolicy'
+  | 'image'
+  | 'command'
+  | 'port'
+  | 'storage'
+  | 'env'
+  | 'resources'
+
 export interface FormKind {
   kind: FormKindName
   apiVersion: string
@@ -223,22 +252,188 @@ export interface FormKind {
   owns: Pattern[]
   /** Why the form can't show it, beyond its shape (two containers). */
   cannotShow(object: Json): Why | undefined
+  /** Its fields, in the order they're asked, and the path each writes (or a group's start). */
+  fields: FieldId[]
+  paths: Partial<Record<FieldId, Path>>
+  /** Its one container. */
+  container: Path
+  /** What takes the workload's name while it's the same: its container's, and its app label. */
+  follows: Path[]
 }
 
-const C = ['spec', 'template', 'spec', 'containers', 0] as const
-const C_ANY = ['spec', 'template', 'spec', 'containers', 0]
+/** The claim a StatefulSet's pods each get, and where their container mounts it. */
+const CLAIM = ['spec', 'volumeClaimTemplates', 0] as const
 
-export const DEPLOYMENT: FormKind = {
-  kind: 'Deployment',
-  apiVersion: 'apps/v1',
-  blank: (namespace) => `apiVersion: apps/v1
-kind: Deployment
+interface Workload {
+  kind: FormKindName
+  apiVersion: string
+  /** Where its pods' spec is. */
+  pod: readonly string[]
+  /** Its own fields, before the container's. */
+  own: Partial<Record<FieldId, Path>>
+  /** The container's fields it asks. */
+  asks: FieldId[]
+  /** Whether its selector and its pods' labels are `app=<name>`. */
+  labelled: boolean
+  blank(namespace: string): string
+}
+
+/** A kind that runs one container in pods: its form, from what's particular to it. */
+function workload(w: Workload): FormKind {
+  const container = [...w.pod, 'containers', 0]
+  const template = w.pod.slice(0, -1)
+  const follows: Path[] = [
+    [...container, 'name'],
+    ...(w.labelled
+      ? [
+          ['spec', 'selector', 'matchLabels', 'app'],
+          [...template, 'metadata', 'labels', 'app'],
+        ]
+      : []),
+  ]
+  const paths: Partial<Record<FieldId, Path>> = {
+    name: ['metadata', 'name'],
+    namespace: ['metadata', 'namespace'],
+    ...w.own,
+    image: [...container, 'image'],
+    command: [...container, 'command'],
+    port: [...container, 'ports', 0, 'containerPort'],
+    env: [...container, 'env'],
+    resources: [...container, 'resources'],
+    restartPolicy: [...w.pod, 'restartPolicy'],
+    storage: CLAIM,
+  }
+  const fields: FieldId[] = ['name', 'namespace', ...(Object.keys(w.own) as FieldId[]), ...w.asks]
+  const has = (field: FieldId) => fields.includes(field)
+  const amounts = (['requests', 'limits'] as const).flatMap((kind) =>
+    (['cpu', 'memory'] as const).map((of): Path => [...container, 'resources', kind, of]),
+  )
+  const storage: Path[] = [
+    [...CLAIM, 'metadata', 'name'],
+    [...CLAIM, 'spec', 'storageClassName'],
+    [...CLAIM, 'spec', 'resources', 'requests', 'storage'],
+    [...container, 'volumeMounts', 0, 'name'],
+    [...container, 'volumeMounts', 0, 'mountPath'],
+  ]
+  // Every map on the way to a value is a map, or isn't there.
+  const values: Path[] = [
+    paths.name!,
+    paths.namespace!,
+    ...follows,
+    ...(Object.keys(w.own) as FieldId[]).map((field) => paths[field]!),
+    paths.image!,
+    ...(has('port') ? [paths.port!] : []),
+    ...(has('resources') ? amounts : []),
+    ...(has('restartPolicy') ? [paths.restartPolicy!] : []),
+    ...(has('storage') ? storage : []),
+  ]
+  const lists: Path[] = [
+    [...w.pod, 'containers'],
+    ...(has('port') ? [[...container, 'ports']] : []),
+    [...container, 'env'],
+    ...(has('storage')
+      ? [
+          ['spec', 'volumeClaimTemplates'],
+          [...container, 'volumeMounts'],
+        ]
+      : []),
+  ]
+  const maps = new Map<string, Path>()
+  for (const path of [...values, ...lists]) {
+    for (let depth = 1; depth < path.length; depth++) {
+      // (An index is into a list, whose items are maps: said with the lists.)
+      if (typeof path[depth] === 'number' || typeof path[depth - 1] === 'number') continue
+      maps.set(pathText(path.slice(0, depth)), path.slice(0, depth))
+    }
+  }
+  return {
+    kind: w.kind,
+    apiVersion: w.apiVersion,
+    blank: w.blank,
+    fields,
+    paths,
+    container,
+    follows,
+    shape: {
+      maps: [...maps.values()],
+      lists: has('command') ? [paths.command!] : [],
+      listsOfMaps: lists,
+      values,
+    },
+    owns: [
+      ['apiVersion'],
+      ['kind'],
+      ...values,
+      // A variable is a row of the form's, whether its value is said or comes from elsewhere.
+      [...container, 'env', '*'],
+      ...(has('command') ? [paths.command!] : []),
+      ...(has('storage') ? [[...CLAIM, 'spec', 'accessModes'] as Path] : []),
+    ],
+    cannotShow(object) {
+      const containers = dig(object, [...w.pod, 'containers'])
+      if (Array.isArray(containers) && containers.length > 1) {
+        return {
+          why: `It has ${count(containers.length)} containers, and the form edits one.`,
+          at: [...w.pod, 'containers', 1],
+        }
+      }
+      // A command the form didn't write isn't one its field can show: it writes `sh -c`.
+      const command = dig(object, paths.command!)
+      if (
+        has('command') &&
+        command !== undefined &&
+        command !== null &&
+        shellCommand(command) === undefined
+      ) {
+        return {
+          why: 'Its container’s command isn’t run as sh -c, which is how the form’s field writes one.',
+          at: paths.command!,
+        }
+      }
+      if (has('storage')) {
+        const claims = dig(object, ['spec', 'volumeClaimTemplates'])
+        if (Array.isArray(claims) && claims.length > 1) {
+          return {
+            why: `It has ${count(claims.length)} claims for each pod, and the form edits one.`,
+            at: ['spec', 'volumeClaimTemplates', 1],
+          }
+        }
+        // The claim and where it's mounted go by one name: a mount of something else isn't it.
+        const claim = dig(object, [...CLAIM, 'metadata', 'name'])
+        const mount = dig(object, [...container, 'volumeMounts', 0, 'name'])
+        if (mount !== undefined && mount !== null && mount !== claim) {
+          return {
+            why: 'Its container’s first mount isn’t of its pods’ claim, which is the one the form’s field edits.',
+            at: [...container, 'volumeMounts', 0],
+          }
+        }
+      }
+      return undefined
+    },
+  }
+}
+
+/** What a command the form wrote runs: `sh -c <this>`. Undefined for any other command. */
+function shellCommand(command: unknown): string | undefined {
+  return Array.isArray(command) &&
+    command.length === 3 &&
+    command[0] === 'sh' &&
+    command[1] === '-c' &&
+    typeof command[2] === 'string'
+    ? command[2]
+    : undefined
+}
+
+const POD = ['spec', 'template', 'spec']
+
+/** A workload with pods labelled `app=<name>`, new: what it must have, with nothing said yet. */
+const labelledBlank = (kind: string, namespace: string, spec: string) => `apiVersion: apps/v1
+kind: ${kind}
 metadata:
   name:
   namespace: ${namespace}
 spec:
-  replicas: 1
-  selector:
+${spec}  selector:
     matchLabels:
       app:
   template:
@@ -249,73 +444,98 @@ spec:
       containers:
         - name:
           image:
-`,
-  shape: {
-    maps: [
-      ['metadata'],
-      ['spec'],
-      ['spec', 'selector'],
-      ['spec', 'selector', 'matchLabels'],
-      ['spec', 'template'],
-      ['spec', 'template', 'metadata'],
-      ['spec', 'template', 'metadata', 'labels'],
-      ['spec', 'template', 'spec'],
-      [...C, 'resources'],
-      [...C, 'resources', 'requests'],
-      [...C, 'resources', 'limits'],
-    ],
-    lists: [],
-    listsOfMaps: [
-      ['spec', 'template', 'spec', 'containers'],
-      [...C, 'ports'],
-      [...C, 'env'],
-    ],
-    values: [
-      ['metadata', 'name'],
-      ['metadata', 'namespace'],
-      ['spec', 'replicas'],
-      ['spec', 'selector', 'matchLabels', 'app'],
-      ['spec', 'template', 'metadata', 'labels', 'app'],
-      [...C, 'name'],
-      [...C, 'image'],
-      [...C, 'ports', 0, 'containerPort'],
-      [...C, 'resources', 'requests', 'cpu'],
-      [...C, 'resources', 'requests', 'memory'],
-      [...C, 'resources', 'limits', 'cpu'],
-      [...C, 'resources', 'limits', 'memory'],
-    ],
-  },
-  owns: [
-    ['apiVersion'],
-    ['kind'],
-    ['metadata', 'name'],
-    ['metadata', 'namespace'],
-    ['spec', 'replicas'],
-    ['spec', 'selector', 'matchLabels', 'app'],
-    ['spec', 'template', 'metadata', 'labels', 'app'],
-    [...C_ANY, 'name'],
-    [...C_ANY, 'image'],
-    [...C_ANY, 'ports', 0, 'containerPort'],
-    // A variable is a row of the form's, whether its value is said or comes from elsewhere.
-    [...C_ANY, 'env', '*'],
-    [...C_ANY, 'resources', 'requests', 'cpu'],
-    [...C_ANY, 'resources', 'requests', 'memory'],
-    [...C_ANY, 'resources', 'limits', 'cpu'],
-    [...C_ANY, 'resources', 'limits', 'memory'],
-  ],
-  cannotShow(object) {
-    const containers = dig(object, ['spec', 'template', 'spec', 'containers'])
-    if (Array.isArray(containers) && containers.length > 1) {
-      return {
-        why: `It has ${count(containers.length)} containers, and the form edits one.`,
-        at: ['spec', 'template', 'spec', 'containers', 1],
-      }
-    }
-    return undefined
-  },
-}
+`
 
-export const FORM_KINDS: Record<FormKindName, FormKind> = { Deployment: DEPLOYMENT }
+export const DEPLOYMENT = workload({
+  kind: 'Deployment',
+  apiVersion: 'apps/v1',
+  pod: POD,
+  own: { replicas: ['spec', 'replicas'] },
+  asks: ['image', 'port', 'env', 'resources'],
+  labelled: true,
+  blank: (namespace) => labelledBlank('Deployment', namespace, '  replicas: 1\n'),
+})
+
+const STATEFUL_SET = workload({
+  kind: 'StatefulSet',
+  apiVersion: 'apps/v1',
+  pod: POD,
+  own: { replicas: ['spec', 'replicas'], serviceName: ['spec', 'serviceName'] },
+  asks: ['image', 'port', 'storage', 'env'],
+  labelled: true,
+  blank: (namespace) => labelledBlank('StatefulSet', namespace, '  serviceName:\n  replicas: 1\n'),
+})
+
+const DAEMON_SET = workload({
+  kind: 'DaemonSet',
+  apiVersion: 'apps/v1',
+  pod: POD,
+  own: {},
+  asks: ['image', 'port', 'env', 'resources'],
+  labelled: true,
+  blank: (namespace) => labelledBlank('DaemonSet', namespace, ''),
+})
+
+const JOB = workload({
+  kind: 'Job',
+  apiVersion: 'batch/v1',
+  pod: POD,
+  own: { backoffLimit: ['spec', 'backoffLimit'] },
+  asks: ['restartPolicy', 'image', 'command', 'env'],
+  labelled: false,
+  blank: (namespace) => `apiVersion: batch/v1
+kind: Job
+metadata:
+  name:
+  namespace: ${namespace}
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name:
+          image:
+`,
+})
+
+const CRON_JOB = workload({
+  kind: 'CronJob',
+  apiVersion: 'batch/v1',
+  pod: ['spec', 'jobTemplate', 'spec', 'template', 'spec'],
+  own: {
+    schedule: ['spec', 'schedule'],
+    concurrencyPolicy: ['spec', 'concurrencyPolicy'],
+  },
+  asks: ['restartPolicy', 'image', 'command', 'env'],
+  labelled: false,
+  blank: (namespace) => `apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name:
+  namespace: ${namespace}
+spec:
+  schedule:
+  concurrencyPolicy: Allow
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name:
+              image:
+`,
+})
+
+/** The kinds the form knows, in the order of the sidebar's groups. */
+export const FORM_KINDS: Record<FormKindName, FormKind> = {
+  Deployment: DEPLOYMENT,
+  StatefulSet: STATEFUL_SET,
+  DaemonSet: DAEMON_SET,
+  Job: JOB,
+  CronJob: CRON_JOB,
+}
 
 // ——— A workload's fields: what they show ———
 
@@ -335,12 +555,30 @@ export interface Resources {
   memoryLimit: string
 }
 
+/** The claim each of a StatefulSet's pods gets. */
+export interface Storage {
+  /** Its size, as it's written: `20Gi`. */
+  size: string
+  /** Its class; none for the cluster's default. */
+  storageClass: string
+  mountPath: string
+}
+
+/** What a kind's fields show. A field the kind doesn't ask is empty, and isn't shown. */
 export interface WorkloadValues {
   name: string
   namespace: string
   replicas: string
+  serviceName: string
+  backoffLimit: string
+  schedule: string
+  concurrencyPolicy: string
+  restartPolicy: string
   image: string
+  /** What `sh -c` runs. */
+  command: string
   port: string
+  storage: Storage
   env: Variable[]
   resources: Resources
 }
@@ -359,15 +597,42 @@ function source(valueFrom: unknown): string {
   return 'elsewhere, as the YAML says'
 }
 
-export function workloadValues(object: Json): WorkloadValues {
-  const text = (path: Path) => shown(dig(object, path))
-  const env = (dig(object, [...C, 'env']) ?? []) as Json[]
+export const resourcePaths = (form: FormKind): Record<keyof Resources, Path> => ({
+  cpuRequest: [...form.container, 'resources', 'requests', 'cpu'],
+  memoryRequest: [...form.container, 'resources', 'requests', 'memory'],
+  cpuLimit: [...form.container, 'resources', 'limits', 'cpu'],
+  memoryLimit: [...form.container, 'resources', 'limits', 'memory'],
+})
+
+export const storagePaths = (form: FormKind): Record<keyof Storage, Path> => ({
+  size: [...CLAIM, 'spec', 'resources', 'requests', 'storage'],
+  storageClass: [...CLAIM, 'spec', 'storageClassName'],
+  mountPath: [...form.container, 'volumeMounts', 0, 'mountPath'],
+})
+
+export function workloadValues(object: Json, form: FormKind): WorkloadValues {
+  const text = (path: Path | undefined) => (path ? shown(dig(object, path)) : '')
+  const at = (field: FieldId) => text(form.paths[field])
+  const env = (dig(object, form.paths.env!) ?? []) as Json[]
+  const amounts = resourcePaths(form)
+  const storage = storagePaths(form)
   return {
-    name: text(['metadata', 'name']),
-    namespace: text(['metadata', 'namespace']),
-    replicas: text(['spec', 'replicas']),
-    image: text([...C, 'image']),
-    port: text([...C, 'ports', 0, 'containerPort']),
+    name: at('name'),
+    namespace: at('namespace'),
+    replicas: at('replicas'),
+    serviceName: at('serviceName'),
+    backoffLimit: at('backoffLimit'),
+    schedule: at('schedule'),
+    concurrencyPolicy: at('concurrencyPolicy'),
+    restartPolicy: at('restartPolicy'),
+    image: at('image'),
+    command: shellCommand(dig(object, form.paths.command!)) ?? '',
+    port: at('port'),
+    storage: {
+      size: text(storage.size),
+      storageClass: text(storage.storageClass),
+      mountPath: text(storage.mountPath),
+    },
     env: env.map((variable) => ({
       name: shown(variable.name),
       ...('valueFrom' in variable && variable.valueFrom !== null && variable.valueFrom !== undefined
@@ -375,53 +640,30 @@ export function workloadValues(object: Json): WorkloadValues {
         : { value: shown(variable.value) }),
     })),
     resources: {
-      cpuRequest: text([...C, 'resources', 'requests', 'cpu']),
-      memoryRequest: text([...C, 'resources', 'requests', 'memory']),
-      cpuLimit: text([...C, 'resources', 'limits', 'cpu']),
-      memoryLimit: text([...C, 'resources', 'limits', 'memory']),
+      cpuRequest: text(amounts.cpuRequest),
+      memoryRequest: text(amounts.memoryRequest),
+      cpuLimit: text(amounts.cpuLimit),
+      memoryLimit: text(amounts.memoryLimit),
     },
   }
 }
 
 // ——— A workload's fields: where each writes ———
 
-/** A field of the form: its name on the page, and the path it writes. */
-export type FieldId = 'name' | 'namespace' | 'replicas' | 'image' | 'port' | 'env' | 'resources'
-
-export const RESOURCE_PATHS: Record<keyof Resources, Path> = {
-  cpuRequest: [...C, 'resources', 'requests', 'cpu'],
-  memoryRequest: [...C, 'resources', 'requests', 'memory'],
-  cpuLimit: [...C, 'resources', 'limits', 'cpu'],
-  memoryLimit: [...C, 'resources', 'limits', 'memory'],
-}
-
-/** The path each field writes, and (for a group of fields) the start of theirs. */
-export const FIELD_PATHS: Record<FieldId, Path> = {
-  name: ['metadata', 'name'],
-  namespace: ['metadata', 'namespace'],
-  replicas: ['spec', 'replicas'],
-  image: [...C, 'image'],
-  port: [...C, 'ports', 0, 'containerPort'],
-  env: [...C, 'env'],
-  resources: [...C, 'resources'],
-}
-
-export const CONTAINER_PATH: Path = C
-
-/** What follows a workload's name while it's the same: its container's, and its app label. */
-const FOLLOWS_NAME: Path[] = [
-  [...C, 'name'],
-  ['spec', 'selector', 'matchLabels', 'app'],
-  ['spec', 'template', 'metadata', 'labels', 'app'],
-]
-
 /** The lines (from 1) a field's value is on, wherever it's written: its own, and what follows it. */
-export function fieldLines(text: string, object: Json, field: FieldId, part?: Path): number[] {
-  const paths: Path[] = part ? [part] : [FIELD_PATHS[field]]
+export function fieldLines(
+  text: string,
+  object: Json,
+  form: FormKind,
+  field: FieldId,
+  part?: Path,
+): number[] {
+  const paths: Path[] = part ? [part] : form.paths[field] ? [form.paths[field]] : []
   if (field === 'name') {
-    const name = dig(object, FIELD_PATHS.name)
-    paths.push(...FOLLOWS_NAME.filter((path) => dig(object, path) === name))
+    const name = dig(object, form.paths.name!)
+    paths.push(...form.follows.filter((path) => dig(object, path) === name))
   }
+  if (field === 'storage' && !part) paths.push([...form.container, 'volumeMounts', 0])
   const lines = new Set<number>()
   for (const path of paths) {
     const span = linesAt(text, path)
@@ -435,10 +677,10 @@ export function fieldLines(text: string, object: Json, field: FieldId, part?: Pa
  * that's the same. (Its app labels take the name too, and are lit with it; but what can't be
  * a name can still be a label's value, so those lines aren't wrong.)
  */
-export function nameLines(text: string, object: Json): number[] {
-  const name = dig(object, FIELD_PATHS.name)
+export function nameLines(text: string, object: Json, form: FormKind): number[] {
+  const name = dig(object, form.paths.name!)
   const lines: number[] = []
-  for (const path of [FIELD_PATHS.name, [...C, 'name']]) {
+  for (const path of [form.paths.name!, [...form.container, 'name']]) {
     const span = dig(object, path) === name ? linesAt(text, path) : undefined
     if (span) for (let line = span[0]; line <= span[1]; line++) lines.push(line)
   }
@@ -453,46 +695,88 @@ const numbered = (typed: string): string | number =>
 const put = (text: Edited, path: Path, typed: string | number): Edited =>
   typed === '' ? set(text, path, null) : set(text, path, typed)
 
-export const write = {
-  /** The name, and with it whatever was the same as the name before. */
-  name(text: string, object: Json, name: string): Edited {
-    const old = dig(object, FIELD_PATHS.name)
-    const follows = FOLLOWS_NAME.filter((path) => {
-      const value = dig(object, path)
-      return value === undefined || value === null || value === old
-    })
-    return [FIELD_PATHS.name, ...follows].reduce<Edited>(
-      (next, path) => put(next, path, name),
-      text,
-    )
-  },
-  namespace: (text: string, namespace: string) => put(text, FIELD_PATHS.namespace, namespace),
-  replicas: (text: string, typed: string) => put(text, FIELD_PATHS.replicas, numbered(typed)),
-  image: (text: string, image: string) => put(text, FIELD_PATHS.image, image),
-  /** The port, or none: its list goes with the last of what it held. */
-  port: (text: string, typed: string) =>
-    typed === ''
-      ? remove(text, FIELD_PATHS.port, C.length)
-      : set(text, FIELD_PATHS.port, numbered(typed)),
-  /** One more variable, by its name: its value is said when one is typed. */
-  addVariable: (text: string, object: Json, name: string, value: string) => {
-    const at = ((dig(object, FIELD_PATHS.env) ?? []) as unknown[]).length
-    return set(text, [...FIELD_PATHS.env, at], value === '' ? { name } : { name, value })
-  },
-  variableName: (text: string, index: number, name: string) =>
-    put(text, [...FIELD_PATHS.env, index, 'name'], name),
-  /** A variable's value: always text, whatever it looks like. */
-  variableValue: (text: string, index: number, value: string) =>
-    value === ''
-      ? remove(text, [...FIELD_PATHS.env, index, 'value'], C.length + 2)
-      : set(text, [...FIELD_PATHS.env, index, 'value'], value),
-  removeVariable: (text: string, index: number) =>
-    remove(text, [...FIELD_PATHS.env, index], C.length),
-  /** A request or a limit, or none: what's left empty above it goes too. */
-  resource: (text: string, which: keyof Resources, typed: string) =>
-    typed === ''
-      ? remove(text, RESOURCE_PATHS[which], C.length)
-      : set(text, RESOURCE_PATHS[which], typed),
+/** The name a StatefulSet's claim and its mount go by. */
+const CLAIM_NAME = 'data'
+
+/** A kind's edits of the text: each field's, as `yaml-edit` makes them. */
+export function writer(form: FormKind) {
+  const { paths, container } = form
+  const depth = container.length
+  const amounts = resourcePaths(form)
+  const storage = storagePaths(form)
+  /** A field's one value, set; or its key left with nothing. */
+  const value = (field: FieldId) => (text: string, typed: string) => put(text, paths[field]!, typed)
+  /** A whole number, written as one. */
+  const amount = (field: FieldId) => (text: string, typed: string) =>
+    put(text, paths[field]!, numbered(typed))
+  return {
+    /** The name, and with it whatever was the same as the name before. */
+    name(text: string, object: Json, name: string): Edited {
+      const old = dig(object, paths.name!)
+      const follows = form.follows.filter((path) => {
+        const was = dig(object, path)
+        return was === undefined || was === null || was === old
+      })
+      return [paths.name!, ...follows].reduce<Edited>((next, path) => put(next, path, name), text)
+    },
+    namespace: value('namespace'),
+    replicas: amount('replicas'),
+    serviceName: value('serviceName'),
+    backoffLimit: amount('backoffLimit'),
+    schedule: value('schedule'),
+    concurrencyPolicy: value('concurrencyPolicy'),
+    restartPolicy: value('restartPolicy'),
+    image: value('image'),
+    /** What `sh -c` runs; or no command, for the image's own. */
+    command: (text: string, typed: string) =>
+      typed === ''
+        ? remove(text, paths.command!, depth)
+        : set(text, paths.command!, ['sh', '-c', typed]),
+    /** The port, or none: its list goes with the last of what it held. */
+    port: (text: string, typed: string) =>
+      typed === '' ? remove(text, paths.port!, depth) : set(text, paths.port!, numbered(typed)),
+    /** One more variable, by its name: its value is said when one is typed. */
+    addVariable: (text: string, object: Json, name: string) => {
+      const at = ((dig(object, paths.env!) ?? []) as unknown[]).length
+      return set(text, [...paths.env!, at], { name })
+    },
+    variableName: (text: string, index: number, name: string) =>
+      put(text, [...paths.env!, index, 'name'], name),
+    /** A variable's value: always text, whatever it looks like. */
+    variableValue: (text: string, index: number, typed: string) =>
+      typed === ''
+        ? remove(text, [...paths.env!, index, 'value'], depth + 2)
+        : set(text, [...paths.env!, index, 'value'], typed),
+    removeVariable: (text: string, index: number) => remove(text, [...paths.env!, index], depth),
+    /** A request or a limit, or none: what's left empty above it goes too. */
+    resource: (text: string, which: keyof Resources, typed: string) =>
+      typed === '' ? remove(text, amounts[which], depth) : set(text, amounts[which], typed),
+    /** A claim for each pod, mounted in the container: made whole, with a size to start from. */
+    addStorage: (text: string): Edited => {
+      const claimed = set(text, CLAIM, {
+        metadata: { name: CLAIM_NAME },
+        spec: {
+          accessModes: ['ReadWriteOnce'],
+          resources: { requests: { storage: '1Gi' } },
+        },
+      })
+      return set(claimed, [...container, 'volumeMounts', 0], {
+        name: CLAIM_NAME,
+        mountPath: '/data',
+      })
+    },
+    /** No claim: it goes, and its mount with it. */
+    removeStorage: (text: string): Edited =>
+      remove(remove(text, [...container, 'volumeMounts', 0], depth), CLAIM, 1),
+    /** The claim's size, its class (none, for the cluster's default), or where it's mounted. */
+    storage: (text: string, which: keyof Storage, typed: string) =>
+      which === 'storageClass'
+        ? typed === ''
+          ? remove(text, storage.storageClass, CLAIM.length + 1)
+          : // (Among a claim's own keys: its class comes before how much it asks for.)
+            set(text, storage.storageClass, typed, ['accessModes', 'storageClassName', 'resources'])
+        : put(text, storage[which], typed),
+  }
 }
 
 // ——— What's wrong with a field, as it's typed ———
@@ -509,24 +793,52 @@ export interface Problem {
   path?: Path
 }
 
-/** What must be said before it can be created, and isn't yet: "Name", "Image". */
-export function missing(values: WorkloadValues): string[] {
-  return [
-    ...(values.name === '' ? ['Name'] : []),
-    ...(values.namespace === '' ? ['Namespace'] : []),
-    ...(values.image === '' ? ['Image'] : []),
-  ]
+/** What a field is called, where it's said to be empty. */
+const LABELS: Partial<Record<FieldId, string>> = {
+  name: 'Name',
+  namespace: 'Namespace',
+  serviceName: 'Service',
+  schedule: 'Schedule',
+  image: 'Image',
 }
 
+/** What must be said before it can be created, and isn't yet: "Name", "Image". */
+export function missing(values: WorkloadValues, form: FormKind): string[] {
+  return (['name', 'namespace', 'serviceName', 'schedule', 'image'] as const)
+    .filter((field) => form.fields.includes(field) && values[field] === '')
+    .map((field) => LABELS[field]!)
+}
+
+/** What a failed pod's job does next, by what `restartPolicy` says. */
+export const RESTART_POLICIES = {
+  Never: 'Start a new pod',
+  OnFailure: 'Restart it in the same pod',
+} as const
+
+/** What happens when a run is due and the last is still going, by `concurrencyPolicy`. */
+export const CONCURRENCY_POLICIES = {
+  Allow: 'Start this one too',
+  Forbid: 'Skip this one',
+  Replace: 'Stop the last run, and start this one',
+} as const
+
 /** What's wrong with what's typed, field by field: what the cluster would refuse, said sooner. */
-export function problems(values: WorkloadValues): Problem[] {
+export function problems(values: WorkloadValues, form: FormKind): Problem[] {
   const found: Problem[] = []
+  const has = (field: FieldId) => form.fields.includes(field)
+  const whole = (field: 'replicas' | 'backoffLimit') => {
+    if (has(field) && values[field] !== '' && !/^\d{1,9}$/.test(values[field])) {
+      found.push({ field, message: 'A whole number, 0 or more.' })
+    }
+  }
   if (values.name !== '' && (!DNS_LABEL.test(values.name) || values.name.length > 63)) {
+    const also =
+      form.follows.length > 1 ? 'the container and the app label take' : 'the container takes'
     found.push({
       field: 'name',
       message:
         values.name.length > 63 && DNS_LABEL.test(values.name)
-          ? 'At most 63 characters: the container and the app label take the same name.'
+          ? `At most 63 characters: ${also} the same name.`
           : 'Lowercase letters, digits and “-”, starting and ending with a letter or digit. The container takes the same name.',
     })
   }
@@ -536,21 +848,72 @@ export function problems(values: WorkloadValues): Problem[] {
       message: 'A namespace’s name: lowercase letters, digits and “-”.',
     })
   }
-  if (values.replicas !== '' && !/^\d{1,9}$/.test(values.replicas)) {
-    found.push({ field: 'replicas', message: 'A whole number, 0 or more.' })
+  whole('replicas')
+  if (has('serviceName') && values.serviceName !== '' && !DNS_LABEL.test(values.serviceName)) {
+    found.push({
+      field: 'serviceName',
+      message: 'A Service’s name: lowercase letters, digits and “-”.',
+    })
+  }
+  whole('backoffLimit')
+  if (has('schedule') && values.schedule !== '') {
+    const read = scheduleWords(values.schedule)
+    if (!read.ok) found.push({ field: 'schedule', message: read.why })
+  }
+  if (
+    has('concurrencyPolicy') &&
+    values.concurrencyPolicy !== '' &&
+    !(values.concurrencyPolicy in CONCURRENCY_POLICIES)
+  ) {
+    found.push({
+      field: 'concurrencyPolicy',
+      message: `${values.concurrencyPolicy} isn’t one of Allow, Forbid and Replace.`,
+    })
+  }
+  if (
+    has('restartPolicy') &&
+    values.restartPolicy !== '' &&
+    !(values.restartPolicy in RESTART_POLICIES)
+  ) {
+    found.push({
+      field: 'restartPolicy',
+      message: `A ${form.kind}’s pods restart Never or OnFailure, not ${values.restartPolicy}.`,
+    })
   }
   if (/\s/.test(values.image)) {
     found.push({ field: 'image', message: 'An image’s name has no spaces in it.' })
   }
   if (
+    has('port') &&
     values.port !== '' &&
     !(/^\d{1,5}$/.test(values.port) && +values.port >= 1 && +values.port <= 65535)
   ) {
     found.push({ field: 'port', message: 'A port is a number from 1 to 65535.' })
   }
+  if (has('storage')) {
+    const storage = storagePaths(form)
+    const { size, mountPath } = values.storage
+    if (
+      size !== '' &&
+      !(QUANTITY.test(size) && !size.startsWith('-') && !/^[0.]+\D*$/.test(size))
+    ) {
+      found.push({
+        field: 'storage',
+        path: storage.size,
+        message: 'The size isn’t an amount of storage Kubernetes reads: like 20Gi.',
+      })
+    }
+    if (mountPath !== '' && !mountPath.startsWith('/')) {
+      found.push({
+        field: 'storage',
+        path: storage.mountPath,
+        message: 'Where it’s mounted is a path in the container, from /: like /data.',
+      })
+    }
+  }
   const names = values.env.map((variable) => variable.name)
   values.env.forEach((variable, index) => {
-    const path = [...FIELD_PATHS.env, index]
+    const path = [...form.paths.env!, index]
     if (variable.name === '') {
       found.push({ field: 'env', path, message: 'A variable needs a name.' })
     } else if (!ENV_NAME.test(variable.name)) {
@@ -567,19 +930,22 @@ export function problems(values: WorkloadValues): Problem[] {
       })
     }
   })
-  for (const [which, label] of [
-    ['cpuRequest', 'CPU request'],
-    ['memoryRequest', 'memory request'],
-    ['cpuLimit', 'CPU limit'],
-    ['memoryLimit', 'memory limit'],
-  ] as const) {
-    const typed = values.resources[which]
-    if (typed !== '' && !QUANTITY.test(typed)) {
-      found.push({
-        field: 'resources',
-        path: RESOURCE_PATHS[which],
-        message: `The ${label} isn’t an amount Kubernetes reads: like ${which.startsWith('cpu') ? '250m or 0.5' : '128Mi or 1Gi'}.`,
-      })
+  if (has('resources')) {
+    const amounts = resourcePaths(form)
+    for (const [which, label] of [
+      ['cpuRequest', 'CPU request'],
+      ['memoryRequest', 'memory request'],
+      ['cpuLimit', 'CPU limit'],
+      ['memoryLimit', 'memory limit'],
+    ] as const) {
+      const typed = values.resources[which]
+      if (typed !== '' && !QUANTITY.test(typed)) {
+        found.push({
+          field: 'resources',
+          path: amounts[which],
+          message: `The ${label} isn’t an amount Kubernetes reads: like ${which.startsWith('cpu') ? '250m or 0.5' : '128Mi or 1Gi'}.`,
+        })
+      }
     }
   }
   return found
@@ -607,15 +973,21 @@ const startsWith = (path: Path, start: Path) =>
  * what's wrong (`…resources.requests`, for the memory request), so a cause is a field's if
  * either path starts the other. One that names no field of the form's is nobody's.
  */
-export function refusals(causes: KubeErrorCause[] | undefined): (Problem & { path: Path })[] {
+export function refusals(
+  causes: KubeErrorCause[] | undefined,
+  form: FormKind,
+): (Problem & { path: Path })[] {
   const found: (Problem & { path: Path })[] = []
+  // The longest path first: a container's image before the container.
+  const fields = form.fields
+    .filter((field) => form.paths[field])
+    .sort((a, b) => form.paths[b]!.length - form.paths[a]!.length)
   for (const cause of causes ?? []) {
     if (!cause.field) continue
     const path = pathOf(cause.field)
-    const field = (Object.keys(FIELD_PATHS) as FieldId[])
-      // The longest path first: a container's image before the container.
-      .sort((a, b) => FIELD_PATHS[b].length - FIELD_PATHS[a].length)
-      .find((id) => startsWith(path, FIELD_PATHS[id]) || startsWith(FIELD_PATHS[id], path))
+    const field = fields.find(
+      (id) => startsWith(path, form.paths[id]!) || startsWith(form.paths[id]!, path),
+    )
     if (field) found.push({ field, path, message: `The cluster refused it: ${cause.message}` })
   }
   return found
