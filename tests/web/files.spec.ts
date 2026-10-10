@@ -217,6 +217,37 @@ test('a file with no ending to its name, that takes a while to come, is the brow
     .toMatchObject([{ outcome: 'success', details: { bytes: core.length, files: 1 } }])
 })
 
+test('a file that nothing comes of for a while, then all at once, is the browser’s whole', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  // tar has found the file, so the browser is sent to fetch it, and then reads none of it
+  // for two seconds (a slow volume): the browser has headers and no byte, and must wait.
+  const dump = Buffer.alloc(64 * 1024, 9)
+  clusters.demo.files.craft('/var/crash/dump', {
+    entries: [{ name: './dump', content: dump }],
+    stalls: 2000,
+  })
+  const served = await serve()
+  await signIn(page, podPage(served), DEMO_TOKEN)
+  await action(page, 'Download files…')
+  await dialog(page).getByLabel('File or folder in the container').fill('/var/crash/dump')
+  const saved = page.waitForEvent('download')
+  const began = Date.now()
+  await dialog(page).getByRole('button', { name: 'Download' }).click()
+  await expect(dialog(page).getByRole('status')).toContainText('Downloaded /var/crash/dump from', {
+    timeout: 30_000,
+  })
+  expect(Date.now() - began).toBeGreaterThan(1900)
+  const download = await saved
+  expect(await download.failure()).toBeNull()
+  expect(readFileSync((await download.path())!).equals(dump)).toBe(true)
+  await expect
+    .poll(() => ended(served, 'files.download'))
+    .toMatchObject([{ outcome: 'success', details: { bytes: dump.length, files: 1 } }])
+})
+
 test('a path is only ever a path, whatever it looks like', async ({ page, serve, clusters }) => {
   const served = await serve()
   await signIn(page, podPage(served), DEMO_TOKEN)
