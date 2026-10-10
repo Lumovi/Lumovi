@@ -2,7 +2,9 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowDown,
   Clock,
+  Copy,
   Download,
+  Ellipsis,
   History,
   Play,
   ScrollText,
@@ -12,6 +14,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
 import { CopyButton } from '@renderer/components/CopyButton'
+import { Sheet } from '@renderer/components/Sheet'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -24,6 +27,7 @@ import {
 import { useList } from '@renderer/hooks/queries'
 import { api, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { useLayout } from '@renderer/lib/layout'
 import { shortNames, type Level, type LogLine, type Segment } from '@renderer/lib/logs'
 import { toast } from '@renderer/state/toasts'
 import type { PodQuery } from '../details/PodsTab'
@@ -138,7 +142,7 @@ function Toggle({
         aria-label={label}
         aria-pressed={pressed}
         onClick={() => onChange(!pressed)}
-        className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:bg-accent-soft aria-pressed:text-accent-strong [&_svg]:size-4"
+        className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:bg-accent-soft aria-pressed:text-accent-strong phone:size-11 phone:rounded-lg [&_svg]:size-4"
       >
         {children}
       </button>
@@ -213,8 +217,13 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
   const [range, setRange] = useState('500')
   const [previous, setPrevious] = useState(false)
   const [follow, setFollow] = useState(true)
-  const [wrap, setWrap] = useState(false)
-  const [timestamps, setTimestamps] = useState(true)
+  // On a phone lines always wrap (nothing scrolls sideways there), and the time each was
+  // written, a third of a line's width, starts off.
+  const phone = useLayout() === 'phone'
+  const [wraps, setWrap] = useState(false)
+  const wrap = wraps || phone
+  const [timestamps, setTimestamps] = useState(!phone)
+  const [more, setMore] = useState(false)
   const [search, setSearch] = useState('')
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const [levels, setLevels] = useState<ReadonlySet<Level>>(new Set())
@@ -361,7 +370,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
                   data-level={line.level}
                   style={{ transform: `translateY(${item.start}px)` }}
                   className={cn(
-                    'absolute top-0 left-0 flex min-w-full gap-3 px-5',
+                    'absolute top-0 left-0 flex min-w-full gap-3 px-5 phone:w-full phone:px-4',
                     !wrap && 'w-max',
                     LEVEL_CLASS[line.level],
                   )}
@@ -387,7 +396,14 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
                     </span>
                   )}
                   <span
-                    className={wrap ? 'min-w-0 break-all whitespace-pre-wrap' : 'whitespace-pre'}
+                    className={
+                      phone
+                        ? // What runs over hangs under its line, so one long line doesn't read as two.
+                          'min-w-0 wrap-hanging'
+                        : wrap
+                          ? 'min-w-0 break-all whitespace-pre-wrap'
+                          : 'whitespace-pre'
+                    }
                   >
                     <Message line={line} needle={needle} />
                   </span>
@@ -408,7 +424,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
               scrollRef.current!.scrollTop = scrollRef.current!.scrollHeight
               setAtEnd(true)
             }}
-            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 animate-pop-in items-center gap-1.5 rounded-full bg-ink-1 px-3 py-1.5 text-xs font-medium text-surface shadow-pop"
+            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 animate-pop-in items-center gap-1.5 rounded-full bg-ink-1 px-3 py-1.5 text-xs font-medium text-surface shadow-pop touch:finger"
           >
             <ArrowDown className="size-3.5" /> Jump to latest
           </button>
@@ -425,84 +441,182 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-2 text-xs text-ink-2">
-        <select
-          aria-label="Container"
-          value={container}
-          onChange={(event) => setContainer(event.target.value)}
-          className="h-7 max-w-40 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
-        >
-          {names.length > 1 && <option value={ALL}>All containers</option>}
-          {names.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Show"
-          value={range}
-          onChange={(event) => setRange(event.target.value)}
-          className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
-        >
-          {RANGES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-        <label className="flex h-7 min-w-24 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 focus-within:border-accent">
-          <Search className="size-3.5 shrink-0 text-ink-3" />
-          <input
-            aria-label="Search logs"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                // Clear the search instead of closing the panel.
-                event.stopPropagation()
-                setSearch('')
-              }
-            }}
-            placeholder="Search"
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent text-xs text-ink-1 outline-none placeholder:text-ink-3"
-          />
-          {needle && (
-            <span className="shrink-0 text-ink-3 tabular-nums">
-              {shown.length}/{visible.length}
-            </span>
+      {phone ? (
+        // On a phone: which container and how far back, then the search and what's toggled most.
+        <div className="flex shrink-0 flex-col gap-2 border-b border-line px-4 py-2">
+          <div className="flex gap-2">
+            <select
+              aria-label="Container"
+              value={container}
+              onChange={(event) => setContainer(event.target.value)}
+              className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-ink-1"
+            >
+              {names.length > 1 && <option value={ALL}>All containers</option>}
+              {names.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Show"
+              value={range}
+              onChange={(event) => setRange(event.target.value)}
+              className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-ink-1"
+            >
+              {RANGES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1">
+            <label className="mr-1 flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 focus-within:border-accent">
+              <Search className="size-4 shrink-0 text-ink-3" />
+              <input
+                aria-label="Search logs"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
+                spellCheck={false}
+                autoCapitalize="none"
+                autoCorrect="off"
+                className="min-w-0 flex-1 bg-transparent text-ink-1 outline-none placeholder:text-ink-3"
+              />
+              {needle && (
+                <span className="shrink-0 text-xs text-ink-3 tabular-nums">
+                  {shown.length}/{visible.length}
+                </span>
+              )}
+            </label>
+            <Toggle label="Follow" pressed={follow} onChange={setFollow}>
+              <Play />
+            </Toggle>
+            <Toggle label="Timestamps" pressed={timestamps} onChange={setTimestamps}>
+              <Clock />
+            </Toggle>
+            <button
+              type="button"
+              aria-label="More"
+              onClick={() => setMore(true)}
+              className="grid size-11 shrink-0 place-items-center rounded-lg text-ink-3 [&_svg]:size-4"
+            >
+              <Ellipsis />
+            </button>
+          </div>
+          {more && (
+            <Sheet title="Logs" onClose={() => setMore(false)}>
+              <ul className="px-2 pb-3">
+                {(
+                  [
+                    [
+                      previous ? 'Show the running container' : 'Show the previous container',
+                      History,
+                      () => setPrevious(!previous),
+                    ],
+                    ['Copy logs', Copy, () => void navigator.clipboard.writeText(text())],
+                    ['Download', Download, () => void download()],
+                  ] as const
+                ).map(([label, Icon, act]) => (
+                  <li key={label}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        act()
+                        setMore(false)
+                      }}
+                      className="flex h-11 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-ink-1 outline-offset-[-2px] active:bg-surface-3"
+                    >
+                      <Icon className="size-4 text-ink-3" />
+                      {label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Sheet>
           )}
-        </label>
-        <Toggle label="Follow" pressed={follow} onChange={setFollow}>
-          <Play />
-        </Toggle>
-        <Toggle label="Previous container" pressed={previous} onChange={setPrevious}>
-          <History />
-        </Toggle>
-        <Toggle label="Timestamps" pressed={timestamps} onChange={setTimestamps}>
-          <Clock />
-        </Toggle>
-        <Toggle label="Wrap lines" pressed={wrap} onChange={setWrap}>
-          <WrapText />
-        </Toggle>
-        <CopyButton text={text} label="Copy logs" />
-        <Tooltip content="Download">
-          <button
-            type="button"
-            aria-label="Download"
-            onClick={() => void download()}
-            className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 [&_svg]:size-4"
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-2 text-xs text-ink-2">
+          <select
+            aria-label="Container"
+            value={container}
+            onChange={(event) => setContainer(event.target.value)}
+            className="h-7 max-w-40 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
           >
-            <Download />
-          </button>
-        </Tooltip>
-      </div>
+            {names.length > 1 && <option value={ALL}>All containers</option>}
+            {names.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Show"
+            value={range}
+            onChange={(event) => setRange(event.target.value)}
+            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
+          >
+            {RANGES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <label className="flex h-7 min-w-24 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 focus-within:border-accent">
+            <Search className="size-3.5 shrink-0 text-ink-3" />
+            <input
+              aria-label="Search logs"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  // Clear the search instead of closing the panel.
+                  event.stopPropagation()
+                  setSearch('')
+                }
+              }}
+              placeholder="Search"
+              spellCheck={false}
+              className="min-w-0 flex-1 bg-transparent text-xs text-ink-1 outline-none placeholder:text-ink-3"
+            />
+            {needle && (
+              <span className="shrink-0 text-ink-3 tabular-nums">
+                {shown.length}/{visible.length}
+              </span>
+            )}
+          </label>
+          <Toggle label="Follow" pressed={follow} onChange={setFollow}>
+            <Play />
+          </Toggle>
+          <Toggle label="Previous container" pressed={previous} onChange={setPrevious}>
+            <History />
+          </Toggle>
+          <Toggle label="Timestamps" pressed={timestamps} onChange={setTimestamps}>
+            <Clock />
+          </Toggle>
+          <Toggle label="Wrap lines" pressed={wraps} onChange={setWrap}>
+            <WrapText />
+          </Toggle>
+          <CopyButton text={text} label="Copy logs" />
+          <Tooltip content="Download">
+            <button
+              type="button"
+              aria-label="Download"
+              onClick={() => void download()}
+              className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 [&_svg]:size-4"
+            >
+              <Download />
+            </button>
+          </Tooltip>
+        </div>
+      )}
       {(multiple || levelCounts.size > 1) && (
         <div
           role="group"
           aria-label="Show lines from"
-          className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-5 py-1.5"
+          className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-5 py-1.5 phone:flex-wrap phone:gap-2 phone:overflow-visible phone:px-4 phone:py-2"
         >
           {(['error', 'warn'] as const)
             .filter((level) => levelCounts.has(level))
