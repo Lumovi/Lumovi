@@ -13,7 +13,15 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { Fragment, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import type { KubeObject, LumoviApi } from '@shared/api'
 import type {
   ChangeProposal,
@@ -32,6 +40,7 @@ import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { pluralize } from '@renderer/lib/format'
+import { PHONE_MEDIA, useLayout, type Layout } from '@renderer/lib/layout'
 import { toYaml } from '@renderer/lib/yaml'
 import { useActivity } from '@renderer/state/activity'
 import { toast } from '@renderer/state/toasts'
@@ -47,6 +56,9 @@ const ICONS: Record<ProposalAction, LucideIcon> = {
   delete: Trash2,
 }
 
+/** Whether the page is a phone's now: there a request arrives as the pill, to be opened. */
+const onAPhone = () => window.matchMedia(PHONE_MEDIA).matches
+
 /**
  * The changes AI assistants ask for, each shown with the diff it makes, for
  * the person to approve or reject (with a note the assistant is told). Put
@@ -60,7 +72,7 @@ export function ApprovalCenter({ approvals }: { approvals: ApprovalsApi }) {
   useEffect(
     () =>
       approvals.onProposal((proposal) => {
-        add(proposal)
+        add(proposal, onAPhone())
         notify(proposal)
       }),
     [approvals, add],
@@ -74,7 +86,10 @@ export function ApprovalCenter({ approvals }: { approvals: ApprovalsApi }) {
     [approvals, remove, queryClient],
   )
   useEffect(
-    () => void approvals.pending().then((waiting) => waiting.forEach(add)),
+    () =>
+      void approvals
+        .pending()
+        .then((waiting) => waiting.forEach((proposal) => add(proposal, onAPhone()))),
     [approvals, add],
   )
 
@@ -196,6 +211,9 @@ function ApprovalDialog({
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
   const diff = unifiedDiff(forDiff(proposal.before), forDiff(proposal.after))
   const at = queue.indexOf(proposal)
+  const layout = useLayout()
+  // (This dialog is made anew for each request, so the moment starts with each.)
+  const live = useLiveAfter(APPROVE_MOMENT_ON.includes(layout) ? APPROVE_MOMENT_MS : 0)
 
   const approve = () => decide({ approved: true })
   const reject = () => decide({ approved: false, ...(note.trim() ? { note: note.trim() } : {}) })
@@ -205,7 +223,7 @@ function ApprovalDialog({
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       if (rejecting) reject()
-      else if (confirmed) approve()
+      else if (confirmed && live) approve()
     }
   }
 
@@ -235,7 +253,11 @@ function ApprovalDialog({
           )}
         >
           <SheetGrabber onClose={hide} className="hidden phone:block" />
-          <header className={cn('flex items-start gap-3 px-5 pt-5 pb-1', sheetHeader)}>
+          {/* On a phone the queue's arrows have a row of their own under the title, which
+              keeps the sheet's width. */}
+          <header
+            className={cn('flex items-start gap-3 px-5 pt-5 pb-1 phone:flex-wrap', sheetHeader)}
+          >
             <div
               className={cn(
                 'grid size-9 shrink-0 place-items-center rounded-xl',
@@ -248,8 +270,15 @@ function ApprovalDialog({
               <p className="flex items-center gap-1 text-xs font-medium text-accent-strong">
                 <Sparkles className="size-3" /> {client} asks
               </p>
-              <Dialog.Title className="mt-0.5 truncate text-[15px] leading-snug font-semibold text-ink-1">
-                {proposal.title}
+              <Dialog.Title
+                title={proposal.title}
+                className="mt-0.5 truncate text-[15px] leading-snug font-semibold text-ink-1 phone:[overflow-wrap:anywhere] phone:whitespace-normal"
+              >
+                {layout === 'phone' ? (
+                  <WithinLines text={proposal.title} name={target.name} />
+                ) : (
+                  proposal.title
+                )}
               </Dialog.Title>
               {/* On a phone the cluster and its Production mark are never cut short: they wrap. */}
               <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
@@ -266,7 +295,7 @@ function ApprovalDialog({
               </p>
             </div>
             {queue.length > 1 && (
-              <div className="flex shrink-0 items-center text-xs text-ink-3 tabular-nums">
+              <div className="flex shrink-0 items-center text-xs text-ink-3 tabular-nums phone:order-last phone:-mt-2 phone:basis-full phone:pl-9">
                 <NavButton
                   label="Previous change"
                   disabled={at === 0}
@@ -434,8 +463,8 @@ function ApprovalDialog({
                 <Button
                   variant={danger ? 'danger' : 'primary'}
                   onClick={approve}
-                  disabled={!confirmed}
-                  className="min-w-20"
+                  disabled={!confirmed || !live}
+                  className="min-w-20 transition-opacity duration-150 motion-reduce:transition-none"
                 >
                   {danger ? 'Approve deletion' : 'Approve'} <Keys />
                 </Button>
@@ -445,6 +474,77 @@ function ApprovalDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  )
+}
+
+/**
+ * How long Approve can't be pressed after a request's sheet opens, or changes to the next one
+ * in the queue: a tap meant for what was there a moment ago (the pill, the request before)
+ * answers nothing. A tap in that time is dropped, not kept for after.
+ */
+const APPROVE_MOMENT_MS = 600
+/** Where the moment applies: add 'tablet' and 'wide' for it everywhere. */
+const APPROVE_MOMENT_ON: Layout[] = ['phone']
+
+/** Whether `after` ms have passed since this was first asked. */
+function useLiveAfter(after: number): boolean {
+  const [live, setLive] = useState(after === 0)
+  useEffect(() => {
+    if (after === 0) return
+    const timer = setTimeout(() => setLive(true), after)
+    return () => clearTimeout(timer)
+  }, [after])
+  return live
+}
+
+/** How many lines a phone's title takes at most, and how much of a name's end is kept. */
+const TITLE_LINES = 3
+const NAME_END = 6
+
+/**
+ * A request's title on a phone: wrapped, whole, in up to three lines. Where it would take
+ * more, it's the object's name that's shortened, in its middle (the whole name is in the body):
+ * what's asked, and the number in it, are never cut.
+ */
+function WithinLines({ text, name }: { text: string; name?: string }) {
+  const element = useRef<HTMLSpanElement>(null)
+  // (Its text is written here, not by React: it's measured as it's tried.)
+  useLayoutEffect(() => {
+    const span = element.current!
+    const fit = () => {
+      const most = parseFloat(getComputedStyle(span).lineHeight) * TITLE_LINES + 1
+      const fits = (candidate: string) => {
+        span.textContent = candidate
+        return span.offsetHeight <= most
+      }
+      let fitted = text
+      if (!fits(text) && name && text.includes(name) && name.length > NAME_END + 2) {
+        const cut = (kept: number) =>
+          text.replace(name, `${name.slice(0, kept)}…${name.slice(-NAME_END)}`)
+        // The most of the name's start that still fits.
+        let low = 1
+        let high = name.length - NAME_END - 1
+        while (low < high) {
+          const middle = Math.ceil((low + high) / 2)
+          if (fits(cut(middle))) low = middle
+          else high = middle - 1
+        }
+        fitted = cut(low)
+      }
+      span.textContent = fitted
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(span.parentElement!)
+    void document.fonts.ready.then(fit)
+    return () => observer.disconnect()
+  }, [text, name])
+  return (
+    <>
+      {/* All of it, for a screen reader and the dialog's name. */}
+      <span className="sr-only">{text}</span>
+      <span ref={element} aria-hidden className="block" />
+    </>
   )
 }
 

@@ -20,12 +20,15 @@ export function LargerScreenNote({ to }: { to: string }) {
 export function OnALargerScreen({
   title,
   to,
+  says,
   children,
 }: {
   /** What the page is. */
   title: string
   /** What's done there, after "Open Lumovi on a larger screen to". */
-  to: string
+  to?: string
+  /** Or all of what it says, where that sentence doesn't fit. */
+  says?: string
   children: ReactNode
 }) {
   if (useLayout() !== 'phone') return children
@@ -36,8 +39,8 @@ export function OnALargerScreen({
       </div>
       <h1 className="text-[15px] font-semibold text-ink-1">{title}</h1>
       <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
-        Open Lumovi on a larger screen to {to}. A phone reads, and does a few things: it answers an
-        assistant’s change, restarts and scales workloads, and cordons nodes.
+        {says ??
+          `Open Lumovi on a larger screen to ${to}. A phone reads, and does a few things: it answers an assistant’s change, restarts and scales workloads, and cordons nodes.`}
       </p>
       <Link
         to="/"

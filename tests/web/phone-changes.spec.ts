@@ -210,6 +210,12 @@ test('every call the page can make is known, and a phone makes only the few it m
   }
   for (const [what, request] of [
     ['a delete', { ...deployment, change: { action: 'delete' } }],
+    // A pod's delete is a restart only as Restart sends it: nothing rides along.
+    ['a pod deleted at once', { ...pod, change: { action: 'delete', gracePeriodSeconds: 0 } }],
+    [
+      'a pod deleted, and what it owns left',
+      { ...pod, change: { action: 'delete', propagation: 'Orphan' } },
+    ],
     [
       'an image changed',
       { ...deployment, change: patch({ template: { spec: { containers: [] } } }) },
@@ -275,7 +281,11 @@ test('nor by a key, the palette or an address', async ({ page, serve }) => {
   ]) {
     await page.goto(`${served.url}${address}`)
     await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible()
-    await expect(page.getByRole('main')).toContainText('Open Lumovi on a larger screen to')
+    await expect(page.getByRole('main')).toContainText(
+      title === 'AI assistants'
+        ? 'Set up an assistant in Lumovi on a larger screen. When one asks to connect, you can answer it here.'
+        : 'Open Lumovi on a larger screen to',
+    )
     await expect(page.getByRole('button')).toHaveCount(0)
     await expect(page.getByRole('link')).toHaveText(['Back to the cluster'])
   }

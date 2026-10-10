@@ -4,9 +4,13 @@
  * cordons and uncordons a node. Everything else that changes a cluster, or Lumovi's own
  * settings, waits for a larger screen.
  *
- * That's decided here, once, where every call the page makes of its server goes out (the
- * connection asks `refusedOnAPhone` before it sends one): a call is let through only if it's
- * listed as reading, or as one of the changes a phone makes. One that isn't listed at all is
+ * That's decided here, once, where the page asks its server for something and waits for the
+ * answer (the connection's `invoke` asks `refusedOnAPhone` before it sends one): a call is let
+ * through only if it's listed as reading, or as one of the changes a phone makes. Every change
+ * to a cluster or to Lumovi's settings is such a call. What doesn't pass here changes nothing by
+ * itself: the connection's one-way sends (what's typed into a shell already open, its size: a
+ * phone opens none) and the page's own requests of the server (signing in, answering an
+ * assistant that asks to connect, a file's bytes for a copy this gate refused to start). One that isn't listed at all is
  * taken for a change, so whatever is added to Lumovi later is closed on a phone until someone
  * lists it here on purpose. What the page shows follows the same list (`ON_A_PHONE`, for an
  * object's actions): but it's this that holds, whatever a page shows, by a key, the palette or
@@ -95,13 +99,16 @@ const only = (value: unknown, ...keys: string[]): value is Record<string, unknow
 export function phoneMakes(request: unknown): boolean {
   const { kind, change } = (request ?? {}) as Partial<ChangeRequest>
   if (!change) return false
-  // A pod restarted: deleted, for its controller to make another.
+  // A pod restarted: deleted, for its controller to make another, and with nothing else said
+  // (no grace period of its own, no propagation): exactly what Restart sends.
   // (Restart is offered only for a pod that has a controller; the gate sees the request, not
   // the pod, so a bare pod's delete would pass here too. The page never sends one from a phone.)
-  if (change.action === 'delete') return kind === 'Pod'
+  if (change.action === 'delete') return kind === 'Pod' && only(change, 'action')
   if (change.action !== 'patch' || !only(change.patch, 'spec')) return false
   const { spec } = change.patch
-  // Scaled: its replicas, through the scale subresource or its own spec.
+  // Scaled: its replicas, through the scale subresource or its own spec. Any kind that has
+  // them, and any number: which kinds scale, and how far, is the cluster's to say. (Nothing
+  // else of the request is looked at: which object, where, or whether it's only tried.)
   if (only(spec, 'replicas')) return typeof spec.replicas === 'number'
   if (change.subresource !== undefined) return false
   // A node cordoned (true) or uncordoned (null).

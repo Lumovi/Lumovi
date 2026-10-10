@@ -14,8 +14,11 @@ All notable changes to Lumovi are documented here. The format follows
   its status; then its kind's first facts and its age), sorted and filtered from sheets; a detail
   is a page of its own with Back, its facts stacked and its tables as cards; logs wrap, with what
   runs over set in; and every menu, picker and dialog is a sheet from the bottom, an assistant's
-  change to approve among them, with Reject and Approve at its two edges. Dragging that sheet
-  down or tapping outside it puts the change aside: it isn't an answer. On a phone an object
+  change to approve among them, with Reject and Approve at its two edges. Such a change arrives
+  as the pill that says it waits, and its sheet opens when that's tapped; for a moment after the
+  sheet opens, or moves on to the next change, Approve can't be pressed, so a tap meant for
+  something else approves nothing. Dragging that sheet down or tapping outside it puts the
+  change aside: it isn't an answer. On a phone an object
   offers Restart, Scale, Cordon and Uncordon, each behind its usual confirmation, and nothing
   else: no deleting, editing or shells there. Wherever the page is used by touch, what's pressed
   answers on at least 44 px and nothing needs a hover. Nothing scrolls sideways but a strip of
@@ -35,6 +38,12 @@ All notable changes to Lumovi are documented here. The format follows
   its actions, as a view of any kind with its own page does: its columns, status, details and
   related lists no longer show, since those kinds have pages of their own now. An add-on of
   your own that names one of them is refused, and the API resources page says which.
+
+### Changed
+
+- A note at the bottom of the window (that a change was made, say) stays while a mouse points at
+  it, and no longer while a finger's last tap happens to be where it appeared: on a touch screen
+  it now always leaves after its few seconds.
 
 ## [1.21.0] - 2026-10-10
 

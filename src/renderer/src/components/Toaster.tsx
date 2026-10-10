@@ -29,7 +29,8 @@ export function Toaster() {
 
 function ToastCard({ toast }: { toast: Toast }) {
   const dismiss = useToasts((state) => state.dismiss)
-  // A toast stays while it's pointed at or has focus (say, on its Undo button).
+  // A toast stays while it's pointed at or has focus (say, on its Undo button). Pointed at with
+  // a mouse: a finger that tapped where one then appears isn't holding it there.
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const paused = hovered || focused
@@ -46,8 +47,8 @@ function ToastCard({ toast }: { toast: Toast }) {
     <div
       role={toast.tone === 'error' ? 'alert' : 'status'}
       data-paused={paused || undefined}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onPointerEnter={(event) => setHovered(event.pointerType === 'mouse')}
+      onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
