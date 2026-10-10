@@ -373,7 +373,7 @@ function CapacityCard({
             <button
               type="button"
               onClick={() => go(`${metricsPath(context)}?metric=${resource}`)}
-              className="flex items-center gap-1 text-xs font-medium text-accent-strong hover:underline"
+              className="flex items-center gap-1 text-xs font-medium text-accent-strong hover:underline touch:finger"
             >
               History <ArrowRight className="size-3.5" />
             </button>

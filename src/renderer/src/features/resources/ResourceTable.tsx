@@ -282,7 +282,7 @@ function ResourceGrid({
                     onClick={() => onSort(column.id)}
                     // A header keeps to its line: cut short in a narrow column, its arrow kept.
                     className={cn(
-                      'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1',
+                      'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1 touch:finger',
                       isSorted ? 'text-ink-1' : 'text-ink-3',
                     )}
                     title={column.header}
