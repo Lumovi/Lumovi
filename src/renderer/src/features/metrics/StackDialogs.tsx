@@ -52,6 +52,9 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
 
 const code = 'font-mono text-xs break-all text-ink-1 selectable'
 
+/** The review shows from its top as it opens (once: the same function every render), wherever what it installs was read to. */
+const fromTheTop = (shown: HTMLElement | null) => shown?.scrollIntoView({ block: 'start' })
+
 /**
  * Installs Lumovi's metrics stack: what it is and what it will run, then a dry run on the API
  * server that shows every object it makes before anything is made.
@@ -109,7 +112,7 @@ export function InstallStackDialog({
       onSubmit={() => void (reviewed ? apply() : review())}
     >
       {reviewed ? (
-        <div className="space-y-3">
+        <div ref={fromTheTop} className="space-y-3">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
