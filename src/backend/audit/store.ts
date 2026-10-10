@@ -10,6 +10,7 @@ import {
   chmodSync,
   closeSync,
   fstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -21,6 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { open, type FileHandle } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { isAuditAction, type AuditEvent } from '@shared/audit'
@@ -179,6 +181,8 @@ export class FileStore implements AuditStore {
       .sort()
 
   append(event: AuditEvent) {
+    // Only while the history is this Lumovi's: another's would get a second event of this number.
+    this.#lock.held()
     // Never a day before the newest file's (the clock was set back): the files keep the chain's
     // order, whatever the clock says.
     const newest = this.#days.at(-1)
@@ -241,6 +245,7 @@ export class FileStore implements AuditStore {
 
   /** Deletes the days older than it keeps; never the one the chain goes on from. */
   prune(now: Date) {
+    this.#lock.held()
     const oldestKept = dayOf(
       new Date(now.getTime() - this.retentionDays * 86_400_000).toISOString(),
     )
@@ -274,14 +279,45 @@ function ownOnly(path: string, mode: number) {
  */
 const LOCK_STALE_MS = Number(process.env.LUMOVI_AUDIT_LOCK_STALE_MS) || 30_000
 const LOCK_RENEW_MS = LOCK_STALE_MS / 3
+/** How often a lock that can't be read is read again before it's taken for unreadable. */
+const READ_AGAIN = { times: 5, everyMs: 100 }
+
+/** A lock as its holder writes it: which hold it is, whose, where, and when it was last said. */
+interface Hold {
+  /** One for each time the history is opened: a process number comes around again. */
+  id?: string
+  pid: number
+  host: string
+  at: number
+}
+
+/**
+ * What's in a lock's place: a hold as written (and its text, to tell it from another); or
+ * something that isn't one, and when it was last written; or nothing.
+ */
+type Found =
+  { hold: Hold; text: string } | { unreadable: true; text: string; writtenAt: number } | undefined
 
 /**
  * The folder's one writer: two would number events the same (two pods sharing a volume, say).
  * Taken as the history opens, renewed while it's kept, and let go of as it closes.
+ *
+ * The lock is a file that is always whole: it's written beside its place and put there in one
+ * step, so nobody reads half of it. It's taken by linking it into place, which only one of any
+ * number at once can do; renewed by renaming over it; and whoever holds it looks that it's
+ * still its own before it writes anything, and stops for good if it isn't (it stopped for
+ * longer than a lock holds, and another took the history over).
+ *
+ * That makes two writers at once as unlikely as files on a shared volume can: it is not a
+ * fence. One that loses its hold between looking and writing still writes that one event.
  */
 class HistoryLock {
   readonly #path: string
+  readonly #id: string
   readonly #renew: NodeJS.Timeout
+  #renewedAt = Date.now()
+  /** Why the history isn't this one's to write any more, once it isn't. */
+  #lost: string | undefined
 
   /** Taken: at once, or once whoever holds it lets go or stops renewing it (`wait`). */
   static async take(
@@ -290,19 +326,20 @@ class HistoryLock {
     say: (message: string) => void,
   ): Promise<HistoryLock> {
     const path = join(dir, 'audit.lock')
+    const id = randomUUID()
     // Long enough for one that stopped renewing it to be stale; not for one that renews it.
     const until = Date.now() + (wait ? LOCK_STALE_MS + LOCK_RENEW_MS : 0)
     let told = false
-    while (!taken(path)) {
-      const holder = holderOf(path)
+    while (!place(path, id)) {
+      const found = await settled(path)
+      // Let go of meanwhile: taken on the next turn, if nobody is quicker.
+      if (!found) continue
+      const holder = holderOf(found)
       if (!holder) {
-        // Left by one that stopped: moved aside by one taker alone (a rename is), then taken.
-        const stale = `${path}.${process.pid}`
-        renameSync(path, stale)
-        rmSync(stale)
+        discard(path, id, found)
         continue
       }
-      const who = `Another Lumovi (process ${holder.pid} on ${holder.host})`
+      const who = `Another Lumovi (${holder})`
       if (Date.now() >= until) {
         throw new Error(
           `${who} keeps its audit history in ${dir}: two can’t, or they’d number events the same. Stop it, or give this one a folder of its own.`,
@@ -316,14 +353,16 @@ class HistoryLock {
       }
       await new Promise((done) => setTimeout(done, 500))
     }
-    return new HistoryLock(path)
+    return new HistoryLock(path, id)
   }
 
-  private constructor(path: string) {
+  private constructor(path: string, id: string) {
     this.#path = path
+    this.#id = id
     this.#renew = setInterval(() => {
       try {
-        writeFileSync(path, mine(), { mode: 0o600 })
+        this.held()
+        this.#write()
       } catch {
         // Said where it matters: as events can't be kept there.
       }
@@ -331,19 +370,77 @@ class HistoryLock {
     this.#renew.unref()
   }
 
+  /**
+   * Looks that the history is still this one's to write, and throws why if it isn't: asked
+   * before anything is written to it.
+   */
+  held() {
+    if (this.#lost) throw new Error(this.#lost)
+    let found: Found
+    try {
+      found = read(this.#path)
+    } catch {
+      // It couldn't be looked at just now (a file busy, a volume slow): that isn't another's hold.
+      return
+    }
+    if (found && 'hold' in found && found.hold.id === this.#id) {
+      // Late with renewing it (the process was held up): said again before going on.
+      if (Date.now() - this.#renewedAt > LOCK_RENEW_MS * 2) {
+        try {
+          this.#write()
+        } catch {
+          // Not this time (the file busy): it's still this one's, and said again soon.
+        }
+      }
+      return
+    }
+    clearInterval(this.#renew)
+    const taker = found && holderOf(found)
+    this.#lost = `${taker ? `Another Lumovi (${taker})` : 'Another Lumovi'} took this audit history over, as this one had stopped for longer than its hold on it lasts (${Math.round(LOCK_STALE_MS / 1000)} seconds). Two can’t keep one history: start this one again, and it waits its turn.`
+    throw new Error(this.#lost)
+  }
+
+  #write() {
+    replace(this.#path, this.#id)
+    this.#renewedAt = Date.now()
+  }
+
   release() {
     clearInterval(this.#renew)
-    rmSync(this.#path, { force: true })
+    // Only its own: one that took it over holds it now.
+    try {
+      const found = read(this.#path)
+      if (found && 'hold' in found && found.hold.id === this.#id) {
+        rmSync(this.#path, { force: true })
+      }
+    } catch {
+      // Left where it is: stale soon enough.
+    }
   }
 }
 
-/** A lock as this process holds it: who, where, and when it was last said to be. */
-const mine = () => JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now() })
+/** A lock as this process holds it. */
+const mine = (id: string) =>
+  JSON.stringify({ id, pid: process.pid, host: hostname(), at: Date.now() } satisfies Hold)
 
-/** Takes a lock nobody holds: whether it was taken (one that's there is someone's, or was). */
-function taken(path: string): boolean {
+/**
+ * Puts a file where there is none, whole: whether it did (one that's there stays). A link is
+ * made by one taker alone, of any number at once, and what it links to is already written.
+ * Where a volume has no links, the file is made there and then written: only one makes it, and
+ * a reader gives one it can't read yet the time to be written (`settled`, `holderOf`).
+ */
+function putNew(path: string, text: string, beside: string): boolean {
+  writeFileSync(beside, text, { mode: 0o600 })
   try {
-    writeFileSync(path, mine(), { flag: 'wx', mode: 0o600 })
+    linkSync(beside, path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+  } finally {
+    rmSync(beside, { force: true })
+  }
+  try {
+    writeFileSync(path, text, { flag: 'wx', mode: 0o600 })
     return true
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
@@ -351,20 +448,101 @@ function taken(path: string): boolean {
   }
 }
 
-/** Who holds a lock, if anyone still does. */
-function holderOf(path: string): { pid: number; host: string } | undefined {
-  let holder: { pid: number; host: string; at: number }
+/** Takes a lock nobody holds: whether it was taken (one that's there is someone's, or was). */
+const place = (path: string, id: string) => putNew(path, mine(id), `${path}.${id}`)
+
+/** Says a lock again, whole: what's read is the old one or the new one, never part of either. */
+function replace(path: string, id: string) {
+  const beside = `${path}.${id}`
   try {
-    holder = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return undefined
+    writeFileSync(beside, mine(id), { mode: 0o600 })
+    renameSync(beside, path)
+  } catch (error) {
+    rmSync(beside, { force: true })
+    throw error
   }
+}
+
+/** What's in a lock's place now. Throws if it's there and can't be looked at. */
+function read(path: string): Found {
+  let text: string
+  let writtenAt: number
+  try {
+    text = readFileSync(path, 'utf8')
+    writtenAt = statSync(path).mtimeMs
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+  try {
+    const hold = JSON.parse(text) as Partial<Hold> | null
+    if (
+      hold &&
+      typeof hold.pid === 'number' &&
+      typeof hold.host === 'string' &&
+      typeof hold.at === 'number'
+    ) {
+      return { hold: hold as Hold, text }
+    }
+  } catch {
+    // Not a hold: below.
+  }
+  return { unreadable: true, text, writtenAt }
+}
+
+/**
+ * What's in a lock's place, given a moment to be whole: one that can't be read (being written,
+ * on a volume without links; or not to be looked at just now) is read again a few times first.
+ */
+async function settled(path: string): Promise<Found> {
+  for (let again = READ_AGAIN.times; ; again--) {
+    try {
+      const found = read(path)
+      if (!found || 'hold' in found || again === 0) return found
+    } catch {
+      // There, and not to be read: someone's, until it has been so for as long as a lock holds.
+      if (again === 0) return { unreadable: true, text: '', writtenAt: Date.now() }
+    }
+    await new Promise((done) => setTimeout(done, READ_AGAIN.everyMs))
+  }
+}
+
+/** Who holds a lock, if anyone still does: in words, for whoever waits for it. */
+function holderOf(found: NonNullable<Found>): string | undefined {
+  if ('unreadable' in found) {
+    // Nobody's name on it: someone's all the same, until it's as old as a lock nobody renews.
+    return Date.now() - found.writtenAt < LOCK_STALE_MS ? 'its lock can’t be read yet' : undefined
+  }
+  const { hold } = found
   // On this computer: this process before it started again (a container's first process is
   // number 1, each time), or one that's gone.
-  if (holder.host === hostname() && (holder.pid === process.pid || !alive(holder.pid))) {
+  if (hold.host === hostname() && (hold.pid === process.pid || !alive(hold.pid))) {
     return undefined
   }
-  return Date.now() - holder.at < LOCK_STALE_MS ? holder : undefined
+  return Date.now() - hold.at < LOCK_STALE_MS ? `process ${hold.pid} on ${hold.host}` : undefined
+}
+
+/**
+ * Clears away a lock nobody holds any more (`judged`), for the next turn to take its place.
+ * It's moved aside first, which one taker alone does, and looked at again there: if it isn't
+ * the one that was judged (another was quicker, and this is its new hold), it's put back. If
+ * it can't be (a third has the place by now), the one whose hold it was finds out as it next
+ * looks, and stops: two never go on.
+ */
+function discard(path: string, id: string, judged: NonNullable<Found>) {
+  const aside = `${path}.${id}.stale`
+  try {
+    renameSync(path, aside)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  try {
+    const moved = readFileSync(aside, 'utf8')
+    if (moved !== judged.text) putNew(path, moved, `${aside}.back`)
+  } finally {
+    rmSync(aside, { force: true })
+  }
 }
 
 function alive(pid: number): boolean {

@@ -8,6 +8,13 @@ All notable changes to Lumovi are documented here. The format follows
 
 ### Fixed
 
+- Two Lumovi servers sharing one volume no longer both end up keeping the audit history there
+  when they start together, or when one reads the other's lock as it's renewed. The lock that
+  decides which one keeps it was written in place, so it could be read half written, taken for
+  abandoned, and the history taken over, after which both numbered events the same. The lock is
+  now always whole, only one of any number starting together takes it, one that can't be read is
+  waited for like any other, and a server that finds another has taken its history over stops
+  writing to it and says so, on its output and on the Audit page.
 - The Metrics page no longer fails on a Prometheus that keeps each node's own network series, which
   name no pod: choosing Network in or Network out could replace the page with an error. Network
   usage now counts only pods' traffic, on the page and in a node's charts, and a series that doesn't
