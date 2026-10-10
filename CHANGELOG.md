@@ -6,6 +6,12 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Help → Sponsor Lumovi… and the README's sponsor links open
+  [github.com/sponsors/Lumovi](https://github.com/sponsors/Lumovi), the organization's listing,
+  where the sidebar's card already led. They pointed at a personal page that has no listing.
+
 ## [1.19.0] - 2026-10-10
 
 A cluster without Prometheus can have its usage history all the same: Lumovi offers to install a

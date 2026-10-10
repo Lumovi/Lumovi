@@ -181,7 +181,7 @@ test('the native menu runs the same commands', async ({ lumovi, clusters }) => {
       'https://docs.lumovi.dev',
       'https://github.com/Lumovi/Lumovi',
       'https://github.com/Lumovi/Lumovi/issues/new/choose',
-      'https://github.com/sponsors/kotapeter',
+      'https://github.com/sponsors/Lumovi',
     ])
 
   await menu(app, 'clusters')
