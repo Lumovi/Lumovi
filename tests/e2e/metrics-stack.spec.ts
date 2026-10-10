@@ -322,7 +322,7 @@ test('installed and not coming up: why, as the cluster says, and the way out', a
   const stuck = page.getByRole('main').getByRole('alert')
   await expect(stuck).toContainText('The metrics stack isn’t starting', { timeout: 30_000 })
   await expect(stuck).toContainText(
-    /lumovi-metrics-prometheus-server-\S+: ErrImagePull \(failed to pull and unpack image .*does-not-exist/,
+    /lumovi-metrics-prometheus-server-\S+: ErrImagePull \(failed to pull and unpack image "registry\.internal\/prometheus-does-not-exist:v3": not found\)/,
   )
   await stuck.getByRole('button', { name: 'Remove…' }).click()
   const removing = page.getByRole('dialog', { name: /Remove the metrics stack/ })

@@ -467,7 +467,16 @@ export class Controllers {
     const containers: Json[] = template.spec.containers
     const siblingStatus = (container: string) =>
       sibling?.status?.containerStatuses?.find((c: Json) => c.name === container)
-    const crashing = containers.some((c) => siblingStatus(c.name)?.state?.waiting !== undefined)
+    // An image that can't be pulled (`…does-not-exist…`), as the kubelet says of it.
+    const unpulled = (c: Json) =>
+      /does-not-exist/.test(c.image)
+        ? {
+            reason: 'ErrImagePull',
+            message: `failed to pull and unpack image "${c.image}": not found`,
+          }
+        : undefined
+    const waitingFor = (c: Json) => siblingStatus(c.name)?.state?.waiting ?? unpulled(c)
+    const crashing = containers.some((c) => waitingFor(c) !== undefined)
     const ip = `10.244.${(this.#podIp >> 8) % 256}.${this.#podIp++ % 256}`
     const pod: KubeObject = {
       apiVersion: 'v1',
@@ -483,7 +492,7 @@ export class Controllers {
       },
       spec: { ...template.spec, nodeName },
       status: {
-        phase: 'Running',
+        phase: containers.some(unpulled) ? 'Pending' : 'Running',
         hostIP: sibling?.status?.hostIP,
         podIP: ip,
         podIPs: [{ ip }],
@@ -496,7 +505,7 @@ export class Controllers {
           { type: 'Ready', status: crashing ? 'False' : 'True', lastTransitionTime: now },
         ],
         containerStatuses: containers.map((c) => {
-          const waiting = siblingStatus(c.name)?.state?.waiting
+          const waiting = waitingFor(c)
           return {
             name: c.name,
             image: c.image,
