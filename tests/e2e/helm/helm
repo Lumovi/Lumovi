@@ -82,46 +82,73 @@ if (stack && (command === 'install' || command === 'uninstall')) {
     chart: { metadata: { name: 'prometheus', version: '29.36.1', appVersion: 'v3.15.0' } },
     manifest,
   }
-  const objects = [
-    ...parseAllDocuments(manifest)
-      .map((document) => document.toJS())
-      .filter(Boolean)
-      // Helm's own mark on what a release makes: whose it is.
-      .map((object) => ({
-        ...object,
-        metadata: {
-          ...object.metadata,
-          annotations: {
-            ...object.metadata.annotations,
-            'meta.helm.sh/release-name': args[1],
-            'meta.helm.sh/release-namespace': namespace,
-          },
-        },
-      })),
-    {
-      apiVersion: 'v1',
-      kind: 'Secret',
-      type: 'helm.sh/release.v1',
+  const made = parseAllDocuments(manifest)
+    .map((document) => document.toJS())
+    .filter(Boolean)
+    // An image the cluster can't pull ($FAKE_HELM_STACK_IMAGE), for a release that never comes up.
+    .map((object) => {
+      const unpullable = process.env.FAKE_HELM_STACK_IMAGE
+      if (unpullable && object.kind === 'Deployment') {
+        for (const container of object.spec.template.spec.containers) container.image = unpullable
+      }
+      return object
+    })
+    // Helm's own mark on what a release makes: whose it is.
+    .map((object) => ({
+      ...object,
       metadata: {
-        name: `sh.helm.release.v1.${args[1]}.v1`,
-        labels: { name: args[1], owner: 'helm', status: 'deployed', version: '1' },
+        ...object.metadata,
+        annotations: {
+          ...object.metadata.annotations,
+          'meta.helm.sh/release-name': args[1],
+          'meta.helm.sh/release-namespace': namespace,
+        },
       },
-      data: {
-        release: Buffer.from(zlib.gzipSync(JSON.stringify(record)).toString('base64')).toString(
-          'base64',
-        ),
-      },
+    }))
+  // Its record of the release: kept before anything is made, so one that fails can be uninstalled.
+  const stored = {
+    apiVersion: 'v1',
+    kind: 'Secret',
+    type: 'helm.sh/release.v1',
+    metadata: {
+      name: `sh.helm.release.v1.${args[1]}.v1`,
+      labels: { name: args[1], owner: 'helm', status: 'deployed', version: '1' },
     },
-  ]
-  if (!dryRun) {
-    for (const object of command === 'install' ? objects : objects.reverse()) {
-      const status = await send(command === 'install' ? 'POST' : 'DELETE', object, namespace)
-      // Like helm: what's there already isn't taken over, and what the cluster refuses stops it.
-      if (status >= 400 && !(command === 'uninstall' && status === 404)) {
-        console.error(
-          `Error: ${command === 'install' ? 'INSTALLATION FAILED' : 'uninstallation failed'}: ${object.kind} ${object.metadata.name}: the cluster answered ${status}`,
+    data: {
+      release: Buffer.from(zlib.gzipSync(JSON.stringify(record)).toString('base64')).toString(
+        'base64',
+      ),
+    },
+  }
+  const failed = (said) => {
+    console.error(`Error: ${said}`)
+    process.exit(1)
+  }
+  if (command === 'install' && !dryRun) {
+    // Like helm: what's there already isn't taken over, and nothing is made or recorded then.
+    for (const object of made) {
+      if ((await send('GET', object, namespace)) === 200) {
+        failed(
+          `INSTALLATION FAILED: Unable to continue with install: ${object.kind} "${object.metadata.name}" exists and cannot be imported into the current release: invalid ownership metadata`,
         )
-        process.exit(1)
+      }
+    }
+    for (const object of [stored, ...made]) {
+      const status = await send('POST', object, namespace)
+      if (status >= 400) {
+        failed(
+          `INSTALLATION FAILED: ${object.kind} ${object.metadata.name}: the cluster answered ${status}`,
+        )
+      }
+    }
+  }
+  if (command === 'uninstall') {
+    for (const object of [...made.reverse(), stored]) {
+      const status = await send('DELETE', object, namespace)
+      if (status >= 400 && status !== 404) {
+        failed(
+          `uninstallation failed: ${object.kind} ${object.metadata.name}: the cluster answered ${status}`,
+        )
       }
     }
   }
