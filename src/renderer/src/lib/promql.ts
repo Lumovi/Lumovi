@@ -32,7 +32,10 @@ export const CONTAINERS: Matcher[] = [
 
 // Pods on the host network see the node's own interfaces too: loopback, every pod's
 // veth, bridges and tunnels. Counting them would count other pods' traffic again.
+// cAdvisor counts each node's own traffic too, in series that name no pod: they aren't
+// any pod's, and have nothing to be listed or charted by.
 const INTERFACES: Matcher[] = [
+  ['pod', '!=', ''],
   ['interface', '!~', 'lo|veth.*|cali.*|lxc.*|cni.*|flannel.*|vxlan.*|tunl.*|docker.*|br-.*'],
 ]
 

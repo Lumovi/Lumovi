@@ -6,6 +6,13 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Metrics page no longer fails on a Prometheus that keeps each node's own network series, which
+  name no pod: choosing Network in or Network out could replace the page with an error. Network
+  usage now counts only pods' traffic, on the page and in a node's charts, and a series that doesn't
+  say which pod, node or namespace it is about is left out instead of breaking the list.
+
 ## [1.20.0] - 2026-10-10
 
 Every way to sponsor Lumovi leads to one place: its listing on GitHub Sponsors.

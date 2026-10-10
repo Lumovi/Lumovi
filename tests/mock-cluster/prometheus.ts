@@ -132,7 +132,7 @@ function seriesFor(metric: string, pods: PodSource[], all: KubeObject[], now: nu
     case 'container_network_transmit_bytes_total': {
       // Pod-level, like cAdvisor's: no container label.
       const perCore = metric.includes('receive') ? 2_400_000 : 1_100_000
-      return pods.map(({ pod, containers }) => ({
+      const ofPods = pods.map(({ pod, containers }) => ({
         labels: { ...base(pod), interface: 'eth0' },
         at: since(
           pod,
@@ -141,6 +141,13 @@ function seriesFor(metric: string, pods: PodSource[], all: KubeObject[], now: nu
             perCore,
         ),
       }))
+      // And each node's own, as cAdvisor has it for the root cgroup: no pod, no namespace.
+      const nodes = [...new Set(pods.map(({ pod }) => pod.spec.nodeName as string))]
+      const ofNodes = nodes.filter(Boolean).map((node) => ({
+        labels: { node, id: '/', interface: 'eth0' },
+        at: (t: number) => 40 * perCore * wave(`${node}/net`, t),
+      }))
+      return [...ofPods, ...ofNodes]
     }
     case 'container_cpu_cfs_periods_total':
     case 'container_cpu_cfs_throttled_periods_total':

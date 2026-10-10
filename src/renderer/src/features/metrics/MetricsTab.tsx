@@ -174,7 +174,7 @@ function PodCharts({ object, selection, zoom }: ChartsProps) {
   const usage = useUsage(key, matchers, ['container'], selection)
   const restarts = useRestarts(key, matchers, 'container', selection)
   const containers: Container[] = object.spec.containers
-  const container = (labels: Record<string, string>) => labels.container!
+  const container = (labels: Record<string, string>) => labels.container
   return (
     <>
       <UsageChart
@@ -279,7 +279,7 @@ function PodSetCharts({
 }) {
   const usage = useUsage(key, matchers, ['pod'], selection)
   const restarts = useRestarts(key, matchers, 'pod', selection)
-  const pod = (labels: Record<string, string>) => labels.pod!
+  const pod = (labels: Record<string, string>) => labels.pod
   const note = 'The busiest pods; each is compared with what one pod requests.'
   return (
     <>
@@ -338,7 +338,7 @@ function NodeCharts({ object, selection, zoom }: ChartsProps) {
   const allocatable = (resource: 'cpu' | 'memory') => [
     { label: 'Allocatable', value: parseQuantity(object.status.allocatable[resource]) },
   ]
-  const namespace = (labels: Record<string, string>) => labels.namespace!
+  const namespace = (labels: Record<string, string>) => labels.namespace
   return (
     <>
       <UsageChart
