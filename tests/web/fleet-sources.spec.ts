@@ -541,6 +541,51 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
   // What each source sets of a cluster's settings is its own, and an admin sees where.
   await as(context, 'admin@example.com')
   await page.reload()
+  // In its settings, opened from its card: whose Secret it is, and what that sets, locked.
+  for (const [name, from, says] of [
+    [
+      'prod-us',
+      'Comes from Argo CD’s Secret cluster-prod-us',
+      'Set by its Secret, cluster-prod-us, in metadata.labels and lumovi.dev/labels. Change it there.',
+    ],
+    [
+      'workload-1',
+      'Comes from Cluster API’s Secret workload-1-kubeconfig',
+      'Cluster API’s Secret workload-1-kubeconfig, in the lumovi namespace.',
+    ],
+    [
+      'staging',
+      'Comes from the Secret staging',
+      'Set by its Secret, staging, in lumovi.dev/groups. Change it there.',
+    ],
+    [
+      'hub',
+      'Comes from this cluster, where Lumovi runs',
+      'The cluster Lumovi runs in, reached with its own service account.',
+    ],
+  ] as const) {
+    await page.getByRole('button', { name: `${name}’s actions` }).click()
+    await page.getByRole('menuitem', { name: 'Settings…' }).click()
+    const dialog = page.getByRole('dialog', { name })
+    await expect(dialog).toContainText(from)
+    await expect(dialog).toContainText(says)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+  }
+  // What its Secret leaves unset is set there: a label, with no name given.
+  await page.getByRole('button', { name: 'plain’s actions' }).click()
+  await page.getByRole('menuitem', { name: 'Settings…' }).click()
+  const plain = page.getByRole('dialog', { name: 'plain' })
+  const label = plain.getByRole('textbox', { name: 'Add a label' })
+  await expect(label).toHaveAttribute('placeholder', 'Add a label, as env=production…')
+  await label.fill('tier=bronze')
+  await label.press('Enter')
+  await expect(label).toHaveAttribute('placeholder', 'Add a label…')
+  await plain.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText(
+    'Saved plain’s settings',
+  )
+  await expect(card(page, 'plain')).toContainText('tier=bronze')
   const settings = (name: string) =>
     page.evaluate((name) => window.lumovi!.fleet!.settings(name), name)
   const itsSecret = (name: string, ...keys: string[]) => ({
