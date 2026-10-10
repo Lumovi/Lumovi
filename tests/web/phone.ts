@@ -11,6 +11,17 @@ export const PHONE_ON_ITS_SIDE = { width: 844, height: 390 }
 export const FINGER = 44
 
 /**
+ * Signs in with a token on a narrow page, where who's signed in is said in the drawer: the page
+ * is there once its menu button is.
+ */
+export async function signInNarrow(page: Page, url: string, token: string): Promise<void> {
+  await page.goto(url)
+  await page.getByPlaceholder('Paste a token').fill(token)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Menu' })).toBeVisible()
+}
+
+/**
  * Nothing on the page is wider than what shows it: not the page, and not anything in it that
  * scrolls. (A strip of tabs scrolls inside itself, and says so: `data-scrolls-sideways`.)
  */
