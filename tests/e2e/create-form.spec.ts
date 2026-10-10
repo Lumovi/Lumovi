@@ -615,6 +615,20 @@ test('creating from the form is off on read-only clusters', async ({ launch }) =
   await expect(create(page)).toBeDisabled()
 })
 
+test('where the app doesn’t say it has the form, Create is its YAML alone', async ({ launch }) => {
+  // (The built app says so only where LUMOVI_CREATE_FORM=1 does, while the form's kinds are
+  // being built; these tests set it.)
+  const { page } = await launch({ env: { LUMOVI_CREATE_FORM: undefined } })
+  await openCluster(page)
+  await page.keyboard.press('ControlOrMeta+n')
+  await expect(dialog(page).getByRole('heading', { name: 'Create', exact: true })).toBeVisible()
+  await expect(dialog(page).getByRole('radiogroup', { name: 'How to create' })).toHaveCount(0)
+  await expect(dialog(page).getByRole('group', { name: 'Templates' })).toBeVisible()
+  await expect(form(page)).toHaveCount(0)
+  await expect(editor(page)).toBeFocused()
+  await expect(editor(page)).toContainText('image: nginx:1.27')
+})
+
 // ——— The form's reading of the YAML, asked of it directly ———
 
 const fitted = (text: string) => {

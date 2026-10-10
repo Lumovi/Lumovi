@@ -36,19 +36,6 @@ servers that share a volume no longer end up both keeping the audit history ther
   organization's policy (`fileCopy`) says otherwise; `off` (`fileCopy.enabled: false`), or the
   policy, turns copying off, and a server doesn't start with a limit that isn't a whole number.
   It isn't offered to AI assistants.
-- Create has a form beside its YAML. **Create…** (the + button, ⌘N, the palette) opens on
-  **Form | YAML**: the form asks a Deployment's essentials (name, namespace, replicas, and its
-  container's image, port, environment, requests and limits), and the YAML it writes is beside
-  it. Either side is edited and the other follows; the YAML is what's created. Each field names
-  the path it writes and lights its lines while it has the focus. What's wrong is said under
-  its field as it's typed, with its lines marked, and what the cluster refuses is said under
-  the field it names. What the YAML sets that the form has no field for (a strategy, a node
-  selector) is kept as it is and named; a variable whose value comes from a Secret or a
-  ConfigMap has its row, which says where from. YAML the form can't show (two containers,
-  several objects, another kind) is still what's created: the form steps back, says why, and
-  one button goes back to its last version. A form edit changes only its own characters:
-  comments, the order of keys and their quoting stay as they were written. YAML's side is the
-  dialog as it was, and the side used last opens first. More kinds follow.
 
 ### Fixed
 
