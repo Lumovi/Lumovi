@@ -4,6 +4,7 @@ import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { menuContent } from '@renderer/features/shell/menu-styles'
 import { Sheet } from './Sheet'
+import { Tooltip } from './Tooltip'
 
 /**
  * What a button opens to choose from: a popover by its button where there's room, and a sheet
@@ -16,6 +17,9 @@ export function Picker({
   trigger,
   align = 'start',
   className,
+  collisionPadding,
+  onOpenAutoFocus,
+  tooltip,
   children,
 }: {
   open: boolean
@@ -27,12 +31,23 @@ export function Picker({
   align?: 'start' | 'end'
   /** The popover's own width and padding. */
   className?: string
+  collisionPadding?: number
+  /** For a popover that says itself where the focus goes. */
+  onOpenAutoFocus?: (event: Event) => void
+  /** What the button says under a pointer. */
+  tooltip?: ReactNode
   children: ReactNode
 }) {
   const phone = useLayout() === 'phone'
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+      {tooltip ? (
+        <Tooltip content={tooltip}>
+          <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+        </Tooltip>
+      ) : (
+        <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+      )}
       {phone ? (
         open && (
           <Sheet title={title} onClose={() => onOpenChange(false)}>
@@ -41,7 +56,14 @@ export function Picker({
         )
       ) : (
         <Popover.Portal>
-          <Popover.Content align={align} sideOffset={6} className={cn(menuContent, className)}>
+          <Popover.Content
+            align={align}
+            sideOffset={6}
+            collisionPadding={collisionPadding}
+            onOpenAutoFocus={onOpenAutoFocus}
+            aria-label={title}
+            className={cn(menuContent, className)}
+          >
             {children}
           </Popover.Content>
         </Popover.Portal>

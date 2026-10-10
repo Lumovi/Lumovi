@@ -386,6 +386,19 @@
   user-select: text;
 }
 /*
+ * What's pressed answers on at least 44 px each way, whatever size it's drawn at: a chip stays
+ * 28 px high, and a finger gets the 8 px above and below it too.
+ */
+@utility finger {
+  position: relative;
+  &::before {
+    content: '';
+    position: absolute;
+    inset-block: min(0px, calc((100% - 44px) / 2));
+    inset-inline: min(0px, calc((100% - 44px) / 2));
+  }
+}
+/*
  * Monospaced text that wraps: what runs over goes on under its line, set in by two characters,
  * so one long line never reads as two. It breaks where it must, and no hyphen is added.
  */
