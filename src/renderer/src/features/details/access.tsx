@@ -7,12 +7,15 @@ import type { ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
 import { useList } from '@renderer/hooks/queries'
 import {
-  namesAccount,
+  gatheredInto,
+  reaches,
   roleRefOf,
   rulesOf,
   subjectNamespace,
+  selectorText,
   subjectsOf,
   subjectText,
+  type LabelSelector,
 } from '@renderer/lib/rbac'
 import { ObjectLink } from './ObjectLink'
 import { Section, SimpleTable } from './sections'
@@ -42,8 +45,7 @@ const Verbs = ({ verbs }: { verbs: string[] | undefined }) => (
 export function RulesSection({ object }: { object: KubeObject }) {
   const rules = rulesOf(object)
   const aggregated = (
-    object.aggregationRule as
-      { clusterRoleSelectors?: { matchLabels?: Record<string, string> }[] } | undefined
+    object.aggregationRule as { clusterRoleSelectors?: LabelSelector[] } | undefined
   )?.clusterRoleSelectors
   return (
     <>
@@ -51,16 +53,21 @@ export function RulesSection({ object }: { object: KubeObject }) {
         {aggregated && (
           <div className="mb-2.5">
             <Quiet>
-              Its rules are gathered by the cluster from the cluster roles labelled{' '}
-              <span className="font-mono text-xs text-ink-2">
-                {aggregated
-                  .map((selector) =>
-                    Object.entries(selector.matchLabels ?? {})
-                      .map(([key, value]) => `${key}=${value}`)
-                      .join(', '),
-                  )
-                  .join(' or ')}
-              </span>
+              Its rules are gathered by the cluster from{' '}
+              {aggregated.map((selector, i) => (
+                <span key={i}>
+                  {i > 0 && ', and from '}
+                  {selectorText(selector) ? (
+                    <>
+                      the cluster roles labelled{' '}
+                      <span className="font-mono text-xs text-ink-2">{selectorText(selector)}</span>
+                    </>
+                  ) : (
+                    // (A selector that asks nothing matches them all.)
+                    'every cluster role'
+                  )}
+                </span>
+              ))}
               .
             </Quiet>
           </div>
@@ -84,9 +91,19 @@ export function RulesSection({ object }: { object: KubeObject }) {
                   ]
                 : [
                     all(rule.apiGroups, 'groups', (group) => group || 'core'),
-                    `${all(rule.resources, 'resources')}${
-                      rule.resourceNames?.length ? ` (${rule.resourceNames.join(', ')})` : ''
-                    }`,
+                    // (Names narrow every resource of the rule, not the last one written: said
+                    // on a line of their own.)
+                    <span key="resources" className="flex flex-col gap-0.5">
+                      <span>{all(rule.resources, 'resources')}</span>
+                      {rule.resourceNames?.length ? (
+                        <span className="font-sans text-ink-3">
+                          only those named{' '}
+                          <span className="font-mono text-ink-2">
+                            {rule.resourceNames.join(', ')}
+                          </span>
+                        </span>
+                      ) : null}
+                    </span>,
                     <Verbs key="verbs" verbs={rule.verbs} />,
                   ],
             )}
@@ -134,13 +151,14 @@ export function RoleLink({ binding }: { binding: KubeObject }) {
  * Both kinds of binding, wherever they are, or why they couldn't be read: someone who may not
  * list them is told so, not shown an empty list.
  */
-function useBindings(namespace: string | null) {
+function useBindings(namespace: string | null, everywhere = true) {
   const namespaced = useList('RoleBinding', { namespace })
-  const clusterWide = useList('ClusterRoleBinding', { namespace: null })
+  // (Not asked for where none of them could count: nothing is said of what wasn't needed.)
+  const clusterWide = useList('ClusterRoleBinding', { namespace: null, enabled: everywhere })
   const failed = [namespaced, clusterWide].find((list) => list.error)
   return {
     bindings: [...(namespaced.data ?? []), ...(clusterWide.data ?? [])],
-    pending: namespaced.isPending || clusterWide.isPending,
+    pending: namespaced.isPending || (everywhere && clusterWide.isPending),
     failure: failed ? (failed.error as Error).message : undefined,
     /** Some were read, though not all. */
     partial: failed !== undefined && (namespaced.data ?? clusterWide.data) !== undefined,
@@ -153,12 +171,15 @@ function BindingsTable({
   headers,
   found,
   row,
+  children,
 }: {
   title: string
   empty: string
   headers: string[]
   found: ReturnType<typeof useBindings> & { matching: KubeObject[] }
   row: (binding: KubeObject) => ReactNode[]
+  /** What else is to be said there, after the table. */
+  children?: ReactNode
 }) {
   const { matching, pending, failure } = found
   return (
@@ -175,6 +196,8 @@ function BindingsTable({
       ) : pending ? (
         <Quiet>Looking for them…</Quiet>
       ) : (
+        // That there's none is said only when every list was read, wherever it reaches: a
+        // list that couldn't be is said below instead, and never as nothing found.
         !failure && <Quiet>{empty}</Quiet>
       )}
       {failure && (
@@ -183,15 +206,25 @@ function BindingsTable({
           {failure}
         </p>
       )}
+      {children}
     </Section>
   )
 }
 
-/** The bindings that grant a role, and to whom: the way back from a role. */
+/**
+ * The bindings that grant a role, and to whom: the way back from a role. A cluster role's
+ * rules are also granted with every cluster role that gathers them (`aggregationRule`), so
+ * those are named too, and nothing is said to be granted to nobody while there's one.
+ */
 function BoundBy({ role }: { role: KubeObject }) {
   const { name, namespace } = role.metadata
-  // A Role is granted only where it is; a ClusterRole, in any namespace or everywhere.
-  const found = useBindings(role.kind === 'Role' ? namespace! : null)
+  const cluster = role.kind === 'ClusterRole'
+  // A Role is granted only where it is, and only by a RoleBinding; a ClusterRole, in any
+  // namespace or everywhere.
+  const found = useBindings(cluster ? null : namespace!, cluster)
+  const others = useList('ClusterRole', { namespace: null, enabled: cluster })
+  const into = cluster ? gatheredInto(role, others.data ?? []) : []
+  const unread = cluster && others.error ? (others.error as Error).message : undefined
   const matching = found.bindings.filter((binding) => {
     const ref = roleRefOf(binding)
     return ref.kind === role.kind && ref.name === name
@@ -199,9 +232,13 @@ function BoundBy({ role }: { role: KubeObject }) {
   return (
     <BindingsTable
       title="Granted by"
-      empty="No binding grants it to anyone."
+      empty={
+        into.length > 0 || unread
+          ? 'No binding grants it by its own name.'
+          : 'No binding grants it to anyone.'
+      }
       headers={['Binding', 'To', 'In']}
-      found={{ ...found, matching }}
+      found={{ ...found, matching, pending: found.pending || (cluster && others.isPending) }}
       row={(binding) => [
         bindingLink(binding),
         subjectsOf(binding)
@@ -209,7 +246,26 @@ function BoundBy({ role }: { role: KubeObject }) {
           .join(', ') || 'Nobody',
         reach(binding),
       ]}
-    />
+    >
+      {into.length > 0 && (
+        <p className="mt-2 text-[13px] leading-[21px] text-ink-2">
+          Its rules are also part of{' '}
+          {into.map((other, i) => (
+            <span key={other.metadata.name}>
+              {i > 0 && (i === into.length - 1 ? ' and ' : ', ')}
+              <ObjectLink kind="ClusterRole" name={other.metadata.name} />
+            </span>
+          ))}
+          , which {into.length === 1 ? 'gathers' : 'gather'} them: whoever{' '}
+          {into.length === 1 ? 'that is' : 'those are'} granted to has them too.
+        </p>
+      )}
+      {unread && (
+        <p role="alert" className="mt-2 text-[13px] leading-[21px] text-ink-2">
+          Whether another cluster role gathers its rules couldn’t be read. {unread}
+        </p>
+      )}
+    </BindingsTable>
   )
 }
 
@@ -249,19 +305,37 @@ export function SubjectsSection({ object }: { object: KubeObject }) {
   )
 }
 
-/** The bindings that name a service account, and the role each grants it. */
+/**
+ * The bindings that reach a service account, and the role each grants it: those that name it,
+ * and those that name a group it's in (its namespace's accounts, every account, everyone
+ * signed in), which grant it as much.
+ */
 export function AccountBindings({ object }: { object: KubeObject }) {
   const { name, namespace } = object.metadata
   const found = useBindings(null)
-  const matching = found.bindings.filter((binding) => namesAccount(binding, namespace!, name))
+  const how = new Map(
+    found.bindings.flatMap((binding) => {
+      const reached = reaches(binding, namespace!, name)
+      return reached ? [[binding, reached.as] as const] : []
+    }),
+  )
+  // Those that name it first; then those that reach it another way.
+  const matching = [...how.keys()].sort(
+    (a, b) => Number(how.get(a) !== undefined) - Number(how.get(b) !== undefined),
+  )
   return (
     <BindingsTable
       title="Bindings"
-      empty="No binding names it: it may do only what every service account may."
+      empty="No binding names it, or a group it’s in."
       headers={['Binding', 'Grants', 'In']}
       found={{ ...found, matching }}
       row={(binding) => [
-        bindingLink(binding),
+        <span key="binding" className="flex flex-col items-start gap-0.5">
+          {bindingLink(binding)}
+          {how.get(binding) && (
+            <span className="font-sans text-xs text-ink-3">{how.get(binding)}</span>
+          )}
+        </span>,
         <RoleLink key="role" binding={binding} />,
         reach(binding),
       ]}

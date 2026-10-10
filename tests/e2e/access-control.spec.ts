@@ -5,7 +5,7 @@
  */
 import type { Page } from '@playwright/test'
 import { open } from './action-helpers.ts'
-import { expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import { expect, goTo, openCluster, panel, row, rows, test } from './fixtures.ts'
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 const headers = (page: Page, label: string) =>
@@ -70,7 +70,7 @@ test('a role: how many rules in its list, and its rules as a table', async ({ pa
   await expect(role).toContainText('Rules3')
   expect(await table(role, 'Rules')).toEqual([
     ['core', 'configmaps', 'getlistwatch'],
-    ['core', 'secrets (payments-credentials)', 'get'],
+    ['core', 'secretsonly those named payments-credentials', 'get'],
     ['batch', 'jobs', 'createdelete'],
   ])
   // Who it's granted to, and by which binding: the way back from a role.
@@ -87,7 +87,10 @@ test('a role: how many rules in its list, and its rules as a table', async ({ pa
   expect(await table(empty, 'Granted by')).toEqual([['RoleBinding/nobody-yet', 'Nobody', 'shop']])
 })
 
-test('a cluster role: everything, URLs, and rules gathered from others', async ({ page }) => {
+test('a cluster role: everything, URLs, and rules gathered from others', async ({
+  page,
+  clusters,
+}) => {
   await goTo(page, 'Cluster Roles')
   await expect(headers(page, 'Cluster Roles')).toHaveText(['', 'Name', 'Rules', 'Age'])
   await open(page, 'Cluster Roles', 'cluster-admin')
@@ -102,6 +105,7 @@ test('a cluster role: everything, URLs, and rules gathered from others', async (
   // One granted in a namespace and everywhere: both kinds of binding are found.
   await open(page, 'Cluster Roles', 'view')
   expect(await table(panel(page, 'ClusterRole', 'view'), 'Granted by')).toEqual([
+    ['RoleBinding/storefront-as-a-user', 'User system:serviceaccount:shop:storefront', 'default'],
     [
       'RoleBinding/shop-viewers',
       'Group shop-team, User jane@example.com, ServiceAccount shop/storefront',
@@ -117,6 +121,46 @@ test('a cluster role: everything, URLs, and rules gathered from others', async (
   )
   await expect(gathered).toContainText('No rules: it allows nothing.')
   await expect(gathered).toContainText('No binding grants it to anyone.')
+  // Whatever a selector says is said: labels, expressions, and one that asks nothing. And a
+  // rule's names narrow every resource in it.
+  await open(page, 'Cluster Roles', 'job-runner')
+  const runner = panel(page, 'ClusterRole', 'job-runner')
+  await expect(runner).toContainText(
+    'Its rules are gathered by the cluster from the cluster roles labelled rbac.example.com/jobs=true, tier in (batch, cron), !deprecated, and from the cluster roles labelled rbac.example.com/always.',
+  )
+  expect(await table(runner, 'Rules')).toEqual([
+    ['batch', 'jobs, cronjobsonly those named nightly', 'get'],
+  ])
+  expect(await table(runner, 'Granted by')).toEqual([
+    ['RoleBinding/shop-accounts-run-jobs', 'Group system:serviceaccounts:shop', 'shop'],
+  ])
+
+  // A cluster role whose rules another gathers is granted with that one, though no binding
+  // names it: that's said, and never "to anyone".
+  await open(page, 'Cluster Roles', 'shop-reports')
+  const reports = panel(page, 'ClusterRole', 'shop-reports')
+  await expect(reports).toContainText('No binding grants it by its own name.')
+  await expect(reports).toContainText(
+    'Its rules are also part of ClusterRole/shop-admin, which gathers them: whoever that is granted to has them too.',
+  )
+  await expect(reports).not.toContainText('to anyone')
+  await reports.getByRole('button', { name: 'ClusterRole/shop-admin' }).click()
+  await expect(panel(page, 'ClusterRole', 'shop-admin')).toBeVisible()
+  // A selector that asks nothing gathers every cluster role: said, and each of them says it.
+  clusters.demo.upsert({
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'ClusterRole',
+    metadata: { name: 'everything' },
+    aggregationRule: { clusterRoleSelectors: [{}] },
+  })
+  await open(page, 'Cluster Roles', 'everything')
+  await expect(panel(page, 'ClusterRole', 'everything')).toContainText(
+    'Its rules are gathered by the cluster from every cluster role.',
+  )
+  await open(page, 'Cluster Roles', 'shop-reports')
+  await expect(reports).toContainText(
+    'Its rules are also part of ClusterRole/everything and ClusterRole/shop-admin, which gather them: whoever those are granted to has them too.',
+  )
 })
 
 test('a binding: its role and its subjects, each a link where it’s an object', async ({ page }) => {
@@ -176,19 +220,26 @@ test('a binding: its role and its subjects, each a link where it’s an object',
 
 test('a service account: its secrets, the bindings that name it, and the workloads that use it', async ({
   page,
+  clusters,
 }) => {
   await goTo(page, 'Service Accounts')
   await expect(headers(page, 'Service Accounts')).toHaveText(['', 'Name', 'Secrets', 'Age'])
   await expect(row(page, 'Service Accounts', 'checkout')).toContainText('checkoutshop1')
   await open(page, 'Service Accounts', 'checkout')
   const checkout = panel(page, 'ServiceAccount', 'checkout')
-  await expect(checkout).toContainText('API tokenMounted in its pods')
+  await expect(checkout).toContainText('API tokenMounted in its pods, unless a pod says not to')
   await expect(checkout).toContainText('SecretsSecret/checkout-token')
   await expect(checkout).toContainText('Image pull secretsSecret/registry-pull')
   // What it may do, by the bindings that name it: in its namespace, and everywhere.
+  // Those that name it first; then those that name a group it's in, which grant it as much.
   expect(await table(checkout, 'Bindings')).toEqual([
     ['RoleBinding/checkout-reads-config', 'Role/config-reader', 'shop'],
     ['ClusterRoleBinding/checkout-views-everything', 'ClusterRole/view', 'Everywhere'],
+    [
+      'RoleBinding/shop-accounts-run-jobsthrough the group system:serviceaccounts:shop',
+      'ClusterRole/job-runner',
+      'shop',
+    ],
   ])
   await checkout.getByRole('button', { name: 'Role/config-reader' }).click()
   await expect(panel(page, 'Role', 'config-reader')).toBeVisible()
@@ -198,26 +249,81 @@ test('a service account: its secrets, the bindings that name it, and the workloa
   const storefront = panel(page, 'ServiceAccount', 'storefront')
   await expect(storefront).toContainText('API tokenNot mounted in its pods, unless a pod asks')
   await expect(storefront).not.toContainText('Image pull secrets')
+  // Each row says how the account is reached, where it isn't by its name: as the user every
+  // service account also is, or through a group it's in.
   expect(await table(storefront, 'Bindings')).toEqual([
     ['RoleBinding/shop-viewers', 'ClusterRole/view', 'shop'],
+    [
+      'RoleBinding/storefront-as-a-useras the user system:serviceaccount:shop:storefront',
+      'ClusterRole/view',
+      'default',
+    ],
+    [
+      'RoleBinding/shop-accounts-run-jobsthrough the group system:serviceaccounts:shop',
+      'ClusterRole/job-runner',
+      'shop',
+    ],
   ])
-  await open(page, 'Service Accounts', 'default')
-  await expect(panel(page, 'ServiceAccount', 'default')).toContainText(
-    'No binding names it: it may do only what every service account may.',
-  )
+  // One in another namespace, which nothing reaches: said as what was looked for.
+  await rows(page, 'Service Accounts')
+  await page.getByPlaceholder('Filter service accounts').fill('default')
+  await row(page, 'Service Accounts', /^defaultdefault/)
+    .getByRole('gridcell')
+    .nth(1)
+    .click()
+  const lone = panel(page, 'ServiceAccount', 'default')
+  await expect(lone).toContainText('No binding names it, or a group it’s in.')
+  // Until one names every service account, or everyone who's signed in.
+  clusters.demo.upsert({
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'ClusterRoleBinding',
+    metadata: { name: 'accounts-discover' },
+    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: 'view' },
+    subjects: [
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'Group', name: 'system:serviceaccounts' },
+    ],
+  })
+  await expect
+    .poll(() => table(lone, 'Bindings'), { timeout: 15_000 })
+    .toEqual([
+      [
+        'ClusterRoleBinding/accounts-discoverthrough the group system:serviceaccounts',
+        'ClusterRole/view',
+        'Everywhere',
+      ],
+    ])
 
-  // A workload and its pods link the account they act as.
+  // A workload and its pods link the account they act as; one whose template names none
+  // acts as its namespace's default, and links that.
   await open(page, 'Deployments', 'checkout')
   const deployment = panel(page, 'Deployment', 'checkout')
   await deployment.getByRole('button', { name: 'ServiceAccount/checkout' }).click()
   await expect(checkout).toBeVisible()
+  clusters.demo.upsert({
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: { name: 'bare', namespace: 'shop' },
+    spec: {
+      replicas: 1,
+      selector: { matchLabels: { app: 'bare' } },
+      template: {
+        metadata: { labels: { app: 'bare' } },
+        spec: { containers: [{ name: 'bare', image: 'nginx:1.27' }] },
+      },
+    },
+    status: { replicas: 0 },
+  })
+  await open(page, 'Deployments', 'bare')
+  await expect(panel(page, 'Deployment', 'bare')).toContainText(
+    'Service accountServiceAccount/default',
+  )
 })
 
 test('someone who may not list them is told so, on the page and in a panel', async ({
   page,
   clusters,
 }) => {
-  const forbidden = (path: string, what: string) =>
+  const forbidden = (path: string | RegExp, what: string) =>
     clusters.demo.fail(path, {
       status: 403,
       contentType: 'application/json',
@@ -225,23 +331,111 @@ test('someone who may not list them is told so, on the page and in a panel', asy
         kind: 'Status',
         reason: 'Forbidden',
         code: 403,
-        message: `${what} is forbidden: User "demo" cannot list resource "${what}" at the cluster scope`,
+        message: `${what} is forbidden: User "demo" cannot list resource "${what}"`,
       }),
     })
-  forbidden('/apis/rbac.authorization.k8s.io/v1/clusterroles', 'clusterroles')
-  await goTo(page, 'Cluster Roles')
-  await expect(page.getByRole('alert')).toContainText('Access denied')
-  await expect(page.getByRole('alert')).toContainText('clusterroles is forbidden')
+  const crbRequests = () =>
+    clusters.demo.requests.filter((request) => request.path.endsWith('/clusterrolebindings')).length
 
-  // A role's own page is read, and the bindings that grant it are said not to be.
+  // ClusterRoleBindings can't be listed. A Role is granted only by RoleBindings: its panel
+  // doesn't ask for the other kind at all, and says nothing of it.
   forbidden('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings', 'clusterrolebindings')
+  await open(page, 'Roles', 'config-reader')
+  const role = panel(page, 'Role', 'config-reader')
+  expect(await table(role, 'Granted by')).toEqual([
+    ['RoleBinding/checkout-reads-config', 'ServiceAccount shop/checkout', 'shop'],
+  ])
+  await expect(role.getByRole('alert')).toHaveCount(0)
+  expect(crbRequests()).toBe(0)
+  // A service account's panel shows what it could read, and says the rest wasn't.
   await open(page, 'Service Accounts', 'checkout')
   const checkout = panel(page, 'ServiceAccount', 'checkout')
-  expect(await table(checkout, 'Bindings')).toEqual([
-    ['RoleBinding/checkout-reads-config', 'Role/config-reader', 'shop'],
+  expect((await table(checkout, 'Bindings')).map(([binding]) => binding)).toEqual([
+    'RoleBinding/checkout-reads-config',
+    'RoleBinding/shop-accounts-run-jobsthrough the group system:serviceaccounts:shop',
   ])
   await expect(checkout.getByRole('alert')).toContainText(
     'There may be more: some bindings couldn’t be read.',
   )
   await expect(checkout.getByRole('alert')).toContainText('clusterrolebindings is forbidden')
+  // One that nothing it could read reaches is never said to be reached by nothing.
+  await page.getByPlaceholder('Filter service accounts').fill('default')
+  await row(page, 'Service Accounts', /^defaultdefault/)
+    .getByRole('gridcell')
+    .nth(1)
+    .click()
+  const lone = panel(page, 'ServiceAccount', 'default')
+  await expect(lone.getByRole('alert')).toContainText('Some bindings couldn’t be read.')
+  await expect(lone).not.toContainText('No binding names it')
+
+  // ClusterRoles can't be listed: their page says so in the app's usual way.
+  forbidden('/apis/rbac.authorization.k8s.io/v1/clusterroles', 'clusterroles')
+  await goTo(page, 'Cluster Roles')
+  // (The panel that's still open has its own word; this is the page's.)
+  const denied = page.getByRole('alert').filter({ hasText: 'Access denied' })
+  await expect(denied).toContainText('clusterroles is forbidden')
+  await goTo(page, 'Cluster Role Bindings')
+  await expect(denied).toContainText('clusterrolebindings is forbidden')
+})
+
+test('a role whose bindings can’t be listed says so, and not that nothing grants it', async ({
+  page,
+  clusters,
+}) => {
+  clusters.demo.fail(/\/rolebindings$/, {
+    status: 403,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      kind: 'Status',
+      reason: 'Forbidden',
+      code: 403,
+      message: 'rolebindings is forbidden: User "demo" cannot list resource "rolebindings"',
+    }),
+  })
+  await open(page, 'Roles', 'nothing-yet')
+  const empty = panel(page, 'Role', 'nothing-yet')
+  await expect(empty.getByRole('alert')).toHaveText(
+    'Some bindings couldn’t be read. rolebindings is forbidden: User "demo" cannot list resource "rolebindings"',
+  )
+  await expect(empty.getByRole('table', { name: 'Granted by' })).toHaveCount(0)
+  await expect(empty).not.toContainText('No binding grants it')
+  // (What the role itself says is read, and shown.)
+  await expect(empty).toContainText('No rules: it allows nothing.')
+  // The same of a service account: nothing it's reached by is claimed.
+  await open(page, 'Service Accounts', 'storefront')
+  const storefront = panel(page, 'ServiceAccount', 'storefront')
+  await expect(storefront.getByRole('alert')).toContainText('Some bindings couldn’t be read.')
+  await expect(storefront).not.toContainText('No binding names it')
+})
+
+test('a cluster role opened where cluster roles can’t be listed says what it couldn’t tell', async ({
+  page,
+  clusters,
+}) => {
+  clusters.demo.fail('/apis/rbac.authorization.k8s.io/v1/clusterroles', {
+    status: 403,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      kind: 'Status',
+      reason: 'Forbidden',
+      code: 403,
+      message: 'clusterroles is forbidden: User "demo" cannot list resource "clusterroles"',
+    }),
+  })
+  // It's opened from a binding that grants it. Its own bindings are read; whether another
+  // cluster role gathers its rules can't be, and that's said, with nothing said in its place.
+  await goTo(page, 'Role Bindings')
+  await row(page, 'Role Bindings', 'nobody-yet').first().waitFor()
+  await page.getByPlaceholder('Filter role bindings').fill('shop-accounts')
+  await row(page, 'Role Bindings', 'shop-accounts-run-jobs')
+    .getByRole('button', { name: 'ClusterRole/job-runner' })
+    .click()
+  const runner = panel(page, 'ClusterRole', 'job-runner')
+  expect(await table(runner, 'Granted by')).toEqual([
+    ['RoleBinding/shop-accounts-run-jobs', 'Group system:serviceaccounts:shop', 'shop'],
+  ])
+  await expect(runner.getByRole('alert')).toContainText(
+    'Whether another cluster role gathers its rules couldn’t be read.',
+  )
+  await expect(runner.getByRole('alert')).toContainText('clusterroles is forbidden')
 })

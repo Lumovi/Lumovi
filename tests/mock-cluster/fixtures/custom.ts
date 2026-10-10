@@ -1460,6 +1460,39 @@ function accessControl(b: Builder): void {
     },
     rules: null,
   })
+  // Gathered by labels and by expressions: whatever a selector can say.
+  b.simple(RBAC, 'ClusterRole', 'job-runner', undefined, 30 * DAY, {
+    aggregationRule: {
+      clusterRoleSelectors: [
+        {
+          matchLabels: { 'rbac.example.com/jobs': 'true' },
+          matchExpressions: [
+            { key: 'tier', operator: 'In', values: ['batch', 'cron'] },
+            { key: 'deprecated', operator: 'DoesNotExist' },
+          ],
+        },
+        { matchExpressions: [{ key: 'rbac.example.com/always', operator: 'Exists' }] },
+      ],
+    },
+    rules: [
+      {
+        apiGroups: ['batch'],
+        resources: ['jobs', 'cronjobs'],
+        resourceNames: ['nightly'],
+        verbs: ['get'],
+      },
+    ],
+  })
+  // One whose rules shop-admin gathers: granted with it, though no binding names it.
+  b.simple(
+    RBAC,
+    'ClusterRole',
+    'shop-reports',
+    undefined,
+    30 * DAY,
+    { rules: [{ apiGroups: ['batch'], resources: ['cronjobs'], verbs: ['get', 'list'] }] },
+    { labels: { 'rbac.example.com/aggregate-to-shop-admin': 'true' } },
+  )
   b.simple(RBAC, 'Role', 'config-reader', 'shop', 70 * DAY, {
     rules: [
       { apiGroups: [''], resources: ['configmaps'], verbs: ['get', 'list', 'watch'] },
@@ -1488,6 +1521,13 @@ function accessControl(b: Builder): void {
       { kind: 'ServiceAccount', name: 'storefront', namespace: 'shop' },
     ],
   })
+  // To a group every service account of the namespace is in, which names none of them.
+  b.simple(RBAC, 'RoleBinding', 'shop-accounts-run-jobs', 'shop', 30 * DAY, {
+    roleRef: role('ClusterRole', 'job-runner'),
+    subjects: [
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'Group', name: 'system:serviceaccounts:shop' },
+    ],
+  })
   b.simple(RBAC, 'RoleBinding', 'nobody-yet', 'shop', 3 * DAY, {
     roleRef: role('Role', 'nothing-yet'),
   })
@@ -1502,5 +1542,16 @@ function accessControl(b: Builder): void {
   b.simple(RBAC, 'ClusterRoleBinding', 'checkout-views-everything', undefined, 70 * DAY, {
     roleRef: role('ClusterRole', 'view'),
     subjects: [{ kind: 'ServiceAccount', name: 'checkout', namespace: 'shop' }],
+  })
+  // The same kind of account, named as the user every service account also is.
+  b.simple(RBAC, 'RoleBinding', 'storefront-as-a-user', 'default', 10 * DAY, {
+    roleRef: role('ClusterRole', 'view'),
+    subjects: [
+      {
+        apiGroup: 'rbac.authorization.k8s.io',
+        kind: 'User',
+        name: 'system:serviceaccount:shop:storefront',
+      },
+    ],
   })
 }
