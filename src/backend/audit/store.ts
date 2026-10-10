@@ -147,6 +147,7 @@ export class FileStore implements AuditStore {
     lock: HistoryLock,
   ) {
     this.#lock = lock
+    lock.unmoved = () => this.#unmoved()
     this.#days = this.#listDays()
     for (const day of this.#days) ownOnly(this.#path(day), 0o600)
     // Where the chain goes on from: the newest file's last event that can be read.
@@ -173,6 +174,18 @@ export class FileStore implements AuditStore {
   }
 
   #path = (day: string) => join(this.dir, `audit-${day}.jsonl`)
+
+  /**
+   * Whether the folder's history still ends where this Lumovi left it: with the last event it
+   * kept, or with none at all. If it ends with another, another Lumovi has written to it.
+   */
+  #unmoved(): boolean {
+    for (const day of this.#listDays().reverse()) {
+      const last = lastEventIn(this.#path(day))
+      if (last) return last.seq === this.#last?.seq && last.hash === this.#last.hash
+    }
+    return true
+  }
 
   #listDays = () =>
     readdirSync(this.dir)
@@ -319,6 +332,10 @@ class HistoryLock {
   readonly #renew: NodeJS.Timeout
   /** When it last took or said its hold again: its lease runs from then. */
   #renewedAt = Date.now()
+  /** Whether the history still ends where its holder left it (said by the store that holds it). */
+  unmoved: () => boolean = () => true
+  /** Its hold went unrenewed long enough to have been taken: whether it was isn't known yet. */
+  #doubted = false
   /** Why the history isn't this one's to write any more, once it isn't. */
   #lost: string | undefined
 
@@ -412,6 +429,7 @@ class HistoryLock {
         // Gone: its folder with it (thrown as it is: there's nowhere to keep anything), or
         // moved aside a moment by one clearing away a lock it took for abandoned, which puts
         // back what it finds isn't. Its own, said again, unless another is there first.
+        if (this.#taken()) break
         if (place(this.#path, this.#id)) {
           this.#renewedAt = Date.now()
           return
@@ -424,6 +442,7 @@ class HistoryLock {
         if (lapsed()) throw unsure(new Error('its lock can’t be read'))
         return
       } else if (found.hold.id === this.#id) {
+        if (this.#taken()) break
         // Late with renewing it (the process was held up): said again before going on.
         if (Date.now() - this.#renewedAt > LOCK_RENEW_MS * 2) {
           try {
@@ -438,12 +457,33 @@ class HistoryLock {
       break
     }
     clearInterval(this.#renew)
-    const taker = found && 'hold' in found && `process ${found.hold.pid} on ${found.hold.host}`
+    // (Named, if its hold is there to read: not where only the history says there was one.)
+    const taker =
+      found && 'hold' in found && found.hold.id !== this.#id
+        ? `process ${found.hold.pid} on ${found.hold.host}`
+        : undefined
     this.#lost = `${taker ? `Another Lumovi (${taker})` : 'Another Lumovi'} took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.`
     throw new Error(this.#lost)
   }
 
+  /**
+   * Whether another has had the history meanwhile, though no lock says so. A hold that went
+   * unrenewed for as long as the quickest takeover takes may have been taken, written under,
+   * and let go of again (its lock gone); or taken, and then written over by this one's own late
+   * renewal (the lock its own again). Either way the history tells: it no longer ends where
+   * this one left it. Asked only then, and until it has been asked once.
+   */
+  #taken(): boolean {
+    this.#doubted ||= Date.now() - this.#renewedAt >= LOCK_RENEW_MS * 2
+    if (!this.#doubted) return false
+    if (!this.unmoved()) return true
+    this.#doubted = false
+    return false
+  }
+
   #write() {
+    // Said late, it may be said over another's hold: looked into before anything more is kept.
+    this.#doubted ||= Date.now() - this.#renewedAt >= LOCK_RENEW_MS * 2
     replace(this.#path, this.#id)
     this.#renewedAt = Date.now()
   }

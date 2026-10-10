@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -1875,7 +1876,33 @@ test('a Lumovi that can’t reach its lock stops writing the history after a hol
   await act()
   await expect.poll(() => linesOf(dayFile(dir)).length).toBeGreaterThan(before)
   expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
+
+  // Out of reach again, for longer than a hold lasts: and this time another Lumovi took the
+  // history over meanwhile, wrote to it, and let go of it again as it stopped. There's no lock
+  // to say so: the history does, which no longer ends where this one left it.
+  await expect(() => {
+    rmSync(lock, { force: true })
+    mkdirSync(lock)
+  }).toPass()
+  await new Promise((done) => setTimeout(done, 2000))
+  const [last] = eventsIn(dayFile(dir)).slice(-1)
+  const others = { ...last!, id: 'another-lumovis', seq: last!.seq + 1, prev: last!.hash }
+  appendFileSync(dayFile(dir), `${JSON.stringify({ ...others, hash: hashOf(others) })}\n`)
+  const taken = linesOf(dayFile(dir)).length
+  rmSync(lock, { recursive: true })
+  await act()
+  await expect
+    .poll(() => served.log())
+    .toContain(
+      'The audit history can’t be kept: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
+    )
+  // For good: nothing more is written, and it doesn't put its lock back, then or as it stops.
+  await new Promise((done) => setTimeout(done, 1200))
+  await act()
+  expect(linesOf(dayFile(dir))).toHaveLength(taken)
+  expect(existsSync(lock)).toBe(false)
   await served.stop()
+  expect(existsSync(lock)).toBe(false)
 })
 
 test('a Lumovi whose history another took over stops writing it, and says so', async ({
