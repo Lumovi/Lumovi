@@ -27,6 +27,7 @@ import {
 import { useList } from '@renderer/hooks/queries'
 import { api, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { Picker } from '@renderer/components/Picker'
 import { useLayout, useTouch } from '@renderer/lib/layout'
 import { shortNames, type Level, type LogLine, type Segment } from '@renderer/lib/logs'
 import { toast } from '@renderer/state/toasts'
@@ -542,12 +543,14 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
           )}
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-2 text-xs text-ink-2">
+        // (On a narrow page it keeps to one row: its fields give way, and what's done least is
+        // behind a button.)
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-2 text-xs text-ink-2 narrow:flex-nowrap">
           <select
             aria-label="Container"
             value={container}
             onChange={(event) => setContainer(event.target.value)}
-            className="h-7 max-w-40 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 touch:h-11"
+            className="h-7 max-w-40 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 narrow:min-w-16 narrow:shrink touch:h-11"
           >
             {names.length > 1 && <option value={ALL}>All containers</option>}
             {names.map((n) => (
@@ -560,7 +563,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
             aria-label="Show"
             value={range}
             onChange={(event) => setRange(event.target.value)}
-            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 touch:h-11"
+            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 narrow:min-w-16 narrow:shrink touch:h-11"
           >
             {RANGES.map((r) => (
               <option key={r.value} value={r.value}>
@@ -605,17 +608,58 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
               <WrapText />
             </Toggle>
           )}
-          <CopyButton text={text} label="Copy logs" />
-          <Tooltip content="Download">
-            <button
-              type="button"
-              aria-label="Download"
-              onClick={() => void download()}
-              className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 touch:size-11 touch:rounded-lg [&_svg]:size-4"
+          {narrow ? (
+            <Picker
+              open={more}
+              onOpenChange={setMore}
+              title="Logs"
+              align="end"
+              className="min-w-44"
+              trigger={
+                <button
+                  type="button"
+                  aria-label="More"
+                  className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3 touch:size-11 touch:rounded-lg [&_svg]:size-4"
+                >
+                  <Ellipsis />
+                </button>
+              }
             >
-              <Download />
-            </button>
-          </Tooltip>
+              {(
+                [
+                  ['Copy logs', Copy, () => void navigator.clipboard.writeText(text())],
+                  ['Download', Download, () => void download()],
+                ] as const
+              ).map(([label, Icon, act]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    act()
+                    setMore(false)
+                  }}
+                  className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-ink-1 hover:bg-surface-3 touch:h-11"
+                >
+                  <Icon className="size-4 text-ink-3" />
+                  {label}
+                </button>
+              ))}
+            </Picker>
+          ) : (
+            <>
+              <CopyButton text={text} label="Copy logs" />
+              <Tooltip content="Download">
+                <button
+                  type="button"
+                  aria-label="Download"
+                  onClick={() => void download()}
+                  className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 touch:size-11 touch:rounded-lg [&_svg]:size-4"
+                >
+                  <Download />
+                </button>
+              </Tooltip>
+            </>
+          )}
         </div>
       )}
       {(multiple || levelCounts.size > 1) && (
