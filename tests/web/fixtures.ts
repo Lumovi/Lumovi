@@ -94,8 +94,6 @@ export function startServer(
     LUMOVI_ALLOW_PRIVATE_CHARTS: 'true',
     // Never GitHub's sponsor.json: a closed port, so Lumovi's own card (sponsor.spec.ts serves one).
     LUMOVI_SPONSOR_URL: 'http://127.0.0.1:9/',
-    // Create's form, which the built app keeps to itself until all its kinds are there.
-    LUMOVI_CREATE_FORM: '1',
     ...NO_PROXY_HERE,
     ...options.env,
   }

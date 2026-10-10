@@ -181,11 +181,11 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 
 ### Create
 
-`create`: Creating resources from YAML, checked as it's typed.
+`create`: Creating a Deployment from a form, with the YAML it writes beside it.
 
-| Light                                                                                              | Dark                                                                                             |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [![Creating resources from YAML, checked as it's typed.](create-light-1x.webp)](create-light.webp) | [![Creating resources from YAML, checked as it's typed.](create-dark-1x.webp)](create-dark.webp) |
+| Light                                                                                                               | Dark                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [![Creating a Deployment from a form, with the YAML it writes beside it.](create-light-1x.webp)](create-light.webp) | [![Creating a Deployment from a form, with the YAML it writes beside it.](create-dark-1x.webp)](create-dark.webp) |
 
 ### AI assistants
 

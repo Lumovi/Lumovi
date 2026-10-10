@@ -349,10 +349,18 @@ export const SCREENS: Screen[] = [
   {
     name: 'create',
     title: 'Create',
-    description: "Creating resources from YAML, checked as it's typed.",
+    description: 'Creating a Deployment from a form, with the YAML it writes beside it.',
     app: 'desktop',
     path: `${cluster}/pods`,
-    steps: (page) => page.keyboard.press('ControlOrMeta+n'),
+    async steps(page) {
+      await page.keyboard.press('ControlOrMeta+n')
+      const form = page.getByRole('dialog').getByRole('group', { name: 'Form', exact: true })
+      const field = (name: string) => form.getByRole('textbox', { name, exact: true })
+      await field('Name').fill('web')
+      await field('Port').fill('80')
+      // Left in the image: its path and its line in the YAML are lit.
+      await field('Image').fill('nginx:1.27')
+    },
   },
   {
     name: 'assistants',
