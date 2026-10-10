@@ -1,3 +1,5 @@
+import { LargerScreenNote } from '@renderer/components/LargerScreen'
+import { useLayout } from '@renderer/lib/layout'
 import { useQueries } from '@tanstack/react-query'
 import { ArrowUpCircle, History, Maximize2, Minimize2, ShipWheel, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
@@ -119,6 +121,7 @@ function ReleaseActions({
   onAction: (dialog: Dialog) => void
 }) {
   const cli = useHelmCli().data
+  const phone = useLayout() === 'phone'
   const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
   const ns = release.namespace
@@ -148,6 +151,14 @@ function ReleaseActions({
       : []),
     { id: 'uninstall', label: 'Uninstall…', icon: Trash2, danger: true },
   ]
+  // A phone reads a release: it's changed from a larger screen.
+  if (phone) {
+    return (
+      <div className="mt-2.5">
+        <LargerScreenNote to="upgrade it, roll it back or uninstall it" />
+      </div>
+    )
+  }
   return (
     <div
       className="mt-2.5 flex flex-wrap items-center gap-1.5"

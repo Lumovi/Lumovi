@@ -20,7 +20,9 @@ export type Layout = 'wide' | 'tablet' | 'phone'
 export const LAYOUT_WIDTHS = { phone: 640, wide: 1024 } as const
 
 const NARROWS = api.host === 'server'
-const PHONE = `(width < ${LAYOUT_WIDTHS.phone}px)`
+/** A phone's page, as a media query: for what's asked outside a component. */
+export const PHONE_MEDIA = NARROWS ? `(width < ${LAYOUT_WIDTHS.phone}px)` : 'not all'
+const PHONE = PHONE_MEDIA
 const NARROW = `(width < ${LAYOUT_WIDTHS.wide}px)`
 /** A finger, or anything else that can't hover or point finely. */
 const TOUCH = '(hover: none), (pointer: coarse)'

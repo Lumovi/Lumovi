@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import {
   ArrowDown,
   ArrowRight,
@@ -537,7 +538,9 @@ function AdviceRow({
 }) {
   const openObject = useOpenObject()
   const { name, namespace } = workload.metadata
-  const changes = changedContainers(advice).length > 0
+  // (A phone reads what's advised: it's applied from a larger screen.)
+  const wide = useLayout() !== 'phone'
+  const changes = changedContainers(advice).length > 0 && wide
   const detailsId = `advice-${key}`
   // The row expands from anywhere but its buttons.
   const expand = (event: MouseEvent) => {

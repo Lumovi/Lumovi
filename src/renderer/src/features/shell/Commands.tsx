@@ -1,3 +1,4 @@
+import { PHONE_MEDIA } from '@renderer/lib/layout'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { useMatch, useNavigate } from 'react-router'
@@ -69,7 +70,8 @@ export function Commands() {
       forward: () => navigate(1),
       clusters: () => goTo('/'),
       // Objects are created in a cluster, so not from the start screen.
-      create: () => setCreate(Boolean(context)),
+      // (Not on a phone, where nothing is written: its dialog isn't there to open.)
+      create: () => setCreate(Boolean(context) && !matchMedia(PHONE_MEDIA).matches),
       // A terminal on this computer, pointed at the cluster that's open (the desktop app's dock
       // says which, and its namespace; on the start screen, there's none).
       terminal: () => {

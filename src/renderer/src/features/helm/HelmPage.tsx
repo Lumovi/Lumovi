@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import { PackagePlus, SearchX, ShipWheel } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
@@ -90,6 +91,7 @@ export function HelmPage() {
   const [health, setHealth] = useState<Health[]>([])
   const [sort, setSort] = useState({ id: 'name', desc: false })
   const [installing, setInstalling] = useState(false)
+  const phone = useLayout() === 'phone'
   const gridRef = useRef<HTMLDivElement>(null)
 
   const rows: Row[] = (releases.data ?? []).map((r) => ({
@@ -179,10 +181,13 @@ export function HelmPage() {
             />
           )
         }
+        // A phone reads releases: charts are installed from a larger screen.
         before={
-          <Button variant="secondary" onClick={() => setInstalling(true)}>
-            <PackagePlus /> Install chart
-          </Button>
+          !phone && (
+            <Button variant="secondary" onClick={() => setInstalling(true)}>
+              <PackagePlus /> Install chart
+            </Button>
+          )
         }
         filter={filter}
         noun="releases"
