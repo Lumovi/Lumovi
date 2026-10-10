@@ -78,6 +78,8 @@ test('the sidebar is a drawer: behind a button, holding focus, closed by Escape 
   await expect(page.getByRole('heading', { level: 1, name: 'Pods' })).toBeVisible()
   // And a tap on what's left of the page does.
   await menu(page).click()
+  // (Once it's there: a tap sent before it has opened lands on the page, and closes nothing.)
+  await expect(drawer(page)).toBeVisible()
   await page.mouse.click(PHONE.width - 10, PHONE.height / 2)
   await expect(drawer(page)).toHaveCount(0)
 })
