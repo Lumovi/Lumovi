@@ -6,6 +6,7 @@
 import type http from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
+import { containerFiles } from './files.ts'
 import type { Json, KubeObject } from './types.ts'
 
 const STDOUT = 1
@@ -226,6 +227,8 @@ export function streamingEndpoints(context: StreamContext) {
 
   const shells = new Set<WebSocket>()
   const tunnels = new Set<WebSocket>()
+  // What `tar` reads and writes in the containers (`kubectl cp`, over exec).
+  const files = containerFiles()
   const serve = (
     req: http.IncomingMessage,
     socket: Duplex,
@@ -268,13 +271,14 @@ export function streamingEndpoints(context: StreamContext) {
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       const image: string = status.image
+      const command = url.searchParams.getAll('command')
       if (SHELLLESS.test(image)) {
         ws.send(
           frame(
             ERROR,
             JSON.stringify(
               failure(
-                'OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH: unknown',
+                `OCI runtime exec failed: exec failed: unable to start container process: exec: "${command[0] === 'tar' ? 'tar' : 'sh'}": executable file not found in $PATH: unknown`,
               ),
             ),
           ),
@@ -282,7 +286,9 @@ export function streamingEndpoints(context: StreamContext) {
         ws.close()
         return
       }
-      const command = url.searchParams.getAll('command')
+      if (command[0] === 'tar' && files.run(ws, command, { namespace, pod: name, container })) {
+        return
+      }
       // An image without nsenter: the command's check says so.
       if (command.includes('nsenter') && /no-nsenter/.test(image)) {
         ws.send(
@@ -338,6 +344,7 @@ export function streamingEndpoints(context: StreamContext) {
     upgrade,
     shells: () => shells.size,
     tunnels: () => tunnels.size,
+    files,
     /** Ends every open stream, e.g. when the cluster is reset. */
     closeAll: () => {
       for (const client of wss.clients) client.terminate()
