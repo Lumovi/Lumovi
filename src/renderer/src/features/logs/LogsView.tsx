@@ -142,7 +142,7 @@ function Toggle({
         aria-label={label}
         aria-pressed={pressed}
         onClick={() => onChange(!pressed)}
-        className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:bg-accent-soft aria-pressed:text-accent-strong phone:size-11 phone:rounded-lg [&_svg]:size-4"
+        className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 aria-pressed:bg-accent-soft aria-pressed:text-accent-strong touch:size-11 touch:rounded-lg [&_svg]:size-4"
       >
         {children}
       </button>
@@ -547,7 +547,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
             aria-label="Container"
             value={container}
             onChange={(event) => setContainer(event.target.value)}
-            className="h-7 max-w-40 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
+            className="h-7 max-w-40 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 touch:h-11"
           >
             {names.length > 1 && <option value={ALL}>All containers</option>}
             {names.map((n) => (
@@ -560,7 +560,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
             aria-label="Show"
             value={range}
             onChange={(event) => setRange(event.target.value)}
-            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
+            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 touch:h-11"
           >
             {RANGES.map((r) => (
               <option key={r.value} value={r.value}>
@@ -568,7 +568,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
               </option>
             ))}
           </select>
-          <label className="flex h-7 min-w-24 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 focus-within:border-accent">
+          <label className="flex h-7 min-w-24 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 focus-within:border-accent touch:h-11">
             <Search className="size-3.5 shrink-0 text-ink-3" />
             <input
               aria-label="Search logs"
@@ -611,7 +611,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
               type="button"
               aria-label="Download"
               onClick={() => void download()}
-              className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 [&_svg]:size-4"
+              className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink-1 touch:size-11 touch:rounded-lg [&_svg]:size-4"
             >
               <Download />
             </button>
@@ -622,7 +622,7 @@ function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
         <div
           role="group"
           aria-label="Show lines from"
-          className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-5 py-1.5 phone:flex-wrap phone:gap-x-2 phone:gap-y-5 phone:overflow-visible phone:px-4 phone:py-2.5"
+          className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-5 py-1.5 narrow:flex-wrap narrow:overflow-visible phone:px-4 touch:flex-wrap touch:gap-x-2 touch:gap-y-5 touch:overflow-visible touch:py-2.5"
         >
           {(['error', 'warn'] as const)
             .filter((level) => levelCounts.has(level))

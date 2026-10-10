@@ -239,12 +239,10 @@ test('logs wrap, and what’s done to them is a finger’s size', async ({ page,
   // The rest is in a sheet.
   await detail.getByRole('button', { name: 'More' }).click()
   const more = page.getByRole('dialog', { name: 'Logs' })
-  await expect(more.getByRole('button')).toHaveText([
-    'Close',
-    'Show the previous container',
-    'Copy logs',
-    'Download',
-  ])
+  await expect(more.getByRole('button')).toHaveCount(4)
+  for (const name of ['Close', 'Show the previous container', 'Copy logs', 'Download']) {
+    await expect(more.getByRole('button', { name, exact: true })).toBeVisible()
+  }
   await page.keyboard.press('Escape')
   await expect(more).toHaveCount(0)
 })
