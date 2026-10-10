@@ -1905,6 +1905,49 @@ test('a Lumovi that can’t reach its lock stops writing the history after a hol
   expect(existsSync(lock)).toBe(false)
 })
 
+test('a Lumovi held up while another took its history, wrote to it and stopped, writes no more', async ({
+  clusters,
+}) => {
+  // (Holding a process up and letting it go on is asked of the system, which Windows can't be.)
+  test.skip(process.platform === 'win32', 'needs SIGSTOP')
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
+  const lock = join(dir, 'audit.lock')
+  const env = {
+    LUMOVI_AUDIT_DIR: dir,
+    LUMOVI_AUDIT_LOCK_STALE_MS: '1500',
+    LUMOVI_AUDIT_WATCH_MS: '300',
+  }
+  const first = await startServer(clusters, { env })
+  try {
+    const its = JSON.parse(readFileSync(lock, 'utf8')) as { id: string }
+    const kept = linesOf(dayFile(dir)).length
+    // Held up (its node frozen, say) for longer than its hold lasts.
+    first.process.kill('SIGSTOP')
+    // A second waits, watches the lock go unrenewed, takes the history, writes that it started,
+    // and stops as an upgrade stops it: letting go of the lock.
+    const second = await startServer(clusters, { env })
+    expect(second.log()).toContain('keeps its audit history')
+    expect(JSON.parse(readFileSync(lock, 'utf8')).id).not.toBe(its.id)
+    await second.stop()
+    const written = linesOf(dayFile(dir)).length
+    expect(written).toBeGreaterThan(kept)
+    expect(existsSync(lock)).toBe(false)
+    // The first goes on. No lock says its history was taken: the history does.
+    first.process.kill('SIGCONT')
+    await expect
+      .poll(() => first.log())
+      .toContain(
+        'The audit history can’t be looked after: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
+      )
+    await new Promise((done) => setTimeout(done, 1200))
+    expect(linesOf(dayFile(dir))).toHaveLength(written)
+    expect(existsSync(lock)).toBe(false)
+  } finally {
+    first.process.kill('SIGCONT')
+    await first.stop()
+  }
+})
+
 test('a Lumovi whose history another took over stops writing it, and says so', async ({
   page,
   context,
