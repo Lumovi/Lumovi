@@ -208,6 +208,8 @@ spec:
               value: {{ .Values.metrics.source | quote }}
             - name: LUMOVI_METRICS_STACK
               value: {{ ternary "on" "off" .Values.metrics.stack | quote }}
+            - name: LUMOVI_FILE_COPY_MAX_BYTES
+              value: {{ ternary (int64 .Values.fileCopy.maxBytes | toString) "off" .Values.fileCopy.enabled | quote }}
             - name: LUMOVI_ALLOW_PRIVATE_CHARTS
               value: {{ .Values.helm.allowPrivateCharts | quote }}
             - name: LUMOVI_ARTIFACT_HUB_URL

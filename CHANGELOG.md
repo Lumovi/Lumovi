@@ -20,9 +20,12 @@ All notable changes to Lumovi are documented here. The format follows
   entry that names anything else ends the copy. A download needs the access a shell does and
   works on read-only clusters, as it changes nothing; an upload also needs changes allowed, is
   refused where it's read-only, and asks for the pod's name on production clusters. Both are in
-  the audit log (who, pod, container, path, size; never contents). One copy carries 2 GiB at
-  most unless `LUMOVI_FILE_COPY_MAX_BYTES` or the organization's policy (`fileCopy`) says
-  otherwise; either can turn copying off. It isn't offered to AI assistants.
+  the audit log, when a copy begins and how it ends (who, pod, container, path, size; never
+  contents, a container's own words, or the names of files in a folder). One copy carries 2 GiB
+  at most unless `LUMOVI_FILE_COPY_MAX_BYTES` (the Helm chart's `fileCopy.maxBytes`) or the
+  organization's policy (`fileCopy`) says otherwise; `off` (`fileCopy.enabled: false`), or the
+  policy, turns copying off, and a server doesn't start with a limit that isn't a whole number.
+  It isn't offered to AI assistants.
 
 ### Fixed
 

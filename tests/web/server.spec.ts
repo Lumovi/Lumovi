@@ -356,6 +356,14 @@ test('the server says what’s wrong with its configuration, and stops', async (
     [{ LUMOVI_NODE_SHELL: 'maybe' }, 'LUMOVI_NODE_SHELL must be on or off, not "maybe".'],
     [{ LUMOVI_METRICS_STACK: 'yes' }, 'LUMOVI_METRICS_STACK must be on or off, not "yes".'],
     [
+      { LUMOVI_FILE_COPY_MAX_BYTES: '2Gi' },
+      'LUMOVI_FILE_COPY_MAX_BYTES must be a whole number of bytes, or off, not "2Gi".',
+    ],
+    [
+      { LUMOVI_FILE_COPY_MAX_BYTES: '-1' },
+      'LUMOVI_FILE_COPY_MAX_BYTES must be a whole number of bytes, or off, not "-1".',
+    ],
+    [
       { LUMOVI_NODE_SHELL_IMAGE: 'has space' },
       'LUMOVI_NODE_SHELL_NAMESPACE must be a namespace\'s name and LUMOVI_NODE_SHELL_IMAGE an image, not "kube-system" and "has space".',
     ],

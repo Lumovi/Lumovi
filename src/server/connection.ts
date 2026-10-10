@@ -351,12 +351,16 @@ export class PageConnection {
       [IPC.appInfo]: () => info,
       [IPC.sponsorCard]: () => sponsor.card(),
       // What's uploaded was picked in the browser: the page says what it will send, and that's
-      // checked and held for the copy.
-      [IPC.filesUpload]: (id: unknown, request: unknown, sent: unknown) => {
+      // checked and held for the copy it's for, and no longer: one that's refused holds nothing.
+      [IPC.filesUpload]: async (id: unknown, request: unknown, sent: unknown) => {
+        let handle: string | undefined
         try {
-          return files.upload(id, { ...Object(request), source: pageFiles.picked(sent) })
+          handle = pageFiles.picked(sent)
+          return await files.upload(id, { ...Object(request), source: handle })
         } catch (error) {
           return { ok: false, error: toKubeError(error) }
+        } finally {
+          if (handle) pageFiles.forget(handle)
         }
       },
       // A fleet's page sums each cluster up; and an admin trusts an agent again, whose cluster's

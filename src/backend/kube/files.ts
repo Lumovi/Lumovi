@@ -55,7 +55,7 @@ import { assertQuery, assertString, invalid } from './validate'
 
 /** How much a copy carries, and how long it waits for more. */
 export interface FileCopyLimits {
-  /** In bytes, of the files' contents; 0 turns copying off. */
+  /** In bytes, of the files' contents; 0 is copying turned off. */
   maxBytes: number
   /** How long nothing may arrive (or leave) before a copy is stopped. */
   idleMs: number
@@ -64,6 +64,20 @@ export interface FileCopyLimits {
 }
 
 const whole = (text: string | undefined) => (text && /^\d+$/.test(text) ? Number(text) : undefined)
+
+/**
+ * What LUMOVI_FILE_COPY_MAX_BYTES says: a whole number of bytes, or `off` (as 0 is); undefined
+ * where it says nothing. Anything else isn't a limit, and isn't taken for none: it throws.
+ */
+export function fileCopyMaxBytes(text: string | undefined): number | undefined {
+  const value = text?.trim()
+  if (!value) return undefined
+  if (value === 'off') return 0
+  if (/^\d+$/.test(value) && Number.isSafeInteger(Number(value))) return Number(value)
+  throw new Error(
+    `LUMOVI_FILE_COPY_MAX_BYTES must be a whole number of bytes, or off, not "${value.slice(0, 40)}".`,
+  )
+}
 
 /**
  * How much a copy carries here: what the organization's policy says (the desktop app's), or
@@ -85,11 +99,16 @@ export function fileCopyLimits(
       raise: 'Your organization’s policy sets that (fileCopy).',
     }
   }
-  return {
-    maxBytes: whole(env.LUMOVI_FILE_COPY_MAX_BYTES) ?? FILE_COPY_MAX_BYTES,
-    idleMs,
-    raise:
-      'LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (0 turns copying off).',
+  try {
+    return {
+      maxBytes: fileCopyMaxBytes(env.LUMOVI_FILE_COPY_MAX_BYTES) ?? FILE_COPY_MAX_BYTES,
+      idleMs,
+      raise:
+        'LUMOVI_FILE_COPY_MAX_BYTES sets that where Lumovi runs, in bytes (off turns copying off).',
+    }
+  } catch (error) {
+    // A server doesn't start with one like that; the desktop app copies nothing until it's put right.
+    return { maxBytes: 0, idleMs, raise: (error as Error).message }
   }
 }
 
@@ -152,7 +171,12 @@ export interface FilesHost {
     id: string,
     request: FileDownloadRequest,
     arriving: Arriving,
-  ): { url?: string; saving: Promise<Saving | null> }
+  ): {
+    url?: string
+    saving: Promise<Saving | null>
+    /** The copy ended before it was kept anywhere: its address (a server's) stops answering. */
+    withdraw?(): void
+  }
   /** What was picked to upload, by its handle; undefined for one that isn't this page's. */
   sending(id: string, source: string): Sending | undefined
 }
@@ -176,10 +200,18 @@ class TurnedDown extends KubeRequestError {
 }
 
 /** A path as it's recorded, whatever was given as one: no longer than 300, and nothing unprintable. */
-const printable = (path: string) => JSON.stringify(path.slice(0, 300)).slice(1, -1)
+const printable = (path: string, most = 300) => JSON.stringify(path.slice(0, most)).slice(1, -1)
 
 const failed = (reason: FileCopyReason, code: FileCopyError['code'], message: string) =>
   Object.assign(new KubeRequestError(code, message), { reason })
+
+/**
+ * An error whose words for the page say more than the audit log keeps: what a container
+ * wrote, or the name of a file in a folder. `recorded` is what the log says of it instead:
+ * what happened, in words of Lumovi's own.
+ */
+const recordedAs = <E extends Error>(error: E, recorded: string) =>
+  Object.assign(error, { recorded })
 
 function copyError(error: unknown): FileCopyError {
   const reason = (error as { reason?: FileCopyReason }).reason
@@ -194,14 +226,27 @@ function copyError(error: unknown): FileCopyError {
 function ending(error: unknown): Ending {
   if (error === undefined) return { outcome: 'done' }
   if (error instanceof Cancelled) return { outcome: 'cancelled' }
+  const shown = copyError(error)
+  const { recorded } = error as { recorded?: string }
+  // What this computer says of a file names it, and where it is.
+  const local = !(error instanceof KubeRequestError) && (error as NodeJS.ErrnoException).path
   return {
     outcome: 'failed',
-    error: copyError(error),
+    error: shown,
+    recorded:
+      recorded ??
+      (local
+        ? `This computer couldn’t keep or read a file of it (${(error as NodeJS.ErrnoException).code ?? 'an error'}).`
+        : shown.message),
     ...(error instanceof TurnedDown ? { turnedDown: true } : {}),
   }
 }
 
-type Ending = Pick<FileCopyEnd, 'outcome' | 'error'> & { turnedDown?: boolean }
+type Ending = Pick<FileCopyEnd, 'outcome' | 'error'> & {
+  turnedDown?: boolean
+  /** What the audit log says went wrong. */
+  recorded?: string
+}
 
 /** What tar wrote to stderr, to say if it fails: its start, which is where it says why. */
 class Said extends Writable {
@@ -417,6 +462,8 @@ export class FileCopies {
       await this.deps.envReady
       const kc = this.deps.store.forContext(r.context)
       await prepare(kc)
+      // Recorded as it starts too: one that never ends (Lumovi stopped) isn't a copy unseen.
+      this.#began(copy)
       return await run(kc)
     } catch (error) {
       const failure = { ok: false as const, error: copyError(copy?.halted ?? error) }
@@ -516,12 +563,12 @@ export class FileCopies {
   }
 
   /** Why tar ended as it did, when that wasn't well: no tar there, or what it said. */
-  #tarFailure(copy: Copy, exit: Exit, said: string): Error | undefined {
+  #tarFailure(copy: Copy, exit: Exit, words: string): Error | undefined {
     if (exit.code === 0) return undefined
     const r = copy.request
     // tar's own complaints start with its name: then it's there.
-    const missing = NO_TAR.test(`${exit.message ?? ''} ${said}`) || exit.code === 127
-    if (missing && !/^tar: /m.test(said)) {
+    const missing = NO_TAR.test(`${exit.message ?? ''} ${words}`) || exit.code === 127
+    if (missing && !/^tar: /m.test(words)) {
       return failed(
         'no-tar',
         'invalid',
@@ -529,15 +576,27 @@ export class FileCopies {
       )
     }
     if (exit.closed) return new KubeRequestError('unreachable', CLOSED)
-    const what = said || exit.message || `tar ended with ${exit.code}`
-    return new KubeRequestError(
-      /no such file or directory|not found in archive|can't (open|stat)/i.test(said) &&
-        copy.direction === 'download'
-        ? 'not-found'
-        : 'invalid',
-      copy.direction === 'download'
-        ? `tar in ${r.container} couldn’t read ${r.path}: ${what}`
-        : `tar in ${r.container} couldn’t write to ${r.path}: ${what} Some of it may be there already.`,
+    // tar's own words are the container's: for the page, as text; never for the record.
+    const what = printable(
+      (words || exit.message || `tar ended with ${exit.code}`).replace(/\s+/g, ' '),
+      2000,
+    )
+    const path = printable(r.path)
+    const down = copy.direction === 'download'
+    const gone =
+      down && /no such file or directory|not found in archive|can't (open|stat)/i.test(words)
+    return recordedAs(
+      new KubeRequestError(
+        gone ? 'not-found' : 'invalid',
+        down
+          ? `tar in ${r.container} couldn’t read ${path}: ${what}`
+          : `tar in ${r.container} couldn’t write to ${path}: ${what} Some of it may be there already.`,
+      ),
+      down
+        ? gone
+          ? 'tar in the container found nothing to read at that path, or couldn’t read all of it.'
+          : `tar in the container failed as it read (it ended with ${exit.code ?? 'no code'}).`
+        : `tar in the container failed as it wrote (it ended with ${exit.code ?? 'no code'}). Some of it may be there already.`,
     )
   }
 
@@ -564,6 +623,8 @@ export class FileCopies {
     let saving: Saving | null | undefined
     let entries = 0
     let note: string | undefined
+    /** Takes back where it would be kept, while that's not yet chosen. */
+    let withdraw: (() => void) | undefined
 
     const entry = async (header: Header, contents: AsyncIterable<Buffer>) => {
       const skip = async () => {
@@ -571,10 +632,13 @@ export class FileCopies {
       }
       const names = entryPath(header.name, at.name)
       if (!names) {
-        throw failed(
-          'unsafe',
-          'invalid',
-          `The archive from ${r.container} names “${header.name.slice(0, 200)}”, which isn’t under ${at.path}. Nothing of it was kept.`,
+        throw recordedAs(
+          failed(
+            'unsafe',
+            'invalid',
+            `The archive from ${r.container} names “${printable(header.name, 200)}”, which isn’t under ${printable(at.path)}. Nothing of it was kept.`,
+          ),
+          'The archive from the container named something that isn’t under the path asked for. Nothing of it was kept.',
         )
       }
       if (header.type !== 'file' && header.type !== 'directory') {
@@ -595,23 +659,27 @@ export class FileCopies {
       if (kind === undefined) {
         kind = names.length === 0 && !folder ? 'file' : 'folder'
         if (kind === 'file') copy.total = header.size
-        const { url, saving: chosen } = this.host.save(copy.id, r, {
+        const offered = this.host.save(copy.id, r, {
           folder: kind === 'folder',
           name: downloadName(at, r),
           ...(kind === 'file' ? { size: header.size } : {}),
         })
-        begun({ ...(url ? { url } : {}), ...(kind === 'file' ? { total: header.size } : {}) })
-        // Its person takes as long as they like to say where.
-        idle.hold(true)
-        saving = await Promise.race([chosen, copy.halting.then(() => null)])
-        if (copy.halted) {
+        const { url, saving: chosen } = offered
+        withdraw = () => {
+          offered.withdraw?.()
+          // Chosen after all (a dialog still open): nothing is kept of it.
           void chosen.then(
             (kept) => kept?.discard(),
             () => undefined,
           )
-          throw copy.halted
         }
+        begun({ ...(url ? { url } : {}), ...(kind === 'file' ? { total: header.size } : {}) })
+        // Its person takes as long as they like to say where.
+        idle.hold(true)
+        saving = await Promise.race([chosen, copy.halting.then(() => null)])
+        if (copy.halted) throw copy.halted
         if (!saving) throw new Cancelled()
+        withdraw = undefined
         idle.hold(false)
       }
       // One file is one file; a folder has one top, and it's a folder.
@@ -620,7 +688,7 @@ export class FileCopies {
         throw failed(
           'unsafe',
           'invalid',
-          `The archive from ${r.container} holds more than ${at.path}. Nothing of it was kept.`,
+          `The archive from ${r.container} holds more than ${printable(at.path)}. Nothing of it was kept.`,
         )
       }
       if (!names.every((name) => nameable(name, this.host.platform))) {
@@ -695,9 +763,12 @@ export class FileCopies {
         // What reads the archive says only that it couldn't: said as what it means.
         // (Not what this computer said of a file, which has a code and is said as that.)
         if (problem instanceof Error && problem.constructor === Error && !('code' in problem)) {
-          throw new KubeRequestError(
-            'invalid',
-            `What ${r.container} sent isn’t an archive as tar writes one (${problem.message}). Nothing of it was kept.`,
+          throw recordedAs(
+            new KubeRequestError(
+              'invalid',
+              `What ${r.container} sent isn’t an archive as tar writes one (${printable(problem.message)}). Nothing of it was kept.`,
+            ),
+            'What the container sent isn’t an archive as tar writes one. Nothing of it was kept.',
           )
         }
         if (problem) throw problem
@@ -705,14 +776,15 @@ export class FileCopies {
           throw new KubeRequestError(
             'invalid',
             copy.leftOut.links
-              ? `${at.path} is a link, and links aren’t followed: give the path it leads to.`
-              : `${at.path} is neither a file nor a folder, so there’s nothing to copy.`,
+              ? `${printable(at.path)} is a link, and links aren’t followed: give the path it leads to.`
+              : `${printable(at.path)} is neither a file nor a folder, so there’s nothing to copy.`,
           )
         }
         return await saving!.done()
       } catch (error) {
         run?.socket.close()
         parse.destroy()
+        withdraw?.()
         await saving?.discard()
         throw error
       } finally {
@@ -815,9 +887,12 @@ export class FileCopies {
                 if (left === 0) break
               }
               if (left > 0) {
-                throw new KubeRequestError(
-                  'invalid',
-                  `${name} changed while it was read, so the copy was stopped. Some of it may be there already.`,
+                throw recordedAs(
+                  new KubeRequestError(
+                    'invalid',
+                    `${printable(name)} changed while it was read, so the copy was stopped. Some of it may be there already.`,
+                  ),
+                  'A file changed while it was read, so the copy was stopped. Some of it may be there already.',
                 )
               }
             },
@@ -880,10 +955,36 @@ export class FileCopies {
     })
   }
 
-  /** One entry in the audit log for a copy, however it ended: never what was in it. */
-  #record(copy: Copy, { outcome, error, turnedDown }: Ending, note?: string) {
-    // The path is whatever was given as one: recorded so that it can't pass for anything else.
-    const r = { ...copy.request, path: printable(copy.request.path) }
+  /** A copy is asked of the cluster: recorded before anything of it moves. */
+  #began(copy: Copy) {
+    const r = this.#asRecorded(copy)
+    const down = copy.direction === 'download'
+    const where = `Pod ${r.pod} (${r.container})`
+    this.deps.audit.record({
+      action: down ? 'files.download' : 'files.upload',
+      outcome: 'success',
+      cluster: r.context,
+      target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
+      summary: down
+        ? `Began to download ${r.path} from ${where}`
+        : `Began to upload ${copy.name ?? 'files'} to ${r.path} in ${where}`,
+      command: down ? downloadKubectl(r) : uploadKubectl(r, copy.name ?? '<what was picked>'),
+      details: { container: r.container, path: r.path, direction: copy.direction, stage: 'began' },
+    })
+  }
+
+  /** What a copy asked for, as it's recorded: whatever was given can't pass for anything else. */
+  #asRecorded(copy: Copy) {
+    return {
+      ...copy.request,
+      path: printable(copy.request.path),
+      container: printable(copy.request.container, 100),
+    }
+  }
+
+  /** One entry in the audit log for how a copy ended, or why it never began: never what was in it. */
+  #record(copy: Copy, { outcome, error, recorded, turnedDown }: Ending, note?: string) {
+    const r = this.#asRecorded(copy)
     const down = copy.direction === 'download'
     const done = outcome === 'done'
     const where = `Pod ${r.pod} (${r.container})`
@@ -901,7 +1002,7 @@ export class FileCopies {
             : turnedDown || isRefusal(error!.code)
               ? 'refused'
               : 'failure',
-      ...(error ? { error: error.message } : {}),
+      ...(error ? { error: recorded ?? error.message } : {}),
       cluster: r.context,
       target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
       summary: done
@@ -912,6 +1013,7 @@ export class FileCopies {
         container: r.container,
         path: r.path,
         direction: copy.direction,
+        stage: 'ended',
         bytes: copy.bytes,
         files: copy.files,
         seconds: Math.round((Date.now() - copy.since) / 1000),

@@ -95,7 +95,12 @@ export class Transfers {
 /** A file name as a download's header gives it: plainly, and in full for browsers that read that. */
 function disposition(name: string): string {
   const plain = name.replace(/[^\w.-]/g, '_')
-  return `attachment; filename="${plain}"; filename*=UTF-8''${encodeURIComponent(name)}`
+  // RFC 5987's attr-char leaves out four that encodeURIComponent lets through.
+  const full = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  )
+  return `attachment; filename="${plain}"; filename*=UTF-8''${full}`
 }
 
 const downloadHeaders = (name: string, type: string) => ({
@@ -281,9 +286,13 @@ function manifest(input: unknown): Manifest {
 
 /** What one page's person copies: saved by their browser, sent from it. */
 export class PageFiles implements FilesHost {
-  /** Nothing is written here, so no name is one this computer can't give a file. */
+  /**
+   * Nothing is written here; but a folder's archive is unpacked wherever its person likes, so
+   * a name is left out that could lead elsewhere there (`shared/files`'s `nameable`).
+   */
   readonly platform = 'browser'
-  readonly #picked = new Map<string, Manifest>()
+  /** What pages said they'd send, as they said it: checked when a copy takes it. */
+  readonly #picked = new Map<string, unknown>()
   /** Stops a copy whose browser went away; set once there's something that copies. */
   cancel: (id: string) => void = () => undefined
 
@@ -292,27 +301,34 @@ export class PageFiles implements FilesHost {
     private readonly user: string,
   ) {}
 
-  /** Keeps what a page says it will upload, for the copy that follows: its handle. */
+  /**
+   * Keeps what a page says it will upload, for the copy that follows: its handle. Whether
+   * its person may upload at all is asked first, so it's checked only once a copy takes it.
+   */
   picked(input: unknown): string {
-    const checked = manifest(input)
     const handle = randomUUID()
-    this.#picked.set(handle, checked)
+    this.#picked.set(handle, input)
     while (this.#picked.size > PICKS_KEPT) this.#picked.delete(this.#picked.keys().next().value!)
     return handle
+  }
+
+  /** Lets go of what was picked, if no copy took it. */
+  forget(handle: string): void {
+    this.#picked.delete(handle)
   }
 
   save(
     id: string,
     _request: FileDownloadRequest,
     arriving: Arriving,
-  ): { url: string; saving: Promise<Saving | null> } {
+  ): { url: string; saving: Promise<Saving | null>; withdraw(): void } {
     let chosen!: (saving: Saving | null) => void
     let never!: (error: Error) => void
     const saving = new Promise<Saving | null>((resolve, reject) => {
       chosen = resolve
       never = reject
     })
-    const { url } = this.transfers.offer(
+    const { url, withdraw } = this.transfers.offer(
       this.user,
       'GET',
       (_req, res) => {
@@ -330,13 +346,22 @@ export class PageFiles implements FilesHost {
           ),
         ),
     )
-    return { url, saving }
+    return {
+      url,
+      saving,
+      // Not fetched yet, and never to be: the address is no copy's from here on.
+      withdraw: () => {
+        withdraw()
+        chosen(null)
+      },
+    }
   }
 
   sending(_id: string, source: string): Sending | undefined {
-    const picked = this.#picked.get(source)
-    if (!picked) return undefined
+    if (!this.#picked.has(source)) return undefined
+    const said = this.#picked.get(source)
     this.#picked.delete(source)
+    const picked = manifest(said)
     let arrived!: (req: IncomingMessage) => void
     let never!: (error: Error) => void
     const body = new Promise<IncomingMessage>((resolve, reject) => {
