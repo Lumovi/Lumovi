@@ -29,6 +29,13 @@ All notable changes to Lumovi are documented here. The format follows
   its pods link the service account they act as. Someone who may not list one of these kinds
   is told so, on its page and in the panels that would have listed it.
 
+### Changed
+
+- A view of your own for ServiceAccounts, Roles, ClusterRoles or their bindings no longer
+  applies: those kinds have pages of their own now, and a kind with its own page takes no
+  view (as a view of Pods never did). An add-on of your own that names one of them is refused,
+  and the API resources page says which.
+
 ## [1.21.0] - 2026-10-10
 
 Files are copied out of a pod's container and into one, from the pod's own actions. And two Lumovi
