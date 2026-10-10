@@ -37,7 +37,14 @@ const card = (scope: Locator | Page, name: string | RegExp) =>
 /** Opens every row that ends in "+N more". */
 async function openAll(scope: Locator) {
   const more = map(scope).getByRole('button', { name: /^[\d,]+ more$/ })
-  while ((await more.count()) > 0) await more.first().click()
+  // (One that's gone by the time it's clicked, the map having more room now, was opened for it.)
+  for (let tries = 0; tries < 50 && (await more.count()) > 0; tries++) {
+    await more
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => undefined)
+  }
+  await expect(more).toHaveCount(0)
 }
 
 test.describe('the map', () => {
