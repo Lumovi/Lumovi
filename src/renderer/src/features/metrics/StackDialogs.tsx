@@ -255,9 +255,9 @@ export function RemoveStackDialog({
     >
       <p className="text-[13px] leading-relaxed text-ink-2">
         Uninstalls {release}, which Lumovi installed, and deletes the namespace {namespace} with
-        everything in it: Prometheus, kube-state-metrics, their cluster roles, the usage history
-        collected so far, and anything else put in {namespace} since. Nothing of it stays in{' '}
-        {context}.
+        everything in it: Prometheus, kube-state-metrics, the usage history collected so far, and
+        anything else put in {namespace} since. Their two cluster roles and the roles’ bindings go
+        as well. Nothing of it stays in {context}.
       </p>
       <p className="text-[13px] leading-relaxed text-ink-2">
         The Metrics page, each object’s charts and right-sizing go back to having no history.

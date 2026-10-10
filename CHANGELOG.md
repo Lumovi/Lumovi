@@ -13,18 +13,18 @@ All notable changes to Lumovi are documented here. The format follows
   kube-state-metrics, from a chart Lumovi ships (prometheus-community's `prometheus`, pinned and
   checked against its SHA-256 before every use, so nothing is downloaded by Lumovi) and images
   pinned by digest. It collects only what Lumovi reads (CPU, memory and network use, restarts),
-  with two read-only cluster roles that reach nodes, their kubelets' metrics and pods: no
-  Secrets, no ConfigMaps. History is kept for 7 days on the node's disk, without a volume. Nothing
-  is made before the review: what will run, the values, and a dry run on the API server showing
-  every object. It's installed with helm into a namespace of its own (`lumovi-metrics`), which
-  Lumovi marks as its own, and recorded in the audit log with a helm command that installs the same chart
-  from its repository. Removing it, from the metrics source's settings, uninstalls the release and deletes the
-  namespace, leaving nothing in the cluster; a namespace Lumovi didn't make is never taken or
-  removed. Without the cluster's permission for all of it, Lumovi says what's missing and
+  with two read-only cluster roles that reach nodes, their kubelets' metrics and pods: no Secrets,
+  no ConfigMaps. History is kept for 7 days on the node's disk, without a volume. Nothing is made
+  before the review: what will run, the values, and a dry run on the API server showing every
+  object. It's installed with helm into a namespace of its own (`lumovi-metrics`), which Lumovi
+  marks as its own, and recorded in the audit log with a helm command that installs the same chart
+  from its repository. Removing it, from the metrics source's settings, uninstalls the release and
+  deletes the namespace, leaving nothing in the cluster; a namespace Lumovi didn't make is never
+  taken or removed. Without the cluster's permission for all of it, Lumovi says what's missing and
   installs nothing, and an install that fails is undone. Not offered on a read-only cluster. An
-  organization turns it off with `"metricsStack": false` in its policy; on a server, only
-  Lumovi's admins install or remove it (nobody, where it names none), and `metrics.stack: false` (`LUMOVI_METRICS_STACK=off`)
-  turns it off.
+  organization turns it off with `"metricsStack": false` in its policy; on a server, only Lumovi's
+  admins install or remove it (nobody, where it names none), and `metrics.stack: false`
+  (`LUMOVI_METRICS_STACK=off`) turns it off.
 
 ## [1.18.0] - 2026-10-09
 
