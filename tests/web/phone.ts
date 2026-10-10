@@ -7,6 +7,8 @@ import { expect, type Page } from '@playwright/test'
 /** A phone held upright, and on its side. */
 export const PHONE = { width: 390, height: 844 }
 export const PHONE_ON_ITS_SIDE = { width: 844, height: 390 }
+/** How the page's console says it refused itself a call (web/connection.ts's `REFUSED_CALL`). */
+export const REFUSED_CALL = 'Lumovi didn’t send a call the page may not make:'
 /** The smallest a thing to press may be, each way. */
 export const FINGER = 44
 

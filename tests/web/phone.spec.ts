@@ -11,10 +11,24 @@ import {
   expectNoSidewaysScroll,
   PHONE,
   PHONE_ON_ITS_SIDE,
+  REFUSED_CALL,
   signInNarrow,
 } from './phone.ts'
 
 test.use({ viewport: PHONE, hasTouch: true, isMobile: true })
+
+// The gate that keeps a phone from changing more than it may is the last resort: no page here
+// should ever run into it. A call it refused means something offered what a phone doesn't do.
+const refused: string[] = []
+test.beforeEach(({ page }) => {
+  refused.length = 0
+  page.on('console', (message) => {
+    if (message.text().startsWith(REFUSED_CALL)) refused.push(message.text())
+  })
+})
+test.afterEach(() => {
+  expect(refused, 'calls the page refused itself').toEqual([])
+})
 
 const menu = (page: Page) => page.getByRole('button', { name: 'Menu' })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Sidebar' })
