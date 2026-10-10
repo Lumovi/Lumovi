@@ -1,8 +1,10 @@
 import { ChevronsUpDown, FilePlus2, Info, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import {
+  useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type InputHTMLAttributes,
@@ -146,6 +148,16 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
           ? 'Nothing was created.'
           : 'Edit either side: they stay in step.'
 
+  // What the cluster said of a field is brought into view in the form too, whole.
+  const formPane = useRef<HTMLDivElement>(null)
+  const refusedCount = refused.length
+  useEffect(() => {
+    if (refusedCount === 0) return
+    const said = formPane.current?.querySelector('[role="alert"]')
+    // Its field is above it: both, where the pane has room.
+    ;(said?.parentElement?.parentElement ?? said)?.scrollIntoView({ block: 'nearest' })
+  }, [refusedCount])
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (ready && !pending) void create(text)
@@ -223,10 +235,11 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                   there's more below is said by its last lines fading out. */}
               <div className="relative min-h-0 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-7 after:bg-linear-to-b after:from-transparent after:to-surface-2">
                 <div
+                  ref={formPane}
                   data-form
                   role="group"
                   aria-label="Form"
-                  className="h-full [scrollbar-width:none] overflow-y-auto px-5 pt-4 pb-7"
+                  className="h-full [scroll-padding-block:1rem_2.5rem] [scrollbar-width:none] overflow-y-auto px-5 pt-4 pb-7"
                 >
                   <div className="flex flex-col gap-3.5">
                     {!reading.fits && (
@@ -288,7 +301,13 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     onSave={() => ready && !pending && void create(text)}
                     label="YAML to create"
                     lines={marks}
-                    reveal={lit[0]}
+                    reveal={
+                      // What the cluster refused is brought well into view; a field's own lines,
+                      // just into it.
+                      refused.length > 0 && marks.wrong[0] !== undefined
+                        ? { line: marks.wrong[0], high: true }
+                        : lit[0]
+                    }
                     autoFocus={false}
                   />
                 </div>
@@ -501,11 +520,11 @@ function WorkloadFields({
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
-        <Labelled label="Name" path="metadata.name" on={on('name')} error={said('name')}>
+        <Labelled label="Name" path="metadata.name" on={on('name')}>
           {(ids) => (
             <Text
               aria-labelledby={ids.label}
-              aria-describedby={ids.describedBy}
+              aria-describedby={`${ids.describedBy} create-who-said`}
               aria-invalid={said('name') !== undefined}
               value={values.name}
               placeholder="web"
@@ -515,17 +534,12 @@ function WorkloadFields({
             />
           )}
         </Labelled>
-        <Labelled
-          label="Namespace"
-          path="metadata.namespace"
-          on={on('namespace')}
-          error={said('namespace')}
-        >
+        <Labelled label="Namespace" path="metadata.namespace" on={on('namespace')}>
           {(ids) => (
             <span className="relative block">
               <select
                 aria-labelledby={ids.label}
-                aria-describedby={ids.describedBy}
+                aria-describedby={`${ids.describedBy} create-who-said`}
                 value={values.namespace}
                 onChange={(event) => {
                   const chosen = event.target.value
@@ -545,6 +559,14 @@ function WorkloadFields({
             </span>
           )}
         </Labelled>
+      </div>
+      {/* What's wrong with either is said under the two, across the form's width. */}
+      <div id="create-who-said" className="-mt-2 empty:hidden">
+        {(said('name') ?? said('namespace')) !== undefined && (
+          <p role="alert" className="text-xs leading-[17px] text-critical-text selectable">
+            {said('name') ?? said('namespace')}
+          </p>
+        )}
       </div>
       {allNamespaces && values.namespace === start && (
         <p className="-mt-2 text-xs leading-[17px] text-ink-3">
@@ -651,7 +673,7 @@ function WorkloadFields({
                   (problem) => problem.path && pathText(problem.path) === pathText(row),
                 )
                 return (
-                  <div key={index} className="flex items-center gap-1.5">
+                  <div key={index} className="flex items-start gap-1.5">
                     <Text
                       aria-label={`Variable ${index + 1}’s name`}
                       aria-describedby={ids.describedBy}
@@ -662,7 +684,7 @@ function WorkloadFields({
                       onChange={(name) => edit((text) => write.variableName(text, index, name))}
                       {...focused('env', row)}
                     />
-                    <span aria-hidden className="text-ink-3">
+                    <span aria-hidden className="flex h-8 items-center text-ink-3">
                       =
                     </span>
                     {variable.from === undefined ? (
@@ -680,12 +702,9 @@ function WorkloadFields({
                       // Said elsewhere: where from is shown, and it isn't typed over here.
                       <span
                         aria-label={`${variable.name || `Variable ${index + 1}`}’s value`}
-                        className="flex h-8 min-w-0 flex-[1.4] items-center truncate rounded-lg border border-line bg-surface-2 px-2.5 text-xs text-ink-2"
+                        className="flex min-h-8 min-w-0 flex-[1.4] items-center rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-xs leading-[17px] wrap-anywhere text-ink-2"
                       >
-                        {/* All of it on hover, where the row is too narrow for it. */}
-                        <span className="truncate" title={`from ${variable.from}`}>
-                          from {variable.from}
-                        </span>
+                        from {variable.from}
                       </span>
                     )}
                     <RemoveButton

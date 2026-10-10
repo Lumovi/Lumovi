@@ -107,6 +107,7 @@ export function registerIpc(deps: Dependencies): void {
       electron: process.versions.electron,
       chrome: process.versions.chrome,
       node: process.versions.node,
+      ...(process.env.LUMOVI_CREATE_FORM === '1' ? { createForm: true } : {}),
     }),
     [IPC.openMenu]: (x, y) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
