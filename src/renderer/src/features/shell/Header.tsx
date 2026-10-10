@@ -199,7 +199,7 @@ export function Header() {
       <button
         type="button"
         onClick={() => setPalette(true)}
-        className="flex h-8 w-52 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1.5 pl-2.5 text-ink-3 transition-colors no-drag hover:border-line-strong hover:text-ink-2"
+        className="flex h-8 w-52 items-center gap-2 rounded-lg border border-line bg-surface-2 pr-1.5 pl-2.5 text-ink-3 transition-colors no-drag hover:border-line-strong hover:text-ink-2 touch:h-11"
       >
         <Search className="size-3.5" />
         <span className="flex-1 text-left">Search…</span>

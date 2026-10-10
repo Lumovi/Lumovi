@@ -1,11 +1,22 @@
 import { LargerScreenNote } from '@renderer/components/LargerScreen'
 import { useLayout } from '@renderer/lib/layout'
 import { useQueries } from '@tanstack/react-query'
-import { ArrowUpCircle, History, Maximize2, Minimize2, ShipWheel, Trash2, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowUpCircle,
+  History,
+  Maximize2,
+  Minimize2,
+  ShipWheel,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useState } from 'react'
 import type { HelmReleaseDetail, KubeObject } from '@shared/api'
 import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { barButton } from '@renderer/components/Sheet'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { KindIcon } from '@renderer/components/KindIcon'
 import { ErrorState, Loading } from '@renderer/components/States'
@@ -17,7 +28,7 @@ import { useGo } from '@renderer/hooks/go'
 import { useHelmCli, useHelmRelease } from '@renderer/hooks/helm'
 import { listPollInterval } from '@renderer/hooks/queries'
 import { resourceFor } from '@renderer/hooks/resources'
-import { useReadOnly } from '@renderer/hooks/settings'
+import { useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { api, unwrap, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age, formatDateTime } from '@renderer/lib/format'
@@ -53,6 +64,48 @@ function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame)
   const release = useHelmRelease(namespace, name)
   const [dialog, setDialog] = useState<Dialog>()
   const data = release.data
+  const phone = useLayout() === 'phone'
+  const clusterName = useClusterName()(useCluster().context)
+  const body = release.isPending ? (
+    <Loading label="Reading the release…" />
+  ) : !data ? (
+    <ErrorState error={release.error as KubeApiError} onRetry={() => void release.refetch()} />
+  ) : (
+    <ReleaseTabs release={data} />
+  )
+  // On a phone it's a page, as an object's is: Back, where it is, its name and its status.
+  if (phone) {
+    return (
+      <>
+        <header className="flex h-[52px] shrink-0 items-center border-b border-line bg-surface px-1">
+          <button type="button" aria-label="Back" onClick={onClose} className={barButton}>
+            <ArrowLeft />
+          </button>
+          <p className="min-w-0 flex-1 px-1 text-[15px] leading-5 font-semibold tracking-[-0.01em]">
+            Helm releases
+          </p>
+        </header>
+        <div className="shrink-0 px-4 pt-4 pb-3">
+          <p className="text-xs text-ink-3">
+            <MiddleTruncate text={`Helm release · ${namespace} · ${clusterName}`} />
+          </p>
+          <div className="flex min-w-0 items-center gap-1 [&>button]:-my-2.5 [&>button]:-mr-2">
+            <h2 className="line-clamp-2 min-w-0 flex-1 text-[17px] leading-snug font-semibold tracking-[-0.01em] wrap-anywhere selectable">
+              {name}
+            </h2>
+            <CopyButton text={name} label="Copy name" />
+          </div>
+          {data && (
+            <div className="mt-2.5 flex max-w-full min-w-0">
+              <StatusPill status={releaseStatus(data.status)} />
+            </div>
+          )}
+          {data && <ReleaseActions release={data} onAction={setDialog} />}
+        </div>
+        {body}
+      </>
+    )
+  }
   return (
     <>
       <header className="flex shrink-0 items-start gap-3 px-5 pt-4 pb-3">
@@ -86,13 +139,7 @@ function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame)
           <X />
         </IconButton>
       </header>
-      {release.isPending ? (
-        <Loading label="Reading the release…" />
-      ) : !data ? (
-        <ErrorState error={release.error as KubeApiError} onRetry={() => void release.refetch()} />
-      ) : (
-        <ReleaseTabs release={data} />
-      )}
+      {body}
       {data && dialog === 'upgrade' && (
         <DeployDialog release={data} onClose={() => setDialog(undefined)} />
       )}

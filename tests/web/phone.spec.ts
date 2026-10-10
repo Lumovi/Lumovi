@@ -44,7 +44,7 @@ test('the sidebar is a drawer: behind a button, holding focus, closed by Escape 
   await signInNarrow(page, `${served.url}cluster/demo`, DEMO_TOKEN)
   // No sidebar beside the page, and no back and forward of its own: the browser has them.
   await expect(page.getByRole('complementary', { name: 'Sidebar' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /^Back/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^(Back|Forward) \(/ })).toHaveCount(0)
   await menu(page).click()
   await expect(drawer(page).getByRole('navigation', { name: 'Resources' })).toBeVisible()
   await expectFingerSized(page, 'the drawer')
@@ -61,7 +61,7 @@ test('the sidebar is a drawer: behind a button, holding focus, closed by Escape 
   await menu(page).click()
   await drawer(page).getByRole('link', { name: 'Pods' }).click()
   await expect(drawer(page)).toHaveCount(0)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  await expect(page.getByRole('heading', { level: 1, name: 'Pods' })).toBeVisible()
   // And a tap on what's left of the page does.
   await menu(page).click()
   await page.mouse.click(PHONE.width - 10, PHONE.height / 2)
@@ -75,7 +75,7 @@ test('the overview: where you are under the top bar, and nothing sideways', asyn
   const served = await serve()
   await signInNarrow(page, `${served.url}cluster/demo`, DEMO_TOKEN)
   await expectAPhonesPage(page, 'the overview', async () => {
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview')
+    await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Cluster', exact: true })).toContainText('demo')
     await expect(page.getByRole('button', { name: 'Namespace' })).toBeVisible()
   })
@@ -123,7 +123,7 @@ test('a list is two lines an object, sorted from a sheet, and opens a page', asy
     list
       .getByRole('listitem')
       .evaluateAll((rows) =>
-        rows.slice(0, 5).map((row) => row.querySelector('.sr-only, [title], span')!.textContent),
+        rows.slice(0, 5).map((row) => row.querySelector('.text-transparent')!.textContent),
       )
   const ascending = await names()
   expect([...ascending].sort()).toEqual(ascending)
@@ -177,7 +177,7 @@ test('a detail is a page: which cluster, two actions at most, and its tabs', asy
   ])
   // Scrolled, the top bar says which object this is, and the tabs stay.
   await detail.locator('[data-detail-page]').evaluate((scroller) => scroller.scrollTo(0, 400))
-  await expect(detail.locator('header').first()).toContainText(name)
+  await expect(detail.locator('header').first().locator('.text-transparent')).toHaveText(name)
   await expect(detail.getByRole('tab', { name: 'Overview' })).toBeInViewport()
   // Scale, behind its own dialog: a sheet, Cancel at one edge and Scale at the other.
   await detail.locator('[data-detail-page]').evaluate((scroller) => scroller.scrollTo(0, 0))
@@ -310,6 +310,6 @@ test('at the desktop app’s smallest, nothing of this applies', async ({ page, 
   await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
   await expect(page.getByRole('complementary', { name: 'Sidebar' })).toBeVisible()
   await expect(menu(page)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /^Back/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Back \(/ })).toBeVisible()
   await expect(page.getByRole('grid', { name: 'Pods' })).toBeVisible()
 })

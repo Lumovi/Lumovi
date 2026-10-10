@@ -12,6 +12,8 @@ export function LinkTabs({ label, children }: { label: string; children: ReactNo
     <nav
       aria-label={label}
       // The line under the tabs is drawn inside, so scrolling doesn't clip the current tab's.
+      // (A strip of tabs scrolls inside itself, and says so.)
+      data-scrolls-sideways
       className="flex shrink-0 [scrollbar-width:none] gap-1 overflow-x-auto px-5 pb-px shadow-[inset_0_-1px_0_var(--color-line)]"
     >
       {children}
