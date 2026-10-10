@@ -110,11 +110,14 @@ test('a value that’s there is replaced where it is: not a byte around it chang
   // The same value again changes nothing at all.
   expect(setAt(WRITTEN, ['metadata', 'name'], 'web')).toBe(WRITTEN)
   expect(setAt(WRITTEN, ['spec', 'replicas'], 2)).toBe(WRITTEN)
-  // With Windows' line endings, likewise.
-  const crlf = WRITTEN.replace(/\n/g, '\r\n')
-  expect(setAt(crlf, ['spec', 'replicas'], 3)).toBe(
-    crlf.replace('replicas: 2 # two', 'replicas: 3 # two'),
+})
+
+test('a file’s byte-order mark stays where it is, whatever is set under its first key', () => {
+  // (Found by the run of seeded edits below: the mark was taken for a space of indentation.)
+  expect(setAt('\uFEFFa:\n', ['a', 'deep', 'er'], '8080')).toBe(
+    '\uFEFFa:\n  deep:\n    er: "8080"\n',
   )
+  expect(setAt('\uFEFFa:\n  b: 1\n', ['a'], { c: 2 })).toBe('\uFEFFa:\n  c: 2\n')
 })
 
 test('a key with nothing after it takes its value after a space', () => {
@@ -125,7 +128,6 @@ test('a key with nothing after it takes its value after a space', () => {
     ['metadata:\n  name: ~\n', 'metadata:\n  name: web\n'],
     ['metadata:\n  name: null\n', 'metadata:\n  name: web\n'],
     ['metadata:\n  name:', 'metadata:\n  name: web'],
-    ['metadata:\r\n  name:\r\n', 'metadata:\r\n  name: web\r\n'],
   ] as const) {
     expect(setAt(written, ['metadata', 'name'], 'web'), JSON.stringify(written)).toBe(expected)
   }
@@ -209,12 +211,6 @@ test('a key that isn’t there is written on lines of its own, where it belongs'
     gone: [],
     added: ['            - name: PORT', '              value: "8080"'],
   })
-  // With Windows' line endings, what's added ends as the rest does.
-  const crlf = setAt(WRITTEN.replace(/\n/g, '\r\n'), [...C, 'env', 1], { name: 'A', value: 'b' })
-  expect(crlf.split('\r\n').join('\n')).toBe(
-    setAt(WRITTEN, [...C, 'env', 1], { name: 'A', value: 'b' }),
-  )
-  expect(crlf.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/)
   // And in a text that ends without one, the last line still ends the text.
   const open = 'metadata:\n  name: web'
   expect(setAt(open, ['metadata', 'namespace'], 'shop')).toBe(
@@ -392,11 +388,10 @@ function applied(value: unknown, path: Path, next: unknown, remove: boolean): un
 }
 
 test('any run of edits, on YAML written any way: it means what was asked, and the rest is as it was', () => {
-  // Written by construction every awkward way: Windows' endings, a comment on the line, a
+  // Written by construction every awkward way: a comment on the line, a
   // map on one line, a key with no value, a value over several lines, four spaces, a tab.
   const seeds = [
     WRITTEN,
-    WRITTEN.replace(/\n/g, '\r\n'),
     'a:\n    b: 1 # four spaces\n    c:\n        d: x\n    list:\n        - one\n        - two\n',
     'a: { b: 1, c: { d: x } }\nlist: [one, two]\ne:\n',
     'a:\n  b:\n  c: |\n    several\n    lines\n  d: plain\n# the end\n',
@@ -466,9 +461,8 @@ test('any run of edits, on YAML written any way: it means what was asked, and th
         }
         // The same again changes nothing.
         if (!remove) expect(setAt(next, path, value), said).toBe(next)
-        // Its line endings are all of one kind, as they were.
-        if (start.includes('\r\n')) expect(next.replace(/\r\n/g, ''), said).not.toMatch(/[\r\n]/)
-        else expect(next, said).not.toContain('\r')
+        // Its lines end plainly, as they did (the editor hands it no other kind).
+        expect(next, said).not.toContain('\r')
         // Comments are all still there.
         for (const comment of text.match(/#[^\n\r"]*$/gm) ?? []) {
           if (!remove && typeof at(text, path) !== 'object')
