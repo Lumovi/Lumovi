@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
-import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
+import { dialog, menuAction, toasts, writes, yamlSide } from './action-helpers.ts'
 import {
   clipboardText,
   CONTEXTS,
@@ -517,6 +517,7 @@ test('what an account may do decides view actions too', async ({ page, clusters 
 test('CRDs come and go: new kinds appear, and removed ones say so', async ({ page, clusters }) => {
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   const editor = dialog(page).getByRole('textbox', { name: 'YAML to create' })
   await editor.click()
   await page.keyboard.press('ControlOrMeta+a')
@@ -550,6 +551,7 @@ spec:
   await expect(page.getByText('No Gizmos in this cluster')).toBeVisible()
 
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   await editor.click()
   await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.insertText(

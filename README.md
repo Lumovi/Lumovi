@@ -121,7 +121,7 @@ suits you:
 | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | ![Every workload in one list](docs/screenshots/workloads-dark-1x.webp)                              | ![A pod's details](docs/screenshots/pod-light-1x.webp)                                        |
 | ![A shell in a pod](docs/screenshots/shell-dark-1x.webp)                                            | ![Scaling a deployment](docs/screenshots/scale-light-1x.webp)                                 |
-| ![Several pods selected](docs/screenshots/bulk-dark-1x.webp)                                        | ![Create from YAML](docs/screenshots/create-light-1x.webp)                                    |
+| ![Several pods selected](docs/screenshots/bulk-dark-1x.webp)                                        | ![Create](docs/screenshots/create-light-1x.webp)                                              |
 | ![The Metrics page](docs/screenshots/metrics-dark-1x.webp)                                          | ![A pod's usage history](docs/screenshots/pod-metrics-light-1x.webp)                          |
 | ![Logs](docs/screenshots/logs-dark-1x.webp)                                                         | ![Overview in light mode](docs/screenshots/overview-light-1x.webp)                            |
 | ![A custom resource](docs/screenshots/custom-resource-dark-1x.webp)                                 | ![Every kind the cluster serves](docs/screenshots/api-resources-light-1x.webp)                |

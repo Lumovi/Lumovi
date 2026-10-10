@@ -3,7 +3,7 @@ import { create } from 'zustand'
 interface UiState {
   palette: boolean
   shortcuts: boolean
-  /** The "Create from YAML" dialog. */
+  /** The Create dialog. */
   create: boolean
   /** The current cluster's metrics source settings. */
   metricsSource: boolean

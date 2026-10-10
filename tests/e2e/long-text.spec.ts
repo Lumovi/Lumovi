@@ -172,9 +172,7 @@ for (const size of ['wide', 'narrow'] as const) {
       page.getByRole('button', { name: 'Switch cluster' }).click(),
     )
     await over('activity', () => page.getByRole('button', { name: 'Activity' }).click())
-    await over('create from YAML', () =>
-      page.getByRole('button', { name: /^Create from YAML/ }).click(),
-    )
+    await over('create from YAML', () => page.getByRole('button', { name: /^Create…/ }).click())
     await over('theme menu', () => page.getByRole('button', { name: 'Theme' }).click())
     await over('command palette', async () => {
       await page.keyboard.press('ControlOrMeta+k')

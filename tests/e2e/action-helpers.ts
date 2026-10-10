@@ -17,6 +17,9 @@ export async function menuAction(page: Page, kind: string, name: string, action:
 }
 
 export const dialog = (page: Page) => page.getByRole('dialog')
+/** Create's YAML side, chosen in its dialog: the form is what opens the first time. */
+export const yamlSide = (page: Page) =>
+  page.getByRole('dialog').getByRole('radio', { name: 'YAML', exact: true }).click()
 export const toasts = (page: Page) => page.getByRole('region', { name: 'Notifications' })
 
 /** Bodies of the writes the cluster received for `path`. */

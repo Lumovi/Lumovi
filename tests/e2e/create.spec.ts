@@ -1,5 +1,5 @@
 import type { ElectronApplication, Page } from '@playwright/test'
-import { dialog, focusDisabled, toasts, writes } from './action-helpers.ts'
+import { dialog, focusDisabled, toasts, writes, yamlSide } from './action-helpers.ts'
 import { expect, goTo, openCluster, panel, test } from './fixtures.ts'
 
 const editor = (page: Page) => dialog(page).getByRole('textbox', { name: 'YAML to create' })
@@ -24,8 +24,9 @@ test('create a deployment from a template and open it', async ({ page, clusters 
   await openCluster(page)
   await goTo(page, 'Deployments')
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   const form = dialog(page)
-  await expect(form).toContainText('Create from YAML')
+  await expect(form.getByRole('heading', { name: 'Create', exact: true })).toBeVisible()
   await expect(form).toContainText('New objects go to default unless they name a namespace')
   await expect(form).toContainText('kubectl create -f objects.yaml -n default --context demo')
   await expect(editor(page)).toBeFocused()
@@ -54,7 +55,8 @@ test('templates follow the chosen namespace; several objects go at once', async 
   const picker = page.getByRole('button', { name: 'Namespace' })
   await picker.click()
   await page.getByRole('option', { name: 'shop' }).click()
-  await page.getByRole('button', { name: /Create from YAML/ }).click()
+  await page.getByRole('button', { name: /^Create…/ }).click()
+  await yamlSide(page)
   await expect(dialog(page)).toContainText('New objects go to shop unless they name a namespace')
 
   const templates = dialog(page).getByRole('group', { name: 'Templates' })
@@ -93,6 +95,7 @@ stringData:
 
   // Cluster-scoped objects ignore the namespace.
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   await dialog(page)
     .getByRole('group', { name: 'Templates' })
     .getByRole('button', { name: 'Namespace' })
@@ -105,6 +108,7 @@ stringData:
 
   // A generateName gets its name from the cluster.
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   await write(
     page,
     `apiVersion: batch/v1
@@ -128,6 +132,7 @@ test('what the cluster refused is in view at the smallest window', async ({ laun
   const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x640' }, fullLayout: false })
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   await write(page, 'apiVersion: v1\nkind: Service\nmetadata:\n  name: lost\n  namespace: nope\n')
   await create(page).click()
   await expect(results(page)).toContainText('namespaces "nope" not found')
@@ -140,6 +145,7 @@ test('what the cluster refused is in view at the smallest window', async ({ laun
 test('nothing is created when the cluster refuses any object', async ({ page, clusters }) => {
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   await write(
     page,
     `apiVersion: v1
@@ -202,6 +208,7 @@ metadata:
 test('explains YAML that can’t be created', async ({ page }) => {
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+n')
+  await yamlSide(page)
   const cases: [string, string, string][] = [
     ['kind: [Deployment', 'YAML', 'Flow sequence'],
     ['just some text', 'YAML', 'Each object needs a kind, like Deployment.'],
@@ -254,19 +261,19 @@ test('create from the header, the palette and the File menu', async ({ page, lum
   await expect(dialog(page)).toHaveCount(0)
 
   await openCluster(page)
-  await page.getByRole('button', { name: /Create from YAML/ }).click()
-  await expect(dialog(page)).toContainText('Create from YAML')
+  await page.getByRole('button', { name: /^Create…/ }).click()
+  await expect(dialog(page).getByRole('heading', { name: 'Create', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog(page)).toHaveCount(0)
 
   await page.keyboard.press('ControlOrMeta+k')
-  await page.keyboard.type('create from')
-  await page.getByRole('option', { name: /Create from YAML/ }).click()
-  await expect(dialog(page)).toContainText('Create from YAML')
+  await page.keyboard.type('create from yaml')
+  await page.getByRole('option', { name: /^Create…/ }).click()
+  await expect(dialog(page).getByRole('heading', { name: 'Create', exact: true })).toBeVisible()
   await dialog(page).getByRole('button', { name: 'Cancel' }).click()
 
   await menu(app, 'create')
-  await expect(dialog(page)).toContainText('Create from YAML')
+  await expect(dialog(page).getByRole('heading', { name: 'Create', exact: true })).toBeVisible()
 })
 
 test('creating is off on read-only clusters', async ({ launch }) => {
