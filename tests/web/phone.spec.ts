@@ -78,8 +78,11 @@ test('the sidebar is a drawer: behind a button, holding focus, closed by Escape 
   await expect(page.getByRole('heading', { level: 1, name: 'Pods' })).toBeVisible()
   // And a tap on what's left of the page does.
   await menu(page).click()
-  // (Once it's there: a tap sent before it has opened lands on the page, and closes nothing.)
+  // (Once it's there, and listening: a drawer starts listening for a tap outside it in a timer
+  // set as it shows, and a browser handles a tap ahead of timers, so one sent the moment it's
+  // visible can come before anything listens. A timer set from here runs after that one.)
   await expect(drawer(page)).toBeVisible()
+  await page.evaluate(() => new Promise((done) => setTimeout(done)))
   await page.mouse.click(PHONE.width - 10, PHONE.height / 2)
   await expect(drawer(page)).toHaveCount(0)
 })
