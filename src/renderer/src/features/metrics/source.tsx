@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import { ChartSpline, PackagePlus, RotateCw, Settings2 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { HistorySource, MetricsService, MetricsStack } from '@shared/api'
@@ -23,11 +24,14 @@ export function SourceChip({ className }: { className?: string }) {
   // Shown only where the gate has let charts through, so there is a source.
   const source = useHistorySource().data as Extract<HistorySource, { state: 'ready' }>
   const open = useUi((ui) => ui.setMetricsSource)
+  // On a phone it says where history comes from, and isn't for changing that.
+  const phone = useLayout() === 'phone'
   return (
     <button
       type="button"
+      disabled={phone}
       onClick={() => open(true)}
-      title="Change the metrics source"
+      title={phone ? undefined : 'Change the metrics source'}
       className={cn(
         'flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-line px-2.5 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink-1',
         className,
@@ -76,6 +80,7 @@ export function HistoryGate({
   const open = useUi((ui) => ui.setMetricsSource)
   const [looking, setLooking] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const phone = useLayout() === 'phone'
   // Lumovi's own stack is offered where nothing was found; once installed, it's waited for.
   const found = source.data?.state
   const stack = useMetricsStack(found === 'missing' || found === 'error').data
@@ -127,22 +132,26 @@ export function HistoryGate({
       )}
       {offer && stack && (
         <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-          {stack.off
-            ? stack.off.reason === 'admins'
-              ? `Lumovi can install a small one. ${stack.off.message}`
-              : 'Lumovi can install a small one, once the cluster isn’t read-only.'
-            : 'Or let Lumovi install a small one: you review everything it makes first.'}
+          {phone
+            ? 'Lumovi can install a small one, from a larger screen.'
+            : stack.off
+              ? stack.off.reason === 'admins'
+                ? `Lumovi can install a small one. ${stack.off.message}`
+                : 'Lumovi can install a small one, once the cluster isn’t read-only.'
+              : 'Or let Lumovi install a small one: you review everything it makes first.'}
         </p>
       )}
       <div className="mt-5 flex flex-wrap justify-center gap-2">
-        {offer && stack && !stack.off && (
+        {offer && stack && !stack.off && !phone && (
           <Button variant="primary" onClick={() => setInstalling(true)}>
             <PackagePlus /> Install a metrics stack…
           </Button>
         )}
-        <Button onClick={() => open(true)}>
-          <Settings2 /> {state === 'off' ? 'Change' : 'Choose a service'}
-        </Button>
+        {!phone && (
+          <Button onClick={() => open(true)}>
+            <Settings2 /> {state === 'off' ? 'Change' : 'Choose a service'}
+          </Button>
+        )}
         {state !== 'off' && (
           <Button variant="ghost" disabled={looking} onClick={() => void again()}>
             <RotateCw className={cn(looking && 'animate-spin')} /> Look again
@@ -162,6 +171,7 @@ export function HistoryGate({
  */
 function Starting({ stack, compact }: { stack: MetricsStack; compact: boolean }) {
   const [removing, setRemoving] = useState(false)
+  const phone = useLayout() === 'phone'
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 5_000)
@@ -201,7 +211,7 @@ function Starting({ stack, compact }: { stack: MetricsStack; compact: boolean })
           <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
             Lumovi keeps checking. Removing it takes all of it out of the cluster again.
           </p>
-          {stack.off?.reason !== 'policy' && (
+          {stack.off?.reason !== 'policy' && !phone && (
             <div className="mt-5">
               <Button onClick={() => setRemoving(true)}>Remove…</Button>
             </div>

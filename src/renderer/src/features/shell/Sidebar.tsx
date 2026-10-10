@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import { useQuery } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
@@ -303,6 +304,7 @@ export function ClusterSwitcher({ chip = false }: { chip?: boolean }) {
   const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
   const readOnly = useReadOnly()
   const clusterName = useClusterName()
+  const phone = useLayout() === 'phone'
   const go = (path: string) => {
     setOpen(false)
     navigateTo(path)
@@ -407,6 +409,11 @@ export function ClusterSwitcher({ chip = false }: { chip?: boolean }) {
                 : `Turned on by ${readOnly.by.by}, ${formatDateTime(readOnly.by.at)}`}
             </span>
           )}
+          {phone && !readOnly.locked && (
+            <span className="block text-xs leading-snug text-ink-3">
+              Open Lumovi on a larger screen to change it
+            </span>
+          )}
           {readOnly.shared && !readOnly.locked && !readOnly.mayChange && (
             <span className="block text-xs leading-snug text-ink-3">
               Only Lumovi’s admins change it
@@ -416,7 +423,8 @@ export function ClusterSwitcher({ chip = false }: { chip?: boolean }) {
         <Switch
           label="Read-only"
           checked={readOnly.readOnly}
-          disabled={!readOnly.mayChange}
+          // (On a phone it's said, not set.)
+          disabled={!readOnly.mayChange || phone}
           onCheckedChange={(checked) => void readOnly.set(checked)}
         />
       </div>

@@ -1,3 +1,4 @@
+import { useLayout } from '@renderer/lib/layout'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
@@ -100,7 +101,9 @@ export function FleetPage() {
   })
   const all = contexts.data?.contexts ?? []
   // An admin's: clusters connected from here, waiting for their agents; and connecting one.
-  const admin = Boolean(useMyAccess()?.admin)
+  // (On a phone a fleet is read: its clusters are connected and set up from a larger screen.)
+  const phone = useLayout() === 'phone'
+  const admin = Boolean(useMyAccess()?.admin) && !phone
   const joins = useQuery({
     queryKey: ['fleet-joins'],
     queryFn: () => api.fleet!.joins(),
@@ -583,7 +586,8 @@ function Cards({
   added?: Set<string>
 }) {
   // Admins change a cluster's settings from its card, and remove one connected from here.
-  const admin = Boolean(useMyAccess()?.admin)
+  const wide = useLayout() !== 'phone'
+  const admin = Boolean(useMyAccess()?.admin) && wide
   const [settings, setSettings] = useState<string>()
   const [removing, setRemoving] = useState<string>()
   return (
@@ -777,7 +781,8 @@ function CardMenu({
 function AgentsToCheck() {
   const mine = useMyAccess()
   // Lumovi's admins: or anyone signed in, where it has none (as for the clusters' settings).
-  const may = Boolean(mine && (mine.admin || mine.admins.length === 0))
+  const wide = useLayout() !== 'phone'
+  const may = Boolean(mine && (mine.admin || mine.admins.length === 0)) && wide
   const agents = useQuery({
     queryKey: ['fleet-agents'],
     queryFn: () => api.fleet!.agents(),

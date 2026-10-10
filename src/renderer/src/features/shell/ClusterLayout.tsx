@@ -39,6 +39,7 @@ export function ClusterLayout() {
   const setStored = usePrefs((prefs) => prefs.setNamespace)
   const touchRecent = usePrefs((prefs) => prefs.touchRecent)
   const opensIn = useClusterSettings(context)?.namespace
+  const layout = useLayout()
   // Until the user picks one, start in the one set for it in Lumovi, or else the kubeconfig's
   // (useful with namespaced RBAC).
   const namespace = stored === undefined ? (opensIn ?? contextInfo?.namespace ?? null) : stored
@@ -89,7 +90,8 @@ export function ClusterLayout() {
       <Commands />
       <ShortcutsDialog />
       <ActionHost />
-      <CreateDialog />
+      {/* Nothing is written on a phone: not from the header, the palette, or its key. */}
+      {layout !== 'phone' && <CreateDialog />}
       <SourceDialog />
       <UsageSampler />
     </ClusterContext.Provider>

@@ -1,3 +1,4 @@
+import { OnALargerScreen } from './components/LargerScreen'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createBrowserRouter, createHashRouter, Navigate, type RouteObject } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
@@ -59,11 +60,28 @@ const routes: RouteObject[] = [
       // A server's: where AI assistants send people to allow them.
       { path: '/authorize', element: <AuthorizePage /> },
       // AI assistants: connecting them, what they may do and where, and what they did.
-      { path: '/assistants/:tab?', element: <AssistantsPage /> },
+      {
+        path: '/assistants/:tab?',
+        element: (
+          <OnALargerScreen
+            title="AI assistants"
+            to="connect an assistant or set what it may do. What one asks to change still comes to this phone to approve"
+          >
+            <AssistantsPage />
+          </OnALargerScreen>
+        ),
+      },
       // What was done through Lumovi, by whom, and how it went.
       { path: '/audit', element: <AuditPage /> },
       // A server's: who may do what (its admins'), and what the person may (everyone's).
-      { path: '/access/:tab?', element: <AccessPage /> },
+      {
+        path: '/access/:tab?',
+        element: (
+          <OnALargerScreen title="Access" to="set who may do what">
+            <AccessPage />
+          </OnALargerScreen>
+        ),
+      },
       { path: '/your-access', element: <YourAccessPage /> },
       {
         path: '/cluster/:context',

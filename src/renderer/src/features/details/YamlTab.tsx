@@ -45,6 +45,7 @@ export function YamlTab({ object }: { object: KubeObject }) {
 
 function EditButton({ object, onEdit }: { object: KubeObject; onEdit: () => void }) {
   const action = useObjectActions(object).find(({ action }) => action.id === 'edit-yaml')
+  // (On a phone it isn't among an object's actions: YAML is read there.)
   if (!action) return null
   const button = (
     <Button variant="ghost" disabled={action.disabled !== undefined} onClick={onEdit}>

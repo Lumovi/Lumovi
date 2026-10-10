@@ -346,13 +346,15 @@ function Palette({ onDone }: { onDone: () => void }) {
               New terminal
             </Item>
           )}
-          <Item
-            icon={<Settings2 />}
-            value="Metrics source Prometheus VictoriaMetrics settings"
-            onSelect={run(() => setMetricsSource(true))}
-          >
-            Metrics source…
-          </Item>
+          {!phone && (
+            <Item
+              icon={<Settings2 />}
+              value="Metrics source Prometheus VictoriaMetrics settings"
+              onSelect={run(() => setMetricsSource(true))}
+            >
+              Metrics source…
+            </Item>
+          )}
           {(api.assistants || api.serverAssistants) && (
             <Item
               icon={<Sparkles />}
@@ -404,7 +406,7 @@ function Palette({ onDone }: { onDone: () => void }) {
             </Item>
           ))}
           {/* Only for those who may: on a server, Lumovi's admins (or anyone, where it has none). */}
-          {readOnly.mayChange && (
+          {readOnly.mayChange && !phone && (
             <Item
               icon={readOnly.readOnly ? <LockOpen /> : <Lock />}
               value={readOnly.readOnly ? 'Allow changes' : 'Make read-only'}
