@@ -59,8 +59,9 @@ const CLUSTER_WIDE: [kind: AccessCheck['kind'], name: string][] = [
     name,
   ]),
 )
-/** How Helm's charts mark what a release made. */
-const INSTANCE = 'app.kubernetes.io/instance'
+/** Helm's own mark on what a release made: whose it is, by its name and its namespace. */
+const RELEASE_NAME = 'meta.helm.sh/release-name'
+const RELEASE_NAMESPACE = 'meta.helm.sh/release-namespace'
 
 /** A pod waiting for these is on its way: not a reason it isn't up. */
 const STARTING = ['ContainerCreating', 'PodInitializing']
@@ -217,8 +218,10 @@ export class MetricsStackService {
     }
     for (const [kind, name] of CLUSTER_WIDE) {
       const found = await this.kube.get({ context, kind, name })
-      // Only the release's own: one of that name that someone else made stays.
-      if (!found.ok || found.data.metadata.labels?.[INSTANCE] !== RELEASE) continue
+      // Only this release's own, as Helm marked it: one of that name that someone else made, or
+      // a release of this name in another namespace, stays.
+      const marks = found.ok ? found.data.metadata.annotations : undefined
+      if (marks?.[RELEASE_NAME] !== RELEASE || marks[RELEASE_NAMESPACE] !== NAMESPACE) continue
       const deleted = await this.kube.change({
         context,
         kind,
