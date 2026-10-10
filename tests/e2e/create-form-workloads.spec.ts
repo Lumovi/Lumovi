@@ -5,15 +5,6 @@
  * YAML, and steps back in its own words.
  */
 import type { Page } from '@playwright/test'
-import {
-  FORM_KINDS,
-  problems,
-  read,
-  refusals,
-  unowned,
-  workloadValues,
-} from '../../src/renderer/src/lib/create-form.ts'
-import { pathText } from '../../src/renderer/src/lib/yaml-edit.ts'
 import { dialog, toasts, writes } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
 
@@ -153,6 +144,14 @@ test('a StatefulSet: its Service, and storage for each pod', async ({ page, clus
   await choice(page, 'Service').focus()
   await choice(page, 'Service').selectOption('storefront')
   await expect(lines(page, 'lit')).toHaveText(['  serviceName: storefront'])
+  // A name no Service could have, typed in the YAML: said under the field.
+  const named = await yaml(page)
+  await type(page, named.replace('serviceName: storefront', 'serviceName: Not_A_Name'))
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'A Service’s name: lowercase letters, digits and “-”.',
+  )
+  await type(page, named)
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
   await field(page, 'Image').fill('postgres:17.2')
   await field(page, 'Port').fill('5432')
   // Storage: a claim for each pod, and where the container mounts it, made together.
@@ -489,7 +488,15 @@ test('a CronJob: a schedule read back in words, and what to do if the last run i
   )
 
   await expect(choice(page, 'If the last run is still going')).toHaveValue('Allow')
+  // A policy that isn't one, typed in the YAML: shown as it is, and said to be wrong.
+  const allowed = await yaml(page)
+  await type(page, allowed.replace('concurrencyPolicy: Allow', 'concurrencyPolicy: Sometimes'))
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'Sometimes isn’t one of Allow, Forbid and Replace.',
+  )
+  await expect(choice(page, 'If the last run is still going')).toHaveValue('Sometimes')
   await choice(page, 'If the last run is still going').selectOption({ label: 'Skip this one' })
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
   await field(page, 'Image').fill('ghcr.io/acme/search-indexer:4.1.0')
   await field(page, 'Command').fill('indexer --all --since 24h')
   await form(page).getByRole('button', { name: 'Add a variable' }).click()
@@ -527,62 +534,105 @@ spec:
   ).toMatchObject({ spec: { schedule: '@daily', concurrencyPolicy: 'Forbid' } })
 })
 
-// ——— Each kind's reading of its YAML, asked directly ———
-
-test('each kind owns its own paths, and asks for what it must have', () => {
-  for (const [kind, empty, owned] of [
-    ['Deployment', ['Name', 'Image'], 14],
-    ['StatefulSet', ['Name', 'Service', 'Image'], 16],
-    ['DaemonSet', ['Name', 'Image'], 13],
-    ['Job', ['Name', 'Image'], 10],
-    ['CronJob', ['Name', 'Schedule', 'Image'], 11],
+test('each kind, new, asks for what it must have and has nothing the form doesn’t know', async ({
+  page,
+}) => {
+  await open(page, 'Deployment')
+  for (const [kind, empty] of [
+    ['Deployment', 'Name and Image are still empty.'],
+    ['StatefulSet', 'Name, Service and Image are still empty.'],
+    ['DaemonSet', 'Name and Image are still empty.'],
+    ['Job', 'Name and Image are still empty.'],
+    ['CronJob', 'Name, Schedule and Image are still empty.'],
   ] as const) {
-    const form = FORM_KINDS[kind]
-    const reading = read(form.blank('shop'), form)
-    expect(reading.fits, kind).toBe(true)
-    if (!reading.fits) continue
-    // A new one has nothing the form has no field for, and nothing wrong but what's empty.
-    expect(unowned(reading.object, form).map(pathText), kind).toEqual([])
-    const values = workloadValues(reading.object, form)
-    expect(problems(values, form), kind).toEqual([])
-    expect(form.fields.length + form.follows.length, kind).toBeGreaterThan(5)
-    expect(form.owns.length, kind).toBeGreaterThanOrEqual(owned - 4)
-    void empty
+    await dialog(page).getByRole('radio', { name: kind, exact: true }).click()
+    await expect(status(page), kind).toHaveText(empty)
+    // Nothing wrong but what's empty, and nothing the form has no field for.
+    await expect(form(page).getByRole('alert'), kind).toHaveCount(0)
+    await expect(form(page), kind).not.toContainText('The YAML also sets')
+    await expect(form(page), kind).not.toContainText('The form can’t show this YAML')
   }
-  // What one kind owns is another's to leave alone: a Job's selector, a Deployment's schedule.
-  const job = FORM_KINDS.Job
-  const read1 = read(
-    job
-      .blank('shop')
-      .replace('  template:', '  selector:\n    matchLabels:\n      app: x\n  template:'),
-    job,
+  // What one kind owns is another's to leave alone: a selector is a Deployment's field's, and
+  // on a Job it's something the YAML also sets.
+  await dialog(page).getByRole('radio', { name: 'Job', exact: true }).click()
+  const blank = await yaml(page)
+  await type(
+    page,
+    blank.replace('  template:', '  selector:\n    matchLabels:\n      app: x\n  template:'),
   )
-  expect(read1.fits && unowned(read1.object, job).map(pathText)).toEqual(['spec.selector'])
+  await expect(form(page)).toContainText(
+    'The YAML also sets spec.selector. The form has no field for it, and keeps it as it is.',
+  )
+})
 
-  // What the cluster says of where storage is mounted is storage's, though it's said of the
-  // container and not of the claim.
-  const set = FORM_KINDS.StatefulSet
-  expect(
-    refusals(
-      [
-        {
-          field: 'spec.template.spec.containers[0].volumeMounts[0].mountPath',
-          message: 'Required value',
-        },
-        { field: 'spec.volumeClaimTemplates[0].spec.resources', message: 'Required value' },
-        { field: 'spec.template.spec.containers[0].volumeMounts[1].name', message: 'Not found' },
-      ],
-      set,
-    ).map(({ field, path }) => [field, pathText(path)]),
-  ).toEqual([
-    ['storage', 'spec.template.spec.containers[0].volumeMounts[0].mountPath'],
-    ['storage', 'spec.volumeClaimTemplates[0].spec.resources'],
+test('what the cluster says of where storage is mounted is under storage, and only there', async ({
+  page,
+  clusters,
+}) => {
+  /** The cluster refuses what's created at `path`, saying these causes. */
+  const refusing = (path: string, causes: object[]) =>
+    clusters.demo.fail(path, {
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        kind: 'Status',
+        status: 'Failure',
+        reason: 'Invalid',
+        code: 422,
+        message: 'It is invalid',
+        details: { causes },
+      }),
+    })
+  const mount = 'spec.template.spec.containers[0].volumeMounts'
+  await open(page, 'StatefulSet')
+  await field(page, 'Name').fill('postgres')
+  await choice(page, 'Service').selectOption('storefront')
+  await field(page, 'Image').fill('postgres:17.2')
+  await form(page).getByRole('button', { name: 'Add storage' }).click()
+  // It's said of the container, not of the claim: it's storage's all the same. A second
+  // mount isn't the field's, and is nobody's.
+  const clear = refusing('/apis/apps/v1/namespaces/shop/statefulsets', [
+    { field: `${mount}[1].name`, message: 'Not found' },
+    { field: `${mount}[0].mountPath`, message: 'must be an absolute path' },
   ])
-  // (A Deployment has no such field: a mount there is nobody's.)
-  expect(
-    refusals(
-      [{ field: 'spec.template.spec.containers[0].volumeMounts[0].mountPath', message: 'x' }],
-      FORM_KINDS.Deployment,
-    ),
-  ).toEqual([])
+  await create(page).click()
+  await expect(form(page).getByRole('alert')).toHaveText([
+    'The cluster refused it: must be an absolute path',
+  ])
+  await expect(field(page, 'Mounted at')).toHaveAttribute('class', /border-critical/)
+  await expect(field(page, 'Size')).not.toHaveAttribute('class', /border-critical/)
+  clear()
+  // What it says of the claim is storage's too.
+  await field(page, 'Mounted at').fill('/data')
+  const claim = refusing('/apis/apps/v1/namespaces/shop/statefulsets', [
+    { field: 'spec.volumeClaimTemplates[0].spec.resources', message: 'Required value' },
+  ])
+  await create(page).click()
+  await expect(form(page).getByRole('alert')).toHaveText(['The cluster refused it: Required value'])
+  claim()
+
+  // A Deployment has no such field: what's said of a mount there is in the results alone.
+  await dialog(page).getByRole('radio', { name: 'Deployment', exact: true }).click()
+  await field(page, 'Name').fill('web')
+  await field(page, 'Image').fill('nginx:1.27')
+  refusing('/apis/apps/v1/namespaces/shop/deployments', [
+    { field: `${mount}[0].mountPath`, message: 'Required value' },
+  ])
+  await create(page).click()
+  await expect(dialog(page).getByRole('list', { name: 'Results' })).toContainText('It is invalid')
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
+})
+
+test('⌘S in the YAML creates, once there’s something to create', async ({ page, clusters }) => {
+  await open(page, 'DaemonSet')
+  // Nothing's created while the form still asks for something.
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+s')
+  await expect(status(page)).toHaveText('Name and Image are still empty.')
+  expect(writes(clusters.demo, 'POST', '/apis/apps/v1/namespaces/shop/daemonsets')).toEqual([])
+  await field(page, 'Name').fill('log-agent')
+  await field(page, 'Image').fill('ghcr.io/acme/log-agent:1.8.0')
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+s')
+  await expect(toasts(page)).toContainText('Created daemonset log-agent')
 })
