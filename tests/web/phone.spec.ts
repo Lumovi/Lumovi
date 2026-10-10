@@ -149,6 +149,27 @@ test('a list is two lines an object, sorted from a sheet, and opens a page', asy
       )
   const ascending = await names()
   expect([...ascending].sort()).toEqual(ascending)
+  // Chosen again it turns around, and the sheet stays to say which way, in the column's words.
+  const turned = async (column: RegExp, first: string, then: string) => {
+    await page.getByRole('button', { name: /^Sort/ }).click()
+    const option = sort.getByRole('option', { name: column })
+    if ((await option.getAttribute('aria-selected')) !== 'true') {
+      await option.click()
+      await expect(sort).toHaveCount(0)
+      await page.getByRole('button', { name: /^Sort/ }).click()
+    }
+    await expect(option).toContainText(first)
+    await option.click()
+    await expect(option).toContainText(then)
+    await page.keyboard.press('Escape')
+    await expect(sort).toHaveCount(0)
+  }
+  await turned(/^Name/, 'A to Z', 'Z to A')
+  const descending = await names()
+  expect([...descending].sort().reverse()).toEqual(descending)
+  await turned(/^Status/, 'Worst first', 'Best first')
+  await turned(/^Age/, 'Newest first', 'Oldest first')
+  await turned(/^Restarts/, 'Least first', 'Most first')
   // A tap opens it as a page with Back, which comes back to the list.
   await first.getByRole('button').click()
   await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
@@ -156,6 +177,21 @@ test('a list is two lines an object, sorted from a sheet, and opens a page', asy
   await page.getByRole('button', { name: 'Back', exact: true }).click()
   await expect(page.getByRole('complementary', { name: /^Pod / })).toHaveCount(0)
   await expect(list).toBeVisible()
+})
+
+test('a list’s second line says what its kind is read for: a job’s completions, when a cron job runs', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/jobs`, DEMO_TOKEN)
+  await expect(
+    page.getByRole('list', { name: 'Jobs' }).getByRole('listitem').first(),
+  ).toContainText(/\d+\/\d+ completed/)
+  await page.goto(`${served.url}cluster/demo/cronjobs`)
+  await expect(
+    page.getByRole('list', { name: 'CronJobs' }).getByRole('listitem').first(),
+  ).toContainText(/ · At \d\d:\d\d [AP]M · in \d/)
 })
 
 test('a detail is a page: which cluster, two actions at most, and its tabs', async ({
