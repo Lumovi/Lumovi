@@ -55,7 +55,17 @@ test('the kinds are chosen by their chips, each starting from its own', async ({
   await open(page, 'Deployment')
   await expect(
     dialog(page).getByRole('radiogroup', { name: 'Kind' }).getByRole('radio'),
-  ).toHaveText(['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'])
+  ).toHaveText([
+    'Deployment',
+    'StatefulSet',
+    'DaemonSet',
+    'Job',
+    'CronJob',
+    'Service',
+    'ConfigMap',
+    'Secret',
+    'PersistentVolumeClaim',
+  ])
   // What was typed for one kind isn't carried to the next: each starts as its own, new.
   await field(page, 'Name').fill('web')
   await dialog(page).getByRole('radio', { name: 'Job', exact: true }).click()

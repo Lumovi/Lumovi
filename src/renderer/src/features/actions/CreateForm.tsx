@@ -1,4 +1,17 @@
-import { ChevronsUpDown, FilePlus2, Info, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react'
+import {
+  ArrowRight,
+  ChevronsUpDown,
+  CircleCheck,
+  Eye,
+  EyeOff,
+  FilePlus2,
+  Info,
+  Link2,
+  Minus,
+  Plus,
+  RotateCcw,
+  X,
+} from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import {
   useEffect,
@@ -9,37 +22,47 @@ import {
   type FormEvent,
   type InputHTMLAttributes,
   type ReactNode,
+  type TextareaHTMLAttributes,
 } from 'react'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { CopyButton } from '@renderer/components/CopyButton'
-import { useList } from '@renderer/hooks/queries'
+import { useList, useListResponse } from '@renderer/hooks/queries'
 import { useProduction, useReadOnly } from '@renderer/hooks/settings'
 import { cn } from '@renderer/lib/cn'
 import { scheduleWords } from '@renderer/lib/cron-words'
 import {
+  ACCESS_MODES,
+  check,
+  claimValues,
   CONCURRENCY_POLICIES,
   dig,
   FORM_KINDS,
   fieldLines,
-  missing,
+  HIDDEN,
+  masked,
   nameLines,
-  problems,
+  pairsAt,
+  plainWriter,
+  PROTOCOLS,
   read,
   refusals,
   resourcePaths,
   RESTART_POLICIES,
+  SERVICE_TYPES,
+  serviceValues,
   shown,
   storagePaths,
   unowned,
+  unquoted,
   workloadValues,
   writer,
   type FieldId,
   type FormKind,
   type FormKindName,
+  type Pair,
   type Problem,
   type Resources,
-  type WorkloadValues,
 } from '@renderer/lib/create-form'
 import { linesAt, pathText, type Path } from '@renderer/lib/yaml-edit'
 import { useCluster } from '@renderer/state/cluster'
@@ -85,10 +108,39 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
   if (reading.fits && fitting !== text) setFitting(text)
   const last = useMemo(() => read(fitting, form), [fitting, form])
   const object = reading.fits ? reading.object : last.fits ? last.object : {}
-  const values = workloadValues(object, form)
-  const namespace = values.namespace || start
-  const { outcomes, setOutcomes, pending, create } = useCreating(namespace, onClose)
+  const namespace = shown(dig(object, ['metadata', 'namespace'])) || start
+  const { outcomes: answers, setOutcomes, pending, create } = useCreating(namespace, onClose)
   const command = createCommand(context, namespace)
+
+  // A Secret's values are hidden, on both sides, until they're asked for. Hidden, the YAML
+  // that's shown is another text, with nothing of a value in it, and isn't edited; and what
+  // the cluster says is shown with no value it may quote.
+  const [showing, setShowing] = useState(false)
+  const cover = useMemo(() => (kind === 'Secret' ? masked(text) : null), [kind, text])
+  const hidden = kind === 'Secret' && !showing
+  const view = hidden ? (cover ?? '') : text
+  const outcomes = useMemo(
+    () =>
+      hidden
+        ? answers.map((answer) =>
+            answer.ok
+              ? answer
+              : {
+                  ...answer,
+                  error: unquoted(answer.error, text),
+                  ...(answer.causes
+                    ? {
+                        causes: answer.causes.map((cause) => ({
+                          ...cause,
+                          message: unquoted(cause.message, text),
+                        })),
+                      }
+                    : {}),
+                },
+          )
+        : answers,
+    [answers, hidden, text],
+  )
 
   const change = (next: string) => {
     setText(next)
@@ -103,8 +155,9 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
     else change(next)
   }
 
-  const typed = reading.fits ? problems(values, form, object) : []
-  const empty = reading.fits ? missing(values, form) : []
+  const { missing: empty, problems: typed } = reading.fits
+    ? check(reading.object, form)
+    : { missing: [], problems: [] }
   const refused = reading.fits
     ? refusals(
         outcomes.flatMap((outcome) => (outcome.ok ? [] : (outcome.causes ?? []))),
@@ -117,15 +170,17 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
 
   // The lines set apart in the YAML: what the field in focus writes, what's wrong, and what
   // the form has no field for (or, stepped back, what it can't show).
+  // (They're the lines of what's shown: a Secret's, hidden, has each value on one.)
+  const where = hidden && !reading.fits && !stuck ? read(view, form) : reading
   const linesOf = (paths: Path[]) =>
     paths.flatMap((path) => {
-      const span = linesAt(text, path)
+      const span = linesAt(view, path)
       return span ? Array.from({ length: span[1] - span[0] + 1 }, (_, i) => span[0] + i) : []
     })
   const lit =
     focus && reading.fits
       ? fieldLines(
-          text,
+          view,
           reading.object,
           form,
           focus.field,
@@ -139,29 +194,29 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
           problem.path
             ? linesOf([problem.path])
             : problem.field === 'name'
-              ? nameLines(text, reading.object, form)
-              : fieldLines(text, reading.object, form, problem.field),
+              ? nameLines(view, reading.object, form)
+              : fieldLines(view, reading.object, form, problem.field),
         )
       : [],
     shaded: reading.fits
       ? linesOf(extras)
-      : reading.lines
-        ? Array.from(
-            { length: reading.lines[1] - reading.lines[0] + 1 },
-            (_, i) => reading.lines![0] + i,
-          )
+      : !where.fits && where.lines
+        ? Array.from({ length: where.lines[1] - where.lines[0] + 1 }, (_, i) => where.lines![0] + i)
         : [],
   }
 
-  const status = !reading.fits
-    ? 'Edited by hand. This is what gets created.'
-    : empty.length > 0
+  const status =
+    reading.fits && empty.length > 0
       ? `${listed(empty).join('')} ${empty.length === 1 ? 'is' : 'are'} still empty.`
-      : typed.length > 0
+      : reading.fits && typed.length > 0
         ? `${typed.length} ${typed.length === 1 ? 'field' : 'fields'} to fix before it can be created.`
         : outcomes.some((outcome) => !outcome.ok)
           ? 'Nothing was created.'
-          : 'Edit either side: they stay in step.'
+          : hidden
+            ? 'Read-only while its values are hidden.'
+            : reading.fits
+              ? 'Edit either side: they stay in step.'
+              : 'Edited by hand. This is what gets created.'
 
   // What the cluster said of a field is brought into view in the form too, whole.
   const formPane = useRef<HTMLDivElement>(null)
@@ -230,6 +285,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     const blank = FORM_KINDS[name].blank(start)
                     if (name === kind) return
                     setKind(name)
+                    setShowing(false)
                     change(blank)
                     setFitting(blank)
                   }}
@@ -289,19 +345,33 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                       disabled={!reading.fits}
                       className={cn('flex min-w-0 flex-col gap-3.5', !reading.fits && 'opacity-45')}
                     >
-                      <WorkloadFields
-                        // A kind's own: what was being added to one isn't the next one's.
-                        key={kind}
-                        form={form}
-                        values={values}
-                        wrong={wrong}
-                        focus={focus}
-                        onFocus={setFocus}
-                        allNamespaces={picked === null}
-                        start={start}
-                        edit={edit}
-                        object={object}
-                      />
+                      {form.family === 'workload' ? (
+                        <WorkloadFields
+                          // A kind's own: what was being added to one isn't the next one's.
+                          key={kind}
+                          form={form}
+                          wrong={wrong}
+                          focus={focus}
+                          onFocus={setFocus}
+                          allNamespaces={picked === null}
+                          start={start}
+                          edit={edit}
+                          object={object}
+                        />
+                      ) : (
+                        <PlainFields
+                          key={kind}
+                          form={form}
+                          wrong={wrong}
+                          focus={focus}
+                          onFocus={setFocus}
+                          allNamespaces={picked === null}
+                          start={start}
+                          edit={edit}
+                          object={object}
+                          hidden={hidden}
+                        />
+                      )}
                     </fieldset>
                   </div>
                 </div>
@@ -310,12 +380,37 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
               <div className="flex min-h-0 min-w-0 flex-col border-l border-line">
                 <p className="flex h-9 shrink-0 items-center gap-2 border-b border-line pr-2 pl-5 text-xs text-ink-3">
                   <b className="font-medium text-ink-2">YAML</b>
-                  <span role="status">{status}</span>
+                  <span role="status" className="min-w-0 flex-1 truncate">
+                    {status}
+                  </span>
+                  {kind === 'Secret' && (
+                    <button
+                      type="button"
+                      aria-pressed={showing}
+                      // What can't be read can't be hidden value by value: it stays shown
+                      // until it's YAML again.
+                      disabled={showing && cover === null}
+                      title={
+                        showing && cover === null
+                          ? 'It isn’t YAML as it stands, so its values can’t be told from the rest.'
+                          : undefined
+                      }
+                      onClick={() => setShowing(!showing)}
+                      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 font-medium text-ink-2 transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:bg-transparent"
+                    >
+                      {showing ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                      {showing ? 'Hide values' : 'Show values'}
+                    </button>
+                  )}
                 </p>
                 <div className="min-h-0 flex-1 bg-surface-2/60">
                   <CodeEditor
-                    value={text}
-                    onChange={change}
+                    // An editor of its own for each: what one held, and could undo to, isn't
+                    // the other's.
+                    key={hidden ? 'hidden' : 'open'}
+                    value={view}
+                    readOnly={hidden}
+                    onChange={(next) => !hidden && change(next)}
                     onSave={() => ready && !pending && void create(text)}
                     label="YAML to create"
                     lines={marks}
@@ -490,6 +585,101 @@ const RESOURCE_FIELDS: [keyof Resources, string, string][] = [
 ]
 
 type Focus = { field: FieldId; path: Path }
+/** A field's edit of the text: made, or (where it comes to `null`) the form steps back. */
+type Edit = (how: (text: string) => string | null) => void
+
+/** What every kind is asked first: its name, and the namespace it goes to. */
+function Who({
+  name,
+  namespace,
+  example,
+  wrong,
+  focus,
+  onFocus,
+  allNamespaces,
+  start,
+  onName,
+  onNamespace,
+}: {
+  name: string
+  namespace: string
+  /** A name such a thing might have, shown where none is typed yet. */
+  example: string
+  wrong: Problem[]
+  focus: Focus | undefined
+  onFocus: (focus: Focus | undefined) => void
+  allNamespaces: boolean
+  start: string
+  onName: (name: string) => void
+  onNamespace: (namespace: string) => void
+}) {
+  const namespaces = useList('Namespace', { namespace: null })
+  const names = [
+    ...new Set([
+      ...(namespaces.data ?? []).map((ns) => ns.metadata.name),
+      ...(namespace ? [namespace] : []),
+    ]),
+  ].sort()
+  const said = (field: FieldId) => wrong.find((problem) => problem.field === field)?.message
+  const on = (field: FieldId) => focus?.field === field
+  const focused = (field: 'name' | 'namespace') => ({
+    onFocus: () => onFocus({ field, path: ['metadata', field] }),
+    onBlur: () => onFocus(undefined),
+  })
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <Labelled label="Name" path="metadata.name" on={on('name')}>
+          {(ids) => (
+            <Text
+              aria-labelledby={ids.label}
+              aria-describedby={`${ids.describedBy} create-who-said`}
+              aria-invalid={said('name') !== undefined}
+              value={name}
+              placeholder={example}
+              bad={said('name') !== undefined}
+              onChange={onName}
+              {...focused('name')}
+            />
+          )}
+        </Labelled>
+        <Labelled label="Namespace" path="metadata.namespace" on={on('namespace')}>
+          {(ids) => (
+            <Choice
+              aria-labelledby={ids.label}
+              aria-describedby={`${ids.describedBy} create-who-said`}
+              value={namespace}
+              bad={said('namespace') !== undefined}
+              onChange={(event) => onNamespace(event.target.value)}
+              {...focused('namespace')}
+            >
+              {namespace === '' && <option value="">Choose…</option>}
+              {names.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </Choice>
+          )}
+        </Labelled>
+      </div>
+      {/* What's wrong with either is said under the two, across the form's width. */}
+      <div id="create-who-said" className="-mt-2 empty:hidden">
+        {(said('name') ?? said('namespace')) !== undefined && (
+          <p role="alert" className="text-xs leading-[17px] text-critical-text selectable">
+            {said('name') ?? said('namespace')}
+          </p>
+        )}
+      </div>
+      {allNamespaces && namespace === start && (
+        <p className="-mt-2 text-xs leading-[17px] text-ink-3">
+          No namespace is chosen in the header, so it starts at <Code>default</Code>. Choose another
+          here.
+        </p>
+      )}
+    </>
+  )
+}
 
 /** A choice among a few, as the system's own select: its arrow is ours. */
 function Choice({
@@ -560,7 +750,6 @@ function Count({
 /** What a workload asks: its name and where it goes, what's its kind's own, and its one container. */
 function WorkloadFields({
   form,
-  values,
   wrong,
   focus,
   onFocus,
@@ -570,24 +759,17 @@ function WorkloadFields({
   object,
 }: {
   form: FormKind
-  values: WorkloadValues
   wrong: Problem[]
   focus: Focus | undefined
   onFocus: (focus: Focus | undefined) => void
   allNamespaces: boolean
   start: string
-  edit: (how: (text: string) => string | null) => void
+  edit: Edit
   object: Record<string, unknown>
 }) {
   const write = useMemo(() => writer(form), [form])
+  const values = workloadValues(object, form)
   const has = (field: FieldId) => form.fields.includes(field)
-  const namespaces = useList('Namespace', { namespace: null })
-  const names = [
-    ...new Set([
-      ...(namespaces.data ?? []).map((ns) => ns.metadata.name),
-      ...(values.namespace ? [values.namespace] : []),
-    ]),
-  ].sort()
   // The Services and the storage classes there are to choose from, where a kind asks.
   const services = useList('Service', {
     namespace: values.namespace || start,
@@ -685,58 +867,18 @@ function WorkloadFields({
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-3">
-        <Labelled label="Name" path="metadata.name" on={on('name')}>
-          {(ids) => (
-            <Text
-              aria-labelledby={ids.label}
-              aria-describedby={`${ids.describedBy} create-who-said`}
-              aria-invalid={said('name') !== undefined}
-              value={values.name}
-              placeholder="web"
-              bad={said('name') !== undefined}
-              onChange={(name) => edit((text) => write.name(text, object, name))}
-              {...focused('name')}
-            />
-          )}
-        </Labelled>
-        <Labelled label="Namespace" path="metadata.namespace" on={on('namespace')}>
-          {(ids) => (
-            <Choice
-              aria-labelledby={ids.label}
-              aria-describedby={`${ids.describedBy} create-who-said`}
-              value={values.namespace}
-              bad={said('namespace') !== undefined}
-              onChange={(event) => {
-                const chosen = event.target.value
-                edit((text) => write.namespace(text, chosen))
-              }}
-              {...focused('namespace')}
-            >
-              {values.namespace === '' && <option value="">Choose…</option>}
-              {names.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </Choice>
-          )}
-        </Labelled>
-      </div>
-      {/* What's wrong with either is said under the two, across the form's width. */}
-      <div id="create-who-said" className="-mt-2 empty:hidden">
-        {(said('name') ?? said('namespace')) !== undefined && (
-          <p role="alert" className="text-xs leading-[17px] text-critical-text selectable">
-            {said('name') ?? said('namespace')}
-          </p>
-        )}
-      </div>
-      {allNamespaces && values.namespace === start && (
-        <p className="-mt-2 text-xs leading-[17px] text-ink-3">
-          No namespace is chosen in the header, so it starts at <Code>default</Code>. Choose another
-          here.
-        </p>
-      )}
+      <Who
+        name={values.name}
+        namespace={values.namespace}
+        example="web"
+        wrong={wrong}
+        focus={focus}
+        onFocus={onFocus}
+        allNamespaces={allNamespaces}
+        start={start}
+        onName={(name) => edit((text) => write.name(text, object, name))}
+        onNamespace={(chosen) => edit((text) => write.namespace(text, chosen))}
+      />
 
       {(has('replicas') || has('serviceName') || has('backoffLimit')) && (
         <div className="grid grid-cols-2 gap-3">
@@ -1261,5 +1403,698 @@ function AddButton({ onClick, children }: { onClick: () => void; children: React
       <Plus className="size-4" />
       {children}
     </button>
+  )
+}
+
+/** A name such a thing might have, where none is typed yet. */
+const EXAMPLES: Partial<Record<FormKindName, string>> = {
+  Service: 'web',
+  ConfigMap: 'web-settings',
+  Secret: 'web-credentials',
+  PersistentVolumeClaim: 'uploads',
+}
+
+interface FieldsProps {
+  form: FormKind
+  wrong: Problem[]
+  focus: Focus | undefined
+  onFocus: (focus: Focus | undefined) => void
+  edit: Edit
+  object: Record<string, unknown>
+  namespace: string
+}
+
+/** What a kind that runs nothing asks: a Service's fields, keys and values, or a claim's. */
+function PlainFields({
+  allNamespaces,
+  start,
+  hidden,
+  ...fields
+}: Omit<FieldsProps, 'namespace'> & {
+  allNamespaces: boolean
+  start: string
+  /** Whether a Secret's values are hidden. */
+  hidden: boolean
+}) {
+  const { form, wrong, focus, onFocus, edit, object } = fields
+  const write = useMemo(() => plainWriter(form), [form])
+  const namespace = shown(dig(object, ['metadata', 'namespace']))
+  return (
+    <>
+      <Who
+        name={shown(dig(object, ['metadata', 'name']))}
+        namespace={namespace}
+        example={EXAMPLES[form.kind] ?? ''}
+        wrong={wrong}
+        focus={focus}
+        onFocus={onFocus}
+        allNamespaces={allNamespaces}
+        start={start}
+        onName={(name) => edit((text) => write.name(text, name))}
+        onNamespace={(chosen) => edit((text) => write.namespace(text, chosen))}
+      />
+      {form.family === 'service' && <ServiceFields {...fields} namespace={namespace || start} />}
+      {form.family === 'data' && (
+        <DataFields {...fields} namespace={namespace || start} hidden={hidden} />
+      )}
+      {form.family === 'claim' && <ClaimFields {...fields} namespace={namespace || start} />}
+    </>
+  )
+}
+
+/** The first thing said of a field, or of one path of it. */
+const saidOf = (wrong: Problem[], field: FieldId, path?: Path) =>
+  wrong.find(
+    (problem) =>
+      problem.field === field &&
+      (path === undefined ||
+        (problem.path !== undefined && pathText(problem.path) === pathText(path))),
+  )?.message
+
+function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }: FieldsProps) {
+  const write = useMemo(() => plainWriter(form), [form])
+  const values = serviceValues(object)
+  const type = values.type || 'ClusterIP'
+  const types = Object.keys(SERVICE_TYPES) as (keyof typeof SERVICE_TYPES)[]
+  const focused = (field: FieldId, path: Path = form.paths[field]!) => ({
+    onFocus: () => onFocus({ field, path }),
+    onBlur: () => onFocus(undefined),
+  })
+  // The pods its labels match now, asked of the cluster once the labels can be one's.
+  const selector = values.selector.map((pair) => `${pair.key}=${pair.value}`).join(',')
+  const asked = values.selector.length > 0 && saidOf(wrong, 'selector') === undefined
+  const pods = useListResponse('Pod', { namespace, labelSelector: selector, enabled: asked })
+  const matching =
+    asked && pods.data && !pods.isPlaceholderData
+      ? (pods.data.total ?? pods.data.items.length)
+      : undefined
+  // A port that isn't in the YAML yet: it is, once it has a number.
+  const [draft, setDraft] = useState(false)
+  const base = form.paths.ports!
+  const rows = [
+    ...values.ports.map((port) => ({ ...port, draft: false })),
+    ...(draft ? [NEW_PORT] : []),
+  ]
+
+  return (
+    <>
+      <Labelled
+        label="Type"
+        path="spec.type"
+        on={focus?.field === 'type'}
+        error={saidOf(wrong, 'type')}
+        help={type in SERVICE_TYPES ? SERVICE_TYPES[type as keyof typeof SERVICE_TYPES] : undefined}
+      >
+        {(ids) => (
+          <div
+            role="radiogroup"
+            aria-labelledby={ids.label}
+            aria-describedby={ids.describedBy}
+            className="inline-flex rounded-lg bg-surface-3 p-0.5"
+            onKeyDown={(event) => {
+              // As a group of radios goes: the arrows choose, and the focus goes with them.
+              const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key]
+              if (!step) return
+              event.preventDefault()
+              const next =
+                types[(types.indexOf(type as never) + step + types.length) % types.length]!
+              edit((text) => write.type(text, next))
+              event.currentTarget.querySelector<HTMLElement>(`[data-type="${next}"]`)?.focus()
+            }}
+          >
+            {types.map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="radio"
+                data-type={name}
+                aria-checked={type === name}
+                tabIndex={type === name ? 0 : -1}
+                onClick={() => edit((text) => write.type(text, name))}
+                {...focused('type')}
+                className={cn(
+                  'h-7 rounded-md px-3 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  type === name ? 'bg-surface text-ink-1 shadow-xs' : 'text-ink-2 hover:text-ink-1',
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+      </Labelled>
+
+      <Labelled
+        label="Sends traffic to pods labelled"
+        path="spec.selector"
+        on={focus?.field === 'selector'}
+        error={saidOf(wrong, 'selector')}
+      >
+        {(ids) => (
+          <Pairs
+            ids={ids}
+            field="selector"
+            base={form.paths.selector!}
+            pairs={values.selector}
+            noun="label"
+            example={['app', 'web']}
+            wrong={wrong}
+            onFocus={onFocus}
+            edit={edit}
+            write={write}
+          />
+        )}
+      </Labelled>
+      <p className="-mt-1.5 flex items-start gap-1.5 text-xs leading-[17px] text-ink-3">
+        {values.selector.length === 0 ? (
+          'With no labels, it sends to no pods until something else says which.'
+        ) : matching === undefined ? (
+          // (Not asked while a label can't be one, nor said before the answer is in.)
+          '\u00a0'
+        ) : (
+          <>
+            {matching > 0 && <CircleCheck className="mt-px size-3.5 shrink-0 text-good-text" />}
+            <span>
+              {matching === 0
+                ? `No pods in ${namespace} match now.`
+                : `${matching} ${matching === 1 ? 'pod' : 'pods'} in ${namespace} ${matching === 1 ? 'matches' : 'match'} now.`}
+            </span>
+          </>
+        )}
+      </p>
+
+      <Labelled
+        label="Ports"
+        path="spec.ports"
+        on={focus?.field === 'ports'}
+        error={saidOf(wrong, 'ports')}
+      >
+        {(ids) => (
+          <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
+            {rows.map((port, index) => {
+              const at = (key: string): Path => [...base, index, key]
+              const bad = (key: string) => saidOf(wrong, 'ports', at(key)) !== undefined
+              const nth = `Port ${index + 1}`
+              return (
+                // (One list, so a new row that's numbered is the same row, and keeps the focus.)
+                <div key={index} className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-[104px] shrink-0">
+                      <Text
+                        aria-label={port.draft ? 'A new port' : nth}
+                        aria-describedby={ids.describedBy}
+                        aria-invalid={bad('port')}
+                        mono
+                        inputMode="numeric"
+                        unit="Port"
+                        className="pr-12"
+                        autoFocus={port.draft}
+                        value={port.port}
+                        placeholder="80"
+                        bad={bad('port')}
+                        onChange={(typed) => {
+                          const number = typed.trim()
+                          if (!port.draft) return edit((text) => write.port(text, index, number))
+                          if (number === '') return
+                          setDraft(false)
+                          edit((text) => write.addPort(text, object, number))
+                        }}
+                        {...(port.draft ? {} : focused('ports', at('port')))}
+                      />
+                    </span>
+                    <ArrowRight aria-hidden className="size-3.5 shrink-0 text-ink-3" />
+                    <span className="min-w-0 flex-1">
+                      <Text
+                        aria-label={`${nth}, on the pod`}
+                        aria-invalid={bad('targetPort')}
+                        mono
+                        unit="On the pod"
+                        className="pr-24"
+                        disabled={port.draft}
+                        value={port.targetPort}
+                        // (Not said, it's the same port on the pod.)
+                        placeholder={port.port}
+                        bad={bad('targetPort')}
+                        onChange={(typed) =>
+                          edit((text) => write.targetPort(text, index, typed.trim()))
+                        }
+                        {...focused('ports', at('targetPort'))}
+                      />
+                    </span>
+                    <span className="w-[84px] shrink-0">
+                      <Choice
+                        aria-label={`${nth}’s protocol`}
+                        disabled={port.draft}
+                        value={port.protocol || 'TCP'}
+                        bad={bad('protocol')}
+                        onChange={(event) => {
+                          const chosen = event.target.value
+                          edit((text) => write.protocol(text, index, chosen))
+                        }}
+                        {...focused('ports', at('protocol'))}
+                      >
+                        {[...new Set([...PROTOCOLS, port.protocol || 'TCP'])].map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </Choice>
+                    </span>
+                    <RemoveButton
+                      label={port.draft ? 'Remove the new port' : `Remove port ${index + 1}`}
+                      onClick={() =>
+                        port.draft ? setDraft(false) : edit((text) => write.removePort(text, index))
+                      }
+                    />
+                  </div>
+                  {/* With more than one, the cluster asks a name of each. */}
+                  {!port.draft && (values.ports.length > 1 || port.name !== '') && (
+                    <span className="mr-[38px]">
+                      <Text
+                        aria-label={`${nth}’s name`}
+                        aria-invalid={bad('name')}
+                        mono
+                        unit="Name"
+                        className="pr-16"
+                        value={port.name}
+                        placeholder="http"
+                        bad={bad('name')}
+                        onChange={(typed) =>
+                          edit((text) => write.portName(text, index, typed.trim()))
+                        }
+                        {...focused('ports', at('name'))}
+                      />
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+            <AddButton onClick={() => setDraft(true)}>Add a port</AddButton>
+          </div>
+        )}
+      </Labelled>
+    </>
+  )
+}
+
+const NEW_PORT = { name: '', port: '', targetPort: '', protocol: '', draft: true }
+
+function DataFields({
+  form,
+  wrong,
+  focus,
+  onFocus,
+  edit,
+  object,
+  hidden,
+}: FieldsProps & { hidden: boolean }) {
+  const write = useMemo(() => plainWriter(form), [form])
+  const base = form.paths.data!
+  const secret = form.kind === 'Secret'
+  return (
+    <>
+      {secret && (
+        <Labelled label="Type" path="type" on={false}>
+          {() => (
+            <p className="text-[13px] leading-[21px] text-ink-2">
+              <b className="font-medium text-ink-1">Opaque</b>: keys and values of your own. For a
+              TLS or registry secret, use the YAML.
+            </p>
+          )}
+        </Labelled>
+      )}
+      <Labelled
+        label="Data"
+        path={pathText(base)}
+        on={focus?.field === 'data'}
+        error={saidOf(wrong, 'data')}
+        help={
+          !secret
+            ? 'A value can have several lines.'
+            : `${
+                hidden
+                  ? 'Values are hidden on both sides until you choose Show values, above the YAML.'
+                  : 'Values are showing on both sides; Hide values, above the YAML, hides them again.'
+              } The cluster stores them base64-encoded, which isn’t encryption.`
+        }
+      >
+        {(ids) => (
+          <Pairs
+            ids={ids}
+            field="data"
+            base={base}
+            pairs={pairsAt(object, base)}
+            noun="key"
+            example={secret ? ['API_KEY', ''] : ['LOG_LEVEL', 'info']}
+            area
+            hidden={secret && hidden}
+            wrong={wrong}
+            onFocus={onFocus}
+            edit={edit}
+            write={write}
+          />
+        )}
+      </Labelled>
+    </>
+  )
+}
+
+function ClaimFields({ form, wrong, focus, onFocus, edit, object }: FieldsProps) {
+  const write = useMemo(() => plainWriter(form), [form])
+  const values = claimValues(object)
+  const classes = useList('StorageClass', { namespace: null })
+  const focused = (field: FieldId) => ({
+    onFocus: () => onFocus({ field, path: form.paths[field]! }),
+    onBlur: () => onFocus(undefined),
+  })
+  const gibibytes = /^(\d+)Gi$/.exec(values.size)?.[1]
+  const mode = values.accessMode
+  return (
+    <>
+      <Labelled
+        label="Size"
+        path={pathText(form.paths.size!)}
+        on={focus?.field === 'size'}
+        error={saidOf(wrong, 'size')}
+      >
+        {(ids) => (
+          <Text
+            aria-labelledby={ids.label}
+            aria-describedby={ids.describedBy}
+            aria-invalid={saidOf(wrong, 'size') !== undefined}
+            mono
+            // In gibibytes, as a number, where that's how it's written; any other amount
+            // (500Mi) is shown, and typed, whole.
+            unit={gibibytes === undefined && values.size !== '' ? undefined : 'Gi'}
+            value={gibibytes ?? values.size}
+            placeholder="20"
+            bad={saidOf(wrong, 'size') !== undefined}
+            onChange={(typed) => {
+              const size = typed.trim()
+              edit((text) => write.size(text, /^\d+$/.test(size) ? `${size}Gi` : size))
+            }}
+            {...focused('size')}
+          />
+        )}
+      </Labelled>
+      <Labelled
+        label="Storage class"
+        path={pathText(form.paths.storageClass!)}
+        on={focus?.field === 'storageClass'}
+        error={saidOf(wrong, 'storageClass')}
+      >
+        {(ids) => (
+          <ClassChoice
+            aria-labelledby={ids.label}
+            aria-describedby={ids.describedBy}
+            value={values.storageClass}
+            classes={classes.data}
+            onChange={(chosen) => edit((text) => write.storageClass(text, chosen))}
+            {...focused('storageClass')}
+          />
+        )}
+      </Labelled>
+      <Labelled
+        label="Who can mount it"
+        path="spec.accessModes"
+        on={focus?.field === 'accessMode'}
+        error={saidOf(wrong, 'accessMode')}
+        help={
+          <>
+            {mode !== '' && <Code>{mode}</Code>}
+            {mode !== '' && '. '}The class decides which of these it can give.
+          </>
+        }
+      >
+        {(ids) => (
+          <Choice
+            aria-labelledby={ids.label}
+            aria-describedby={ids.describedBy}
+            value={mode}
+            bad={saidOf(wrong, 'accessMode') !== undefined}
+            onChange={(event) => {
+              const chosen = event.target.value
+              edit((text) => write.accessMode(text, chosen))
+            }}
+            {...focused('accessMode')}
+          >
+            {!(mode in ACCESS_MODES) && <option value={mode}>{mode || 'Choose…'}</option>}
+            {Object.entries(ACCESS_MODES).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Choice>
+        )}
+      </Labelled>
+      <Note>Its size can grow later where the class allows it; it can’t shrink.</Note>
+    </>
+  )
+}
+
+/** A storage class, chosen: none said is the cluster's default one, named if it has one. */
+function ClassChoice({
+  value,
+  classes,
+  onChange,
+  ...props
+}: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'className' | 'onChange' | 'value'> & {
+  value: string
+  classes: { metadata: { name: string; annotations?: Record<string, string> } }[] | undefined
+  onChange: (chosen: string) => void
+}) {
+  const fallback = (classes ?? []).find(
+    (item) => item.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true',
+  )?.metadata.name
+  return (
+    <Choice {...props} value={value} onChange={(event) => onChange(event.target.value)}>
+      <option value="">{fallback ? `${fallback} (default)` : 'The cluster’s default'}</option>
+      {[
+        ...new Set([
+          ...(classes ?? []).map((item) => item.metadata.name),
+          ...(value ? [value] : []),
+        ]),
+      ]
+        // (The default by its name is offered only where the YAML says it so.)
+        .filter((name) => name !== fallback || name === value)
+        .sort()
+        .map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+    </Choice>
+  )
+}
+
+const AREA =
+  'block min-h-8 w-full min-w-0 resize-none rounded-lg border bg-surface px-2.5 py-[5px] font-mono text-[12.5px] leading-5 text-ink-1 outline-none placeholder:text-ink-3 focus:ring-3 disabled:bg-surface-2'
+const area = (bad: boolean) =>
+  cn(
+    AREA,
+    bad
+      ? 'border-critical ring-3 ring-critical/15 focus:border-critical focus:ring-critical/15'
+      : 'border-line-strong focus:border-accent focus:ring-accent-soft',
+  )
+
+type AreaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'value'> & {
+  value: string
+  bad?: boolean
+  onChange: (value: string) => void
+}
+
+/** A field for a value that can have several lines: as tall as what it holds. */
+function Area({ value, bad = false, onChange, className, ...props }: AreaProps) {
+  return (
+    <textarea
+      spellCheck={false}
+      autoComplete="off"
+      autoCapitalize="off"
+      rows={value.split('\n').length}
+      {...props}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={cn(area(bad), className)}
+    />
+  )
+}
+
+/**
+ * A Secret's value while values are hidden. What the YAML holds is never put in it: it shows
+ * that there's a value, and takes a new one in its place, drawn as dots while it's typed.
+ */
+function HiddenValue({
+  set,
+  onChange,
+  onBlur,
+  className,
+  ...props
+}: Omit<AreaProps, 'value'> & {
+  /** Whether there's a value now. */
+  set: boolean
+}) {
+  const [typed, setTyped] = useState<string>()
+  return (
+    <Area
+      {...props}
+      value={typed ?? ''}
+      placeholder={set ? HIDDEN : ''}
+      className={cn(
+        '[-webkit-text-security:disc] placeholder:[-webkit-text-security:none]',
+        className,
+      )}
+      onChange={(value) => {
+        setTyped(value)
+        onChange(value)
+      }}
+      onBlur={(event) => {
+        // What was typed is the YAML's now, and hidden with the rest.
+        setTyped(undefined)
+        onBlur?.(event)
+      }}
+    />
+  )
+}
+
+/** Keys and their values, a row each: labels, a ConfigMap's data, a Secret's. */
+function Pairs({
+  ids,
+  field,
+  base,
+  pairs,
+  noun,
+  example,
+  area = false,
+  hidden = false,
+  wrong,
+  onFocus,
+  edit,
+  write,
+}: {
+  ids: { label: string; describedBy: string }
+  field: FieldId
+  /** The map they're in. */
+  base: Path
+  pairs: Pair[]
+  /** What a key is called here: "Add a label". */
+  noun: 'label' | 'key'
+  example: [string, string]
+  /** Whether a value can have several lines. */
+  area?: boolean
+  /** Whether values are hidden: a Secret's, until they're asked for. */
+  hidden?: boolean
+  wrong: Problem[]
+  onFocus: (focus: Focus | undefined) => void
+  edit: Edit
+  write: ReturnType<typeof plainWriter>
+}) {
+  // A row that isn't in the YAML yet: it is, once its key is one the map can take.
+  const [draft, setDraft] = useState<string>()
+  // A key as it's being typed, while it can't be the key: it's empty, or another's.
+  const [renaming, setRenaming] = useState<{ index: number; typed: string }>()
+  const taken = (key: string, but?: number) =>
+    pairs.some((pair, i) => i !== but && pair.key === key)
+  const refused = renaming ?? (draft ? { index: pairs.length, typed: draft } : undefined)
+  const rows = [
+    ...pairs.map((pair) => ({ ...pair, draft: false })),
+    ...(draft === undefined ? [] : [{ key: draft, value: '', draft: true }]),
+  ]
+  const Value = area ? Area : Text
+  return (
+    <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
+      {rows.map((pair, index) => {
+        const path: Path = [...base, pair.key]
+        const bad = !pair.draft && saidOf(wrong, field, path) !== undefined
+        const typing = renaming?.index === index ? renaming.typed : pair.key
+        const nth = pair.key || `${noun === 'label' ? 'Label' : 'Key'} ${index + 1}`
+        const focused = pair.draft
+          ? {}
+          : { onFocus: () => onFocus({ field, path }), onBlur: () => onFocus(undefined) }
+        return (
+          // (One list, so a new row that's named is the same row, and keeps the focus.)
+          <div key={index} className="flex items-start gap-1.5">
+            <Text
+              aria-label={
+                pair.draft ? `A new ${noun}` : `${noun === 'label' ? 'Label' : 'Key'} ${index + 1}`
+              }
+              aria-describedby={ids.describedBy}
+              mono
+              autoFocus={pair.draft}
+              value={typing}
+              placeholder={pair.draft ? example[0] : undefined}
+              bad={bad || refused?.index === index}
+              className="flex-1"
+              onChange={(typed) => {
+                const cannot = typed === '' || taken(typed, pair.draft ? undefined : index)
+                if (pair.draft) {
+                  if (cannot) return setDraft(typed)
+                  setDraft(undefined)
+                  return edit((text) => write.addPair(text, base, typed))
+                }
+                if (cannot) return setRenaming({ index, typed })
+                setRenaming(undefined)
+                edit((text) => write.renamePair(text, base, pair.key, typed))
+              }}
+              {...focused}
+              onBlur={() => {
+                // Left as it can't be, it's the key it was.
+                setRenaming(undefined)
+                onFocus(undefined)
+              }}
+            />
+            <span aria-hidden className="flex h-8 items-center text-ink-3">
+              =
+            </span>
+            {pair.draft ? (
+              <Text
+                aria-label={`A new ${noun}’s value`}
+                mono
+                disabled
+                value=""
+                placeholder={`after its ${noun === 'label' ? 'key' : 'name'}`}
+                className="flex-[1.4]"
+                onChange={() => undefined}
+              />
+            ) : hidden ? (
+              <HiddenValue
+                aria-label={`${nth}’s value`}
+                set={pair.value !== ''}
+                bad={bad}
+                className="flex-[1.4]"
+                onChange={(value) => edit((text) => write.pairValue(text, base, pair.key, value))}
+                {...focused}
+              />
+            ) : (
+              <Value
+                aria-label={`${nth}’s value`}
+                mono
+                value={pair.value}
+                placeholder={index === 0 ? example[1] : undefined}
+                bad={bad}
+                className="flex-[1.4]"
+                onChange={(value) => edit((text) => write.pairValue(text, base, pair.key, value))}
+                {...focused}
+              />
+            )}
+            <RemoveButton
+              label={pair.draft ? `Remove the new ${noun}` : `Remove ${nth}`}
+              onClick={() => {
+                setRenaming(undefined)
+                if (pair.draft) setDraft(undefined)
+                else edit((text) => write.removePair(text, base, pair.key))
+              }}
+            />
+          </div>
+        )
+      })}
+      {refused && (
+        <p role="alert" className="text-xs leading-[17px] text-critical-text">
+          {refused.typed === ''
+            ? `A ${noun} needs a ${noun === 'label' ? 'key' : 'name'}: remove it with ×, or give it one.`
+            : `${refused.typed} is there already, and a ${noun === 'label' ? 'label' : 'key'} is there once.`}
+        </p>
+      )}
+      <AddButton onClick={() => setDraft(draft ?? '')}>Add a {noun}</AddButton>
+    </div>
   )
 }
