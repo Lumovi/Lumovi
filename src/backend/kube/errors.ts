@@ -1,4 +1,4 @@
-import type { KubeError, KubeErrorCode } from '@shared/api'
+import type { KubeError, KubeErrorCause, KubeErrorCode } from '@shared/api'
 
 /** An error with a known cause, safe to show to the user as-is. */
 export class KubeRequestError extends Error {
@@ -6,10 +6,33 @@ export class KubeRequestError extends Error {
     readonly code: KubeErrorCode,
     message: string,
     readonly status?: number,
+    /** What the API server found wrong, field by field, where it said. */
+    readonly causes?: KubeErrorCause[],
   ) {
     super(message)
     this.name = 'KubeRequestError'
   }
+}
+
+/** How many causes of one refusal are kept, and how much of each: it's the cluster's text. */
+const CAUSES_MAX = 50
+const CAUSE_TEXT_MAX = 1000
+
+/** A Status' `details.causes`, as far as they're what they should be. */
+function causesOf(details: unknown): KubeErrorCause[] | undefined {
+  const causes = (details as { causes?: unknown } | null | undefined)?.causes
+  if (!Array.isArray(causes)) return undefined
+  const text = (value: unknown) =>
+    typeof value === 'string' ? value.slice(0, CAUSE_TEXT_MAX) : undefined
+  const kept = causes.slice(0, CAUSES_MAX).flatMap((cause: unknown): KubeErrorCause[] => {
+    const { field, message, reason } = Object(cause) as Record<string, unknown>
+    const said = text(message)
+    if (said === undefined) return []
+    const where = text(field)
+    const why = text(reason)
+    return [{ ...(where ? { field: where } : {}), message: said, ...(why ? { reason: why } : {}) }]
+  })
+  return kept.length > 0 ? kept : undefined
 }
 
 export const TLS_ERROR = /CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_VERIFY/
@@ -51,15 +74,17 @@ const STATUS_CODES: Record<number, KubeErrorCode> = {
 /** Maps a non-2xx API response onto a `KubeRequestError`. */
 export function statusError(status: number, body: string): KubeRequestError {
   let message = `The API server responded with HTTP ${status}`
+  let causes: KubeErrorCause[] | undefined
   try {
-    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown }
+    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown; details?: unknown }
+    causes = causesOf(parsed.details)
     // Kubernetes Status objects have a message; Prometheus' API errors have an error.
     if (typeof parsed.message === 'string') message = parsed.message
     else if (typeof parsed.error === 'string') message = parsed.error
   } catch {
     // Not a Kubernetes Status object (e.g. an HTML error page from a proxy).
   }
-  return new KubeRequestError(STATUS_CODES[status] ?? 'server', message, status)
+  return new KubeRequestError(STATUS_CODES[status] ?? 'server', message, status, causes)
 }
 
 /** Normalises anything thrown while talking to a cluster into a serialisable `KubeError`. */
@@ -86,7 +111,12 @@ export function proxyRefused(message: string): number | undefined {
 
 export function toKubeError(error: unknown): KubeError {
   if (error instanceof KubeRequestError) {
-    return { code: error.code, message: error.message, status: error.status }
+    return {
+      code: error.code,
+      message: error.message,
+      status: error.status,
+      ...(error.causes ? { causes: error.causes } : {}),
+    }
   }
   const { message, code } = error as NodeJS.ErrnoException
   if (code && TLS_ERROR.test(code)) return { code: 'tls', message: tlsReason(code, message) }

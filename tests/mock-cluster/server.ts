@@ -639,8 +639,20 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   function validate(def: Served, object: KubeObject, existing?: KubeObject): void {
     const name = object.metadata.name
     const resource = def.group ? `${def.apiKind}.${def.group}` : def.apiKind
+    // As the API server answers: the message, and the same field by field in its details.
     const fail = (field: string, message: string) => {
-      throw new HttpError(422, `${resource} "${name}" is invalid: ${field}: ${message}`)
+      throw new HttpError(422, `${resource} "${name}" is invalid: ${field}: ${message}`, {
+        name,
+        ...(def.group ? { group: def.group } : {}),
+        kind: def.apiKind,
+        causes: [
+          {
+            reason: message.startsWith('Required') ? 'FieldValueRequired' : 'FieldValueInvalid',
+            message,
+            field,
+          },
+        ],
+      })
     }
     if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || name.length > 253) {
       fail(
@@ -659,6 +671,21 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       object.spec?.jobTemplate?.spec?.template?.spec?.containers
     containers?.forEach((container, i) => {
       if (!container.image) fail(`spec.template.spec.containers[${i}].image`, 'Required value')
+      // A request is at most its limit; the API names the requests, not the one that's over.
+      for (const resource of ['cpu', 'memory']) {
+        const request = container.resources?.requests?.[resource]
+        const limit = container.resources?.limits?.[resource]
+        if (
+          request !== undefined &&
+          limit !== undefined &&
+          parseQuantity(request) > parseQuantity(limit)
+        ) {
+          fail(
+            `spec.template.spec.containers[${i}].resources.requests`,
+            `Invalid value: "${request}": must be less than or equal to ${resource} limit of ${limit}`,
+          )
+        }
+      }
     })
     if (def.kind === 'HorizontalPodAutoscaler') {
       const { minReplicas = 1, maxReplicas } = object.spec
