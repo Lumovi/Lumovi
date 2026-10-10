@@ -229,13 +229,31 @@ for (const [how, text] of Object.entries(WRITTEN)) {
   })
 }
 
-/** The editor's document as it holds it: the text the form's edits are made of. */
+/**
+ * The editor's document as it holds it: the text the form's edits are made of. It's read
+ * from CodeMirror's own view, which it keeps on its content's element (`cmTile`, as of
+ * @codemirror/view 6.43): nothing public says what the document is, line ends and all. If
+ * that handle isn't there, or isn't this editor's, the test fails saying so, and never passes
+ * or fails for another reason.
+ */
 const held = (page: Page) =>
   editor(page).evaluate((content) => {
-    // (CodeMirror keeps its view on its content's element; nothing else says what the
-    // document is, line ends and all.)
-    const { view } = (content as unknown as { cmTile: { view: { state: { doc: object } } } }).cmTile
-    return String(view.state.doc)
+    interface View {
+      contentDOM: Element
+      state: { doc: { toString(): string; lines: number } }
+    }
+    const view = (content as unknown as { cmTile?: { view?: View } }).cmTile?.view
+    if (
+      !view ||
+      view.contentDOM !== content ||
+      typeof view.state?.doc?.lines !== 'number' ||
+      view.state.doc.lines !== content.querySelectorAll('.cm-line').length
+    ) {
+      throw new Error(
+        'The editor’s internals changed; this test pins that the form’s layer only ever sees plain line ends: find the editor’s document another way.',
+      )
+    }
+    return view.state.doc.toString()
   })
 
 // The editing layer writes and expects plain line ends, and nothing else: this is the fact
