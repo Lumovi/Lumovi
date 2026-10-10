@@ -53,6 +53,11 @@ export interface Crafted {
   cut?: boolean
   /** How long it waits between the pieces it sends, in milliseconds: a slow disk, or a big file. */
   slowly?: number
+  /**
+   * How long nothing follows the first entry's header, in milliseconds: a file tar has found
+   * and not yet read anything of.
+   */
+  stalls?: number
 }
 
 /**
@@ -287,8 +292,14 @@ async function send(ws: WebSocket, answer: Crafted): Promise<object | undefined>
     // Held or dropped, it stops short: of the archive's end, and of its last file's.
     const bytes = answer.then || answer.cut ? whole.subarray(0, whole.length - 1024 - 512) : whole
     // In pieces, as a container's tar writes it.
-    for (let at = 0; at < bytes.length; at += 32 * 1024) {
-      if (at > 0 && answer.slowly)
+    let from = 0
+    if (answer.stalls) {
+      ws.send(frame(STDOUT, bytes.subarray(0, 512)))
+      await new Promise((resolve) => setTimeout(resolve, answer.stalls))
+      from = 512
+    }
+    for (let at = from; at < bytes.length; at += 32 * 1024) {
+      if (at > from && answer.slowly)
         await new Promise((resolve) => setTimeout(resolve, answer.slowly))
       if (ws.readyState !== ws.OPEN) return undefined
       ws.send(frame(STDOUT, bytes.subarray(at, at + 32 * 1024)))
