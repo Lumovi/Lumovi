@@ -6,7 +6,13 @@
 import type { Page } from '@playwright/test'
 import { call, connect } from './assistant-client.ts'
 import { DEMO, DEMO_TOKEN, expect, PEOPLE, signIn, test } from './fixtures.ts'
-import { expectFingerSized, expectNoSidewaysScroll, PHONE, PHONE_ON_ITS_SIDE } from './phone.ts'
+import {
+  expectFingerSized,
+  expectNoSidewaysScroll,
+  PHONE,
+  PHONE_ON_ITS_SIDE,
+  signInNarrow,
+} from './phone.ts'
 
 test.use({ viewport: PHONE, hasTouch: true, isMobile: true })
 
@@ -35,7 +41,7 @@ test('the sidebar is a drawer: behind a button, holding focus, closed by Escape 
   serve,
 }) => {
   const served = await serve()
-  await signIn(page, `${served.url}cluster/demo`, DEMO_TOKEN)
+  await signInNarrow(page, `${served.url}cluster/demo`, DEMO_TOKEN)
   // No sidebar beside the page, and no back and forward of its own: the browser has them.
   await expect(page.getByRole('complementary', { name: 'Sidebar' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Back/ })).toHaveCount(0)
@@ -67,7 +73,7 @@ test('the overview: where you are under the top bar, and nothing sideways', asyn
   serve,
 }) => {
   const served = await serve()
-  await signIn(page, `${served.url}cluster/demo`, DEMO_TOKEN)
+  await signInNarrow(page, `${served.url}cluster/demo`, DEMO_TOKEN)
   await expectAPhonesPage(page, 'the overview', async () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview')
     await expect(page.getByRole('button', { name: 'Cluster', exact: true })).toContainText('demo')
@@ -95,7 +101,7 @@ test('a list is two lines an object, sorted from a sheet, and opens a page', asy
   serve,
 }) => {
   const served = await serve()
-  await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
+  await signInNarrow(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
   const list = page.getByRole('list', { name: 'Pods' })
   await expectAPhonesPage(page, 'the list of pods', async () => {
     await expect(list.getByRole('listitem').first()).toBeVisible()
@@ -136,7 +142,7 @@ test('a detail is a page: which cluster, two actions at most, and its tabs', asy
 }) => {
   const served = await serve()
   const name = DEMO.deployments.storefront
-  await signIn(
+  await signInNarrow(
     page,
     `${served.url}cluster/demo/deployments?open=Deployment/shop/${name}`,
     DEMO_TOKEN,
@@ -193,7 +199,7 @@ test('a detail is a page: which cluster, two actions at most, and its tabs', asy
 test('logs wrap, and what’s done to them is a finger’s size', async ({ page, serve }) => {
   const served = await serve()
   const pod = DEMO.pods.storefront[0]!
-  await signIn(page, `${served.url}cluster/demo/pods?open=Pod/shop/${pod}`, DEMO_TOKEN)
+  await signInNarrow(page, `${served.url}cluster/demo/pods?open=Pod/shop/${pod}`, DEMO_TOKEN)
   const detail = page.getByRole('complementary', { name: `Pod ${pod}` })
   await detail.getByRole('tab', { name: 'Logs' }).click()
   const log = detail.getByRole('log')
@@ -283,7 +289,7 @@ test('a tablet keeps the table, with the drawer and a detail over the list', asy
 }) => {
   const served = await serve()
   await page.setViewportSize({ width: 768, height: 1024 })
-  await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
+  await signInNarrow(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
   await expect(page.getByRole('grid', { name: 'Pods' })).toBeVisible()
   await expect(menu(page)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create from YAML' })).toBeVisible()
