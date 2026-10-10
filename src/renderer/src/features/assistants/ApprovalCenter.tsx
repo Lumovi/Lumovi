@@ -40,7 +40,7 @@ import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { pluralize } from '@renderer/lib/format'
-import { PHONE_MEDIA, useLayout, type Layout } from '@renderer/lib/layout'
+import { PHONE_MEDIA, useLayout, useTouch, type Layout } from '@renderer/lib/layout'
 import { toYaml } from '@renderer/lib/yaml'
 import { useActivity } from '@renderer/state/activity'
 import { toast } from '@renderer/state/toasts'
@@ -212,8 +212,9 @@ function ApprovalDialog({
   const diff = unifiedDiff(forDiff(proposal.before), forDiff(proposal.after))
   const at = queue.indexOf(proposal)
   const layout = useLayout()
+  const touch = useTouch()
   // (This dialog is made anew for each request, so the moment starts with each.)
-  const live = useLiveAfter(APPROVE_MOMENT_ON.includes(layout) ? APPROVE_MOMENT_MS : 0)
+  const live = useLiveAfter(touch || APPROVE_MOMENT_ON.includes(layout) ? APPROVE_MOMENT_MS : 0)
 
   const approve = () => decide({ approved: true })
   const reject = () => decide({ approved: false, ...(note.trim() ? { note: note.trim() } : {}) })
@@ -483,17 +484,24 @@ function ApprovalDialog({
  * answers nothing. A tap in that time is dropped, not kept for after.
  */
 const APPROVE_MOMENT_MS = 600
-/** Where the moment applies: add 'tablet' and 'wide' for it everywhere. */
+/**
+ * Where the moment applies, besides wherever the page is used by touch (a finger is what taps
+ * astray, whatever the screen's width): add 'tablet' and 'wide' for it everywhere.
+ */
 const APPROVE_MOMENT_ON: Layout[] = ['phone']
 
-/** Whether `after` ms have passed since this was first asked. */
+/**
+ * Whether the wait there was when this was first asked has passed. It's a timer that always
+ * runs out: what the screen does meanwhile (turned on its side, a window made wider) neither
+ * stops it nor starts it again.
+ */
 function useLiveAfter(after: number): boolean {
-  const [live, setLive] = useState(after === 0)
+  const [wait] = useState(after)
+  const [live, setLive] = useState(wait === 0)
   useEffect(() => {
-    if (after === 0) return
-    const timer = setTimeout(() => setLive(true), after)
+    const timer = setTimeout(() => setLive(true), wait)
     return () => clearTimeout(timer)
-  }, [after])
+  }, [wait])
   return live
 }
 
@@ -518,9 +526,12 @@ function WithinLines({ text, name }: { text: string; name?: string }) {
         return span.offsetHeight <= most
       }
       let fitted = text
-      if (!fits(text) && name && text.includes(name) && name.length > NAME_END + 2) {
+      // (Where the name is, by its place: it may hold any characters, and the kind's word
+      // before it may be the same as it.)
+      const at = name ? text.lastIndexOf(name) : -1
+      if (!fits(text) && name && at >= 0 && name.length > NAME_END + 2) {
         const cut = (kept: number) =>
-          text.replace(name, `${name.slice(0, kept)}…${name.slice(-NAME_END)}`)
+          `${text.slice(0, at)}${name.slice(0, kept)}…${name.slice(-NAME_END)}${text.slice(at + name.length)}`
         // The most of the name's start that still fits.
         let low = 1
         let high = name.length - NAME_END - 1
