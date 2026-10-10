@@ -307,8 +307,22 @@ const indented = (block: string, by: number) =>
     .map((line) => (line === '' ? line : ' '.repeat(by) + line))
 
 /**
+ * Whatever `edit` comes to, or `null` where it can't be done at all: a path that leads through
+ * something that isn't a map or a list (the document is one word, a key's value is, or it's an
+ * alias of what's written elsewhere), which `yaml` says by throwing.
+ */
+function orNot(edit: () => string | null): string | null {
+  try {
+    return edit()
+  } catch {
+    return null
+  }
+}
+
+/**
  * Sets the value at `path`, making what's above it if it isn't there. `order` says where a new
- * key goes among a map's own: after the last of those listed before it that's there.
+ * key goes among a map's own: after the last of those listed before it that's there. `null`
+ * if it can't be done here (see the top of this file).
  */
 export function setAt(
   text: string,
@@ -316,19 +330,34 @@ export function setAt(
   value: unknown,
   order: readonly string[] = [],
 ): string | null {
+  return orNot(() => setting(text, path, value, order))
+}
+
+function setting(
+  text: string,
+  path: Path,
+  value: unknown,
+  order: readonly string[],
+): string | null {
   const doc = parsed(text)
-  if (doc.errors.length > 0 || path.length === 0) return null
-  // A key above it with nothing after it (`resources:`) takes what's below as its value.
+  // (A document with nothing in it, or only a comment, has no block for anything to join.)
+  if (doc.errors.length > 0 || path.length === 0 || doc.contents === null) return null
+  // A key above it with nothing after it (`resources:`), or with an empty map or list
+  // (`containers: []`), takes what's below as its value.
   for (let depth = 1; depth < path.length; depth++) {
     const above = nodeAt(doc, path.slice(0, depth))
-    if (above && isScalar(above) && above.value === null && pairAt(doc, path.slice(0, depth))) {
+    const nothing =
+      above &&
+      ((isScalar(above) && above.value === null) ||
+        ((isMap(above) || isSeq(above)) && above.items.length === 0))
+    if (nothing && pairAt(doc, path.slice(0, depth))) {
       const within = path
         .slice(depth)
         .reduceRight<unknown>(
           (inner, part) => (typeof part === 'number' ? [inner] : { [part]: inner }),
           value,
         )
-      return setAt(text, path.slice(0, depth), within, order)
+      return setting(text, path.slice(0, depth), within, order)
     }
   }
   const wanted = meaning(text, (d) => d.setIn([...path], fresh(d, value)))
@@ -450,6 +479,10 @@ export function setAt(
  * nothing, as far up as `upTo` allows (the number of parts of the path that always stay).
  */
 export function removeAt(text: string, path: Path, upTo = 1): string | null {
+  return orNot(() => removing(text, path, upTo))
+}
+
+function removing(text: string, path: Path, upTo: number): string | null {
   const doc = parsed(text)
   if (doc.errors.length > 0 || path.length === 0) return null
   if (!doc.hasIn([...path])) return text

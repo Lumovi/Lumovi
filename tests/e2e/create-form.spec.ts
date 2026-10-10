@@ -505,6 +505,30 @@ test('YAML the form can’t show: it steps back, says why, and can go back', asy
   ).toHaveLength(2)
 })
 
+test('an edit the form can’t make in the YAML as it’s written isn’t made, and it says so', async ({
+  page,
+}) => {
+  await open(page, 'shop')
+  // The container's resources are an alias of an empty map written elsewhere: there's no
+  // place of its own for an amount to go.
+  const aliased = `x-none: &none {}\n${WEB.slice(0, WEB.indexOf('          resources:'))}          resources: *none\n`
+  await type(page, aliased)
+  await expect(field(page, 'Name')).toHaveValue('web')
+  await form(page).getByRole('button', { name: 'Set them' }).click()
+  await field(page, 'CPU request').fill('250m')
+  // Nothing of the YAML changed, and the form steps back as it does for YAML it can't show.
+  expect(await yaml(page)).toBe(aliased)
+  await expect(form(page)).toContainText(
+    'The form can’t show this YAMLA field’s edit would have rewritten more of this YAML than its own lines, the way it’s written, so it wasn’t made. The YAML is what gets created; go on editing it there.',
+  )
+  await expect(field(page, 'Name')).toBeDisabled()
+  await expect(create(page)).toBeEnabled()
+  // Back to the form, or on with the YAML: either way it's over.
+  await form(page).getByRole('button', { name: 'Go back to the form’s version' }).click()
+  await expect(field(page, 'Name')).toBeEnabled()
+  expect(await yaml(page)).toBe(aliased)
+})
+
 test('the cluster’s refusal is in the results, and under the field it names', async ({
   page,
   clusters,
