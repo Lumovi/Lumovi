@@ -89,9 +89,7 @@ test('only Lumovi’s admins install it and remove it, as themselves', async ({
   await page.reload()
   expect(await uninstall(page)).toEqual({ ok: true, data: null })
   expect(made()).toBeUndefined()
-  expect(
-    clusters.demo.object('ClusterRole.rbac.authorization.k8s.io', undefined, `${RELEASE}-server`),
-  ).toBeUndefined()
+  expect(clusters.demo.object('ClusterRole', undefined, `${RELEASE}-server`)).toBeUndefined()
 })
 
 test('a server that names no admins installs none', async ({ page, context, serve, clusters }) => {

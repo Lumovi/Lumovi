@@ -28,6 +28,11 @@ export const BUILTIN_KINDS = [
   'PersistentVolumeClaim',
   'PersistentVolume',
   'StorageClass',
+  'Role',
+  'ClusterRole',
+  'RoleBinding',
+  'ClusterRoleBinding',
+  'ServiceAccount',
 ] as const
 
 export type BuiltinKind = (typeof BUILTIN_KINDS)[number]
@@ -41,7 +46,7 @@ export type BuiltinKind = (typeof BUILTIN_KINDS)[number]
 // `string & {}` keeps the built-in names as suggestions without excluding others.
 export type ResourceKind = BuiltinKind | (string & {})
 
-export type ResourceCategory = 'cluster' | 'workloads' | 'network' | 'config' | 'storage'
+export type ResourceCategory = 'cluster' | 'workloads' | 'network' | 'config' | 'storage' | 'access'
 
 export interface ResourceDefinition {
   kind: ResourceKind
@@ -83,6 +88,8 @@ function def(
   return { kind, apiKind: kind, plural, group, version, namespaced, label, category }
 }
 
+const RBAC = 'rbac.authorization.k8s.io/v1'
+
 /** The built-in kinds, in sidebar order. */
 export const RESOURCES: readonly BuiltinDefinition[] = [
   def('Node', 'nodes', 'v1', false, 'Nodes', 'cluster'),
@@ -118,6 +125,12 @@ export const RESOURCES: readonly BuiltinDefinition[] = [
   def('PersistentVolumeClaim', 'persistentvolumeclaims', 'v1', true, 'Volume Claims', 'storage'),
   def('PersistentVolume', 'persistentvolumes', 'v1', false, 'Volumes', 'storage'),
   def('StorageClass', 'storageclasses', 'storage.k8s.io/v1', false, 'Storage Classes', 'storage'),
+  // Who may do what: roles (what's allowed), bindings (to whom), and the accounts workloads act as.
+  def('Role', 'roles', RBAC, true, 'Roles', 'access'),
+  def('ClusterRole', 'clusterroles', RBAC, false, 'Cluster Roles', 'access'),
+  def('RoleBinding', 'rolebindings', RBAC, true, 'Role Bindings', 'access'),
+  def('ClusterRoleBinding', 'clusterrolebindings', RBAC, false, 'Cluster Role Bindings', 'access'),
+  def('ServiceAccount', 'serviceaccounts', 'v1', true, 'Service Accounts', 'access'),
 ]
 
 const BY_KIND = new Map(RESOURCES.map((r) => [r.kind as ResourceKind, r]))

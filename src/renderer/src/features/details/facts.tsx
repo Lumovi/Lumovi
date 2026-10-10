@@ -11,6 +11,8 @@ import {
   loadBalancerAddress,
 } from '../resources/columns'
 import { Meter } from '@renderer/components/Meter'
+import { roleRefOf, rulesOf, subjectsOf } from '@renderer/lib/rbac'
+import { RoleLink } from './access'
 import { ObjectLink } from './ObjectLink'
 import { Labels } from './sections'
 
@@ -71,13 +73,41 @@ function hpaMetrics(hpa: KubeObject): string {
     .join(', ')
 }
 
+/** The service account a pod (or a workload's pods) acts as, where one is named. */
+const account = (pod: { serviceAccountName?: string } | undefined, namespace?: string) =>
+  pod?.serviceAccountName && (
+    <ObjectLink kind="ServiceAccount" name={pod.serviceAccountName} namespace={namespace} />
+  )
+/** A workload's pods' account. */
+const podsAccount = (o: KubeObject) => account(o.spec.template?.spec, o.metadata.namespace)
+
+/** A service account's own secrets, or those its pods pull images with, each a link. */
+const secrets = (names: { name?: string }[] | undefined, namespace?: string) =>
+  names?.length ? (
+    <span className="flex flex-col items-start gap-0.5">
+      {names.map(({ name }, i) =>
+        name ? (
+          <ObjectLink key={name} kind="Secret" name={name} namespace={namespace} />
+        ) : (
+          <span key={i}>—</span>
+        ),
+      )}
+    </span>
+  ) : undefined
+
+const role = (o: KubeObject) => [fact('Rules', rulesOf(o).length || 'None')]
+const binding = (o: KubeObject) => [
+  fact('Role', roleRefOf(o).name ? <RoleLink binding={o} /> : 'None'),
+  fact('Subjects', subjectsOf(o).length || 'None'),
+]
+
 const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
   Pod: (o) => [
     fact('Node', o.spec.nodeName && <ObjectLink kind="Node" name={o.spec.nodeName} />),
     fact('Pod IP', o.status.podIP),
     fact('Host IP', o.status.hostIP),
     fact('QoS class', o.status.qosClass),
-    fact('Service account', o.spec.serviceAccountName),
+    fact('Service account', account(o.spec, o.metadata.namespace)),
     fact('Restart policy', o.spec.restartPolicy),
   ],
   Node: (o) => [
@@ -119,17 +149,20 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Available', o.status.availableReplicas),
     fact('Strategy', o.spec.strategy?.type),
     fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Service account', podsAccount(o)),
   ],
   StatefulSet: (o) => [
     fact('Replicas', replicas(o)),
     fact('Service', o.spec.serviceName),
     fact('Update strategy', o.spec.updateStrategy?.type),
     fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Service account', podsAccount(o)),
   ],
   DaemonSet: (o) => [
     fact('Scheduled', replicas(o)),
     fact('Update strategy', o.spec.updateStrategy?.type),
     fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Service account', podsAccount(o)),
   ],
   ReplicaSet: (o) => [
     fact('Replicas', replicas(o)),
@@ -141,6 +174,7 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Backoff limit', o.spec.backoffLimit),
     fact('Started', when(o.status.startTime)),
     fact('Completed', when(o.status.completionTime)),
+    fact('Service account', podsAccount(o)),
   ],
   CronJob: (o) => [
     fact('Schedule', o.spec.schedule),
@@ -148,6 +182,10 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Concurrency', o.spec.concurrencyPolicy),
     fact('Last scheduled', when(o.status.lastScheduleTime)),
     fact('Last successful', when(o.status.lastSuccessfulTime)),
+    fact(
+      'Service account',
+      account(o.spec.jobTemplate?.spec?.template?.spec, o.metadata.namespace),
+    ),
   ],
   HorizontalPodAutoscaler: (o) => [
     fact(
@@ -223,6 +261,23 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
     fact('Binding mode', o.volumeBindingMode as string),
     fact('Volume expansion', o.allowVolumeExpansion ? 'Allowed' : 'Not allowed'),
     fact('Parameters', labels(o.parameters as Record<string, string> | undefined)),
+  ],
+  Role: role,
+  ClusterRole: role,
+  RoleBinding: binding,
+  ClusterRoleBinding: binding,
+  ServiceAccount: (o) => [
+    fact(
+      'API token',
+      o.automountServiceAccountToken === false
+        ? 'Not mounted in its pods, unless a pod asks'
+        : 'Mounted in its pods',
+    ),
+    fact('Secrets', secrets(o.secrets as { name?: string }[] | undefined, o.metadata.namespace)),
+    fact(
+      'Image pull secrets',
+      secrets(o.imagePullSecrets as { name?: string }[] | undefined, o.metadata.namespace),
+    ),
   ],
 }
 

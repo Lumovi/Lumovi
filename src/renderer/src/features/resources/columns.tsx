@@ -9,6 +9,7 @@ import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, formatDateTime, percent } from '@renderer/lib/format'
 import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@renderer/lib/health'
 import { describeSchedule, nextRun } from '@renderer/lib/cron'
+import { roleRefOf, rulesOf, subjectsOf, subjectText } from '@renderer/lib/rbac'
 import { allocatable } from '@renderer/lib/usage'
 import { fieldValue, type View, type ViewField } from '@renderer/lib/views'
 
@@ -339,6 +340,57 @@ function dataKeys(object: KubeObject): number {
   )
 }
 
+/** How many rules a role has: none allows nothing. */
+const rulesColumn: Column = {
+  id: 'rules',
+  header: 'Rules',
+  width: '72px',
+  align: 'right',
+  cell: (o) => <span className="tabular-nums">{rulesOf(o).length}</span>,
+  sort: (o) => rulesOf(o).length,
+}
+
+/** A binding's role, which opens, and whom it's granted to. */
+const bindingColumns: Column[] = [
+  {
+    id: 'role',
+    header: 'Role',
+    width: 'minmax(160px, 1.2fr)',
+    cell: (o, ctx) => {
+      const { kind, name } = roleRefOf(o)
+      if (!name) return none
+      if (kind !== 'Role' && kind !== 'ClusterRole') return mono(`${kind ?? 'Role'}/${name}`)
+      return (
+        <button
+          type="button"
+          className="truncate text-left font-mono text-xs text-accent-strong hover:underline"
+          onClick={(event) => {
+            event.stopPropagation()
+            // Every page that lists bindings passes it.
+            ctx.open!(kind, name, kind === 'Role' ? o.metadata.namespace : undefined)
+          }}
+        >
+          {kind}/{name}
+        </button>
+      )
+    },
+    sort: (o) => `${roleRefOf(o).kind}/${roleRefOf(o).name}`,
+  },
+  {
+    id: 'subjects',
+    header: 'Subjects',
+    width: 'minmax(180px, 1.6fr)',
+    priority: 2,
+    cell: (o) => {
+      const subjects = subjectsOf(o)
+      if (subjects.length === 0) return muted('Nobody')
+      const more = subjects.length > 1 ? `, and ${subjects.length - 1} more` : ''
+      return plain(`${subjectText(subjects[0]!, o)}${more}`)
+    },
+    sort: (o) => subjectsOf(o).length,
+  },
+]
+
 const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
   Pod: podColumns,
   Node: nodeColumns,
@@ -600,6 +652,22 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       header: 'Binding',
       width: '150px',
       cell: (o) => plain(o.volumeBindingMode as string),
+    },
+  ],
+  Role: [rulesColumn],
+  ClusterRole: [rulesColumn],
+  RoleBinding: bindingColumns,
+  ClusterRoleBinding: bindingColumns,
+  ServiceAccount: [
+    {
+      id: 'secrets',
+      header: 'Secrets',
+      width: '84px',
+      align: 'right',
+      cell: (o) => (
+        <span className="tabular-nums">{(o.secrets as unknown[] | undefined)?.length ?? 0}</span>
+      ),
+      sort: (o) => (o.secrets as unknown[] | undefined)?.length ?? 0,
     },
   ],
 }

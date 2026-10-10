@@ -125,12 +125,12 @@ spec:
 apiVersion: lumovi.dev/v1alpha1
 kind: View
 metadata:
-  name: service-accounts
+  name: endpoints
 spec:
   kinds:
-    - { kind: ServiceAccount }
+    - { kind: Endpoints }
   columns:
-    - { name: Token, path: .automountServiceAccountToken, type: boolean, default: mounted }
+    - { name: Address, path: '.subsets[0].addresses[0].ip', default: none }
 `
 
 /** Everything that can be wrong with a view, one problem at a time. */
@@ -320,7 +320,7 @@ test('your own views: they replace Lumovi’s, and what’s wrong with them is s
     page
       .getByRole('region', { name: 'Kubernetes' })
       .getByRole('row')
-      .filter({ hasText: 'ServiceAccounts' }),
+      .filter({ hasText: 'Endpoints' }),
   ).toContainText('certificates.yml')
 
   // A view of one's own replaces Lumovi's.

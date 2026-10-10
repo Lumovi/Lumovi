@@ -72,34 +72,25 @@ const MORE_KINDS: Served[] = [
     verbs: ALL_VERBS,
   },
   {
-    kind: 'ServiceAccount',
-    apiKind: 'ServiceAccount',
-    plural: 'serviceaccounts',
+    kind: 'Endpoints',
+    apiKind: 'Endpoints',
+    plural: 'endpoints',
     group: '',
     version: 'v1',
     namespaced: true,
-    label: 'ServiceAccounts',
-    shortNames: ['sa'],
+    label: 'Endpoints',
+    shortNames: ['ep'],
     verbs: ALL_VERBS,
   },
   {
-    kind: 'ClusterRole.rbac.authorization.k8s.io',
-    apiKind: 'ClusterRole',
-    plural: 'clusterroles',
-    group: 'rbac.authorization.k8s.io',
+    kind: 'LimitRange',
+    apiKind: 'LimitRange',
+    plural: 'limitranges',
+    group: '',
     version: 'v1',
-    namespaced: false,
-    label: 'ClusterRoles',
-    verbs: ALL_VERBS,
-  },
-  {
-    kind: 'ClusterRoleBinding.rbac.authorization.k8s.io',
-    apiKind: 'ClusterRoleBinding',
-    plural: 'clusterrolebindings',
-    group: 'rbac.authorization.k8s.io',
-    version: 'v1',
-    namespaced: false,
-    label: 'ClusterRoleBindings',
+    namespaced: true,
+    label: 'LimitRanges',
+    shortNames: ['limits'],
     verbs: ALL_VERBS,
   },
   {
@@ -652,10 +643,10 @@ const SHARED_SCHEMAS: Record<string, Json> = {
 /** Schemas of the kinds that aren't custom, by group/version (only those the tests open). */
 const BUILTIN_SCHEMAS: Record<string, Record<string, Json>> = {
   'api/v1': {
-    'io.k8s.api.core.v1.ServiceAccount': {
+    // Endpoints, but no LimitRange: a document that doesn't describe every kind in its group.
+    'io.k8s.api.core.v1.Endpoints': {
       type: 'object',
-      description:
-        'ServiceAccount binds together: * a name, understood by users, and perhaps by peripheral systems, for an identity * a principal that can be authenticated and authorized * a set of secrets',
+      description: 'Endpoints is a collection of endpoints that implement the actual service.',
       properties: {
         apiVersion: {
           type: 'string',
@@ -672,23 +663,14 @@ const BUILTIN_SCHEMAS: Record<string, Record<string, Json>> = {
           default: {},
           description: "Standard object's metadata.",
         },
-        automountServiceAccountToken: {
-          type: 'boolean',
+        subsets: {
+          type: 'array',
           description:
-            'AutomountServiceAccountToken indicates whether pods running as this service account should have an API token automatically mounted.',
+            'The set of all endpoints is the union of all subsets. Addresses are placed into subsets according to the IPs they share.',
+          items: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
         },
       },
-      'x-kubernetes-group-version-kind': [{ group: '', kind: 'ServiceAccount', version: 'v1' }],
-    },
-  },
-  // Roles, but no ClusterRoles: a document that doesn't describe every kind in its group.
-  'apis/rbac.authorization.k8s.io/v1': {
-    'io.k8s.api.rbac.v1.Role': {
-      type: 'object',
-      description: 'Role is a namespaced, logical grouping of PolicyRules.',
-      'x-kubernetes-group-version-kind': [
-        { group: 'rbac.authorization.k8s.io', kind: 'Role', version: 'v1' },
-      ],
+      'x-kubernetes-group-version-kind': [{ group: '', kind: 'Endpoints', version: 'v1' }],
     },
   },
   'apis/apiextensions.k8s.io/v1': {

@@ -5,6 +5,7 @@ import { useMetrics } from '@renderer/hooks/queries'
 import { resourceFor, useSchema } from '@renderer/hooks/resources'
 import { viewFor, viewLinks } from '@renderer/lib/views'
 import { useAccessHere } from '../access/use-access'
+import { AccountBindings, RulesSection, SubjectsSection } from './access'
 import { factsFor } from './facts'
 import { FieldTree } from './FieldTree'
 import { ObjectLink } from './ObjectLink'
@@ -158,6 +159,11 @@ const EXTRA_SECTIONS: Partial<Record<BuiltinKind, (props: { object: KubeObject }
   ),
   ConfigMap: DataSection,
   Secret: DataSection,
+  Role: RulesSection,
+  ClusterRole: RulesSection,
+  RoleBinding: SubjectsSection,
+  ClusterRoleBinding: SubjectsSection,
+  ServiceAccount: AccountBindings,
 }
 
 export function OverviewTab({ object }: { object: KubeObject }) {

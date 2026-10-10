@@ -23,10 +23,10 @@ const INSTALL = `helm install ${RELEASE} ${CHART.name} --repo ${CHART.repository
 /** Everything the stack is made of, as the app names kinds: the cluster's own, and its namespace's. */
 const MADE: [kind: string, namespace: string | undefined, name: string][] = [
   ['Namespace', undefined, NAMESPACE],
-  ['ClusterRole.rbac.authorization.k8s.io', undefined, `${RELEASE}-server`],
-  ['ClusterRole.rbac.authorization.k8s.io', undefined, `${RELEASE}-kube-state-metrics`],
-  ['ClusterRoleBinding.rbac.authorization.k8s.io', undefined, `${RELEASE}-server`],
-  ['ClusterRoleBinding.rbac.authorization.k8s.io', undefined, `${RELEASE}-kube-state-metrics`],
+  ['ClusterRole', undefined, `${RELEASE}-server`],
+  ['ClusterRole', undefined, `${RELEASE}-kube-state-metrics`],
+  ['ClusterRoleBinding', undefined, `${RELEASE}-server`],
+  ['ClusterRoleBinding', undefined, `${RELEASE}-kube-state-metrics`],
   ['Deployment', NAMESPACE, SERVICE],
   ['Deployment', NAMESPACE, `${RELEASE}-kube-state-metrics`],
   ['Service', NAMESPACE, SERVICE],
@@ -220,7 +220,7 @@ test('another release’s cluster role of the same name stops the install, and s
   clusters,
 }) => {
   const { page } = lumovi
-  const ROLE = 'ClusterRole.rbac.authorization.k8s.io'
+  const ROLE = 'ClusterRole'
   // kube-state-metrics' own chart, installed as lumovi-metrics elsewhere, makes one of this name.
   clusters.sandbox.upsert(role(`${RELEASE}-kube-state-metrics`, 'monitoring'))
   await openMetrics(page)
@@ -377,7 +377,7 @@ test('what Helm lost track of is removed with the namespace, and no more', async
   clusters,
 }) => {
   const { page } = lumovi
-  const ROLE = 'ClusterRole.rbac.authorization.k8s.io'
+  const ROLE = 'ClusterRole'
   clusters.sandbox.upsert({
     apiVersion: 'v1',
     kind: 'Namespace',
