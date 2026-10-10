@@ -279,6 +279,8 @@ function ownOnly(path: string, mode: number) {
  */
 const LOCK_STALE_MS = Number(process.env.LUMOVI_AUDIT_LOCK_STALE_MS) || 30_000
 const LOCK_RENEW_MS = LOCK_STALE_MS / 3
+/** This process's number (an env for tests: in a container the first process is always 1). */
+const PID = Number(process.env.LUMOVI_AUDIT_LOCK_PID) || process.pid
 /** How often a lock that can't be read is read again before it's taken for unreadable. */
 const READ_AGAIN = { times: 5, everyMs: 100 }
 
@@ -315,7 +317,10 @@ class HistoryLock {
   readonly #path: string
   readonly #id: string
   readonly #renew: NodeJS.Timeout
+  readonly #say: (message: string) => void
   #renewedAt = Date.now()
+  /** Since when the lock couldn't be looked at, while it can't; and whether that's been said. */
+  #unseen: { since: number; said: boolean } | undefined
   /** Why the history isn't this one's to write any more, once it isn't. */
   #lost: string | undefined
 
@@ -327,14 +332,23 @@ class HistoryLock {
   ): Promise<HistoryLock> {
     const path = join(dir, 'audit.lock')
     const id = randomUUID()
+    sweep(dir)
     // Long enough for one that stopped renewing it to be stale; not for one that renews it.
     const until = Date.now() + (wait ? LOCK_STALE_MS + LOCK_RENEW_MS : 0)
     let told = false
+    // The lock as it was last seen to change, by this one's own clock: one that waits tells a
+    // lock nobody renews by watching it, not by its holder's clock (or a file server's), which
+    // may be half a minute off this one's.
+    let seen: { text: string; since: number } | undefined
     while (!place(path, id)) {
       const found = await settled(path)
       // Let go of meanwhile: taken on the next turn, if nobody is quicker.
-      if (!found) continue
-      const holder = holderOf(found)
+      if (!found) {
+        seen = undefined
+        continue
+      }
+      if (seen?.text !== found.text) seen = { text: found.text, since: Date.now() }
+      const holder = holderOf(found, wait ? Date.now() - seen.since : undefined)
       if (!holder) {
         discard(path, id, found)
         continue
@@ -353,12 +367,13 @@ class HistoryLock {
       }
       await new Promise((done) => setTimeout(done, 500))
     }
-    return new HistoryLock(path, id)
+    return new HistoryLock(path, id, say)
   }
 
-  private constructor(path: string, id: string) {
+  private constructor(path: string, id: string, say: (message: string) => void) {
     this.#path = path
     this.#id = id
+    this.#say = say
     this.#renew = setInterval(() => {
       try {
         this.held()
@@ -379,8 +394,18 @@ class HistoryLock {
     let found: Found
     try {
       found = read(this.#path)
-    } catch {
-      // It couldn't be looked at just now (a file busy, a volume slow): that isn't another's hold.
+      this.#unseen = undefined
+    } catch (error) {
+      // It couldn't be looked at just now (a file busy, a volume slow): that isn't another's
+      // hold, and the history is written on. If it lasts, that's said: meanwhile this one
+      // couldn't tell if another took the history over.
+      this.#unseen ??= { since: Date.now(), said: false }
+      if (!this.#unseen.said && Date.now() - this.#unseen.since >= LOCK_STALE_MS) {
+        this.#unseen.said = true
+        this.#say(
+          `The audit history’s lock (${this.#path}) can’t be read: ${(error as Error).message}. This Lumovi goes on keeping the history, and can’t tell meanwhile whether another has taken it over.`,
+        )
+      }
       return
     }
     if (found && 'hold' in found && found.hold.id === this.#id) {
@@ -396,7 +421,7 @@ class HistoryLock {
     }
     clearInterval(this.#renew)
     const taker = found && holderOf(found)
-    this.#lost = `${taker ? `Another Lumovi (${taker})` : 'Another Lumovi'} took this audit history over, as this one had stopped for longer than its hold on it lasts (${Math.round(LOCK_STALE_MS / 1000)} seconds). Two can’t keep one history: start this one again, and it waits its turn.`
+    this.#lost = `${taker ? `Another Lumovi (${taker})` : 'Another Lumovi'} took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.`
     throw new Error(this.#lost)
   }
 
@@ -421,7 +446,7 @@ class HistoryLock {
 
 /** A lock as this process holds it. */
 const mine = (id: string) =>
-  JSON.stringify({ id, pid: process.pid, host: hostname(), at: Date.now() } satisfies Hold)
+  JSON.stringify({ id, pid: PID, host: hostname(), at: Date.now() } satisfies Hold)
 
 /**
  * Puts a file where there is none, whole: whether it did (one that's there stays). A link is
@@ -507,19 +532,47 @@ async function settled(path: string): Promise<Found> {
   }
 }
 
-/** Who holds a lock, if anyone still does: in words, for whoever waits for it. */
-function holderOf(found: NonNullable<Found>): string | undefined {
+/**
+ * Who holds a lock, if anyone still does: in words, for whoever waits for it.
+ *
+ * `unchangedFor` is how long whoever asks has watched it stay as it is, by its own clock: a
+ * lock is nobody's once that's as long as one holds unrenewed. One that can't wait and watch
+ * (the desktop app, which opens its history at once or not at all) goes by when the lock says
+ * it was last renewed.
+ */
+function holderOf(found: NonNullable<Found>, unchangedFor?: number): string | undefined {
+  const unrenewed = (saidAt: number) => unchangedFor ?? Date.now() - saidAt
   if ('unreadable' in found) {
-    // Nobody's name on it: someone's all the same, until it's as old as a lock nobody renews.
-    return Date.now() - found.writtenAt < LOCK_STALE_MS ? 'its lock can’t be read yet' : undefined
+    // Nobody's name on it: someone's all the same, until it's stayed so as long as a lock holds.
+    return unrenewed(found.writtenAt) < LOCK_STALE_MS ? 'its lock can’t be read yet' : undefined
   }
   const { hold } = found
-  // On this computer: this process before it started again (a container's first process is
-  // number 1, each time), or one that's gone.
-  if (hold.host === hostname() && (hold.pid === process.pid || !alive(hold.pid))) {
-    return undefined
+  const who = `process ${hold.pid} on ${hold.host}`
+  if (hold.host === hostname()) {
+    // On this computer, one that's gone.
+    if (hold.pid !== PID && !alive(hold.pid)) return undefined
+    // This process's own number: this Lumovi before it started again (a container's first
+    // process is number 1, each time), unless it's another container of the same name, whose
+    // first is number 1 too. That one would renew it: watched for two renewals' time (one may
+    // come late).
+    if (hold.pid === PID) {
+      return unchangedFor !== undefined && unchangedFor < LOCK_RENEW_MS * 2 ? who : undefined
+    }
   }
-  return Date.now() - hold.at < LOCK_STALE_MS ? `process ${hold.pid} on ${hold.host}` : undefined
+  return unrenewed(hold.at) < LOCK_STALE_MS ? who : undefined
+}
+
+/** What's beside a lock, left by a Lumovi stopped as it wrote one: cleared once it's an hour old. */
+function sweep(dir: string) {
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith('audit.lock.')) continue
+      const path = join(dir, name)
+      if (Date.now() - statSync(path).mtimeMs > 3_600_000) rmSync(path, { force: true })
+    }
+  } catch {
+    // Left there: in nobody's way.
+  }
 }
 
 /**
