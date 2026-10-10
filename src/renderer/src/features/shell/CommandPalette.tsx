@@ -1,3 +1,7 @@
+import { X } from 'lucide-react'
+import { barButton } from '@renderer/components/Sheet'
+import { cn } from '@renderer/lib/cn'
+import { useLayout, useTouch } from '@renderer/lib/layout'
 import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
@@ -96,7 +100,8 @@ export function CommandPalette() {
         <Dialog.Content
           aria-describedby={undefined}
           onCloseAutoFocus={keepFocusInActionDialog}
-          className="fixed top-[14vh] left-1/2 z-50 w-[640px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
+          // On a phone it's the whole screen, its field on top: there's a keyboard under it.
+          className="fixed top-[14vh] left-1/2 z-50 w-[640px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none phone:inset-0 phone:w-auto phone:max-w-none phone:translate-x-0 phone:animate-fade-in phone:rounded-none phone:border-0"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Palette onDone={() => setOpen(false)} />
@@ -118,6 +123,8 @@ function Palette({ onDone }: { onDone: () => void }) {
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
+  const phone = useLayout() === 'phone'
+  const touch = useTouch()
   const setMetricsSource = useUi((ui) => ui.setMetricsSource)
   const objects = useCachedObjects(context)
   const open = useSearchParams()[0].get('open')
@@ -137,15 +144,20 @@ function Palette({ onDone }: { onDone: () => void }) {
   const access = useMyAccess()
 
   return (
-    <Command loop filter={matchWords}>
-      <Command.Input
-        autoFocus
-        value={search}
-        onValueChange={setSearch}
-        placeholder="Jump to a view, object, namespace or cluster…"
-        className="h-12 w-full border-b border-line bg-transparent px-4 text-[15px] text-ink-1 outline-none placeholder:text-ink-3"
-      />
-      <Command.List className="max-h-[420px] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
+    <Command loop filter={matchWords} className="phone:flex phone:h-full phone:flex-col">
+      <div className="phone:flex phone:items-center phone:border-b phone:border-line phone:pr-1">
+        <Command.Input
+          autoFocus
+          value={search}
+          onValueChange={setSearch}
+          placeholder="Jump to a view, object, namespace or cluster…"
+          className="h-12 w-full border-b border-line bg-transparent px-4 text-[15px] text-ink-1 outline-none placeholder:text-ink-3 phone:min-w-0 phone:flex-1 phone:border-b-0"
+        />
+        <Dialog.Close aria-label="Close" className={cn(barButton, 'hidden phone:grid')}>
+          <X />
+        </Dialog.Close>
+      </div>
+      <Command.List className="max-h-[420px] overflow-y-auto p-2 phone:max-h-none phone:min-h-0 phone:flex-1 phone:pb-[max(0.5rem,var(--keyboard,0px))] [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
         <Command.Empty className="py-10 text-center text-ink-3">No matches.</Command.Empty>
         {open && <ObjectActions open={open} run={run} />}
         {matches.length > 0 && (
@@ -313,14 +325,17 @@ function Palette({ onDone }: { onDone: () => void }) {
           </Command.Group>
         )}
         <Command.Group heading="Help & appearance">
-          <Item
-            icon={<FilePlus2 />}
-            value="Create from YAML new object"
-            hint={WINDOW_SHORTCUTS && <Keys keys={[MOD_KEY, 'N']} />}
-            onSelect={run(() => setCreate(true))}
-          >
-            Create from YAML
-          </Item>
+          {/* Nothing is written on a phone. */}
+          {!phone && (
+            <Item
+              icon={<FilePlus2 />}
+              value="Create from YAML new object"
+              hint={WINDOW_SHORTCUTS && <Keys keys={[MOD_KEY, 'N']} />}
+              onSelect={run(() => setCreate(true))}
+            >
+              Create from YAML
+            </Item>
+          )}
           {api.host === 'desktop' && (
             <Item
               icon={<SquareTerminal />}
@@ -373,14 +388,16 @@ function Palette({ onDone }: { onDone: () => void }) {
               Your access
             </Item>
           )}
-          <Item
-            icon={<Keyboard />}
-            value="Keyboard shortcuts"
-            hint={<Keys keys={['?']} />}
-            onSelect={run(() => setShortcuts(true))}
-          >
-            Keyboard shortcuts
-          </Item>
+          {!touch && (
+            <Item
+              icon={<Keyboard />}
+              value="Keyboard shortcuts"
+              hint={<Keys keys={['?']} />}
+              onSelect={run(() => setShortcuts(true))}
+            >
+              Keyboard shortcuts
+            </Item>
+          )}
           {THEMES.map(({ value, label, icon: Icon }) => (
             <Item key={value} icon={<Icon />} value={label} onSelect={run(() => setTheme(value))}>
               {label}
@@ -398,7 +415,8 @@ function Palette({ onDone }: { onDone: () => void }) {
           )}
         </Command.Group>
       </Command.List>
-      <footer className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3">
+      {/* (Keys to press: of no use to a finger.) */}
+      <footer className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3 touch:hidden">
         <span className="flex items-center gap-1.5">
           <Kbd>↑</Kbd>
           <Kbd>↓</Kbd> to move
@@ -488,7 +506,7 @@ function Item({
       value={value}
       onSelect={onSelect}
       disabled={disabled}
-      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[disabled=true]:opacity-45 data-[selected=true]:bg-surface-3 [&_svg]:size-4 [&_svg]:text-ink-3"
+      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[disabled=true]:opacity-45 data-[selected=true]:bg-surface-3 touch:h-11 touch:active:bg-surface-3 touch:data-[selected=true]:bg-transparent [&_svg]:size-4 [&_svg]:text-ink-3"
     >
       {icon}
       <span className="flex-1 truncate">{children}</span>

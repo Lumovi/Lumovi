@@ -19,7 +19,8 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 /** A button's look, for what acts as one but isn't (a link to an app, say). */
 export const buttonClass = (variant: keyof typeof VARIANTS, className?: string) =>
   cn(
-    'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 no-drag disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
+    // (A finger's height where it's used with one.)
+    'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-150 no-drag disabled:pointer-events-none disabled:opacity-50 touch:h-11 touch:px-4 [&_svg]:size-4 [&_svg]:shrink-0',
     VARIANTS[variant],
     className,
   )
