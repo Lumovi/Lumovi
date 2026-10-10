@@ -90,6 +90,8 @@ test('a schedule that’s right but involved gets no words put in its mouth', ()
     // A step longer than what it steps through comes to something nobody meant.
     '*/90 * * * *',
     '0 */30 * * *',
+    // A date that never comes, and a day of the week that does: it runs, and not as it reads.
+    '0 0 30 2 1',
     // Every so long, from when its controller starts: valid, and not a time of day.
     '@every 1h',
     '@every 1h30m',
@@ -144,6 +146,15 @@ test('what isn’t a schedule is said to be wrong, and where', () => {
     ['5-1 * * * *', 'The minute is “5-1”, and a range goes from the lower to the higher.'],
     ['1-2-3 * * * *', 'The minute is “1-2-3”, and minutes go from 0 to 59.'],
     ['1,,2 * * * *', 'The minute has nothing between two of its commas.'],
+    // A time zone isn't the schedule's to say, and that's why, not the count of its fields.
+    [
+      'CRON_TZ=UTC 0 0 * * *',
+      'Kubernetes doesn’t take a time zone in the schedule: say it as spec.timeZone, in the YAML.',
+    ],
+    [
+      'TZ=Europe/Budapest 30 2 * * *',
+      'Kubernetes doesn’t take a time zone in the schedule: say it as spec.timeZone, in the YAML.',
+    ],
     [
       '@every soon',
       '“@every soon” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly, @yearly, and @every with a length of time (@every 1h30m).',
