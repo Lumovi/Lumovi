@@ -9,6 +9,7 @@ import {
   FORM_KINDS,
   problems,
   read,
+  refusals,
   unowned,
   workloadValues,
 } from '../../src/renderer/src/lib/create-form.ts'
@@ -220,6 +221,23 @@ spec:
   )
   await field(page, 'Mounted at').fill('/data')
   await expect(form(page).getByRole('alert')).toHaveCount(0)
+  // While there's a claim, the cluster asks both: an empty one is said, and nothing's created.
+  await field(page, 'Mounted at').fill('')
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'Where it’s mounted is still to say: a path in the container, like /data.',
+  )
+  await expect(create(page)).toBeDisabled()
+  await field(page, 'Mounted at').fill('/data')
+  await field(page, 'Size').fill('')
+  await expect(form(page).getByRole('alert')).toHaveText('The size is still to say: like 20Gi.')
+  await expect(create(page)).toBeDisabled()
+  // (Nothing is no size, however it's written.)
+  await field(page, 'Size').fill('0e3')
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'The size isn’t an amount of storage Kubernetes reads: like 20Gi.',
+  )
+  await field(page, 'Size').fill('20')
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
   // The cluster's default class is no class said.
   await choice(page, 'Storage class').selectOption('')
   expect(await yaml(page)).not.toContain('storageClassName')
@@ -248,6 +266,26 @@ spec:
     'Its container’s first mount isn’t of its pods’ claim, which is the one the form’s field edits.',
   )
   await form(page).getByRole('button', { name: 'Go back to the form’s version' }).click()
+
+  // A claim the YAML mounts nowhere: where it's mounted is asked, and typed, the mount is
+  // written whole, by the claim's name.
+  await type(
+    page,
+    fitted
+      .replace(
+        '          volumeMounts:\n            - name: data\n              mountPath: /data\n',
+        '',
+      )
+      .replace('        name: data\n', '        name: pgdata\n'),
+  )
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'Where it’s mounted is still to say: a path in the container, like /data.',
+  )
+  await field(page, 'Mounted at').fill('/pg')
+  expect(await yaml(page)).toContain(
+    '          volumeMounts:\n            - name: pgdata\n              mountPath: /pg\n',
+  )
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
 
   // Without storage again: the claim goes, and its mount with it.
   await form(page).getByRole('button', { name: 'Remove the storage' }).click()
@@ -520,4 +558,31 @@ test('each kind owns its own paths, and asks for what it must have', () => {
     job,
   )
   expect(read1.fits && unowned(read1.object, job).map(pathText)).toEqual(['spec.selector'])
+
+  // What the cluster says of where storage is mounted is storage's, though it's said of the
+  // container and not of the claim.
+  const set = FORM_KINDS.StatefulSet
+  expect(
+    refusals(
+      [
+        {
+          field: 'spec.template.spec.containers[0].volumeMounts[0].mountPath',
+          message: 'Required value',
+        },
+        { field: 'spec.volumeClaimTemplates[0].spec.resources', message: 'Required value' },
+        { field: 'spec.template.spec.containers[0].volumeMounts[1].name', message: 'Not found' },
+      ],
+      set,
+    ).map(({ field, path }) => [field, pathText(path)]),
+  ).toEqual([
+    ['storage', 'spec.template.spec.containers[0].volumeMounts[0].mountPath'],
+    ['storage', 'spec.volumeClaimTemplates[0].spec.resources'],
+  ])
+  // (A Deployment has no such field: a mount there is nobody's.)
+  expect(
+    refusals(
+      [{ field: 'spec.template.spec.containers[0].volumeMounts[0].mountPath', message: 'x' }],
+      FORM_KINDS.Deployment,
+    ),
+  ).toEqual([])
 })

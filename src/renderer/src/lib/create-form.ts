@@ -769,13 +769,23 @@ export function writer(form: FormKind) {
     removeStorage: (text: string): Edited =>
       remove(remove(text, [...container, 'volumeMounts', 0], depth), CLAIM, 1),
     /** The claim's size, its class (none, for the cluster's default), or where it's mounted. */
-    storage: (text: string, which: keyof Storage, typed: string) =>
-      which === 'storageClass'
-        ? typed === ''
+    storage: (text: string, object: Json, which: keyof Storage, typed: string): Edited => {
+      if (which === 'storageClass') {
+        return typed === ''
           ? remove(text, storage.storageClass, CLAIM.length + 1)
           : // (Among a claim's own keys: its class comes before how much it asks for.)
             set(text, storage.storageClass, typed, ['accessModes', 'storageClassName', 'resources'])
-        : put(text, storage[which], typed),
+      }
+      if (which === 'size') return put(text, storage.size, typed)
+      // A mount is of something: where there's none yet, or one that names nothing, it's
+      // written with the claim's name, which the cluster asks of it.
+      const mount = [...container, 'volumeMounts', 0]
+      const claim = dig(object, [...CLAIM, 'metadata', 'name']) ?? CLAIM_NAME
+      const there = dig(object, mount)
+      if (!isObject(there)) return set(text, mount, { name: claim, mountPath: typed })
+      const named = there.name === undefined || there.name === null
+      return put(named ? set(text, [...mount, 'name'], claim) : text, storage.mountPath, typed)
+    },
   }
 }
 
@@ -823,7 +833,7 @@ export const CONCURRENCY_POLICIES = {
 } as const
 
 /** What's wrong with what's typed, field by field: what the cluster would refuse, said sooner. */
-export function problems(values: WorkloadValues, form: FormKind): Problem[] {
+export function problems(values: WorkloadValues, form: FormKind, object: Json = {}): Problem[] {
   const found: Problem[] = []
   const has = (field: FieldId) => form.fields.includes(field)
   const whole = (field: 'replicas' | 'backoffLimit') => {
@@ -893,9 +903,17 @@ export function problems(values: WorkloadValues, form: FormKind): Problem[] {
   if (has('storage')) {
     const storage = storagePaths(form)
     const { size, mountPath } = values.storage
-    if (
+    // While there's a claim, it has a size and is mounted somewhere: the cluster asks both.
+    const claimed = dig(object, CLAIM) !== undefined && dig(object, CLAIM) !== null
+    if (claimed && size === '') {
+      found.push({
+        field: 'storage',
+        path: storage.size,
+        message: 'The size is still to say: like 20Gi.',
+      })
+    } else if (
       size !== '' &&
-      !(QUANTITY.test(size) && !size.startsWith('-') && !/^[0.]+\D*$/.test(size))
+      !(QUANTITY.test(size) && !size.startsWith('-') && parseFloat(size) !== 0)
     ) {
       found.push({
         field: 'storage',
@@ -903,7 +921,13 @@ export function problems(values: WorkloadValues, form: FormKind): Problem[] {
         message: 'The size isn’t an amount of storage Kubernetes reads: like 20Gi.',
       })
     }
-    if (mountPath !== '' && !mountPath.startsWith('/')) {
+    if (claimed && mountPath === '') {
+      found.push({
+        field: 'storage',
+        path: storage.mountPath,
+        message: 'Where it’s mounted is still to say: a path in the container, like /data.',
+      })
+    } else if (mountPath !== '' && !mountPath.startsWith('/')) {
       found.push({
         field: 'storage',
         path: storage.mountPath,
@@ -982,12 +1006,17 @@ export function refusals(
   const fields = form.fields
     .filter((field) => form.paths[field])
     .sort((a, b) => form.paths[b]!.length - form.paths[a]!.length)
+  // (Storage is a claim and, apart from it, where the container mounts it.)
+  const mount = [...form.container, 'volumeMounts', 0]
   for (const cause of causes ?? []) {
     if (!cause.field) continue
     const path = pathOf(cause.field)
-    const field = fields.find(
-      (id) => startsWith(path, form.paths[id]!) || startsWith(form.paths[id]!, path),
-    )
+    const field =
+      form.fields.includes('storage') && startsWith(path, mount)
+        ? 'storage'
+        : fields.find(
+            (id) => startsWith(path, form.paths[id]!) || startsWith(form.paths[id]!, path),
+          )
     if (field) found.push({ field, path, message: `The cluster refused it: ${cause.message}` })
   }
   return found

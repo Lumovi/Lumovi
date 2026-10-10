@@ -103,7 +103,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
     else change(next)
   }
 
-  const typed = reading.fits ? problems(values, form) : []
+  const typed = reading.fits ? problems(values, form, object) : []
   const empty = reading.fits ? missing(values, form) : []
   const refused = reading.fits
     ? refusals(
@@ -976,7 +976,12 @@ function WorkloadFields({
                     onChange={(typed) => {
                       const size = typed.trim()
                       edit((text) =>
-                        write.storage(text, 'size', /^\d+$/.test(size) ? `${size}Gi` : size),
+                        write.storage(
+                          text,
+                          object,
+                          'size',
+                          /^\d+$/.test(size) ? `${size}Gi` : size,
+                        ),
                       )
                     }}
                     {...focused('storage', storage.size)}
@@ -986,7 +991,7 @@ function WorkloadFields({
                     value={values.storage.storageClass}
                     onChange={(event) => {
                       const chosen = event.target.value
-                      edit((text) => write.storage(text, 'storageClass', chosen))
+                      edit((text) => write.storage(text, object, 'storageClass', chosen))
                     }}
                     {...focused('storage', storage.storageClass)}
                   >
@@ -1022,7 +1027,7 @@ function WorkloadFields({
                     bad={said('storage', storage.mountPath) !== undefined}
                     className="flex-1"
                     onChange={(path) =>
-                      edit((text) => write.storage(text, 'mountPath', path.trim()))
+                      edit((text) => write.storage(text, object, 'mountPath', path.trim()))
                     }
                     {...focused('storage', storage.mountPath)}
                   />
