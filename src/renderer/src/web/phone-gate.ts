@@ -74,6 +74,9 @@ const READS: readonly string[] = [
   // A shell is never opened from a phone; closing one that somehow is harms nothing.
   IPC.terminalClose,
 ]
+// (Not among them, and so refused: copying files out of a container or into one. Reading a file
+// out is a read of the cluster's, but it's done by running `tar` in the container, and what
+// comes of it goes to a phone's downloads: a larger screen's work.)
 
 const RESTARTED_AT = 'kubectl.kubernetes.io/restartedAt'
 

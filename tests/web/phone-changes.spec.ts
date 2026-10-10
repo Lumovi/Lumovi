@@ -101,6 +101,14 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'terminal.close': 'reads',
   'terminal.onData': 'listens',
   'terminal.onExit': 'listens',
+  // A file picked is this page's alone; copying it into a container, or one out of it, runs
+  // `tar` there, and isn't done from a phone.
+  'files.pick': 'here',
+  'files.download': 'changes',
+  'files.upload': 'changes',
+  'files.cancel': 'here',
+  'files.onProgress': 'listens',
+  'files.onEnd': 'listens',
   'logs.start': 'reads',
   'logs.stop': 'reads',
   'logs.onLines': 'listens',
@@ -155,8 +163,18 @@ test('every call the page can make is known, and a phone makes only the few it m
   const writes = () =>
     clusters.demo.requests.filter((request) => !['GET', 'HEAD'].includes(request.method)).length
   const before = writes()
+  // (An upload asks for what was picked before it asks the server: a file is picked first.)
+  const chooser = page.waitForEvent('filechooser')
+  const picking = page.evaluate(() => window.lumovi!.files!.pick('file'))
+  await (
+    await chooser
+  ).setFiles({ name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('a') })
+  const picked = (await picking) as { ok: true; data: { handle: string } }
+  const given: Record<string, unknown[]> = {
+    'files.upload': ['an-upload', { source: picked.data.handle }],
+  }
   for (const path of has.filter((path) => CALLS[path] === 'changes')) {
-    expect(await attempt(page, path), path).toBe(NOT_ON_A_PHONE)
+    expect(await attempt(page, path, given[path]), path).toBe(NOT_ON_A_PHONE)
   }
   expect(writes()).toBe(before)
 
