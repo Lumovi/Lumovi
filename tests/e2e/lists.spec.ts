@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test'
 import {
   panel,
   clipboardText,
@@ -304,4 +305,120 @@ test('filters live in the URL and survive Back', async ({ page }) => {
     window.location.hash = window.location.hash.replace('?', '?page=9&')
   })
   await expect(page.getByRole('navigation', { name: 'Pagination' })).toContainText('Page 1 of 1')
+})
+
+test.describe('a list’s bar keeps to one row as it narrows', () => {
+  /** Where each of these sits down the page: the same for all on one row. */
+  const tops = (locators: Locator[]) =>
+    Promise.all(
+      locators.map(async (locator) => {
+        const box = (await locator.boundingBox())!
+        return Math.round(box.y + box.height / 2)
+      }),
+    )
+
+  test('beside an open object the fields shrink, at the default window', async ({ page }) => {
+    await openCluster(page)
+    await goTo(page, 'Services')
+    const bar = page.getByRole('group', { name: 'Filters' })
+    const labels = bar.getByRole('textbox', { name: 'Label selector' })
+    const filter = bar.getByPlaceholder('Filter services')
+    await expect(labels).toHaveAttribute('placeholder', 'Label selector, e.g. app=web')
+    await row(page, 'Services', DEMO.services.storefront).getByRole('gridcell').nth(1).click()
+    await expect(panel(page, 'Service', DEMO.services.storefront)).toBeVisible()
+    // Both fields are still fields, on the count's row.
+    await expect
+      .poll(async () => new Set(await tops([bar.getByText(/^\d+ items$/), labels, filter])).size)
+      .toBe(1)
+    await expect(bar.getByText('/', { exact: true })).toBeVisible()
+  })
+
+  test('at the smallest window the label selector is a button, and chips go under', async ({
+    launch,
+  }) => {
+    const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x700' }, fullLayout: false })
+    await openCluster(page)
+    await goTo(page, 'Services')
+    const bar = page.getByRole('group', { name: 'Filters' })
+    await expect(bar.getByRole('textbox', { name: 'Label selector' })).toBeVisible()
+    await row(page, 'Services', DEMO.services.storefront).getByRole('gridcell').nth(1).click()
+    await expect(panel(page, 'Service', DEMO.services.storefront)).toBeVisible()
+
+    const button = bar.getByRole('button', { name: 'Label selector', exact: true })
+    const filter = bar.getByPlaceholder('Filter', { exact: true })
+    await expect(button).toBeVisible()
+    await expect(bar.getByRole('textbox', { name: 'Label selector' })).toHaveCount(0)
+    await expect(bar.getByText('/', { exact: true })).toHaveCount(0)
+    expect(new Set(await tops([bar.getByText(/^\d+ items$/), button, filter])).size).toBe(1)
+    // The key still finds the filter, without its hint.
+    await page.keyboard.press('/')
+    await expect(filter).toBeFocused()
+    await page.keyboard.press('Escape')
+
+    // The field opens under the button, typed in at once; it stays inside the window.
+    await button.click()
+    const popover = page.getByRole('dialog', { name: 'Label selector' })
+    const field = popover.getByRole('textbox', { name: 'Label selector' })
+    await expect(field).toBeFocused()
+    const box = (await popover.boundingBox())!
+    // (From the button's own edge rightwards: never over the sidebar.)
+    expect(box.x).toBeGreaterThanOrEqual((await button.boundingBox())!.x - 1)
+    expect(box.x + box.width).toBeLessThanOrEqual(1024)
+    // Escape closes it without applying, and the button has the focus again.
+    await field.fill('app=nothing')
+    await page.keyboard.press('Escape')
+    await expect(popover).toHaveCount(0)
+    await expect(button).toBeFocused()
+    await expect(page).not.toHaveURL(/labels=/)
+    // Nor does a click outside it apply what was typed.
+    await button.click()
+    await expect(field).toHaveValue('')
+    await field.fill('app=nothing')
+    await bar.getByText(/^\d+ items$/).click()
+    await expect(popover).toHaveCount(0)
+    await expect(page).not.toHaveURL(/labels=/)
+    // Enter applies it, and the button says what's applied.
+    await button.click()
+    await field.fill('app=storefront')
+    await page.keyboard.press('Enter')
+    await expect(popover).toHaveCount(0)
+    const applied = bar.getByRole('button', { name: 'Label selector: app=storefront' })
+    await expect(applied).toBeFocused()
+    await expect(page).toHaveURL(/labels=app(=|%3D)storefront/)
+    await expect(
+      page.getByText('Nothing matches the label selector “app=storefront”.'),
+    ).toBeVisible()
+    // Opened again it holds what's applied, selected; Tab leaves it be, and nothing with Enter
+    // clears it.
+    await applied.click()
+    await expect(field).toHaveValue('app=storefront')
+    expect(
+      await field.evaluate(
+        (input: HTMLInputElement) => input.selectionEnd! - input.selectionStart!,
+      ),
+    ).toBe('app=storefront'.length)
+    await page.keyboard.type('app=other')
+    await page.keyboard.press('Tab')
+    await expect(popover).toHaveCount(0)
+    await expect(applied).toBeVisible()
+    await applied.click()
+    await field.fill('')
+    await page.keyboard.press('Enter')
+    await expect(button).toBeVisible()
+    await expect(page).not.toHaveURL(/labels=/)
+
+    // A list with chips keeps them whole: under the first row here, wrapping there.
+    await page.keyboard.press('Escape')
+    await goTo(page, 'Pods')
+    await row(page, 'Pods', DEMO.pods.debugShell).getByRole('gridcell').nth(1).click()
+    await expect(panel(page, 'Pod', DEMO.pods.debugShell)).toBeVisible()
+    const chips = bar.locator('button[aria-pressed]')
+    await expect(chips.first()).toBeVisible()
+    const [first, chip] = await tops([bar.getByText(/^\d+ items$/), chips.first()])
+    expect(chip!).toBeGreaterThan(first! + 20)
+    expect(await chips.evaluateAll((all) => all.every((c) => c.scrollWidth <= c.clientWidth))).toBe(
+      true,
+    )
+    expect(await bar.evaluate((b) => b.scrollWidth <= b.clientWidth)).toBe(true)
+  })
 })

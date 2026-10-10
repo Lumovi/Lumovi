@@ -3,7 +3,6 @@ import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { HelmRelease, KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
-import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { useHelmReleases } from '@renderer/hooks/helm'
@@ -14,7 +13,7 @@ import { HEALTH_RANK, type Health } from '@renderer/lib/health'
 import { releaseStatus } from '@renderer/lib/helm'
 import { useCluster } from '@renderer/state/cluster'
 import { nameColumn, sortRows, type CellContext, type Column } from '../resources/columns'
-import { countBy, HealthChips } from '../resources/ListToolbar'
+import { countBy, HealthChips, ListBar } from '../resources/ListToolbar'
 import { ResourceTable } from '../resources/ResourceTable'
 import { TableSkeleton } from '../resources/TableSkeleton'
 import { DeployDialog } from './DeployDialog'
@@ -166,30 +165,30 @@ export function HelmPage() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
-        <span className="mr-1 text-[13px] text-ink-2 tabular-nums">
-          {rows.length} {rows.length === 1 ? 'release' : 'releases'}
-        </span>
-        <HealthChips
-          counts={counts}
-          active={health}
-          onToggle={(h) =>
-            setHealth(health.includes(h) ? health.filter((x) => x !== h) : [...health, h])
-          }
-          name={(h) => RELEASE_HEALTH_NAMES[h]}
-        />
-        <div className="flex-1" />
-        <Button variant="secondary" onClick={() => setInstalling(true)}>
-          <PackagePlus /> Install chart
-        </Button>
-        <SearchInput
-          value={filter}
-          onChange={setFilter}
-          onArrowDown={() => gridRef.current?.focus()}
-          placeholder="Filter releases"
-          className="w-60"
-        />
-      </div>
+      <ListBar
+        count={`${rows.length} ${rows.length === 1 ? 'release' : 'releases'}`}
+        chips={
+          counts.size > 0 && (
+            <HealthChips
+              counts={counts}
+              active={health}
+              onToggle={(h) =>
+                setHealth(health.includes(h) ? health.filter((x) => x !== h) : [...health, h])
+              }
+              name={(h) => RELEASE_HEALTH_NAMES[h]}
+            />
+          )
+        }
+        before={
+          <Button variant="secondary" onClick={() => setInstalling(true)}>
+            <PackagePlus /> Install chart
+          </Button>
+        }
+        filter={filter}
+        noun="releases"
+        onFilter={setFilter}
+        onArrowDown={() => gridRef.current?.focus()}
+      />
       {body}
       {installing && <DeployDialog onClose={() => setInstalling(false)} />}
     </div>
