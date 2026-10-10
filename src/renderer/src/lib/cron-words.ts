@@ -4,14 +4,18 @@
  *
  * It reads what Kubernetes does: five fields (minute, hour, day of the month, month, day of
  * the week), each `*`, a number, a range, a list, or any of those with a step; names for
- * months and days; and `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`. A schedule that
+ * months and days; `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`; and `@every` with
+ * a length of time. A schedule that
  * isn't one of those is said to be wrong, and which field. One that's right but more
  * involved than these words reach is said to be right, with no words put in its mouth.
  */
 
 export type Scheduled =
-  /** `words` is the sentence, without where its clock is; none, where words don't reach it. */
-  { ok: true; words?: string } | { ok: false; why: string }
+  /**
+   * `words` is the sentence, without where its clock is; none, where words don't reach it.
+   * `never` says, in place of words, that it's a schedule whose day never comes.
+   */
+  { ok: true; words?: string; never?: string } | { ok: false; why: string }
 
 const MONTHS = [
   'January',
@@ -54,10 +58,10 @@ const FIELDS: Field[] = [
   },
   {
     name: 'day of the week',
-    // (7 is Sunday too, as cron has long had it.)
+    // (Not 7 for Sunday, as some crons have it: Kubernetes' doesn't, and refuses it.)
     goes: 'days of the week go from 0 to 6, or sun to sat',
     min: 0,
-    max: 7,
+    max: 6,
     names: DAYS,
     from: 0,
   },
@@ -74,6 +78,8 @@ interface Said {
   values: number[]
   /** Whether any of it was said by a step. */
   stepped: boolean
+  /** A step longer than what it steps through: valid, and nobody's meaning. */
+  over: boolean
 }
 
 function number(text: string, field: Field): number | undefined {
@@ -91,6 +97,7 @@ function read(text: string, field: Field): Said | string {
   let every: number | undefined
   let range: [number, number] | undefined
   let stepped = false
+  let over = false
   const parts = text.split(',')
   const wrong = (part: string, why = field.goes) => `The ${field.name} is “${part}”, and ${why}.`
   for (const part of parts) {
@@ -103,7 +110,7 @@ function read(text: string, field: Field): Said | string {
     let from: number | undefined
     let to: number | undefined
     if (span === '*' || span === '?') {
-      ;[from, to] = [field.min, field.name === 'day of the week' ? 6 : field.max]
+      ;[from, to] = [field.min, field.max]
       if (parts.length === 1) {
         if (by === 1) any = true
         // "Every 15 minutes" is true only where the step divides the hour: every 7 starts
@@ -120,12 +127,10 @@ function read(text: string, field: Field): Said | string {
       if (from > to) return wrong(part, 'a range goes from the lower to the higher')
       if (parts.length === 1 && last !== undefined && by === 1) range = [from, to]
     }
-    for (let value = from; value <= to; value += by) {
-      // Sunday is one day, by either of its numbers.
-      values.add(field.name === 'day of the week' && value === 7 ? 0 : value)
-    }
+    if (by > 1 && by > to - from) over = true
+    for (let value = from; value <= to; value += by) values.add(value)
   }
-  return { any, every, range, values: [...values].sort((a, b) => a - b), stepped }
+  return { any, every, range, values: [...values].sort((a, b) => a - b), stepped, over }
 }
 
 const two = (value: number) => String(value).padStart(2, '0')
@@ -170,10 +175,45 @@ function times(minute: Said, hour: Said): string | undefined {
   return undefined
 }
 
-/** A run of days in a row: Monday to Friday. */
-const inARow = (day: Said) =>
-  day.values.length > 2 &&
-  day.values.every((value, i) => i === 0 || value === day.values[i - 1]! + 1)
+/** Whether numbers, in the order given, each follow the last. */
+const inARow = (values: number[]) =>
+  values.length > 2 && values.every((value, i) => i === 0 || value === values[i - 1]! + 1)
+
+/**
+ * Days of the week as they're said: a run as its ends ("Monday to Friday", "Friday to
+ * Sunday"), anything else as a list from Monday ("Saturday and Sunday").
+ */
+function week(dow: Said): { names: string[]; run?: string } {
+  // From Monday: Sunday, which cron counts first, is said last.
+  const fromMonday = [...dow.values].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7))
+  const names = fromMonday.map((value) => DAYS[value]!)
+  if (inARow(dow.values)) {
+    return { names, run: `${DAYS[dow.values[0]!]} to ${DAYS[dow.values.at(-1)!]}` }
+  }
+  if (inARow(fromMonday.map((value) => (value + 6) % 7))) {
+    return { names, run: `${names[0]} to ${names.at(-1)}` }
+  }
+  return { names }
+}
+
+/** The most days a month has. */
+const DAYS_IN = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+/** "one, two or three". */
+const either = (items: string[]) =>
+  items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`
+
+/** A day no month it names has: what to say of a schedule that never comes. Else nothing. */
+function never(dom: Said, month: Said, dow: Said): string | undefined {
+  // With a day of the week too, cron runs on either: it comes.
+  if (dom.any || !dow.any) return undefined
+  const most = Math.max(...month.values.map((value) => DAYS_IN[value - 1]!))
+  if (!dom.values.every((day) => day > most)) return undefined
+  const none = either(dom.values.map(ordinal))
+  return month.values.length === 1
+    ? `It never runs: ${MONTHS[month.values[0]! - 1]} has no ${none}.`
+    : `It never runs: none of those months has a ${none}.`
+}
 
 /**
  * Which days: "every day", "Monday to Friday", "on the 1st of every month". `either` where
@@ -183,7 +223,7 @@ const inARow = (day: Said) =>
 function days(dom: Said, month: Said, dow: Said): { text: string; either?: true } | undefined {
   // Every other day, every third month: the days they come to are a list nobody would say.
   if (dom.stepped || month.stepped || dow.stepped) return undefined
-  const names = dow.values.map((value) => DAYS[value]!)
+  const { names, run } = week(dow)
   const months = month.values.map((value) => MONTHS[value - 1]!)
   const monthRun = month.range !== undefined && months.length > 2
   // "in January and July"; "from June to August".
@@ -208,7 +248,7 @@ function days(dom: Said, month: Said, dow: Said): { text: string; either?: true 
   if (dow.any) return { text: `every day${inMonths}` }
   // "Monday to Friday"; "every Monday, Wednesday and Friday".
   return {
-    text: `${inARow(dow) ? `${names[0]} to ${names.at(-1)}` : `every ${listed(names)}`}${inMonths}`,
+    text: `${run ?? `every ${listed(names)}`}${inMonths}`,
   }
 }
 
@@ -230,13 +270,16 @@ export function scheduleWords(schedule: string): Scheduled {
   const text = schedule.trim()
   if (text === '')
     return { ok: false, why: 'A schedule is five fields, like 30 2 * * * for every day at 02:30.' }
+  // Every so long, counted from when its controller starts: Kubernetes reads it, and it isn't
+  // a time of day to put into words.
+  if (/^@every\s+(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/.test(text)) return { ok: true }
   if (text.startsWith('@')) {
     const long = SHORT[text.toLowerCase()]
     return long
       ? scheduleWords(long)
       : {
           ok: false,
-          why: `“${text}” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly and @yearly.`,
+          why: `“${text}” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly, @yearly, and @every with a length of time (@every 1h30m).`,
         }
   }
   const parts = text.split(/\s+/)
@@ -250,6 +293,11 @@ export function scheduleWords(schedule: string): Scheduled {
   const wrong = read5.find((field) => typeof field === 'string')
   if (wrong !== undefined) return { ok: false, why: wrong as string }
   const [minute, hour, dom, month, dow] = read5 as [Said, Said, Said, Said, Said]
+  // A step longer than what it steps through is valid and comes to something, which nobody
+  // who typed it meant: no words for it.
+  if ([minute, hour, dom, month, dow].some((field) => field.over)) return { ok: true }
+  const none = never(dom, month, dow)
+  if (none) return { ok: true, never: none }
   const when = times(minute, hour)
   const which = days(dom, month, dow)
   if (!when || !which) return { ok: true }

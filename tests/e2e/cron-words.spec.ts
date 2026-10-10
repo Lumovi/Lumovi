@@ -7,7 +7,7 @@ import { expect, test } from './fixtures.ts'
 
 const words = (schedule: string) => {
   const read = scheduleWords(schedule)
-  return read.ok ? (read.words ?? '(no words)') : `not a schedule: ${read.why}`
+  return read.ok ? (read.words ?? read.never ?? '(no words)') : `not a schedule: ${read.why}`
 }
 
 test('a schedule is read back in words', () => {
@@ -25,10 +25,12 @@ test('a schedule is read back in words', () => {
     ['0 9 * * mon-fri', 'Monday to Friday at 09:00'],
     ['0 9 * * MON-FRI', 'Monday to Friday at 09:00'],
     ['0 9 * * 1,3,5', 'Every Monday, Wednesday and Friday at 09:00'],
-    ['0 9 * * 6,0', 'Every Sunday and Saturday at 09:00'],
-    // Sunday is 0, and 7 too.
+    // Said from Monday, though cron counts from Sunday; a run that ends on Sunday is one.
+    ['0 9 * * 6,0', 'Every Saturday and Sunday at 09:00'],
+    ['0 9 * * 5,6,0', 'Friday to Sunday at 09:00'],
+    ['0 9 * * 0-2', 'Sunday to Tuesday at 09:00'],
+    ['0 9 * * 0,3', 'Every Wednesday and Sunday at 09:00'],
     ['0 0 * * 0', 'Every Sunday at 00:00'],
-    ['0 0 * * 7', 'Every Sunday at 00:00'],
     ['0 8 * * SUN', 'Every Sunday at 08:00'],
     ['0 9,13,17 * * *', 'Every day at 09:00, 13:00 and 17:00'],
     ['0 9-17 * * 1-5', 'Every hour from 09:00 to 17:00, Monday to Friday'],
@@ -68,6 +70,13 @@ test('a schedule is read back in words', () => {
     ['@monthly', 'On the 1st of every month at 00:00'],
     ['@yearly', 'On 1 January at 00:00'],
     ['  30   2 * * *  ', 'Every day at 02:30'],
+    // A day no month named has never comes, and that's said in place of when.
+    ['0 0 31 2 *', 'It never runs: February has no 31st.'],
+    ['0 0 30,31 2 *', 'It never runs: February has no 30th or 31st.'],
+    ['0 0 31 4,6 *', 'It never runs: none of those months has a 31st.'],
+    // (The 29th of February does, some years; and one month that has the day is enough.)
+    ['0 0 29 2 *', 'On 29 February at 00:00'],
+    ['0 0 31 1,2 *', 'On the 31st of January and February at 00:00'],
   ] as const) {
     expect(words(schedule), schedule).toBe(said)
   }
@@ -78,6 +87,13 @@ test('a schedule that’s right but involved gets no words put in its mouth', ()
     // "Every 7 minutes" isn't true: it starts over at each hour. Nor are these short to say:
     // steps within a range, lists of minutes, every other day.
     '*/7 * * * *',
+    // A step longer than what it steps through comes to something nobody meant.
+    '*/90 * * * *',
+    '0 */30 * * *',
+    // Every so long, from when its controller starts: valid, and not a time of day.
+    '@every 1h',
+    '@every 1h30m',
+    '@every 90s',
     '10-40/5 * * * *',
     '0,20,40 * * * *',
     '0 0 */2 * *',
@@ -109,6 +125,15 @@ test('what isn’t a schedule is said to be wrong, and where', () => {
       '0 0 * * 8',
       'The day of the week is “8”, and days of the week go from 0 to 6, or sun to sat.',
     ],
+    // Sunday is 0 only: Kubernetes' cron has no 7.
+    [
+      '0 0 * * 7',
+      'The day of the week is “7”, and days of the week go from 0 to 6, or sun to sat.',
+    ],
+    [
+      '0 0 * * 0-7',
+      'The day of the week is “0-7”, and days of the week go from 0 to 6, or sun to sat.',
+    ],
     [
       '0 0 * * funday',
       'The day of the week is “funday”, and days of the week go from 0 to 6, or sun to sat.',
@@ -120,12 +145,12 @@ test('what isn’t a schedule is said to be wrong, and where', () => {
     ['1-2-3 * * * *', 'The minute is “1-2-3”, and minutes go from 0 to 59.'],
     ['1,,2 * * * *', 'The minute has nothing between two of its commas.'],
     [
-      '@every 5m',
-      '“@every 5m” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly and @yearly.',
+      '@every soon',
+      '“@every soon” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly, @yearly, and @every with a length of time (@every 1h30m).',
     ],
     [
       '@fortnightly',
-      '“@fortnightly” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly and @yearly.',
+      '“@fortnightly” isn’t a schedule Kubernetes names: it has @hourly, @daily, @weekly, @monthly, @yearly, and @every with a length of time (@every 1h30m).',
     ],
   ] as const) {
     expect(scheduleWords(schedule), JSON.stringify(schedule)).toEqual({ ok: false, why })
