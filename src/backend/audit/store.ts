@@ -317,10 +317,8 @@ class HistoryLock {
   readonly #path: string
   readonly #id: string
   readonly #renew: NodeJS.Timeout
-  readonly #say: (message: string) => void
+  /** When it last took or said its hold again: its lease runs from then. */
   #renewedAt = Date.now()
-  /** Since when the lock couldn't be looked at, while it can't; and whether that's been said. */
-  #unseen: { since: number; said: boolean } | undefined
   /** Why the history isn't this one's to write any more, once it isn't. */
   #lost: string | undefined
 
@@ -367,13 +365,12 @@ class HistoryLock {
       }
       await new Promise((done) => setTimeout(done, 500))
     }
-    return new HistoryLock(path, id, say)
+    return new HistoryLock(path, id)
   }
 
-  private constructor(path: string, id: string, say: (message: string) => void) {
+  private constructor(path: string, id: string) {
     this.#path = path
     this.#id = id
-    this.#say = say
     this.#renew = setInterval(() => {
       try {
         this.held()
@@ -388,39 +385,60 @@ class HistoryLock {
   /**
    * Looks that the history is still this one's to write, and throws why if it isn't: asked
    * before anything is written to it.
+   *
+   * Its hold is a lease. While the lock is its own, it's this one's. Once another's hold is
+   * there, it's lost for good. And when it can neither see its lock nor say it again, it's this
+   * one's only for as long as a lock holds unrenewed: after that another may have taken the
+   * history over unseen, and nothing is written until the lock is seen to be its own again.
    */
   held() {
     if (this.#lost) throw new Error(this.#lost)
+    const lapsed = () => Date.now() - this.#renewedAt >= LOCK_STALE_MS
+    const unsure = (why: unknown) =>
+      new Error(
+        `This Lumovi hasn’t been able to renew its hold on the audit history for ${Math.round(LOCK_STALE_MS / 1000)} seconds (${(why as Error).message}): another may have taken it over meanwhile, so nothing is written to it until its lock can be read and renewed again.`,
+      )
+    // (Read again where its place is found empty and then taken: a few times at most.)
     let found: Found
-    try {
-      found = read(this.#path)
-      this.#unseen = undefined
-    } catch (error) {
-      // It couldn't be looked at just now (a file busy, a volume slow): that isn't another's
-      // hold, and the history is written on. If it lasts, that's said: meanwhile this one
-      // couldn't tell if another took the history over.
-      this.#unseen ??= { since: Date.now(), said: false }
-      if (!this.#unseen.said && Date.now() - this.#unseen.since >= LOCK_STALE_MS) {
-        this.#unseen.said = true
-        this.#say(
-          `The audit history’s lock (${this.#path}) can’t be read: ${(error as Error).message}. This Lumovi goes on keeping the history, and can’t tell meanwhile whether another has taken it over.`,
-        )
+    for (let again = 3; ; again--) {
+      try {
+        found = read(this.#path)
+      } catch (error) {
+        // It couldn't be looked at just now (a file busy, a volume slow): not another's hold.
+        if (lapsed()) throw unsure(error)
+        return
       }
-      return
-    }
-    if (found && 'hold' in found && found.hold.id === this.#id) {
-      // Late with renewing it (the process was held up): said again before going on.
-      if (Date.now() - this.#renewedAt > LOCK_RENEW_MS * 2) {
-        try {
-          this.#write()
-        } catch {
-          // Not this time (the file busy): it's still this one's, and said again soon.
+      if (!found) {
+        // Gone: its folder with it (thrown as it is: there's nowhere to keep anything), or
+        // moved aside a moment by one clearing away a lock it took for abandoned, which puts
+        // back what it finds isn't. Its own, said again, unless another is there first.
+        if (place(this.#path, this.#id)) {
+          this.#renewedAt = Date.now()
+          return
         }
+        if (again > 0) continue
+      } else if ('unreadable' in found) {
+        // Not a hold at all: one being put there this moment, where a volume can't put it whole.
+        // Nobody's name is on it: looked at again, and then as one that can't be looked at.
+        if (again > 0) continue
+        if (lapsed()) throw unsure(new Error('its lock can’t be read'))
+        return
+      } else if (found.hold.id === this.#id) {
+        // Late with renewing it (the process was held up): said again before going on.
+        if (Date.now() - this.#renewedAt > LOCK_RENEW_MS * 2) {
+          try {
+            this.#write()
+          } catch (error) {
+            // Not this time (the file busy): it's still this one's, while its lease lasts.
+            if (lapsed()) throw unsure(error)
+          }
+        }
+        return
       }
-      return
+      break
     }
     clearInterval(this.#renew)
-    const taker = found && holderOf(found)
+    const taker = found && 'hold' in found && `process ${found.hold.pid} on ${found.hold.host}`
     this.#lost = `${taker ? `Another Lumovi (${taker})` : 'Another Lumovi'} took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.`
     throw new Error(this.#lost)
   }
@@ -491,10 +509,8 @@ function replace(path: string, id: string) {
 /** What's in a lock's place now. Throws if it's there and can't be looked at. */
 function read(path: string): Found {
   let text: string
-  let writtenAt: number
   try {
     text = readFileSync(path, 'utf8')
-    writtenAt = statSync(path).mtimeMs
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
@@ -512,7 +528,14 @@ function read(path: string): Found {
   } catch {
     // Not a hold: below.
   }
-  return { unreadable: true, text, writtenAt }
+  // (When it was written is asked only of one that isn't a hold: a holder's own look, before
+  // each event, is the one read.)
+  try {
+    return { unreadable: true, text, writtenAt: statSync(path).mtimeMs }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
 }
 
 /**
