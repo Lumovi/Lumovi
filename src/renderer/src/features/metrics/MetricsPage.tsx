@@ -559,7 +559,9 @@ function rowsOf(
   const rows = new Map<string, Row>()
   for (const { id, series } of results) {
     for (const { labels, value } of series) {
-      const { key, name, namespace, kind } = identify(labels, group, owners)
+      const identity = identify(labels, group, owners)
+      if (!identity) continue
+      const { key, name, namespace, kind } = identity
       const row = rows.get(key) ?? { key, name, namespace, kind, avg: 0 }
       // History has pods that are gone; a live one says what the workload is.
       row.kind ??= kind
@@ -575,26 +577,29 @@ function rowsOf(
   return [...rows.values()].sort((a, b) => b.avg - a.avg)
 }
 
+/**
+ * What a series is about, or nothing when it doesn't say: a Prometheus set up
+ * otherwise can keep series without the label they are grouped by (a node's
+ * own, say, which name no pod), and those have no row to go in.
+ */
 function identify(
   labels: Record<string, string>,
   group: Group,
   owners: ReturnType<typeof useOwners>,
-) {
-  const namespace = labels.namespace
+): { key: string; name: string; namespace?: string; kind?: ResourceKind } | undefined {
+  const { namespace, node, pod } = labels
   switch (group) {
     case 'namespace':
-      return { key: namespace!, name: namespace!, kind: 'Namespace' as ResourceKind }
+      return namespace ? { key: namespace, name: namespace, kind: 'Namespace' } : undefined
     case 'node':
-      return { key: labels.node!, name: labels.node!, kind: 'Node' as ResourceKind }
+      return node ? { key: node, name: node, kind: 'Node' } : undefined
     case 'pod':
-      return {
-        key: `${namespace}/${labels.pod}`,
-        name: labels.pod!,
-        namespace,
-        kind: 'Pod' as ResourceKind,
-      }
+      return namespace && pod
+        ? { key: `${namespace}/${pod}`, name: pod, namespace, kind: 'Pod' }
+        : undefined
     case 'workload': {
-      const owner = owners(namespace!, labels.pod!)
+      if (!namespace || !pod) return undefined
+      const owner = owners(namespace, pod)
       return { key: `${namespace}/${owner.name}`, name: owner.name, namespace, kind: owner.kind }
     }
   }
@@ -634,7 +639,8 @@ function chartSeries(
     charted.map((r) => [r.key, { key: r.key, label: r.name, parts: [] as (number | null)[][] }]),
   )
   for (const s of result.results.find((r) => r.id === 'top')!.series) {
-    series.get(identify(s.labels, group, owners).key)?.parts.push(s.values)
+    const key = identify(s.labels, group, owners)?.key
+    if (key !== undefined) series.get(key)?.parts.push(s.values)
   }
   const shown = [...series.values()]
     .filter((s) => s.parts.length > 0)

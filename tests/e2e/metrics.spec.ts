@@ -205,7 +205,7 @@ test.describe('the metrics page', () => {
     ).toHaveAttribute('aria-selected', 'true')
   })
 
-  test('every metric, grouped every way, narrowed by name and top', async ({ page }) => {
+  test('every metric, grouped every way, narrowed by name and top', async ({ page, clusters }) => {
     const metric = page.getByRole('group', { name: 'Metric' })
     const by = page.getByRole('combobox', { name: 'Group by' })
 
@@ -247,6 +247,17 @@ test.describe('the metrics page', () => {
     await expect(page.getByText(/ GiB$/).first()).toBeVisible()
     await metric.getByRole('button', { name: 'Network in' }).click()
     await expect(page.getByText(/\/s$/).first()).toBeVisible()
+    // Each node's own traffic names no pod and is nobody's: only pods' series are asked for.
+    const asked = clusters.demo.requests
+      .filter((r) => r.path.startsWith(METRICS))
+      .map((r) => r.query.query ?? '')
+      .filter((query) => query.includes('container_network_'))
+    expect(asked.length).toBeGreaterThan(0)
+    for (const query of asked) {
+      expect(query.match(/container_network_\w+\{pod!=""/g)).toHaveLength(
+        query.match(/container_network_/g)!.length,
+      )
+    }
     await metric.getByRole('button', { name: 'Network out' }).click()
     await expect(chartOf(page, 'Network out by node')).toBeVisible()
 
@@ -821,6 +832,57 @@ test.describe('when Prometheus answers oddly, or not at all', () => {
     broken()
     await chartOf(page, 'CPU by namespace').getByRole('button', { name: 'Try again' }).click()
     await expect(plot(chartOf(page, 'CPU by namespace'))).toBeVisible()
+  })
+
+  test('series that don’t say what they are about', async ({ page, clusters }) => {
+    const now = Math.floor(Date.now() / 1000)
+    // As a Prometheus that keeps each node's own series answers: one names no pod, no
+    // namespace and no node, one names only a namespace.
+    const strays = [{}, { namespace: 'shop' }, { id: '/', interface: 'eth0' }]
+    const named = { namespace: 'shop', pod: 'storefront-7d9c5b6f4-abcde', node: DEMO.nodes.worker1 }
+    clusters.demo.fail(`${METRICS}/api/v1/query`, {
+      status: 200,
+      body: JSON.stringify({
+        status: 'success',
+        data: {
+          resultType: 'vector',
+          result: [...strays, named].map((metric) => ({ metric, value: [now, '2'] })),
+        },
+      }),
+    })
+    clusters.demo.fail(`${METRICS}/api/v1/query_range`, {
+      status: 200,
+      body: JSON.stringify({
+        status: 'success',
+        data: {
+          resultType: 'matrix',
+          result: [...strays, named].map((metric) => ({
+            metric,
+            values: [
+              [now - 600, '2'],
+              [now - 300, '2'],
+            ],
+          })),
+        },
+      }),
+    })
+    const by = page.getByRole('combobox', { name: 'Group by' })
+    const metric = page.getByRole('group', { name: 'Metric' })
+    await metric.getByRole('button', { name: 'Network in' }).click()
+    for (const [group, plural, name] of [
+      ['pod', 'pods', named.pod],
+      ['workload', 'workloads', 'storefront'],
+      ['node', 'nodes', named.node],
+      ['namespace', 'namespaces', 'shop'],
+    ] as const) {
+      await by.selectOption(group)
+      const ranked = table(page, plural)
+      await expect(ranked.getByRole('button', { name: new RegExp(`^${name}\\b`) })).toBeVisible()
+      // The header, and the one row that says what it is: the strays have none.
+      await expect(ranked.getByRole('row')).toHaveCount(2)
+      await expect(plot(chartOf(page, `Network in by ${group}`))).toBeVisible()
+    }
+    await expect(page.getByText('Something went wrong')).toHaveCount(0)
   })
 
   test('no samples at all', async ({ page, clusters }) => {

@@ -312,7 +312,9 @@ export function measure(
     'oomKilled',
   ]) {
     for (const { labels, value } of series(id)) {
-      const t = tally(labels.namespace!, labels.pod!, labels.container!)
+      // A series that names no container of a pod is nobody's to be advised on.
+      if (!labels.namespace || !labels.pod || !labels.container) continue
+      const t = tally(labels.namespace, labels.pod, labels.container)
       if (!t) continue
       if (id === 'cpuP95' || id === 'cpuMax' || id === 'memoryMax') t[id] = max(t[id], value)
       else if (id === 'first') t.first = Math.min(t.first, value)

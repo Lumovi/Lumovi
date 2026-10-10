@@ -17,11 +17,15 @@ export interface RawSeries {
 export function pick(
   result: RangeResult,
   id: string,
-  name: (labels: Record<string, string>) => string,
+  name: (labels: Record<string, string>) => string | undefined,
 ): RawSeries[] {
   return result.results
     .find((r) => r.id === id)!
-    .series.map((s) => ({ key: name(s.labels), label: name(s.labels), values: s.values }))
+    .series.flatMap((s) => {
+      // A series that doesn't say what it is about has no line to be.
+      const label = name(s.labels)
+      return label ? [{ key: label, label, values: s.values }] : []
+    })
 }
 
 /** Adds series up, time by time; null where none of them has a sample. */
