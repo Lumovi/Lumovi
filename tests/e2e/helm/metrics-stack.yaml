@@ -72,6 +72,10 @@ data:
         regex: container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|network_receive_bytes_total|network_transmit_bytes_total)
         source_labels:
         - __name__
+      - action: drop
+        regex: ""
+        source_labels:
+        - pod
       metrics_path: /metrics/cadvisor
       relabel_configs: []
       scheme: https

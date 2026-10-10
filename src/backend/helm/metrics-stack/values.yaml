@@ -109,6 +109,10 @@ scrapeConfigs:
       - source_labels: [__name__]
         regex: container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|network_receive_bytes_total|network_transmit_bytes_total)
         action: keep
+      # Only pods' own: not the node's as a whole, nor its system services', which have no pod.
+      - source_labels: [pod]
+        regex: ''
+        action: drop
   kube-state-metrics:
     static_configs:
       - targets:
