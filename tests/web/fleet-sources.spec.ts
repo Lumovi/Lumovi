@@ -314,6 +314,32 @@ test('kubeconfig files, read again as they change', async ({ page, context, serv
   await expect.poll(() => served.log()).toContain('Fleet: qa removed')
 })
 
+test('a cluster from a kubeconfig file says which file, in its settings', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const file = join(mkdtempSync(join(tmpdir(), 'lumovi-fleet-')), 'clusters.yaml')
+  writeFileSync(file, kubeconfig('staging', clusters.sandbox.url))
+  const served = await serve({
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_FLEET_KUBECONFIG_FILE: file,
+      LUMOVI_ADMINS: 'user:admin@example.com',
+    },
+  })
+  await as(context, 'admin@example.com')
+  await page.goto(served.url)
+  await page.getByRole('button', { name: 'staging’s actions' }).click()
+  await page.getByRole('menuitem', { name: 'Settings…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'staging' })
+  await expect(dialog).toContainText(`Comes from the kubeconfig ${file}, context staging`)
+  await expect(dialog).toContainText(
+    `The kubeconfig ${file}, context staging. What it sets is shown, not changed, here; it can’t be removed from this page.`,
+  )
+})
+
 test('in a cluster: only itself, or with Secrets in its own namespace', async ({
   page,
   context,
