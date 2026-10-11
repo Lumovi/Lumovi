@@ -131,16 +131,22 @@ export class FileStore implements AuditStore {
   /**
    * The folder's history, once it's this Lumovi's alone: held by another, it waits (`wait`) for
    * that one to let go or stop renewing it, saying so (`say`); still held, it says who holds it.
+   * `lost` is told, once and why, if another takes the history over later: from then nothing
+   * done through this Lumovi can be kept there.
    */
   static async open(
     dir: string,
     retentionDays: number,
-    { wait, say }: { wait: boolean; say: (message: string) => void },
+    {
+      wait,
+      say,
+      lost,
+    }: { wait: boolean; say: (message: string) => void; lost?: (why: string) => void },
   ): Promise<FileStore> {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     // Its own, whoever made it (a volume, mounted): nobody else reads who did what.
     ownOnly(dir, 0o700)
-    return new FileStore(dir, retentionDays, await HistoryLock.take(dir, wait, say))
+    return new FileStore(dir, retentionDays, await HistoryLock.take(dir, wait, say, lost))
   }
 
   private constructor(
@@ -376,6 +382,7 @@ class HistoryLock {
     dir: string,
     wait: boolean,
     say: (message: string) => void,
+    lost?: (why: string) => void,
   ): Promise<HistoryLock> {
     const path = join(dir, 'audit.lock')
     const id = randomUUID()
@@ -418,10 +425,15 @@ class HistoryLock {
       }
       await new Promise((done) => setTimeout(done, 500))
     }
-    return new HistoryLock(path, id)
+    return new HistoryLock(path, id, lost)
   }
 
-  private constructor(path: string, id: string) {
+  private constructor(
+    path: string,
+    id: string,
+    /** Told once, and why, when another has taken the history over: it's lost for good. */
+    private readonly lost?: (why: string) => void,
+  ) {
     this.#path = path
     this.#id = id
     this.#renew = setInterval(() => {
@@ -499,6 +511,7 @@ class HistoryLock {
         ? `process ${found.hold.pid} on ${found.hold.host}`
         : undefined
     this.#lost = `${taker ? `Another Lumovi (${taker})` : 'Another Lumovi'} took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.`
+    this.lost?.(this.#lost)
     throw new Error(this.#lost)
   }
 
