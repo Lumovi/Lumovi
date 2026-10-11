@@ -158,6 +158,8 @@ export interface ConnectionOptions {
   rejected: () => void
   /** The sidebar's sponsor card, the same for every page. */
   sponsor: SponsorSource
+  /** Why the server takes no more work, once it doesn't (asked for every message). */
+  refusing?: () => string | undefined
   /** Where the browser fetches files copied out of containers, and sends those copied in. */
   transfers: Transfers
   /** The person's AI assistants: their changes, shown on this page, and its calls about them. */
@@ -189,6 +191,7 @@ export class PageConnection {
   readonly #invoke: Record<string, Handler>
   readonly #send: Record<string, Handler>
   readonly #rejected: () => void
+  readonly #refusing: () => string | undefined
 
   constructor(
     private readonly socket: WebSocket,
@@ -210,8 +213,10 @@ export class PageConnection {
       added,
       sponsor,
       transfers,
+      refusing = () => undefined,
     }: ConnectionOptions,
   ) {
+    this.#refusing = refusing
     const recording = recorder(audit, () => actor)
     // Only a token of the person's own can be refused for them: the server's are its problem.
     this.#rejected = identity.token && !hosted.fleet ? rejected : () => undefined
@@ -453,6 +458,13 @@ export class PageConnection {
     const args = message.args.map((arg) => arg ?? undefined)
     // Only the handlers' own channels: never what every object has (toString, say).
     const { channel } = message
+    // A server that takes no more work (it's stopping for having lost its audit history) says
+    // so to whatever is still asked of it, and does none of it.
+    const refused = this.#refusing()
+    if (refused) {
+      if (message.type !== 'send') this.#write({ type: 'result', id: message.id, error: refused })
+      return
+    }
     if (message.type === 'send') {
       if (Object.hasOwn(this.#send, channel)) this.#send[channel]!(...args)
     } else {

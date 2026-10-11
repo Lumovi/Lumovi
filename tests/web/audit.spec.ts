@@ -1977,6 +1977,7 @@ for (const volume of [
     page,
     context,
     serve,
+    clusters,
   }) => {
     const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
     const lock = join(dir, 'audit.lock')
@@ -2010,7 +2011,18 @@ for (const volume of [
     const taker = { id: 'another', pid: 4321, host: 'lumovi-7d9f-2', at: Date.now() + 60_000 }
     writeFileSync(lock, JSON.stringify(taker))
     const told = audited(served).length
+    const deletes = () =>
+      clusters.demo.requests.filter(
+        (request) => request.method === 'DELETE' && request.path.endsWith('/configmaps/never-made'),
+      ).length
+    const asked = deletes()
+    // The change that finds the history lost was made: it was asked before anyone could know.
+    // From that moment the server takes no more work, so one sent the moment the first has
+    // answered is never made: nothing is done that the history can't hold.
     await act()
+    const second = await act().catch((error: Error) => error)
+    expect(deletes()).toBe(asked + 1)
+    expect(JSON.stringify(second ?? String(second))).not.toContain('"ok":true')
     // It's recorded as ever (on its output, to a webhook), and not written into the history.
     await expect.poll(() => audited(served).length).toBeGreaterThan(told)
     expect(linesOf(dayFile(dir))).toHaveLength(kept)
@@ -2026,6 +2038,16 @@ for (const volume of [
     // Nothing was written as it stopped, and the lock is the other's still.
     expect(linesOf(dayFile(dir))).toHaveLength(kept)
     expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
+    // Whoever reads its output or its webhook, not its log, sees why too: its stopping is a
+    // failure there, with the same sentence, not an ordinary stop.
+    expect(audited(served, 'server.stopped').at(-1)).toMatchObject({
+      outcome: 'failure',
+      error: expect.stringContaining(
+        'Lumovi stops: nothing done through it could be recorded in its audit history any more. Another Lumovi (process 4321 on lumovi-7d9f-2) took this audit history over',
+      ),
+    })
+    // And no more was asked of the cluster after the one change.
+    expect(deletes()).toBe(asked + 1)
     await served.stop()
   })
 }

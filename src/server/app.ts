@@ -32,12 +32,17 @@ import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
 const CLEANUP_MS = 10_000
+/** What a server that stops for a failure of its own answers to anything still asked of it. */
+const NO_MORE_WORK = 'This Lumovi is stopping and takes no more work.'
 
 export interface RunningServer {
   /** Where it listens, e.g. http://127.0.0.1:8080/. */
   url: string
-  /** Closes every page's connection (they reconnect to the next server), then stops. */
-  close(): Promise<void>
+  /**
+   * Closes every page's connection (they reconnect to the next server), then stops. `failed`:
+   * it isn't stopping because it was asked to, and why; said in its last audit event.
+   */
+  close(failed?: string): Promise<void>
 }
 
 export interface ServerOptions {
@@ -45,7 +50,10 @@ export interface ServerOptions {
   hosted: Hosted
   env: NodeJS.ProcessEnv
   version: string
-  /** Told once, and why, if another Lumovi takes this one's audit history over (audit.ts). */
+  /**
+   * Told once, and why, if another Lumovi takes this one's audit history over (audit.ts). By
+   * then the server has stopped taking work: nothing more is done that the history can't hold.
+   */
   auditLost?: (why: string) => void
 }
 
@@ -60,7 +68,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
-  const audit = await openAudit(config.audit, options.auditLost)
+  /** Why it takes no more work, once it doesn't: every request and every page's message asks. */
+  let refusing: string | undefined
+  const audit = await openAudit(config.audit, (why) => {
+    // At once, before anything else can be asked of it: what's done from here on couldn't be
+    // recorded where its auditors read.
+    refusing = `${NO_MORE_WORK} ${why}`
+    options.auditLost?.(why)
+  })
   // Who may do what: what the chart says, and what admins set on the Access page.
   const access = await ServerAccess.open(
     config.access,
@@ -247,6 +262,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
 
   const server = http.createServer((req, res) => {
+    if (refusing) {
+      sendJson(res, 503, { error: refusing })
+      return
+    }
     // Answering only fails when the connection did; there's nobody to tell.
     answer(req, res).catch(res.destroy.bind(res))
   })
@@ -321,6 +340,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // Its socket is ours now, without Node's error handler: one its peer resets (a process that
     // stops does, on Windows), refused or still being checked, is closed, not the server.
     socket.on('error', () => socket.destroy())
+    if (refusing) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
+      return
+    }
     if (address(req).path === PATHS.agent && hosted.agents) {
       agentUpgrade(req, socket, head).catch((error: unknown) => {
         log(`An agent couldn’t be let in: ${(error as Error).message}`)
@@ -359,6 +382,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         added,
         sponsor,
         transfers,
+        refusing: () => refusing,
         rejected: () =>
           sessions.end(
             caller.session!,
@@ -409,7 +433,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   })
   return {
     url: `http://${config.address ?? 'localhost'}:${port}${base}`,
-    async close() {
+    async close(failed?: string) {
       clearInterval(heartbeat)
       sponsor.stop()
       access.close()
@@ -444,11 +468,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       state.close()
       // Sign-ins only counted, said before it stops.
       auth.close()
+      // (Stopped for a failure of its own: said as one, with why. A history it has lost can't
+      // take it; its output and its webhook do.)
       audit.record({
         action: 'server.stopped',
-        outcome: 'success',
+        outcome: failed ? 'failure' : 'success',
         actor: SERVER_ACTOR,
         summary: `Lumovi ${options.version} stopped`,
+        ...(failed ? { error: failed } : {}),
       })
       // What's still to be sent, sent (a few seconds at most).
       await audit.close()
