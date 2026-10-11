@@ -1,6 +1,6 @@
 /** Signing in to a Lumovi server with a token, and the session that follows. */
 import type { Page } from '@playwright/test'
-import { audited, expect, PEOPLE, signIn, signIns, test } from './fixtures.ts'
+import { audited, expect, GRACEFUL, PEOPLE, signIn, signIns, test } from './fixtures.ts'
 
 /** What the sign-in page says about the last session. */
 const notice = (page: Page, text: string) => page.getByRole('status').filter({ hasText: text })
@@ -168,8 +168,8 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
     }
   })
   await served.stop()
-  // (Not on Windows, which ends a server at once.)
-  if (process.platform !== 'win32') {
+  // (Not where a server can only be ended at once.)
+  if (GRACEFUL) {
     expect(audited(served, 'session.sign-in').at(-1)!.summary).toBe(
       '2 more sign-ins didn’t succeed, each not recorded: more than 2 were tried in a minute',
     )

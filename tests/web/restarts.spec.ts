@@ -41,8 +41,8 @@ const entries = (dir: string): Record<string, string> => {
 const count = (dir: string) => Object.keys(entries(dir)).length
 
 /**
- * Once what's kept has this many entries: it's written a little after a change, and a server
- * stopped on Windows (no SIGTERM to finish on) writes nothing more.
+ * Once what's kept has this many entries: it's written a little after a change (and a server
+ * that could only be ended at once would write nothing more as it stopped).
  */
 const written = (dir: string, entries: number) => expect.poll(() => count(dir)).toBe(entries)
 
