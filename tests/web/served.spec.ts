@@ -366,11 +366,25 @@ test('a plugins folder with a long path, on a phone: wrapped inside the screen',
 }) => {
   const folder = join(mkdtempSync(join(tmpdir(), 'lumovi-plugins-')), 'a'.repeat(60), 'plugins')
   mkdirSync(folder, { recursive: true })
+  const long = 'the-widgets-of-the-platform-team-as-we-like-to-see-them.yaml'
+  writeFileSync(
+    join(folder, long),
+    'apiVersion: lumovi.dev/v1alpha1\nkind: Plugin\nmetadata: { name: widgets }\nspec: { views: [{ kinds: [{ group: example.com, kind: Widget }] }] }\n',
+  )
   const served = await serve({ env: { LUMOVI_PLUGINS_DIR: folder } })
   await page.setViewportSize(PHONE)
   await signInNarrow(page, `${served.url}cluster/demo/api-resources`, DEMO_TOKEN)
   await expect(page.getByText(folder)).toBeVisible()
   await expectNoSidewaysScroll(page, 'API resources with a long folder')
+  // What shows a kind is cut at its end in a phone's column, which hasn't room for a name's
+  // start, an ellipsis and its end; with room, a name is cut in its middle, its end kept.
+  const shownBy = page.getByRole('row').filter({ hasText: 'Widgets' }).getByRole('cell').nth(3)
+  await expect(shownBy.locator('[data-end-cut]')).toBeVisible()
+  await expect(shownBy.locator('[data-end-cut]')).toHaveCSS('text-overflow', 'ellipsis')
+  await expect(shownBy.getByTitle(long)).toBeHidden()
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect(shownBy.locator('[data-end-cut]')).toBeHidden()
+  await expect(shownBy.getByTitle(long).locator('[aria-hidden]')).toHaveText(/^the-\S+…m\.yaml$/)
 })
 
 test('links open in a tab of their own', async ({ page, context, serve }) => {
