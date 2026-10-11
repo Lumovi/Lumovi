@@ -49,6 +49,7 @@ export function RollbackReleaseDialog({
     <ActionDialog
       icon={History}
       title={`Roll back ${name}`}
+      name={name}
       subject={`Helm release · ${namespace}`}
       command={command}
       confirmLabel="Roll back"
@@ -143,6 +144,7 @@ export function UninstallReleaseDialog({
       icon={Trash2}
       tone="danger"
       title={`Uninstall ${name}?`}
+      name={name}
       subject={`Helm release · ${namespace}`}
       command={command}
       confirmLabel="Uninstall"

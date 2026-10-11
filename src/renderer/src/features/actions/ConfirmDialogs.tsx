@@ -32,6 +32,7 @@ export function RestartDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={RotateCw}
       title={`Restart ${name}?`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Restart"
@@ -75,6 +76,7 @@ export function RestartPodDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={RotateCw}
       title={`Restart ${name}?`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Restart pod"
@@ -115,6 +117,7 @@ export function EvictDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={LogOut}
       title={`Evict ${name}?`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Evict"
@@ -158,6 +161,7 @@ export function RunNowDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Play}
       title={`Run ${name} now?`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Run now"

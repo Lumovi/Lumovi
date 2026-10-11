@@ -107,6 +107,7 @@ export function LabelsDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Tags}
       title={`Labels and annotations of ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Save"

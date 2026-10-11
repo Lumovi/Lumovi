@@ -267,6 +267,7 @@ export function DownloadDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Download}
       title={`Download from ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={downloadKubectl(request)}
       confirmLabel="Download"
@@ -346,6 +347,7 @@ export function UploadDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Upload}
       title={`Upload to ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Upload"

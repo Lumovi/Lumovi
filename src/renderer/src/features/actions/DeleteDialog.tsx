@@ -109,6 +109,7 @@ export function DeleteDialog({ object, onClose }: ActionProps) {
       icon={Trash2}
       tone="danger"
       title={`Delete ${name}?`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel={kind === 'Pod' && force ? 'Force delete' : 'Delete'}

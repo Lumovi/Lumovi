@@ -53,6 +53,7 @@ export function DebugDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Bug}
       title={`Debug ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Start debugging"
@@ -184,6 +185,7 @@ export function PortForwardDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Cable}
       title={`Forward a port to ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Start forwarding"

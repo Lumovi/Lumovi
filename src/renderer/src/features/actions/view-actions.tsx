@@ -199,6 +199,7 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
       icon={viewActionIcon(action)}
       tone={action.danger ? 'danger' : 'default'}
       title={`${action.name} ${object.metadata.name}?`}
+      name={object.metadata.name}
       subject={subjectOf(object)}
       command={meta.command}
       confirmLabel={action.name}

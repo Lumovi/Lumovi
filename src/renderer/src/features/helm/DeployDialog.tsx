@@ -146,6 +146,7 @@ export function DeployDialog({
     <ActionDialog
       icon={install ? PackagePlus : ArrowUpCircle}
       title={install ? 'Install a chart' : `Upgrade ${release.name}`}
+      name={install ? undefined : release.name}
       subject={install ? 'Helm' : `Helm release · ${release.namespace}`}
       command={command}
       confirmLabel={reviewed ? (install ? 'Install' : 'Upgrade') : 'Review'}

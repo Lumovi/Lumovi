@@ -738,14 +738,18 @@ for (const [cluster, what] of [
 
 // What a person approves against: the line under a sheet's title that says where. Never cut
 // short on a phone, whatever the names hold: it wraps, and a name with nowhere to break breaks
-// where the line ends.
+// where the line ends. The title above it takes three lines at most, in Lumovi's own dialogs
+// as in an assistant's request: a name too long for them is cut in its middle.
 for (const width of [390, 360]) {
   test(`a sheet’s heading says its cluster whole, however long and with nowhere to break (${width} wide)`, async ({
     page,
     serve,
     clusters,
   }) => {
-    const long = 'checkoutpaymentsreconciliationworkerwithledgerexportandsettlementretries'
+    // (A name long enough that no three lines hold it, twice over.)
+    const long = 'checkoutpaymentsreconciliationworkerwithledgerexportandsettlementretries'.repeat(
+      2,
+    )
     const cart = clusters.demo.object('Deployment', 'shop', DEMO.deployments.cart)!
     clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name: long, uid: undefined } })
     const served = await serve({
@@ -767,6 +771,8 @@ for (const width of [390, 360]) {
           const rights: number[] = []
           const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
           for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            // (What's there for a screen reader alone isn't drawn.)
+            if (node.parentElement?.closest('.sr-only')) continue
             const range = document.createRange()
             range.selectNodeContents(node)
             for (const rect of range.getClientRects()) rights.push(rect.right)
@@ -810,6 +816,19 @@ for (const width of [390, 360]) {
     const own = page.getByRole('dialog', { name: `Scale ${long}` })
     await expect(own).toBeVisible()
     await whole(own, [`Scale ${long}`, UNBROKEN])
+    // Its title, as a request's: what's asked is whole, in three lines at most, and of a name
+    // too long for them it's the middle that gives way, its last six kept.
+    const title = own.getByRole('heading').locator('[aria-hidden]')
+    await expect(async () => {
+      const shown = (await title.textContent()) ?? ''
+      expect(shown).toMatch(/^Scale checkout.+…/)
+      expect(shown.endsWith(`…${long.slice(-6)}`)).toBe(true)
+      const lines = await title.evaluate(
+        (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+      )
+      expect(lines).toBeGreaterThan(2.5)
+      expect(lines).toBeLessThanOrEqual(3.1)
+    }, 'the title in three lines, its name cut in the middle').toPass({ timeout: 5_000 })
   })
 }
 

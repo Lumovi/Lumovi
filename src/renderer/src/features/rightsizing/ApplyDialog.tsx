@@ -168,6 +168,7 @@ export function ApplyDialog({
     <ActionDialog
       icon={Scale}
       title={`Right-size ${name}`}
+      name={name}
       subject={subjectOf(workload)}
       command={command(chosen.length ? chosen : edits)}
       confirmLabel="Apply"
