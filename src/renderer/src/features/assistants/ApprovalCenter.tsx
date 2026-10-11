@@ -329,9 +329,10 @@ function ApprovalDialog({
                   proposal.title
                 )}
               </Dialog.Title>
-              {/* On a phone the cluster and its Production mark are never cut short: they wrap. */}
+              {/* On a phone the cluster and its Production mark are never cut short: they wrap,
+                  and a name with nowhere to break breaks where the line ends. */}
               <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
-                <span className="truncate phone:whitespace-normal">
+                <span className="truncate phone:[overflow-wrap:anywhere] phone:whitespace-normal">
                   {apiKindOf(target.kind)}
                   {target.namespace && ` · ${target.namespace}`} ·{' '}
                   <span className="font-medium text-ink-2">{context}</span>

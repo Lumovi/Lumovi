@@ -736,6 +736,83 @@ for (const [cluster, what] of [
   })
 }
 
+// What a person approves against: the line under a sheet's title that says where. Never cut
+// short on a phone, whatever the names hold: it wraps, and a name with nowhere to break breaks
+// where the line ends.
+for (const width of [390, 360]) {
+  test(`a sheet’s heading says its cluster whole, however long and with nowhere to break (${width} wide)`, async ({
+    page,
+    serve,
+    clusters,
+  }) => {
+    const long = 'checkoutpaymentsreconciliationworkerwithledgerexportandsettlementretries'
+    const cart = clusters.demo.object('Deployment', 'shop', DEMO.deployments.cart)!
+    clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name: long, uid: undefined } })
+    const served = await serve({
+      env: {
+        LUMOVI_APPROVAL_SLICE_MS: '1500',
+        ...withACloudsName(clusters.kubeconfigPath, UNBROKEN),
+      },
+    })
+    const home = `cluster/${encodeURIComponent(UNBROKEN)}`
+    const client = await onAPhone(page, served, `${home}/pods`, home)
+    await page.setViewportSize({ width, height: PHONE.height })
+    /** Every line of a heading: whole in what it says, and drawn inside the sheet. */
+    const whole = async (sheet: Locator, says: string[]) => {
+      const heading = sheet.locator('div', { has: page.getByRole('heading') }).last()
+      for (const text of says) await expect(heading).toContainText(text)
+      await expect(async () => {
+        const edge = await box(sheet)
+        const past = await heading.evaluate((el) => {
+          const rights: number[] = []
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const range = document.createRange()
+            range.selectNodeContents(node)
+            for (const rect of range.getClientRects()) rights.push(rect.right)
+          }
+          // (And nothing of it hidden behind an ellipsis: what's cut that way is narrower than
+          // what it holds.)
+          const cut = [...el.querySelectorAll<HTMLElement>('*')].filter(
+            (part) =>
+              getComputedStyle(part).textOverflow === 'ellipsis' &&
+              part.scrollWidth > part.clientWidth,
+          ).length
+          return { right: Math.max(...rights), cut }
+        })
+        expect(past.cut).toBe(0)
+        expect(past.right).toBeLessThanOrEqual(edge.x + edge.width)
+      }, 'the heading drawn whole inside its sheet').toPass({ timeout: 5_000 })
+    }
+
+    // An assistant's change: the cluster it's for, whole, under a title whose own name is cut
+    // in its middle as a title's is.
+    await call(client, 'scale', {
+      cluster: UNBROKEN,
+      kind: 'deploy',
+      namespace: 'shop',
+      name: DEMO.deployments.cart,
+      replicas: 4,
+      reason: 'Busy.',
+    })
+    await page.getByRole('button', { name: /1 change from Claude Code waits for you/ }).tap()
+    const approval = sheetOf(page, 'Scale Deployment cart to 4 replicas')
+    await expect(approveOf(approval)).toBeEnabled()
+    await whole(approval, ['Deployment · shop ·', UNBROKEN])
+    await approval.getByRole('button', { name: 'Later' }).tap()
+
+    // Lumovi's own dialog, for an object whose name has nowhere to break either.
+    await page.goto(`${served.url}${home}/deployments?open=Deployment/shop/${long}`)
+    await page
+      .getByRole('complementary', { name: `Deployment ${long}` })
+      .getByRole('button', { name: 'Scale' })
+      .tap()
+    const own = page.getByRole('dialog', { name: `Scale ${long}` })
+    await expect(own).toBeVisible()
+    await whole(own, [`Scale ${long}`, UNBROKEN])
+  })
+}
+
 test('wider than a phone nothing of this applies: a note over a dialog is where it was', async ({
   browser,
   serve,

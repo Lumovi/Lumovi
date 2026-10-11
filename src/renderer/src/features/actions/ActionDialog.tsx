@@ -124,12 +124,12 @@ export function ActionDialog({
                 <Icon className="size-[18px]" />
               </div>
               <div className="min-w-0 flex-1">
-                <Dialog.Title className="truncate text-[15px] leading-snug font-semibold text-ink-1">
+                {/* On a phone nothing of the heading is cut short: it wraps, whatever it holds. */}
+                <Dialog.Title className="truncate text-[15px] leading-snug font-semibold text-ink-1 phone:[overflow-wrap:anywhere] phone:whitespace-normal">
                   {title}
                 </Dialog.Title>
-                {/* On a phone the cluster and its Production mark are never cut short: they wrap. */}
                 <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
-                  <span className="truncate phone:whitespace-normal">
+                  <span className="truncate phone:[overflow-wrap:anywhere] phone:whitespace-normal">
                     {subject} · <span className="font-medium text-ink-2">{context}</span>
                   </span>
                   {production && (
