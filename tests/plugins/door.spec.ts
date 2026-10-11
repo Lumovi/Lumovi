@@ -477,6 +477,11 @@ test.describe('a plugin’s page', () => {
     )
   })
 
+  /** A tenth of a second's worth of steps, exactly. */
+  const EXACT = JSON.stringify({
+    commit: Array.from({ length: DOOR_LIMITS.stepsASecond / 10 }, () => ['text', 1, '']),
+  })
+
   test('over a ceiling it’s stopped: commits and steps in a second, by Lumovi’s clock', () => {
     // A second's worth for every second that passes, and two seconds' worth in hand at most:
     // messages arrive in bunches when Lumovi's own page is busy, and that isn't the plugin's doing.
@@ -504,6 +509,20 @@ test.describe('a plugin’s page', () => {
       expect(other.send(...full)).toEqual({ changed: [1] })
     }
     expect(stopped(other.send(['text', 1, ''])).what).toBe('steps in a second: more than 20,000')
+    // A plugin that takes exactly what's filled, with nothing in hand, by a clock that isn't
+    // whole numbers (as a real one isn't): never stopped for the hair that arithmetic leaves
+    // under a whole step. (Counted strictly, this stops at its eleventh round.)
+    const exact = page_()
+    exact.clock.now = 0.1
+    for (let i = 0; i < (DOOR_LIMITS.stepsASecond * most) / DOOR_LIMITS.stepsACommit; i++) {
+      exact.send(...full)
+    }
+    for (let round = 1; round <= 2000; round++) {
+      exact.clock.now = 0.1 + round * 100
+      if ('why' in exact.page.take(EXACT)) throw new Error(`stopped at round ${round}`)
+    }
+    // And one step more than what's filled is still one too many.
+    expect(stopped(exact.send(['text', 1, ''])).what).toBe('steps in a second: more than 20,000')
     // A plugin that keeps to its second, whose messages come late and together: never stopped.
     const late = page_()
     late.send(['text', 1, ''])
