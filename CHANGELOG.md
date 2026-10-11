@@ -6,53 +6,7 @@ All notable changes to Lumovi are documented here. The format follows
 
 ## [Unreleased]
 
-### Added
-
-- A server's web UI works on a phone and a tablet. Under 1024 px wide the sidebar is a drawer
-  behind a menu button, with the cluster and the namespace as two chips under the top bar. Under
-  640 px a list is two lines an object (its name, cut in the middle so replicas stay apart, and
-  its status; then its kind's first facts and its age), sorted and filtered from sheets; a detail
-  is a page of its own with Back, its facts stacked and its tables as cards; logs wrap, with what
-  runs over set in; and every menu, picker and dialog is a sheet from the bottom, an assistant's
-  change to approve among them, with Reject and Approve at its two edges. Such a change arrives
-  as the pill that says it waits, and its sheet opens when that's tapped; for a moment after the
-  sheet opens, or moves on to the next change, Approve can't be pressed, so a tap meant for
-  something else approves nothing. Dragging that sheet down or tapping outside it puts the
-  change aside: it isn't an answer. On a phone an object
-  offers Restart, Scale, Cordon and Uncordon, each behind its usual confirmation, and nothing
-  else: no deleting, editing or shells there. Wherever the page is used by touch, what's pressed
-  answers on at least 44 px and nothing needs a hover. A table's rows are cards there, and a
-  card's facts stand side by side only where every value fits: a long one has a line of its own.
-  Nothing scrolls sideways but a strip of tabs. The desktop app, whose window stops at 1024 px,
-  is unchanged.
-- Service accounts, roles and bindings have pages of their own, under **Access control** in the
-  sidebar: Roles, Cluster Roles, Role Bindings, Cluster Role Bindings and Service Accounts, each
-  also in the command palette and `g` navigation (`g r`, `g k`, `g b`, `g g`, `g t`). A role's
-  rules read as a table of API groups, resources and verbs. The links go both ways: a binding
-  links its role and its subjects, a role lists the bindings that grant it and to whom, a
-  service account lists the bindings that name it and the role each grants, and a workload and
-  its pods link the service account they act as. Someone who may not list one of these kinds
-  is told so, on its page and in the panels that would have listed it.
-
-### Changed
-
-- A view of your own for ServiceAccounts, Roles, ClusterRoles or their bindings now only adds
-  its actions, as a view of any kind with its own page does: its columns, status, details and
-  related lists no longer show, since those kinds have pages of their own now. An add-on of
-  your own that names one of them is refused, and the API resources page says which.
-- A note at the bottom of the window (that a change was made, say) stays while a mouse points at
-  it, and no longer while a finger's last tap happens to be where it appeared: on a touch screen
-  it now always leaves after its few seconds. On a phone it sits above the pill of changes that
-  wait, and is never over an open sheet: it's a line at the sheet's top instead, which says when
-  it's about another change than the one shown.
-- "Create from YAML" is **Create…**: on the + button, in the command palette, in the shortcuts
-  and in the app's menu (where it was "New from YAML…").
-
-### Fixed
-
-- Create said nothing, and did nothing, for YAML whose alias names no anchor set before it
-  (`name: *n` above the `&n` it means). It now answers as for any YAML it can't read, with what's
-  wrong.
+Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
 ## [1.21.0] - 2026-10-10
 

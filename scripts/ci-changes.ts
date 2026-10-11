@@ -6,15 +6,18 @@
  *   integration tests, and "CI passed" all the same.
  * - `e2e`: the E2E shards. Linux and Windows always run them all. macOS too, where the change
  *   touches what macOS does differently (the main process, Electron, packaging, the lockfile, CI
- *   and the test harness, or a file that asks which platform it's on), or takes away or changes
- *   lines of a test or a test's helper; otherwise a short smoke set (tests/e2e/smoke.txt), as
- *   macOS runners are few.
+ *   and the test harness, or a file that asks which platform it's on), or where someone asks
+ *   for it with the label `macos-full`; otherwise a short smoke set (tests/e2e/smoke.txt). An
+ *   account has five macOS machines at once, and a full run takes all five.
  *
- * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what only
- *   macOS reaches is borrowed from main (scripts/borrow-coverage.ts), so the gate judges like
- *   with like.
+ * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what main's
+ *   macOS run reached and its Linux and Windows runs didn't is borrowed from main
+ *   (scripts/borrow-coverage.ts), and nothing else: the rest is this run's own to reach.
  *
- * Main, a release's pull request (`release-*`) and a run by hand run everything.
+ * Main, a release's pull request (`release-*`) and a run by hand run everything. Main's own run,
+ * after each merge, is the one that binds: what a pull request's can't see (something only macOS
+ * reached that a change elsewhere stops being reached) shows there, and a red main stops every
+ * merge (the workflow's "Main is green").
  *
  *   node scripts/ci-changes.ts [changed files...]   (by default, HEAD's against its first parent)
  *
@@ -34,19 +37,28 @@ const isDocs = (path: string) =>
 
 /** What macOS does differently, or what decides how the app is built and tested. */
 const MACOS = [
-  /^src\/(main|preload|backend|shared)\//,
+  // The app's own process and its bridge to the page: menus, windows, the keychain, the dock.
+  /^src\/(main|preload)\//,
+  // The backend's files that start other programs, or use the home and temp folders: where
+  // macOS and Linux differ without being asked.
+  /^src\/backend\/(helm\/service|kube\/(client|kubeconfig|files|streams)|network)\.ts$/,
   /^(build|packaging)\//,
   /^electron(-builder\.yml|\.vite\.config\.ts)$/,
+  // Electron, or a module built for the machine, may have moved.
   /^package(-lock)?\.json$/,
   /^\.nvmrc$/,
   /^\.github\/workflows\//,
   /^playwright\.config\.ts$/,
+  // What every desktop test stands on, and what decides or feeds this very choice.
   /^tests\/e2e\/(fixtures|global-setup)\.ts$/,
-  /^scripts\/(ci-changes|e2e-shard)\.ts$/,
+  /^tests\/e2e\/smoke\.txt$/,
+  /^scripts\/(ci-changes|e2e-shard|borrow-coverage|vite-coverage)\.ts$/,
 ]
+/** The label that asks for everything on macOS, whatever changed. */
+export const MACOS_FULL = 'macos-full'
 /** Code that asks which platform it's on, or does differently there (⌘ for Ctrl, a draggable bar). */
 const PLATFORM =
-  /\.platform\b|navigator\.userAgent|userAgentData|\bdarwin\b|\bwin32\b|\bisMac\b|metaKey|MOD_KEY|CTRL_KEY|app-region/
+  /\.platform\b|navigator\.userAgent|userAgentData|\bdarwin\b|\bwin32\b|\bisMac\b|metaKey|MOD_KEY|CTRL_KEY|app-region|\bchild_process\b|\btmpdir\b|\bhomedir\b/
 /** A source file as it is now, and as it was (deleted or moved, it's only what it was). */
 const versionsOf = (path: string): string[] => {
   const was = (() => {
@@ -61,45 +73,28 @@ const versionsOf = (path: string): string[] => {
   })()
   return [existsSync(path) ? readFileSync(path, 'utf8') : '', was]
 }
-/**
- * Whether a file only gained lines: every line it had is still there, in its order.
- *
- * Two things it doesn't see. A test weakened by lines added only (a `test.skip`, a `test.fixme`,
- * an early `return`) still counts as only gaining. And a line taken away that occurs again later
- * in the file (a second identical `expect`, a closing `})`) is found there, and not missed.
- */
-function onlyAdds([now = '', was = '']: string[]): boolean {
-  const lines = now.split('\n')
-  let at = 0
-  for (const line of was.split('\n')) {
-    at = lines.indexOf(line, at) + 1
-    if (at === 0) return false
-  }
-  return true
-}
-
 /** What the run needs, from the event, the pull request's branch and what it changes. */
 export function plan({
   event,
   branch = '',
   changed,
+  labels = [],
   versions = versionsOf,
 }: {
   event: string | undefined
   branch?: string
   changed: string[]
+  /** The pull request's labels. */
+  labels?: string[]
   versions?: (path: string) => string[]
 }) {
   const everything = event !== 'pull_request' || branch.startsWith('release-')
   const isMacos = (path: string) =>
     MACOS.some((pattern) => pattern.test(path)) ||
-    (/^src\/.*\.(tsx?|css)$/.test(path) && versions(path).some((text) => PLATFORM.test(text))) ||
-    // A test or a test's helper with lines taken away or changed: what it reached on macOS may
-    // not be reached any more, and coverage borrowed from main (scripts/borrow-coverage.ts)
-    // would go on counting it. One that only gains lines takes nothing away.
-    (/^tests\//.test(path) && !onlyAdds(versions(path)))
+    (/^src\/.*\.(tsx?|css)$/.test(path) && versions(path).some((text) => PLATFORM.test(text)))
+  const asked = labels.includes(MACOS_FULL)
   const docs = !everything && changed.length > 0 && changed.every(isDocs)
-  const macos = everything || changed.some(isMacos)
+  const macos = everything || asked || changed.some(isMacos)
   const e2e = OSES.flatMap((os) =>
     os === 'macos-latest' && !macos
       ? [{ os, shard: 'smoke', part: 'smoke' }]
@@ -115,10 +110,32 @@ export function plan({
       : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
     docs ? 'Docs only: no E2E, packaging or integration tests.' : '',
     !docs && !macos ? 'Nothing macOS does differently: macOS runs the smoke set.' : '',
+    !everything && asked ? `Everything on macOS, as its label asks (${MACOS_FULL}).` : '',
   ]
     .filter(Boolean)
     .join(' ')
   return { everything, docs, macos, e2e, said }
+}
+
+/**
+ * The pull request's labels as they are now, asked of GitHub (PR_NUMBER, GH_TOKEN,
+ * GITHUB_REPOSITORY): a run started again after a label was put on must see it, and the event
+ * the run was started by still says what was so then. None where it can't be asked.
+ */
+function labelsNow(): string[] {
+  const { PR_NUMBER, GITHUB_REPOSITORY } = process.env
+  if (!PR_NUMBER || !GITHUB_REPOSITORY) return []
+  try {
+    return execFileSync(
+      'gh',
+      ['api', `repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, '--jq', '.[].name'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
+    )
+      .split('\n')
+      .filter(Boolean)
+  } catch {
+    return []
+  }
 }
 
 if (import.meta.main) {
@@ -135,6 +152,7 @@ if (import.meta.main) {
     event: process.env.GITHUB_EVENT_NAME,
     branch: process.env.GITHUB_HEAD_REF,
     changed,
+    labels: labelsNow(),
   })
   console.log(said)
   const output = process.env.GITHUB_OUTPUT
