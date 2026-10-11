@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { plan } from '../../scripts/ci-changes.ts'
 import { redOf, sentence } from '../../scripts/main-is-green.ts'
+import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
 
 /** A pull request changing `changed`, whose files hold `texts` (now, or then: deleted). */
 const pr = (changed: string[], texts: Record<string, string[]> = {}, branch = 'lmv-1-x') =>
@@ -286,4 +287,59 @@ test('main is red unless its newest finished run passed: only a run somebody can
   expect(
     sentence(run('fffffff6f', 'cancelled', true), ['E2E (macos-latest, 2/4) ran out of time']),
   ).toContain('main is red at fffffff (E2E (macos-latest, 2/4) ran out of time)')
+})
+
+test('a release starts by itself only from the commit that set the version', () => {
+  // The release's own commit: the version is new here.
+  expect(whyNot({ event: 'workflow_run', version: '1.22.0', before: '1.21.0' })).toBeUndefined()
+  // The first commit there is, or one before which package.json had no version.
+  expect(whyNot({ event: 'workflow_run', version: '1.0.0', before: undefined })).toBeUndefined()
+  // A later commit that finds the version still without a release: not from here.
+  expect(whyNot({ event: 'workflow_run', version: '1.22.0', before: '1.22.0' })).toBe(
+    'v1.22.0 has no release, and this commit isn’t the one that set the version: nothing is released from here by itself. To release main as it is now, run the Release workflow by hand.',
+  )
+  // By hand, it's what was asked for.
+  expect(
+    whyNot({ event: 'workflow_dispatch', version: '1.22.0', before: '1.22.0' }),
+  ).toBeUndefined()
+})
+
+test('a release is newer than every one before it', () => {
+  expect(newerThan('1.22.0', ['1.21.0', '1.20.0', '1.9.0'])).toBeUndefined()
+  expect(newerThan('1.21.0', ['1.21.0'])).toBeUndefined()
+  expect(newerThan('1.20.0', ['1.19.0', '1.21.0'])).toBe('1.21.0')
+  // By its numbers, not its letters; a prerelease comes before its release.
+  expect(newerThan('1.9.0', ['1.10.0'])).toBe('1.10.0')
+  expect(newerThan('1.22.0-beta.1', ['1.22.0'])).toBe('1.22.0')
+  expect(newerThan('1.22.0', ['1.22.0-beta.1'])).toBeUndefined()
+  // What isn't a version's tag says nothing.
+  expect(newerThan('1.0.0', ['nightly', 'v2'])).toBeUndefined()
+})
+
+test('a release is published whole: a draft that lacks a file one of the builds makes is refused, by name', () => {
+  const all = filesOf('1.22.0', false)
+  expect(all).toHaveLength(16)
+  expect(
+    missingFrom('1.22.0', false, [...all, 'SHA256SUMS.txt', 'Lumovi-1.22.0-win.exe.blockmap']),
+  ).toEqual([])
+  // The Linux build run again by itself, having started the draft over: only its own files.
+  const linuxOnly = all.filter((file) => /linux-(x86_64|amd64)|cdx|latest-linux\.yml/.test(file))
+  expect(missingFrom('1.22.0', false, linuxOnly)).toEqual([
+    'Lumovi-1.22.0-mac-arm64.dmg',
+    'Lumovi-1.22.0-mac-arm64.zip',
+    'Lumovi-1.22.0-mac-x64.dmg',
+    'Lumovi-1.22.0-mac-x64.zip',
+    'Lumovi-1.22.0-win.exe',
+    'Lumovi-1.22.0-linux-arm64.AppImage',
+    'Lumovi-1.22.0-linux-arm64.deb',
+    'Lumovi-1.22.0-linux-aarch64.rpm',
+    'latest-mac.yml',
+    'latest.yml',
+    'latest-linux-arm64.yml',
+  ])
+  // Another version's files aren't this one's.
+  expect(missingFrom('1.22.0', false, filesOf('1.21.0', false))).toHaveLength(12)
+  // A prerelease: its installers and its bill of materials (what tells apps of an update is
+  // named for its channel, and isn't asked for by name).
+  expect(filesOf('1.22.0-beta.1', true)).toHaveLength(12)
 })

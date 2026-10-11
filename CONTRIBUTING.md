@@ -169,7 +169,17 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
    have passed, and a merge would make another commit, not the one CI tested.
 
 When CI passes on that commit on `main`, the _Release_ workflow sees a version without a
-release, and builds the installers for every platform (signing and notarizing the macOS app, signing the
+release, set by that very commit, and waits. A release made by Lumovi's workflow is signed and
+published only after the maintainer approves that run from his own account (the environment
+`release`, where the signing secrets live, has him as its one required reviewer). A run that
+isn't approved has made nothing, and holds nothing up. Whoever started a run can't be the one
+who approves it, so a release by the workflow always takes two accounts, his own included: a
+release the maintainer has to start himself needs that setting of the environment turned off
+for it, knowingly, by him as the owner. A later commit that finds the version
+still unreleased starts no release by itself; to release `main` as it is then, run the workflow
+by hand.
+
+Approved, it builds the installers for every platform (signing and notarizing the macOS app, signing the
 Windows one), and the image (`ghcr.io/lumovi/lumovi`) and Helm chart
 (`oci://ghcr.io/lumovi/charts`), which it pushes to GitHub's container registry with provenance attestations and signs
 with cosign (keyless). It attaches the installers, a `SHA256SUMS.txt` and a bill of
