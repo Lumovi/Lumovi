@@ -13,6 +13,7 @@
  */
 import type { Step } from './jsonpath'
 import type { Stopped } from './plugin-door'
+import { isCustomGroup } from './resources'
 
 /**
  * What reading is held to. First lines, as the door's own: what settles them is a real plugin's
@@ -22,11 +23,16 @@ export const READ_LIMITS = {
   /** Lists kept up to date at once: by one page, and by all of a plugin's pages. */
   listsAPage: 8,
   listsAPlugin: 16,
+  /** Everything a page keeps going at once: lists, objects, events and usage together. (Each
+   *  is a watch on the cluster in the person's name.) */
+  keptAPage: 50,
+  keptAPlugin: 100,
   /** Asks in a second, and asks not yet answered. */
   asksASecond: 10,
   waiting: 20,
   /** A refresh a plugin asks for: no oftener than this, a page. (One too soon isn't made; it
-   *  doesn't stop the plugin: a person's second press mustn't end a page.) */
+   *  doesn't stop the plugin: a person's second press mustn't end a page. It's still one of its
+   *  second's asks, so it can't be used to knock on the door without end.) */
   refreshEveryMs: 10_000,
 } as const
 
@@ -143,8 +149,31 @@ export function readAsk(message: unknown): ReadAsk | Stopped {
   }
 }
 
-/** What's never read by a plugin's code, whatever a file says: checked here as well as there. */
-const NEVER_KINDS = new Set(['/Secret'])
+/**
+ * A kind as Lumovi resolved it: the resource it will really read, never the text of an ask.
+ * Every rule about a kind here is asked of one of these. (An ask says "group/Kind" in a
+ * plugin's own spelling; what that names in the cluster is Lumovi's to find, and a rule asked
+ * of the spelling is a rule a second spelling walks round.)
+ */
+export interface ResolvedKind {
+  /** The resource's API group, as the cluster serves it; none for the core group. */
+  readonly group: string
+  readonly kind: string
+  readonly [RESOLVED]: true
+}
+declare const RESOLVED: unique symbol
+
+/**
+ * Says a kind is resolved. Only where Lumovi has looked the resource up (the main process, the
+ * server), with the group and kind the cluster gave: never with what a plugin wrote.
+ */
+export const resolvedAs = (group: string, kind: string) => ({ group, kind }) as ResolvedKind
+
+/** A resolved kind as a grant names it: `group/Kind`. */
+const idOf = ({ group, kind }: ResolvedKind) => `${group}/${kind}`
+
+/** Never read by a plugin's code, whatever a file says: checked here as well as there. */
+const never = (kind: ResolvedKind) => kind.group === '' && kind.kind === 'Secret'
 
 /** What a plugin is handed of a kind's objects: all of each, or the fields its file names. */
 export type Handed = { whole: true } | { whole: false; granted: Granted }
@@ -152,86 +181,134 @@ export type Handed = { whole: true } | { whole: false; granted: Granted }
 /**
  * Whether `grant` lets a plugin have `what` of `kind`'s objects, and then how much of each:
  * `objects` is a list or one object; `status`, `events` and `usage` are those of an object.
- * Nothing means no: what a file doesn't say is refused.
+ * Nothing means no: what a file doesn't say is refused. (Refused, with a code: not a reason to
+ * stop the plugin. One written for a newer grant than its file's shouldn't lose its page for
+ * asking.)
  */
 export function granted(
   grant: Grant,
-  kind: string,
+  kind: ResolvedKind,
   what: 'objects' | 'status' | 'events' | 'usage',
 ): Handed | undefined {
-  if (NEVER_KINDS.has(kind)) return undefined
-  // Its own kinds, whole: everything of them.
-  if (grant.own.includes(kind)) return { whole: true }
-  const said = Object.hasOwn(grant.reads, kind) ? grant.reads[kind] : undefined
-  if (!said) return undefined
-  const yes = what === 'objects' ? said.fields.length > 0 : said[what]
-  return yes ? { whole: false, granted: said } : undefined
+  if (never(kind)) return undefined
+  const id = idOf(kind)
+  // Its own kinds, whole: everything of them. A tool's kinds only: one of Kubernetes' own is
+  // never whole, whatever claims it.
+  if (isCustomGroup(kind.group) && grant.own.includes(id)) return { whole: true }
+  const said = Object.hasOwn(grant.reads, id) ? grant.reads[id] : undefined
+  // Events, status and usage are read only of things whose objects it may see at all.
+  if (!said || said.fields.length === 0) return undefined
+  return what === 'objects' || said[what] ? { whole: false, granted: said } : undefined
 }
 
 /** A step that's never taken, in any path: the names every object answers to. */
 const NEVER_STEPS = new Set(['__proto__', 'constructor', 'prototype'])
+/**
+ * What's never in what's handed over, at any depth, whoever names it: a container's environment
+ * (the commonest place a credential sits outside a Secret), who manages which field, and the
+ * annotations a tool keeps for itself, the one that holds the object as it was last applied
+ * among them (for a ConfigMap its data, for a Pod its environment).
+ */
+const NEVER_HANDED = new Set(['env', 'managedFields'])
+const NEVER_ANNOTATIONS = /^(?:kubectl\.kubernetes\.io|control-plane\.alpha\.kubernetes\.io)\//
+const neverHanded = (key: string) =>
+  NEVER_HANDED.has(key) || NEVER_STEPS.has(key) || NEVER_ANNOTATIONS.test(key)
+/**
+ * Where a path can't end: it would hand over far more than it names. All of an object's
+ * metadata or annotations (one annotation by its key is fine), all of a spec, a list of
+ * containers, a template.
+ */
+const NEVER_WHOLE = new Set([
+  'metadata',
+  'annotations',
+  'spec',
+  'containers',
+  'initContainers',
+  'ephemeralContainers',
+  'template',
+  'jobTemplate',
+])
 
 /** Whether a path may be handed over at all (the file checker refuses these; so does the door). */
-function mayBePicked(steps: readonly Step[], kind: string): steps is readonly { key: string }[] {
+function mayBePicked(
+  steps: readonly Step[],
+  kind: ResolvedKind,
+): steps is readonly { key: string }[] {
   if (steps.length === 0) return false
-  if (!steps.every((step) => 'key' in step && !NEVER_STEPS.has(step.key))) return false
-  const [first, second] = steps as readonly { key: string }[]
+  if (!steps.every((step) => 'key' in step && !neverHanded(step.key))) return false
+  const keys = (steps as readonly { key: string }[]).map((step) => step.key)
   // (What a ConfigMap holds is a permission of its own, which no file can say yet.)
-  if (kind === '/ConfigMap' && (first!.key === 'data' || first!.key === 'binaryData')) return false
-  if (first!.key !== 'metadata') return true
-  if (second?.key === 'managedFields') return false
-  // (One annotation by its key, never all of them.)
-  return !(second?.key === 'annotations' && steps.length === 2)
+  const held = kind.group === '' && kind.kind === 'ConfigMap'
+  if (held && (keys[0] === 'data' || keys[0] === 'binaryData')) return false
+  return !NEVER_WHOLE.has(keys.at(-1)!)
 }
 
-interface Picked {
-  whole?: unknown
-  under: Map<string, Picked>
+/** The paths a plugin may have, as a tree of field names: `whole` where one ends. */
+interface Named {
+  whole: boolean
+  under: Map<string, Named>
+}
+
+/** A copy of `value` with nothing in it that's never handed over. */
+function handedOver(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(handedOver)
+  if (typeof value !== 'object' || value === null) return value
+  const copy: Record<string, unknown> = {}
+  for (const key of Object.keys(value)) {
+    if (!neverHanded(key)) copy[key] = handedOver((value as Record<string, unknown>)[key])
+  }
+  return copy
 }
 
 /**
- * Of `object` (one of `kind`), the fields `granted` names and nothing else: a new object with only those
- * paths in it, each field as it is. Own fields only; a path that isn't there leaves nothing.
+ * Of `value`, what `named` names. A step into a list is taken of each item: the list's shape is
+ * kept, and of each item only what's named.
+ */
+function pick(value: unknown, named: Named): unknown {
+  if (named.whole) return handedOver(value)
+  if (Array.isArray(value)) return value.map((item) => pick(item, named) ?? {})
+  if (typeof value !== 'object' || value === null) return undefined
+  const out: Record<string, unknown> = {}
+  for (const [key, under] of named.under) {
+    if (!Object.hasOwn(value, key)) continue
+    const found = pick((value as Record<string, unknown>)[key], under)
+    if (found !== undefined) out[key] = found
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/**
+ * Of `object` (one of `kind`), the fields `granted` names and nothing else: built from what the
+ * plugin may see, field by field, never from the object with things taken out. A copy, so
+ * nothing that holds it holds what was read. Own fields only; a path that isn't there leaves
+ * nothing.
  */
 export function picked(
   object: unknown,
-  kind: string,
+  kind: ResolvedKind,
   { fields }: Granted,
 ): Record<string, unknown> {
-  const root: Picked = { under: new Map() }
+  if (never(kind) || Array.isArray(object)) return {}
+  const root: Named = { whole: false, under: new Map() }
   for (const { steps } of fields) {
-    if (NEVER_KINDS.has(kind) || !mayBePicked(steps, kind)) continue
-    let value = object
-    for (const { key } of steps) {
-      value =
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value) &&
-        Object.hasOwn(value, key)
-          ? (value as Record<string, unknown>)[key]
-          : undefined
-      if (value === undefined) break
-    }
-    if (value === undefined) continue
+    if (!mayBePicked(steps, kind)) continue
     let at = root
     for (const { key } of steps) {
       let next = at.under.get(key)
-      if (!next) at.under.set(key, (next = { under: new Map() }))
+      if (!next) at.under.set(key, (next = { whole: false, under: new Map() }))
       at = next
     }
-    at.whole = value
+    // (Where a path and one under it are both named, the shorter one has it all.)
+    at.whole = true
   }
-  // (Where a path and one under it are both named, the shorter one has it all.)
-  const made = (node: Picked): unknown =>
-    'whole' in node
-      ? node.whole
-      : Object.fromEntries([...node.under].map(([key, under]) => [key, made(under)]))
-  return made(root) as Record<string, unknown>
+  return (pick(object, root) as Record<string, unknown> | undefined) ?? {}
 }
 
 /** What all of a plugin's pages keep between them: counted in one place. */
 export interface PluginCount {
   lists: number
+  /** Everything kept going: lists, objects, events and usage together. */
+  kept: number
 }
 
 /**
@@ -272,8 +349,9 @@ export class PageReads {
       return undefined
     }
     if ('stop' in ask) {
-      const going = this.#going.get(ask.stop)
-      if (!going) return notAllowed('ends a read that isn’t going')
+      // A read never asked for can't be ended. One that was, and isn't going any more (Lumovi
+      // refused it, or it was ended already), has nothing to end: messages cross.
+      if (ask.stop > this.#newest) return notAllowed('ends a read it never asked for')
       this.#forget(ask.stop)
       return undefined
     }
@@ -281,6 +359,12 @@ export class PageReads {
     this.#newest = ask.read
     const waiting = [...this.#going.values()].filter((read) => !read.answered).length
     if (waiting >= READ_LIMITS.waiting) return tooMuch('asks not yet answered', READ_LIMITS.waiting)
+    if (this.#going.size >= READ_LIMITS.keptAPage) {
+      return tooMuch('reads a page keeps going', READ_LIMITS.keptAPage)
+    }
+    if (this.#plugin.kept >= READ_LIMITS.keptAPlugin) {
+      return tooMuch('reads a plugin keeps going', READ_LIMITS.keptAPlugin)
+    }
     const list = ask.what === 'list'
     if (list) {
       const mine = [...this.#going.values()].filter((read) => read.list).length
@@ -291,6 +375,7 @@ export class PageReads {
       }
       this.#plugin.lists++
     }
+    this.#plugin.kept++
     this.#going.set(ask.read, { list, answered: false })
     return undefined
   }
@@ -301,7 +386,11 @@ export class PageReads {
     if (going) going.answered = true
   }
 
-  /** A read that was refused, or failed: it isn't going. */
+  /**
+   * A read that was refused, or failed: it isn't going. (An ask for what a file doesn't grant
+   * is refused with a code and counted among its second's asks; it doesn't stop the plugin: one
+   * written for a newer grant than its file's shouldn't lose its page for asking.)
+   */
   refused(read: number): void {
     this.#forget(read)
   }
@@ -312,7 +401,10 @@ export class PageReads {
   }
 
   #forget(read: number): void {
-    if (this.#going.get(read)?.list) this.#plugin.lists--
+    const going = this.#going.get(read)
+    if (!going) return
+    if (going.list) this.#plugin.lists--
+    this.#plugin.kept--
     this.#going.delete(read)
   }
 }

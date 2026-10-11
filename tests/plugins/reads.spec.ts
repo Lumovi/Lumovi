@@ -11,6 +11,7 @@ import {
   picked,
   READ_LIMITS,
   readAsk,
+  resolvedAs,
   type Grant,
   type Granted,
 } from '../../src/shared/plugin-reads.ts'
@@ -100,145 +101,255 @@ test('anything else stops the plugin: a word too many, a kind or a name that isn
   })
 })
 
+const NODE = resolvedAs('', 'Node')
+const POD = resolvedAs('', 'Pod')
+const CONFIG_MAP = resolvedAs('', 'ConfigMap')
+const SECRET = resolvedAs('', 'Secret')
+const NODE_POOL = resolvedAs('karpenter.sh', 'NodePool')
+
 test('what a file doesn’t say is refused: by kind, and by what’s read of it', () => {
   // Its own kinds, whole: everything of them.
   for (const what of ['objects', 'status', 'events', 'usage'] as const) {
-    expect(granted(GRANT, 'karpenter.sh/NodePool', what)).toEqual({ whole: true })
+    expect(granted(GRANT, NODE_POOL, what)).toEqual({ whole: true })
   }
   // Of Kubernetes' own, what's named.
-  expect(granted(GRANT, '/Node', 'objects')).toEqual({
-    whole: false,
-    granted: GRANT.reads['/Node'],
-  })
-  expect(granted(GRANT, '/Node', 'status')).toBeTruthy()
-  expect(granted(GRANT, '/Node', 'usage')).toBeTruthy()
-  expect(granted(GRANT, '/Node', 'events')).toBeUndefined()
-  expect(granted(GRANT, '/Pod', 'status')).toBeUndefined()
-  // Events of a kind, with none of its fields: no list of it.
-  expect(granted(GRANT, '/Event', 'events')).toBeTruthy()
-  expect(granted(GRANT, '/Event', 'objects')).toBeUndefined()
+  expect(granted(GRANT, NODE, 'objects')).toEqual({ whole: false, granted: GRANT.reads['/Node'] })
+  expect(granted(GRANT, NODE, 'status')).toBeTruthy()
+  expect(granted(GRANT, NODE, 'usage')).toBeTruthy()
+  expect(granted(GRANT, NODE, 'events')).toBeUndefined()
+  expect(granted(GRANT, POD, 'status')).toBeUndefined()
+  // Events of a kind with none of its fields: there's no such read. Nothing says "you may hear
+  // what happened to things you may not see".
+  for (const what of ['objects', 'status', 'events', 'usage'] as const) {
+    expect(granted(GRANT, resolvedAs('', 'Event'), what)).toBeUndefined()
+  }
   // A kind it doesn't name; another's kind; a name every object answers to.
   for (const kind of [
-    '/ConfigMap',
-    'argoproj.io/Application',
-    'toString',
-    '__proto__',
-    'constructor',
-    '',
+    CONFIG_MAP,
+    resolvedAs('argoproj.io', 'Application'),
+    resolvedAs('', 'toString'),
+    resolvedAs('', '__proto__'),
+    resolvedAs('__proto__', 'constructor'),
   ]) {
-    expect(granted(GRANT, kind, 'objects'), kind).toBeUndefined()
+    expect(granted(GRANT, kind, 'objects'), JSON.stringify(kind)).toBeUndefined()
   }
   // A Secret, never: not even if a file's grant said so, or a plugin claimed the kind.
   const loose: Grant = {
-    own: ['/Secret'],
+    own: ['/Secret', '/ConfigMap', 'apps/Deployment'],
     reads: { '/Secret': says({ fields: fields('data'), events: true }) },
   }
   for (const what of ['objects', 'status', 'events', 'usage'] as const) {
-    expect(granted(loose, '/Secret', what)).toBeUndefined()
+    expect(granted(loose, SECRET, what)).toBeUndefined()
   }
+  // And a kind of Kubernetes' own is never whole, whatever claims it: "its own" is a tool's kinds.
+  expect(granted(loose, CONFIG_MAP, 'objects')).toBeUndefined()
+  expect(granted(loose, resolvedAs('apps', 'Deployment'), 'objects')).toBeUndefined()
 })
 
-test('of an object, a plugin is handed the fields its file names and nothing else', () => {
-  const node = {
-    apiVersion: 'v1',
-    kind: 'Node',
-    metadata: {
-      name: 'node-1',
-      uid: 'abc',
-      labels: { 'topology.kubernetes.io/zone': 'eu-west-1a' },
-      annotations: { 'example.com/owner': 'team-a', 'example.com/token': 'hunter2' },
-      managedFields: [{ manager: 'kubelet' }],
+const pod = {
+  apiVersion: 'v1',
+  kind: 'Pod',
+  metadata: {
+    name: 'cart-7d9f',
+    namespace: 'shop',
+    uid: 'abc',
+    labels: { app: 'cart' },
+    annotations: {
+      'example.com/owner': 'team-a',
+      'kubectl.kubernetes.io/last-applied-configuration':
+        '{"spec":{"containers":[{"env":[{"name":"TOKEN","value":"hunter2"}]}]}}',
+      'control-plane.alpha.kubernetes.io/leader': '{"holderIdentity":"a"}',
     },
-    spec: { providerID: 'aws:///eu-west-1a/i-0abc', taints: [] },
-    status: { capacity: { cpu: '8' }, addresses: [{ address: '10.0.1.5' }] },
-  }
-  expect(picked(node, '/Node', GRANT.reads['/Node']!)).toEqual({
-    metadata: { name: 'node-1', labels: { 'topology.kubernetes.io/zone': 'eu-west-1a' } },
-    status: { capacity: { cpu: '8' } },
+    managedFields: [{ manager: 'kubelet' }],
+  },
+  spec: {
+    nodeName: 'node-1',
+    containers: [
+      {
+        name: 'cart',
+        image: 'shop/cart:1.4',
+        env: [{ name: 'TOKEN', value: 'hunter2' }],
+        ports: [{ containerPort: 80 }],
+      },
+      { name: 'proxy', image: 'envoy:1.30', env: [{ name: 'KEY', value: 's3cret' }] },
+    ],
+    initContainers: [
+      { name: 'init', image: 'busybox', env: [{ name: 'TOKEN', value: 'hunter2' }] },
+    ],
+  },
+  status: { phase: 'Running', podIP: '10.0.1.9' },
+}
+const handed = (...paths: string[]) => picked(pod, POD, says({ fields: fields(...paths) }))
+const SECRETS = /hunter2|s3cret|kubelet|holderIdentity/
+
+test('of an object, a plugin is handed the fields its file names and nothing else', () => {
+  expect(handed('metadata.name', 'metadata.labels', 'spec.nodeName', 'status.phase')).toEqual({
+    metadata: { name: 'cart-7d9f', labels: { app: 'cart' } },
+    spec: { nodeName: 'node-1' },
+    status: { phase: 'Running' },
   })
-  // One annotation by its key; never all of them, never the managed fields, whatever a grant says.
+  // A path that isn't there leaves nothing; what isn't an object gives nothing.
+  expect(handed('spec.unschedulable', 'status.nodeInfo.osImage', 'metadata.name.first')).toEqual({})
+  for (const value of [null, 'text', 5, [pod]]) {
+    expect(picked(value, POD, says({ fields: fields('metadata.name') }))).toEqual({})
+  }
+  // A path and one under it: the shorter has it all, whichever is named first.
+  expect(handed('status.phase', 'status')).toEqual({ status: pod.status })
+  expect(handed('status', 'status.phase')).toEqual({ status: pod.status })
+})
+
+test('a step into a list is taken of each item: its shape kept, and nothing else of an item', () => {
+  expect(handed('spec.containers.image', 'spec.containers.name')).toEqual({
+    spec: {
+      containers: [
+        { image: 'shop/cart:1.4', name: 'cart' },
+        { image: 'envoy:1.30', name: 'proxy' },
+      ],
+    },
+  })
+  expect(handed('spec.containers.ports.containerPort')).toEqual({
+    spec: { containers: [{ ports: [{ containerPort: 80 }] }, {}] },
+  })
+})
+
+test('nothing hands over more than it names: metadata, a spec, a list of containers, a template', () => {
+  // (Each of these would carry every annotation, the managed fields, or every container's
+  // environment with its values.)
+  for (const path of [
+    'metadata',
+    'metadata.annotations',
+    'metadata.managedFields',
+    'metadata.managedFields.manager',
+    'spec',
+    'spec.containers',
+    'spec.initContainers',
+    'spec.ephemeralContainers',
+    'spec.template',
+    'spec.jobTemplate',
+    'spec.template.spec',
+    'spec.template.metadata',
+    'spec.template.spec.containers',
+  ]) {
+    expect(handed(path), path).toEqual({})
+  }
+  const deployment = {
+    spec: {
+      template: { metadata: { labels: { app: 'a' } }, spec: { containers: pod.spec.containers } },
+    },
+  }
   expect(
     picked(
-      node,
-      '/Node',
+      deployment,
+      resolvedAs('apps', 'Deployment'),
+      says({
+        fields: fields('spec.template.metadata.labels', 'spec.template.spec.containers.image'),
+      }),
+    ),
+  ).toEqual({
+    spec: {
+      template: {
+        metadata: { labels: { app: 'a' } },
+        spec: { containers: [{ image: 'shop/cart:1.4' }, { image: 'envoy:1.30' }] },
+      },
+    },
+  })
+})
+
+test('a container’s environment, and a tool’s own annotations, are never handed over, whoever names them', () => {
+  // One annotation by its key, yes: but never the object as it was last applied, nor its kin.
+  const one = (key: string) =>
+    picked(
+      pod,
+      POD,
       says({
         fields: [
-          ...fields(
-            'metadata.annotations',
-            'metadata.managedFields',
-            'metadata.managedFields.manager',
-          ),
           {
-            path: 'metadata.annotations["example.com/owner"]',
-            steps: parse(".metadata.annotations['example.com/owner']"),
+            path: `metadata.annotations["${key}"]`,
+            steps: [{ key: 'metadata' }, { key: 'annotations' }, { key }],
           },
         ],
       }),
-    ),
-  ).toEqual({ metadata: { annotations: { 'example.com/owner': 'team-a' } } })
-  // A path that isn't there leaves nothing; a path and one under it: the shorter has it all.
-  expect(
-    picked(
-      node,
-      '/Node',
-      says({ fields: fields('spec.unschedulable', 'status.nodeInfo.osImage') }),
-    ),
-  ).toEqual({})
-  expect(picked(node, '/Node', says({ fields: fields('status.capacity.cpu', 'status') }))).toEqual({
-    status: node.status,
+    )
+  expect(one('example.com/owner')).toEqual({
+    metadata: { annotations: { 'example.com/owner': 'team-a' } },
   })
-  expect(picked(node, '/Node', says({ fields: fields('status', 'status.capacity.cpu') }))).toEqual({
-    status: node.status,
+  expect(one('kubectl.kubernetes.io/last-applied-configuration')).toEqual({})
+  expect(one('control-plane.alpha.kubernetes.io/leader')).toEqual({})
+  // The environment: by name, under a name, or inside something handed over whole.
+  expect(handed('spec.containers.env')).toEqual({})
+  expect(handed('spec.containers.env.value', 'spec.initContainers.env.name')).toEqual({})
+  const whole = {
+    status: { copied: { env: [{ value: 'hunter2' }], managedFields: ['kubelet'], fine: 1 } },
+  }
+  expect(picked(whole, POD, says({ fields: fields('status') }))).toEqual({
+    status: { copied: { fine: 1 } },
   })
-  // Nothing that isn't a field's own name: the object whole, a wildcard, an index, a filter, the
-  // names every object answers to.
-  const odd = says({
-    fields: [
-      { path: '', steps: [] },
-      { path: 'status.addresses[*]', steps: parse('.status.addresses[*]') },
-      { path: 'status.addresses[0]', steps: parse('.status.addresses[0]') },
-      { path: 'status.addresses[?(@.address)]', steps: parse('.status.addresses[?(@.address)]') },
-      { path: '__proto__', steps: [{ key: '__proto__' }] },
-      { path: 'constructor.name', steps: [{ key: 'constructor' }, { key: 'name' }] },
-      { path: 'metadata.toString', steps: [{ key: 'metadata' }, { key: 'toString' }] },
-    ],
+  // Every path one could write, together: none of it comes back.
+  const everything = handed(
+    'metadata',
+    'metadata.annotations',
+    'metadata.managedFields',
+    'spec',
+    'spec.containers',
+    'spec.containers.env',
+    'spec.containers.env.value',
+    'spec.initContainers',
+    'spec.containers.image',
+    'status',
+  )
+  expect(JSON.stringify(everything)).not.toMatch(SECRETS)
+  expect(everything).toEqual({
+    spec: { containers: [{ image: 'shop/cart:1.4' }, { image: 'envoy:1.30' }] },
+    status: pod.status,
   })
-  expect(picked(node, '/Node', odd)).toEqual({})
-  // What a ConfigMap holds, and anything of a Secret: never.
+})
+
+test('what a ConfigMap holds, anything of a Secret, and what isn’t a field’s own name: never', () => {
   const held = {
     metadata: { name: 'a' },
     data: { password: 'hunter2' },
     binaryData: { key: 'aGk=' },
   }
   const all = says({ fields: fields('metadata.name', 'data', 'data.password', 'binaryData') })
-  expect(picked(held, '/ConfigMap', all)).toEqual({ metadata: { name: 'a' } })
-  expect(picked(held, '/Secret', all)).toEqual({})
-  // And what isn't an object gives nothing.
-  for (const value of [null, 'text', 5, [node]])
-    expect(picked(value, '/Node', GRANT.reads['/Node']!)).toEqual({})
+  expect(picked(held, CONFIG_MAP, all)).toEqual({ metadata: { name: 'a' } })
+  expect(picked(held, SECRET, all)).toEqual({})
+  const odd = says({
+    fields: [
+      { path: '', steps: [] },
+      { path: 'spec.containers[*]', steps: parse('.spec.containers[*]') },
+      { path: 'spec.containers[0].image', steps: parse('.spec.containers[0].image') },
+      {
+        path: 'spec.containers[?(@.name)].image',
+        steps: parse('.spec.containers[?(@.name)].image'),
+      },
+      { path: '__proto__', steps: [{ key: '__proto__' }] },
+      { path: 'constructor.name', steps: [{ key: 'constructor' }, { key: 'name' }] },
+      { path: 'metadata.toString', steps: [{ key: 'metadata' }, { key: 'toString' }] },
+    ],
+  })
+  expect(picked(pod, POD, odd)).toEqual({})
 })
 
-test('what’s handed over is the object’s own: nothing a path names can change what was read', () => {
-  const pod = {
-    metadata: { name: 'a' },
-    spec: { nodeName: 'node-1', containers: [{ image: 'x' }] },
-  }
+test('what’s handed over is a copy: nothing that holds it holds, or can change, what was read', () => {
   const before = JSON.stringify(pod)
-  const handed = picked(
-    pod,
-    '/Pod',
-    says({ fields: fields('spec', 'spec.nodeName', 'metadata.name') }),
-  )
-  expect(handed).toEqual({ metadata: { name: 'a' }, spec: pod.spec })
+  const given = handed('status', 'metadata.labels', 'spec.containers.ports') as {
+    status: { phase: string }
+    metadata: { labels: Record<string, string> }
+  }
+  expect(given.status).toEqual(pod.status)
+  expect(given.status).not.toBe(pod.status)
+  expect(given.metadata.labels).not.toBe(pod.metadata.labels)
+  given.status.phase = 'Changed'
+  given.metadata.labels.app = 'changed'
   expect(JSON.stringify(pod)).toBe(before)
-  expect(handed.metadata).not.toBe(pod.metadata)
 })
 
-test('a page’s reads are counted: lists kept, asks in a second, asks waiting, and a number is new once', () => {
+test('a page’s reads are counted: lists kept, everything kept, asks in a second, asks waiting', () => {
   const clock = { now: 0 }
-  const plugin = { lists: 0 }
+  const plugin = { lists: 0, kept: 0 }
   const reads = () => new PageReads(plugin, () => clock.now)
   const list = (read: number) => ({ read, what: 'list', kind: '/Node' }) as const
+  const one = (read: number) => ({ read, what: 'object', kind: '/Node', name: 'a' }) as const
   // Eight lists a page; the ninth stops it. Ending one makes room.
   const page = reads()
   for (let i = 1; i <= READ_LIMITS.listsAPage; i++) expect(page.take(list(i))).toBeUndefined()
@@ -258,21 +369,38 @@ test('a page’s reads are counted: lists kept, asks in a second, asks waiting, 
     what: 'lists a plugin keeps: more than 16',
   })
   second.close()
-  expect(plugin.lists).toBe(READ_LIMITS.listsAPage)
-  expect(reads().take(list(1))).toBeUndefined()
+  second.close()
+  page.close()
+  third.close()
+  expect(plugin).toEqual({ lists: 0, kept: 0 })
 
-  // A number is new once, and only a greater one after it; a read that isn't going can't be ended.
-  const numbered = new PageReads({ lists: 0 }, () => clock.now)
+  // Everything kept going, lists or not, answered or not: fifty a page, a hundred a plugin.
+  const keeps = [reads(), reads(), reads()]
+  let read = 0
+  const fill = (page: PageReads, count: number) => {
+    for (let i = 0; i < count; i++) {
+      if (i % READ_LIMITS.asksASecond === 0) clock.now += 1000
+      expect(page.take(one(++read))).toBeUndefined()
+      page.answered(read)
+    }
+  }
+  fill(keeps[0]!, READ_LIMITS.keptAPage)
   clock.now += 1000
-  expect(numbered.take({ read: 5, what: 'usage', of: 'o_1' })).toBeUndefined()
-  expect(numbered.take({ read: 5, what: 'usage', of: 'o_1' })).toMatchObject({ why: 'not-allowed' })
-  expect(new PageReads({ lists: 0 }, () => clock.now).take({ stop: 1 })).toEqual({
-    why: 'not-allowed',
-    what: 'ends a read that isn’t going',
+  expect(keeps[0]!.take(one(++read))).toEqual({
+    why: 'too-much',
+    what: 'reads a page keeps going: more than 50',
   })
+  fill(keeps[1]!, READ_LIMITS.keptAPage)
+  clock.now += 1000
+  expect(keeps[2]!.take(one(++read))).toEqual({
+    why: 'too-much',
+    what: 'reads a plugin keeps going: more than 100',
+  })
+  for (const page of keeps) page.close()
+  expect(plugin).toEqual({ lists: 0, kept: 0 })
 
   // Ten asks a second, by Lumovi's clock; a clock set back starts the second again.
-  const fast = new PageReads({ lists: 0 }, () => clock.now)
+  const fast = new PageReads({ lists: 0, kept: 0 }, () => clock.now)
   clock.now += 1000
   for (let i = 1; i <= READ_LIMITS.asksASecond; i++) {
     expect(fast.take({ read: i, what: 'usage', of: 'o_1' })).toBeUndefined()
@@ -287,30 +415,61 @@ test('a page’s reads are counted: lists kept, asks in a second, asks waiting, 
   })
 
   // Twenty waiting at once; one answered, or refused, makes room.
-  const slow = new PageReads({ lists: 0 }, () => clock.now)
-  let read = 0
+  const slow = new PageReads({ lists: 0, kept: 0 }, () => clock.now)
+  let asked = 0
   for (let second = 0; second < 2; second++) {
     clock.now += 1000
-    for (let i = 0; i < 10; i++)
-      expect(slow.take({ read: ++read, what: 'usage', of: 'o_1' })).toBeUndefined()
+    for (let i = 0; i < 10; i++) {
+      expect(slow.take({ read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
+    }
   }
   clock.now += 1000
   slow.answered(1)
   slow.refused(2)
-  expect(slow.take({ read: ++read, what: 'usage', of: 'o_1' })).toBeUndefined()
-  expect(slow.take({ read: ++read, what: 'usage', of: 'o_1' })).toBeUndefined()
-  expect(slow.take({ read: read + 1, what: 'usage', of: 'o_1' })).toEqual({
+  expect(slow.take({ read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
+  expect(slow.take({ read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
+  expect(slow.take({ read: asked + 1, what: 'usage', of: 'o_1' })).toEqual({
     why: 'too-much',
     what: 'asks not yet answered: more than 20',
   })
 })
 
-test('a refresh too soon isn’t made, and doesn’t stop the plugin', () => {
+test('a number is new once; and ending a read that’s already ended does nothing, since messages cross', () => {
+  const clock = { now: 0 }
+  const plugin = { lists: 0, kept: 0 }
+  const page = new PageReads(plugin, () => clock.now)
+  expect(page.take({ read: 5, what: 'list', kind: '/Node' })).toBeUndefined()
+  expect(page.take({ read: 5, what: 'usage', of: 'o_1' })).toMatchObject({ why: 'not-allowed' })
+  expect(
+    new PageReads(plugin, () => clock.now).take({ read: 7, what: 'usage', of: 'o_1' }),
+  ).toBeUndefined()
+  // Lumovi refused it; the plugin's own tidying ends it before it has heard: nothing to do.
+  const tidy = new PageReads({ lists: 0, kept: 0 }, () => clock.now)
+  expect(tidy.take({ read: 1, what: 'list', kind: '/Node' })).toBeUndefined()
+  tidy.refused(1)
+  expect(tidy.take({ stop: 1 })).toBeUndefined()
+  // Ended twice: the same.
+  expect(tidy.take({ read: 2, what: 'list', kind: '/Node' })).toBeUndefined()
+  expect(tidy.take({ stop: 2 })).toBeUndefined()
+  expect(tidy.take({ stop: 2 })).toBeUndefined()
+  // Only a read never asked for can't be ended.
+  expect(tidy.take({ stop: 3 })).toEqual({
+    why: 'not-allowed',
+    what: 'ends a read it never asked for',
+  })
+})
+
+test('a refresh too soon isn’t made, and doesn’t stop the plugin; but it’s one of its second’s asks', () => {
   const clock = { now: 50_000 }
-  const page = new PageReads({ lists: 0 }, () => clock.now)
+  const page = new PageReads({ lists: 0, kept: 0 }, () => clock.now)
   expect(page.take({ refresh: true })).toBeUndefined()
   clock.now += READ_LIMITS.refreshEveryMs - 1
   expect(page.take({ refresh: true })).toBe('too-soon')
   clock.now += 1
   expect(page.take({ refresh: true })).toBeUndefined()
+  // Held down: the eleventh in a second stops the page as any eleventh ask does.
+  clock.now += 1000
+  for (let i = 0; i < READ_LIMITS.asksASecond; i++)
+    expect(page.take({ refresh: true })).toBe('too-soon')
+  expect(page.take({ refresh: true })).toMatchObject({ why: 'too-much' })
 })
