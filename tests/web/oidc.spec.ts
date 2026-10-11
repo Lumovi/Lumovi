@@ -2,7 +2,7 @@
  * Single sign-on (OpenID Connect): the provider says who someone is, and the
  * server acts as them in the cluster, impersonating them with its own credentials.
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { request as http, type Page } from '@playwright/test'
@@ -519,13 +519,22 @@ test('after a restart, a session that passes its person’s own token on carries
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
   const renewals = () =>
     oidc.tokenRequests.filter((r) => r.body.get('grant_type') === 'refresh_token').length
+  // What the first server keeps, as it is once she's signed in (written long before the first
+  // renewal is due).
+  const kept = () => readFileSync(join(dir, 'state.json'), 'utf8')
+  const signedIn = kept()
   // Renewed once by the first server, and stopped in the quiet after it: what's kept is the
   // second refresh token, the only one the provider still takes. (A server stopped at the very
-  // moment of a renewal is another matter, LMV-255's, and not this test's.)
+  // moment of a renewal is another matter, LMV-255's, and not this test's.) The provider having
+  // been asked isn't the server having its answer: it's stopped once what it keeps has changed.
   await expect.poll(renewals, { timeout: 30_000 }).toBe(1)
-  await served.stop()
+  await expect.poll(kept, { timeout: 10_000 }).not.toBe(signedIn)
   const before = renewals()
   expect(before).toBe(1)
+  await served.stop()
+  // (A stop that took until the next renewal was due would leave the check below to pass on the
+  // first server's renewing, not the second's.)
+  expect(renewals(), 'the first server renewed again while it stopped').toBe(before)
 
   // The next server: her token, and what renews it, unsealed as her browser comes back.
   const again = await serve({
