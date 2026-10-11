@@ -29,6 +29,13 @@ export const DOOR_LIMITS = {
    *  what Lumovi's own page is asked to do. */
   stepsASecond: 20_000,
   commitsASecond: 60,
+  /**
+   * How many seconds' worth may come at once. The door counts as messages arrive, and they
+   * arrive in bunches when Lumovi's own page is busy: what a plugin sent over two seconds can
+   * be here in one. So a plugin has its second's worth again for every second that passes, and
+   * never more than this many seconds' worth in hand.
+   */
+  secondsAtOnce: 2,
   /** The parts and texts a page holds at once, attached or not. */
   nodes: 5000,
   /** How deep a page goes: any tree of a plugin's, on the page or not yet. */
@@ -97,7 +104,12 @@ export class DoorPage {
   /** The newest id made: one made after it has a greater one, so none is ever used twice. */
   #newest = 0
   #held = 0
-  #second = { since: 0, steps: 0, commits: 0 }
+  /** What it may still send: filled as time passes, to `secondsAtOnce` seconds' worth at most. */
+  #left: { at: number | undefined; steps: number; commits: number } = {
+    at: undefined,
+    steps: DOOR_LIMITS.stepsASecond * DOOR_LIMITS.secondsAtOnce,
+    commits: DOOR_LIMITS.commitsASecond * DOOR_LIMITS.secondsAtOnce,
+  }
   #stopped: Stopped | undefined
 
   constructor(parts: Readonly<Record<string, Part>>, now: () => number = () => performance.now()) {
@@ -162,15 +174,21 @@ export class DoorPage {
       return tooMuch('the steps of a commit', DOOR_LIMITS.stepsACommit)
     }
     const now = this.#now()
-    // (A clock that went back all the same starts the second again.)
-    if (now - this.#second.since >= 1000 || now < this.#second.since)
-      this.#second = { since: now, steps: 0, commits: 0 }
-    this.#second.commits++
-    this.#second.steps += steps.length
-    if (this.#second.commits > DOOR_LIMITS.commitsASecond) {
-      return tooMuch('commits in a second', DOOR_LIMITS.commitsASecond)
-    }
-    if (this.#second.steps > DOOR_LIMITS.stepsASecond) {
+    const left = this.#left
+    // (A clock that went back all the same fills nothing: it only starts the count from here.)
+    const passed = left.at === undefined || now < left.at ? 0 : (now - left.at) / 1000
+    left.at = now
+    const most = DOOR_LIMITS.secondsAtOnce
+    left.commits = Math.min(
+      DOOR_LIMITS.commitsASecond * most,
+      left.commits + passed * DOOR_LIMITS.commitsASecond,
+    )
+    left.steps = Math.min(
+      DOOR_LIMITS.stepsASecond * most,
+      left.steps + passed * DOOR_LIMITS.stepsASecond,
+    )
+    if ((left.commits -= 1) < 0) return tooMuch('commits in a second', DOOR_LIMITS.commitsASecond)
+    if ((left.steps -= steps.length) < 0) {
       return tooMuch('steps in a second', DOOR_LIMITS.stepsASecond)
     }
     const changed = new Set<number>()

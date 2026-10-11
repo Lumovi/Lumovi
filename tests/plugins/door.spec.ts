@@ -364,11 +364,14 @@ test.describe('a plugin’s page', () => {
     expect(Object.isFrozen(page.node(1)!.props.rows)).toBe(true)
   })
 
-  test('a clock set back doesn’t make a second last forever', () => {
+  test('a clock set back doesn’t stop an honest page, nor give it more', () => {
     const { send, clock } = page_()
     clock.now = 50_000
     for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) send()
+    // Back forty seconds: nothing is filled, nothing is taken; then time passes as before.
     clock.now = 10_000
+    for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) expect(send()).toEqual({ changed: [] })
+    clock.now = 11_000
     for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) expect(send()).toEqual({ changed: [] })
     expect(stopped(send()).why).toBe('too-much')
     // And with no clock given it has one of its own.
@@ -475,22 +478,41 @@ test.describe('a plugin’s page', () => {
   })
 
   test('over a ceiling it’s stopped: commits and steps in a second, by Lumovi’s clock', () => {
+    // A second's worth for every second that passes, and two seconds' worth in hand at most:
+    // messages arrive in bunches when Lumovi's own page is busy, and that isn't the plugin's doing.
+    const most = DOOR_LIMITS.secondsAtOnce
     const { send, clock } = page_()
-    for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) expect(send()).toEqual({ changed: [] })
-    // The next second starts the count again.
-    clock.now = 1000
-    for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) expect(send()).toEqual({ changed: [] })
-    clock.now = 1999
+    for (let i = 0; i < DOOR_LIMITS.commitsASecond * most; i++)
+      expect(send()).toEqual({ changed: [] })
+    // Half a second later: half a second's worth, and no more.
+    clock.now = 500
+    for (let i = 0; i < DOOR_LIMITS.commitsASecond / 2; i++) expect(send()).toEqual({ changed: [] })
     expect(stopped(send()).what).toBe('commits in a second: more than 60')
+    // However long it's quiet, never more than two seconds' worth at once.
+    const quiet = page_()
+    quiet.send()
+    quiet.clock.now = 3_600_000
+    for (let i = 0; i < DOOR_LIMITS.commitsASecond * most; i++)
+      expect(quiet.send()).toEqual({ changed: [] })
+    expect(stopped(quiet.send()).why).toBe('too-much')
 
     const other = page_()
     const full = Array.from({ length: DOOR_LIMITS.stepsACommit }, () => ['text', 1, ''])
     expect(other.send(['text', 1, ''])).toEqual({ changed: [] })
     other.clock.now = 5000
-    for (let i = 0; i < DOOR_LIMITS.stepsASecond / DOOR_LIMITS.stepsACommit; i++) {
+    for (let i = 0; i < (DOOR_LIMITS.stepsASecond * most) / DOOR_LIMITS.stepsACommit; i++) {
       expect(other.send(...full)).toEqual({ changed: [1] })
     }
     expect(stopped(other.send(['text', 1, ''])).what).toBe('steps in a second: more than 20,000')
+    // A plugin that keeps to its second, whose messages come late and together: never stopped.
+    const late = page_()
+    late.send(['text', 1, ''])
+    for (let second = 1; second <= 30; second++) {
+      // (Nothing for 1.9 s, then what it sent in that time, at once.)
+      late.clock.now += 1900
+      for (let i = 0; i < 19; i++)
+        expect(late.send(...full.slice(0, 1000))).toEqual({ changed: [1] })
+    }
   })
 
   test('over a ceiling it’s stopped: how many parts, and they’re counted off the page too', () => {

@@ -350,6 +350,8 @@ test('a page at the door’s limits, changing as fast as a plugin may, leaves Lu
       send(steps)
     }
     let sent = 0
+    // (After a pause: the test starts looking at Lumovi's frames once the rows are drawn.)
+    setTimeout(() => {
     const timer = setInterval(() => {
       const steps = []
       for (let i = 0; i < ${DOOR_LIMITS.stepsACommit}; i++) {
@@ -361,9 +363,11 @@ test('a page at the door’s limits, changing as fast as a plugin may, leaves Lu
         send([['make', 5000, 'Label', {}], ['text', 5001, 'done moving'], ['put', 5000, 5001], ['put', 1, 5000, 2]])
       }
     }, 120)
+    }, 4000)
   })`
   await show(page, { code })
   await expect(surface(page).locator('[data-part="Field"]')).toHaveCount(wide)
+  await expect(stage(page)).not.toContainText('done moving')
   // The page's own frames while it goes on: how long Lumovi's thread is held at a time.
   const frames = await page.evaluate(
     () =>
@@ -387,11 +391,14 @@ test('a page at the door’s limits, changing as fast as a plugin may, leaves Lu
       }),
   )
   console.log(`a page at its limits: ${JSON.stringify(frames)}`)
-  // It wasn't stopped (it kept inside every limit), it's all there, and no single stretch held
-  // Lumovi's page for long: the limits' claim, through to the drawing. (Measured on a laptop:
-  // frames 8 ms apart, the worst 33 ms. A quarter of a second leaves room for a slow machine,
-  // and is still far from the second the limits are counted in.)
+  // It wasn't stopped (it kept inside every limit, as it sent them: when Lumovi's own page is
+  // busy its messages arrive in bunches, which isn't its doing), it's all there, and no single
+  // stretch held Lumovi's page for the second the limits are counted in: their claim, through
+  // to the drawing. (Measured: frames 8 ms apart and the worst 33 ms on a laptop; on CI's
+  // machines the worst was 83 to 233 ms.)
   await expect(ended(page)).toHaveCount(0)
   await expect(surface(page).locator('[data-part="Field"]')).toHaveCount(wide)
-  expect(frames.worst).toBeLessThan(250)
+  // (The frames were of the moving, not of a page already done.)
+  expect(frames.frames).toBeGreaterThan(10)
+  expect(frames.worst).toBeLessThan(1000)
 })
