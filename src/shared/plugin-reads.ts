@@ -358,8 +358,13 @@ function mayBePicked(
   groups: readonly string[],
 ): steps is readonly { key: string }[] {
   if (steps.length === 0) return false
-  if (!steps.every((step) => 'key' in step && !neverHanded(step.key))) return false
+  if (!steps.every((step) => 'key' in step && !NEVER_STEPS.has(step.key))) return false
   const keys = (steps as readonly { key: string }[]).map((step) => step.key)
+  // No never-handed name is a step: but the last step under a map of labels is a label's own
+  // name, a person's word, whatever it is. (Whether that map really is one is seen as it's
+  // picked: where it isn't, the name is held back there.)
+  const label = keys.length > 1 && PERSONS_OWN.has(keys.at(-2)!)
+  if (keys.some((key, i) => neverHanded(key) && !(label && i === keys.length - 1))) return false
   if (NEVER_WHOLE.has(keys.at(-1)!)) return false
   return ownAnnotation(steps as readonly { key: string }[], groups) !== false
 }
@@ -372,41 +377,64 @@ interface Named {
 
 /** Maps whose keys are a person's own words, not fields: a label may well be called `env`. */
 const PERSONS_OWN = new Set(['labels', 'matchLabels', 'nodeSelector'])
+/**
+ * Whether `value`, under `key`, really is such a map: one of those names, and text to text and
+ * nothing else. (A kind Lumovi doesn't know can keep anything under a key it chose to call
+ * `labels`; only what labels are is left alone.)
+ */
+const personsOwn = (key: string, value: unknown) =>
+  PERSONS_OWN.has(key) &&
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.values(value).every((text) => typeof text === 'string')
+
+/** How many fields were held back from what a plugin asked for: said once, to its author. */
+export interface HeldBack {
+  fields: number
+}
 
 /**
- * A copy of `value`. With `dropping`, nothing in it that's never handed over: but never a key
- * of a map whose keys are a person's own (a label named `env` is a label).
+ * A copy of `value`. With `dropping`, nothing in it that's never handed over (each one counted
+ * in `held`): but never a key of a map whose keys are a person's own (a label named `env` is a
+ * label).
  */
-function handedOver(value: unknown, dropping: boolean): unknown {
-  if (Array.isArray(value)) return value.map((item) => handedOver(item, dropping))
+function handedOver(value: unknown, dropping: boolean, held: HeldBack): unknown {
+  if (Array.isArray(value)) return value.map((item) => handedOver(item, dropping, held))
   if (typeof value !== 'object' || value === null) return value
   const copy: Record<string, unknown> = {}
   for (const key of Object.keys(value)) {
-    if (NEVER_STEPS.has(key) || (dropping && neverHanded(key))) continue
+    if (NEVER_STEPS.has(key)) continue
+    if (dropping && neverHanded(key)) {
+      held.fields++
+      continue
+    }
     const inner = (value as Record<string, unknown>)[key]
-    copy[key] = handedOver(inner, dropping && !PERSONS_OWN.has(key))
+    copy[key] = handedOver(inner, dropping && !personsOwn(key, inner), held)
   }
   return copy
 }
 
 /**
  * Of `value`, what `named` names. A step into a list is taken of each item: the list's shape is
- * kept, and of each item only what's named. `dropping`: whether what's handed over whole has
- * the never-handed names taken out of it (of another tool's kind; a line of Lumovi's own list
- * was read before it was added, and is handed over as it is).
+ * kept, and of each item only what's named. `dropping`: whether the never-handed names are
+ * kept out, as a step and in what's handed over whole (of another tool's kind; a line of
+ * Lumovi's own list was read before it was added, and is handed over as it is). Inside a real
+ * map of labels nothing is dropped and any name is a step: there a name is a person's word.
  */
-function pick(value: unknown, named: Named, dropping: boolean): unknown {
-  if (named.whole) return handedOver(value, dropping)
-  if (Array.isArray(value)) return value.map((item) => pick(item, named, dropping) ?? {})
+function pick(value: unknown, named: Named, dropping: boolean, held: HeldBack): unknown {
+  if (named.whole) return handedOver(value, dropping, held)
+  if (Array.isArray(value)) return value.map((item) => pick(item, named, dropping, held) ?? {})
   if (typeof value !== 'object' || value === null) return undefined
   const out: Record<string, unknown> = {}
   for (const [key, under] of named.under) {
     if (!Object.hasOwn(value, key)) continue
-    const found = pick(
-      (value as Record<string, unknown>)[key],
-      under,
-      dropping && !PERSONS_OWN.has(key),
-    )
+    if (dropping && neverHanded(key)) {
+      held.fields++
+      continue
+    }
+    const inner = (value as Record<string, unknown>)[key]
+    const found = pick(inner, under, dropping && !personsOwn(key, inner), held)
     if (found !== undefined) out[key] = found
   }
   return Object.keys(out).length > 0 ? out : undefined
@@ -425,6 +453,8 @@ export function picked(
   kind: ResolvedKind,
   { fields }: Granted,
   groups: readonly string[],
+  /** Counts what was held back, if given: so a wrong-looking object has its reason somewhere. */
+  held: HeldBack = { fields: 0 },
 ): Record<string, unknown> {
   if (never(kind) || Array.isArray(object)) return {}
   // One of Kubernetes' own: what's on Lumovi's list for it. Another tool's kind, where Lumovi
@@ -445,7 +475,8 @@ export function picked(
   }
   // (A path that ends inside a map of a person's own words names one of them: handed as it is.)
   return (
-    (pick(object, root, isCustomGroup(kind.group)) as Record<string, unknown> | undefined) ?? {}
+    (pick(object, root, isCustomGroup(kind.group), held) as Record<string, unknown> | undefined) ??
+    {}
   )
 }
 

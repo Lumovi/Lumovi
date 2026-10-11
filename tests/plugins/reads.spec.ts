@@ -613,6 +613,66 @@ test('a label named like a field is a label: what’s handed over is the object�
   expect(JSON.stringify(of('spec.placement', 'spec.selector', 'metadata.labels'))).not.toContain(
     'hunter2',
   )
+  // One label by its key, whatever it's called: under a map of labels a step is a person's word.
+  expect(of('metadata.labels.env', 'spec.selector.matchLabels.env')).toEqual({
+    metadata: { labels: { env: 'prod' } },
+    spec: { selector: { matchLabels: { env: 'prod' } } },
+  })
+  // Only what labels really are is left alone: text to text. Anything else a kind keeps under
+  // one of those names is a field like any other, whole or by a step.
+  const odd = {
+    spec: {
+      deep: { labels: { env: { nested: 'hunter2' }, fine: 'a' } },
+      matchLabels: { env: ['hunter2'], app: 'shop' },
+      labels: [{ env: 'hunter2' }],
+      nodeSelector: { containers: [{ args: ['hunter2'] }], template: { spec: 'hunter2' } },
+    },
+    status: { labels: { command: ['hunter2'] } },
+  }
+  const held = { fields: 0 }
+  const given = picked(
+    odd,
+    THING,
+    says({
+      fields: fields(
+        'spec.deep',
+        'spec.matchLabels',
+        'spec.labels',
+        'spec.nodeSelector',
+        'status',
+        'spec.deep.labels.env',
+        'spec.matchLabels.env',
+        'spec.nodeSelector.containers',
+      ),
+    }),
+    [],
+    held,
+  )
+  expect(given).toEqual({
+    spec: {
+      deep: { labels: { fine: 'a' } },
+      matchLabels: { app: 'shop' },
+      labels: [{}],
+      nodeSelector: {},
+    },
+    status: { labels: {} },
+  })
+  expect(JSON.stringify(given)).not.toContain('hunter2')
+  // And what was held back is counted, for the line that tells the plugin's author.
+  expect(held.fields).toBe(6)
+  const told = { fields: 0 }
+  picked(
+    { spec: { tags: { env: 'prod', a: 'b' }, size: 1 } },
+    THING,
+    says({ fields: fields('spec.tags', 'spec.size') }),
+    [],
+    told,
+  )
+  expect(told.fields).toBe(1)
+  // Nothing is counted of a line of Lumovi's list, where nothing is held back.
+  const none = { fields: 0 }
+  picked({ metadata: { labels } }, POD, says({ fields: fields('metadata.labels') }), [], none)
+  expect(none.fields).toBe(0)
 })
 
 test('what a ConfigMap holds, anything of a Secret, and what isn’t a field’s own name: never', () => {
