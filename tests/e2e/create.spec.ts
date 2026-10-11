@@ -225,6 +225,12 @@ test('explains YAML that can’t be created', async ({ page }) => {
       'the server could not find the requested resource',
     ],
     ['', 'YAML', 'There’s nothing to create.'],
+    // (It reads as YAML, and only making its object finds this out.)
+    [
+      'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: *n\ndata:\n  a: &n later',
+      'YAML',
+      'Unresolved alias (the anchor must be set before the alias): n',
+    ],
     ['apiVersion: v1\nkind: ConfigMap', 'ConfigMap/…', 'name or generateName is required'],
   ]
   for (const [yaml, label, error] of cases) {

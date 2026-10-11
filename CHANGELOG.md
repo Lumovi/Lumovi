@@ -48,6 +48,12 @@ All notable changes to Lumovi are documented here. The format follows
 - "Create from YAML" is **Create…**: on the + button, in the command palette, in the shortcuts
   and in the app's menu (where it was "New from YAML…").
 
+### Fixed
+
+- Create said nothing, and did nothing, for YAML whose alias names no anchor set before it
+  (`name: *n` above the `&n` it means). It now answers as for any YAML it can't read, with what's
+  wrong.
+
 ## [1.21.0] - 2026-10-10
 
 Files are copied out of a pod's container and into one, from the pod's own actions. And two Lumovi
