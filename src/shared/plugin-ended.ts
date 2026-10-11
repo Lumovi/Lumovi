@@ -6,7 +6,7 @@
  * What a plugin itself said as it failed is the plugin's, and is shown as that: plain text, with
  * every character that can't be seen spelled out, so it can't pass for a sentence of Lumovi's.
  */
-import { inPieces, type Piece } from './kit/characters'
+import { shortInPieces, type Piece } from './kit/characters'
 import { whose } from './plugins'
 
 /** Every way a plugin's page ends. */
@@ -77,7 +77,7 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
     }
   }
   if (end.why === 'failed') {
-    const said = inPieces(end.said, SAID_AT_MOST)
+    const said = shortInPieces(end.said, SAID_AT_MOST, SAID_LINES)
     return {
       title: `${whose(name)} page stopped by itself.`,
       ...(said.length > 0 && { said }),
@@ -96,3 +96,5 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
 
 /** The most of a plugin's own words that's shown: what its box takes of a failure's message. */
 export const SAID_AT_MOST = 200
+/** And the lines they're shown in. */
+export const SAID_LINES = 5

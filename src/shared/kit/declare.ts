@@ -9,7 +9,7 @@
  * a plugin sends is a class, a style, an address, markup or code: there's no kind for them.
  */
 
-import { quotedBack, unseenIn } from './characters'
+import { quotedBack } from './characters'
 
 /** A kind of value a property (or what a call carries) can be. */
 export type Kind =
@@ -53,12 +53,19 @@ export interface Part {
   required?: readonly string[]
   /** What its handlers are called with, by event: named values, each of its kind. */
   events?: Readonly<Record<string, Readonly<Record<string, Kind>>>>
+  /**
+   * What the kinds can't say, of properties that already passed them: one thing agreeing with
+   * another (a cell for every column, a key used once). What's wrong, or nothing. Whatever a
+   * part would throw on is refused here or by a kind: a description that passes and still makes
+   * a part fail is a fault of Lumovi's, and a plugin must never be able to cause one.
+   */
+  also?: (props: Readonly<Record<string, unknown>>) => string | undefined
 }
 
 /**
- * A text, `max` characters at most. No text of a plugin's has a character that can't be seen or
- * isn't text (a line's end and a tab are text): it would sit in Lumovi's own parts, beside what
- * Lumovi draws.
+ * A text, `max` characters at most. Any character is taken (most of a page's texts are what's in
+ * the cluster); a part draws a text of a plugin's in pieces (`inPieces`), so one that can't be
+ * seen shows as a mark of Lumovi's.
  */
 export const text = (max: number): Kind => ({ kind: 'text', max })
 export const number = (min: number, max: number, whole = false): Kind =>
@@ -100,14 +107,6 @@ const NEVER = new Set(['__proto__', 'constructor', 'prototype'])
 /** How deep a value may be nested, whatever its kind says: a declaration can't ask for more. */
 const DEEPEST = 6
 
-/** What's wrong with a text of a plugin's as text: a character nobody sees, or that isn't text. */
-export function unseenProblem(text: string, where: string): string | undefined {
-  const unseen = unseenIn(text, true)
-  return unseen
-    ? `${where}: holds a character that can’t be seen or isn’t text (${unseen})`
-    : undefined
-}
-
 /**
  * What's wrong with `value` as `kind`, or nothing. `where` is said first ("columns[2].label").
  * Only own, plain data passes: what came up the channel was text, read as JSON, so a value is
@@ -123,8 +122,7 @@ export function wrongWith(
   switch (kind.kind) {
     case 'text':
       if (typeof value !== 'string') return `${where}: should be text`
-      if (value.length > kind.max) return `${where}: is longer than ${kind.max} characters`
-      return unseenProblem(value, where)
+      return value.length > kind.max ? `${where}: is longer than ${kind.max} characters` : undefined
     case 'number':
       if (typeof value !== 'number' || !Number.isFinite(value))
         return `${where}: should be a number`
