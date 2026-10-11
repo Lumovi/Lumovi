@@ -31,6 +31,7 @@ import {
   audited,
   DEMO,
   expect,
+  GRACEFUL,
   PEOPLE,
   refusedConfig,
   signIn,
@@ -40,11 +41,6 @@ import {
 
 // One no step changes the owner of: storefront's are replaced as it restarts, a moment later.
 const POD = DEMO.pods.checkout[2]!
-/**
- * Whether a server the tests stop stops as Kubernetes stops it (SIGTERM): recording that it
- * stopped, and sending what's waiting. Windows can only end it at once.
- */
-const GRACEFUL = process.platform !== 'win32'
 const { version: VERSION } = JSON.parse(readFileSync('package.json', 'utf8')) as {
   version: string
 }
@@ -2287,7 +2283,10 @@ test('what the webhook still has waiting is sent as the server stops', async ({
   context,
   serve,
 }) => {
-  test.skip(!GRACEFUL, 'Windows ends a server at once: Kubernetes, where servers run, stops them')
+  test.skip(
+    !GRACEFUL,
+    'a server ended at once sends nothing: Kubernetes, where servers run, stops them',
+  )
   const hook = await webhook()
   // Slow to answer at first: the server stops before its second second.
   const served = await serve({

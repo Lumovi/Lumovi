@@ -418,8 +418,8 @@ test('a cluster behind its agent', async ({ page, context, serve, clusters, requ
   await page.reload()
   await expect(card(page, NAME)).toContainText('Nodes3/4')
 
-  // The hub restarts: it closes its agents' connections (or, stopped at once, as Windows stops
-  // a process, they just drop), and its agent connects to the next one.
+  // The hub restarts: it closes its agents' connections (or, where a hub is ended at once, they
+  // just drop), and its agent connects to the next one.
   await served.stop()
   await expect
     .poll(() => agent.log())

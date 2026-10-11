@@ -30,6 +30,12 @@ const INSTRUMENTED = (() => {
     return false
   }
 })()
+/**
+ * Whether a server the tests stop stops as Kubernetes stops it: recording that it stopped,
+ * keeping and sending what waits. Everywhere but on Windows with a build that isn't the tests'
+ * own (see `stopped`), which can only be ended at once.
+ */
+export const GRACEFUL = process.platform !== 'win32' || INSTRUMENTED
 const FAKE_HELM = resolve('tests/e2e/helm', process.platform === 'win32' ? 'helm.cmd' : 'helm')
 
 /** Istanbul's coverage: each file's maps and counters (only the counters change). */

@@ -4,7 +4,7 @@
  * page, for itself); and a server can turn them off.
  */
 import type { BrowserContext, Page } from '@playwright/test'
-import { DEMO, expect, test } from './fixtures.ts'
+import { DEMO, expect, GRACEFUL, test } from './fixtures.ts'
 
 const NODE = DEMO.nodes.worker1
 const PROXY = { LUMOVI_AUTH: 'proxy' }
@@ -82,7 +82,7 @@ test('a server stopped (a rollout) deletes the node shells’ pods first', async
   serve,
   clusters,
 }) => {
-  test.skip(process.platform === 'win32', 'On Windows, SIGTERM ends a process at once')
+  test.skip(!GRACEFUL, 'a server ended at once deletes nothing')
   const served = await serve({ env: PROXY })
   await as(context, 'frank@example.com')
   const detail = await shellTab(page, served.url)
