@@ -84,6 +84,46 @@ test.describe('under a finger', () => {
         }),
       )
       .toBeGreaterThanOrEqual(40)
+    // What's typed is shown whole, not only pressed: a pod's port as a number and as a name
+    // (the row is two lines here, the pane being narrower than 480 px), with one port and two.
+    await dialog.getByRole('radio', { name: 'Service', exact: true }).click()
+    await form.getByRole('textbox', { name: 'Name', exact: true }).fill('web')
+    await form.getByRole('textbox', { name: 'Port 1', exact: true }).fill('80')
+    const onThePod = form.getByRole('textbox', { name: 'Port 1, on the pod', exact: true })
+    const whole = (input: typeof onThePod) =>
+      input.evaluate((field: HTMLInputElement) => field.scrollWidth <= field.clientWidth)
+    for (const typed of ['8080', '65535', 'grpc-web']) {
+      await onThePod.fill(typed)
+      expect(await whole(onThePod), `${typed} in “on the pod”`).toBe(true)
+    }
+    await form.getByRole('button', { name: 'Add a port' }).click()
+    await page.keyboard.type('443')
+    await form.getByRole('textbox', { name: 'Port 2, on the pod', exact: true }).fill('65535')
+    expect(
+      await whole(form.getByRole('textbox', { name: 'Port 2, on the pod', exact: true })),
+      'the second port’s',
+    ).toBe(true)
+    await expectNoSidewaysScroll(page, 'a Service with two ports on a tablet')
+    await expectFingerSized(page, 'a Service with two ports on a tablet')
+    // (The reach check skips a radio that isn't the chosen one, as a keyboard does: each of a
+    // Service's types is chosen in turn, so each is measured.)
+    for (const type of ['NodePort', 'LoadBalancer', 'ClusterIP']) {
+      await form.getByRole('radio', { name: type, exact: true }).click()
+      await expectFingerSized(page, `a Service of type ${type} on a tablet`)
+    }
+
+    // Filled in, so Create can be pressed, and scrolled to its end: both measured again.
+    await dialog.getByRole('radio', { name: 'Deployment', exact: true }).click()
+    await form.getByRole('textbox', { name: 'Name', exact: true }).fill('web')
+    await form.getByRole('textbox', { name: 'Image', exact: true }).fill('nginx:1.27')
+    await form.getByRole('button', { name: 'Add a variable' }).click()
+    await page.keyboard.type('LOG_LEVEL')
+    await expect(dialog.getByRole('button', { name: 'Create', exact: true })).toBeEnabled()
+    await expectFingerSized(page, 'a Deployment filled in, on a tablet')
+    await form.evaluate((pane) => pane.scrollTo(0, pane.scrollHeight))
+    await expectNoSidewaysScroll(page, 'a Deployment filled in and scrolled, on a tablet')
+    await expectFingerSized(page, 'a Deployment filled in and scrolled, on a tablet')
+
     // YAML's side too.
     await dialog.getByRole('radio', { name: 'YAML', exact: true }).click()
     await expect(dialog.getByRole('group', { name: 'Templates' })).toBeVisible()

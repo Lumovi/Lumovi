@@ -1749,7 +1749,9 @@ export function refusals(
         : fields.find(
             (id) => startsWith(path, form.paths[id]!) || startsWith(form.paths[id]!, path),
           )
-    if (field) found.push({ field, path, message: `The cluster refused it: ${cause.message}` })
+    // (Its words withheld, while a Secret's values are hidden, say that it refused once.)
+    const message = cause.message === UNSAID ? UNSAID : `The cluster refused it: ${cause.message}`
+    if (field) found.push({ field, path, message })
   }
   return found
 }
