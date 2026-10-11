@@ -844,6 +844,16 @@ test.describe('when the form’s pane moves by itself', () => {
     await page.keyboard.type('app')
     await field(page, 'app’s value').fill('web')
     await field(page, 'Port 1').fill('80')
+    // (With a mouse a port is one line at any width: its protocol beside its numbers.)
+    await expect
+      .poll(async () => {
+        const [port, protocol] = [
+          await field(page, 'Port 1').boundingBox(),
+          await choice(page, 'Port 1’s protocol').boundingBox(),
+        ]
+        return port && protocol ? Math.abs(protocol.y - port.y) : NaN
+      })
+      .toBeLessThan(2)
     // A second port makes the first one's name wrong, while the focus is in the second.
     await add(page, 'Add a port').click()
     await page.keyboard.type('443')
