@@ -66,6 +66,9 @@ const SERVER_FLUSH = `
   }
   process.once('exit', flush)
   process.on('message', (message) => {
+    // Windows has no signal that asks a process to stop: the tests ask so, and the server
+    // stops as it does for SIGTERM (by its own handler; one not yet listening just ends).
+    if (message === 'lumovi:stop' && !process.emit('SIGTERM')) process.exit(0)
     if (message !== 'lumovi:coverage') return
     flush()
     process.send('lumovi:coverage-saved')
