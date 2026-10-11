@@ -50,6 +50,8 @@ export interface Granted {
 
 /** What a plugin may read: its own kinds whole, and of Kubernetes' own what its file names. */
 export interface Grant {
+  /** The plugin's own groups (`spec.groups`): an annotation is read only by a key under one. */
+  groups: readonly string[]
   /** The kinds it claims (`group/Kind`): read whole. */
   own: readonly string[]
   /** By kind (`group/Kind`; the core group: `/Kind`). */
@@ -195,21 +197,97 @@ export function granted(
   // Its own kinds, whole: everything of them. A tool's kinds only: one of Kubernetes' own is
   // never whole, whatever claims it.
   if (isCustomGroup(kind.group) && grant.own.includes(id)) return { whole: true }
+  // One of Kubernetes' own: only a kind Lumovi keeps a list for.
+  if (!isCustomGroup(kind.group) && !Object.hasOwn(READABLE, id)) return undefined
   const said = Object.hasOwn(grant.reads, id) ? grant.reads[id] : undefined
   // Events, status and usage are read only of things whose objects it may see at all.
   if (!said || said.fields.length === 0) return undefined
   return what === 'objects' || said[what] ? { whole: false, granted: said } : undefined
 }
 
+/**
+ * Of Kubernetes' own kinds, what a plugin's file can be granted at all: for each kind a plugin's
+ * code may read, the fields, and nothing that isn't here. A list of what may be read, not of
+ * what may not: taking things out of an object can't be finished (the next tool writes its own
+ * annotation, the next kind has its own field), so nothing of these kinds is handed over unless
+ * a line here says so. A kind with no lines can't be read.
+ *
+ * Each line is a path to a leaf, or to a small thing known to be safe whole. It starts with
+ * what Karpenter's page needs, and grows a line at a time, each line read before it's added.
+ */
+export const READABLE: Readonly<Record<string, readonly string[]>> = {
+  '/Pod': [
+    'metadata.name',
+    'metadata.namespace',
+    'metadata.labels',
+    'metadata.creationTimestamp',
+    // What made it: kind, name and uid are how anything is tied to its owner; none is a secret.
+    'metadata.ownerReferences',
+    'spec.nodeName',
+    'spec.containers.name',
+    'spec.containers.image',
+    'spec.containers.resources',
+    'status.phase',
+    // Whole, with its message: a controller writes it for people to read, and it's drawn as any
+    // text of someone else's. (A container's last termination message is not a condition, and
+    // is not on this list: it's the tail of its log.)
+    'status.conditions',
+    'status.containerStatuses.name',
+    'status.containerStatuses.ready',
+    'status.containerStatuses.restartCount',
+  ],
+  '/Node': [
+    'metadata.name',
+    'metadata.labels',
+    'metadata.creationTimestamp',
+    'spec.taints',
+    'status.capacity',
+    'status.allocatable',
+    'status.conditions',
+  ],
+}
+
+/** A path's field names as one text: what a line of `READABLE` is, and what one is held to. */
+const written = (steps: readonly Step[]) =>
+  steps.every((step) => 'key' in step)
+    ? (steps as readonly { key: string }[]).map(({ key }) => key).join('.')
+    : undefined
+
+/**
+ * Whether a file may be granted `steps` of a kind of Kubernetes' own, for a plugin with these
+ * groups: a line of the list, exactly; or one annotation by a key under one of the plugin's own
+ * groups (`karpenter.sh/do-not-disrupt` for a plugin that names `karpenter.sh`): nobody else's,
+ * whose value is whatever some other tool wrote there. The file checker asks this too, and says
+ * of a path that fails it that it isn't on the list yet.
+ */
+export function readable(
+  kind: ResolvedKind,
+  steps: readonly Step[],
+  groups: readonly string[],
+): boolean {
+  const lines = Object.hasOwn(READABLE, idOf(kind)) ? READABLE[idOf(kind)]! : undefined
+  if (!lines || never(kind) || isCustomGroup(kind.group)) return false
+  const path = written(steps)
+  if (path === undefined) return false
+  if (lines.includes(path)) return true
+  const [first, second, key, ...more] = steps as readonly { key: string }[]
+  if (first?.key !== 'metadata' || second?.key !== 'annotations' || !key || more.length > 0) {
+    return false
+  }
+  const slash = key.key.indexOf('/')
+  return slash > 0 && groups.includes(key.key.slice(0, slash)) && !neverHanded(key.key)
+}
+
 /** A step that's never taken, in any path: the names every object answers to. */
 const NEVER_STEPS = new Set(['__proto__', 'constructor', 'prototype'])
 /**
- * What's never in what's handed over, at any depth, whoever names it: a container's environment
- * (the commonest place a credential sits outside a Secret), who manages which field, and the
+ * What's never in what's handed over, at any depth, whoever names it: a container's
+ * environment, its command and its arguments (the commonest places a credential sits outside a
+ * Secret), who manages which field, and the
  * annotations a tool keeps for itself, the one that holds the object as it was last applied
  * among them (for a ConfigMap its data, for a Pod its environment).
  */
-const NEVER_HANDED = new Set(['env', 'managedFields'])
+const NEVER_HANDED = new Set(['env', 'args', 'command', 'managedFields'])
 const NEVER_ANNOTATIONS = /^(?:kubectl\.kubernetes\.io|control-plane\.alpha\.kubernetes\.io)\//
 const neverHanded = (key: string) =>
   NEVER_HANDED.has(key) || NEVER_STEPS.has(key) || NEVER_ANNOTATIONS.test(key)
@@ -229,17 +307,14 @@ const NEVER_WHOLE = new Set([
   'jobTemplate',
 ])
 
-/** Whether a path may be handed over at all (the file checker refuses these; so does the door). */
-function mayBePicked(
-  steps: readonly Step[],
-  kind: ResolvedKind,
-): steps is readonly { key: string }[] {
+/**
+ * Whether a path of another tool's kind may be handed over (the file checker refuses these; so
+ * does the door).
+ */
+function mayBePicked(steps: readonly Step[]): steps is readonly { key: string }[] {
   if (steps.length === 0) return false
   if (!steps.every((step) => 'key' in step && !neverHanded(step.key))) return false
   const keys = (steps as readonly { key: string }[]).map((step) => step.key)
-  // (What a ConfigMap holds is a permission of its own, which no file can say yet.)
-  const held = kind.group === '' && kind.kind === 'ConfigMap'
-  if (held && (keys[0] === 'data' || keys[0] === 'binaryData')) return false
   return !NEVER_WHOLE.has(keys.at(-1)!)
 }
 
@@ -279,7 +354,9 @@ function pick(value: unknown, named: Named): unknown {
 
 /**
  * Of `object` (one of `kind`), the fields `granted` names and nothing else: built from what the
- * plugin may see, field by field, never from the object with things taken out. A copy, so
+ * plugin may see, field by field, never from the object with things taken out. (What's handed
+ * over whole for a line still has the never-handed names dropped from it: a second net under
+ * the list, not the wall.) A copy, so
  * nothing that holds it holds what was read. Own fields only; a path that isn't there leaves
  * nothing.
  */
@@ -287,11 +364,16 @@ export function picked(
   object: unknown,
   kind: ResolvedKind,
   { fields }: Granted,
+  groups: readonly string[],
 ): Record<string, unknown> {
   if (never(kind) || Array.isArray(object)) return {}
+  // One of Kubernetes' own: what's on Lumovi's list for it. Another tool's kind, where Lumovi
+  // can have no list: any path but the ones that hand over more than they name.
+  const may = (steps: readonly Step[]): steps is readonly { key: string }[] =>
+    isCustomGroup(kind.group) ? mayBePicked(steps) : readable(kind, steps, groups)
   const root: Named = { whole: false, under: new Map() }
   for (const { steps } of fields) {
-    if (!mayBePicked(steps, kind)) continue
+    if (!may(steps)) continue
     let at = root
     for (const { key } of steps) {
       let next = at.under.get(key)
