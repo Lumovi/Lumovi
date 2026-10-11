@@ -205,6 +205,10 @@ ${view}`
 const NOT_THE_FORMAT: Record<string, string> = {
   'shouting.yaml': plugin('My Flux', 'Gadget'),
   'trailing.yaml': plugin('flux-', 'Gadget'),
+  // A key nobody knows is refused wherever a file has keys: beside its start, under its
+  // metadata, and by the names every object answers to.
+  'coded.yaml':
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\ncode: x\nmetadata: { name: coded, origin: lumovi }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0, toString: x }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }], constructor: x }] }\n',
   // What a file says is quoted back cut short, and with nothing in it that can't be seen: a
   // name's end kept, and the file's own name as plain as what's in it.
   'long-winded.yaml': plugin(`Shouting-${'a'.repeat(60)}-to-the-end`, 'Gadget'),
@@ -623,6 +627,10 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     // What a plugin says of itself: its name, its version, what it needs.
     'shouting.yaml: metadata.name: "My Flux" should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit, at most 63 characters',
     'trailing.yaml: metadata.name: "flux-" should be lowercase letters',
+    'coded.yaml: code: isn’t something a plugin has',
+    'coded.yaml: metadata.origin: isn’t something a plugin has',
+    'coded.yaml: spec.needs.toString: isn’t something a plugin has',
+    'coded.yaml: spec.views[0].constructor: isn’t something a view has',
     'long-winded.yaml: metadata.name: "Shouting-aaaaaaaaaaaaaaaaaaaaaaaa…he-end" should be lowercase letters',
     'backU+202Ewards.yaml: spec.version: "1.0U+202E" should be three numbers, like 1.0.0',
     'lumovi.yaml: metadata.name: "lumovi" is Lumovi’s own name, which a plugin can’t have',

@@ -4,4 +4,4 @@
   that names it under `shows`. A kind is one plugin's: yours takes the place of one of Lumovi's
   under that plugin's name, and then all of it, which the API resources page says beside the
   count; anything else that shows a kind another plugin has is refused, and the page says
-  which and what to do.
+  which and what to do. Of two of yours that show one kind, the first by file name is used.
