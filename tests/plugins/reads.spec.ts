@@ -669,6 +669,16 @@ test('a label named like a field is a label: whatâ€™s handed over is the objectâ
     told,
   )
   expect(told.fields).toBe(1)
+  // A path refused outright is held back as much as a field taken out: counted the same.
+  const refused = { fields: 0 }
+  picked(
+    { spec: { env: [{ value: 'x' }], size: 1 } },
+    THING,
+    says({ fields: fields('spec.env', 'spec.size', 'spec') }),
+    [],
+    refused,
+  )
+  expect(refused.fields).toBe(2)
   // Nothing is counted of a line of Lumovi's list, where nothing is held back.
   const none = { fields: 0 }
   picked({ metadata: { labels } }, POD, says({ fields: fields('metadata.labels') }), [], none)
