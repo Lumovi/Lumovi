@@ -876,6 +876,12 @@ function WorkloadFields({
         onNamespace={(chosen) => edit((text) => write.namespace(text, chosen))}
       />
 
+      {/* Where the other kinds ask how many: it answers "where's Replicas?" where that's asked. */}
+      {form.kind === 'DaemonSet' && (
+        <p className="-mt-1.5 text-xs leading-[17px] text-ink-3">
+          One pod on every node, so there’s no replica count.
+        </p>
+      )}
       {(has('replicas') || has('serviceName') || has('backoffLimit')) && (
         <div className="grid grid-cols-2 gap-3">
           {has('replicas') && (
@@ -1330,11 +1336,6 @@ function WorkloadFields({
         </Labelled>
       )}
 
-      {form.kind === 'DaemonSet' && (
-        <p className="-mt-1.5 text-xs leading-[17px] text-ink-3">
-          One pod on every node, so there’s no replica count.
-        </p>
-      )}
       {form.follows.length > 1 && (
         <p className="flex items-start gap-1.5 text-xs leading-[17px] text-ink-3">
           <Link2 className="mt-0.5 size-3 shrink-0" />
