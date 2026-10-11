@@ -556,6 +556,8 @@ test('each kind, new, asks for what it must have and has nothing the form doesn�
     ['CronJob', 'Name, Schedule and Image are still empty.'],
   ] as const) {
     await dialog(page).getByRole('radio', { name: kind, exact: true }).click()
+    // (Its own YAML first: two kinds ask for the same things in the same words.)
+    await expect.poll(() => yaml(page), kind).toContain(`kind: ${kind}\n`)
     await expect(status(page), kind).toHaveText(empty)
     // Nothing wrong but what's empty, and nothing the form has no field for.
     await expect(form(page).getByRole('alert'), kind).toHaveCount(0)
@@ -645,4 +647,11 @@ test('⌘S in the YAML creates, once there’s something to create', async ({ pa
   await editor(page).click()
   await page.keyboard.press('ControlOrMeta+s')
   await expect(toasts(page)).toContainText('Created daemonset log-agent')
+  // (One create in all: the first ⌘S sent none that was still on its way. The cluster's own
+  // check before it, a dry run, is another request and isn't counted.)
+  expect(
+    writes(clusters.demo, 'POST', '/apis/apps/v1/namespaces/shop/daemonsets').filter(
+      (request) => !request.query.dryRun,
+    ),
+  ).toHaveLength(1)
 })
