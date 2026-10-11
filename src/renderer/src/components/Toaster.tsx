@@ -2,7 +2,7 @@ import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@renderer/lib/cn'
-import { cutToFit } from '@renderer/lib/fit'
+import { cutSentence } from '@renderer/lib/fit'
 import { useToasts, type SheetKind, type Toast } from '@renderer/state/toasts'
 
 /** How long a toast stays; longer for errors, which take a moment to read. */
@@ -72,40 +72,63 @@ export function Toaster() {
 }
 
 /**
- * A note inside an open sheet: one line, or two where its sentence needs them, of a height
- * that's fixed once it shows. The newest failure if there is one, otherwise the newest, and
- * how many more there are (a number only). It leaves when its note's time is up.
+ * A note inside an open sheet: one line, or as many as its sentence needs up to three. The
+ * newest failure if there is one, otherwise the newest, and how many more there are (a number
+ * only). It leaves when its note's time is up.
+ *
+ * What gives where the sentence doesn't fit, in this order: a second line; the object's name,
+ * cut in its middle; the name of where it is, cut in its middle with more of its end kept; a
+ * third line. Its height may grow while a note shows (a count come beside it takes room) and
+ * never shrinks, so nothing under it moves back and forth; and it's never clipped.
  */
 function NoteStrip({ toasts, kind }: { toasts: Toast[]; kind: SheetKind }) {
   const shown = toasts.findLast((t) => t.tone === 'error') ?? toasts.at(-1)!
   const more = toasts.length - 1
   const [Icon, color] = ICONS[shown.tone]
-  const [lines, setLines] = useState<1 | 2>(1)
+  const [lines, setLines] = useState<1 | 2 | 3>(1)
   const said = shown.inSheet?.[kind] ?? {
     lead: '',
     before: shown.title,
     name: '',
     after: '',
+    where: '',
+    end: '',
   }
-  const whole = `${said.lead} ${said.before}${said.name}${said.after}`.trim()
+  // (Read out with an ordinary space where what shows has one that doesn't break.)
+  const whole = `${said.lead} ${said.before}${said.name}${said.after}${said.where}${said.end}`
+    .replaceAll('\u00a0', ' ')
+    .trim()
   const box = useRef<HTMLSpanElement>(null)
   const rest = useRef<HTMLSpanElement>(null)
-  // (Its words are written here, not by React: they're measured as they're tried. Its height
-  // is decided once for a note and doesn't change while it shows; its words are fitted again
-  // whenever the count beside them comes, grows or goes, since that's room taken or given back.)
-  const decided = useRef<{ id: number; lines: 1 | 2 }>(undefined)
+  // (Its words are written here, not by React: they're measured as they're tried, again
+  // whenever the count beside them comes, grows or goes: that's room taken or given back.)
+  const decided = useRef<{ id: number; lines: 1 | 2 | 3 }>(undefined)
   useLayoutEffect(() => {
     const line = parseFloat(getComputedStyle(box.current!).lineHeight)
     const within = (most: number) => (candidate: string) => {
       rest.current!.textContent = candidate
-      return box.current!.offsetHeight <= line * most + 1
+      // (In its lines, and no wider than its place: a name with nowhere to break is broken
+      // where it must be, below, and so counts in lines like any other.)
+      return (
+        box.current!.offsetHeight <= line * most + 1 &&
+        box.current!.scrollWidth <= box.current!.clientWidth
+      )
     }
-    const all = `${said.before}${said.name}${said.after}`
-    if (decided.current?.id !== shown.id) {
-      decided.current = { id: shown.id, lines: within(1)(all) ? 1 : 2 }
-      setLines(decided.current.lines)
+    const all = `${said.before}${said.name}${said.after}${said.where}${said.end}`
+    let needs = decided.current?.id === shown.id ? decided.current.lines : 1
+    let text = all
+    if (needs === 1 && !within(1)(all)) needs = 2
+    if (needs > 1) {
+      let cut = cutSentence({ ...said, fits: within(needs) })
+      if (!cut.fits && needs === 2) {
+        needs = 3
+        cut = cutSentence({ ...said, fits: within(3) })
+      }
+      text = cut.text
     }
-    rest.current!.textContent = cutToFit({ ...said, fits: within(decided.current!.lines) })
+    rest.current!.textContent = text
+    decided.current = { id: shown.id, lines: needs }
+    setLines(needs)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown.id, more, kind])
   return (
@@ -113,15 +136,23 @@ function NoteStrip({ toasts, kind }: { toasts: Toast[]; kind: SheetKind }) {
       role={shown.tone === 'error' ? 'alert' : 'status'}
       data-note-strip
       className={cn(
-        'flex shrink-0 gap-2 overflow-hidden border-b border-line px-4 text-xs leading-4 transition-opacity duration-150 motion-reduce:transition-none',
-        lines === 1 ? 'h-8 items-center' : 'h-12 items-start py-2',
+        'flex shrink-0 gap-2 border-b border-line px-4 text-xs leading-4 transition-opacity duration-150 motion-reduce:transition-none',
+        // (Three lines, 64 px with its rule, is the most it's given; a sentence of more would
+        // show whole, not clipped.)
+        lines === 1
+          ? 'h-8 items-center'
+          : lines === 2
+            ? 'h-12 items-start py-2'
+            : 'min-h-16 items-start pt-2 pb-[7px]',
         shown.leaving && 'opacity-0',
       )}
     >
-      <Icon className={cn('size-3.5 shrink-0', lines === 2 && 'mt-px', color)} />
+      <Icon className={cn('size-3.5 shrink-0', lines > 1 && 'mt-px', color)} />
       {/* All of it, for a screen reader; what shows may have the name's middle cut. */}
       <span className="sr-only">{whole}</span>
-      <span ref={box} aria-hidden className="min-w-0 flex-1 text-ink-2">
+      {/* A word with nowhere to break (a name without a hyphen) breaks where the line ends:
+          it never runs out of the sheet. */}
+      <span ref={box} aria-hidden className="min-w-0 flex-1 [overflow-wrap:anywhere] text-ink-2">
         {said.lead && <span className="font-medium text-ink-1">{said.lead} </span>}
         <span ref={rest} />
       </span>

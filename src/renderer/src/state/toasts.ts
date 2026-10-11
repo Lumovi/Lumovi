@@ -1,14 +1,18 @@
 import { create } from 'zustand'
 
 /**
- * A sentence with a name in it: a few words in front that are never cut, then the rest, in
- * which the name is cut where the whole is too long.
+ * A sentence about an object somewhere: a few words in front that are never cut, then
+ * `before` `name` `after` `where` `end`. Where the whole is too long it's the object's name
+ * that's cut, then the name of where it is (lib/fit.ts); nothing else ever is.
  */
 export interface Said {
   lead: string
   before: string
   name: string
   after: string
+  /** The cluster's name ('' when the sentence names none). */
+  where: string
+  end: string
 }
 
 /**
