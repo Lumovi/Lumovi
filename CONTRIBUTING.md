@@ -41,11 +41,25 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 
    With Docker, `npm run test:linux` also runs the e2e tests on Linux, as CI does.
 
-5. Open a pull request describing what changed and why. Screenshots help for UI changes
+5. If it changes what people get (`src/`, `charts/`, `packaging/`, `build/`), say so for the
+   changelog: add a file to [`changelog.d/`](changelog.d/README.md), named
+   `<what>.<section>.md` (`create-alias.fixed.md`), holding the entry as `CHANGELOG.md` will
+   have it. Nothing to tell anyone? Put a line in the pull request's text instead:
+   `Changelog: none: <why>`. `CHANGELOG.md` itself is written at a release, not before.
+6. Open a pull request describing what changed and why. Screenshots help for UI changes
    (`npm run screenshots -- overview pods` takes those two, light and dark, into
    `docs/screenshots`; see [Screenshots](#screenshots)).
    It can merge once CI's _CI passed_ check is green: `main` requires it, of everyone, with no
    one able to bypass it.
+
+On a pull request CI runs every test on Linux and Windows, and on macOS a short set
+(`tests/e2e/smoke.txt`), unless the change touches what macOS does differently (the app's own
+process, packaging, Electron, or code that asks which platform it's on): GitHub gives an account
+five macOS machines at a time, and a full run takes all five. The label `macos-full` asks for
+everything there. `main` runs everything after each merge, and that run is the one that binds:
+while it's red, _CI passed_ fails on every pull request, with main's commit and the job that
+failed, until main is green again (then running that one job again passes it). The pull request
+that mends main carries the label `fixes-main`.
 
 Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
@@ -91,7 +105,9 @@ every uncovered line. New code should come with tests that run it.
 
 A few code paths only run on one operating system, for example native title-bar colors on
 Windows and Linux. CI merges coverage from Linux, macOS and Windows, so those show as
-uncovered when you run locally.
+uncovered when you run locally. Where a pull request ran only the short set on macOS, what
+macOS alone reaches is taken from main's newest green run, for the files the pull request
+doesn't change: its figure is an estimate, and main's own, after the merge, is the measure.
 
 When a line is hard to reach, first ask whether it's needed. Fallbacks for fields the
 Kubernetes API always fills in can usually go. Otherwise add the realistic state to the demo
@@ -140,11 +156,14 @@ new a minor one (1.1.0), and a change that breaks how people use the app (droppi
 platform or a Kubernetes version, removing a feature) a major one (2.0.0). A version with a
 suffix, like `1.1.0-beta.1`, is published as a pre-release.
 
-1. Set the version: `npm version 1.1.0 --no-git-tag-version` (which sets the Helm chart's
-   too).
-2. In `CHANGELOG.md`, move what's under _Unreleased_ into a `## [1.1.0] - <date>` section,
-   and update the links at the bottom.
-3. Commit, on a branch, and open a pull request for it.
+1. Set the version: `npm version 1.1.0 --no-git-tag-version`. That sets the Helm chart's too,
+   and gathers the changelog: the entries waiting in `changelog.d/` become a
+   `## [1.1.0] - <date>` section of `CHANGELOG.md`, under Added, Changed and Fixed in the order
+   their pull requests reached `main`, with the version's link at the bottom, and their files
+   are deleted.
+2. In `CHANGELOG.md`, write the section's opening paragraph by hand, above its entries: what
+   the release is, in a sentence or two.
+3. Commit, on a branch named `release-1.1.0`, and open a pull request for it.
 4. Once CI is green on it, fast-forward `main` to that very commit, without merging:
    `git push origin <commit>:main`. `main` takes a commit pushed this way only once its checks
    have passed, and a merge would make another commit, not the one CI tested.
@@ -157,7 +176,8 @@ with cosign (keyless). It attaches the installers, a `SHA256SUMS.txt` and a bill
 materials (`Lumovi-<version>.cdx.json`) to a GitHub release, with the version's CHANGELOG
 section as
 its notes, and publishes it with an annotated tag, `v1.1.0`, on the commit CI tested. It
-refuses a version that isn't newer than the last release, or that has no CHANGELOG section.
+refuses a version that isn't newer than the last release, that has no CHANGELOG section, or
+whose entries still wait in `changelog.d/`.
 Each file gets a signed build provenance attestation (`gh attestation verify <file> --repo
 Lumovi/Lumovi`), the installers one of their bill of materials too (see
 [Checking a release](SECURITY.md#checking-a-release)), and published releases are immutable. A release that fails part of

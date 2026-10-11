@@ -1,0 +1,77 @@
+name: Pull request
+
+# What a pull request's text and labels change about CI, without a new push and without running
+# CI again from the start:
+#
+# - Its text edited, or the label fixes-main put on or taken off: CI's last job, "CI passed",
+#   reads both as they are (the changelog entry or "Changelog: none: …"; whether it may merge
+#   while main is red). If that job is all that failed in the newest finished run for this
+#   commit, it alone is run again. Anything else waits for whoever reads the failure.
+# - The label macos-full put on: everything is wanted on macOS. The newest run for this commit is
+#   ended if it's still going, and run again from the start, which reads the label
+#   (scripts/ci-changes.ts).
+
+on:
+  pull_request:
+    types: [edited, labeled, unlabeled]
+
+# One at a time for a pull request, each to its end: one cut off between ending CI's run and
+# starting it again would leave nothing running.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  again:
+    name: Run what it changes again
+    # (A pull request from a fork has no token that may: its author pushes, or someone here
+    # runs the job again.)
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action == 'edited' ||
+       github.event.label.name == 'fixes-main' ||
+       (github.event.action == 'labeled' && github.event.label.name == 'macos-full'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.event.pull_request.head.sha }}
+      EVERYTHING: ${{ github.event.action == 'labeled' && github.event.label.name == 'macos-full' }}
+    steps:
+      - name: CI's newest run for this commit
+        id: run
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=pull_request&per_page=1" \
+            --jq '.workflow_runs[0] | "\(.id) \(.status)"')
+          echo "$run"
+          echo "id=${run%% *}" >> "$GITHUB_OUTPUT"
+          echo "status=${run##* }" >> "$GITHUB_OUTPUT"
+      - name: Everything again, on macOS too
+        if: env.EVERYTHING == 'true' && steps.run.outputs.id != 'null'
+        env:
+          RUN: ${{ steps.run.outputs.id }}
+          STATUS: ${{ steps.run.outputs.status }}
+        run: |
+          if [ "$STATUS" != completed ]; then
+            gh run cancel "$RUN" --repo "$GITHUB_REPOSITORY" || true
+            gh run watch "$RUN" --repo "$GITHUB_REPOSITORY" --interval 10 > /dev/null || true
+          fi
+          gh run rerun "$RUN" --repo "$GITHUB_REPOSITORY"
+      # Only where "CI passed" is all that failed: a failed test isn't run again by an edit.
+      - name: “CI passed” again, if it alone failed
+        if: env.EVERYTHING != 'true' && steps.run.outputs.status == 'completed'
+        env:
+          RUN: ${{ steps.run.outputs.id }}
+        run: |
+          failed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.conclusion == "failure") | .name] | join("\n")')
+          if [ "$failed" = "CI passed" ]; then
+            gh run rerun "$RUN" --repo "$GITHUB_REPOSITORY" --failed
+          else
+            echo "Nothing run again: ${failed:-nothing} failed."
+          fi

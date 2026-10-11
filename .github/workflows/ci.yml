@@ -6,9 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push to a pull request ends the run of the push before it. Never on main: each merge's
+# run there is the one whose tests and coverage gate bind, and must finish.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -19,11 +21,16 @@ env:
 
 jobs:
   # What the change needs run (scripts/ci-changes.ts): nothing but the checks for docs, and on
-  # macOS, the full E2E suite only where it touches what macOS does differently.
+  # macOS, the full E2E suite only where it touches what macOS does differently, or its label
+  # (macos-full) asks.
   changes:
     name: What changed
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # Its labels, as they are now.
+      pull-requests: read
     outputs:
       docs: ${{ steps.what.outputs.docs }}
       macos: ${{ steps.what.outputs.macos }}
@@ -37,7 +44,10 @@ jobs:
         with:
           node-version-file: .nvmrc
       - id: what
-        run: node scripts/ci-changes.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/judge.sh ci-changes.ts
 
   checks:
     name: Format, lint & typecheck
@@ -344,6 +354,9 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The pull request's merge commit, and what it's merged into (scripts/judge.sh).
+          fetch-depth: 2
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
@@ -362,7 +375,7 @@ jobs:
         if: needs.changes.outputs.macos == 'smoke'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/borrow-coverage.ts
+        run: scripts/judge.sh borrow-coverage.ts
       # One pass: the report, then the gate, from the report's one merged file.
       - name: Report, and require more than 95%
         run: |
@@ -373,7 +386,7 @@ jobs:
             console.log(["## E2E coverage (Linux + macOS + Windows)", "", "| | % | covered |", "|---|---|---|",
               ...["statements", "branches", "functions", "lines"].map(row)].join("\n"))
           ' >> "$GITHUB_STEP_SUMMARY"
-          node scripts/check-coverage.ts coverage/coverage-final.json
+          scripts/judge.sh check-coverage.ts coverage/coverage-final.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: ${{ !cancelled() }}
         with:
@@ -570,12 +583,23 @@ jobs:
 
   # One check for the main branch's ruleset to require: whether every job above passed (theirs
   # are many, and change with the matrix).
+  #
+  # A pull request's also says two things that aren't about its own code, both read as they are
+  # when this job runs, so that running this one job again (seconds) is all it takes once they've
+  # changed (.github/workflows/pull-request.yml does that by itself where it can):
+  # - main is green: a red main stops every merge until it's green again (scripts/main-is-green.ts);
+  # - its changelog entry is there, or its text says why none is (scripts/changelog.ts).
   passed:
     name: CI passed
     if: always()
     needs: [changes, checks, e2e, coverage, package, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # Main's newest run, and this pull request's labels and text as they are now.
+      actions: read
+      pull-requests: read
     steps:
       # Or was skipped, as a docs-only change skips the tests (a job skipped as another failed,
       # the other says so).
@@ -585,3 +609,27 @@ jobs:
         run: |
           echo "$RESULTS"
           for result in $RESULTS; do [ "$result" = success ] || [ "$result" = skipped ] || exit 1; done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          # The pull request's merge commit, and what it's merged into.
+          fetch-depth: 2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          node-version-file: .nvmrc
+      - name: Main is green
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/judge.sh main-is-green.ts
+      # (Not a release's own pull request: it gathers the entries, and writes their section.)
+      - name: Its changelog entry
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          PR_TEXT=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.body // ""') \
+            scripts/judge.sh changelog.ts check

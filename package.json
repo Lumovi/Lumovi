@@ -58,7 +58,8 @@
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run views:check && npm run coverage",
-    "version": "node scripts/chart-version.ts",
+    "version": "node scripts/chart-version.ts && node scripts/changelog.ts release",
+    "changelog": "node scripts/changelog.ts",
     "postinstall": "node scripts/node-pty.ts"
   },
   "dependencies": {

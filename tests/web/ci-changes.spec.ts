@@ -5,8 +5,9 @@
  * is), and what's in them, then and now.
  */
 import { expect, test } from '@playwright/test'
-import { borrowedOf, withoutChanged } from '../../scripts/borrow-coverage.ts'
+import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { plan } from '../../scripts/ci-changes.ts'
+import { redOf, sentence } from '../../scripts/main-is-green.ts'
 
 /** A pull request changing `changed`, whose files hold `texts` (now, or then: deleted). */
 const pr = (changed: string[], texts: Record<string, string[]> = {}, branch = 'lmv-1-x') =>
@@ -40,12 +41,10 @@ test('not docs: a file moved into docs/, code there, the tests’ Markdown, the 
   expect(pr(['build/icon.png']).docs).toBe(false)
 })
 
-test('macOS runs everything for the main process, shared code, Electron, packaging, the lockfile and CI', () => {
+test('macOS runs everything for the main process, Electron, packaging, the lockfile, CI and the harness', () => {
   for (const path of [
     'src/main/window.ts',
     'src/preload/index.ts',
-    'src/backend/helm/service.ts',
-    'src/shared/api.ts',
     'electron-builder.yml',
     'electron.vite.config.ts',
     'build/entitlements.mac.plist',
@@ -55,9 +54,52 @@ test('macOS runs everything for the main process, shared code, Electron, packagi
     '.github/workflows/ci.yml',
     'playwright.config.ts',
     'tests/e2e/fixtures.ts',
+    'tests/e2e/smoke.txt',
+    'scripts/borrow-coverage.ts',
+    'scripts/vite-coverage.ts',
   ]) {
     expect(macos(pr([path])), path).toEqual(['1/4', '2/4', '3/4', '4/4'])
   }
+})
+
+test('code every platform runs alike is the smoke set’s, unless it asks which platform it’s on', () => {
+  // The backend and what's shared with the page: Node's, the same on all three.
+  for (const path of ['src/backend/kube/list.ts', 'src/shared/api.ts']) {
+    expect(macos(pr([path], { [path]: ['export const x = 1', ''] })), path).toEqual(['smoke'])
+  }
+  // But not its files that start programs or use the home and temp folders, by name…
+  for (const path of [
+    'src/backend/helm/service.ts',
+    'src/backend/kube/client.ts',
+    'src/backend/kube/kubeconfig.ts',
+    'src/backend/kube/files.ts',
+    'src/backend/kube/streams.ts',
+    'src/backend/network.ts',
+  ]) {
+    expect(pr([path], { [path]: ['export const x = 1', ''] }).macos, path).toBe(true)
+  }
+  // …nor any other that comes to do the same.
+  for (const text of [
+    "import { spawn } from 'node:child_process'",
+    'const dir = tmpdir()',
+    'join(homedir(), ".kube")',
+  ]) {
+    const path = 'src/backend/kube/new.ts'
+    expect(pr([path], { [path]: [text, ''] }).macos, text).toBe(true)
+  }
+  const asks = 'src/backend/kube/exec.ts'
+  expect(
+    pr([asks], { [asks]: ["const shell = process.platform === 'win32' ? cmd : sh", ''] }).macos,
+  ).toBe(true)
+})
+
+test('the label macos-full runs everything on macOS, whatever changed', () => {
+  const path = 'src/renderer/src/features/lists/ResourceList.tsx'
+  const plain = { event: 'pull_request', changed: [path], versions: () => ['', ''] }
+  expect(macos(plan(plain))).toEqual(['smoke'])
+  const asked = plan({ ...plain, labels: ['design', 'macos-full'] })
+  expect(macos(asked)).toEqual(['1/4', '2/4', '3/4', '4/4'])
+  expect(asked.said).toContain('as its label asks')
 })
 
 test('macOS runs everything for code that does differently there, as it is or as it was', () => {
@@ -131,38 +173,117 @@ test('where macOS ran the smoke set, main’s macOS coverage is borrowed: not of
   expect(withoutChanged(main, [])).toEqual(main)
 })
 
-test('what’s borrowed is every shard’s or nothing, and never a file that isn’t coverage', () => {
-  const shard = JSON.stringify({ 'src/main/menu.ts': { s: { 0: 2 } }, 'src/a.ts': { s: { 0: 1 } } })
-  expect(borrowedOf([shard, shard, shard, shard], ['src/a.ts'])).toEqual({
-    kept: Array.from({ length: 4 }, () => ({ 'src/main/menu.ts': { s: { 0: 2 } } })),
+test('what’s borrowed is what main’s macOS reached and its Linux and Windows didn’t: nothing else', () => {
+  const file = (s: number[], f: number[], b: number[][]) => ({
+    path: 'kept as it is',
+    s: Object.fromEntries(s.map((n, i) => [i, n])),
+    f: Object.fromEntries(f.map((n, i) => [i, n])),
+    b: Object.fromEntries(b.map((arms, i) => [i, arms])),
   })
-  // Three of four would be most of what macOS reaches, and read as all of it.
-  expect(borrowedOf([shard, shard, shard], [])).toEqual({
+  // macOS's two shards together reach statements 0, 1 and 2; the others reach 0 and 3.
+  const mac: Record<string, ReturnType<typeof file>>[] = [
+    { 'src/main/menu.ts': file([1, 0, 0, 0], [1], [[2, 0]]) },
+    {
+      'src/main/menu.ts': file([0, 4, 1, 0], [0], [[0, 3]]),
+      'src/main/dock.ts': file([5], [5], []),
+    },
+  ]
+  const others: Record<string, ReturnType<typeof file>>[] = [
+    // (As Windows writes a path.)
+    { 'src\\main\\menu.ts': file([7, 0, 0, 1], [0], [[1, 0]]) },
+    { 'src/main/menu.ts': file([0, 0, 0, 0], [0], [[0, 0]]) },
+  ]
+  expect(onlyMac(mac, others)).toEqual({
+    // Statement 0 and the branch's first arm are the others' too: not borrowed. What they never
+    // reached is, with macOS's own counts; and a file they never loaded, whole.
+    'src/main/menu.ts': file([0, 4, 1, 0], [1], [[0, 3]]),
+    'src/main/dock.ts': file([5], [5], []),
+  })
+  // So a test taken away in a pull request loses what it reached, unless only macOS reached it.
+  expect(onlyMac(mac, mac)['src/main/menu.ts']).toEqual(file([0, 0, 0, 0], [0], [[0, 0]]))
+})
+
+test('what’s borrowed is every shard’s or nothing, and never a file that isn’t coverage', () => {
+  const shard = JSON.stringify({
+    'src/main/menu.ts': { s: { 0: 2 }, f: {}, b: {} },
+    'src/a.ts': { s: { 0: 1 }, f: {}, b: {} },
+  })
+  const none = JSON.stringify({ 'src/main/menu.ts': { s: { 0: 0 }, f: {}, b: {} } })
+  const mac = [shard, shard, shard, shard]
+  const others = Array.from({ length: 8 }, () => none)
+  expect(borrowedOf({ mac, others }, ['src/a.ts'])).toEqual({
+    kept: { 'src/main/menu.ts': { s: { 0: 8 }, f: {}, b: {} } },
+  })
+  // Three of four would be most of what macOS reaches, and read as all of it; and with one of
+  // the others' missing, what it reached would be taken for macOS's alone.
+  expect(borrowedOf({ mac: mac.slice(1), others }, [])).toEqual({
     nothing: '3 of macOS’s 4 coverage files are there, not all of them',
   })
-  expect(borrowedOf([], [])).toEqual({
+  expect(borrowedOf({ mac: [], others }, [])).toEqual({
     nothing: '0 of macOS’s 4 coverage files are there, not all of them',
   })
-  expect(borrowedOf([shard, shard, shard, 'cut sh'], [])).toEqual({
+  expect(borrowedOf({ mac, others: others.slice(1) }, [])).toEqual({
+    nothing: '7 of Linux’s and Windows’ 8 coverage files are there, not all of them',
+  })
+  expect(borrowedOf({ mac: [shard, shard, shard, 'cut sh'], others }, [])).toEqual({
     nothing: 'one of its files isn’t JSON',
   })
-  expect(borrowedOf([shard, shard, shard, '[]'], [])).toEqual({
+  expect(borrowedOf({ mac, others: [...others.slice(1), '[]'] }, [])).toEqual({
     nothing: 'one of its files isn’t coverage',
   })
 })
 
-test('a test or its helper with lines taken away or changed runs macOS in full; one that only gains lines doesn’t', () => {
+test('a changed test doesn’t run macOS in full by itself: main’s own run, after the merge, is what sees it', () => {
   const spec = 'tests/web/audit.spec.ts'
   const helper = 'tests/e2e/action-helpers.ts'
   const was = "test('a', () => {\n  expect(1).toBe(1)\n})\n"
-  // A case added, a new file: nothing that was reached is taken away.
-  expect(pr([spec], { [spec]: [`${was}\ntest('b', () => {})\n`, was] }).macos).toBe(false)
-  expect(pr([spec], { [spec]: [was, ''] }).macos).toBe(false)
-  // A case weakened, a case gone, a file gone, a helper changed.
-  expect(pr([spec], { [spec]: [was.replace('toBe(1)', 'toBeTruthy()'), was] }).macos).toBe(true)
-  expect(pr([spec], { [spec]: ["test('a', () => {\n})\n", was] }).macos).toBe(true)
-  expect(pr([spec], { [spec]: ['', was] }).macos).toBe(true)
+  // A case added, weakened, gone; a file gone; a helper changed: the smoke set on the pull
+  // request each time. Coverage borrowed from main may count what it no longer reaches there,
+  // which is why main's run is the one whose gate binds.
+  for (const now of [`${was}\ntest('b', () => {})\n`, was.replace('toBe(1)', 'toBeTruthy()'), '']) {
+    expect(macos(pr([spec], { [spec]: [now, was] }))).toEqual(['smoke'])
+  }
   expect(
-    pr([helper], { [helper]: ['export const open = 2\n', 'export const open = 1\n'] }).macos,
-  ).toBe(true)
+    macos(pr([helper], { [helper]: ['export const open = 2\n', 'export const open = 1\n'] })),
+  ).toEqual(['smoke'])
+  // The harness every desktop test stands on is another matter.
+  expect(pr(['tests/e2e/fixtures.ts']).macos).toBe(true)
+})
+
+test('main is red unless its newest finished run passed: only a run somebody cancelled says nothing', () => {
+  const run = (sha: string, conclusion: string | null, ranOutOfTime?: boolean) => ({
+    id: 1,
+    sha,
+    conclusion,
+    url: `https://github.com/Lumovi/Lumovi/actions/runs/${sha}`,
+    ...(ranOutOfTime === undefined ? {} : { ranOutOfTime }),
+  })
+  expect(redOf([run('aaaaaaa1', 'success'), run('bbbbbbb2', 'failure')])).toBeUndefined()
+  expect(redOf([run('aaaaaaa1', 'failure'), run('bbbbbbb2', 'success')])?.sha).toBe('aaaaaaa1')
+  // (Newest first.) A run somebody cut off, or one that hasn't ended, isn't a verdict on the code.
+  expect(
+    redOf([run('ccccccc3', 'cancelled', false), run('ddddddd4', null), run('eeeeeee5', 'failure')])
+      ?.sha,
+  ).toBe('eeeeeee5')
+  expect(redOf([run('ccccccc3', 'cancelled', false), run('eeeeeee5', 'success')])).toBeUndefined()
+  expect(redOf([])).toBeUndefined()
+  // A job that ran out of its time is called cancelled too: that one is red. A hang stops the line.
+  expect(redOf([run('fffffff6', 'cancelled', true), run('eeeeeee5', 'success')])?.sha).toBe(
+    'fffffff6',
+  )
+  // And whatever else isn't a pass.
+  for (const conclusion of ['timed_out', 'startup_failure', 'action_required', 'stale']) {
+    expect(redOf([run('aaaaaaa1', conclusion), run('bbbbbbb2', 'success')])?.sha, conclusion).toBe(
+      'aaaaaaa1',
+    )
+  }
+  // What a pull request is told: main's commit, what failed there, how it's lifted, where to read.
+  expect(
+    sentence(run('eeeeeee5f', 'failure'), ['E2E (macos-latest, 2/4)', 'Coverage (all platforms)']),
+  ).toBe(
+    'main is red at eeeeeee (E2E (macos-latest, 2/4), Coverage (all platforms)): nothing merges until it’s green again, or this pull request mends it and says so with the label fixes-main. https://github.com/Lumovi/Lumovi/actions/runs/eeeeeee5f',
+  )
+  expect(
+    sentence(run('fffffff6f', 'cancelled', true), ['E2E (macos-latest, 2/4) ran out of time']),
+  ).toContain('main is red at fffffff (E2E (macos-latest, 2/4) ran out of time)')
 })

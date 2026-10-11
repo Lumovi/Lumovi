@@ -95,6 +95,13 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Every entry is in the version's section: none still waits as a file of its own
+          # (`npm version` gathers them; scripts/changelog.ts).
+          waiting=$(find changelog.d -name '*.md' ! -name README.md | sort)
+          if [ -n "$waiting" ]; then
+            echo "::error::Entries still wait in changelog.d/, so $VERSION's notes would lack them: $(echo $waiting)"
+            exit 1
+          fi
           awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
