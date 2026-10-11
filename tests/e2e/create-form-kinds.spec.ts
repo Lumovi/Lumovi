@@ -843,6 +843,11 @@ items:
       'Its values can’t be told from the rest as it’s written, so they can’t be hidden: it isn’t YAML as it stands, or a value comes through an alias or a merge key.'
     await expect(dialog(page).getByText(why), elsewhere).toBeVisible()
     await expect(hide, elsewhere).toHaveAccessibleDescription(why)
+    // The form's side says the same, and doesn't offer what's off.
+    await expect(form(page), elsewhere).toContainText(
+      'Values are showing on both sides and can’t be hidden as this YAML is written: why is said above the YAML.',
+    )
+    await expect(form(page), elsewhere).not.toContainText('hides them again')
   }
   // Read again as YAML whose values can be told, the reason is gone and it can be hidden.
   await type(page, 'kind: Secret\nstringData:\n  a: S3CR3T\n')

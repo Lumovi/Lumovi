@@ -370,6 +370,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                           edit={edit}
                           object={object}
                           hidden={hidden}
+                          unhidden={showing && cover === null}
                         />
                       )}
                     </fieldset>
@@ -378,9 +379,29 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
               </div>
 
               <div className="flex min-h-0 min-w-0 flex-col border-l border-line">
-                <p className="flex h-9 shrink-0 items-center gap-2 border-b border-line pr-2 pl-5 text-xs text-ink-3 touch:h-11">
-                  <b className="font-medium text-ink-2">YAML</b>
-                  <span role="status" className="min-w-0 flex-1 truncate">
+                <p
+                  className={cn(
+                    // Under a finger the pane is narrow: what the YAML's state is wraps, and is
+                    // never cut. Beside a Secret's button it has a line of its own.
+                    'flex h-9 shrink-0 items-center gap-2 border-b border-line pr-2 pl-5 text-xs text-ink-3 touch:h-auto touch:min-h-11',
+                    kind === 'Secret' ? 'touch:flex-wrap touch:gap-y-0' : 'touch:py-1.5',
+                  )}
+                >
+                  <b
+                    className={cn(
+                      'font-medium text-ink-2',
+                      kind === 'Secret' && 'touch:flex touch:h-11 touch:flex-1 touch:items-center',
+                    )}
+                  >
+                    YAML
+                  </b>
+                  <span
+                    role="status"
+                    className={cn(
+                      'min-w-0 flex-1 truncate touch:leading-[17px] touch:whitespace-normal',
+                      kind === 'Secret' && 'touch:order-last touch:basis-full touch:pb-2',
+                    )}
+                  >
                     {status}
                   </span>
                   {kind === 'Secret' && (
@@ -1437,12 +1458,15 @@ function PlainFields({
   allNamespaces,
   start,
   hidden,
+  unhidden,
   ...fields
 }: Omit<FieldsProps, 'namespace'> & {
   allNamespaces: boolean
   start: string
   /** Whether a Secret's values are hidden. */
   hidden: boolean
+  /** Whether they're showing because they can't be hidden, as the YAML is written. */
+  unhidden: boolean
 }) {
   const { form, wrong, focus, onFocus, edit, object } = fields
   const write = useMemo(() => plainWriter(form), [form])
@@ -1463,7 +1487,12 @@ function PlainFields({
       />
       {form.family === 'service' && <ServiceFields {...fields} namespace={namespace || start} />}
       {form.family === 'data' && (
-        <DataFields {...fields} namespace={namespace || start} hidden={hidden} />
+        <DataFields
+          {...fields}
+          namespace={namespace || start}
+          hidden={hidden}
+          unhidden={unhidden}
+        />
       )}
       {form.family === 'claim' && <ClaimFields {...fields} namespace={namespace || start} />}
     </>
@@ -1728,7 +1757,8 @@ function DataFields({
   edit,
   object,
   hidden,
-}: FieldsProps & { hidden: boolean }) {
+  unhidden,
+}: FieldsProps & { hidden: boolean; unhidden: boolean }) {
   const write = useMemo(() => plainWriter(form), [form])
   const base = form.paths.data!
   const secret = form.kind === 'Secret'
@@ -1755,7 +1785,9 @@ function DataFields({
             : `${
                 hidden
                   ? 'Values are hidden on both sides until you choose Show values, above the YAML.'
-                  : 'Values are showing on both sides; Hide values, above the YAML, hides them again.'
+                  : unhidden
+                    ? 'Values are showing on both sides and can’t be hidden as this YAML is written: why is said above the YAML.'
+                    : 'Values are showing on both sides; Hide values, above the YAML, hides them again.'
               } The cluster stores them base64-encoded, which isn’t encryption.`
         }
       >
