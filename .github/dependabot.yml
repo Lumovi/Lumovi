@@ -49,3 +49,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # Every step of github/codeql-action in a workflow has to be one version: moved as one.
+      codeql:
+        patterns: ['github/codeql-action*']
