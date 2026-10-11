@@ -205,6 +205,8 @@ export interface Plugin {
    * shared by plugins.
    */
   groups: string[]
+  /** Kinds of Kubernetes' own, without a page in Lumovi, that it shows and only shows. */
+  shows: ResourceKind[]
   /** Where it came from: "Lumovi", or the user's file. */
   source: string
   place?: PluginPlace
@@ -262,12 +264,43 @@ const conditionShape: Shape = {
       : 'needs exactly one of path, all or any',
 }
 
+/**
+ * A kind's own name, as Kubernetes writes kinds: its group is said beside it, never in it. (A
+ * name with its group in it and no group beside it would read as a kind of no group, and be
+ * taken for another kind than the one it is.)
+ */
+const KIND_NAME = /^[A-Z][A-Za-z0-9]*$/
+const kindNameProblem = (kind: unknown) =>
+  typeof kind === 'string' && !KIND_NAME.test(kind)
+    ? `${quoted(kind)} should be a kind’s own name, like Certificate: its group goes under group`
+    : undefined
+
+/** An API group's name, as Kubernetes writes groups: a DNS name, and nothing a path could hide in. */
+const GROUP_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/
+const groupNameProblem = (group: unknown) =>
+  typeof group === 'string' && group !== '' && !GROUP_NAME.test(group)
+    ? `${quoted(group)} should be an API group’s name, like cert-manager.io`
+    : undefined
+/** What an object's apiVersion is: a group and a version, or a version alone. */
+const API_VERSION = /^(?:([^/]*)\/)?v[0-9][a-z0-9]*$/
+
+/** A kind as a file names it: its name, and its group beside it where it has one. */
+const namedKind: Shape = {
+  fields: { group: 'string', kind: { shape: 'string', required: true } },
+  refine: (k) => groupNameProblem(k.group) ?? kindNameProblem(k.kind),
+}
+
 /** A kind, or every kind of a group (`kind: '*'`), like the constraints Gatekeeper's templates make. */
 const kindsShape: Shape = {
   list: {
     fields: { group: 'string', kind: { shape: 'string', required: true } },
     refine: (k) =>
-      k.kind === '*' && !k.group ? 'every kind (*) is of a group: name it' : undefined,
+      groupNameProblem(k.group) ??
+      (k.kind === '*'
+        ? k.group
+          ? undefined
+          : 'every kind (*) is of a group: name it'
+        : kindNameProblem(k.kind)),
   },
   nonEmpty: true,
 }
@@ -394,6 +427,11 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
       !(text(name) || text(generateName))
     ) {
       return 'what it creates needs an apiVersion, a kind, and a metadata.name or generateName'
+    }
+    if (kindNameProblem(kind)) return `what it creates: ${kindNameProblem(kind)}`
+    const version = API_VERSION.exec(apiVersion)
+    if (!version || groupNameProblem(version[1])) {
+      return `what it creates: ${quoted(apiVersion)} should be an API version, like cert-manager.io/v1`
     }
     if (a.undo !== undefined) return 'can’t undo creating something'
   }
@@ -720,6 +758,19 @@ function check(value: unknown, shape: Shape, where: string, noun: string): strin
   return refined ? [...problems, `${where}: ${refined}`] : problems
 }
 
+export interface ParseOptions {
+  /** The Lumovi that's reading it, where that's known: a plugin that needs a newer one is refused. */
+  lumovi?: string
+  /** The kinds of Kubernetes' own that Lumovi's own views show: no plugin's to show. */
+  lumovisOwn?: readonly ResourceKind[]
+  /**
+   * It's the file of Lumovi's own views of Kubernetes' kinds: written as a plugin is, and no
+   * plugin, so not held inside groups. Decided by where the file is, in Lumovi's own code;
+   * nothing a file says, and no folder a person or a server has, makes it so.
+   */
+  ownViews?: boolean
+}
+
 /** A kind as a file names it. */
 interface NamedKind {
   group?: string
@@ -728,15 +779,21 @@ interface NamedKind {
 
 /**
  * What a plugin names outside its fence, each where it is. Its declared groups are the fence:
- * none of them Kubernetes' own or Lumovi's; and, for a plugin that's held to it (`fenced`), every
- * kind it names is in one of them, and it creates nothing but kinds it claims itself: a group
- * can be shared by plugins, so being in the group isn't enough to make one.
+ * none of them Kubernetes' own or Lumovi's, every kind of a tool's that it names in one of
+ * them, and nothing created but kinds it claims itself (a group can be shared by plugins, so
+ * being in the group isn't enough to make one).
+ *
+ * Kubernetes' own kinds are outside it, with one allowance: a kind Lumovi has no page for can
+ * be shown, and only shown, by a plugin that names it under `shows`. Such a view has no
+ * actions, the kind isn't under the plugin's place in the sidebar, and what Lumovi itself
+ * shows (`lumovisOwn`) stays Lumovi's.
  */
 function fenceProblems(
   groups: string[],
+  shows: NamedKind[],
   placed: NamedKind[] | undefined,
   views: { kinds: NamedKind[]; actions?: { create?: Record<string, unknown> }[] }[],
-  fenced: boolean,
+  lumovisOwn: readonly ResourceKind[],
 ): string[] {
   const problems = groups.flatMap((group, g) =>
     group === 'lumovi.dev' || group.endsWith('.lumovi.dev')
@@ -747,20 +804,74 @@ function fenceProblems(
             `spec.groups[${g}]: ${group || 'the core group'} is Kubernetes’ own, so a plugin can’t have it`,
           ],
   )
-  if (!fenced) return problems
-  const inside = ({ group = '', kind }: NamedKind, where: string) => {
-    if (groups.includes(group)) return
-    problems.push(
-      isCustomGroup(group)
-        ? `${where}: ${kindId({ group, kind })} isn’t in one of its groups: add ${group} to spec.groups`
-        : `${where}: ${kindId({ group, kind })} is Kubernetes’ own, so it can’t be in a plugin`,
-    )
+  /** Why a kind of Kubernetes' own can't be shown by a plugin at all, if it can't. */
+  const never = (id: ResourceKind) =>
+    isBuiltinKind(id)
+      ? `${id} has a page of its own, so it can’t be in a plugin`
+      : lumovisOwn.includes(id)
+        ? `${id} is shown by Lumovi itself, so it can’t be in a plugin`
+        : undefined
+  shows.forEach((kind, i) => {
+    const id = kindId(kind)
+    const group = id.includes('.') ? id.slice(id.indexOf('.') + 1) : ''
+    const problem =
+      never(id) ??
+      (isCustomGroup(group)
+        ? `${id} isn’t Kubernetes’ own: a view names it once ${group} is in spec.groups`
+        : undefined)
+    if (problem) problems.push(`spec.shows[${i}]: ${problem}`)
+  })
+  // Every question below is asked of a kind as Lumovi resolves it (the id its views and its
+  // changes are found by), never of how the file spelt it: whatever a spelling comes to is what's
+  // judged, so one that comes to another kind is judged as that kind.
+  const resolved = (kind: NamedKind) => {
+    const id = kindId(kind)
+    const group = id.includes('.') ? id.slice(id.indexOf('.') + 1) : ''
+    return { id, group, tools: isCustomGroup(group) }
   }
-  placed?.forEach((kind, k) => inside(kind, `spec.kinds[${k}]`))
-  views.forEach((view, i) =>
-    view.kinds.forEach((kind, k) => inside(kind, `spec.views[${i}].kinds[${k}]`)),
+  const shown = new Set(shows.map(kindId))
+  // (What's said at the top is what's used: a kind named there and shown nowhere is more reach
+  // than the plugin has.)
+  const viewed = new Set(views.flatMap((view) => view.kinds.map(kindId)))
+  shows.forEach((kind, i) => {
+    if (!viewed.has(kindId(kind)) && problems.every((p) => !p.startsWith(`spec.shows[${i}]:`))) {
+      problems.push(`spec.shows[${i}]: ${kindId(kind)} isn’t shown by any of its views`)
+    }
+  })
+  const outside = (group: string) =>
+    groups.includes(group) ? undefined : `isn’t in one of its groups: add ${group} to spec.groups`
+  placed?.forEach((kind, k) => {
+    const { id, group, tools } = resolved(kind)
+    const problem =
+      never(id) ??
+      (tools
+        ? outside(group) && `${id} ${outside(group)}`
+        : `${id} is Kubernetes’ own, so it can’t be under a plugin’s place in the sidebar`)
+    if (problem) problems.push(`spec.kinds[${k}]: ${problem}`)
+  })
+  views.forEach((view, i) => {
+    view.kinds.forEach((kind, k) => {
+      const { id, group, tools } = resolved(kind)
+      const problem =
+        never(id) ??
+        (tools
+          ? outside(group) && `${id} ${outside(group)}`
+          : shown.has(id)
+            ? undefined
+            : `${id} is Kubernetes’ own: to show it, name it under spec.shows`)
+      if (problem) problems.push(`spec.views[${i}].kinds[${k}]: ${problem}`)
+    })
+    if (view.actions && view.kinds.some((kind) => !resolved(kind).tools)) {
+      problems.push(
+        `spec.views[${i}].actions: a view of Kubernetes’ own kind only shows it, so it can’t have actions`,
+      )
+    }
+  })
+  const claimed = new Set(
+    [...(placed ?? []), ...views.flatMap((view) => view.kinds)]
+      .filter((kind) => resolved(kind).tools)
+      .map(kindId),
   )
-  const claimed = new Set([...(placed ?? []), ...views.flatMap((view) => view.kinds)].map(kindId))
   views.forEach((view, i) =>
     view.actions?.forEach(({ create }, a) => {
       if (!create) return
@@ -784,7 +895,7 @@ function fenceProblems(
 export function parsePlugin(
   text: string,
   source: string,
-  options: { lumovi?: string; fenced?: boolean } = {},
+  options: ParseOptions = {},
 ): { plugin?: Plugin; name?: string; problems: string[] } {
   const read = readPlugin(text, source, options)
   return { ...read, problems: read.problems.map(plain) }
@@ -793,18 +904,7 @@ export function parsePlugin(
 function readPlugin(
   text: string,
   source: string,
-  {
-    lumovi,
-    fenced = false,
-  }: {
-    /** The Lumovi that's reading it, where that's known: a plugin that needs a newer one is refused. */
-    lumovi?: string
-    /**
-     * Whether it's held inside its declared groups, as Lumovi's plugins are: every kind it names
-     * in one of them, none of them Kubernetes' own, and nothing created but its own kinds.
-     */
-    fenced?: boolean
-  } = {},
+  { lumovi, lumovisOwn = [], ownViews = false }: ParseOptions,
 ): { plugin?: Plugin; name?: string; problems: string[] } {
   const refused = (problem: string) => ({ problems: [`${source}: ${problem}`] })
   const documents = parseAllDocuments(text)
@@ -852,7 +952,14 @@ function readPlugin(
   if (typeof doc.spec !== 'object' || doc.spec === null || Array.isArray(doc.spec)) {
     return { name, ...refused(`spec: should be a map of fields, not ${describe(doc.spec)}`) }
   }
-  const { views: listed, version, needs, groups, ...place } = doc.spec as Record<string, unknown>
+  const {
+    views: listed,
+    version,
+    needs,
+    groups,
+    shows,
+    ...place
+  } = doc.spec as Record<string, unknown>
   const problems = check(place, PLACE_SHAPE, `${source}: spec`, 'a plugin')
   const threeNumbers = (value: unknown, where: string, like: string) => {
     if (value === undefined) problems.push(`${source}: ${where}: is required`)
@@ -873,9 +980,22 @@ function readPlugin(
     }
   }
   if (groups === undefined) {
-    if (fenced) problems.push(`${source}: spec.groups: is required`)
+    if (!ownViews) {
+      problems.push(
+        `${source}: spec.groups: is required: the API groups its kinds are in, like [example.com]`,
+      )
+    }
   } else {
     problems.push(...check(groups, { list: 'string' }, `${source}: spec.groups`, 'a plugin'))
+    if (Array.isArray(groups)) {
+      groups.forEach((group, g) => {
+        const problem = groupNameProblem(group)
+        if (problem) problems.push(`${source}: spec.groups[${g}]: ${problem}`)
+      })
+    }
+  }
+  if (shows !== undefined) {
+    problems.push(...check(shows, { list: namedKind }, `${source}: spec.shows`, 'a plugin'))
   }
   problems.push(...textProblems(doc.spec, `${source}: spec`))
   if (listed !== undefined && !Array.isArray(listed)) {
@@ -900,13 +1020,14 @@ function readPlugin(
       })
     })
   }
-  if (problems.length === 0) {
+  if (problems.length === 0 && !ownViews) {
     problems.push(
       ...fenceProblems(
         (groups ?? []) as string[],
+        (shows ?? []) as NamedKind[],
         place.kinds as NamedKind[] | undefined,
         items as { kinds: NamedKind[]; actions?: { create?: Record<string, unknown> }[] }[],
-        fenced,
+        lumovisOwn,
       ).map((problem) => `${source}: ${problem}`),
     )
   }
@@ -949,6 +1070,7 @@ function readPlugin(
       version: version as string,
       needs: needs as { lumovi: string },
       groups: (groups ?? []) as string[],
+      shows: ((shows ?? []) as NamedKind[]).map(kindId),
       source,
       ...(kinds ? { place: { ...rest, kinds: kinds.map(kindId) } } : {}),
       views,
@@ -961,27 +1083,47 @@ function readPlugin(
  * Which of `plugins` can't be used beside the ones before it, and why: a kind is one plugin's.
  * A group can be shared (three tools have kinds in argoproj.io), but not a kind in it; and a
  * plugin that shows every kind of a group (`*.group`) has that group to itself. Of two that
- * clash it's always the later that loses, so the same one on every start.
+ * clash it's always the later that loses, so the same one on every start. `held` are plugins
+ * in use before these and not judged with them: Lumovi's own, before a person's.
  */
 /** "flux’s", "argo-rollouts’". */
 const whose = (name: string) => (name.endsWith('s') ? `${name}’` : `${name}’s`)
 
-export function clashes(plugins: Plugin[]): Map<Plugin, string> {
+export function clashes(plugins: Plugin[], held: Plugin[] = []): Map<Plugin, string> {
   const lost = new Map<Plugin, string>()
   const owner = new Map<ResourceKind, string>()
   const whole = new Map<string, string>()
   const present = new Map<string, string>()
   const groupOf = (kind: ResourceKind) =>
     kind.includes('.') ? kind.slice(kind.indexOf('.') + 1) : ''
-  for (const plugin of plugins) {
+  const claims = (plugin: Plugin) => {
     const kinds = [...(plugin.place?.kinds ?? []), ...plugin.views.flatMap((view) => view.kinds)]
-    const groups = new Set([...plugin.groups, ...kinds.map(groupOf)])
+    return { kinds, groups: new Set([...plugin.groups, ...kinds.map(groupOf)]) }
+  }
+  const keep = (plugin: Plugin) => {
+    const { kinds, groups } = claims(plugin)
+    for (const kind of kinds) {
+      owner.set(kind, plugin.name)
+      if (kind.startsWith('*.')) whole.set(groupOf(kind), plugin.name)
+    }
+    for (const group of groups) if (!present.has(group)) present.set(group, plugin.name)
+  }
+  // What's held already (the plugins Lumovi comes with, before a person's) isn't judged, and
+  // what it has can be had one way only: by a plugin of its name, in its place.
+  held.forEach(keep)
+  const heldNames = new Set(held.map((plugin) => plugin.name))
+  const instead = (name: string) =>
+    heldNames.has(name) ? `. A plugin of yours named ${name} takes its place, all of it` : undefined
+  for (const plugin of plugins) {
+    const { kinds, groups } = claims(plugin)
     const problem =
-      [...groups].flatMap((group) =>
-        whole.has(group)
-          ? [`${group} is all ${whose(whole.get(group)!)}, so another plugin can’t have it`]
-          : [],
-      )[0] ??
+      [...groups].flatMap((group) => {
+        const all = whole.get(group)
+        if (all === undefined) return []
+        return [
+          `${group} is all ${whose(all)}${instead(all) ?? ', so another plugin can’t have it'}`,
+        ]
+      })[0] ??
       kinds.flatMap((kind) => {
         if (kind.startsWith('*.') && present.has(groupOf(kind))) {
           const first = present.get(groupOf(kind))
@@ -989,17 +1131,16 @@ export function clashes(plugins: Plugin[]): Map<Plugin, string> {
             `${groupOf(kind)} is in ${whose(first!)} groups too, so this plugin can’t have every kind of it`,
           ]
         }
-        return owner.has(kind) ? [`${kind} is already ${whose(owner.get(kind)!)} kind`] : []
+        const has = owner.get(kind)
+        if (has === undefined) return []
+        return [
+          instead(has)
+            ? `${kind} is ${whose(has)} kind${instead(has)}`
+            : `${kind} is already ${whose(has)} kind`,
+        ]
       })[0]
-    if (problem) {
-      lost.set(plugin, problem)
-      continue
-    }
-    for (const kind of kinds) {
-      owner.set(kind, plugin.name)
-      if (kind.startsWith('*.')) whole.set(groupOf(kind), plugin.name)
-    }
-    for (const group of groups) if (!present.has(group)) present.set(group, plugin.name)
+    if (problem) lost.set(plugin, problem)
+    else keep(plugin)
   }
   return lost
 }
