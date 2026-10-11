@@ -510,15 +510,22 @@ test('after a restart, a session that passes its person’s own token on carries
     LUMOVI_OIDC_SCOPES: 'openid email offline_access',
     LUMOVI_DATA_DIR: dir,
   }
-  // Tokens renewed every two seconds (see above).
-  const { oidc, served } = await withProvider(serve, { lifetime: 62 }, forwarding)
+  test.setTimeout(120_000)
+  // Tokens that last a minute and a quarter: renewed a minute early, so every fifteen seconds.
+  // The provider gives a new refresh token each time and takes the old one no more.
+  const { oidc, served } = await withProvider(serve, { lifetime: 75 }, forwarding)
   trust(oidc, clusters.demo)
   await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
-  await served.stop()
   const renewals = () =>
     oidc.tokenRequests.filter((r) => r.body.get('grant_type') === 'refresh_token').length
+  // Renewed once by the first server, and stopped in the quiet after it: what's kept is the
+  // second refresh token, the only one the provider still takes. (A server stopped at the very
+  // moment of a renewal is another matter, LMV-255's, and not this test's.)
+  await expect.poll(renewals, { timeout: 30_000 }).toBe(1)
+  await served.stop()
   const before = renewals()
+  expect(before).toBe(1)
 
   // The next server: her token, and what renews it, unsealed as her browser comes back.
   const again = await serve({
@@ -537,7 +544,9 @@ test('after a restart, a session that passes its person’s own token on carries
   await expect
     .poll(() => clusters.demo.requests.findLast((r) => r.path === '/api/v1/pods'))
     .toMatchObject({ user: 'oidc:alice@example.com' })
-  await expect.poll(renewals, { timeout: 15_000 }).toBeGreaterThan(before)
+  // The next renewal is the second server's, with what the first kept.
+  await expect.poll(renewals, { timeout: 30_000 }).toBeGreaterThan(before)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
   await again.stop()
   await oidc.close()
 })

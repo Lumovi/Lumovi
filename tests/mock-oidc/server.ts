@@ -146,7 +146,11 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, provider.issuer)
     const json = (status: number, body: unknown) => {
-      res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body))
+      // A connection an answer: none is kept to be used again just as this end lets it go, which
+      // the caller would see as a reset (what Lumovi does about one is LMV-255's to test).
+      res
+        .writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' })
+        .end(JSON.stringify(body))
     }
     const failing = (what: 'discovery' | 'jwks' | 'token') => {
       if (!provider.failing.has(what)) return false
