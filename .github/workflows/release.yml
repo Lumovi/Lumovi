@@ -1,13 +1,22 @@
 name: Release
 
-# Releases a version when it reaches main. Once CI passes on a commit whose
-# package.json version has no release yet, this builds the installers for every
+# Releases a version when it reaches main. Once CI passes on the commit that set a
+# package.json version with no release yet, and once the release is approved (below), this
+# builds the installers for every
 # platform (macOS signed and notarized, Windows signed), attaches them, their checksums and the
 # software bill of materials (SBOM) to a GitHub release with the version's
 # CHANGELOG notes, and publishes it, which tags the commit. The image and Helm
 # chart for running Lumovi in a cluster go to GitHub's container registry,
 # signed with cosign. Each is attested: built here, from this commit, of what. To release, bump the version, add its
 # CHANGELOG section and push (see CONTRIBUTING.md).
+#
+# Nothing is signed, attested, pushed or published until the release is approved: every job that
+# does any of it runs in the environment `release`, which holds the signing secrets, takes runs
+# from main alone, and has one required reviewer. The jobs that need it start together, right
+# after the version is found, so they wait together and one approval lets them all go. Until
+# then a run has made nothing but the release's notes, kept as a file with the run itself: no
+# draft, no tag, nothing signed, and the job before the approval may only read. A run that's
+# never approved stays so.
 on:
   workflow_run:
     workflows: [CI]
@@ -34,8 +43,9 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Read only: nothing is made, here or anywhere, before the release is approved.
     permissions:
-      contents: write
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
@@ -44,7 +54,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # With the commit before it: whether this one set the version (scripts/release-starts.ts).
+          fetch-depth: 2
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
       - name: The version, unless it's released already
         id: version
         env:
@@ -60,31 +75,14 @@ jobs:
             echo "v$version is released already."
             exit 0
           fi
-          # A release is newer than every one before it.
+          # By itself, only from the commit that set the version.
+          before=$(git show HEAD^:package.json 2> /dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2> /dev/null || true)
+          node scripts/release-starts.ts "$version" "$before"
+          if [ "$(grep -c '^starts=false$' "$GITHUB_OUTPUT")" != 0 ]; then exit 0; fi
+          # A release is newer than every one before it (asked again as it's published: a run
+          # may wait a long time for its approval).
           mapfile -t tags < <(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/v##')
-          if ! newer=$(node - "$version" "${tags[@]}" <<'EOF'
-          const [version, ...tags] = process.argv.slice(2)
-          const parse = (v) => {
-            const [core, pre] = v.split(/-(.*)/)
-            return [...core.split('.').map(Number), pre]
-          }
-          const compare = (a, b) => {
-            const [x, y] = [parse(a), parse(b)]
-            for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]
-            if (x[3] === y[3]) return 0
-            return !x[3] ? 1 : !y[3] ? -1 : x[3] < y[3] ? -1 : 1
-          }
-          const released = tags.filter((t) => /^\d+\.\d+\.\d+(-.+)?$/.test(t) && t !== version)
-          const newer = released.find((t) => compare(version, t) < 0)
-          if (newer) {
-            console.log(newer)
-            process.exit(1)
-          }
-          EOF
-          ); then
-            echo "::error::$version is older than v$newer, released already."
-            exit 1
-          fi
+          node scripts/release-starts.ts --newer "$version" "${tags[@]}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           # 1.1.0-beta.1 and the like are pre-releases, never the latest release.
@@ -129,19 +127,15 @@ jobs:
           \`helm install lumovi oci://ghcr.io/lumovi/charts/lumovi --version $VERSION\`, with the
           image \`ghcr.io/lumovi/lumovi:$VERSION\` for \`linux/amd64\` and \`linux/arm64\`.
           EOF
-      # Created once, here: the builds below would otherwise race to create it.
-      - name: Create the draft release
+      # Kept with the run for the job that makes the draft release, once the release is approved:
+      # nothing of a release exists before that.
+      - name: Keep the notes
         if: steps.version.outputs.version
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ steps.version.outputs.version }}
-          SHA: ${{ steps.version.outputs.sha }}
-        run: |
-          # A draft left by an attempt that failed is started over.
-          if gh release view "v$VERSION" >/dev/null 2>&1; then gh release delete "v$VERSION" --yes; fi
-          gh release create "v$VERSION" --draft --target "$SHA" \
-            --title "Lumovi $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+          retention-days: 7
 
   build:
     name: Build (${{ matrix.os }})
@@ -162,10 +156,13 @@ jobs:
           - os: windows-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    # The signing secrets live in this environment, which only main can deploy from.
+    # The signing secrets live in this environment, which only main can deploy from, and which
+    # waits for its reviewer's approval: nothing below runs before it.
     environment: release
     permissions:
       contents: write
+      # To see that this run's draft is made (the Linux build says so).
+      actions: read
       # For the build provenance attestation.
       id-token: write
       attestations: write
@@ -178,6 +175,45 @@ jobs:
         with:
           ref: ${{ needs.preflight.outputs.sha }}
           persist-credentials: false
+      # The draft release, made here: after the approval, and once, by one of the builds (the
+      # others would otherwise race to make it, each uploading to its own). A draft an earlier
+      # run left is started over; this run's own (it has said so, below) is kept: when a build
+      # that failed is run again by itself, it holds what the other builds uploaded.
+      - name: The release's notes
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+      - name: Create the draft release
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          SHA: ${{ needs.preflight.outputs.sha }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            made=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/artifacts?name=release-draft-made" --jq '.total_count')
+            if [ "$made" != 0 ]; then
+              echo "Run again: this run's draft of $VERSION is kept, with what's on it."
+              exit 0
+            fi
+            gh release delete "v$VERSION" --yes
+          fi
+          gh release create "v$VERSION" --draft --target "$SHA" \
+            --title "Lumovi $VERSION" --notes-file "$RUNNER_TEMP/release-notes/notes.md"
+      # What the other builds wait for: this run's own draft, not one an earlier run left, which
+      # the step above is about to start over.
+      - name: Say the draft is made
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-draft-made
+          path: ${{ runner.temp }}/release-notes/notes.md
+          overwrite: true
+          retention-days: 7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
@@ -243,6 +279,22 @@ jobs:
           WIN_SIMPLYSIGN_ID: ${{ secrets.WIN_SIMPLYSIGN_ID }}
           WIN_SIMPLYSIGN_OTP_URI: ${{ secrets.WIN_SIMPLYSIGN_OTP_URI }}
         run: if [ -n "$WIN_SIMPLYSIGN_ID" ]; then node scripts/simplysign.ts; fi
+      # (Made by the Linux build, seconds after the approval; this is minutes later.)
+      - name: Wait for the draft release
+        if: matrix.os != 'ubuntu-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          for _ in $(seq 60); do
+            made=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/artifacts?name=release-draft-made" --jq '.total_count' 2> /dev/null || echo 0)
+            if [ "$made" != 0 ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::The draft release for $VERSION wasn't made in ten minutes: the Linux build makes it as it starts."
+          exit 1
       - name: Package and upload the installers
         shell: bash
         env:
@@ -335,7 +387,8 @@ jobs:
     if: needs.preflight.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Only main deploys from this environment: what's pushed and signed is main's.
+    # Only main deploys from this environment, and only once its reviewer has approved the
+    # release: what's pushed and signed is main's, and approved.
     environment: release
     permissions:
       contents: read
@@ -456,6 +509,25 @@ jobs:
       SHA: ${{ needs.preflight.outputs.sha }}
       PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+      # Asked again here: this run may have waited days for its approval, and an older version
+      # mustn't be published as the latest over one released meanwhile.
+      - name: Still newer than every release
+        run: |
+          mapfile -t tags < <(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/v##')
+          node scripts/release-starts.ts --newer "$VERSION" "${tags[@]}"
+      # Every file a release is made of, by name, or nothing is published: a build run again
+      # by itself must never leave a release of one platform's installers alone.
+      - name: The draft is whole
+        run: |
+          mapfile -t files < <(gh release view "$TAG" --json assets --jq '.assets[].name')
+          node scripts/release-starts.ts --whole "$VERSION" "$PRERELEASE" "${files[@]}"
       - name: Add SHA256SUMS.txt
         run: |
           mkdir assets && cd assets
@@ -547,21 +619,48 @@ jobs:
 
   homebrew:
     name: Homebrew tap
-    needs: [preflight, publish]
+    # It starts with the builds, not after publishing: a job that comes to the environment later
+    # in a run waits for an approval of its own, and one approval a release is enough. So it's
+    # let go with the rest, and then waits here for the release to be published.
+    needs: preflight
     # The cask follows the latest release, never a prerelease.
-    if: needs.preflight.outputs.prerelease != 'true'
+    if: needs.preflight.outputs.version != '' && needs.preflight.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 130
     # The token is main's alone, as the signing keys are.
     environment: release
-    permissions: {}
+    permissions:
+      # To see the release published, and how this run's publishing went.
+      contents: read
+      actions: read
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
-      # May start Lumovi/homebrew-tap's workflows (its Actions, read and write), and nothing else.
-      GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
+      - name: Wait for the release to be published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Every half minute, for two hours; sooner done if this run's publishing didn't happen.
+          for _ in $(seq 240); do
+            if [ "$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2> /dev/null)" = false ]; then exit 0; fi
+            publishing=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+              --jq '.jobs[] | select(.name == "Checksums and publish") | .conclusion // ""' 2> /dev/null || true)
+            case "$publishing" in
+              failure | cancelled | skipped)
+                echo "::error::Lumovi $VERSION wasn't published by this run ($publishing), so the Homebrew tap wasn't told. It's told by the run that does publish it, or follows on its own schedule."
+                exit 1
+                ;;
+            esac
+            sleep 30
+          done
+          echo "::error::Lumovi $VERSION wasn't published within two hours, so the Homebrew tap wasn't told. It's told by the run that does publish it, or follows on its own schedule."
+          exit 1
       # Its own schedule is the tap's fallback: GitHub drops scheduled runs when it's busy.
       - name: The tap, told
+        env:
+          # May start Lumovi/homebrew-tap's workflows (its Actions, read and write), and nothing else.
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "HOMEBREW_TAP_TOKEN isn't set: the tap follows on its own schedule." >> "$GITHUB_STEP_SUMMARY"
