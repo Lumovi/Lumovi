@@ -571,6 +571,50 @@ test('of Kubernetes’ own kinds, only what’s on Lumovi’s list: nothing else
   expect(readable(THING, parse('.metadata.name'), [])).toBe(false)
 })
 
+test('a label named like a field is a label: what’s handed over is the object’s, not a wrong one', () => {
+  const labels = {
+    app: 'shop',
+    env: 'prod',
+    command: 'x',
+    template: 'web',
+    volumes: 'none',
+    args: 'a',
+    containers: '2',
+    tier: 'front',
+  }
+  // A line of Lumovi's own list: as it is.
+  expect(
+    picked({ metadata: { labels } }, POD, says({ fields: fields('metadata.labels') }), []),
+  ).toEqual({ metadata: { labels } })
+  const conditions = [{ type: 'Ready', status: 'True', message: 'env and args are fine' }]
+  expect(
+    picked({ status: { conditions } }, NODE, says({ fields: fields('status.conditions') }), []),
+  ).toEqual({ status: { conditions } })
+  // Another tool's kind: its labels and selectors whole and inside what's handed over whole;
+  // the dropping reaches a real `env` beside them and not a label called that.
+  const thing = {
+    metadata: { labels },
+    spec: {
+      selector: { matchLabels: { env: 'prod', app: 'shop' } },
+      placement: {
+        nodeSelector: { env: 'prod' },
+        env: [{ name: 'TOKEN', value: 'hunter2' }],
+        size: 2,
+      },
+    },
+  }
+  const of = (...paths: string[]) => picked(thing, THING, says({ fields: fields(...paths) }), [])
+  expect(of('metadata.labels')).toEqual({ metadata: { labels } })
+  expect(of('spec.selector')).toEqual({ spec: { selector: thing.spec.selector } })
+  expect(of('spec.selector.matchLabels')).toEqual({ spec: { selector: thing.spec.selector } })
+  expect(of('spec.placement')).toEqual({
+    spec: { placement: { nodeSelector: { env: 'prod' }, size: 2 } },
+  })
+  expect(JSON.stringify(of('spec.placement', 'spec.selector', 'metadata.labels'))).not.toContain(
+    'hunter2',
+  )
+})
+
 test('what a ConfigMap holds, anything of a Secret, and what isn’t a field’s own name: never', () => {
   const held = {
     metadata: { name: 'a' },
