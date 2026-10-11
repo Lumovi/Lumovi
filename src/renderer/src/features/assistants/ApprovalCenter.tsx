@@ -39,11 +39,12 @@ import { refreshAfterChange } from '@renderer/hooks/change'
 import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { cutToFit } from '@renderer/lib/fit'
 import { pluralize } from '@renderer/lib/format'
 import { PHONE_MEDIA, useLayout, useTouch, type Layout } from '@renderer/lib/layout'
 import { toYaml } from '@renderer/lib/yaml'
 import { useActivity } from '@renderer/state/activity'
-import { toast } from '@renderer/state/toasts'
+import { toast, type Said } from '@renderer/state/toasts'
 import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
 
@@ -127,6 +128,10 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
   const { client, context, title, done, command, target } = proposal
   const entry = { context, command, target, via: client }
   const { record } = useActivity.getState()
+  // (For a note shown inside a sheet: the change as it was asked, as it was made, and where.)
+  const what = lowerFirst(title)
+  const did = lowerFirst(done)
+  const where = `, in ${context}.`
   switch (status) {
     case 'applied':
       record({ ...entry, title: done, status: 'done' })
@@ -137,11 +142,27 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
         description: unasked
           ? `${client} changed ${context} without asking: assistants may, there.`
           : `As ${client} asked, in ${context}.`,
+        inSheet: unasked
+          ? all(said('Changed without asking:', did, target.name, where))
+          : {
+              approval: said('The change before:', did, target.name, where),
+              action: said('Another change:', did, target.name, where),
+              other: said(`As ${client} asked:`, did, target.name, where),
+            },
       })
       break
     case 'failed':
       record({ ...entry, title: done, status: 'failed', error })
-      toast({ tone: 'error', title: `${title} failed`, description: error })
+      toast({
+        tone: 'error',
+        title: `${title} failed`,
+        description: error,
+        inSheet: {
+          approval: said('The change before failed:', what, target.name, where),
+          action: said('Another change failed:', what, target.name, where),
+          other: said('Failed:', what, target.name, where),
+        },
+      })
       break
     case 'rejected':
       record({ ...entry, title, status: 'rejected', ...(error ? { note: error } : {}) })
@@ -151,6 +172,10 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
         tone: 'info',
         title: 'Not approved in time',
         description: `${client} asked to ${lowerFirst(title)}. Nothing was changed.`,
+        inSheet: {
+          ...all(said('Another change wasn’t approved in time:', what, target.name, where)),
+          other: said('Not approved in time:', what, target.name, where),
+        },
       })
       break
     case 'withdrawn':
@@ -158,11 +183,27 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
         tone: 'info',
         title: `${client} withdrew a change`,
         description: `${title}. Nothing was changed.`,
+        inSheet: {
+          ...all(said(`${client} withdrew another change:`, what, target.name, where)),
+          other: said(`${client} withdrew a change:`, what, target.name, where),
+        },
       })
   }
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1)
+
+/**
+ * A note's sentence for where it's shown inside a sheet: its words in front, what was done or
+ * asked, and where. The object's name by its place in it.
+ */
+function said(lead: string, what: string, name: string, tail: string): Said {
+  const at = what.lastIndexOf(name)
+  return at < 0
+    ? { lead, before: what, name: '', after: tail }
+    : { lead, before: what.slice(0, at), name, after: `${what.slice(at + name.length)}${tail}` }
+}
+const all = (sentence: Said) => ({ approval: sentence, action: sentence, other: sentence })
 
 /** The object as the diff shows it: what's set, not what the server keeps (Lumovi hid Secrets' values). */
 function forDiff(object: KubeObject | null): string {
@@ -253,7 +294,7 @@ function ApprovalDialog({
             sheetFrame,
           )}
         >
-          <SheetGrabber onClose={hide} className="hidden phone:block" />
+          <SheetGrabber kind="approval" onClose={hide} className="hidden phone:block" />
           {/* On a phone the queue's arrows have a row of their own under the title, which
               keeps the sheet's width. */}
           <header
@@ -514,9 +555,8 @@ function useLiveAfter(after: number): boolean {
   return live
 }
 
-/** How many lines a phone's title takes at most, and how much of a name's end is kept. */
+/** How many lines a phone's title takes at most. */
 const TITLE_LINES = 3
-const NAME_END = 6
 
 /**
  * A request's title on a phone: wrapped, whole, in up to three lines. Where it would take
@@ -534,23 +574,18 @@ function WithinLines({ text, name }: { text: string; name?: string }) {
         span.textContent = candidate
         return span.offsetHeight <= most
       }
-      let fitted = text
       // (Where the name is, by its place: it may hold any characters, and the kind's word
       // before it may be the same as it.)
       const at = name ? text.lastIndexOf(name) : -1
-      if (!fits(text) && name && at >= 0 && name.length > NAME_END + 2) {
-        const cut = (kept: number) =>
-          `${text.slice(0, at)}${name.slice(0, kept)}…${name.slice(-NAME_END)}${text.slice(at + name.length)}`
-        // The most of the name's start that still fits.
-        let low = 1
-        let high = name.length - NAME_END - 1
-        while (low < high) {
-          const middle = Math.ceil((low + high) / 2)
-          if (fits(cut(middle))) low = middle
-          else high = middle - 1
-        }
-        fitted = cut(low)
-      }
+      const fitted =
+        name && at >= 0
+          ? cutToFit({
+              before: text.slice(0, at),
+              name,
+              after: text.slice(at + name.length),
+              fits,
+            })
+          : text
       span.textContent = fitted
     }
     fit()
@@ -606,8 +641,26 @@ function NavButton({
 function Waiting({ queue }: { queue: ChangeProposal[] }) {
   const show = useApprovals((state) => state.show)
   const clients = [...new Set(queue.map((p) => p.client))]
+  // A phone's note sits 8 px above this (components/Toaster.tsx): how far up that is, said for
+  // as long as this is here. (By its place in the layout, not where its way in has drawn it.)
+  const pill = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => {
+    const root = document.documentElement.style
+    const say = () =>
+      root.setProperty('--over-pill', `${window.innerHeight - pill.current!.offsetTop + 8}px`)
+    say()
+    const sized = new ResizeObserver(say)
+    sized.observe(pill.current!)
+    window.addEventListener('resize', say)
+    return () => {
+      sized.disconnect()
+      window.removeEventListener('resize', say)
+      root.removeProperty('--over-pill')
+    }
+  }, [])
   return (
     <button
+      ref={pill}
       type="button"
       onClick={() => show()}
       // On a phone it's as wide as the screen lets it be, its words on more lines if they must.

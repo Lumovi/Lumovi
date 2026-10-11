@@ -21,8 +21,10 @@ All notable changes to Lumovi are documented here. The format follows
   change aside: it isn't an answer. On a phone an object
   offers Restart, Scale, Cordon and Uncordon, each behind its usual confirmation, and nothing
   else: no deleting, editing or shells there. Wherever the page is used by touch, what's pressed
-  answers on at least 44 px and nothing needs a hover. Nothing scrolls sideways but a strip of
-  tabs. The desktop app, whose window stops at 1024 px, is unchanged.
+  answers on at least 44 px and nothing needs a hover. A table's rows are cards there, and a
+  card's facts stand side by side only where every value fits: a long one has a line of its own.
+  Nothing scrolls sideways but a strip of tabs. The desktop app, whose window stops at 1024 px,
+  is unchanged.
 - Service accounts, roles and bindings have pages of their own, under **Access control** in the
   sidebar: Roles, Cluster Roles, Role Bindings, Cluster Role Bindings and Service Accounts, each
   also in the command palette and `g` navigation (`g r`, `g k`, `g b`, `g g`, `g t`). A role's
@@ -53,7 +55,9 @@ All notable changes to Lumovi are documented here. The format follows
   your own that names one of them is refused, and the API resources page says which.
 - A note at the bottom of the window (that a change was made, say) stays while a mouse points at
   it, and no longer while a finger's last tap happens to be where it appeared: on a touch screen
-  it now always leaves after its few seconds.
+  it now always leaves after its few seconds. On a phone it sits above the pill of changes that
+  wait, and is never over an open sheet: it's a line at the sheet's top instead, which says when
+  it's about another change than the one shown.
 - "Create from YAML" is **Create…**: on the + button, in the command palette, in the shortcuts
   and in the app's menu (where it was "New from YAML…").
 

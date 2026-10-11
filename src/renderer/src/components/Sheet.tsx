@@ -1,7 +1,9 @@
 import { X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { useRef, type PointerEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type PointerEvent, type ReactNode } from 'react'
 import { cn } from '@renderer/lib/cn'
+import { useLayout } from '@renderer/lib/layout'
+import { useToasts, type SheetKind } from '@renderer/state/toasts'
 
 /** How far down a sheet is dragged by its grabber before letting go closes it. */
 const DISMISS_DISTANCE = 96
@@ -30,7 +32,16 @@ export const sheetFooter =
  * The bar at a sheet's top that says it can be dragged down, and does it: let go far enough
  * down, it closes (whatever closing means to who opened it). It moves the dialog it's in.
  */
-export function SheetGrabber({ onClose, className }: { onClose: () => void; className?: string }) {
+export function SheetGrabber({
+  onClose,
+  className,
+  kind = 'other',
+}: {
+  onClose: () => void
+  className?: string
+  /** What the sheet is: a note shown in it words itself by that (state/toasts.ts). */
+  kind?: SheetKind
+}) {
   const drag = useRef<{ from: number; pointer: number; sheet: HTMLElement }>(undefined)
   const down = (event: PointerEvent<HTMLDivElement>) => {
     const sheet = event.currentTarget.closest<HTMLElement>('[role="dialog"]')!
@@ -50,17 +61,34 @@ export function SheetGrabber({ onClose, className }: { onClose: () => void; clas
     if (event.clientY - from > DISMISS_DISTANCE) onClose()
   }
   return (
-    <div
-      data-sheet-grabber
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={up}
-      className={cn('shrink-0 touch-none pt-2 pb-1', className)}
-    >
-      <span aria-hidden className="mx-auto block h-1 w-9 rounded-full bg-line-strong" />
-    </div>
+    <>
+      <div
+        data-sheet-grabber
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+        className={cn('shrink-0 touch-none pt-2 pb-1', className)}
+      >
+        <span aria-hidden className="mx-auto block h-1 w-9 rounded-full bg-line-strong" />
+      </div>
+      <NoteSlot kind={kind} />
+    </>
   )
+}
+
+/**
+ * Where a note is shown while this sheet is open: inside it, as its first line under the
+ * grabber, and not floating over it (components/Toaster.tsx puts it here). On a phone only:
+ * this is the one place that says so. Wider, a note is where it always was.
+ */
+function NoteSlot({ kind }: { kind: SheetKind }) {
+  const phone = useLayout() === 'phone'
+  const element = useRef<HTMLDivElement>(null)
+  const slot = useToasts((state) => state.slot)
+  // (Before the sheet is first drawn: a note already showing is never drawn over it.)
+  useLayoutEffect(() => (phone ? slot(element.current!) : undefined), [phone, slot])
+  return phone ? <div ref={element} data-note-slot={kind} className="shrink-0" /> : null
 }
 
 /**
