@@ -40,34 +40,50 @@ Object.defineProperty(updater, 'netSession', {
 globalThis.__updater = updater
 // Every terminal's pty is counted (globalThis.__ptys): when it was started, when its first
 // output came and how much came in all. A failure's diagnostics say it, beside what the page
-// was handed (window.__terminalHeard), to tell where a terminal's output stopped.
+// was handed (window.__terminalHeard) and what the page sent back (globalThis.__terminalSent),
+// to tell where a terminal's output stopped.
+//
+// node-pty's own exports are changed, in place and before the app loads it: the app's main
+// process is an ES module, and what it imports never passes through the hook below (which sees
+// only what's loaded with require), but it does get this same object's `spawn`.
 globalThis.__ptys = []
-const counted = (pty) => ({
-  ...pty,
-  spawn(file, ...rest) {
-    const made = pty.spawn(file, ...rest)
-    const entry = {
-      pid: made.pid,
-      file,
-      started: Date.now(),
-      first: null,
-      characters: 0,
-      ended: null,
-    }
-    globalThis.__ptys.push(entry)
-    made.onData((data) => {
-      entry.first ??= Date.now()
-      entry.characters += data.length
-    })
-    made.onExit(() => (entry.ended = Date.now()))
-    return made
-  },
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nodePty = require('node-pty')
+const spawnPty = nodePty.spawn
+nodePty.spawn = function spawn(file, ...rest) {
+  const made = spawnPty.call(this, file, ...rest)
+  const entry = {
+    pid: made.pid,
+    file,
+    started: Date.now(),
+    first: null,
+    characters: 0,
+    ended: null,
+  }
+  globalThis.__ptys.push(entry)
+  made.onData((data) => {
+    entry.first ??= Date.now()
+    entry.characters += data.length
+  })
+  made.onExit(() => (entry.ended = Date.now()))
+  return made
+}
+// What the page sent each terminal's shell: how much, and the first of what begins with an
+// escape, which is the terminal's own answer to something the shell (or its console) asked as
+// it started, or a test's own arrow or function key. No person types into a test's terminal.
+globalThis.__terminalSent = {}
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('electron').ipcMain.on('terminal:input', (_event, id, data) => {
+  if (typeof id !== 'string' || typeof data !== 'string') return
+  const sent = (globalThis.__terminalSent[id] ??= { characters: 0, beganWithAnEscape: [] })
+  sent.characters += data.length
+  if (data.startsWith('\u001b') && sent.beganWithAnEscape.length < 8)
+    sent.beganWithAnEscape.push(data.slice(0, 32))
 })
 const load = Module._load
 Module._load = function (request, ...rest) {
   if (request === 'electron-updater') return { autoUpdater: updater }
-  const loaded = load.call(this, request, ...rest)
-  return request === 'node-pty' ? counted(loaded) : loaded
+  return load.call(this, request, ...rest)
 }
 
 const CLIPBOARD = `
@@ -75,12 +91,14 @@ const CLIPBOARD = `
   navigator.clipboard.writeText = async (text) => { window.__clipboard = String(text) }
   navigator.clipboard.readText = async () => window.__clipboard
 `
-// What the page is handed of each terminal's output: characters, and when the first came.
+// What the page is handed of each terminal's output: how much, when the first came, and its
+// first 512 characters (a shell's opening lines: whether it asked the terminal anything).
 const TERMINALS = `
   window.__terminalHeard = {}
   window.lumovi?.terminal?.onData((id, data) => {
-    const heard = (window.__terminalHeard[id] ??= { first: Date.now(), characters: 0 })
+    const heard = (window.__terminalHeard[id] ??= { first: Date.now(), characters: 0, start: '' })
     heard.characters += String(data).length
+    if (heard.start.length < 512) heard.start = (heard.start + data).slice(0, 512)
   })
 `
 app.on('web-contents-created', (_event, contents) => {

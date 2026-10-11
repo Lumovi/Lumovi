@@ -597,6 +597,46 @@ test('kubeconfigs a Lumovi that’s gone left behind are swept on start', async 
   rmSync(running, { recursive: true })
 })
 
+test('what a failure’s diagnostics count of a terminal is really counted', async ({
+  launch,
+}, testInfo) => {
+  // The counters a failed test prints (fixtures.ts): the shell's pty, what the page was handed
+  // and how it began, and what the page sent back before anything was typed. Held here against
+  // a terminal that works, so that they say something true about one that doesn't.
+  test.skip(PACKAGED, 'The packaged app runs without the tests’ counters.')
+  const { page, app } = await launch({ env: SHELL })
+  await openCluster(page)
+  await page.keyboard.press('Control+Backquote')
+  await ready(page)
+  const counted = await app.evaluate(() => ({
+    ptys: (globalThis as unknown as { __ptys: { first: number | null; characters: number }[] })
+      .__ptys,
+    sent: (
+      globalThis as unknown as {
+        __terminalSent: Record<string, { characters: number; beganWithAnEscape: string[] }>
+      }
+    ).__terminalSent,
+  }))
+  const heard = await page.evaluate(() =>
+    Object.values(
+      (
+        window as unknown as {
+          __terminalHeard: Record<string, { characters: number; start: string }>
+        }
+      ).__terminalHeard,
+    ),
+  )
+  expect(counted.ptys).toHaveLength(1)
+  expect(counted.ptys[0]!.first).not.toBeNull()
+  expect(heard).toHaveLength(1)
+  expect(counted.ptys[0]!.characters).toBeGreaterThan(0)
+  expect(heard[0]!.start.length).toBeGreaterThan(0)
+  // For whoever reads a run: how this shell began, and whether it asked the terminal anything.
+  const began = JSON.stringify({ start: heard[0]!.start.slice(0, 200), sent: counted.sent })
+  testInfo.annotations.push({ type: 'terminal', description: began })
+  console.log(`a terminal began: ${began}`)
+})
+
 test('without SHELL, the system’s own shell', async ({ launch }) => {
   test.skip(WINDOWS, 'Windows terminals run PowerShell, whatever SHELL says')
   const { page } = await launch({ env: { SHELL: '' } })

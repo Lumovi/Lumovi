@@ -10,6 +10,7 @@ import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import type { KubeErrorCode, ShellExit, ShellRequest } from '@shared/api'
 import { api } from '@renderer/lib/api'
+import { ShellInput } from './input'
 
 export type Phase =
   | { state: 'connecting' }
@@ -102,6 +103,8 @@ export class TerminalSession {
   #ready = false
   #typed = false
   #settling: ReturnType<typeof setTimeout> | undefined
+  /** What the terminal sends its shell; kept while the shell is still being opened. */
+  readonly #input = new ShellInput((data) => api.terminal.write(this.id, data))
   #ending: ReturnType<typeof setTimeout> | undefined
 
   /** Nothing starts yet: React may make one and throw it away. */
@@ -153,13 +156,16 @@ export class TerminalSession {
         if (this.#phase.state === 'open' && !this.#ready) this.#settle(SETTLE_MS)
       }),
       api.terminal.onExit((session, exit) => {
-        if (session === id) this.#set({ state: 'ended', exit })
+        if (session !== id) return
+        this.#input.over()
+        this.#set({ state: 'ended', exit })
       }),
     )
     const input = this.term.onData((data) => {
-      if (this.#phase.state !== 'open') return
-      this.#typed = true
-      api.terminal.write(id, data)
+      // (Not only typing: the terminal's own answer to a shell that asks it something as it
+      // starts comes this way too, and is never dropped. See `ShellInput`.)
+      if (this.#phase.state === 'open') this.#typed = true
+      this.#input.take(data)
     })
     this.#cleanup.push(() => input.dispose())
     void api.terminal.open(id, this.request).then((result) => {
@@ -167,10 +173,12 @@ export class TerminalSession {
       // container without a shell can say so before the answer comes): it stays ended.
       if (this.#disposed || this.#phase.state === 'ended') return
       if (!result.ok) {
+        this.#input.over()
         this.#set({ state: 'failed', error: result.error.message, code: result.error.code })
         return
       }
       this.#set({ state: 'open' })
+      this.#input.opened()
       this.#resize()
       // (A shell that says nothing at first is ready a little later anyway.)
       this.#settle(QUIET_START_MS)
@@ -233,6 +241,7 @@ export class TerminalSession {
   /** Ends the shell and forgets the terminal. */
   dispose(): void {
     this.#disposed = true
+    this.#input.over()
     clearTimeout(this.#settling)
     live.delete(this)
     for (const off of this.#cleanup) off()
