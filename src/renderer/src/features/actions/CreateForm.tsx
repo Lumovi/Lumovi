@@ -284,9 +284,12 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
         by = Math.min(by, Math.max(0, typing.getBoundingClientRect().top - LABEL - frame.top))
       }
       if (by <= 0) return
-      moving = true
+      const from = pane.scrollTop
       // (A pane scrolls by whole pixels: up to the next one, so it's clear and not nearly.)
       pane.scrollTop += Math.ceil(by)
+      // (Its own move isn't the person's: but at the pane's end nothing moves, and nothing's
+      // said of it.)
+      moving = pane.scrollTop !== from
     }
     const onScroll = () => {
       if (moving) moving = false
@@ -1720,7 +1723,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
         error={wrong.find((problem) => problem.field === 'ports' && !unnamed(problem))?.message}
       >
         {(ids) => (
-          <div role="group" aria-labelledby={ids.label} className="@container flex flex-col gap-2">
+          <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
             {rows.map((port, index) => {
               const at = (key: string): Path => [...base, index, key]
               const bad = (key: string) => saidOf(wrong, 'ports', at(key)) !== undefined
@@ -1728,9 +1731,10 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
               return (
                 // (One list, so a new row that's numbered is the same row, and keeps the focus.)
                 <div key={index} className="flex flex-wrap items-start gap-1.5">
-                  {/* Where the pane is narrower than 480 px a port is two lines, so the pod's
-                      port is never cut: the port, the arrow, the pod's port and the ×; under
-                      them the protocol, with the port's name beside it when it has one. */}
+                  {/* Under a finger a port is two lines, so the pod's port is never cut (the form's
+                      pane is 440 px at any window's width, and a finger's fields are wide): the
+                      port, the arrow, the pod's port and the ×; under them the protocol, with
+                      the port's name beside it when it has one. With a mouse it's one line. */}
                   <span className="order-1 w-[104px] shrink-0">
                     <Text
                       aria-label={port.draft ? 'A new port' : nth}
@@ -1757,7 +1761,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                   <span aria-hidden className="order-2 flex h-8 shrink-0 items-center touch:h-11">
                     <ArrowRight className="size-3.5 text-ink-3" />
                   </span>
-                  <span className="order-3 min-w-0 flex-1 @max-[479px]:flex-none @max-[479px]:basis-[calc(100%-168px)] @max-[479px]:touch:basis-[calc(100%-180px)]">
+                  <span className="order-3 min-w-0 flex-1 touch:flex-none touch:basis-[calc(100%-180px)]">
                     <Text
                       aria-label={`${nth}, on the pod`}
                       aria-invalid={bad('targetPort')}
@@ -1775,7 +1779,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                       {...focused('ports', at('targetPort'))}
                     />
                   </span>
-                  <span className="order-4 w-[84px] shrink-0 @max-[479px]:order-5">
+                  <span className="order-4 w-[84px] shrink-0 touch:order-5">
                     <Choice
                       aria-label={`${nth}’s protocol`}
                       disabled={port.draft}
@@ -1794,7 +1798,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                       ))}
                     </Choice>
                   </span>
-                  <span className="order-5 shrink-0 @max-[479px]:order-4">
+                  <span className="order-5 shrink-0 touch:order-4">
                     <RemoveButton
                       label={port.draft ? 'Remove the new port' : `Remove port ${index + 1}`}
                       onClick={() =>
@@ -1805,7 +1809,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                   {/* With more than one, the cluster asks a name of each. (On a line of its own it
                       stops where the protocol does, short of the ×.) */}
                   {!port.draft && (values.ports.length > 1 || port.name !== '') && (
-                    <span className="order-6 min-w-0 basis-full pr-[38px] @max-[479px]:flex-1 @max-[479px]:basis-0 @max-[479px]:pr-0! touch:pr-[50px]">
+                    <span className="order-6 min-w-0 basis-full pr-[38px] touch:flex-1 touch:basis-0 touch:pr-0! touch:pr-[50px]">
                       <Text
                         aria-label={`${nth}’s name`}
                         aria-invalid={bad('name')}

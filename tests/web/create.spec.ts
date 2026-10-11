@@ -92,6 +92,18 @@ test.describe('under a finger', () => {
     const onThePod = form.getByRole('textbox', { name: 'Port 1, on the pod', exact: true })
     const whole = (input: typeof onThePod) =>
       input.evaluate((field: HTMLInputElement) => field.scrollWidth <= field.clientWidth)
+    // (Under a finger, in a pane this narrow, a port is two lines: its protocol under its numbers.)
+    await expect
+      .poll(async () => {
+        const [port, protocol] = [
+          await form.getByRole('textbox', { name: 'Port 1', exact: true }).boundingBox(),
+          await form
+            .getByRole('combobox', { name: 'Port 1’s protocol', exact: true })
+            .boundingBox(),
+        ]
+        return port && protocol ? protocol.y - port.y : NaN
+      })
+      .toBeGreaterThanOrEqual(44)
     for (const typed of ['8080', '65535', 'grpc-web']) {
       await onThePod.fill(typed)
       expect(await whole(onThePod), `${typed} in “on the pod”`).toBe(true)
