@@ -270,7 +270,7 @@ test('nothing hands over more than it names: metadata, a spec, a list of contain
 
 test('a container’s environment, and a tool’s own annotations, are never handed over, whoever names them', () => {
   // One annotation by its key, yes: but never the object as it was last applied, nor its kin.
-  const one = (key: string) =>
+  const one = (key: string, groups: string[] = []) =>
     picked(
       pod,
       THING,
@@ -282,11 +282,18 @@ test('a container’s environment, and a tool’s own annotations, are never han
           },
         ],
       }),
-      [],
+      groups,
     )
-  expect(one('example.com/owner')).toEqual({
+  // On another tool's kind too, an annotation only by a key under one of the plugin's own
+  // groups: anyone else's is whatever that tool wrote, often its own copy of the object.
+  expect(one('example.com/owner')).toEqual({})
+  expect(one('example.com/owner', ['example.com'])).toEqual({
     metadata: { annotations: { 'example.com/owner': 'team-a' } },
   })
+  expect(one('kopf.zalando.org/last-handled-configuration')).toEqual({})
+  expect(
+    one('kubectl.kubernetes.io/last-applied-configuration', ['kubectl.kubernetes.io']),
+  ).toEqual({})
   expect(one('kubectl.kubernetes.io/last-applied-configuration')).toEqual({})
   expect(one('control-plane.alpha.kubernetes.io/leader')).toEqual({})
   // The environment: by name, under a name, or inside something handed over whole.

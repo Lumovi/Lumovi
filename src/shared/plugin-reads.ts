@@ -235,6 +235,10 @@ export const READABLE: Readonly<Record<string, readonly string[]>> = {
     'status.containerStatuses.name',
     'status.containerStatuses.ready',
     'status.containerStatuses.restartCount',
+    // Off it, by decision: status.podIP and hostIP (where it is on the network); a container's
+    // state and last state (the last termination message is the tail of its log); its
+    // command, arguments, environment, probes, hooks, ports and volumes; init and ephemeral
+    // containers; every annotation but the plugin's own groups'.
   ],
   '/Node': [
     'metadata.name',
@@ -244,6 +248,8 @@ export const READABLE: Readonly<Record<string, readonly string[]>> = {
     'status.capacity',
     'status.allocatable',
     'status.conditions',
+    // Off it, by decision: spec.providerID (an account's instance); status.addresses (where it
+    // is on the network); status.nodeInfo and status.images (what runs there, exactly).
   ],
 }
 
@@ -270,10 +276,22 @@ export function readable(
   const path = written(steps)
   if (path === undefined) return false
   if (lines.includes(path)) return true
-  const [first, second, key, ...more] = steps as readonly { key: string }[]
-  if (first?.key !== 'metadata' || second?.key !== 'annotations' || !key || more.length > 0) {
-    return false
-  }
+  return ownAnnotation(steps as readonly { key: string }[], groups) === true
+}
+
+/**
+ * Of a path of field names: whether it's one annotation by its key (`metadata.annotations` and
+ * a key), and then whether the key is under one of the plugin's own groups. Nothing if the path
+ * isn't an annotation's. On any kind that isn't the plugin's own, nobody else's annotation is
+ * read: its value is whatever another tool wrote there (often its own copy of the object).
+ */
+function ownAnnotation(
+  steps: readonly { key: string }[],
+  groups: readonly string[],
+): boolean | undefined {
+  const [first, second, key, ...more] = steps
+  if (first?.key !== 'metadata' || second?.key !== 'annotations' || !key) return undefined
+  if (more.length > 0) return false
   const slash = key.key.indexOf('/')
   return slash > 0 && groups.includes(key.key.slice(0, slash)) && !neverHanded(key.key)
 }
@@ -311,11 +329,15 @@ const NEVER_WHOLE = new Set([
  * Whether a path of another tool's kind may be handed over (the file checker refuses these; so
  * does the door).
  */
-function mayBePicked(steps: readonly Step[]): steps is readonly { key: string }[] {
+function mayBePicked(
+  steps: readonly Step[],
+  groups: readonly string[],
+): steps is readonly { key: string }[] {
   if (steps.length === 0) return false
   if (!steps.every((step) => 'key' in step && !neverHanded(step.key))) return false
   const keys = (steps as readonly { key: string }[]).map((step) => step.key)
-  return !NEVER_WHOLE.has(keys.at(-1)!)
+  if (NEVER_WHOLE.has(keys.at(-1)!)) return false
+  return ownAnnotation(steps as readonly { key: string }[], groups) !== false
 }
 
 /** The paths a plugin may have, as a tree of field names: `whole` where one ends. */
@@ -370,7 +392,7 @@ export function picked(
   // One of Kubernetes' own: what's on Lumovi's list for it. Another tool's kind, where Lumovi
   // can have no list: any path but the ones that hand over more than they name.
   const may = (steps: readonly Step[]): steps is readonly { key: string }[] =>
-    isCustomGroup(kind.group) ? mayBePicked(steps) : readable(kind, steps, groups)
+    isCustomGroup(kind.group) ? mayBePicked(steps, groups) : readable(kind, steps, groups)
   const root: Named = { whole: false, under: new Map() }
   for (const { steps } of fields) {
     if (!may(steps)) continue
