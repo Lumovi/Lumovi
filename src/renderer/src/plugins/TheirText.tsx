@@ -5,8 +5,9 @@
  * Lumovi's, drawn as no text can be.
  *
  * And each is an island: its direction is its own (from its first strong letter) and changes
- * the order of nothing outside it; and it's clipped to its own box, so marks stacked on a letter
- * can't draw over the row above.
+ * the order of nothing outside it, while its block starts at the left like every other text of
+ * a row; and it's clipped to its own box, so marks stacked on a letter can't draw over the row
+ * above.
  */
 import { inPieces, type Piece } from '@shared/kit/characters'
 import type { Their } from '@shared/kit/declare'
@@ -55,6 +56,7 @@ export function TheirText({
   text,
   pieces = inPieces(typeof text === 'string' ? text : (text?.their ?? '')),
   lines,
+  inline,
   className,
 }: {
   /** A text a part was handed, or (for the page's own texts) the text itself. */
@@ -62,6 +64,8 @@ export function TheirText({
   /** Pieces already made (a plugin's last words are cut before they're pieces). */
   pieces?: readonly Piece[]
   lines?: boolean
+  /** One of several texts that run on in a part: the part that holds them clips them. */
+  inline?: boolean
   className?: string
 }) {
   return (
@@ -69,7 +73,9 @@ export function TheirText({
       dir="auto"
       data-their-text=""
       className={cn(
-        'block max-w-full overflow-clip [overflow-wrap:anywhere]',
+        // Its own direction inside; but it starts where Lumovi's layout puts it, like any text.
+        inline ? 'text-left' : 'block max-w-full overflow-clip text-left',
+        '[overflow-wrap:anywhere]',
         lines && 'whitespace-pre-wrap',
         className,
       )}

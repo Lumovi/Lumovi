@@ -22,9 +22,20 @@ export interface OpenPage {
   readonly tree: DoorPage
   /** Why it ended, once it has. */
   readonly end: PageEnd | undefined
-  /** Counts up with every change to the tree or its end: what a drawing subscribes to. */
+  /** The parts its plugin may name: what the door checked against, and what draws them. */
+  readonly parts: Readonly<Record<string, KitPart>>
+  /**
+   * Counts up when there's something new to draw: once a frame at most, however many commits
+   * came in it, and at once when the page ends.
+   */
   readonly version: number
   subscribe(changed: () => void): () => void
+  /**
+   * A part of Lumovi's failed as it drew this page: the page ends, said as Lumovi's own fault.
+   * Called by the boundary round the page's surface and by nothing else: nothing a plugin sends
+   * leads here.
+   */
+  fault(): void
   /** Takes the page away: its box and its worker with it. */
   close(): void
 }
@@ -49,14 +60,19 @@ export function openPage(options: {
   const listeners = new Set<() => void>()
   const page = {
     tree: new DoorPage(declared),
+    parts: options.parts,
     end: undefined as PageEnd | undefined,
     version: 0,
     subscribe(changed: () => void) {
       listeners.add(changed)
       return () => void listeners.delete(changed)
     },
+    fault() {
+      ended({ why: 'drawing' })
+    },
     close() {
       stopListening?.()
+      cancelAnimationFrame(telling)
       box.close()
     },
   }
@@ -64,10 +80,20 @@ export function openPage(options: {
     page.version++
     listeners.forEach((listener) => listener())
   }
+  // What a plugin sends is drawn once a frame, however many commits a frame brings.
+  let telling = 0
+  const toDraw = () => {
+    if (telling) return
+    telling = requestAnimationFrame(() => {
+      telling = 0
+      if (!page.end) changed()
+    })
+  }
   const ended = (end: PageEnd) => {
     if (page.end) return
     page.end = end
     page.close()
+    telling = 0
     changed()
   }
   const box = openBox({
@@ -80,7 +106,7 @@ export function openPage(options: {
         // (For whoever writes the plugin: the line quotes nothing as it was written.)
         console.warn(`Lumovi stopped the plugin ${options.plugin}: ${taken.what}`)
         ended({ why: taken.why })
-      } else changed()
+      } else toDraw()
     },
     ended: (end) => ended(boxEnd(end)),
   })

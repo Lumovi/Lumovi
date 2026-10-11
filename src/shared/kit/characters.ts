@@ -32,7 +32,12 @@ const MARKED =
 /** A line's end, however it was written. */
 const LINE_END = /\r\n|[\r\u0085\u2028\u2029]/g
 
-/** The most marks drawn in one text: past them, one last piece says how many more there were. */
+/**
+ * The most marks drawn for a run of them (one after another, nothing between), and in one text:
+ * past either, one last piece says how many more there were. Three are enough to see what they
+ * are, and a run of thousands mustn't push a text's real words out of its row.
+ */
+export const MARKS_A_RUN = 3
 export const MARKS_AT_MOST = 20
 
 export const codePoint = (character: string) =>
@@ -49,16 +54,33 @@ export function inPieces(text: string): Piece[] {
   const lines = String(text).replace(LINE_END, '\n')
   const pieces: Piece[] = []
   let from = 0
-  let marks = 0
+  let drawn = 0
+  /** Of the run being read: how many marks, and how many of them weren't drawn. */
+  let run = 0
+  let more = 0
+  /** Marks past the most a text draws: counted once, at its end. */
+  let beyond = 0
+  const endRun = () => {
+    if (more) pieces.push({ more })
+    run = more = 0
+  }
   for (const marked of lines.matchAll(MARKED)) {
     // (A flag made with tags, whole and closed, is text; a tag anywhere else is a mark.)
     if (marked[1] !== undefined) continue
-    if (marked.index > from) pieces.push(lines.slice(from, marked.index))
+    if (marked.index > from) {
+      endRun()
+      pieces.push(lines.slice(from, marked.index))
+    }
     from = marked.index + marked[0].length
-    if (++marks <= MARKS_AT_MOST) pieces.push({ unseen: codePoint(marked[0]) })
+    if (drawn >= MARKS_AT_MOST) beyond++
+    else if (++run <= MARKS_A_RUN) {
+      pieces.push({ unseen: codePoint(marked[0]) })
+      drawn++
+    } else more++
   }
+  endRun()
   if (from < lines.length) pieces.push(lines.slice(from))
-  if (marks > MARKS_AT_MOST) pieces.push({ more: marks - MARKS_AT_MOST })
+  if (beyond) pieces.push({ more: beyond })
   return pieces
 }
 
