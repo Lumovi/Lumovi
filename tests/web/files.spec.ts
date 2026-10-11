@@ -1263,7 +1263,7 @@ test('what a client says it will upload is taken as nothing but its word', async
   page.close()
 })
 
-test('a folder’s archive is sent no faster than whoever downloads it reads', async ({
+test('a folder’s archive arrives whole at a reader that takes none of it for a while', async ({
   serve,
   clusters,
 }) => {

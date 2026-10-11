@@ -45,6 +45,8 @@ export interface ServerOptions {
   hosted: Hosted
   env: NodeJS.ProcessEnv
   version: string
+  /** Told once, and why, if another Lumovi takes this one's audit history over (audit.ts). */
+  auditLost?: (why: string) => void
 }
 
 /** Large enough for Helm values and YAML edits, small enough not to be a way to fill memory. */
@@ -58,7 +60,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
-  const audit = await openAudit(config.audit)
+  const audit = await openAudit(config.audit, options.auditLost)
   // Who may do what: what the chart says, and what admins set on the Access page.
   const access = await ServerAccess.open(
     config.access,

@@ -15,7 +15,15 @@ import type { Identity } from './cluster'
 import { ConfigError, type AuditConfig } from './config'
 import { log } from './log'
 
-export async function openAudit(config: AuditConfig): Promise<AuditLog> {
+/**
+ * The server's audit log. `lost` is told, once and why, if another Lumovi takes its history
+ * over while this one runs (two on one volume): a server stops then (index.ts), since nothing
+ * done through it could be recorded where its auditors read.
+ */
+export async function openAudit(
+  config: AuditConfig,
+  lost?: (why: string) => void,
+): Promise<AuditLog> {
   const sinks: AuditSink[] = []
   if (config.stdout) sinks.push(new StdoutSink())
   if (config.webhook) sinks.push(new WebhookSink(config.webhook))
@@ -26,7 +34,7 @@ export async function openAudit(config: AuditConfig): Promise<AuditLog> {
   }
   return new AuditLog({
     store: config.dir
-      ? await filesIn(config.dir, config.retentionDays)
+      ? await filesIn(config.dir, config.retentionDays, lost)
       : new MemoryStore(config.memoryEvents),
     sinks,
     level: config.level,
@@ -37,10 +45,14 @@ export async function openAudit(config: AuditConfig): Promise<AuditLog> {
 }
 
 /** The history's folder: or, where it can't be written in, why, and what usually makes it so. */
-async function filesIn(dir: string, retentionDays: number): Promise<FileStore> {
+async function filesIn(
+  dir: string,
+  retentionDays: number,
+  lost?: (why: string) => void,
+): Promise<FileStore> {
   try {
     // Another Lumovi's (one stopping, as this starts): waited for, a while.
-    return await FileStore.open(dir, retentionDays, { wait: true, say: log })
+    return await FileStore.open(dir, retentionDays, { wait: true, say: log, lost })
   } catch (error) {
     // (Another Lumovi keeping it says so itself.)
     if (!(error as NodeJS.ErrnoException).code) throw error

@@ -75,6 +75,8 @@ export interface Served {
   helmDir: string
   /** What it wrote to stdout and stderr so far. */
   log(): string
+  /** What it ended with, once it has (by itself, or stopped); until then, nothing. */
+  exitCode(): number | null
   /** Stops it gracefully, as Kubernetes does (SIGTERM), keeping its coverage. */
   stop(): Promise<void>
 }
@@ -169,6 +171,7 @@ export function startServer(
         helmDir,
         process: child,
         log: () => output,
+        exitCode: () => child.exitCode,
         // Once: a test may stop it, and then the fixture does. (On Windows a killed process
         // has no exit code, so that can't tell.)
         stop() {

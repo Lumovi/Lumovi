@@ -37,6 +37,7 @@ import {
   signIn,
   startServer,
   test,
+  type Served,
 } from './fixtures.ts'
 
 // One no step changes the owner of: storefront's are replaced as it restarts, a moment later.
@@ -985,6 +986,19 @@ function hashOf(event: AuditEvent): string {
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
+/**
+ * A server that lost its audit history to another Lumovi stops by itself: its last line says
+ * so and why, and it ends as a failure (whatever runs it shows that, and starts it again).
+ */
+async function stopsForItsHistory(served: Served, why: string) {
+  await expect
+    .poll(() => served.log(), { timeout: 20_000 })
+    .toContain(
+      `Lumovi stops: nothing done through it could be recorded in its audit history any more. ${why}`,
+    )
+  await expect.poll(() => served.exitCode(), { timeout: 20_000 }).toBe(1)
+}
+
 const dayFile = (dir: string, day = today()) => join(dir, `audit-${day}.jsonl`)
 const linesOf = (path: string) => readFileSync(path, 'utf8').split('\n').filter(Boolean)
 const eventsIn = (path: string) => linesOf(path).map((line) => JSON.parse(line) as AuditEvent)
@@ -1904,9 +1918,9 @@ for (const volume of [
         .toContain(
           'The audit history can’t be kept: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
         )
-      // For good: nothing more is written, and it doesn't put its lock back, then or as it stops.
-      await new Promise((done) => setTimeout(done, 1200))
-      await act()
+      // For good, so it stops: saying why as its last line, and as a failure. Nothing more is
+      // written as it does, and it doesn't put its lock back.
+      await stopsForItsHistory(served, 'Another Lumovi took this audit history over')
       expect(readFileSync(dayFile(dir), 'utf8')).toBe(taken)
       expect(existsSync(lock)).toBe(false)
       await served.stop()
@@ -1949,7 +1963,8 @@ for (const volume of [
         .toContain(
           'The audit history can’t be looked after: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
         )
-      await new Promise((done) => setTimeout(done, 1200))
+      // And stops: its stopping isn't written into the other's history either.
+      await stopsForItsHistory(first, 'Another Lumovi took this audit history over')
       expect(linesOf(dayFile(dir))).toHaveLength(written)
       expect(existsSync(lock)).toBe(false)
     } finally {
@@ -1958,7 +1973,7 @@ for (const volume of [
     }
   })
 
-  test(`a Lumovi whose history another took over stops writing it, and says so${volume.name}`, async ({
+  test(`a Lumovi whose history another took over stops, and says why${volume.name}`, async ({
     page,
     context,
     serve,
@@ -2002,13 +2017,16 @@ for (const volume of [
     expect(served.log()).toContain(
       'The audit history can’t be kept: Another Lumovi (process 4321 on lumovi-7d9f-2) took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.',
     )
-    // Nor does it take the lock back, as it renews, or as it stops: it's the other's.
-    await new Promise((done) => setTimeout(done, 1200))
-    expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
-    await act()
+    // And it stops, as a failure, its last line saying why and who has the history now: a
+    // server that went on would do what people ask with none of it in the history they read.
+    await stopsForItsHistory(
+      served,
+      'Another Lumovi (process 4321 on lumovi-7d9f-2) took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.',
+    )
+    // Nothing was written as it stopped, and the lock is the other's still.
     expect(linesOf(dayFile(dir))).toHaveLength(kept)
-    await served.stop()
     expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
+    await served.stop()
   })
 }
 
@@ -2081,7 +2099,11 @@ test('a history whose folder is gone for longer than a hold is in doubt, and bac
   await expect.poll(() => existsSync(lock)).toBe(true)
   expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ host: hostname() })
   expect(served.log()).not.toContain('took this audit history over')
+  // And kept means written: what happens next is in the day's file (here, that it stopped),
+  // the first line of a history begun again.
   await served.stop()
+  expect(served.exitCode()).not.toBe(1)
+  expect(eventsIn(dayFile(dir)).map((event) => event.action)).toEqual(['server.stopped'])
 })
 
 test('a Lumovi held up for less than its hold lasts renews late and goes on; held up while another wrote, it doesn’t', async ({
@@ -2125,7 +2147,9 @@ test('a Lumovi held up for less than its hold lasts renews late and goes on; hel
       .toContain(
         'The audit history can’t be looked after: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
       )
-    await new Promise((done) => setTimeout(done, 1500))
+    // It stops, and what it would have written as it stops (that it stopped) isn't in the
+    // history, which is the other's.
+    await stopsForItsHistory(served, 'Another Lumovi took this audit history over')
     expect(readFileSync(dayFile(dir), 'utf8')).toBe(written)
   } finally {
     served.process.kill('SIGCONT')
