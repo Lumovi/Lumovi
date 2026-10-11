@@ -21,6 +21,8 @@ const TESTS_ONLY = [
   'LUMOVI_TEST_BUILD',
   'LUMOVI_TEST_INCLUDED_PLUGINS_DIR',
   'LUMOVI_SPONSOR_URL',
+  // What the tests reach a plugin's box by.
+  '__lumoviBox',
 ]
 
 const PLUGIN = `
@@ -71,4 +73,15 @@ test('a build made as a release’s carries nothing the tests’ build adds for 
     for (const name of TESTS_ONLY) if (text.includes(name)) found.push(`${file}: ${name}`)
   }
   expect(found).toEqual([])
+})
+
+test('a release’s pages hold no way to hand a plugin’s box any code', () => {
+  // The piece of a page that opens a box is in the tests' build alone so far: a release's
+  // pages name the box's address in one place, the policy that says what a page may frame.
+  const pages = resolve('out', 'renderer')
+  const naming = readdirSync(pages, { recursive: true, encoding: 'utf8' })
+    .filter((file) => /\.(js|mjs|cjs|html)$/.test(file))
+    .filter((file) => readFileSync(join(pages, file), 'utf8').includes('lumovi-plugin'))
+  expect(naming).toEqual(['index.html'])
+  expect(readFileSync(join(pages, 'index.html'), 'utf8')).toContain('frame-src lumovi-plugin:')
 })
