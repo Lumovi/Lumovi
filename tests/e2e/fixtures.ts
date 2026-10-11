@@ -5,7 +5,7 @@
  * renderer processes is written to `.nyc_output/` for `nyc report`.
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { cpus, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -306,19 +306,6 @@ async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]
     ).catch((error: Error) => error.message)
     lines.push(`app ${i} processes: ${metrics}`)
   }
-  if (process.platform === 'win32') {
-    // What else keeps the machine busy (total CPU seconds so far).
-    const top = execFileSync(
-      'powershell',
-      [
-        '-NoProfile',
-        '-Command',
-        'Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU,WorkingSet | Format-Table -AutoSize | Out-String -Width 200',
-      ],
-      { encoding: 'utf8' },
-    )
-    lines.push(`busiest processes:${top}`, `cpus: ${cpus().length}`)
-  }
   for (const name of ['demo', 'sandbox', 'large'] as const) {
     const { requests } = clusters[name]
     lines.push(`${name}: ${requests.length} requests`)
@@ -330,6 +317,56 @@ async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]
     }
   }
   writeFileSync(path, lines.join('\n'))
+}
+
+/**
+ * Adds to a failed test's diagnostics, on Windows, what only PowerShell can say: what keeps the
+ * machine busy, every shell there is, and how long one takes to start. Asked last of all that's
+ * kept of a failure and while Lumovi still runs (its terminals' shells with it): PowerShell is
+ * slow to start in the very failure this is most wanted for, so each answer is written as it
+ * comes, and a teardown that runs out of time has lost only what wasn't asked yet.
+ */
+function diagnoseShells(path: string) {
+  if (process.platform !== 'win32') return
+  const SHELL_MS = 20_000
+  /** What PowerShell says of `command`, added to the file as soon as it's known. */
+  const ask = (title: string, command: string) => {
+    let said: string
+    try {
+      said = execFileSync('powershell', ['-NoProfile', '-Command', command], {
+        encoding: 'utf8',
+        timeout: SHELL_MS,
+      })
+    } catch (error) {
+      said = (error as Error).message
+    }
+    appendFileSync(path, `\n${title}:\n${said}`)
+  }
+  // What else keeps the machine busy (total CPU seconds so far).
+  ask(
+    `busiest processes (of ${cpus().length} cpus)`,
+    'Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU,WorkingSet | Format-Table -AutoSize | Out-String -Width 200',
+  )
+  // Every shell and console host there is: when each started, from what, and as what. (Whether
+  // a terminal's shell exists, how long it has been starting, and whose the others are.)
+  ask(
+    'shells and console hosts',
+    "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(powershell|pwsh|conhost|OpenConsole)' } | Sort-Object CreationDate | ForEach-Object { $line = [string]$_.CommandLine; $since = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('HH:mm:ss.fff') } else { '?' }; '{0} {1} from {2}, started {3}, {4:n1}s of CPU: {5}' -f $_.Name, $_.ProcessId, $_.ParentProcessId, $since, (($_.KernelModeTime + $_.UserModeTime) / 1e7), $line.Substring(0, [Math]::Min(160, $line.Length)) }",
+  )
+  // How long Windows PowerShell takes to start just now, as a terminal's does (with the
+  // profile) and without: a terminal's first line can't come sooner than that. (Twenty
+  // seconds says as much as a longer wait would.)
+  for (const profile of [[], ['-NoProfile']]) {
+    const from = Date.now()
+    let took: string
+    try {
+      execFileSync('powershell', ['-NoLogo', ...profile, '-Command', 'exit'], { timeout: SHELL_MS })
+      took = `starts and ends in ${Date.now() - from}ms`
+    } catch {
+      took = `hadn’t started and ended in ${Date.now() - from}ms`
+    }
+    appendFileSync(path, `\npowershell ${profile.join(' ')} ${took}`)
+  }
 }
 
 export const test = base.extend<
@@ -418,8 +455,10 @@ export const test = base.extend<
             .catch(() => undefined),
         )
       }
-      await instance.close()
     }
+    // (After the traces, which a failure is read from too; before Lumovi closes its terminals.)
+    if (trace && failed) diagnoseShells(testInfo.outputPath('diagnostics.txt'))
+    for (const instance of launched) await instance.close()
   },
   lumovi: async ({ launch }, use) => {
     await use(await launch())
