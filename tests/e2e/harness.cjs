@@ -38,11 +38,36 @@ Object.defineProperty(updater, 'netSession', {
   get: () => session.fromPartition('electron-updater'),
 })
 globalThis.__updater = updater
+// Every terminal's pty is counted (globalThis.__ptys): when it was started, when its first
+// output came and how much came in all. A failure's diagnostics say it, beside what the page
+// was handed (window.__terminalHeard), to tell where a terminal's output stopped.
+globalThis.__ptys = []
+const counted = (pty) => ({
+  ...pty,
+  spawn(file, ...rest) {
+    const made = pty.spawn(file, ...rest)
+    const entry = {
+      pid: made.pid,
+      file,
+      started: Date.now(),
+      first: null,
+      characters: 0,
+      ended: null,
+    }
+    globalThis.__ptys.push(entry)
+    made.onData((data) => {
+      entry.first ??= Date.now()
+      entry.characters += data.length
+    })
+    made.onExit(() => (entry.ended = Date.now()))
+    return made
+  },
+})
 const load = Module._load
 Module._load = function (request, ...rest) {
-  return request === 'electron-updater'
-    ? { autoUpdater: updater }
-    : load.call(this, request, ...rest)
+  if (request === 'electron-updater') return { autoUpdater: updater }
+  const loaded = load.call(this, request, ...rest)
+  return request === 'node-pty' ? counted(loaded) : loaded
 }
 
 const CLIPBOARD = `
@@ -50,8 +75,19 @@ const CLIPBOARD = `
   navigator.clipboard.writeText = async (text) => { window.__clipboard = String(text) }
   navigator.clipboard.readText = async () => window.__clipboard
 `
+// What the page is handed of each terminal's output: characters, and when the first came.
+const TERMINALS = `
+  window.__terminalHeard = {}
+  window.lumovi?.terminal?.onData((id, data) => {
+    const heard = (window.__terminalHeard[id] ??= { first: Date.now(), characters: 0 })
+    heard.characters += String(data).length
+  })
+`
 app.on('web-contents-created', (_event, contents) => {
-  contents.on('dom-ready', () => void contents.executeJavaScript(CLIPBOARD))
+  contents.on('dom-ready', () => {
+    void contents.executeJavaScript(CLIPBOARD)
+    void contents.executeJavaScript(TERMINALS).catch(() => undefined)
+  })
 })
 
 if (!process.env.LUMOVI_E2E_FOREGROUND) {
