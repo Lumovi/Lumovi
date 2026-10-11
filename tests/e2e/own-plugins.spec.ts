@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { isCustomGroup } from '../../src/shared/resources.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
 import { expect, mockOpenExternal, openCluster, panel, row, rows, test } from './fixtures.ts'
@@ -181,9 +182,7 @@ const groupsIn = (view: string) =>
   [
     ...new Set([
       'example.com',
-      ...[...view.matchAll(/group: ([\w.-]+)/g)]
-        .map(([, group]) => group!)
-        .filter((group) => !group.endsWith('k8s.io')),
+      ...[...view.matchAll(/group: ([\w.-]+)/g)].map(([, group]) => group!).filter(isCustomGroup),
     ]),
   ].join(', ')
 
