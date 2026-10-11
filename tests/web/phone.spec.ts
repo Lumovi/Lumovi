@@ -346,6 +346,57 @@ test('a link to another object is a finger’s size: alone, and one under anothe
   await expect.poll(() => apart(links.nth(1), links.nth(2))).toBeGreaterThanOrEqual(44)
 })
 
+test('a card’s facts share a line only where every value fits: short ports do, a long port’s name doesn’t', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  // A target port by its name, as long as a port's name may be: wider than a third of a phone.
+  const TARGET = 'grpc-web-public'
+  const storefront = clusters.demo.object('Service', 'shop', DEMO.services.storefront)!
+  clusters.demo.upsert({
+    ...storefront,
+    metadata: { ...storefront.metadata, name: 'gateway', uid: undefined },
+    spec: {
+      ...storefront.spec,
+      clusterIP: undefined,
+      ports: [{ name: 'grpc', port: 443, targetPort: TARGET }],
+    },
+  })
+  const served = await serve()
+  await signInNarrow(
+    page,
+    `${served.url}cluster/demo/services?open=Service/shop/${DEMO.services.storefront}`,
+    DEMO_TOKEN,
+  )
+  const factsAcross = (cards: Locator) =>
+    cards
+      .getByRole('listitem')
+      .first()
+      .locator('dt')
+      .evaluateAll((all) => new Set(all.map((dt) => dt.getBoundingClientRect().left)).size)
+  // Short values (a port, a protocol): side by side, three to a line, as they were.
+  const ports = page
+    .getByRole('complementary', { name: `Service ${DEMO.services.storefront}` })
+    .locator('ul[data-apart]')
+    .first()
+  await expect(ports).toHaveAttribute('data-apart', 'false')
+  expect(await factsAcross(ports)).toBe(3)
+  // One value that wouldn't fit its third: one fact a line, and that value whole on its own.
+  await page.goto(`${served.url}cluster/demo/services?open=Service/shop/gateway`)
+  const long = page
+    .getByRole('complementary', { name: 'Service gateway' })
+    .locator('ul[data-apart]')
+    .first()
+  await expect(long).toHaveAttribute('data-apart', 'true')
+  const target = long.locator('[data-value]', { hasText: TARGET })
+  await expect(async () => {
+    expect((await target.boundingBox())!.height).toBeLessThan(20)
+    expect(await factsAcross(long)).toBe(1)
+  }, 'a long port’s name on a line of its own').toPass({ timeout: 5_000 })
+  await expectNoSidewaysScroll(page, 'a service’s ports as cards')
+})
+
 test('a role’s rules are cards that say what its table says, and its bindings links to press', async ({
   page,
   serve,
@@ -473,15 +524,18 @@ test('an assistant’s change is approved from a sheet; put aside, it waits', as
   await expectAPhonesPage(page, 'an approval', async () => {
     await expect(sheet).toContainText('Claude Code asks')
   })
-  // The diff wraps inside the sheet, and the two answers are at its two edges.
-  const reject = (await sheet.getByRole('button', { name: 'Reject…' }).boundingBox())!
-  const approve = (await sheet.getByRole('button', { name: /^Approve/ }).boundingBox())!
-  expect(approve.x - (reject.x + reject.width)).toBeGreaterThan(100)
-  expect(approve.height).toBeGreaterThanOrEqual(44)
-  expect(approve.width).toBeGreaterThanOrEqual(120)
-  // The wait is on a line of its own, above them.
-  const wait = (await sheet.getByText(/^Waits \d+:\d\d more$/).boundingBox())!
-  expect(wait.y + wait.height).toBeLessThanOrEqual(reject.y)
+  // The diff wraps inside the sheet, and the two answers are at its two edges; the wait is on
+  // a line of its own, above them. (Asked until it's so: the page has just been turned back
+  // upright, and a measure taken once could be of the sheet a moment before it's laid out.)
+  await expect(async () => {
+    const reject = (await sheet.getByRole('button', { name: 'Reject…' }).boundingBox())!
+    const approve = (await sheet.getByRole('button', { name: /^Approve/ }).boundingBox())!
+    expect(approve.x - (reject.x + reject.width)).toBeGreaterThan(100)
+    expect(approve.height).toBeGreaterThanOrEqual(44)
+    expect(approve.width).toBeGreaterThanOrEqual(120)
+    const wait = (await sheet.getByText(/^Waits \d+:\d\d more$/).boundingBox())!
+    expect(wait.y + wait.height).toBeLessThanOrEqual(reject.y)
+  }, 'the approval sheet’s foot, laid out as a phone’s').toPass({ timeout: 5_000 })
   // A tap outside it puts it aside: it isn't an answer, and it waits.
   await page.mouse.click(PHONE.width / 2, 10)
   await expect(sheet).toHaveCount(0)
@@ -572,8 +626,7 @@ test('of two changes waiting, a double tap approves one; a long name is cut, nev
   await expect(first).toHaveCount(0)
   const aside = page.getByRole('button', { name: /1 change from Claude Code waits for you/ })
   await expect(second.or(aside)).toBeVisible()
-  // (The note that the first was made goes from over the sheet's foot by itself: a finger
-  // doesn't hold it there, as a mouse resting on it would.)
+  // (And it goes by itself: a finger doesn't hold it there, as a mouse resting on it would.)
   await expect(page.getByText('As Claude Code asked, in demo.')).toHaveCount(0, {
     timeout: 15_000,
   })
@@ -662,6 +715,14 @@ test('on a touch screen of any width Approve waits its moment, which always ends
   await expect(windowed.getByRole('button', { name: /^Approve/ })).toBeDisabled()
   await mouse.setViewportSize({ width: 900, height: 900 })
   await expect(windowed.getByRole('button', { name: /^Approve/ })).toBeEnabled({ timeout: 1500 })
+  // Wider than a phone, a note is where it always was: the bottom right corner.
+  await windowed.getByRole('button', { name: /^Approve/ }).click()
+  const corner = mouse.getByRole('region', { name: 'Notifications' }).getByRole('status')
+  await expect(async () => {
+    const box = (await corner.boundingBox())!
+    expect(Math.round(box.x + box.width)).toBe(900 - 16)
+    expect(Math.round(box.y + box.height)).toBe(900 - 16)
+  }, 'the note come to rest in the corner').toPass({ timeout: 5_000 })
   await desk.close()
 })
 
