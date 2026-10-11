@@ -253,25 +253,89 @@ test('a plugin that takes memory without end is ended with its process, and Lumo
   expect(log()).not.toContain("The page's process ended")
 })
 
-test('a plugin that keeps a processor busy is ended, though it answers every ping', async ({
+test('a busy plugin’s use of the processor is seen, and a quiet one’s isn’t taken for it', async ({
   lumovi: { page, app },
 }) => {
-  // (Half a minute of it, by the limit.)
-  test.setTimeout(BOX_LIMITS.processorForMs + 60_000)
-  const log = logOf(app)
-  // Busy nearly all the time, in pieces short enough to answer Lumovi between them.
+  // Busy nearly all the time, in pieces short enough to answer Lumovi between them; and one
+  // that only waits.
   await open(
     page,
     'busy',
     `box.then(() => { setInterval(() => { const until = Date.now() + 97; while (Date.now() < until); }, 100) })`,
   )
+  await open(page, 'quiet', ECHO)
+  await expect.poll(async () => (await boxFrames(app)).boxes.length).toBe(2)
+  const { boxes } = await boxFrames(app)
+  const pidOf = (plugin: string) => boxes.find((box) => box.url.includes(`//${plugin}/`))!.pid
+  // What the system says each uses, as the app reads it: a share of one core, a second apart.
+  const read = { busy: [] as number[], quiet: [] as number[] }
+  for (let n = 0; n < 8; n++) {
+    await new Promise((soon) => setTimeout(soon, 1000))
+    const shares = await app.evaluate(
+      ({ app }, pids) => {
+        const cores = process.getBuiltinModule('node:os').cpus().length
+        const metrics = app.getAppMetrics()
+        return pids.map(
+          (pid) =>
+            ((metrics.find((metric) => metric.pid === pid)?.cpu.percentCPUUsage ?? 0) / 100) *
+            cores,
+        )
+      },
+      [pidOf('busy'), pidOf('quiet')],
+    )
+    read.busy.push(shares[0]!)
+    read.quiet.push(shares[1]!)
+  }
+  await test.info().attach('shares of a core', { body: JSON.stringify(read) })
+  // (Said in the run's own output too: what a busy plugin is given differs by computer.)
+  console.log(`shares of a core, a second apart: ${JSON.stringify(read)}`)
+  // (How much of a core a busy one is given depends on what else the computer is doing: a
+  // third of one is seen even where four copies of the app share four cores.)
+  const typical = (shares: number[]) => [...shares].sort((a, b) => a - b)[shares.length >> 1]!
+  expect(typical(read.busy)).toBeGreaterThan(0.33)
+  expect(typical(read.busy)).toBeLessThan(1.5)
+  expect(typical(read.quiet)).toBeLessThan(0.2)
+})
+
+test('a plugin read as near a whole core for half a minute is ended, though it answers every ping', async ({
+  lumovi: { page, app },
+}) => {
+  test.setTimeout(BOX_LIMITS.processorForMs + 90_000)
+  const log = logOf(app)
+  await open(page, 'steady', ECHO)
   await expect.poll(async () => (await boxFrames(app)).boxes.length).toBe(1)
   const { pid } = (await boxFrames(app)).boxes[0]!
+  // What the system says of this one process, made to say a whole core from here on: the
+  // same on a computer with a core to spare and on one without. (By the test's own hand in the
+  // main process; nothing in Lumovi can be told what a process uses.)
+  await app.evaluate(({ app }, pid) => {
+    const cores = process.getBuiltinModule('node:os').cpus().length
+    const real = app.getAppMetrics.bind(app)
+    app.getAppMetrics = () =>
+      real().map((metric) =>
+        metric.pid === pid
+          ? { ...metric, cpu: { ...metric.cpu, percentCPUUsage: 100 / cores } }
+          : metric,
+      )
+  }, pid)
+  const since = Date.now()
+  const ENDED = 'Lumovi ended the plugin steady: it was over its time on the processor'
+  // Not before a good part of its half a minute is up...
+  await new Promise((later) => setTimeout(later, BOX_LIMITS.processorForMs * 0.4))
+  expect(log()).not.toContain(ENDED)
+  expect(await alive(app, pid)).toBe(true)
+  // ...and then it is: for the processor, with its pings all answered.
+  await expect.poll(log, { timeout: BOX_LIMITS.processorForMs + 30_000 }).toContain(ENDED)
+  // (Read as a whole core, it's over an average of half a core once half of the thirty
+  // measures say so; it was measured for a while before, so that's when.)
+  expect(Date.now() - since).toBeGreaterThan(BOX_LIMITS.processorForMs * 0.45)
+  // And the page hears nothing more of it.
   await expect
-    .poll(log, { timeout: BOX_LIMITS.processorForMs + 30_000 })
-    .toContain('Lumovi ended the plugin busy: it was over its time on the processor')
+    .poll(async () => (await kept(page, 'steady')).ended, {
+      timeout: BOX_LIMITS.pingEveryMs * (BOX_LIMITS.missedPings + 4),
+    })
+    .toEqual({ why: 'silent' })
   await expect.poll(() => alive(app, pid)).toBe(false)
-  // Not for its silence: it answered until its process went.
   expect(log()).not.toContain('over its memory')
 })
 
