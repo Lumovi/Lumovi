@@ -291,11 +291,12 @@ export function SimpleTable({
 }) {
   const phone = useLayout() === 'phone'
   // A card's facts stand side by side only where every value of every card fits its third on
-  // one line: a name isn't broken while there's room on a line of its own.
+  // one line: a name isn't broken while there's room on a line of its own. (Every list of
+  // cards, whatever its table is on a larger screen.)
   const cards = useRef<HTMLUListElement>(null)
   useLayoutEffect(() => {
     const list = cards.current
-    if (!list || !fits) return
+    if (!list) return
     const values = [...list.querySelectorAll<HTMLElement>('[data-value]')]
     list.dataset.apart = String(
       values.some((value) => {

@@ -110,7 +110,7 @@ export function ActionDialog({
             sheetFrame,
           )}
         >
-          <SheetGrabber onClose={onClose} className="hidden phone:block" />
+          <SheetGrabber kind="action" onClose={onClose} className="hidden phone:block" />
           <form onSubmit={submit} className="flex min-h-0 flex-col">
             <header className={cn('flex items-start gap-3 px-5 pt-5 pb-1', sheetHeader)}>
               <div
