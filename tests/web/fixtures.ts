@@ -79,7 +79,8 @@ export interface Served {
  *
  * Windows has no SIGTERM: there `kill` ends a process outright. An instrumented build is asked
  * to stop with a message instead, and does as it would for the signal. One that hasn't stopped
- * in time is ended outright, and its log says so.
+ * in time is ended outright and that's an error, as a server that ignores SIGTERM is elsewhere
+ * (there the test waits for it and runs out of time).
  */
 async function stopped(
   child: ChildProcess,
@@ -87,16 +88,16 @@ async function stopped(
   say: (line: string) => void,
 ): Promise<void> {
   if (child.exitCode !== null) return
+  let late: string | undefined
   if (INSTRUMENTED && process.platform === 'win32') {
     child.send('lumovi:stop')
     const inTime = await Promise.race([
       exited.then(() => true),
-      new Promise<false>((late) => setTimeout(() => late(false), STOPS_WITHIN_MS)),
+      new Promise<false>((over) => setTimeout(() => over(false), STOPS_WITHIN_MS)),
     ])
     if (inTime) return
-    say(
-      `\n(It hadn’t stopped ${STOPS_WITHIN_MS / 1000} s after it was asked to: ended outright.)\n`,
-    )
+    late = `It hadn’t stopped ${STOPS_WITHIN_MS / 1000} s after it was asked to: ended outright.`
+    say(`\n(${late})\n`)
   }
   if (INSTRUMENTED) {
     // Ended outright (Windows), its coverage is asked for first.
@@ -107,6 +108,7 @@ async function stopped(
   }
   child.kill('SIGTERM')
   await exited
+  if (late) throw new Error(late)
 }
 
 /** Runs the server until it says where it listens; rejects with its output if it exits first. */
@@ -342,9 +344,11 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       started.push(served)
       return served
     })
-    for (const served of started) await served.stop()
+    // (Each is stopped, whatever became of another: one that wouldn't stop fails the test.)
+    const unstopped: unknown[] = []
+    for (const served of started) await served.stop().catch((error) => unstopped.push(error))
     // What each server said, with a test that failed: the page alone rarely says why.
-    if (testInfo.status !== testInfo.expectedStatus) {
+    if (testInfo.status !== testInfo.expectedStatus || unstopped.length > 0) {
       for (const [index, served] of started.entries()) {
         await testInfo.attach(`server-${index + 1}.log`, {
           body: served.log(),
@@ -352,6 +356,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
         })
       }
     }
+    if (unstopped.length > 0) throw unstopped[0]
   },
   context: async ({ context }, use) => {
     // Pages that navigate (signing in reloads them) leave their counters in their
