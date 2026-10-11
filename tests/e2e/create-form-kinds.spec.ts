@@ -124,6 +124,17 @@ spec:
 
   // A port: the Service's, the pod's (the same, unless said), and its protocol.
   await field(page, 'Port 1').fill('80')
+  // (At the default window too, the pod's port is shown whole.)
+  for (const typed of ['65535', 'grpc-web', 'metrics-web']) {
+    await field(page, 'Port 1, on the pod').fill(typed)
+    expect(
+      await field(page, 'Port 1, on the pod').evaluate(
+        (input: HTMLInputElement) => input.scrollWidth <= input.clientWidth,
+      ),
+      `${typed} at 1440`,
+    ).toBe(true)
+  }
+  await field(page, 'Port 1, on the pod').fill('')
   await expect(status(page)).toHaveText('Edit either side: they stay in step.')
   await expect(field(page, 'Port 1, on the pod')).toHaveAttribute('placeholder', '80')
   await field(page, 'Port 1, on the pod').fill('8080')
@@ -844,6 +855,18 @@ test.describe('when the form’s pane moves by itself', () => {
     await page.keyboard.type('app')
     await field(page, 'app’s value').fill('web')
     await field(page, 'Port 1').fill('80')
+    // The pod's port is shown whole, as a number and as a name of up to eleven characters
+    // (a longer one scrolls in its field).
+    for (const typed of ['65535', 'grpc-web', 'metrics-web']) {
+      await field(page, 'Port 1, on the pod').fill(typed)
+      expect(
+        await field(page, 'Port 1, on the pod').evaluate(
+          (input: HTMLInputElement) => input.scrollWidth <= input.clientWidth,
+        ),
+        `${typed} at 1024`,
+      ).toBe(true)
+    }
+    await field(page, 'Port 1, on the pod').fill('')
     // (With a mouse a port is one line at any width: its protocol beside its numbers.)
     await expect
       .poll(async () => {

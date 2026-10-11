@@ -104,7 +104,7 @@ test.describe('under a finger', () => {
         return port && protocol ? protocol.y - port.y : NaN
       })
       .toBeGreaterThanOrEqual(44)
-    for (const typed of ['8080', '65535', 'grpc-web']) {
+    for (const typed of ['8080', '65535', 'grpc-web', 'metrics-http']) {
       await onThePod.fill(typed)
       expect(await whole(onThePod), `${typed} in “on the pod”`).toBe(true)
     }

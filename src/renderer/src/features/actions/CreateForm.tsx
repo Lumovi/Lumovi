@@ -1766,8 +1766,9 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                       aria-label={`${nth}, on the pod`}
                       aria-invalid={bad('targetPort')}
                       mono
-                      unit="On the pod"
-                      className="pr-24"
+                      // (The arrow says the direction: the word is short, so a named port is whole.)
+                      unit="Pod"
+                      className="pr-11"
                       disabled={port.draft}
                       value={port.targetPort}
                       // (Not said, it's the same port on the pod.)
