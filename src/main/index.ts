@@ -18,7 +18,7 @@ import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { setUpNetwork } from '@backend/network'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
-import { viewsDirectory } from '@backend/views'
+import { pluginsDirectory } from '@backend/plugins'
 import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
@@ -395,7 +395,7 @@ if (stdio) {
       localFiles,
       updates,
       sponsor,
-      viewsDirectory: viewsDirectory(homedir()),
+      pluginsDirectory: pluginsDirectory(homedir()),
       rendererUrl: url,
       audit,
       auditLog,

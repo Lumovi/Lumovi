@@ -20,9 +20,9 @@ import { apiKindOf, resourceByPlural } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { barButton } from '@renderer/components/Sheet'
-import { addOnIcon, KindIcon } from '@renderer/components/KindIcon'
+import { pluginIcon, KindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
-import { useAddOns } from '@renderer/hooks/add-ons'
+import { useServedPlugins } from '@renderer/hooks/plugins'
 import { useResource } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
@@ -41,8 +41,8 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   metrics: ['Metrics', ChartSpline],
   'api-resources': ['API resources', Blocks],
   helm: ['Helm releases', ShipWheel],
-  // An add-on the cluster doesn't have (the others go by their own names).
-  'add-ons': ['Add-ons', Puzzle],
+  // A plugin the cluster doesn't have (the others go by their own names).
+  plugins: ['Plugins', Puzzle],
 }
 
 /**
@@ -60,21 +60,21 @@ export function ContextRow({ clusterScoped }: { clusterScoped: boolean }) {
   )
 }
 
-/** What a page lists, by where it is: whether its kind (or all its add-on's) has no namespace. */
+/** What a page lists, by where it is: whether its kind (or all its plugin's) has no namespace. */
 export function usePage() {
   const [page = '', custom] = useLocation().pathname.split('/').slice(3)
   // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
   const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
   const resource = useResource(kind).resource
-  // An add-on's page is add-ons/<name>; its kinds' are theirs.
-  const served = useAddOns()
-  const addOn =
-    page === 'add-ons'
-      ? served.find((s) => s.addOn.name === decodeURIComponent(custom!))
+  // A plugin's page is plugins/<name>; its kinds' are theirs.
+  const served = useServedPlugins()
+  const plugin =
+    page === 'plugins'
+      ? served.find((s) => s.plugin.name === decodeURIComponent(custom!))
       : undefined
   const clusterScoped = kind
     ? resource?.namespaced === false
-    : Boolean(addOn?.kinds.every((r) => !r.namespaced))
+    : Boolean(plugin?.kinds.every((r) => !r.namespaced))
   return { clusterScoped }
 }
 
@@ -92,15 +92,15 @@ export function Header() {
   // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
   const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
   const resource = useResource(kind).resource
-  // An add-on's page is add-ons/<name>; its kinds' are theirs.
-  const served = useAddOns()
-  const addOn =
-    page === 'add-ons'
-      ? served.find((s) => s.addOn.name === decodeURIComponent(custom!))
+  // A plugin's page is plugins/<name>; its kinds' are theirs.
+  const served = useServedPlugins()
+  const plugin =
+    page === 'plugins'
+      ? served.find((s) => s.plugin.name === decodeURIComponent(custom!))
       : undefined
   // Pages other than a kind's list go by their route (and anything unknown is the overview's).
-  const [pageTitle, PageIcon] = addOn
-    ? ([addOn.addOn.label, addOnIcon(addOn.addOn)] as const)
+  const [pageTitle, PageIcon] = plugin
+    ? ([plugin.plugin.label, pluginIcon(plugin.plugin)] as const)
     : (PAGES[page] ?? PAGES['']!)
   const title = kind ? (resource?.label ?? apiKindOf(kind)) : pageTitle
 
@@ -120,7 +120,7 @@ export function Header() {
   if (layout !== 'wide') {
     const clusterScoped = kind
       ? resource?.namespaced === false
-      : Boolean(addOn?.kinds.every((r) => !r.namespaced))
+      : Boolean(plugin?.kinds.every((r) => !r.namespaced))
     return (
       <>
         <header className="flex h-[52px] shrink-0 items-center border-b border-line bg-surface px-1">
@@ -194,7 +194,7 @@ export function Header() {
       </div>
       <NamespacePicker
         clusterScoped={
-          kind ? resource?.namespaced === false : Boolean(addOn?.kinds.every((r) => !r.namespaced))
+          kind ? resource?.namespaced === false : Boolean(plugin?.kinds.every((r) => !r.namespaced))
         }
       />
       <button

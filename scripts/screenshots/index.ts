@@ -169,8 +169,8 @@ async function launchDesktop(theme: Theme, kubeconfig: string, env: Record<strin
       USERPROFILE: home,
       TZ: 'UTC',
       SHELL: '',
-      // Only Lumovi's own views.
-      LUMOVI_VIEWS_DIR: '',
+      // Only Lumovi's own plugins.
+      LUMOVI_PLUGINS_DIR: '',
       // The e2e tests' stand-in, so no real helm runs against the mock cluster.
       LUMOVI_HELM: resolve('tests/e2e/helm/helm'),
       // The page's stopped clock, for the time left to approve AI assistants' changes.
@@ -331,7 +331,7 @@ async function startServer(mode: NonNullable<Screen['server']>, kubeconfig: stri
       ...shows,
       LUMOVI_ADDRESS: '127.0.0.1',
       LUMOVI_PORT: String(port),
-      LUMOVI_VIEWS_DIR: '',
+      LUMOVI_PLUGINS_DIR: '',
       LUMOVI_HELM: resolve('tests/e2e/helm/helm'),
     },
     stdio: 'ignore',

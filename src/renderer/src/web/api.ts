@@ -121,7 +121,7 @@ export function createWebApi(): LumoviApi {
         download(name, text)
         return { ok: true, data: true }
       },
-      views: invoke(IPC.views),
+      plugins: invoke(IPC.plugins),
     },
     usage: {
       source: invoke(IPC.usageSource),

@@ -13,7 +13,7 @@ charts/lumovi/templates/
 # The macOS icon, as Lumovi's design repository builds it.
 build/Lumovi.icon/
 # Fetched by `npm run crds`, one CRD a line.
-tests/views/crds/*.json
-!tests/views/crds/sources.json
+tests/plugins/crds/*.json
+!tests/plugins/crds/sources.json
 # What helm renders of the chart Lumovi ships, as helm prints it.
 tests/e2e/helm/metrics-stack.yaml

@@ -1,7 +1,7 @@
 import type { KubeObject } from '@shared/api'
 import { conventionalStatus, STATUS_BY_KIND, type Health, type Status } from '@shared/health'
 import { isBuiltinKind, type BuiltinKind, type ResourceKind } from '@shared/resources'
-import { viewFor, viewStatus } from './views'
+import { viewFor, viewStatus } from './plugins'
 
 export {
   containerStatuses,

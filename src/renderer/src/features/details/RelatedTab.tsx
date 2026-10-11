@@ -14,7 +14,7 @@ import { useListResponse, useMetrics } from '@renderer/hooks/queries'
 import { resourceFor, useResource } from '@renderer/hooks/resources'
 import type { KubeApiError } from '@renderer/lib/api'
 import { hasHealth, statusFor } from '@renderer/lib/health'
-import { viewFor, viewRelated, type RelatedQuery } from '@renderer/lib/views'
+import { viewFor, viewRelated, type RelatedQuery } from '@renderer/lib/plugins'
 import {
   columnsFor,
   customColumnsFor,

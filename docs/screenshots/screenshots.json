@@ -330,12 +330,12 @@
       "dark": { "2x": "custom-resource-dark.webp", "1x": "custom-resource-dark-1x.webp" }
     },
     {
-      "name": "add-on",
-      "title": "An add-on",
-      "description": "Flux's add-on: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.",
+      "name": "plugin",
+      "title": "A plugin",
+      "description": "Flux's plugin: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.",
       "app": "desktop",
-      "light": { "2x": "add-on-light.webp", "1x": "add-on-light-1x.webp" },
-      "dark": { "2x": "add-on-dark.webp", "1x": "add-on-dark-1x.webp" }
+      "light": { "2x": "plugin-light.webp", "1x": "plugin-light-1x.webp" },
+      "dark": { "2x": "plugin-dark.webp", "1x": "plugin-dark-1x.webp" }
     },
     {
       "name": "karpenter",

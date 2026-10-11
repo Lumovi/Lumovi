@@ -63,7 +63,7 @@ suits you:
 - **Every kind.** Workloads of every kind in one list, and pods, nodes, namespaces, events,
   services, ingresses, network policies, config maps, secrets, volumes and the rest. Custom
   resources are found through discovery, with the columns `kubectl get` shows and a status
-  read from their conditions; views for cert-manager, Argo CD, Flux, Gateway API, Karpenter,
+  read from their conditions; plugins for cert-manager, Argo CD, Flux, Gateway API, Karpenter,
   KEDA, Istio, Crossplane and more add the columns, related objects, links and actions that
   matter, and you can write your own.
 - **Your tools, each in its place.** Every tool the cluster runs gets an entry in the
@@ -97,7 +97,7 @@ suits you:
   Lumovi, people allow each assistant themselves, and its admins set limits.
 - **Built for big clusters.** Lists load in chunks, paginated and virtualized, so thousands of
   pods stay smooth.
-- **Keyboard first.** Every view is a shortcut away, and `⌘K` / `Ctrl+K` jumps to any view,
+- **Keyboard first.** Every page is a shortcut away, and `⌘K` / `Ctrl+K` jumps to any page,
   object, namespace or cluster.
 - **Calm when things go wrong.** A lost connection shows a banner and keeps the last data on
   screen, and an unexpected error says what happened instead of leaving a blank page.
@@ -216,9 +216,9 @@ The documentation is at **[docs.lumovi.dev](https://docs.lumovi.dev)**:
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | [Get started](https://docs.lumovi.dev/get-started/desktop)            | Installing the desktop app or Lumovi in your cluster, and a tour                                       |
 | [Using Lumovi](https://docs.lumovi.dev/explore/overview)              | Finding your way, changing things safely, logs, shells, metrics, Helm, AI assistants and the audit log |
-| [Custom resources](https://docs.lumovi.dev/custom-resources/overview) | The views Lumovi comes with, and writing your own                                                      |
+| [Custom resources](https://docs.lumovi.dev/custom-resources/overview) | The plugins Lumovi comes with, and writing your own                                                    |
 | [In your cluster](https://docs.lumovi.dev/server/overview)            | Installing with Helm, signing in, who may do what, security and configuration                          |
-| [Reference](https://docs.lumovi.dev/reference/keyboard-shortcuts)     | Shortcuts, settings, the view format, troubleshooting and FAQ                                          |
+| [Reference](https://docs.lumovi.dev/reference/keyboard-shortcuts)     | Shortcuts, settings, the plugin format, troubleshooting and FAQ                                        |
 
 In this repository: [Development](docs/development.md) (building, architecture and testing),
 and the [Changelog](CHANGELOG.md).
@@ -280,8 +280,8 @@ reported privately, as [SECURITY.md](SECURITY.md) says.
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first, and
 [docs/development.md](docs/development.md) to build and test Lumovi.
 
-A good first contribution is support for a tool you run: an add-on and views, written as YAML
-and checked against the tool's CRDs, with no code to write. See
+A good first contribution is support for a tool you run: a plugin, written as YAML and checked
+against the tool's CRDs, with no code to write. See
 [Adding a tool](CONTRIBUTING.md#adding-a-tool).
 
 ## Sponsors

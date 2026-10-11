@@ -35,16 +35,16 @@ import { useSearchParams } from 'react-router'
 import type { KubeList, KubeObject } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
 import { isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
-import { addOnIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
+import { pluginIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
-import { useAddOns } from '@renderer/hooks/add-ons'
+import { useServedPlugins } from '@renderer/hooks/plugins'
 import { useResources } from '@renderer/hooks/resources'
 import { useClusterName, useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { matchWords } from '@renderer/lib/match'
 import {
-  addOnPath,
+  pluginPath,
   apiResourcesPath,
   clusterPath,
   helmPath,
@@ -119,7 +119,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
   // The cluster's other kinds, custom resources included.
   const others = (useResources().data ?? []).filter((r) => !isBuiltinKind(r.kind))
-  const addOns = useAddOns()
+  const plugins = useServedPlugins()
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
@@ -150,7 +150,7 @@ function Palette({ onDone }: { onDone: () => void }) {
           autoFocus
           value={search}
           onValueChange={setSearch}
-          placeholder="Jump to a view, object, namespace or cluster…"
+          placeholder="Jump to a page, object, namespace or cluster…"
           className="h-12 w-full border-b border-line bg-transparent px-4 text-[15px] text-ink-1 outline-none placeholder:text-ink-3 phone:min-w-0 phone:flex-1 phone:border-b-0"
         />
         <Dialog.Close aria-label="Close" className={cn(barButton, 'hidden phone:grid')}>
@@ -243,17 +243,17 @@ function Palette({ onDone }: { onDone: () => void }) {
               </Item>
             )
           })}
-          {addOns.map(({ addOn, kinds }) => {
-            const Icon = addOnIcon(addOn)
+          {plugins.map(({ plugin, kinds }) => {
+            const Icon = pluginIcon(plugin)
             return (
               <Item
-                key={addOn.name}
+                key={plugin.name}
                 icon={<Icon />}
-                value={`${addOn.label} add-on ${kinds.map((r) => r.label).join(' ')}`}
-                hint={<span className="text-xs text-ink-3">Add-on</span>}
-                onSelect={run(() => go(addOnPath(context, addOn.name)))}
+                value={`${plugin.label} plugin ${kinds.map((r) => r.label).join(' ')}`}
+                hint={<span className="text-xs text-ink-3">Plugin</span>}
+                onSelect={run(() => go(pluginPath(context, plugin.name)))}
               >
-                {addOn.label}
+                {plugin.label}
               </Item>
             )
           })}
@@ -281,7 +281,7 @@ function Palette({ onDone }: { onDone: () => void }) {
           </Item>
           <Item
             icon={<Blocks />}
-            value="API resources kinds custom resources CRDs views"
+            value="API resources kinds custom resources CRDs plugins"
             onSelect={run(() => go(apiResourcesPath(context)))}
           >
             API resources

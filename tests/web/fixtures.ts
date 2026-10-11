@@ -135,7 +135,7 @@ export function startServer(
     // What Lumovi's metrics stack is made of, which the stand-in makes in the cluster.
     FAKE_HELM_STACK: resolve('tests/e2e/helm/metrics-stack.yaml'),
     // Never anyone's own: an empty folder unless a test makes one.
-    LUMOVI_VIEWS_DIR: join(helmDir, 'views'),
+    LUMOVI_PLUGINS_DIR: join(helmDir, 'plugins'),
     // The mock repositories and registries run here.
     LUMOVI_ALLOW_PRIVATE_CHARTS: 'true',
     // Never GitHub's sponsor.json: a closed port, so Lumovi's own card (sponsor.spec.ts serves one).

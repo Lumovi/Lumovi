@@ -316,7 +316,7 @@ export class PageConnection {
       terminals,
       logs,
       files,
-      viewsDirectory: { path: config.viewsDir, shown: config.viewsDir },
+      pluginsDirectory: { path: config.pluginsDir, shown: config.pluginsDir },
       audit: recording,
     })
     const auditing = auditHandlers(

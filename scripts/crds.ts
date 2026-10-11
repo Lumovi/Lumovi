@@ -1,20 +1,20 @@
 /**
- * Fetches the CRDs of the operators Lumovi ships views for, at the
- * versions in tests/views/crds/sources.json, and keeps what the views check
- * (tests/views) needs of them: their kinds, versions and the shape of their
+ * Fetches the CRDs of the operators Lumovi ships plugins for, at the
+ * versions in tests/plugins/crds/sources.json, and keeps what the plugins check
+ * (tests/plugins) needs of them: their kinds, versions and the shape of their
  * schemas, without descriptions or validations.
  *
  *   npm run crds                 all of them
  *   npm run crds -- flux keda    only these
  *
- * To check views against a newer release, change its version in
- * sources.json, run this, and run `npm run views:check`.
+ * To check plugins against a newer release, change its version in
+ * sources.json, run this, and run `npm run plugins:check`.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseAllDocuments } from 'yaml'
 
-const DIR = resolve('tests/views/crds')
+const DIR = resolve('tests/plugins/crds')
 
 /**
  * A manifest with CRDs: its URL, or with a release of its own; `helm` when

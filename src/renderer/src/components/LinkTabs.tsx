@@ -3,7 +3,7 @@ import { useGo } from '@renderer/hooks/go'
 import { cn } from '@renderer/lib/cn'
 
 /**
- * Tabs that are pages of their own, like Workloads' and an add-on's. When
+ * Tabs that are pages of their own, like Workloads' and a plugin's. When
  * there are more than fit, they scroll sideways, keeping the current one in
  * view.
  */

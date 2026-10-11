@@ -12,19 +12,19 @@ import {
 import { IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
-import { useAddOnOf } from '@renderer/hooks/add-ons'
+import { usePluginOf } from '@renderer/hooks/plugins'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
-import { useViews } from '@renderer/hooks/views'
+import { usePlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
 import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
-import { fieldValue, viewFor } from '@renderer/lib/views'
+import { fieldValue, viewFor } from '@renderer/lib/plugins'
 import { isWorkloadType } from '@renderer/lib/workloads'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { SelectionBar } from '../actions/BulkActions'
-import { AddOnTabs } from '../add-ons/AddOnPage'
+import { PluginTabs } from '../plugins/PluginPage'
 import { WorkloadTabs } from '../workloads/WorkloadTabs'
 import {
   columnsFor,
@@ -94,8 +94,8 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   }, [builtin, context, kind, touchKind])
   const [params] = useSearchParams()
   // Views decide the columns, status and icon of the kinds they cover.
-  useViews()
-  const addOn = useAddOnOf(builtin ? undefined : kind)
+  usePlugins()
+  const plugin = usePluginOf(builtin ? undefined : kind)
   const showNamespace = resource.namespaced && namespace === null
   // Built-in kinds know their columns; others learn them, and whether they have a status, from the list.
   const builtinColumns = builtin
@@ -241,7 +241,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   return (
     <div className="relative flex h-full flex-col">
       {isWorkloadType(kind) && <WorkloadTabs current={kind} />}
-      {addOn && <AddOnTabs served={addOn} current={kind} />}
+      {plugin && <PluginTabs served={plugin} current={kind} />}
       {phone ? (
         // On a phone: the filter with its two buttons, then what's listed and how it's doing.
         <div className="shrink-0 border-b border-line px-4 pt-3">

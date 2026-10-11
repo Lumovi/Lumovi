@@ -4,23 +4,24 @@ import { DOCS_URL } from '@shared/app'
 import { isCustomGroup, type ResourceDefinition } from '@shared/resources'
 import { Button, IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
 import { useGo } from '@renderer/hooks/go'
 import { useResources } from '@renderer/hooks/resources'
-import { useViews } from '@renderer/hooks/views'
+import { usePlugins } from '@renderer/hooks/plugins'
 import { api, type KubeApiError } from '@renderer/lib/api'
 import { kindPath } from '@renderer/lib/routes'
-import { viewFor } from '@renderer/lib/views'
+import { shownBy, viewFor } from '@renderer/lib/plugins'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 
-const VIEWS_GUIDE = `${DOCS_URL}/custom-resources/write-a-view`
+const PLUGINS_GUIDE = `${DOCS_URL}/custom-resources/write-a-plugin`
 
-/** Every kind the cluster serves, like `kubectl api-resources`, and the views that show them. */
+/** Every kind the cluster serves, like `kubectl api-resources`, and the plugins that show them. */
 export function ApiResourcesPage() {
   const resources = useResources()
-  const views = useViews().data
+  const plugins = usePlugins().data
   const [filter, setFilter] = useState('')
   const needle = filter.trim().toLowerCase()
   const matching = (resources.data ?? []).filter((r) =>
@@ -57,6 +58,9 @@ export function ApiResourcesPage() {
     )
   }
 
+  // What follows from a file's problems is said with them, and isn't one more thing to fix.
+  const problemCount = plugins?.problems.filter((problem) => !problem.consequence).length
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-5 py-3">
@@ -74,43 +78,46 @@ export function ApiResourcesPage() {
           autoFocus
         />
       </div>
-      {views && views.problems.length > 0 && (
+      {plugins && plugins.problems.length > 0 && (
         <div
           role="alert"
           className="shrink-0 border-b border-line bg-warn/8 px-5 py-3 text-[13px] text-ink-2"
         >
           <p className="flex items-center gap-2 font-medium text-warn-text">
             <TriangleAlert className="size-4" />
-            {views.problems.length === 1
-              ? 'A view couldn’t be used'
-              : `${views.problems.length} problems with views`}
+            {problemCount === 1
+              ? 'A plugin couldn’t be used'
+              : `${problemCount} problems with plugins`}
           </p>
-          <ul aria-label="View problems" className="mt-1.5 space-y-0.5 pl-6 font-mono text-xs">
-            {views.problems.map((problem) => (
-              <li key={problem}>{problem}</li>
+          <ul aria-label="Plugin problems" className="mt-1.5 space-y-0.5 pl-6 font-mono text-xs">
+            {plugins.problems.map((problem) => (
+              <li key={problem.text} className={problem.consequence ? 'text-ink-3' : undefined}>
+                {problem.text}
+              </li>
             ))}
           </ul>
         </div>
       )}
       {body}
-      {views && (
+      {plugins && (
         <footer className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-5 py-2.5 text-xs text-ink-3">
-          {/* A server's own views are its administrator's, from its Helm values. */}
-          <span>
-            {views.shipped.length} views from Lumovi
-            {views.local.length > 0 &&
+          {/* A server's own plugins are its administrator's, from its Helm values. */}
+          <span className="min-w-0">
+            {plugins.included.length} plugins from Lumovi
+            {plugins.local.length > 0 &&
               (api.host === 'desktop'
-                ? `, ${views.local.length} of yours`
-                : `, ${views.local.length} from this server`)}
+                ? `, ${plugins.local.length} of yours`
+                : `, ${plugins.local.length} from this server`)}
             . {api.host === 'desktop' ? 'Yours go in' : 'This server’s are in'}{' '}
-            <span className="font-mono text-ink-2 selectable">{views.directory}</span>
+            {/* A folder's path has no spaces to wrap at, and is as long as someone made it. */}
+            <span className="font-mono break-all text-ink-2 selectable">{plugins.directory}</span>
           </span>
           <Button
             variant="ghost"
             className="h-7 px-2 text-xs"
-            onClick={() => void api.app.openExternal(VIEWS_GUIDE)}
+            onClick={() => void api.app.openExternal(PLUGINS_GUIDE)}
           >
-            <BookOpen /> How to write a view
+            <BookOpen /> How to write a plugin
           </Button>
         </footer>
       )}
@@ -154,7 +161,7 @@ function KindTable({
             <th className="w-[34%] border-b border-line py-2 pr-3 pl-3 font-medium">Kind</th>
             <th className="w-[30%] border-b border-line py-2 pr-3 font-medium">API version</th>
             <th className="w-[13%] border-b border-line py-2 pr-3 font-medium">Scope</th>
-            <th className="w-[15%] border-b border-line py-2 pr-3 font-medium">View</th>
+            <th className="w-[15%] border-b border-line py-2 pr-3 font-medium">Shown by</th>
             <th className="w-[8%] border-b border-line py-2">
               <span className="sr-only">Pin</span>
             </th>
@@ -205,8 +212,9 @@ function KindTable({
                     <td className="truncate border-b border-line py-1.5 pr-3 text-ink-2">
                       {resource.namespaced ? 'Namespaced' : 'Cluster'}
                     </td>
-                    <td className="truncate border-b border-line py-1.5 pr-3 text-xs text-ink-2">
-                      {view?.source ?? '—'}
+                    {/* A file's name can be longer than the column: its end tells two apart. */}
+                    <td className="border-b border-line py-1.5 pr-3 text-xs text-ink-2">
+                      {view ? <MiddleTruncate text={shownBy(view)} /> : '—'}
                     </td>
                     <td className="border-b border-line py-1 pr-2 text-right">
                       <IconButton

@@ -18,7 +18,7 @@ export function navLabel(target: NavTarget): string {
   return PAGE_LABELS[target] ?? resourceByKind(target as BuiltinKind).label
 }
 
-/** Press g, then a letter, to jump to a view. */
+/** Press g, then a letter, to jump to a page. */
 export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'o', target: 'overview' },
   { key: 'w', target: 'workloads' },

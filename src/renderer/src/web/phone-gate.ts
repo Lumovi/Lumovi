@@ -37,7 +37,7 @@ export const ON_A_PHONE: ReadonlySet<string> = new Set([
 const READS: readonly string[] = [
   IPC.appInfo,
   IPC.settings,
-  IPC.views,
+  IPC.plugins,
   IPC.contexts,
   IPC.version,
   IPC.resources,

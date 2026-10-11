@@ -682,10 +682,10 @@ export interface LintResult {
 }
 
 /**
- * View files the user keeps next to Lumovi's own (the format:
- * https://docs.lumovi.dev/reference/view-format).
+ * Plugin files the user keeps next to Lumovi's own (the format:
+ * https://docs.lumovi.dev/reference/plugin-format).
  */
-export interface LocalViews {
+export interface LocalPlugins {
   directory: string
   /** Each file's text, or why it wasn't read. */
   files: { name: string; text: string; error?: string }[]
@@ -1033,7 +1033,7 @@ export interface LumoviApi {
     /** Saves `text` as a file named `name` (asking where, on the desktop); false if the user cancels. */
     saveFile(name: string, text: string): Promise<Result<boolean>>
     /** The user's own view files, read when asked. */
-    views(): Promise<LocalViews>
+    plugins(): Promise<LocalPlugins>
   }
   /** Usage history from the cluster's Prometheus or VictoriaMetrics. */
   usage: {
@@ -1351,7 +1351,7 @@ export const IPC = {
   setNodeShell: 'app:set-node-shell',
   openExternal: 'app:open-external',
   saveFile: 'app:save-file',
-  views: 'app:views',
+  plugins: 'app:plugins',
   contexts: 'kube:contexts',
   kubeconfigFiles: 'kubeconfig:files',
   kubeconfigChoose: 'kubeconfig:choose',

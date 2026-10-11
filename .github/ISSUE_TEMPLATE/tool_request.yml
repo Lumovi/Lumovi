@@ -1,11 +1,11 @@
 name: Support a tool
-description: Ask for an add-on and views for an operator or tool, or offer to write them
-labels: [enhancement, add-on]
+description: Ask for a plugin for an operator or tool, or offer to write it
+labels: [enhancement, plugin]
 body:
   - type: markdown
     attributes:
       value: |
-        Lumovi shows a tool's custom resources through an **add-on** (its entry in the sidebar) and **views** (how each kind is shown). They're YAML, with no code to write: see [Adding a tool](https://github.com/Lumovi/Lumovi/blob/main/CONTRIBUTING.md#adding-a-tool).
+        Lumovi shows a tool's custom resources through a **plugin**: its entry in the sidebar, and a view for each kind that says how it's shown. It's YAML, with no code to write: see [Adding a tool](https://github.com/Lumovi/Lumovi/blob/main/CONTRIBUTING.md#adding-a-tool).
   - type: input
     id: tool
     attributes:
@@ -38,4 +38,4 @@ body:
     attributes:
       label: Contributing
       options:
-        - label: I'd like to write the add-on and views myself
+        - label: I'd like to write the plugin myself

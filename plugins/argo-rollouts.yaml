@@ -1,0 +1,77 @@
+# Argo Rollouts (https://argoproj.github.io/rollouts).
+apiVersion: lumovi.dev/v1alpha1
+kind: Plugin
+metadata:
+  name: argo-rollouts
+spec:
+  label: Argo Rollouts
+  icon: rocket
+  kinds:
+    - { group: argoproj.io, kind: Rollout }
+    - { group: argoproj.io, kind: AnalysisRun }
+    - { group: argoproj.io, kind: AnalysisTemplate }
+    - { group: argoproj.io, kind: ClusterAnalysisTemplate }
+    - { group: argoproj.io, kind: Experiment }
+  views:
+    - name: argo-rollouts
+      kinds:
+        - { group: argoproj.io, kind: Rollout }
+      icon: rocket
+      columns:
+        - { name: Desired, path: .spec.replicas, type: number }
+        - { name: Ready, path: .status.readyReplicas, type: number, default: '0' }
+        - { name: Updated, path: .status.updatedReplicas, type: number, default: '0' }
+        - { name: Steps, path: '.spec.strategy.canary.steps', type: count }
+      status:
+        - when: { path: .status.abort, equals: true }
+          health: critical
+          label: Aborted
+          detail: '{{ .status.message }}'
+        - when: { path: .status.phase, equals: Healthy }
+          health: healthy
+          label: Healthy
+        - when: { path: .status.phase, equals: Paused }
+          health: neutral
+          label: Paused
+          detail: '{{ .status.message }}'
+        - when: { path: .status.phase, equals: Degraded }
+          health: critical
+          label: Degraded
+          detail: '{{ .status.message }}'
+        - when: { path: .status.phase, exists: true }
+          health: progressing
+          label: '{{ .status.phase }}'
+          detail: '{{ .status.message }}'
+      details:
+        - { name: Phase, path: .status.phase }
+        - { name: Step, path: .status.currentStepIndex, type: number }
+        - { name: Canary steps, path: '.spec.strategy.canary.steps', type: count }
+        - { name: Stable, path: .status.stableRS }
+        - { name: Restarted, path: .spec.restartAt, type: date }
+      actions:
+        - name: Promote
+          icon: rocket
+          primary: true
+          when: { path: '.status.pauseConditions[0]', exists: true }
+          subresource: status
+          patch: { status: { pauseConditions: null } }
+          done: Promoted {{ .metadata.name }} to its next step
+        - name: Resume
+          icon: rocket
+          primary: true
+          when: { path: .spec.paused, equals: true }
+          patch: { spec: { paused: false } }
+          undo: { spec: { paused: true } }
+          done: Resumed {{ .metadata.name }}
+        - name: Restart
+          icon: refresh-cw
+          confirm: Its pods are replaced a few at a time, as its strategy says.
+          patch: { spec: { restartAt: '{{ now }}' } }
+          done: Restarted {{ .metadata.name }}
+        - name: Abort
+          danger: true
+          when: { path: .status.phase, in: [Progressing, Paused] }
+          confirm: The rollout stops and traffic goes back to the stable version. It stays aborted until it's promoted or changed again.
+          subresource: status
+          patch: { status: { abort: true } }
+          done: Aborted the rollout of {{ .metadata.name }}

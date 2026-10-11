@@ -379,13 +379,13 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | [![A cert-manager certificate, shown with Lumovi's view of it.](custom-resource-light-1x.webp)](custom-resource-light.webp) | [![A cert-manager certificate, shown with Lumovi's view of it.](custom-resource-dark-1x.webp)](custom-resource-dark.webp) |
 
-### An add-on
+### A plugin
 
-`add-on`: Flux's add-on: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.
+`plugin`: Flux's plugin: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.
 
 | Light                                                                                                                                                 | Dark                                                                                                                                                |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![Flux's add-on: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.](add-on-light-1x.webp)](add-on-light.webp) | [![Flux's add-on: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.](add-on-dark-1x.webp)](add-on-dark.webp) |
+| [![Flux's plugin: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.](plugin-light-1x.webp)](plugin-light.webp) | [![Flux's plugin: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.](plugin-dark-1x.webp)](plugin-dark.webp) |
 
 ### Karpenter
 

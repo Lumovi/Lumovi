@@ -117,8 +117,8 @@ export async function launchApp(
     ...process.env,
     KUBECONFIG: kubeconfig,
     LUMOVI_COVERAGE_DIR: COVERAGE_DIR,
-    // Never the developer's own views.
-    LUMOVI_VIEWS_DIR: join(userDataDir, 'views'),
+    // Never the developer's own plugins.
+    LUMOVI_PLUGINS_DIR: join(userDataDir, 'plugins'),
     // Never GitHub's sponsor.json: a closed port, so Lumovi's own card (sponsor.spec.ts serves one).
     LUMOVI_SPONSOR_URL: 'http://127.0.0.1:9/',
     // Keep tests independent of the developer's login shell, and their proxy.

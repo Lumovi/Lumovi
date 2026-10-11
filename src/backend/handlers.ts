@@ -37,7 +37,7 @@ import type { KubeService } from './kube/service'
 import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from './settings'
-import { readViews } from './views'
+import { readPlugins } from './plugins'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
 export type Handler = (...args: unknown[]) => unknown
@@ -51,8 +51,8 @@ export interface Backend {
   terminals: Terminals
   logs: LogStreams
   files: FileCopies
-  /** Where the views of one's own are, and how that folder is shown. */
-  viewsDirectory: { path: string; shown: string }
+  /** Where the plugins of one's own are, and how that folder is shown. */
+  pluginsDirectory: { path: string; shown: string }
   /** The audit log, as the page's person records to it. */
   audit: Recorder
 }
@@ -73,7 +73,7 @@ export function handlers({
   terminals,
   logs,
   files,
-  viewsDirectory,
+  pluginsDirectory,
   audit,
 }: Backend): Handlers {
   /** Recorded once it's done, as it came out: but not what was only tried (a dry run). */
@@ -199,7 +199,7 @@ export function handlers({
           () => settings.setNodeShell(context, reset ? null : setting),
         )
       },
-      [IPC.views]: () => readViews(viewsDirectory),
+      [IPC.plugins]: () => readPlugins(pluginsDirectory),
 
       [IPC.contexts]: () => kube.contexts(),
       [IPC.version]: (context) => kube.version(context),

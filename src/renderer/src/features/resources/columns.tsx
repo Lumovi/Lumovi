@@ -11,7 +11,7 @@ import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@render
 import { describeSchedule, nextRun } from '@renderer/lib/cron'
 import { roleRefOf, rulesOf, subjectsOf, subjectText } from '@renderer/lib/rbac'
 import { allocatable } from '@renderer/lib/usage'
-import { fieldValue, type View, type ViewField } from '@renderer/lib/views'
+import { fieldValue, type View, type ViewField } from '@renderer/lib/plugins'
 
 export interface CellContext {
   /** Live usage keyed by `metricsKey`, when the metrics API is available. */
