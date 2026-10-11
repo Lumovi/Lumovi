@@ -9,6 +9,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import { createRoot, type Root } from 'react-dom/client'
 import { number, oneOf, text, yesOrNo, type PropsOf } from '@shared/kit/declare'
 import type { PageEnd } from '@shared/plugin-ended'
+import { cn } from '@renderer/lib/cn'
 import { openPage, type KitPart, type OpenPage } from './page'
 import { PluginFrame } from './PluginFrame'
 import { PluginSurface } from './Surface'
@@ -51,7 +52,10 @@ const PARTS: Record<string, KitPart> = {
     draw: ({ props, children }) => (
       <div
         data-part="Label"
-        className={(props as PropsOf<typeof label>).tone === 'quiet' ? 'text-ink-3' : 'text-ink-1'}
+        className={cn(
+          'overflow-clip',
+          (props as PropsOf<typeof label>).tone === 'quiet' ? 'text-ink-3' : 'text-ink-1',
+        )}
       >
         {children}
       </div>
@@ -105,7 +109,13 @@ function Stage({ shown }: { shown: Shown }) {
       className="fixed inset-0 z-[1000] flex flex-col bg-surface text-[13px]"
     >
       {forced ? (
-        <PluginFrame name={shown.name} version={shown.version} end={forced} onAgain={again}>
+        <PluginFrame
+          name={shown.name}
+          version={shown.version}
+          end={forced}
+          onAgain={again}
+          onFault={() => undefined}
+        >
           {null}
         </PluginFrame>
       ) : (
@@ -123,8 +133,14 @@ function Opened({ shown, onAgain }: { shown: Shown; onAgain: () => void }): Reac
   useEffect(() => () => page.close(), [page])
   const end = useSyncExternalStore(page.subscribe, () => page.end)
   return (
-    <PluginFrame name={shown.name} version={shown.version} end={end} onAgain={onAgain}>
-      <PluginSurface page={page} parts={PARTS} />
+    <PluginFrame
+      name={shown.name}
+      version={shown.version}
+      end={end}
+      onAgain={onAgain}
+      onFault={page.fault}
+    >
+      <PluginSurface page={page} />
     </PluginFrame>
   )
 }

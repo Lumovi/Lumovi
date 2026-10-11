@@ -108,13 +108,14 @@ test('a text that isn’t Lumovi’s comes in pieces: text as written, and marks
   for (const turning of ['‪', '‫', '‬', '‭', '⁦', '⁧', '⁨', '⁩'])
     expect(inPieces(`a${turning}b`)).toEqual(['a', u(codePoint(turning)), 'b'])
   // Controls; an escape sequence as one mark, and an escape that starts none alone.
-  expect(inPieces('x\u0000y\u0007\u007f\u0080\u009f\u000b')).toEqual([
+  expect(inPieces('x\u0000y\u0007\u007f\u0080z\u009f\u000b')).toEqual([
     'x',
     u('U+0000'),
     'y',
     u('U+0007'),
     u('U+007F'),
     u('U+0080'),
+    'z',
     u('U+009F'),
     u('U+000B'),
   ])
@@ -149,7 +150,7 @@ test('a text that isn’t Lumovi’s comes in pieces: text as written, and marks
   expect(inPieces(`${england} England`)).toEqual([`${england} England`])
   expect(inPieces('🏴\u{E0067}\u{E0062}')).toEqual(['🏴', u('U+E0067'), u('U+E0062')])
   expect(inPieces('🏴\u{E0067}\u{E007F}')).toHaveLength(3)
-  expect(inPieces('🏴' + '\u{E0067}'.repeat(7) + '\u{E007F}')).toHaveLength(9)
+  expect(inPieces('🏴' + '\u{E0067}'.repeat(7) + '\u{E007F}')).toHaveLength(5)
   expect(inPieces('🏴\u{E0041}\u{E0042}\u{E007F}')).toHaveLength(4)
   // Private use, noncharacters, half of a pair.
   for (const marked of [
@@ -176,18 +177,38 @@ test('a text that isn’t Lumovi’s comes in pieces: text as written, and marks
     u('U+001B'),
     ': admission webhook denied ✋\n',
   ])
-  // Twenty marks a text, and then how many more there were.
-  const many = inPieces('\u0007'.repeat(4000))
-  expect(many).toHaveLength(MARKS_AT_MOST + 1)
-  expect(many.at(-1)).toEqual({ more: 3980 })
-  expect(inPieces('\u0007'.repeat(MARKS_AT_MOST))).toHaveLength(MARKS_AT_MOST)
+  // A run of marks is three and then how many more there were; so a text's own words stay in
+  // sight. And twenty marks a text in all, the rest counted once at its end.
+  expect(inPieces('\u0007'.repeat(4000))).toEqual([
+    u('U+0007'),
+    u('U+0007'),
+    u('U+0007'),
+    { more: 3997 },
+  ])
+  expect(inPieces('\u0007'.repeat(3))).toHaveLength(3)
+  expect(inPieces('a\u0007\u0007\u0007\u0007b\u0000c')).toEqual([
+    'a',
+    u('U+0007'),
+    u('U+0007'),
+    u('U+0007'),
+    { more: 1 },
+    'b',
+    u('U+0000'),
+    'c',
+  ])
+  const scattered = inPieces('a\u0007'.repeat(30))
+  expect(scattered.filter((piece) => typeof piece !== 'string' && 'unseen' in piece)).toHaveLength(
+    MARKS_AT_MOST,
+  )
+  expect(scattered.at(-1)).toEqual({ more: 10 })
+  expect(scattered.filter((piece) => typeof piece !== 'string' && 'more' in piece)).toHaveLength(1)
   expect(inPieces(5 as unknown as string)).toEqual(['5'])
 })
 
 test('where a mark can’t be drawn it’s spelled, by the same rule', () => {
   expect(spelled('abc‮def')).toBe('abc U+202E def')
   expect(spelled('می‌خواهم 👨‍👩‍👧')).toBe('می‌خواهم 👨‍👩‍👧')
-  expect(spelled('\u0007'.repeat(4000))).toMatch(/^( U\+0007 ){20} and 3,980 more $/)
+  expect(spelled('\u0007'.repeat(4000))).toMatch(/^( U\+0007 ){3} and 3,997 more $/)
   expect(quotedBack('style\n2026 "all well"‮' + 'x'.repeat(500))).toBe(
     '"style 2026 \\"all well\\" U+202E xxxxxxxxxxxxxxxxxx…"',
   )
@@ -208,6 +229,6 @@ test('a plugin’s last words: short, five lines at most, cut by characters', ()
   expect(said('a‮b')).toEqual(['a', u('U+202E'), 'b'])
   // Cut by characters, never through a pair.
   expect(said('🙂'.repeat(SAID_AT_MOST + 5))).toEqual(['🙂'.repeat(SAID_AT_MOST)])
-  expect(said('\u0007'.repeat(500))).toHaveLength(MARKS_AT_MOST + 1)
+  expect(said('\u0007'.repeat(500))).toEqual([u('U+0007'), u('U+0007'), u('U+0007'), { more: 197 }])
   expect(said('   ')).toEqual([])
 })

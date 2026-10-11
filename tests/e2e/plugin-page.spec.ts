@@ -134,19 +134,26 @@ test('a text is drawn whatever its characters: what would turn it round or isn�
   await expect(field('colours').locator('[data-mark]')).toHaveCount(2)
   await expect(field('colours')).toContainText('failed')
   await expect(field('null').getByRole('img', { name: 'invisible character U+0000' })).toBeVisible()
-  // Four thousand of them are twenty marks and a count, not four thousand elements.
-  await expect(field('bells').locator('[data-mark]')).toHaveCount(21)
+  // Four thousand of them are three marks and a count, not four thousand elements: the row's
+  // own words stay in sight.
+  await expect(field('bells').locator('[data-mark]')).toHaveCount(4)
   await expect(
-    field('bells').getByRole('img', { name: 'and 3,980 more invisible characters' }),
+    field('bells').getByRole('img', { name: 'and 3,997 more invisible characters' }),
   ).toBeVisible()
-  // A text is an island of direction: Lumovi's own words beside one in Hebrew stay where they are.
+  // A text is an island of direction: its own letters in their own order, and nothing of
+  // Lumovi's beside it turned round; but it starts at the left of its row like every other.
   await expect(field('hebrew')).toHaveAttribute('dir', 'auto')
   expect(await field('hebrew').evaluate((el) => el.tagName)).toBe('BDI')
-  const beside = surface(page)
-    .locator('[data-part="Field"]', { hasText: 'hebrew' })
-    .getByTestId('beside')
-  const [text, own] = [await field('hebrew').boundingBox(), await beside.boundingBox()]
-  expect(text!.x + text!.width).toBeLessThanOrEqual(own!.x + 1)
+  expect(await field('hebrew').evaluate((el) => getComputedStyle(el).direction)).toBe('rtl')
+  const [hebrew, plain] = [await field('hebrew').boundingBox(), await field('null').boundingBox()]
+  expect(hebrew!.x).toBe(plain!.x)
+  const firstLetter = await field('hebrew').evaluate((el) => {
+    const range = document.createRange()
+    range.setStart(el.firstChild!, 0)
+    range.setEnd(el.firstChild!, 4)
+    return range.getBoundingClientRect().left - el.getBoundingClientRect().left
+  })
+  expect(firstLetter).toBeLessThan(40)
   // Marks stacked sixty high on a letter are clipped to their own row.
   expect(await field('stacked').evaluate((el) => getComputedStyle(el).overflow)).toBe('clip')
   // A line's end is one where the part draws lines.
@@ -260,6 +267,9 @@ test('a part of Lumovi’s own that fails as it draws takes the plugin’s page 
   await expect(ended(page)).not.toContainText('stopping the page')
   await expect(ended(page)).toContainText('If it happens again, tell us.')
   await expect(stage(page)).not.toContainText('before the fault')
+  // The page is gone, not only its picture: no box of the plugin's is left, so none of its
+  // code runs behind the words.
+  await expect(page.locator('iframe[sandbox]')).toHaveCount(0)
   // The rest of Lumovi is as it was: the app under the stage still answers.
   await page.evaluate(() =>
     (window as unknown as { __lumoviDoor: { hide(): void } }).__lumoviDoor.hide(),

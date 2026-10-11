@@ -4,10 +4,9 @@
  * plugin's code describes: nothing it sends can draw here, cover this or scroll it away.
  */
 import { Plug } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { Component, useState, type ReactNode } from 'react'
 import { endedWords, type PageEnd } from '@shared/plugin-ended'
 import { Button } from '@renderer/components/Button'
-import { ErrorBoundary } from '@renderer/features/errors/ErrorBoundary'
 import { TheirText } from './TheirText'
 
 /** The strip above a plugin's page: whose it is. It stays while the page scrolls under it. */
@@ -58,7 +57,9 @@ export function EndedPage({
       <h3 className="text-[14px] leading-5 font-semibold [overflow-wrap:anywhere] text-ink-1">
         {words.title}
       </h3>
-      {words.why && <p className="mt-1.5 text-[13px] leading-5 text-ink-2">{words.why}</p>}
+      {words.why && (
+        <p className="mt-1.5 text-[13px] leading-5 text-balance text-ink-2">{words.why}</p>
+      )}
       {words.said && (
         <div className="mt-2.5 w-full rounded-[10px] border border-dashed border-line-strong text-left">
           <div className="px-3 pt-1.5 text-[11px] font-medium tracking-wider [overflow-wrap:anywhere] text-ink-3 uppercase">
@@ -72,7 +73,7 @@ export function EndedPage({
           />
         </div>
       )}
-      <p className="mt-3 text-[12px] leading-[18px] text-ink-3">{words.still}</p>
+      <p className="mt-3 text-[12px] leading-[18px] text-balance text-ink-3">{words.still}</p>
       {words.advice && (
         <p className="mt-1.5 text-[12px] leading-[18px] text-ink-3">{words.advice}</p>
       )}
@@ -95,6 +96,7 @@ export function PluginFrame({
   version,
   end,
   onAgain,
+  onFault,
   children,
 }: {
   name: string
@@ -103,6 +105,11 @@ export function PluginFrame({
   end?: PageEnd
   /** Opens the page again: on the person's press. */
   onAgain: () => void
+  /**
+   * A part of Lumovi's failed as it drew the page: whoever holds the page ends it (its box and
+   * its worker with it). The picture alone going would leave a plugin's code running unseen.
+   */
+  onFault: () => void
   children: ReactNode
 }) {
   // (A boundary that caught something stays so until it's made anew.)
@@ -118,14 +125,35 @@ export function PluginFrame({
         {end ? (
           <EndedPage name={name} end={end} onAgain={again} />
         ) : (
-          <ErrorBoundary
+          <Boundary
             key={opened}
-            fallback={() => <EndedPage name={name} end={{ why: 'drawing' }} onAgain={again} />}
+            onFault={onFault}
+            fallback={<EndedPage name={name} end={{ why: 'drawing' }} onAgain={again} />}
           >
             {children}
-          </ErrorBoundary>
+          </Boundary>
         )}
       </div>
     </div>
   )
+}
+
+/** Round a plugin's whole surface: what fails inside it is said in its place, and told. */
+class Boundary extends Component<
+  { fallback: ReactNode; onFault: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  override componentDidCatch() {
+    this.props.onFault()
+  }
+
+  override render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
 }

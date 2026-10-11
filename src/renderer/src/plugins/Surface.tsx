@@ -12,7 +12,8 @@ import { TheirText } from './TheirText'
 function draw(tree: DoorPage, parts: Readonly<Record<string, KitPart>>, id: number): ReactNode {
   const node = tree.node(id)
   if (!node) return null
-  if (node.part === undefined) return <TheirText key={id} text={node.text ?? ''} lines />
+  // (A text under a part runs on with the texts beside it; the part that holds it clips it.)
+  if (node.part === undefined) return <TheirText key={id} text={node.text ?? ''} lines inline />
   const { draw: Part, declared } = parts[node.part]!
   return (
     <Part key={id} props={handedOnce(node.props, declared.props)}>
@@ -33,13 +34,8 @@ function handedOnce(
 }
 
 /** The page of `page`, as it is now; drawn again when it changes. */
-export function PluginSurface({
-  page,
-  parts,
-}: {
-  page: OpenPage
-  parts: Readonly<Record<string, KitPart>>
-}) {
+export function PluginSurface({ page }: { page: OpenPage }) {
+  const { parts } = page
   useSyncExternalStore(page.subscribe, () => page.version)
   return (
     <div data-testid="plugin-surface" className="flex flex-col gap-4 p-4">
