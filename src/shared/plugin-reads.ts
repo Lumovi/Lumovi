@@ -370,29 +370,43 @@ interface Named {
   under: Map<string, Named>
 }
 
-/** A copy of `value` with nothing in it that's never handed over. */
-function handedOver(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(handedOver)
+/** Maps whose keys are a person's own words, not fields: a label may well be called `env`. */
+const PERSONS_OWN = new Set(['labels', 'matchLabels', 'nodeSelector'])
+
+/**
+ * A copy of `value`. With `dropping`, nothing in it that's never handed over: but never a key
+ * of a map whose keys are a person's own (a label named `env` is a label).
+ */
+function handedOver(value: unknown, dropping: boolean): unknown {
+  if (Array.isArray(value)) return value.map((item) => handedOver(item, dropping))
   if (typeof value !== 'object' || value === null) return value
   const copy: Record<string, unknown> = {}
   for (const key of Object.keys(value)) {
-    if (!neverHanded(key)) copy[key] = handedOver((value as Record<string, unknown>)[key])
+    if (NEVER_STEPS.has(key) || (dropping && neverHanded(key))) continue
+    const inner = (value as Record<string, unknown>)[key]
+    copy[key] = handedOver(inner, dropping && !PERSONS_OWN.has(key))
   }
   return copy
 }
 
 /**
  * Of `value`, what `named` names. A step into a list is taken of each item: the list's shape is
- * kept, and of each item only what's named.
+ * kept, and of each item only what's named. `dropping`: whether what's handed over whole has
+ * the never-handed names taken out of it (of another tool's kind; a line of Lumovi's own list
+ * was read before it was added, and is handed over as it is).
  */
-function pick(value: unknown, named: Named): unknown {
-  if (named.whole) return handedOver(value)
-  if (Array.isArray(value)) return value.map((item) => pick(item, named) ?? {})
+function pick(value: unknown, named: Named, dropping: boolean): unknown {
+  if (named.whole) return handedOver(value, dropping)
+  if (Array.isArray(value)) return value.map((item) => pick(item, named, dropping) ?? {})
   if (typeof value !== 'object' || value === null) return undefined
   const out: Record<string, unknown> = {}
   for (const [key, under] of named.under) {
     if (!Object.hasOwn(value, key)) continue
-    const found = pick((value as Record<string, unknown>)[key], under)
+    const found = pick(
+      (value as Record<string, unknown>)[key],
+      under,
+      dropping && !PERSONS_OWN.has(key),
+    )
     if (found !== undefined) out[key] = found
   }
   return Object.keys(out).length > 0 ? out : undefined
@@ -400,9 +414,9 @@ function pick(value: unknown, named: Named): unknown {
 
 /**
  * Of `object` (one of `kind`), the fields `granted` names and nothing else: built from what the
- * plugin may see, field by field, never from the object with things taken out. (What's handed
- * over whole for a line still has the never-handed names dropped from it: a second net under
- * the list, not the wall.) A copy, so
+ * plugin may see, field by field, never from the object with things taken out. (Of another
+ * tool's kind, what's handed over whole still has the never-handed names dropped from it: a
+ * second net, not the wall. A line of Lumovi's own list is handed over as it is.) A copy, so
  * nothing that holds it holds what was read. Own fields only; a path that isn't there leaves
  * nothing.
  */
@@ -429,7 +443,10 @@ export function picked(
     // (Where a path and one under it are both named, the shorter one has it all.)
     at.whole = true
   }
-  return (pick(object, root) as Record<string, unknown> | undefined) ?? {}
+  // (A path that ends inside a map of a person's own words names one of them: handed as it is.)
+  return (
+    (pick(object, root, isCustomGroup(kind.group)) as Record<string, unknown> | undefined) ?? {}
+  )
 }
 
 /** What all of a plugin's pages keep between them: counted in one place. */
