@@ -2063,6 +2063,16 @@ for (const volume of [
       // this one's still, the change went into it, and it's taken over again.)
       expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
     }).toPass()
+    // Whoever else asks anything of it meanwhile, signed in or not, is told that it's stopping
+    // and no more: not why, which names the other's process and host. (Or nothing, once it has
+    // closed its door.)
+    const outside = await fetch(served.url).then(
+      async (answer) => `${answer.status} ${await answer.text()}`,
+      () => undefined,
+    )
+    if (outside !== undefined) {
+      expect(outside).toBe('503 {"error":"This Lumovi is stopping and takes no more work."}')
+    }
     // A change that's refused is never also made, and one that's made is never answered with
     // the refusal. (One whose answer the closing connection took may be either.)
     if (said.includes(NOT_DONE)) expect(made).toBe(asked)
