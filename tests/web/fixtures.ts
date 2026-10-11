@@ -20,7 +20,9 @@ export { DEMO, DEMO_TOKEN, PEOPLE } from '../mock-cluster/kubeconfig.ts'
 const COVERAGE_DIR = resolve('.nyc_output')
 const SERVER = resolve('out/server/index.js')
 const AGENT = resolve('out/agent/agent.js')
-/** Only an instrumented build answers when asked for its coverage. */
+/** How long a server asked to stop is given, before it's ended outright (it says so in its log). */
+const STOPS_WITHIN_MS = 30_000
+/** Only an instrumented build answers when asked for its coverage, or (Windows) to stop. */
 const INSTRUMENTED = (() => {
   try {
     return readFileSync(SERVER, 'utf8').includes('lumovi:coverage')
@@ -69,6 +71,42 @@ export interface Served {
   log(): string
   /** Stops it gracefully, as Kubernetes does (SIGTERM), keeping its coverage. */
   stop(): Promise<void>
+}
+
+/**
+ * Stops a server (or an agent) as Kubernetes does: it's asked to, and does what it does as it
+ * stops (keeping what changed last, say) before it ends.
+ *
+ * Windows has no SIGTERM: there `kill` ends a process outright. An instrumented build is asked
+ * to stop with a message instead, and does as it would for the signal. One that hasn't stopped
+ * in time is ended outright, and its log says so.
+ */
+async function stopped(
+  child: ChildProcess,
+  exited: Promise<unknown>,
+  say: (line: string) => void,
+): Promise<void> {
+  if (child.exitCode !== null) return
+  if (INSTRUMENTED && process.platform === 'win32') {
+    child.send('lumovi:stop')
+    const inTime = await Promise.race([
+      exited.then(() => true),
+      new Promise<false>((late) => setTimeout(() => late(false), STOPS_WITHIN_MS)),
+    ])
+    if (inTime) return
+    say(
+      `\n(It hadn’t stopped ${STOPS_WITHIN_MS / 1000} s after it was asked to: ended outright.)\n`,
+    )
+  }
+  if (INSTRUMENTED) {
+    // Ended outright (Windows), its coverage is asked for first.
+    await new Promise<void>((saved) => {
+      child.once('message', () => saved())
+      child.send('lumovi:coverage')
+    })
+  }
+  child.kill('SIGTERM')
+  await exited
 }
 
 /** Runs the server until it says where it listens; rejects with its output if it exits first. */
@@ -127,16 +165,7 @@ export function startServer(
         // has no exit code, so that can't tell.)
         stop() {
           stopping ??= (async () => {
-            if (child.exitCode !== null) return
-            if (INSTRUMENTED) {
-              // Windows can't stop a process gracefully: its coverage is asked for first.
-              await new Promise<void>((saved) => {
-                child.once('message', () => saved())
-                child.send('lumovi:coverage')
-              })
-            }
-            child.kill('SIGTERM')
-            await exited
+            await stopped(child, exited, (line) => (output += line))
           })()
           return stopping
         },
@@ -209,15 +238,7 @@ export function startAgent(env: Record<string, string | undefined>): Agent {
     exited,
     stop() {
       stopping ??= (async () => {
-        if (child.exitCode !== null) return
-        if (INSTRUMENTED) {
-          await new Promise<void>((saved) => {
-            child.once('message', () => saved())
-            child.send('lumovi:coverage')
-          })
-        }
-        child.kill('SIGTERM')
-        await exited
+        await stopped(child, exited, (line) => (output += line))
       })()
       return stopping
     },
@@ -314,7 +335,7 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     workerClusters.sandbox.reset()
     workerClusters.large.reset()
   },
-  serve: async ({ clusters }, use) => {
+  serve: async ({ clusters }, use, testInfo) => {
     const started: Served[] = []
     await use(async (options) => {
       const served = await startServer(clusters, options)
@@ -322,6 +343,15 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
       return served
     })
     for (const served of started) await served.stop()
+    // What each server said, with a test that failed: the page alone rarely says why.
+    if (testInfo.status !== testInfo.expectedStatus) {
+      for (const [index, served] of started.entries()) {
+        await testInfo.attach(`server-${index + 1}.log`, {
+          body: served.log(),
+          contentType: 'text/plain',
+        })
+      }
+    }
   },
   context: async ({ context }, use) => {
     // Pages that navigate (signing in reloads them) leave their counters in their
