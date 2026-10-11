@@ -18,12 +18,16 @@ api.desktop?.onFullScreen((fullScreen) =>
 // Where it runs: a server's page can be narrower than the desktop app's window ever is.
 document.documentElement.dataset.host = api.host
 
-// A plugin's sealed box is reached by the tests alone so far (`plugins/box.ts`): nothing in
-// Lumovi shows a plugin's page yet, and a release build has none of it.
+// A plugin's sealed box, and the stage a plugin's page is drawn on, are reached by the tests
+// alone so far (`plugins/box.ts`, `plugins/stage.tsx`): nothing in Lumovi shows a plugin's page
+// yet, and a release build has none of it.
 declare const LUMOVI_TEST_BUILD: boolean
 if (LUMOVI_TEST_BUILD) {
   void import('./plugins/box').then(({ openBox }) => {
     ;(window as unknown as { __lumoviBox: unknown }).__lumoviBox = { openBox }
+  })
+  void import('./plugins/stage').then(({ stage }) => {
+    ;(window as unknown as { __lumoviDoor: unknown }).__lumoviDoor = stage
   })
 }
 

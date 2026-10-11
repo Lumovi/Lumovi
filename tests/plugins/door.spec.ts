@@ -19,6 +19,7 @@ import {
   wrongWithFields,
   wrongWithPart,
   yesOrNo,
+  type Kind,
   type Part,
 } from '../../src/shared/kit/declare.ts'
 import { DOOR_LIMITS, DoorPage, ROOT, type Stopped } from '../../src/shared/plugin-door.ts'
@@ -97,7 +98,7 @@ test.describe('a value against its kind', () => {
   })
 
   test('a value nested deeper than anything a part takes is refused, not followed', () => {
-    let kind = text(5)
+    let kind: Kind = text(5)
     let value: unknown = 'a'
     for (let i = 0; i < 40; i++) {
       kind = list(kind, 1)
