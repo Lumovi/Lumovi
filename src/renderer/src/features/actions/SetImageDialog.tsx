@@ -103,6 +103,7 @@ export function SetImageDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={Box}
       title={`Change images of ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command(changed, next)}
       confirmLabel="Update"

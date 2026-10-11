@@ -93,6 +93,7 @@ function ScaleForm({
     <ActionDialog
       icon={ArrowUpDown}
       title={`Scale ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command(valid ? replicas : current)}
       confirmLabel="Scale"

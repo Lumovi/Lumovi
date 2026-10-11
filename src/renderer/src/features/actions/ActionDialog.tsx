@@ -18,8 +18,10 @@ import {
   sheetHeader,
   SheetGrabber,
 } from '@renderer/components/Sheet'
+import { WithinLines } from '@renderer/components/WithinLines'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { useLayout } from '@renderer/lib/layout'
 import { useProduction } from '@renderer/hooks/settings'
 import { useCluster } from '@renderer/state/cluster'
 import { useDock } from '../terminal/dock'
@@ -27,6 +29,11 @@ import { useDock } from '../terminal/dock'
 export interface ActionDialogProps {
   icon: LucideIcon
   title: string
+  /**
+   * The object's name as it is in the title, where one is: on a phone a title too long for
+   * three lines is shortened there, in the name's middle, and nowhere else.
+   */
+  name?: string
   /** Where the change happens, e.g. "Deployment · shop". The cluster is added. */
   subject: string
   /** The kubectl command that does the same, kept in sync with the form. */
@@ -57,6 +64,7 @@ export interface ActionDialogProps {
 export function ActionDialog({
   icon: Icon,
   title,
+  name,
   subject,
   command,
   confirmLabel,
@@ -72,6 +80,7 @@ export function ActionDialog({
   children,
 }: ActionDialogProps) {
   const { context } = useCluster()
+  const layout = useLayout()
   const [typed, setTyped] = useState('')
   const production = useProduction(context)
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
@@ -124,9 +133,13 @@ export function ActionDialog({
                 <Icon className="size-[18px]" />
               </div>
               <div className="min-w-0 flex-1">
-                {/* On a phone nothing of the heading is cut short: it wraps, whatever it holds. */}
-                <Dialog.Title className="truncate text-[15px] leading-snug font-semibold text-ink-1 phone:[overflow-wrap:anywhere] phone:whitespace-normal">
-                  {title}
+                {/* On a phone a title wraps, in up to three lines: what's asked is never cut, and
+                    of a name too long for them it's the middle that gives way. */}
+                <Dialog.Title
+                  title={title}
+                  className="truncate text-[15px] leading-snug font-semibold text-ink-1 phone:[overflow-wrap:anywhere] phone:whitespace-normal"
+                >
+                  {layout === 'phone' ? <WithinLines text={title} name={name} /> : title}
                 </Dialog.Title>
                 <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
                   <span className="truncate phone:[overflow-wrap:anywhere] phone:whitespace-normal">

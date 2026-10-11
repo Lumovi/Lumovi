@@ -40,6 +40,7 @@ export function AutoscalerDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={SlidersHorizontal}
       title={`Replica range of ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command(range)}
       confirmLabel="Save"
@@ -131,6 +132,7 @@ export function ExpandVolumeDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={HardDrive}
       title={`Expand ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Expand"

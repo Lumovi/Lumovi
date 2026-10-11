@@ -62,6 +62,7 @@ export function RollbackDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={History}
       title={`Roll back ${name}`}
+      name={name}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Roll back"

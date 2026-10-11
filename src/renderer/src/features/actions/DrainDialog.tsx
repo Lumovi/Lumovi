@@ -124,6 +124,7 @@ export function DrainDialog({ object, onClose }: ActionProps) {
       icon={PackageMinus}
       tone="danger"
       title={`Drain ${node}?`}
+      name={node}
       subject={subjectOf(object)}
       command={command}
       confirmLabel="Drain"
