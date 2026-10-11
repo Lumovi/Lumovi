@@ -211,60 +211,76 @@ test('of an object, a plugin is handed the fields its file names and nothing els
 })
 
 test('a step into a list is taken of each item: its shape kept, and nothing else of an item', () => {
-  expect(handed('spec.containers.image', 'spec.containers.name')).toEqual({
+  const route = {
     spec: {
-      containers: [
-        { image: 'shop/cart:1.4', name: 'cart' },
-        { image: 'envoy:1.30', name: 'proxy' },
+      rules: [
+        { host: 'a.example.com', paths: [{ path: '/', port: 80 }], secretName: 'tls-a' },
+        { host: 'b.example.com', paths: [] },
+        { other: true },
+      ],
+    },
+  }
+  const of = (...paths: string[]) => picked(route, THING, says({ fields: fields(...paths) }), [])
+  expect(of('spec.rules.host')).toEqual({
+    spec: { rules: [{ host: 'a.example.com' }, { host: 'b.example.com' }, {}] },
+  })
+  expect(of('spec.rules.paths.port', 'spec.rules.host')).toEqual({
+    spec: {
+      rules: [
+        { host: 'a.example.com', paths: [{ port: 80 }] },
+        { host: 'b.example.com', paths: [] },
+        {},
       ],
     },
   })
-  expect(handed('spec.containers.ports.containerPort')).toEqual({
-    spec: { containers: [{ ports: [{ containerPort: 80 }] }, {}] },
-  })
 })
 
-test('nothing hands over more than it names: metadata, a spec, a list of containers, a template', () => {
-  // (Each of these would carry every annotation, the managed fields, or every container's
-  // environment with its values.)
+test('of a kind that isn’t its own, nothing hands over more than it names, and nothing inside a pod template', () => {
   for (const path of [
     'metadata',
     'metadata.annotations',
     'metadata.managedFields',
     'metadata.managedFields.manager',
     'spec',
+    // A pod's spec, wherever a kind keeps one: not whole, and not a field of it.
     'spec.containers',
-    'spec.initContainers',
+    'spec.containers.image',
+    'spec.containers.name',
+    'spec.containers.livenessProbe.httpGet.httpHeaders',
+    'spec.containers.lifecycle',
+    'spec.initContainers.image',
     'spec.ephemeralContainers',
+    'spec.volumes',
+    'spec.volumes.csi.volumeAttributes',
     'spec.template',
-    'spec.jobTemplate',
-    'spec.template.spec',
-    'spec.template.metadata',
-    'spec.template.spec.containers',
+    'spec.template.metadata.labels',
+    'spec.template.spec.containers.image',
+    'spec.jobTemplate.spec.template.spec.containers.image',
   ]) {
     expect(handed(path), path).toEqual({})
   }
-  const deployment = {
-    spec: {
-      template: { metadata: { labels: { app: 'a' } }, spec: { containers: pod.spec.containers } },
+  // What's left is what it names, of the object's own fields.
+  expect(handed('metadata.name', 'metadata.labels', 'spec.nodeName', 'status.phase')).toEqual({
+    metadata: { name: 'cart-7d9f', labels: { app: 'cart' } },
+    spec: { nodeName: 'node-1' },
+    status: { phase: 'Running' },
+  })
+  // And what's handed over whole has no pod template in it, under whatever name.
+  const rollout = {
+    status: {
+      phase: 'Healthy',
+      lastTemplate: { template: { spec: { containers: [{ env: [{ value: 'hunter2' }] }] } } },
+      podSpec: {
+        containers: [{ args: ['--token=hunter2'] }],
+        volumes: [{ csi: { volumeAttributes: { token: 'hunter2' } } }],
+        nodeName: 'n',
+      },
     },
   }
   expect(
-    picked(
-      deployment,
-      resolvedAs('example.io', 'Workload'),
-      says({
-        fields: fields('spec.template.metadata.labels', 'spec.template.spec.containers.image'),
-      }),
-      [],
-    ),
+    picked(rollout, resolvedAs('argoproj.io', 'Rollout'), says({ fields: fields('status') }), []),
   ).toEqual({
-    spec: {
-      template: {
-        metadata: { labels: { app: 'a' } },
-        spec: { containers: [{ image: 'shop/cart:1.4' }, { image: 'envoy:1.30' }] },
-      },
-    },
+    status: { phase: 'Healthy', lastTemplate: {}, podSpec: { nodeName: 'n' } },
   })
 })
 
@@ -319,10 +335,7 @@ test('a container’s environment, and a tool’s own annotations, are never han
     'status',
   )
   expect(JSON.stringify(everything)).not.toMatch(SECRETS)
-  expect(everything).toEqual({
-    spec: { containers: [{ image: 'shop/cart:1.4' }, { image: 'envoy:1.30' }] },
-    status: pod.status,
-  })
+  expect(everything).toEqual({ status: pod.status })
 })
 
 test('of Kubernetes’ own kinds, only what’s on Lumovi’s list: nothing else is handed over, whoever names it', () => {
@@ -453,6 +466,56 @@ test('of Kubernetes’ own kinds, only what’s on Lumovi’s list: nothing else
   ]) {
     expect(annotation(key, ['karpenter.sh']), key).toEqual({})
   }
+  // Kubernetes' own names are never a plugin's group, whatever its file claims: its own
+  // annotations live there. An add-on's group under k8s.io can be.
+  for (const group of [
+    'kubernetes.io',
+    'k8s.io',
+    'nginx.ingress.kubernetes.io',
+    'apps',
+    'storage.k8s.io',
+    '',
+  ]) {
+    const key = group === 'kubernetes.io' ? 'kubernetes.io/change-cause' : `${group}/x`
+    const with_ = {
+      ...realPod,
+      metadata: {
+        ...realPod.metadata,
+        annotations: { ...realPod.metadata.annotations, [key]: 'hunter2' },
+      },
+    }
+    expect(
+      picked(
+        with_,
+        POD,
+        says({
+          fields: [{ path: key, steps: [{ key: 'metadata' }, { key: 'annotations' }, { key }] }],
+        }),
+        [group],
+      ),
+      group,
+    ).toEqual({})
+  }
+  const gateway = { metadata: { annotations: { 'gateway.networking.k8s.io/x': 'fine' } } }
+  expect(
+    picked(
+      gateway,
+      POD,
+      says({
+        fields: [
+          {
+            path: 'x',
+            steps: [
+              { key: 'metadata' },
+              { key: 'annotations' },
+              { key: 'gateway.networking.k8s.io/x' },
+            ],
+          },
+        ],
+      }),
+      ['gateway.networking.k8s.io'],
+    ),
+  ).toEqual(gateway)
   // Not by a group that only looks like its own, nor a key with no group; and never kubectl's,
   // even for a plugin that names that group.
   expect(
@@ -485,6 +548,17 @@ test('of Kubernetes’ own kinds, only what’s on Lumovi’s list: nothing else
       { metadata: { name: 'a' } },
       resolvedAs('apps', 'Deployment'),
       says({ fields: fields('metadata.name') }),
+      [],
+    ),
+  ).toEqual({})
+  // A line is matched step for step: a step with a dot in it doesn't spell one.
+  expect(readable(POD, [{ key: 'metadata.name' }], [])).toBe(false)
+  expect(readable(POD, [{ key: 'spec' }, { key: 'containers.image' }], [])).toBe(false)
+  expect(
+    picked(
+      { 'metadata.name': 'x', metadata: { name: 'a' } },
+      POD,
+      says({ fields: [{ path: 'metadata.name', steps: [{ key: 'metadata.name' }] }] }),
       [],
     ),
   ).toEqual({})

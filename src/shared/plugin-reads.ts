@@ -253,11 +253,17 @@ export const READABLE: Readonly<Record<string, readonly string[]>> = {
   ],
 }
 
-/** A path's field names as one text: what a line of `READABLE` is, and what one is held to. */
-const written = (steps: readonly Step[]) =>
-  steps.every((step) => 'key' in step)
-    ? (steps as readonly { key: string }[]).map(({ key }) => key).join('.')
-    : undefined
+/**
+ * Whether a path is a line: step for step, each a field's name and the same as the line's. (Not
+ * by its names joined: a step with a dot in it would spell a line it isn't.)
+ */
+const isLine = (steps: readonly Step[], line: string) => {
+  const names = line.split('.')
+  return (
+    steps.length === names.length &&
+    steps.every((step, i) => 'key' in step && step.key === names[i])
+  )
+}
 
 /**
  * Whether a file may be granted `steps` of a kind of Kubernetes' own, for a plugin with these
@@ -273,9 +279,8 @@ export function readable(
 ): boolean {
   const lines = Object.hasOwn(READABLE, idOf(kind)) ? READABLE[idOf(kind)]! : undefined
   if (!lines || never(kind) || isCustomGroup(kind.group)) return false
-  const path = written(steps)
-  if (path === undefined) return false
-  if (lines.includes(path)) return true
+  if (!steps.every((step) => 'key' in step)) return false
+  if (lines.some((line) => isLine(steps, line))) return true
   return ownAnnotation(steps as readonly { key: string }[], groups) === true
 }
 
@@ -285,6 +290,19 @@ export function readable(
  * isn't an annotation's. On any kind that isn't the plugin's own, nobody else's annotation is
  * read: its value is whatever another tool wrote there (often its own copy of the object).
  */
+/**
+ * Whether a group can be a plugin's own at all, whatever its file claims: never `kubernetes.io`
+ * or a name under it, never `k8s.io` itself, never one of Kubernetes' built-in API groups (an
+ * add-on's group under `k8s.io`, the Gateway API's say, can be). Kubernetes' own annotations
+ * live under those names: the command line that made a change, for one.
+ */
+const mayBeOwn = (group: string) =>
+  group !== '' &&
+  group !== 'k8s.io' &&
+  group !== 'kubernetes.io' &&
+  !group.endsWith('.kubernetes.io') &&
+  isCustomGroup(group)
+
 function ownAnnotation(
   steps: readonly { key: string }[],
   groups: readonly string[],
@@ -293,37 +311,43 @@ function ownAnnotation(
   if (first?.key !== 'metadata' || second?.key !== 'annotations' || !key) return undefined
   if (more.length > 0) return false
   const slash = key.key.indexOf('/')
-  return slash > 0 && groups.includes(key.key.slice(0, slash)) && !neverHanded(key.key)
+  const group = slash > 0 ? key.key.slice(0, slash) : ''
+  return groups.includes(group) && mayBeOwn(group) && !neverHanded(key.key)
 }
 
 /** A step that's never taken, in any path: the names every object answers to. */
 const NEVER_STEPS = new Set(['__proto__', 'constructor', 'prototype'])
 /**
- * What's never in what's handed over, at any depth, whoever names it: a container's
- * environment, its command and its arguments (the commonest places a credential sits outside a
- * Secret), who manages which field, and the
+ * What's never a step of a path of another tool's kind, and never in what's handed over whole,
+ * at any depth, whoever names it: a container's environment, its command and its arguments (the
+ * commonest places a credential sits outside a Secret), a pod template and what a pod's spec
+ * holds, who manages which field, and the
  * annotations a tool keeps for itself, the one that holds the object as it was last applied
  * among them (for a ConfigMap its data, for a Pod its environment).
  */
-const NEVER_HANDED = new Set(['env', 'args', 'command', 'managedFields'])
+const NEVER_HANDED = new Set([
+  'env',
+  'args',
+  'command',
+  'managedFields',
+  // Of a kind that isn't the plugin's own, nothing inside a pod template is read: neither the
+  // template nor what a pod's spec holds, under whatever name a kind keeps one.
+  'template',
+  'jobTemplate',
+  'containers',
+  'initContainers',
+  'ephemeralContainers',
+  'volumes',
+])
 const NEVER_ANNOTATIONS = /^(?:kubectl\.kubernetes\.io|control-plane\.alpha\.kubernetes\.io)\//
 const neverHanded = (key: string) =>
   NEVER_HANDED.has(key) || NEVER_STEPS.has(key) || NEVER_ANNOTATIONS.test(key)
 /**
  * Where a path can't end: it would hand over far more than it names. All of an object's
- * metadata or annotations (one annotation by its key is fine), all of a spec, a list of
- * containers, a template.
+ * metadata or annotations (one of the plugin's own annotations by its key is fine), all of a
+ * spec.
  */
-const NEVER_WHOLE = new Set([
-  'metadata',
-  'annotations',
-  'spec',
-  'containers',
-  'initContainers',
-  'ephemeralContainers',
-  'template',
-  'jobTemplate',
-])
+const NEVER_WHOLE = new Set(['metadata', 'annotations', 'spec'])
 
 /**
  * Whether a path of another tool's kind may be handed over (the file checker refuses these; so
