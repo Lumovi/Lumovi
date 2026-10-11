@@ -67,26 +67,29 @@ export interface Part {
  * the cluster); a part draws a text of a plugin's in pieces (`inPieces`), so one that can't be
  * seen shows as a mark of Lumovi's.
  */
-export const text = (max: number): Kind => ({ kind: 'text', max })
-export const number = (min: number, max: number, whole = false): Kind =>
-  whole ? { kind: 'number', min, max, whole } : { kind: 'number', min, max }
-export const yesOrNo: Kind = { kind: 'yes-or-no' }
+export const text = (max: number) => ({ kind: 'text', max }) as const
+export const number = (min: number, max: number, whole = false) =>
+  ({ kind: 'number', min, max, ...(whole && { whole }) }) as { kind: 'number' } & Kind
+export const yesOrNo = { kind: 'yes-or-no' } as const
 export const oneOf = <const V extends readonly string[]>(values: V) =>
   ({ kind: 'one-of', values }) as const
-export const time: Kind = { kind: 'time' }
-export const object: Kind = { kind: 'object' }
-export const handler = (event: string): Kind => ({ kind: 'handler', event })
-export const list = (of: Kind, max: number): Kind => ({ kind: 'list', of, max })
-export const record = (fields: Record<string, Kind>, required: string[] = []): Kind => ({
-  kind: 'record',
-  fields,
-  required,
-})
-export const choice = (
-  by: string,
-  of: Record<string, Record<string, Kind>>,
-  optional: Record<string, string[]> = {},
-): Kind => ({ kind: 'choice', by, of, optional })
+export const time = { kind: 'time' } as const
+export const object = { kind: 'object' } as const
+export const handler = <const E extends string>(event: E) => ({ kind: 'handler', event }) as const
+export const list = <const K extends Kind>(of: K, max: number) =>
+  ({ kind: 'list', of, max }) as const
+export const record = <const F extends Record<string, Kind>>(
+  fields: F,
+  required: readonly (keyof F & string)[] = [],
+) => ({ kind: 'record', fields, required }) as const
+export const choice = <
+  const By extends string,
+  const Of extends Record<string, Record<string, Kind>>,
+>(
+  by: By,
+  of: Of,
+  optional: Readonly<Record<string, readonly string[]>> = {},
+) => ({ kind: 'choice', by, of, optional }) as const
 
 /** An object in the cluster as a part of Lumovi's is handed it: never what a plugin wrote. */
 export interface ObjectRef {
