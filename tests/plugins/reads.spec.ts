@@ -10,6 +10,8 @@ import {
   PageReads,
   picked,
   READ_LIMITS,
+  READABLE,
+  readable,
   readAsk,
   resolvedAs,
   type Grant,
@@ -27,6 +29,7 @@ const says = (said: Partial<Granted>): Granted => ({
 })
 
 const GRANT: Grant = {
+  groups: ['karpenter.sh'],
   own: ['karpenter.sh/NodePool'],
   reads: {
     '/Node': says({
@@ -36,6 +39,8 @@ const GRANT: Grant = {
     }),
     '/Pod': says({ fields: fields('metadata.name', 'spec.nodeName') }),
     '/Event': says({ events: true }),
+    // A kind of Kubernetes' that Lumovi keeps no list for.
+    'apps/Deployment': says({ fields: fields('metadata.name'), events: true }),
   },
 }
 
@@ -123,6 +128,10 @@ test('what a file doesn’t say is refused: by kind, and by what’s read of it'
   for (const what of ['objects', 'status', 'events', 'usage'] as const) {
     expect(granted(GRANT, resolvedAs('', 'Event'), what)).toBeUndefined()
   }
+  // A kind of Kubernetes' that Lumovi keeps no list for can't be read, whatever a file says.
+  for (const what of ['objects', 'status', 'events', 'usage'] as const) {
+    expect(granted(GRANT, resolvedAs('apps', 'Deployment'), what)).toBeUndefined()
+  }
   // A kind it doesn't name; another's kind; a name every object answers to.
   for (const kind of [
     CONFIG_MAP,
@@ -135,6 +144,7 @@ test('what a file doesn’t say is refused: by kind, and by what’s read of it'
   }
   // A Secret, never: not even if a file's grant said so, or a plugin claimed the kind.
   const loose: Grant = {
+    groups: [],
     own: ['/Secret', '/ConfigMap', 'apps/Deployment'],
     reads: { '/Secret': says({ fields: fields('data'), events: true }) },
   }
@@ -179,7 +189,9 @@ const pod = {
   },
   status: { phase: 'Running', podIP: '10.0.1.9' },
 }
-const handed = (...paths: string[]) => picked(pod, POD, says({ fields: fields(...paths) }))
+/** Another tool's kind, shaped as a Pod: where Lumovi can have no list, the rules alone hold. */
+const THING = resolvedAs('example.io', 'Thing')
+const handed = (...paths: string[]) => picked(pod, THING, says({ fields: fields(...paths) }), [])
 const SECRETS = /hunter2|s3cret|kubelet|holderIdentity/
 
 test('of an object, a plugin is handed the fields its file names and nothing else', () => {
@@ -191,7 +203,7 @@ test('of an object, a plugin is handed the fields its file names and nothing els
   // A path that isn't there leaves nothing; what isn't an object gives nothing.
   expect(handed('spec.unschedulable', 'status.nodeInfo.osImage', 'metadata.name.first')).toEqual({})
   for (const value of [null, 'text', 5, [pod]]) {
-    expect(picked(value, POD, says({ fields: fields('metadata.name') }))).toEqual({})
+    expect(picked(value, THING, says({ fields: fields('metadata.name') }), [])).toEqual({})
   }
   // A path and one under it: the shorter has it all, whichever is named first.
   expect(handed('status.phase', 'status')).toEqual({ status: pod.status })
@@ -240,10 +252,11 @@ test('nothing hands over more than it names: metadata, a spec, a list of contain
   expect(
     picked(
       deployment,
-      resolvedAs('apps', 'Deployment'),
+      resolvedAs('example.io', 'Workload'),
       says({
         fields: fields('spec.template.metadata.labels', 'spec.template.spec.containers.image'),
       }),
+      [],
     ),
   ).toEqual({
     spec: {
@@ -260,7 +273,7 @@ test('a container’s environment, and a tool’s own annotations, are never han
   const one = (key: string) =>
     picked(
       pod,
-      POD,
+      THING,
       says({
         fields: [
           {
@@ -269,6 +282,7 @@ test('a container’s environment, and a tool’s own annotations, are never han
           },
         ],
       }),
+      [],
     )
   expect(one('example.com/owner')).toEqual({
     metadata: { annotations: { 'example.com/owner': 'team-a' } },
@@ -281,7 +295,7 @@ test('a container’s environment, and a tool’s own annotations, are never han
   const whole = {
     status: { copied: { env: [{ value: 'hunter2' }], managedFields: ['kubelet'], fine: 1 } },
   }
-  expect(picked(whole, POD, says({ fields: fields('status') }))).toEqual({
+  expect(picked(whole, THING, says({ fields: fields('status') }), [])).toEqual({
     status: { copied: { fine: 1 } },
   })
   // Every path one could write, together: none of it comes back.
@@ -304,6 +318,178 @@ test('a container’s environment, and a tool’s own annotations, are never han
   })
 })
 
+test('of Kubernetes’ own kinds, only what’s on Lumovi’s list: nothing else is handed over, whoever names it', () => {
+  const realPod = {
+    ...pod,
+    metadata: {
+      ...pod.metadata,
+      ownerReferences: [
+        {
+          apiVersion: 'apps/v1',
+          kind: 'ReplicaSet',
+          name: 'cart-7d9f',
+          uid: 'u-1',
+          controller: true,
+        },
+      ],
+      annotations: {
+        ...pod.metadata.annotations,
+        'karpenter.sh/do-not-disrupt': 'true',
+        'kubernetes.io/change-cause':
+          'kubectl create secret generic a --from-literal=password=hunter2',
+        'kopf.zalando.org/last-handled-configuration': '{"env":"hunter2"}',
+        'nginx.ingress.kubernetes.io/configuration-snippet':
+          'proxy_set_header Authorization "Bearer hunter2";',
+      },
+    },
+    spec: {
+      ...pod.spec,
+      containers: pod.spec.containers.map((container) => ({
+        ...container,
+        args: ['--token=hunter2'],
+        command: ['run', '--token=hunter2'],
+        resources: { requests: { cpu: '100m' } },
+        livenessProbe: {
+          httpGet: { httpHeaders: [{ name: 'Authorization', value: 'Bearer hunter2' }] },
+        },
+        lifecycle: { preStop: { exec: { command: ['curl', '-H', 'X-Token: hunter2'] } } },
+      })),
+      volumes: [{ name: 'v', csi: { volumeAttributes: { token: 'hunter2' } } }],
+    },
+    status: {
+      ...pod.status,
+      conditions: [
+        {
+          type: 'Ready',
+          status: 'False',
+          reason: 'ContainersNotReady',
+          message: 'containers with unready status: [cart]',
+        },
+      ],
+      containerStatuses: [
+        {
+          name: 'cart',
+          ready: false,
+          restartCount: 3,
+          lastState: { terminated: { message: 'password=hunter2' } },
+        },
+      ],
+    },
+  }
+  const of = (...paths: string[]) =>
+    picked(realPod, POD, says({ fields: fields(...paths) }), ['karpenter.sh'])
+  // Every line of the list, together: what a page of pods needs, and no credential in it.
+  const all = of(...READABLE['/Pod']!)
+  expect(all).toEqual({
+    metadata: {
+      name: 'cart-7d9f',
+      namespace: 'shop',
+      labels: { app: 'cart' },
+      ownerReferences: realPod.metadata.ownerReferences,
+    },
+    spec: {
+      nodeName: 'node-1',
+      containers: [
+        { name: 'cart', image: 'shop/cart:1.4', resources: { requests: { cpu: '100m' } } },
+        { name: 'proxy', image: 'envoy:1.30', resources: { requests: { cpu: '100m' } } },
+      ],
+    },
+    status: {
+      phase: 'Running',
+      conditions: realPod.status.conditions,
+      containerStatuses: [{ name: 'cart', ready: false, restartCount: 3 }],
+    },
+  })
+  expect(JSON.stringify(all)).not.toMatch(/hunter2|s3cret/)
+  // What isn't on the list, each a place a credential really sits: nothing, one by one and together.
+  const off = [
+    'metadata.uid',
+    'metadata.annotations',
+    'spec.containers.args',
+    'spec.containers.command',
+    'spec.containers.livenessProbe',
+    'spec.containers.livenessProbe.httpGet.httpHeaders',
+    'spec.containers.lifecycle',
+    'spec.containers.ports',
+    'spec.volumes',
+    'spec.volumes.csi.volumeAttributes',
+    'status',
+    'status.podIP',
+    'status.containerStatuses',
+    'status.containerStatuses.lastState',
+    'status.containerStatuses.lastState.terminated.message',
+    'spec.containers',
+    'spec.containers.resources.requests',
+    'metadata.labels.app',
+  ]
+  for (const path of off) expect(of(path), path).toEqual({})
+  expect(of(...off)).toEqual({})
+  // An annotation: only by a key under one of the plugin's own groups. Nobody else's.
+  const annotation = (key: string, groups: string[]) =>
+    picked(
+      realPod,
+      POD,
+      says({
+        fields: [{ path: key, steps: [{ key: 'metadata' }, { key: 'annotations' }, { key }] }],
+      }),
+      groups,
+    )
+  expect(annotation('karpenter.sh/do-not-disrupt', ['karpenter.sh'])).toEqual({
+    metadata: { annotations: { 'karpenter.sh/do-not-disrupt': 'true' } },
+  })
+  for (const key of [
+    'example.com/owner',
+    'kubernetes.io/change-cause',
+    'kopf.zalando.org/last-handled-configuration',
+    'nginx.ingress.kubernetes.io/configuration-snippet',
+    'kubectl.kubernetes.io/last-applied-configuration',
+  ]) {
+    expect(annotation(key, ['karpenter.sh']), key).toEqual({})
+  }
+  // Not by a group that only looks like its own, nor a key with no group; and never kubectl's,
+  // even for a plugin that names that group.
+  expect(
+    annotation('karpenter.sh/do-not-disrupt', ['sh', 'karpenter', 'karpenter.sh.evil.io']),
+  ).toEqual({})
+  expect(annotation('karpenter.sh/do-not-disrupt', [])).toEqual({})
+  expect(
+    annotation('kubectl.kubernetes.io/last-applied-configuration', ['kubectl.kubernetes.io']),
+  ).toEqual({})
+  // A Node's lines, and a kind with no list at all.
+  const node = {
+    metadata: { name: 'n', labels: { zone: 'a' }, annotations: { a: 'b' } },
+    spec: { taints: [], providerID: 'aws:///i-0' },
+    status: { capacity: { cpu: '8' }, addresses: [{ address: '10.0.0.1' }] },
+  }
+  expect(
+    picked(
+      node,
+      NODE,
+      says({ fields: fields(...READABLE['/Node']!, 'spec.providerID', 'status.addresses') }),
+      [],
+    ),
+  ).toEqual({
+    metadata: { name: 'n', labels: { zone: 'a' } },
+    spec: { taints: [] },
+    status: { capacity: { cpu: '8' } },
+  })
+  expect(
+    picked(
+      { metadata: { name: 'a' } },
+      resolvedAs('apps', 'Deployment'),
+      says({ fields: fields('metadata.name') }),
+      [],
+    ),
+  ).toEqual({})
+  // And `readable` is the one question, for the file checker too.
+  expect(readable(POD, parse('.spec.containers.image'), [])).toBe(true)
+  expect(readable(POD, parse('.spec.containers.args'), [])).toBe(false)
+  expect(readable(POD, parse('.spec.containers[0].image'), [])).toBe(false)
+  expect(readable(resolvedAs('', 'pod'), parse('.metadata.name'), [])).toBe(false)
+  expect(readable(SECRET, parse('.metadata.name'), [])).toBe(false)
+  expect(readable(THING, parse('.metadata.name'), [])).toBe(false)
+})
+
 test('what a ConfigMap holds, anything of a Secret, and what isn’t a field’s own name: never', () => {
   const held = {
     metadata: { name: 'a' },
@@ -311,8 +497,10 @@ test('what a ConfigMap holds, anything of a Secret, and what isn’t a field’s
     binaryData: { key: 'aGk=' },
   }
   const all = says({ fields: fields('metadata.name', 'data', 'data.password', 'binaryData') })
-  expect(picked(held, CONFIG_MAP, all)).toEqual({ metadata: { name: 'a' } })
-  expect(picked(held, SECRET, all)).toEqual({})
+  // (A ConfigMap is a kind Lumovi keeps no list for: nothing of it, its name included. And
+  // were it another tool's kind of that shape, its data still wouldn't be handed over by name.)
+  expect(picked(held, CONFIG_MAP, all, [])).toEqual({})
+  expect(picked(held, SECRET, all, [])).toEqual({})
   const odd = says({
     fields: [
       { path: '', steps: [] },
@@ -327,7 +515,7 @@ test('what a ConfigMap holds, anything of a Secret, and what isn’t a field’s
       { path: 'metadata.toString', steps: [{ key: 'metadata' }, { key: 'toString' }] },
     ],
   })
-  expect(picked(pod, POD, odd)).toEqual({})
+  expect(picked(pod, THING, odd, [])).toEqual({})
 })
 
 test('what’s handed over is a copy: nothing that holds it holds, or can change, what was read', () => {
