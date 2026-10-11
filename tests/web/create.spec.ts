@@ -57,6 +57,12 @@ test.describe('under a finger', () => {
       for (const add of more[kind] ?? []) await form.getByRole('button', { name: add }).click()
       await expectNoSidewaysScroll(page, `${kind}’s form on a tablet`)
       await expectFingerSized(page, `${kind}’s form on a tablet`)
+      // What the YAML's state is, is never cut short: beside a Secret's button it has a line
+      // of its own.
+      expect(
+        await dialog.getByRole('status').evaluate((said) => said.scrollWidth <= said.clientWidth),
+        `${kind}: the YAML’s state, whole`,
+      ).toBe(true)
     }
     // YAML's side too.
     await dialog.getByRole('radio', { name: 'YAML', exact: true }).click()
