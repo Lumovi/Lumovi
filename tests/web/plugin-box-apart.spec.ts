@@ -131,10 +131,23 @@ test('the processor’s limit is over the last while, so an idle second doesn’
   // Twenty-nine seconds on and one off, again and again: still near a whole core.
   expect(overProcessor([...busy(measures - 1), 0], measures)).toBe(true)
   expect(overProcessor([...busy(14), 0, ...busy(15)], measures)).toBe(true)
-  // Half the time isn't.
+  // Half the time is the line itself, and at the line it's over; a quarter of the time isn't.
   expect(
     overProcessor(
       Array.from({ length: measures }, (_, i) => i % 2),
+      measures,
+    ),
+  ).toBe(true)
+  expect(
+    overProcessor(
+      Array.from({ length: measures }, (_, i) => (i % 4 === 0 ? 1 : 0)),
+      measures,
+    ),
+  ).toBe(false)
+  // Just under half a core all the while isn't either.
+  expect(
+    overProcessor(
+      Array.from({ length: measures }, () => 0.49),
       measures,
     ),
   ).toBe(false)

@@ -24,8 +24,17 @@ export const BOX_LIMITS = {
    * way: what does is the engine's own ceiling for a process.
    */
   measureEveryMs: 1000,
-  /** Of a processor, as a share of one core on average, and over how long, before it's ended. */
-  processor: 0.9,
+  /**
+   * Of a processor, as a share of one core on average, and over how long, before it's ended.
+   * Half a core is a first line, not a measured one: what settles it is the average over thirty
+   * seconds of a real plugin's page at its heaviest (a first load on a large cluster), once
+   * there is one; if that comes near this, the line moves then, by that measure.
+   *
+   * It bounds what a plugin costs, not what it wants: one that would take a whole core and is
+   * given less than this by a busy computer isn't over it, and is ended when the computer has
+   * the core to give, or never.
+   */
+  processor: 0.5,
   processorForMs: 30_000,
   /**
    * Lumovi's pings a worker may leave unanswered, and how far apart they're sent. Counted only
