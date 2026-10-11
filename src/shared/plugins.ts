@@ -1101,7 +1101,7 @@ function readPlugin(
  * in use before these and not judged with them: Lumovi's own, before a person's.
  */
 /** "flux’s", "argo-rollouts’". */
-const whose = (name: string) => (name.endsWith('s') ? `${name}’` : `${name}’s`)
+export const whose = (name: string) => (name.endsWith('s') ? `${name}’` : `${name}’s`)
 
 export function clashes(plugins: Plugin[], held: Plugin[] = []): Map<Plugin, string> {
   const lost = new Map<Plugin, string>()

@@ -12,7 +12,8 @@
  * The first thing that's wrong stops the plugin: its page is never shortened, mended or guessed
  * at. So a page is whole, as its plugin described it, or it's stopped and Lumovi says why.
  */
-import { wrongWithFields, type Part } from './kit/declare'
+import { quotedBack } from './kit/characters'
+import { unseenProblem, wrongWithFields, type Part } from './kit/declare'
 
 /**
  * What a plugin's page is held to. Each is a first line and not a measured one: what settles it
@@ -30,11 +31,15 @@ export const DOOR_LIMITS = {
   commitsASecond: 60,
   /** The parts and texts a page holds at once, attached or not. */
   nodes: 5000,
-  /** How deep a page goes. */
+  /** How deep a page goes: any tree of a plugin's, on the page or not yet. */
   depth: 32,
+  /** What one part holds directly. (With the steps in a second, it bounds what a second of a
+   *  page's steps can cost Lumovi: a step's work grows with what's beside what it moves.) */
+  inOnePart: 1000,
   /** A text on the page, in characters. */
   text: 4000,
-  /** Everything a page holds in all: its texts and its parts' properties, in characters. */
+  /** Everything a page holds in all: its texts, and its parts' properties as they're written
+   *  (names, quotes and all: never less than what's shown). */
   held: 2 * 1024 * 1024,
 } as const
 
@@ -78,7 +83,8 @@ const isId = (value: unknown): value is number =>
 
 /**
  * A plugin's page, as it has described it so far. `parts` are the parts a plugin may name, by
- * name; `now` is a clock in milliseconds (the page's own, never a plugin's).
+ * name; `now` is a clock in milliseconds: the page's own, never a plugin's, and one that only
+ * goes forward (a computer's clock can be set back, and a second would then never end).
  */
 export class PluginPage {
   readonly #parts: Readonly<Record<string, Part>>
@@ -90,7 +96,7 @@ export class PluginPage {
   #second = { since: 0, steps: 0, commits: 0 }
   #stopped: Stopped | undefined
 
-  constructor(parts: Readonly<Record<string, Part>>, now: () => number = Date.now) {
+  constructor(parts: Readonly<Record<string, Part>>, now: () => number = () => performance.now()) {
     this.#parts = parts
     this.#now = now
   }
@@ -102,7 +108,17 @@ export class PluginPage {
 
   /** A part or text of the page, as it is now. */
   node(id: number): PageNode | undefined {
-    return this.#nodes.get(id)
+    const node = this.#nodes.get(id)
+    // (A copy, and one that can't be changed: the tree is the door's alone.)
+    return (
+      node &&
+      Object.freeze({
+        ...(node.part !== undefined && { part: node.part }),
+        props: node.props,
+        ...(node.text !== undefined && { text: node.text }),
+        children: Object.freeze([...node.children]),
+      })
+    )
   }
 
   /** How much the page holds: for a test, and for whoever wants to see how near a limit it is. */
@@ -135,13 +151,16 @@ export class PluginPage {
     }
     const keys = Object.keys(read)
     const steps = Object.hasOwn(read, 'commit') ? (read as { commit: unknown }).commit : undefined
+    // (One key, `commit`, a list.)
     if (keys.length !== 1 || !Array.isArray(steps))
       return notAllowed('a message that isn’t a commit')
     if (steps.length > DOOR_LIMITS.stepsACommit) {
       return tooMuch('the steps of a commit', DOOR_LIMITS.stepsACommit)
     }
     const now = this.#now()
-    if (now - this.#second.since >= 1000) this.#second = { since: now, steps: 0, commits: 0 }
+    // (A clock that went back all the same starts the second again.)
+    if (now - this.#second.since >= 1000 || now < this.#second.since)
+      this.#second = { since: now, steps: 0, commits: 0 }
     this.#second.commits++
     this.#second.steps += steps.length
     if (this.#second.commits > DOOR_LIMITS.commitsASecond) {
@@ -212,15 +231,16 @@ export class PluginPage {
   }
 
   #make(id: unknown, name: unknown, props: unknown): Stopped | undefined {
-    if (!this.#fresh(id)) return notAllowed('makes something under a number that isn’t new')
+    if (!this.#fresh(id))
+      return notAllowed(`makes something under a number that isn’t new: ${said(id)}`)
     if (typeof name !== 'string' || !Object.hasOwn(this.#parts, name)) {
-      return notAllowed('names a part Lumovi doesn’t have')
+      return notAllowed(`names a part Lumovi doesn’t have: ${said(name)}`)
     }
     const size = this.#props(this.#parts[name]!, props)
     if (typeof size !== 'number') return size
     return this.#hold(id, {
       part: name,
-      props: props as Record<string, unknown>,
+      props: frozen(props as Record<string, unknown>),
       children: [],
       height: 1,
       size,
@@ -230,6 +250,8 @@ export class PluginPage {
   #text(id: unknown, text: unknown, changed: Set<number>): Stopped | undefined {
     if (typeof text !== 'string') return notAllowed('a text that isn’t text')
     if (text.length > DOOR_LIMITS.text) return tooMuch('a text', DOOR_LIMITS.text)
+    const unseen = unseenProblem(text, 'a text')
+    if (unseen) return notAllowed(unseen)
     if (this.#fresh(id))
       return this.#hold(id, { props: {}, text, children: [], height: 1, size: text.length })
     const node = isId(id) ? this.#nodes.get(id) : undefined
@@ -253,27 +275,32 @@ export class PluginPage {
       return tooMuch('what a page holds', DOOR_LIMITS.held)
     }
     this.#held += size - node.size
-    this.#nodes.set(id as number, { ...node, props: props as Record<string, unknown>, size })
+    this.#nodes.set(id as number, {
+      ...node,
+      props: frozen(props as Record<string, unknown>),
+      size,
+    })
     changed.add(id as number)
     return undefined
   }
 
-  /** How far `id` is from the root, itself counted; undefined if it isn't under the root. */
-  #depth(id: number): number | undefined {
+  /** How many parts deep `id` is in its tree, itself counted (the root is no part: 0). */
+  #depth(id: number): number {
     let depth = 0
-    for (let at: number | undefined = id; at !== undefined; at = this.#nodes.get(at)?.parent) {
-      if (at === ROOT) return depth + 1
-      if (++depth > DOOR_LIMITS.depth + 1) return undefined
+    for (let at: number | undefined = id; at !== undefined && at !== ROOT;) {
+      depth++
+      at = this.#nodes.get(at)!.parent
     }
-    return undefined
+    return depth
   }
 
-  /** `height`, set from what's under each of `id` and whatever it's under. */
+  /** `height`, counted again from what's under `id`, and so on up: after something is taken away. */
   #measure(id: number): void {
     for (let at: number | undefined = id; at !== undefined;) {
       const node: Held = this.#nodes.get(at)!
-      const height =
-        1 + Math.max(0, ...node.children.map((child) => this.#nodes.get(child)!.height))
+      let height = 1
+      for (const child of node.children)
+        height = Math.max(height, 1 + this.#nodes.get(child)!.height)
       if (height === node.height) return
       node.height = height
       at = node.parent
@@ -296,16 +323,37 @@ export class PluginPage {
       child.part === undefined
         ? holds === 'text'
         : holds === 'parts' || (Array.isArray(holds) && holds.includes(child.part))
-    if (!allowed) return notAllowed('puts into a part what it doesn’t hold')
+    if (!allowed) {
+      const inside = child.part === undefined ? 'a text' : `a ${child.part}`
+      const into =
+        where === ROOT
+          ? 'the page itself'
+          : parent.part === undefined
+            ? 'a text'
+            : `a ${parent.part}`
+      const only =
+        holds === undefined || holds === 'nothing'
+          ? 'nothing'
+          : holds === 'text'
+            ? 'only text'
+            : holds === 'parts'
+              ? 'only parts'
+              : `only ${holds.join(', ')}`
+      return notAllowed(`puts ${inside} into ${into}, which holds ${only}`)
+    }
     // No loop: a part is never put under itself, or under what's under it.
     for (let at: number | undefined = where; at !== undefined; at = this.#nodes.get(at)?.parent) {
       if (at === id) return notAllowed('puts a part under itself')
     }
-    // How deep it would be. (Under something that isn't on the page yet: counted when that is.)
-    const above = this.#depth(where)
+    // How deep its tree would be: one rule on the page and off it, so nothing is built that
+    // could never be put on.
     const under = Math.max(parent.height, child.height + 1)
-    if ((above ?? 1) - 1 + under > DOOR_LIMITS.depth + 1)
+    if (this.#depth(where) + under - 1 > DOOR_LIMITS.depth) {
       return tooMuch('how deep a page goes', DOOR_LIMITS.depth)
+    }
+    if (child.parent === undefined && parent.children.length >= DOOR_LIMITS.inOnePart) {
+      return tooMuch('what one part holds', DOOR_LIMITS.inOnePart)
+    }
     let at = parent.children.length
     if (before !== undefined) {
       at = isId(before) && before !== id ? parent.children.indexOf(before) : -1
@@ -320,29 +368,62 @@ export class PluginPage {
     }
     parent.children.splice(at, 0, id as number)
     child.parent = where
-    this.#measure(where)
+    // (Putting only ever makes a tree taller: no counting again.)
+    for (let up: Held | undefined = parent, height = under; up && up.height < height; height++) {
+      up.height = height
+      up = up.parent === undefined ? undefined : this.#nodes.get(up.parent)
+    }
     changed.add(where)
     return undefined
   }
 
-  /** Takes a part or a text away from where it is: it's gone, with all that's under it. */
+  /**
+   * Takes a part or a text away from where it is: it's gone, with all that's under it. What was
+   * made and never put anywhere is taken from nowhere (`null`).
+   */
   #remove(from: unknown, id: unknown, changed: Set<number>): Stopped | undefined {
+    if (from === null) {
+      const loose = isId(id) ? this.#nodes.get(id) : undefined
+      if (!loose || loose.parent !== undefined) return notAllowed('takes away what isn’t there')
+      this.#forget(id as number)
+      return undefined
+    }
     const parent =
       from === ROOT ? this.#nodes.get(ROOT) : isId(from) ? this.#nodes.get(from) : undefined
     const at = parent && isId(id) ? parent.children.indexOf(id) : -1
     if (!parent || at < 0) return notAllowed('takes away what isn’t there')
     parent.children.splice(at, 1)
-    const gone = [id as number]
+    this.#forget(id as number)
+    this.#measure(from as number)
+    changed.add(from as number)
+    return undefined
+  }
+
+  #forget(id: number): void {
+    const gone = [id]
     for (const next of gone) {
       const node = this.#nodes.get(next)!
       gone.push(...node.children)
       this.#held -= node.size
       this.#nodes.delete(next)
     }
-    this.#measure(from as number)
-    changed.add(from as number)
-    return undefined
   }
+}
+
+/** What a plugin sent, said back in a line about it: short, on one line, nothing unseen. */
+const said = (value: unknown) =>
+  quotedBack(typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value))).slice(
+    typeof value === 'string' ? 0 : 1,
+    typeof value === 'string' ? undefined : -1,
+  )
+
+/** What was checked, so that nothing after the door can change it. */
+function frozen<T>(value: T): T {
+  if (typeof value === 'object' && value !== null) {
+    for (const inner of Object.values(value)) frozen(inner)
+    Object.freeze(value)
+  }
+  return value
 }
 
 const notAllowed = (what: string): Stopped => ({ why: 'not-allowed', what })
