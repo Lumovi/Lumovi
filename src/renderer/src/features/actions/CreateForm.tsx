@@ -81,6 +81,13 @@ const listed = (items: ReactNode[]) =>
  * created, and the form shows what of it it has fields for. Each field names the path it
  * writes, and lights its lines in the YAML while it has the focus.
  */
+/** Room left under a sentence the pane has moved clear: the fade's 28 px, and 12 more. */
+const CLEAR = 40
+/** A field's label and the gap under it, above the field. */
+const LABEL = 24
+/** How long after its last scroll a pane may still be coasting under a finger's flick, in ms. */
+const COASTING = 150
+
 export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () => void }) {
   const { context, namespace: picked } = useCluster()
   const production = useProduction(context)
@@ -225,6 +232,84 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
     ;(said?.parentElement?.parentElement ?? said)?.scrollIntoView({ block: 'nearest' })
   }, [refusedCount])
 
+  // When the form's pane moves by itself: only at the moment a sentence saying what's wrong
+  // appears or its words change, never because the focus arrived. Judged on the sentence: if
+  // some of it is in view but cut by the pane's bottom edge or lying in the fade there, the
+  // pane goes down the least that leaves it CLEAR px clear. One wholly out of view moves
+  // nothing (its row is marked, and the YAML's heading says there's a field to fix), nor one
+  // cut at the top, which was scrolled past. The field being typed in wins: the move is
+  // shortened, to nothing if need be, so that field stays whole. Not while a finger is on the
+  // pane or it's still coasting; and in one step, since an eased scroll under a caret is worse.
+  const [pane, setPane] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!pane) return
+    const known = new WeakMap<Element, string>()
+    const said = () => [...pane.querySelectorAll('[role="alert"]')]
+    for (const sentence of said()) known.set(sentence, sentence.textContent)
+    let touching = false
+    let scrolled = 0
+    let moving = false
+    // Those that appeared or changed while the pane was under a finger or still moving: looked
+    // at once it has come to rest.
+    const waiting = new Set<Element>()
+    let later: number | undefined
+    const look = () => {
+      for (const sentence of said()) {
+        if (known.get(sentence) === sentence.textContent) continue
+        known.set(sentence, sentence.textContent)
+        waiting.add(sentence)
+      }
+      if (waiting.size === 0) return
+      if (touching || performance.now() - scrolled < COASTING) {
+        window.clearTimeout(later)
+        later = window.setTimeout(look, COASTING)
+        return
+      }
+      const fresh = [...waiting].filter((sentence) => sentence.isConnected)
+      waiting.clear()
+      const frame = pane.getBoundingClientRect()
+      // (With a keyboard up, the pane's edge is where the keyboard leaves it.)
+      const view = window.visualViewport
+      const edge = Math.min(frame.bottom, view ? view.offsetTop + view.height : frame.bottom)
+      let by = 0
+      for (const sentence of fresh) {
+        const box = sentence.getBoundingClientRect()
+        if (box.top >= edge || box.top < frame.top) continue
+        by = Math.max(by, CLEAR - (edge - box.bottom))
+      }
+      if (by <= 0) return
+      const typing = document.activeElement
+      if (typing && pane.contains(typing)) {
+        // (Whole, with the line of its label above it.)
+        by = Math.min(by, Math.max(0, typing.getBoundingClientRect().top - LABEL - frame.top))
+      }
+      if (by <= 0) return
+      moving = true
+      // (A pane scrolls by whole pixels: up to the next one, so it's clear and not nearly.)
+      pane.scrollTop += Math.ceil(by)
+    }
+    const onScroll = () => {
+      if (moving) moving = false
+      else scrolled = performance.now()
+    }
+    const down = () => (touching = true)
+    const up = () => (touching = false)
+    const watching = new MutationObserver(look)
+    watching.observe(pane, { childList: true, subtree: true, characterData: true })
+    pane.addEventListener('scroll', onScroll, { passive: true })
+    pane.addEventListener('touchstart', down, { passive: true })
+    pane.addEventListener('touchend', up, { passive: true })
+    pane.addEventListener('touchcancel', up, { passive: true })
+    return () => {
+      watching.disconnect()
+      window.clearTimeout(later)
+      pane.removeEventListener('scroll', onScroll)
+      pane.removeEventListener('touchstart', down)
+      pane.removeEventListener('touchend', up)
+      pane.removeEventListener('touchcancel', up)
+    }
+  }, [pane])
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (ready && !pending) void create(text)
@@ -303,7 +388,10 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                   there's more below is said by its last lines fading out. */}
               <div className="relative min-h-0 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-7 after:bg-linear-to-b after:from-transparent after:to-surface-2">
                 <div
-                  ref={formPane}
+                  ref={(element) => {
+                    formPane.current = element
+                    setPane(element)
+                  }}
                   data-form
                   role="group"
                   aria-label="Form"
@@ -466,7 +554,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
                       {command}
                     </code>
-                    <span className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <span className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                       <CopyButton text={command} label="Copy command" />
                     </span>
                   </div>
@@ -538,12 +626,6 @@ function Labelled({
   children: (ids: { label: string; describedBy: string }) => ReactNode
 }) {
   const id = useId()
-  // What's wrong with the field being typed in is the thing to read: where it appears or
-  // changes at the pane's bottom edge, the pane moves just enough to clear the fade there.
-  const said = useRef<HTMLParagraphElement>(null)
-  useEffect(() => {
-    if (on && error) said.current?.scrollIntoView({ block: 'nearest' })
-  }, [on, error])
   return (
     <div className="min-w-0">
       {/* A path too long to sit beside its label is under it, whole. */}
@@ -568,12 +650,7 @@ function Labelled({
       {children({ label: `${id}-label`, describedBy: `${id}-path ${id}-said` })}
       <div id={`${id}-said`}>
         {error && (
-          <p
-            ref={said}
-            role="alert"
-            // (The fade is 28 px high; 16 px of room under the sentence.)
-            className="mt-1.5 scroll-mb-11 text-xs leading-[17px] text-critical-text selectable"
-          >
+          <p role="alert" className="mt-1.5 text-xs leading-[17px] text-critical-text selectable">
             {error}
           </p>
         )}
@@ -731,7 +808,7 @@ function Choice({
       <select {...props} className={cn(input(bad), 'appearance-none pr-8')}>
         {children}
       </select>
-      <ChevronsUpDown className="pointer-events-none absolute top-2 right-2.5 size-3.5 text-ink-3" />
+      <ChevronsUpDown className="pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
     </span>
   )
 }
@@ -1643,86 +1720,92 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
         error={wrong.find((problem) => problem.field === 'ports' && !unnamed(problem))?.message}
       >
         {(ids) => (
-          <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-2">
+          <div role="group" aria-labelledby={ids.label} className="@container flex flex-col gap-2">
             {rows.map((port, index) => {
               const at = (key: string): Path => [...base, index, key]
               const bad = (key: string) => saidOf(wrong, 'ports', at(key)) !== undefined
               const nth = `Port ${index + 1}`
               return (
                 // (One list, so a new row that's numbered is the same row, and keeps the focus.)
-                <div key={index} className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-[104px] shrink-0">
-                      <Text
-                        aria-label={port.draft ? 'A new port' : nth}
-                        aria-describedby={ids.describedBy}
-                        aria-invalid={bad('port')}
-                        mono
-                        inputMode="numeric"
-                        unit="Port"
-                        className="pr-12"
-                        autoFocus={port.draft}
-                        value={port.port}
-                        placeholder="80"
-                        bad={bad('port')}
-                        onChange={(typed) => {
-                          const number = typed.trim()
-                          if (!port.draft) return edit((text) => write.port(text, index, number))
-                          if (number === '') return
-                          setDraft(false)
-                          edit((text) => write.addPort(text, object, number))
-                        }}
-                        {...(port.draft ? {} : focused('ports', at('port')))}
-                      />
-                    </span>
-                    <ArrowRight aria-hidden className="size-3.5 shrink-0 text-ink-3" />
-                    <span className="min-w-0 flex-1">
-                      <Text
-                        aria-label={`${nth}, on the pod`}
-                        aria-invalid={bad('targetPort')}
-                        mono
-                        unit="On the pod"
-                        className="pr-24"
-                        disabled={port.draft}
-                        value={port.targetPort}
-                        // (Not said, it's the same port on the pod.)
-                        placeholder={port.port}
-                        bad={bad('targetPort')}
-                        onChange={(typed) =>
-                          edit((text) => write.targetPort(text, index, typed.trim()))
-                        }
-                        {...focused('ports', at('targetPort'))}
-                      />
-                    </span>
-                    <span className="w-[84px] shrink-0">
-                      <Choice
-                        aria-label={`${nth}’s protocol`}
-                        disabled={port.draft}
-                        value={port.protocol || 'TCP'}
-                        bad={bad('protocol')}
-                        onChange={(event) => {
-                          const chosen = event.target.value
-                          edit((text) => write.protocol(text, index, chosen))
-                        }}
-                        {...focused('ports', at('protocol'))}
-                      >
-                        {[...new Set([...PROTOCOLS, port.protocol || 'TCP'])].map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                      </Choice>
-                    </span>
+                <div key={index} className="flex flex-wrap items-start gap-1.5">
+                  {/* Where the pane is narrower than 480 px a port is two lines, so the pod's
+                      port is never cut: the port, the arrow, the pod's port and the ×; under
+                      them the protocol, with the port's name beside it when it has one. */}
+                  <span className="order-1 w-[104px] shrink-0">
+                    <Text
+                      aria-label={port.draft ? 'A new port' : nth}
+                      aria-describedby={ids.describedBy}
+                      aria-invalid={bad('port')}
+                      mono
+                      inputMode="numeric"
+                      unit="Port"
+                      className="pr-12"
+                      autoFocus={port.draft}
+                      value={port.port}
+                      placeholder="80"
+                      bad={bad('port')}
+                      onChange={(typed) => {
+                        const number = typed.trim()
+                        if (!port.draft) return edit((text) => write.port(text, index, number))
+                        if (number === '') return
+                        setDraft(false)
+                        edit((text) => write.addPort(text, object, number))
+                      }}
+                      {...(port.draft ? {} : focused('ports', at('port')))}
+                    />
+                  </span>
+                  <span aria-hidden className="order-2 flex h-8 shrink-0 items-center touch:h-11">
+                    <ArrowRight className="size-3.5 text-ink-3" />
+                  </span>
+                  <span className="order-3 min-w-0 flex-1 @max-[479px]:flex-none @max-[479px]:basis-[calc(100%-168px)] @max-[479px]:touch:basis-[calc(100%-180px)]">
+                    <Text
+                      aria-label={`${nth}, on the pod`}
+                      aria-invalid={bad('targetPort')}
+                      mono
+                      unit="On the pod"
+                      className="pr-24"
+                      disabled={port.draft}
+                      value={port.targetPort}
+                      // (Not said, it's the same port on the pod.)
+                      placeholder={port.port}
+                      bad={bad('targetPort')}
+                      onChange={(typed) =>
+                        edit((text) => write.targetPort(text, index, typed.trim()))
+                      }
+                      {...focused('ports', at('targetPort'))}
+                    />
+                  </span>
+                  <span className="order-4 w-[84px] shrink-0 @max-[479px]:order-5">
+                    <Choice
+                      aria-label={`${nth}’s protocol`}
+                      disabled={port.draft}
+                      value={port.protocol || 'TCP'}
+                      bad={bad('protocol')}
+                      onChange={(event) => {
+                        const chosen = event.target.value
+                        edit((text) => write.protocol(text, index, chosen))
+                      }}
+                      {...focused('ports', at('protocol'))}
+                    >
+                      {[...new Set([...PROTOCOLS, port.protocol || 'TCP'])].map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </Choice>
+                  </span>
+                  <span className="order-5 shrink-0 @max-[479px]:order-4">
                     <RemoveButton
                       label={port.draft ? 'Remove the new port' : `Remove port ${index + 1}`}
                       onClick={() =>
                         port.draft ? setDraft(false) : edit((text) => write.removePort(text, index))
                       }
                     />
-                  </div>
-                  {/* With more than one, the cluster asks a name of each. */}
+                  </span>
+                  {/* With more than one, the cluster asks a name of each. (On a line of its own it
+                      stops where the protocol does, short of the ×.) */}
                   {!port.draft && (values.ports.length > 1 || port.name !== '') && (
-                    <span className="mr-[38px] block">
+                    <span className="order-6 min-w-0 basis-full pr-[38px] @max-[479px]:flex-1 @max-[479px]:basis-0 @max-[479px]:pr-0! touch:pr-[50px]">
                       <Text
                         aria-label={`${nth}’s name`}
                         aria-invalid={bad('name')}
@@ -2099,10 +2182,14 @@ function Pairs({
                 if (pair.draft) {
                   if (cannot) return setDraft(typed)
                   setDraft(undefined)
+                  // (The focus is in it already, and it has only now a line to light.)
+                  onFocus({ field, path: [...base, typed] })
                   return edit((text) => write.addPair(text, base, typed))
                 }
                 if (cannot) return setRenaming({ index, typed })
                 setRenaming(undefined)
+                // (Renamed, its line is the new key's: the focus hasn't left to say so.)
+                onFocus({ field, path: [...base, typed] })
                 edit((text) => write.renamePair(text, base, pair.key, typed))
               }}
               {...focused}

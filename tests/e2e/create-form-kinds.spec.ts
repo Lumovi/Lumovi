@@ -3,7 +3,7 @@
  * its ports), a ConfigMap (keys and values of several lines), a Secret (its values hidden on
  * both sides until they're asked for) and a PersistentVolumeClaim.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { HIDDEN } from '../../src/renderer/src/lib/create-form.ts'
 import { dialog, menuAction, open as openObject, toasts, writes } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
@@ -232,8 +232,14 @@ data:
   await field(page, 'Name').fill('web-settings')
   await expect(form(page)).toContainText('A value can have several lines.')
   await add(page, 'Add a key').click()
-  await page.keyboard.type('LOG_LEVEL')
+  await page.keyboard.type('LOG')
+  await expect(field(page, 'Key 1')).toHaveValue('LOG')
+  // A key typed into a new row has its line lit at once, the focus being in it already; and
+  // renamed, the line lit is the new key's.
+  await expect(lines(page, 'lit')).toHaveText(['  LOG: ""'])
+  await page.keyboard.type('_LEVEL')
   await expect(field(page, 'Key 1')).toHaveValue('LOG_LEVEL')
+  await expect(lines(page, 'lit')).toHaveText(['  LOG_LEVEL: ""'])
   await field(page, 'LOG_LEVEL’s value').fill('info')
   // A value is text, whatever it looks like: what would read as something else is quoted.
   await add(page, 'Add a key').click()
@@ -430,6 +436,9 @@ stringData:
   const whole = await yaml(page)
   await type(page, whole.replace('stringData:', 'stringData: [unclosed'))
   await expect(hide).toBeDisabled()
+  // (As it was between the two, so the second isn't judged by the first's answer.)
+  await type(page, whole)
+  await expect(hide).toBeEnabled()
   await type(
     page,
     whole
@@ -503,6 +512,58 @@ test('what the cluster says of a Secret is shown without its values, while they�
   await dialog(page).getByRole('radio', { name: 'Secret', exact: true }).click()
   await expect(dialog(page).getByRole('button', { name: 'Show values' })).toBeVisible()
   await expect(editor(page)).toHaveAttribute('aria-readonly', 'true')
+})
+
+test('a refusal that quotes a Secret’s value shows none of it anywhere on the page, while hidden', async ({
+  page,
+  clusters,
+}) => {
+  // A value that's nothing like the name, quoted by the cluster in its message and in a
+  // cause under a field: neither is shown, in the dialog or anywhere else on the page.
+  const VALUE = 'V4LU3-0f-its-0wn'
+  clusters.demo.fail('/api/v1/namespaces/shop/secrets', {
+    status: 422,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      kind: 'Status',
+      status: 'Failure',
+      reason: 'Invalid',
+      code: 422,
+      message: `Secret "api" is invalid: stringData: Invalid value: "${VALUE}"`,
+      details: {
+        name: 'api',
+        kind: 'Secret',
+        causes: [
+          {
+            reason: 'FieldValueInvalid',
+            field: 'stringData',
+            message: `Invalid value: "${VALUE}"`,
+          },
+        ],
+      },
+    }),
+  })
+  await open(page, 'Secret')
+  await field(page, 'Name').fill('api')
+  await add(page, 'Add a key').click()
+  await page.keyboard.type('token')
+  await field(page, 'token’s value').fill(VALUE)
+  await create(page).click()
+  const results = dialog(page).getByRole('list', { name: 'Results' })
+  await expect(results).toContainText(
+    'The cluster refused it. Choose Show values to read what it said.',
+  )
+  // Under its field, said once.
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'The cluster refused it. Choose Show values to read what it said.',
+  )
+  // Nowhere on the page: not the dialog, a note, or the activity log behind it.
+  await expect(page.locator('body')).not.toContainText(VALUE)
+  expect(await page.locator('body').innerHTML()).not.toContain(VALUE.slice(0, 8))
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Activity' }).click()
+  await expect(page.getByRole('dialog', { name: 'Activity' })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(VALUE)
 })
 
 test('a Secret’s change that fails is in the activity log as that, without the cluster’s words', async ({
@@ -655,9 +716,14 @@ test('what’s begun and left is said or dropped; one pod is one pod; what the Y
   await field(page, 'Port 1').fill('80')
   await add(page, 'Add a port').click()
   await expect(field(page, 'A new port')).toBeFocused()
+  // (A space is no number: it's still a port to be, and writes nothing.)
+  await page.keyboard.type(' ')
+  await expect(field(page, 'A new port')).toBeVisible()
+  expect((await yaml(page)).match(/- port:/g)).toHaveLength(1)
+  await field(page, 'A new port').fill('')
   await page.keyboard.press('Tab')
   await expect(field(page, 'A new port')).toHaveValue('')
-  expect(await yaml(page)).not.toContain('- port: \n')
+  expect((await yaml(page)).match(/- port:/g)).toHaveLength(1)
   await form(page).getByRole('button', { name: 'Remove the new port' }).click()
   await expect(field(page, 'A new port')).toHaveCount(0)
   // Among its types only the arrows choose: another key is no choice.
@@ -698,6 +764,16 @@ test('what’s begun and left is said or dropped; one pod is one pod; what the Y
       .replace('spec:\n', 'spec:\n  storageClassName: gone-class\n'),
   )
   await expect(choice(page, 'Storage class').locator('option:checked')).toHaveText('gone-class')
+  // Where no class is the cluster's default there's none to name: it's said as that.
+  clusters.demo.upsert({
+    apiVersion: 'storage.k8s.io/v1',
+    kind: 'StorageClass',
+    metadata: { name: 'standard', annotations: {} },
+    provisioner: 'rancher.io/local-path',
+  })
+  await expect(
+    choice(page, 'Storage class').locator('option').filter({ hasText: 'The cluster’s default' }),
+  ).toHaveCount(1)
   await expect(choice(page, 'Who can mount it').locator('option:checked')).toHaveText(
     'ReadWriteSometimes',
   )
@@ -745,6 +821,100 @@ test('what’s written in the YAML that a field can’t hold is said under that 
   ).toBeVisible()
 })
 
+/** How far a sentence's bottom is above the bottom edge of the pane that scrolls it, in px. */
+const clear = (said: Locator) =>
+  said.evaluate((sentence) => {
+    let pane = sentence.parentElement
+    while (pane && !/auto|scroll/.test(getComputedStyle(pane).overflowY)) pane = pane.parentElement
+    return pane!.getBoundingClientRect().bottom - sentence.getBoundingClientRect().bottom
+  })
+/** How far the form's pane has scrolled. */
+const scrolled = (page: Page) => form(page).evaluate((pane) => pane.scrollTop)
+
+test.describe('when the form’s pane moves by itself', () => {
+  test('a sentence that appears cut by the pane’s edge comes clear, whatever has the focus', async ({
+    launch,
+  }) => {
+    const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x768' }, fullLayout: false })
+    await openCluster(page)
+    await page.keyboard.press('ControlOrMeta+n')
+    await dialog(page).getByRole('radio', { name: 'Service', exact: true }).click()
+    await field(page, 'Name').fill('web')
+    await add(page, 'Add a label').click()
+    await page.keyboard.type('app')
+    await field(page, 'app’s value').fill('web')
+    await field(page, 'Port 1').fill('80')
+    // A second port makes the first one's name wrong, while the focus is in the second.
+    await add(page, 'Add a port').click()
+    await page.keyboard.type('443')
+    const wrong = form(page).getByRole('alert')
+    await expect(wrong).toHaveText('With more than one port, each needs a name.')
+    await expect.poll(() => clear(wrong)).toBeGreaterThanOrEqual(40)
+    // And the field being typed in is still there to type in.
+    await expect(field(page, 'Port 2')).toBeInViewport({ ratio: 1 })
+    // The first port named, it's the second's name that's missing: the sentence is under that
+    // one now, lower down, and comes clear again (the pane having just been moved to the field
+    // typed in doesn't stop it: it waits for the pane to rest).
+    await field(page, 'Port 1’s name').fill('http')
+    await expect(wrong).toHaveText('With more than one port, each needs a name.')
+    await expect.poll(() => clear(wrong)).toBeGreaterThanOrEqual(40)
+  })
+
+  test('never because the focus arrived; nor for a sentence wholly out of view', async ({
+    launch,
+  }) => {
+    // A short window, so the pane is a few fields high.
+    const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x560' }, fullLayout: false })
+    await openCluster(page)
+    await page.keyboard.press('ControlOrMeta+n')
+    await dialog(page).getByRole('radio', { name: 'ConfigMap', exact: true }).click()
+    await field(page, 'Name').fill('settings')
+    // Nine keys, the last of them wrong: its sentence is under the last row, far below.
+    const blank = await yaml(page)
+    await type(
+      page,
+      blank.replace(
+        '\ndata:\n',
+        `\ndata:\n${Array.from({ length: 8 }, (_, i) => `  key${i + 1}: v\n`).join('')}  "not a key": v\n`,
+      ),
+    )
+    const wrong = form(page).getByRole('alert')
+    await expect(wrong).toHaveText(/not a key can’t be a key/)
+    // It appeared wholly below the fold: nothing moved.
+    await form(page).evaluate((pane) => pane.scrollTo(0, 0))
+    expect(await scrolled(page)).toBe(0)
+    await expect(wrong).not.toBeInViewport()
+    // Tapping a field of that group moves nothing either: the field stays where it was tapped.
+    await field(page, 'key1’s value').click()
+    await expect(field(page, 'key1’s value')).toBeFocused()
+    await page.waitForTimeout(300)
+    expect(await scrolled(page)).toBe(0)
+    await expect(field(page, 'key1’s value')).toBeInViewport({ ratio: 1 })
+    // Typing in it changes no sentence, and moves nothing.
+    await field(page, 'key1’s value').fill('changed')
+    expect(await scrolled(page)).toBe(0)
+  })
+
+  test('the field being typed in stays whole: the move stops short for it', async ({ launch }) => {
+    const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x560' }, fullLayout: false })
+    await openCluster(page)
+    await page.keyboard.press('ControlOrMeta+n')
+    await dialog(page).getByRole('radio', { name: 'PersistentVolumeClaim', exact: true }).click()
+    // The pane is put so the name's field is at its top edge; what's typed there is wrong, and
+    // its sentence comes in under it.
+    const name = field(page, 'Name')
+    await name.fill('uploads')
+    await name.evaluate((input) => input.scrollIntoView({ block: 'start' }))
+    const before = await scrolled(page)
+    await name.fill('Not A Name')
+    await expect(form(page).getByRole('alert')).toBeVisible()
+    await page.waitForTimeout(300)
+    // Whatever it did for the sentence, the field and its label are still in view.
+    await expect(name).toBeInViewport({ ratio: 1 })
+    expect(await scrolled(page)).toBeLessThanOrEqual(before + 24)
+  })
+})
+
 test('each of these kinds, new, asks for what it must have; and what a name may be', async ({
   page,
 }) => {
@@ -756,6 +926,8 @@ test('each of these kinds, new, asks for what it must have; and what a name may 
     ['PersistentVolumeClaim', 'Name and Size are still empty.'],
   ] as const) {
     await dialog(page).getByRole('radio', { name: kind, exact: true }).click()
+    // (Its own YAML first: two kinds ask for the same things in the same words.)
+    await expect.poll(() => yaml(page), kind).toContain(`kind: ${kind}\n`)
     await expect(status(page), kind).toHaveText(empty)
     // Nothing wrong but what's empty, and nothing the form has no field for.
     await expect(form(page).getByRole('alert'), kind).toHaveCount(0)
@@ -777,6 +949,9 @@ test('each of these kinds, new, asks for what it must have; and what a name may 
     ['PersistentVolumeClaim', 'uploads_2', OTHER],
   ] as const) {
     await dialog(page).getByRole('radio', { name: kind, exact: true }).click()
+    // (A name that's fine first, so each row is judged from nothing said.)
+    await field(page, 'Name').fill('fine')
+    await expect(form(page).getByRole('alert'), `${kind} fine`).toHaveCount(0)
     await field(page, 'Name').fill(name)
     if (said) await expect(form(page).getByRole('alert'), `${kind} ${name}`).toHaveText(said)
     else await expect(form(page).getByRole('alert'), `${kind} ${name}`).toHaveCount(0)
@@ -878,6 +1053,9 @@ items:
     'k: &k stringData\nkind: Secret\n*k :\n  a: S3CR3T\n',
     'k: &k kind\n*k : Secret\nstringData:\n  a: S3CR3T\n',
   ]) {
+    // (One that can be hidden between each, so no row passes on the one before.)
+    await type(page, 'kind: Secret\nstringData:\n  a: b\n')
+    await expect(hide, elsewhere).toBeEnabled()
     await type(page, elsewhere)
     await expect(hide, elsewhere).toBeDisabled()
     // Why, in words on the page (a finger has no hover), and the button's own description.
@@ -980,6 +1158,9 @@ data:
     'x: &a {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}\nkind: Secret\nmetadata:\n  annotations:\n    <<: *a\nstringData: {a: b}\n',
     'x: &v S3CR3T\nkind: Secret\nmetadata:\n  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: *v\nstringData: {a: b}\n',
   ]) {
+    await type(page, 'kind: Secret\nstringData:\n  a: b\n')
+    await expect(hide, elsewhere).toBeEnabled()
+    await expect(dialog(page).getByText('so they can’t be hidden'), elsewhere).toHaveCount(0)
     await type(page, elsewhere)
     await expect(hide, elsewhere).toBeDisabled()
     await expect(dialog(page).getByText('so they can’t be hidden'), elsewhere).toBeVisible()
