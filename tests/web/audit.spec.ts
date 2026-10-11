@@ -1768,7 +1768,8 @@ for (const volume of [
         return beside
       })
       .toEqual([])
-    expect(existsSync(lock)).toBe(true)
+    // (The lock itself read again, not asked after: it's there, and the holder's.)
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ id: hold.id })
     await holder.stop()
     if (GRACEFUL) expect(existsSync(lock)).toBe(false)
     // Held by one elsewhere (a pod on a node that's gone, say), renewing it no more: waited for,
