@@ -234,7 +234,9 @@ for (const [how, text] of Object.entries(WRITTEN)) {
  * from CodeMirror's own view, which it keeps on its content's element (`cmTile`, as of
  * @codemirror/view 6.43): nothing public says what the document is, line ends and all. If
  * that handle isn't there, or isn't this editor's, the test fails saying so, and never passes
- * or fails for another reason.
+ * or fails for another reason. (That it's this editor's is checked by its lines being the ones
+ * drawn, which holds for a text short enough to be drawn whole: the editor draws only the
+ * lines near what's in view, so a long text would need another check.)
  */
 const held = (page: Page) =>
   editor(page).evaluate((content) => {
