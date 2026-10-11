@@ -128,10 +128,9 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
   const { client, context, title, done, command, target } = proposal
   const entry = { context, command, target, via: client }
   const { record } = useActivity.getState()
-  // (For a note shown inside a sheet: the change as it was asked, as it was made, and where.)
+  // (For a note shown inside a sheet: the change as it was asked, and as it was made.)
   const what = lowerFirst(title)
   const did = lowerFirst(done)
-  const where = `, in ${context}.`
   switch (status) {
     case 'applied':
       record({ ...entry, title: done, status: 'done' })
@@ -143,11 +142,11 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
           ? `${client} changed ${context} without asking: assistants may, there.`
           : `As ${client} asked, in ${context}.`,
         inSheet: unasked
-          ? all(said('Changed without asking:', did, target.name, where))
+          ? all(said('Changed without asking:', did, target.name, context))
           : {
-              approval: said('The change before:', did, target.name, where),
-              action: said('Another change:', did, target.name, where),
-              other: said(`As ${client} asked:`, did, target.name, where),
+              approval: said('The change before:', did, target.name, context),
+              action: said('Another change:', did, target.name, context),
+              other: said(`As ${client} asked:`, did, target.name, context),
             },
       })
       break
@@ -158,9 +157,9 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
         title: `${title} failed`,
         description: error,
         inSheet: {
-          approval: said('The change before failed:', what, target.name, where),
-          action: said('Another change failed:', what, target.name, where),
-          other: said('Failed:', what, target.name, where),
+          approval: said('The change before failed:', what, target.name, context),
+          action: said('Another change failed:', what, target.name, context),
+          other: said('Failed:', what, target.name, context),
         },
       })
       break
@@ -173,8 +172,8 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
         title: 'Not approved in time',
         description: `${client} asked to ${lowerFirst(title)}. Nothing was changed.`,
         inSheet: {
-          ...all(said('Another change wasn’t approved in time:', what, target.name, where)),
-          other: said('Not approved in time:', what, target.name, where),
+          ...all(said('Another change wasn’t approved in time:', what, target.name, context)),
+          other: said('Not approved in time:', what, target.name, context),
         },
       })
       break
@@ -184,8 +183,8 @@ function settle({ proposal, status, unasked, error }: ProposalOutcome, queryClie
         title: `${client} withdrew a change`,
         description: `${title}. Nothing was changed.`,
         inSheet: {
-          ...all(said(`${client} withdrew another change:`, what, target.name, where)),
-          other: said(`${client} withdrew a change:`, what, target.name, where),
+          ...all(said(`${client} withdrew another change:`, what, target.name, context)),
+          other: said(`${client} withdrew a change:`, what, target.name, context),
         },
       })
   }
@@ -197,11 +196,19 @@ const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1
  * A note's sentence for where it's shown inside a sheet: its words in front, what was done or
  * asked, and where. The object's name by its place in it.
  */
-function said(lead: string, what: string, name: string, tail: string): Said {
+function said(lead: string, what: string, name: string, context: string): Said {
   const at = what.lastIndexOf(name)
+  // (A space that doesn't break: "in" and the cluster's name stay on one line.)
+  const place = { where: context, end: '.' }
   return at < 0
-    ? { lead, before: what, name: '', after: tail }
-    : { lead, before: what.slice(0, at), name, after: `${what.slice(at + name.length)}${tail}` }
+    ? { lead, before: what, name: '', after: ', in\u00a0', ...place }
+    : {
+        lead,
+        before: what.slice(0, at),
+        name,
+        after: `${what.slice(at + name.length)}, in\u00a0`,
+        ...place,
+      }
 }
 const all = (sentence: Said) => ({ approval: sentence, action: sentence, other: sentence })
 

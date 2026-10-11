@@ -3,6 +3,9 @@
  * the pill of changes that wait; and while a sheet is open, the sheet's own first line and never
  * over it, so what an approval shows of its change is whole while Approve can be pressed.
  */
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { Browser, Locator, Page } from '@playwright/test'
 import { call, connect } from './assistant-client.ts'
@@ -26,9 +29,14 @@ const box = async (locator: Locator) => (await locator.boundingBox())!
 const approveOf = (sheet: Locator) => sheet.getByRole('button', { name: /^Approve/ })
 
 /** An assistant connected (from a computer), and the page a phone's. */
-async function onAPhone(page: Page, served: { url: string }, at = 'cluster/demo') {
+async function onAPhone(
+  page: Page,
+  served: { url: string },
+  at = 'cluster/demo',
+  home = 'cluster/demo',
+) {
   await page.setViewportSize({ width: 1440, height: 920 })
-  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await signIn(page, `${served.url}${home}`, PEOPLE.alice.token)
   const { client } = await connect(page, served as never)
   await page.setViewportSize(PHONE)
   await page.goto(`${served.url}${at}`)
@@ -36,14 +44,14 @@ async function onAPhone(page: Page, served: { url: string }, at = 'cluster/demo'
 }
 
 /** The same person at a computer: a change approved there is a note on the phone too. */
-async function atADesk(browser: Browser, served: { url: string }) {
+async function atADesk(browser: Browser, served: { url: string }, home = 'cluster/demo') {
   const desk = await browser.newContext({
     viewport: { width: 1440, height: 920 },
     hasTouch: false,
     isMobile: false,
   })
   const page = await desk.newPage()
-  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  await signIn(page, `${served.url}${home}`, PEOPLE.alice.token)
   return {
     page,
     approve: (title: string) => approveOf(sheetOf(page, title)).click(),
@@ -153,7 +161,7 @@ test('a sentence too long for a line takes two, and only the name in it is cut',
   expect((await box(line)).height).toBe(48)
   // What shows: who it's about and where are whole; the name's middle is what gave way.
   const shown = (await line.locator('span[aria-hidden]').textContent())!
-  expect(shown).toMatch(/^The change before: scaled checkout-.+…canary to 4 replicas, in demo\.$/)
+  expect(shown).toMatch(/^The change before: scaled checkout-.+…canary to 4 replicas, in\sdemo\.$/)
   // What's read out is all of it.
   await expect(next.getByRole('status')).toContainText(`scaled ${long} to 4 replicas, in demo.`)
 })
@@ -184,7 +192,7 @@ for (const [index, name] of [
     await approveOf(first).tap()
     const second = sheetOf(page, `Scale Deployment cart to ${replicas} replicas`)
     const alone = strip(second).locator('span[aria-hidden]')
-    await expect(alone).toHaveText(/^The change before failed: .+, in demo\.$/)
+    await expect(alone).toHaveText(/^The change before failed: .+, in\sdemo\.$/)
     const height = (await box(strip(second))).height
     await expect(approveOf(second)).toBeEnabled()
     await approveOf(second).tap()
@@ -202,8 +210,8 @@ for (const [index, name] of [
         expect((await box(line)).height).toBe(height)
         expect((await box(words)).height).toBeLessThanOrEqual(height === 48 ? 32 : 16)
         const shown = (await words.textContent())!
-        expect(shown).toMatch(/^The change before failed: scale Deployment .+, in demo\.$/)
-        expect(shown).toContain(` to ${replicas} replicas, in demo.`)
+        expect(shown).toMatch(/^The change before failed: scale Deployment .+, in\sdemo\.$/)
+        expect(shown).toContain(` to ${replicas} replicas, in\u00a0demo.`)
       }, step).toPass({ timeout: 5_000 })
     await expect(line).toContainText('and 1 more')
     await whole('the failure’s line fitted beside the count')
@@ -517,6 +525,216 @@ test('in a sheet that isn’t an assistant’s change the line says so: another 
   )
   await desk.close()
 })
+
+/**
+ * A strip's words are all inside it, on whole lines: whatever was done to fit them, nothing is
+ * clipped and nothing runs out of it, at its foot or at its side.
+ */
+async function nothingClipped(line: Locator, step: string) {
+  await expect(async () => {
+    const strip = await box(line)
+    const said = line.locator('span[aria-hidden]')
+    const words = await box(said)
+    expect([32, 48, 64]).toContain(strip.height)
+    expect(words.y).toBeGreaterThanOrEqual(strip.y)
+    expect(words.y + words.height).toBeLessThanOrEqual(strip.y + strip.height)
+    expect(words.x).toBeGreaterThanOrEqual(strip.x)
+    expect(words.x + words.width).toBeLessThanOrEqual(strip.x + strip.width)
+    // (What's drawn of them, not only their box: a word too long for a line runs past it.)
+    expect(await said.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const drawn = await said.evaluate((el) => {
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      return Math.max(...[...range.getClientRects()].map((rect) => rect.right))
+    })
+    expect(drawn).toBeLessThanOrEqual(strip.x + strip.width)
+    expect(words.height).toBeLessThanOrEqual({ 32: 16, 48: 32, 64: 48 }[strip.height]!)
+  }, step).toPass({ timeout: 5_000 })
+  return (await box(line)).height
+}
+
+// A short failure is one line alone, in a sheet about no change at least; the count come beside
+// it takes the room of some of it. Its name is too short to cut: it gets a second line, and
+// keeps it. In Sort by and in Scale's own dialog, whose opening words are longer.
+for (const [width, where, lead] of [
+  [390, 'Sort by', 'Failed:'],
+  [360, 'Sort by', 'Failed:'],
+  [390, 'Scale’s dialog', 'Another change failed:'],
+  [360, 'Scale’s dialog', 'Another change failed:'],
+] as const) {
+  test(`a short failure gets the line it needs when the count comes beside it, uncut, and keeps it (${where}, ${width} wide)`, async ({
+    page,
+    browser,
+    serve,
+    clusters,
+  }) => {
+    test.setTimeout(150_000)
+    const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1500' } })
+    const storefront = DEMO.deployments.storefront
+    const client = await onAPhone(
+      page,
+      served,
+      where === 'Sort by'
+        ? 'cluster/demo/pods'
+        : `cluster/demo/deployments?open=Deployment/shop/${storefront}`,
+    )
+    await page.setViewportSize({ width, height: PHONE.height })
+    const desk = await atADesk(browser, served)
+    const cart = clusters.demo.object('Deployment', 'shop', DEMO.deployments.cart)!
+    if (where === 'Sort by') await page.getByRole('button', { name: /^Sort/ }).tap()
+    else {
+      await page
+        .getByRole('complementary', { name: `Deployment ${storefront}` })
+        .getByRole('button', { name: 'Scale' })
+        .tap()
+    }
+    const sheet = page.getByRole('dialog', {
+      name: where === 'Sort by' ? 'Sort by' : `Scale ${storefront}`,
+    })
+    await expect(sheet).toBeVisible()
+    const line = strip(sheet)
+    const words = line.locator('span[aria-hidden]')
+    let replicas = 4
+    const heights: number[] = []
+    // (Names of 3, 4, 6 and 8 characters: the lengths that wrapped.)
+    for (const name of ['api', 'auth', 'ledger', 'payments']) {
+      clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name, uid: undefined } })
+      await scale(client, name, 4)
+      clusters.demo.remove('Deployment', 'shop', name)
+      await desk.approve(`Scale Deployment ${name} to 4 replicas`)
+      const whole = new RegExp(`^${lead} scale Deployment ${name} to 4 replicas, in\\sdemo\\.$`)
+      await expect(words).toHaveText(whole)
+      const alone = await nothingClipped(line, `${name}: the failure alone`)
+      // Another outcome right after: the failure is still the one shown, the count beside it.
+      replicas += 1
+      await scale(client, DEMO.deployments.cart, replicas)
+      await desk.approve(`Scale Deployment cart to ${replicas} replicas`)
+      await expect(line).toContainText('and 1 more')
+      const beside = await nothingClipped(line, `${name}: the count beside the failure`)
+      expect(beside).toBeGreaterThanOrEqual(alone)
+      heights.push(beside)
+      await expect(words).toHaveText(whole)
+      // The other's time ends first: the count goes, and the strip doesn't go back.
+      await expect(line).not.toContainText('and 1 more', { timeout: 8_000 })
+      expect(await nothingClipped(line, `${name}: the count gone`)).toBe(beside)
+      await expect(words).toHaveText(whole)
+      await expect(line).toHaveCount(0, { timeout: 12_000 })
+    }
+    // The tallest it gets: where the opening words are long, the screen narrow and nothing can
+    // be cut, the count's coming gives it a third line.
+    if (where === 'Scale’s dialog' && width === 360) expect(heights).toContain(64)
+    else expect(Math.max(...heights)).toBe(48)
+    await desk.close()
+  })
+}
+
+/** A cluster called as a cloud calls its own, beside the demo cluster's own name: the same cluster. */
+const CLOUDS = 'arn:aws:eks:eu-west-1:123456789012:cluster/production-eu-1'
+/** And one with nowhere for a line to break: no hyphen, no slash, 75 characters. */
+const UNBROKEN = 'productionclusterwithaverylongnamewithoutanyhyphensatallinitsname0123456789'
+function withACloudsName(kubeconfigPath: string, name: string): Record<string, string> {
+  const config = JSON.parse(readFileSync(kubeconfigPath, 'utf8')) as {
+    contexts: { name: string; context: object }[]
+  }
+  const demo = config.contexts.find((context) => context.name === 'demo')!
+  config.contexts.push({ ...demo, name })
+  const file = join(mkdtempSync(join(tmpdir(), 'lumovi-clouds-name-')), 'config')
+  writeFileSync(file, JSON.stringify(config))
+  return { KUBECONFIG: file, LUMOVI_CONTEXT: name }
+}
+
+for (const [cluster, what] of [
+  [CLOUDS, 'a cloud’s'],
+  [UNBROKEN, 'one with nowhere to break'],
+] as const) {
+  test(`where a cluster’s own name is long (${what}), its middle gives way after the object’s: its end and the full stop are never lost, and nothing runs out of the sheet`, async ({
+    page,
+    browser,
+    serve,
+    clusters,
+  }) => {
+    test.setTimeout(120_000)
+    const long = 'checkout-payments-reconciliation-worker-with-ledger-export-blue-canary'
+    const cart = clusters.demo.object('Deployment', 'shop', DEMO.deployments.cart)!
+    clusters.demo.upsert({ ...cart, metadata: { ...cart.metadata, name: long, uid: undefined } })
+    const served = await serve({
+      env: {
+        LUMOVI_APPROVAL_SLICE_MS: '1500',
+        ...withACloudsName(clusters.kubeconfigPath, cluster),
+      },
+    })
+    const home = `cluster/${encodeURIComponent(cluster)}`
+    const client = await onAPhone(page, served, `${home}/pods`, home)
+    const desk = await atADesk(browser, served, home)
+    const ask = (name: string, replicas: number) =>
+      call(client, 'scale', {
+        cluster: cluster,
+        kind: 'deploy',
+        namespace: 'shop',
+        name,
+        replicas,
+        reason: 'Busy.',
+      })
+    const end = cluster.slice(-16)
+    // In Sort by and in Scale's own dialog alike: one function fits them all.
+    const sheets = [
+      async () => {
+        await page.getByRole('button', { name: /^Sort/ }).tap()
+        return {
+          sheet: page.getByRole('dialog', { name: 'Sort by' }),
+          lead: 'As Claude Code asked:',
+        }
+      },
+      async () => {
+        const name = DEMO.deployments.storefront
+        await page.goto(`${served.url}${home}/deployments?open=Deployment/shop/${name}`)
+        await page
+          .getByRole('complementary', { name: `Deployment ${name}` })
+          .getByRole('button', { name: 'Scale' })
+          .tap()
+        return {
+          sheet: page.getByRole('dialog', { name: `Scale ${name}` }),
+          lead: 'Another change:',
+        }
+      },
+    ]
+    let replicas = 4
+    for (const open of sheets) {
+      const { sheet, lead } = await open()
+      await expect(sheet).toBeVisible()
+      const line = strip(sheet)
+      const words = line.locator('span[aria-hidden]')
+      // A short object's name, the cluster's long one: nothing of the object's to cut.
+      replicas += 1
+      await ask(DEMO.deployments.cart, replicas)
+      await desk.approve(`Scale Deployment cart to ${replicas} replicas`)
+      await expect(words).toContainText(`${lead} scaled cart to ${replicas} replicas, in`)
+      await nothingClipped(line, 'a short name in a cluster with a long one')
+      const short = (await words.textContent())!
+      expect(short.endsWith(`${end}.`)).toBe(true)
+      // Both long, and then two more beside them.
+      await ask(long, replicas)
+      await desk.approve(`Scale Deployment ${long} to ${replicas} replicas`)
+      await expect(words).toContainText('…canary')
+      await nothingClipped(line, 'both names long, a count beside them')
+      await ask(DEMO.deployments.checkout, replicas)
+      await desk.approve(`Scale Deployment ${DEMO.deployments.checkout} to ${replicas} replicas`)
+      await expect(line).toContainText('and 2 more')
+      await nothingClipped(line, 'the newest with two more beside it')
+      for (const shown of [short, (await words.textContent())!]) {
+        expect(shown.startsWith(lead)).toBe(true)
+        expect(shown).toContain(` to ${replicas} replicas, in`)
+        expect(shown.endsWith(`${end}.`)).toBe(true)
+      }
+      // What's read out is all of it, the cluster's name whole.
+      await expect(sheet.getByRole('status')).toContainText(`, in ${cluster}.`)
+      await expect(line).toHaveCount(0, { timeout: 12_000 })
+      await page.keyboard.press('Escape')
+      await expect(sheet).toHaveCount(0)
+    }
+    await desk.close()
+  })
+}
 
 test('wider than a phone nothing of this applies: a note over a dialog is where it was', async ({
   browser,
