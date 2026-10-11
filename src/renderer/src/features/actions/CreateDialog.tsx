@@ -88,7 +88,7 @@ function Sides({
           tabIndex={side === value ? 0 : -1}
           onClick={() => onChange(value, false)}
           className={cn(
-            'h-7 rounded-md px-3 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            'h-7 rounded-md px-3 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent touch:finger',
             side === value ? 'bg-surface text-ink-1 shadow-xs' : 'text-ink-2 hover:text-ink-1',
           )}
         >
@@ -158,7 +158,11 @@ function CreateYaml({ sides, onClose }: { sides: React.ReactNode; onClose: () =>
       onSubmit={() => void create(text)}
     >
       <div>{sides}</div>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Templates">
+      <div
+        className="flex flex-wrap gap-1.5 touch:gap-y-5 touch:py-2.5"
+        role="group"
+        aria-label="Templates"
+      >
         {Object.entries(TEMPLATES).map(([kind, template]) => (
           <button
             key={kind}
@@ -167,7 +171,7 @@ function CreateYaml({ sides, onClose }: { sides: React.ReactNode; onClose: () =>
               setText(template(target))
               setOutcomes([])
             }}
-            className="h-6 rounded-md border border-line px-2 text-xs font-medium text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1"
+            className="h-6 rounded-md border border-line px-2 text-xs font-medium text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 touch:finger"
           >
             {kind}
           </button>

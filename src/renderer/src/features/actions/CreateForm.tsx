@@ -116,6 +116,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
   // that's shown is another text, with nothing of a value in it, and isn't edited; and what
   // the cluster says is shown with no value it may quote.
   const [showing, setShowing] = useState(false)
+  const cannotHide = useId()
   const cover = useMemo(() => (kind === 'Secret' ? masked(text) : null), [kind, text])
   const hidden = kind === 'Secret' && !showing
   const view = hidden ? (cover ?? '') : text
@@ -269,7 +270,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
             <div
               role="radiogroup"
               aria-label="Kind"
-              className="flex shrink-0 flex-wrap items-center gap-1.5 px-5 pt-1 pb-4"
+              className="flex shrink-0 flex-wrap items-center gap-1.5 px-5 pt-1 pb-4 touch:gap-y-5 touch:pt-3"
             >
               {KINDS.map((name) => (
                 <button
@@ -286,7 +287,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     setFitting(blank)
                   }}
                   className={cn(
-                    'h-6 rounded-md border px-2 text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                    'h-6 rounded-md border px-2 text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent touch:finger',
                     kind === name
                       ? 'border-accent bg-accent-soft text-accent-strong'
                       : 'border-line text-ink-2 hover:bg-surface-3 hover:text-ink-1',
@@ -317,7 +318,10 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                         {reading.why} The YAML is what gets created; go on editing it there. Below
                         is the form as it last was.
                         <br />
-                        <Button className="mt-2 h-7 px-2 text-xs" onClick={() => change(fitting)}>
+                        <Button
+                          className="mt-2 h-7 px-2 text-xs touch:h-11"
+                          onClick={() => change(fitting)}
+                        >
                           <RotateCcw />
                           Go back to the form’s version
                         </Button>
@@ -374,7 +378,7 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
               </div>
 
               <div className="flex min-h-0 min-w-0 flex-col border-l border-line">
-                <p className="flex h-9 shrink-0 items-center gap-2 border-b border-line pr-2 pl-5 text-xs text-ink-3">
+                <p className="flex h-9 shrink-0 items-center gap-2 border-b border-line pr-2 pl-5 text-xs text-ink-3 touch:h-11">
                   <b className="font-medium text-ink-2">YAML</b>
                   <span role="status" className="min-w-0 flex-1 truncate">
                     {status}
@@ -386,19 +390,26 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                       // Where the values can't be told from the rest, they can't be hidden one
                       // by one: it stays shown until they can.
                       disabled={showing && cover === null}
-                      title={
-                        showing && cover === null
-                          ? 'Its values can’t be told from the rest as it’s written: it isn’t YAML as it stands, or a value comes through an alias or a merge key.'
-                          : undefined
-                      }
+                      aria-describedby={showing && cover === null ? cannotHide : undefined}
                       onClick={() => setShowing(!showing)}
-                      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 font-medium text-ink-2 transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:bg-transparent"
+                      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 font-medium text-ink-2 transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:bg-transparent touch:finger"
                     >
                       {showing ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                       {showing ? 'Hide values' : 'Show values'}
                     </button>
                   )}
                 </p>
+                {/* Why it can't be hidden, in words on the page: a finger has no hover, and a
+                    button that's off takes no focus to say it. */}
+                {kind === 'Secret' && showing && cover === null && (
+                  <p
+                    id={cannotHide}
+                    className="shrink-0 border-b border-line px-5 py-1.5 text-xs leading-[17px] text-ink-3"
+                  >
+                    Its values can’t be told from the rest as it’s written, so they can’t be hidden:
+                    it isn’t YAML as it stands, or a value comes through an alias or a merge key.
+                  </p>
+                )}
                 <div className="min-h-0 flex-1 bg-surface-2/60">
                   <CodeEditor
                     // An editor of its own for each: what one held, and could undo to, isn't
@@ -474,7 +485,7 @@ function Note({ children }: { children: ReactNode }) {
 }
 
 const INPUT =
-  'h-8 w-full min-w-0 rounded-lg border bg-surface px-2.5 text-[13px] text-ink-1 outline-none placeholder:text-ink-3 focus:ring-3 disabled:bg-surface-2'
+  'h-8 w-full min-w-0 rounded-lg border bg-surface px-2.5 text-[13px] text-ink-1 outline-none placeholder:text-ink-3 focus:ring-3 disabled:bg-surface-2 touch:h-11'
 const input = (bad: boolean, mono = false) =>
   cn(
     INPUT,
@@ -565,7 +576,7 @@ function Text({ bad = false, mono = false, unit, onChange, className, ...props }
       {field}
       <span
         aria-hidden
-        className="pointer-events-none absolute top-0 right-2.5 flex h-8 items-center text-xs text-ink-3"
+        className="pointer-events-none absolute top-0 right-2.5 flex h-8 items-center text-xs text-ink-3 touch:h-11"
       >
         {unit}
       </span>
@@ -1218,7 +1229,7 @@ function WorkloadFields({
                       onChange={(name) => edit((text) => write.variableName(text, index, name))}
                       {...focused('env', row)}
                     />
-                    <span aria-hidden className="flex h-8 items-center text-ink-3">
+                    <span aria-hidden className="flex h-8 items-center text-ink-3 touch:h-11">
                       =
                     </span>
                     {variable.from === undefined ? (
@@ -1370,7 +1381,7 @@ function StepButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="grid size-8 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-ink-2 shadow-xs transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:hover:bg-surface"
+      className="grid size-8 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-ink-2 shadow-xs transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:hover:bg-surface touch:size-11"
     >
       {children}
     </button>
@@ -1383,7 +1394,7 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-3 transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent"
+      className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-3 transition-colors outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent touch:size-11"
     >
       <X className="size-4" />
     </button>
@@ -1395,7 +1406,7 @@ function AddButton({ onClick, children }: { onClick: () => void; children: React
     <button
       type="button"
       onClick={onClick}
-      className="-ml-2 inline-flex h-8 items-center gap-1.5 self-start rounded-lg px-2 text-[13px] font-medium text-accent-strong transition-colors outline-none hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-accent"
+      className="-ml-2 inline-flex h-8 items-center gap-1.5 self-start rounded-lg px-2 text-[13px] font-medium text-accent-strong transition-colors outline-none hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-accent touch:h-11"
     >
       <Plus className="size-4" />
       {children}
@@ -1533,7 +1544,7 @@ function ServiceFields({ form, wrong, focus, onFocus, edit, object, namespace }:
                 onClick={() => edit((text) => write.type(text, name))}
                 {...focused('type')}
                 className={cn(
-                  'h-7 rounded-md px-3 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  'h-7 rounded-md px-3 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent touch:finger',
                   type === name ? 'bg-surface text-ink-1 shadow-xs' : 'text-ink-2 hover:text-ink-1',
                 )}
               >
@@ -1899,7 +1910,7 @@ function ClassChoice({
 }
 
 const AREA =
-  'block min-h-8 w-full min-w-0 resize-none rounded-lg border bg-surface px-2.5 py-[5px] font-mono text-[12.5px] leading-5 text-ink-1 outline-none placeholder:text-ink-3 focus:ring-3 disabled:bg-surface-2'
+  'block min-h-8 w-full min-w-0 resize-none rounded-lg border bg-surface px-2.5 py-[5px] font-mono text-[12.5px] leading-5 text-ink-1 outline-none touch:min-h-11 touch:py-[11px] placeholder:text-ink-3 focus:ring-3 disabled:bg-surface-2'
 const area = (bad: boolean) =>
   cn(
     AREA,
@@ -2058,7 +2069,7 @@ function Pairs({
                 onFocus(undefined)
               }}
             />
-            <span aria-hidden className="flex h-8 items-center text-ink-3">
+            <span aria-hidden className="flex h-8 items-center text-ink-3 touch:h-11">
               =
             </span>
             {pair.draft ? (
