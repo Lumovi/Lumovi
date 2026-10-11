@@ -85,6 +85,7 @@ export function Header() {
   const setPalette = useUi((ui) => ui.setPalette)
   const setCreate = useUi((ui) => ui.setCreate)
   const setSidebar = useUi((ui) => ui.setSidebar)
+  const inside = useUi((ui) => ui.inside)
   const layout = useLayout()
   const short = useShort()
   const [refreshing, setRefreshing] = useState(false)
@@ -124,17 +125,24 @@ export function Header() {
     return (
       <>
         <header className="flex h-[52px] shrink-0 items-center border-b border-line bg-surface px-1">
-          <button
-            type="button"
-            aria-label="Menu"
-            data-opens="sidebar"
-            onClick={() => setSidebar(true)}
-            className={barButton}
-          >
-            <Menu />
-          </button>
+          {/* A page inside the page has Back where the menu is, and its own name. */}
+          {inside ? (
+            <button type="button" aria-label="Back" onClick={inside.back} className={barButton}>
+              <ArrowLeft />
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label="Menu"
+              data-opens="sidebar"
+              onClick={() => setSidebar(true)}
+              className={barButton}
+            >
+              <Menu />
+            </button>
+          )}
           <h1 className="min-w-0 flex-1 px-1 text-[15px] leading-5 font-semibold tracking-[-0.01em] [view-transition-name:page-title]">
-            <MiddleTruncate text={title} />
+            <MiddleTruncate text={inside?.title ?? title} />
           </h1>
           <button
             type="button"

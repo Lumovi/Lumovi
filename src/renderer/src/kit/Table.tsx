@@ -39,12 +39,12 @@ import type {
   TableRow,
 } from '@shared/kit/table'
 import { Button } from '@renderer/components/Button'
-import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { Sheet } from '@renderer/components/Sheet'
-import { StatusDot, StatusPill } from '@renderer/components/Status'
+import { StatusPill } from '@renderer/components/Status'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { useLayout } from '@renderer/lib/layout'
+import { CARD, HEADING, Lead } from './Lead'
 
 /** A row of one line, one with a line under its name, and each line of a note. */
 const ROW = 36
@@ -725,7 +725,7 @@ export function Table({
                         )}
                       </button>
                     )}
-                    <Lead row={row} />
+                    <Lead lead={row.lead} top={Boolean(row.note)} />
                   </span>
                   {columns.map((column, c) =>
                     rest && c >= rest.from ? (
@@ -761,9 +761,6 @@ export function Table({
   )
 }
 
-const CARD = 'overflow-hidden rounded-xl border border-line bg-surface-2 shadow-panel'
-const HEADING = 'text-[11px] font-medium tracking-wider whitespace-nowrap text-ink-3 uppercase'
-
 /** A group's heading, with its count: the table's own, and not a stop. */
 function GroupHeading({
   name,
@@ -783,37 +780,6 @@ function GroupHeading({
         {count}
       </small>
     </h4>
-  )
-}
-
-/** What a row is called: a dot in a level (or none, and the name keeps its place), a name, a quiet word, a line under. */
-function Lead({ row }: { row: TableRow }) {
-  const { level, name, beside, under } = row.lead
-  return (
-    <span className={cn('flex min-w-0 flex-1 items-center gap-2.5', row.note && 'items-start')}>
-      {level ? (
-        <StatusDot health={level} className={cn(row.note && 'mt-1.5')} />
-      ) : (
-        <span className="w-2 shrink-0" />
-      )}
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-baseline gap-2">
-          {/* A name is never cut at its end: it loses its middle and keeps its last characters. */}
-          <MiddleTruncate text={name} className="font-medium text-ink-1" />
-          {/* The word beside it gives way first, to 40% of the lead at most. */}
-          {beside && (
-            <span
-              // (A short word stays whole; a long one keeps its first few characters.)
-              style={{ minWidth: `${Math.min(beside.length, 5)}ch` }}
-              className="max-w-[40%] shrink-[99] truncate text-xs text-ink-3"
-            >
-              {beside}
-            </span>
-          )}
-        </span>
-        {under && <span className="block truncate text-xs leading-4 text-ink-3">{under}</span>}
-      </span>
-    </span>
   )
 }
 
@@ -924,7 +890,7 @@ function Card({
   const body = (
     <>
       <span className="flex items-center gap-2.5">
-        <Lead row={{ ...row, note: undefined }} />
+        <Lead lead={row.lead} />
       </span>
       {row.note && (
         <span className="mt-1.5 ml-[18px] line-clamp-3 text-xs leading-[18px] text-ink-2">
@@ -988,7 +954,7 @@ function Card({
 }
 
 /** Nothing to list: busy, failed, empty or quiet, in the words it was given. */
-function Nothing({
+export function Nothing({
   state,
   onRetry,
 }: {

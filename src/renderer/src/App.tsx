@@ -112,7 +112,7 @@ const routes: RouteObject[] = [
               ...(LUMOVI_TEST_BUILD
                 ? [
                     {
-                      path: 'kit',
+                      path: 'kit/:part?',
                       lazy: () =>
                         import('./kit/KitPage').then(({ KitPage }) => ({ Component: KitPage })),
                     },

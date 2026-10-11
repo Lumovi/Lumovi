@@ -1,5 +1,5 @@
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import { ArrowRight, ChevronRight, CircleCheck, Gauge, type LucideIcon } from 'lucide-react'
+import { ArrowRight, CircleCheck, Gauge, type LucideIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { KubeObject, UsageSample } from '@shared/api'
 import type { ResourceKind } from '@shared/resources'
@@ -10,6 +10,7 @@ import { Card } from '@renderer/components/Card'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
 import { Meter } from '@renderer/components/Meter'
 import { Sparkline } from '@renderer/components/Sparkline'
+import { Tile as StatTile } from '@renderer/components/Tile'
 import { StackedBar } from '@renderer/components/StackedBar'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { HEALTH_STYLE, StatusDot, StatusPill } from '@renderer/components/Status'
@@ -195,12 +196,8 @@ export function Body<T>({
 
 /** A headline number; clicking it opens the list behind it, filtered to what matters. */
 export function Tile({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  status,
   to,
+  ...tile
 }: {
   icon: LucideIcon
   label: string
@@ -212,31 +209,7 @@ export function Tile({
 }) {
   const { context } = useCluster()
   const go = useGo()
-  return (
-    <section aria-label={label} className="animate-rise">
-      <button
-        type="button"
-        onClick={() => go(`${clusterPath(context)}/${to}`)}
-        className="group relative block w-full rounded-xl border border-line bg-surface-2 p-4 text-left shadow-panel transition-colors hover:border-line-strong hover:bg-surface-3/40"
-      >
-        {/* On a phone the tiles are two across, and a label has its line to itself: the chevron
-            sits in the tile's corner, out of its way. */}
-        <div className="flex items-center gap-2 text-[13px] text-ink-2 phone:gap-1.5 phone:whitespace-nowrap">
-          <Icon className="size-4 shrink-0 text-ink-3" />
-          {/* (At a larger text size it's cut short, rather than making one tile taller.) */}
-          <span className="min-w-0 phone:truncate">{label}</span>
-          <ChevronRight className="ml-auto size-4 shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 phone:absolute phone:top-2 phone:right-2 phone:size-3.5 touch:opacity-100" />
-        </div>
-        <div className="mt-2.5 text-[28px] leading-none font-semibold tracking-[-0.02em] text-ink-1">
-          {value ?? '—'}
-        </div>
-        <div className="mt-2 flex h-5 items-center gap-1.5 text-xs text-ink-3">
-          {status && <StatusDot health={status} />}
-          {detail}
-        </div>
-      </button>
-    </section>
-  )
+  return <StatTile {...tile} onOpen={() => go(`${clusterPath(context)}/${to}`)} />
 }
 
 const UNHEALTHY = 'health=critical,warning'

@@ -149,39 +149,60 @@ export interface TableCarries {
   retry: Record<string, never>
 }
 
+/** A count with its noun: "1 cell", "6 columns". */
+const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
+/** A kind of cell, as a sentence names it. */
+const A_KIND = {
+  text: 'text',
+  number: 'a number',
+  age: 'an age',
+  status: 'a status',
+  meter: 'a meter',
+} as const
+
 /**
- * What's wrong with a table that its kinds can't say, in one line of Lumovi's own words that
- * quotes nothing the table holds; nothing, when it can be drawn as it's described. Checked where
+ * What's wrong with a table that its kinds can't say, for whoever wrote it: where, counted from
+ * 1 as they wrote it (both places, where two clash), then what, then what it should be. One
+ * line of Lumovi's own words that quotes nothing the table holds: a key is named by where it
+ * is, never by its text. Nothing, when the table can be drawn as it's described. Checked where
  * a description is taken in, so the component is only ever given one that passes.
  */
 export function tableProblem(table: Table): string | undefined {
-  const keys = new Set<string>()
-  for (const row of table.rows) {
-    if (keys.has(row.key)) return 'Two of the table’s rows have the same key.'
-    keys.add(row.key)
-    const inner = new Set<string>()
-    for (const each of [row, ...(row.rows ?? [])]) {
-      if (each !== row) {
-        if (inner.has(each.key)) return 'Two rows inside one row have the same key.'
-        inner.add(each.key)
+  const columns = table.columns.length
+  const rows = new Map<string, number>()
+  for (const [r, row] of table.rows.entries()) {
+    const first = rows.get(row.key)
+    if (first !== undefined) return `Rows ${first} and ${r + 1} have the same key.`
+    rows.set(row.key, r + 1)
+    const inner = new Map<string, number>()
+    for (const [i, each] of [row, ...(row.rows ?? [])].entries()) {
+      // (Its place: a row, or a row inside one.)
+      const here = i === 0 ? `Row ${r + 1}` : `In row ${r + 1}, inner row ${i}`
+      if (i > 0) {
+        const same = inner.get(each.key)
+        if (same !== undefined) {
+          return `In row ${r + 1}, inner rows ${same} and ${i} have the same key.`
+        }
+        inner.set(each.key, i)
       }
-      if (each.cells.length !== table.columns.length) {
-        return 'A row doesn’t have one cell for each of the table’s columns.'
+      if (each.cells.length !== columns) {
+        return `${here} has ${counted(each.cells.length, 'cell')}, and the table has ${counted(columns, 'column')}.`
       }
-      if (
-        each.cells.some((cell, c) => cell.kind !== 'none' && cell.kind !== table.columns[c]!.kind)
-      ) {
-        return 'A cell isn’t of its column’s kind.'
+      for (const [c, cell] of each.cells.entries()) {
+        const takes = table.columns[c]!.kind
+        if (cell.kind !== 'none' && cell.kind !== takes) {
+          return `${here}, cell ${c + 1} is ${A_KIND[cell.kind]}, and its column takes ${A_KIND[takes]}.`
+        }
       }
-      if (
-        each.rest &&
-        !(
-          Number.isInteger(each.rest.from) &&
-          each.rest.from >= 0 &&
-          each.rest.from < table.columns.length
-        )
-      ) {
-        return 'A row’s last words start at a column the table doesn’t have.'
+      if (each.rest) {
+        const { from } = each.rest
+        if (!Number.isInteger(from) || from < 0) {
+          return `${here}’s rest doesn’t start at one of the table’s columns.`
+        }
+        if (from >= columns) {
+          return `${here}’s rest starts at column ${from + 1}, and the table has ${counted(columns, 'column')}.`
+        }
       }
     }
   }

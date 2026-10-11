@@ -278,16 +278,19 @@ test('thousands of rows: only the ones in view are drawn, and every row is a key
 
 test('what a table is refused for, where its kinds can’t say it', async ({ page }) => {
   await kit(page)
-  // In Lumovi's words, quoting nothing of the table's own; a table that can be drawn has none.
+  // For whoever wrote it: where, counted from 1, then what, then what it should be; in Lumovi's
+  // words, quoting nothing of the table's own. A table that can be drawn has none.
   await expect(
     page.getByRole('list', { name: 'What a table is refused for' }).getByRole('listitem'),
   ).toHaveText([
     'Nothing: it can be drawn.',
     'Nothing: it can be drawn.',
-    'Two of the table’s rows have the same key.',
-    'Two rows inside one row have the same key.',
-    'A row doesn’t have one cell for each of the table’s columns.',
-    'A cell isn’t of its column’s kind.',
-    'A row’s last words start at a column the table doesn’t have.',
+    'Rows 1 and 2 have the same key.',
+    'In row 1, inner rows 1 and 2 have the same key.',
+    'Row 1 has 1 cell, and the table has 2 columns.',
+    'Row 1, cell 1 is a number, and its column takes text.',
+    'Row 1’s rest starts at column 3, and the table has 2 columns.',
+    'Row 1’s rest doesn’t start at one of the table’s columns.',
+    'In row 2, inner row 2 has 1 cell, and the table has 2 columns.',
   ])
 })
