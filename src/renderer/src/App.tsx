@@ -34,6 +34,9 @@ import { useSession } from './state/session'
 import { SETTINGS_CHANGED } from './web/api'
 import { basename } from './web/session'
 
+/** Set by the build: true only in the build the tests run. */
+declare const LUMOVI_TEST_BUILD: boolean
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -102,6 +105,17 @@ const routes: RouteObject[] = [
               { path: 'r/:kind', element: <CustomResourcePage /> },
               { path: 'plugins/:name', element: <PluginPage /> },
               { path: 'api-resources', element: <ApiResourcesPage /> },
+              // The kit's parts, each with its hard cases: for the tests' build alone, until
+              // something in Lumovi draws a plugin's page from them. A release has none of it.
+              ...(LUMOVI_TEST_BUILD
+                ? [
+                    {
+                      path: 'kit',
+                      lazy: () =>
+                        import('./kit/KitPage').then(({ KitPage }) => ({ Component: KitPage })),
+                    },
+                  ]
+                : []),
               { path: 'helm', element: <HelmPage /> },
               { path: '*', element: <NotFound /> },
             ],
