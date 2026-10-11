@@ -88,15 +88,17 @@ issue.
    each kind (or group of kinds) worth more than the generic columns. Status rules are where
    views help most: say what healthy, in progress, failing and paused look like for this tool.
    A plugin stays inside its groups: every kind it names is in one of them, none of them is
-   Kubernetes' own, and what an action creates is one of the plugin's own kinds. A kind is one
-   plugin's, though tools can share a group. An action that asks nothing before it changes
+   Kubernetes' own, and what an action creates is one of the plugin's own kinds. (A kind of
+   Kubernetes' own without a page in Lumovi can be shown, with no actions, if the plugin names
+   it under `shows`.) A kind is one plugin's, though tools can share a group. An action that asks nothing before it changes
    something (no `confirm`, no `inputs`, nothing created) says so: `runs: at-once`.
 3. Run `npm run plugins:check`. It checks every kind, path, template, link, related list and
    action against the CRDs you pinned, so a misremembered field fails here rather than
    showing nothing. Labels and annotations aren't in schemas, so check those against the
    tool's documentation, or a real cluster.
 4. Look at it: put the file in `~/.lumovi/plugins` (or the folder `LUMOVI_PLUGINS_DIR`
-   names) while running `npm run dev` against a cluster with the tool installed. Plugins are
+   names) while running `npm run dev` against a cluster with the tool installed. (A file
+   there with the name of a plugin Lumovi comes with is used in its place.) Plugins are
    read again on refresh (⌘R / Ctrl+R).
 
 To check plugins against a newer release of a tool, change its version in `sources.json`, run

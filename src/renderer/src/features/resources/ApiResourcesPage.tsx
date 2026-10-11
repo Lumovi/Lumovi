@@ -108,7 +108,13 @@ export function ApiResourcesPage() {
               (api.host === 'desktop'
                 ? `, ${plugins.local.length} of yours`
                 : `, ${plugins.local.length} from this server`)}
-            . {api.host === 'desktop' ? 'Yours go in' : 'This server’s are in'}{' '}
+            {/* One in Lumovi's place is named; more are counted, and the column says which. */}
+            {plugins.replacing.length > 1 &&
+              `, ${plugins.replacing.length} of them in place of Lumovi’s`}
+            .{' '}
+            {plugins.replacing.length === 1 &&
+              `${plugins.replacing[0]!.file} is in use in place of Lumovi’s ${plugins.replacing[0]!.label}. `}
+            {api.host === 'desktop' ? 'Yours go in' : 'This server’s are in'}{' '}
             {/* A folder's path has no spaces to wrap at, and is as long as someone made it. */}
             <span className="font-mono break-all text-ink-2 selectable">{plugins.directory}</span>
           </span>

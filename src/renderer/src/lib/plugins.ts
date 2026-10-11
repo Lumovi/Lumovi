@@ -38,6 +38,7 @@ const shipped = new Map<ResourceKind, View>()
 let local = new Map<ResourceKind, View>()
 const shippedPlugins = new Map<string, Plugin>()
 let localPlugins = new Map<string, Plugin>()
+let ownKinds: ResourceKind[] = []
 
 function byKind(views: View[]): Map<ResourceKind, View> {
   return new Map(views.flatMap((view) => view.kinds.map((kind) => [kind, view] as const)))
@@ -56,17 +57,19 @@ export function loadShippedPlugins(
   shippedPlugins.clear()
   const problems: string[] = []
   const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+  ownKinds = []
   for (const [path, text] of Object.entries(own)) {
-    const parsed = parsePlugin(text, fileName(path))
+    const parsed = parsePlugin(text, fileName(path), { ownViews: true })
     for (const view of parsed.plugin?.views ?? []) {
       for (const kind of view.kinds) shipped.set(kind, { ...view, source: 'Lumovi' })
+      ownKinds.push(...view.kinds)
     }
     problems.push(...parsed.problems)
   }
-  // Lumovi's plugins are held inside their groups, and a kind is one plugin's.
+  // A kind is one plugin's, among Lumovi's as among anyone's.
   const read: Plugin[] = []
   for (const [path, text] of Object.entries(files)) {
-    const parsed = parsePlugin(text, fileName(path), { fenced: true })
+    const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds })
     if (parsed.plugin) read.push(parsed.plugin)
     problems.push(...parsed.problems)
   }
@@ -83,6 +86,11 @@ export function loadShippedPlugins(
   return problems
 }
 
+/** The kinds of Kubernetes' own that Lumovi itself shows: no plugin's to show. */
+export function lumovisOwnKinds(): readonly ResourceKind[] {
+  return ownKinds
+}
+
 /** Replaces the user's plugins. */
 export function setLocalPlugins(plugins: Plugin[]): void {
   local = byKind(plugins.flatMap((plugin) => plugin.views))
@@ -95,12 +103,20 @@ export function everyKindOf(kind: ResourceKind): ResourceKind {
 }
 
 /**
- * The view for a kind: the user's if they have one, else Lumovi's; one
- * for the kind itself before one for every kind of its group.
+ * The view for a kind: the user's plugin's if one shows it, else Lumovi's; one for the kind
+ * itself before one for every kind of its group.
  */
 export function viewFor(kind: ResourceKind): View | undefined {
   const every = everyKindOf(kind)
-  return local.get(kind) ?? local.get(every) ?? shipped.get(kind) ?? shipped.get(every)
+  // A plugin of the user's that has one of Lumovi's plugins' name is in its place, all of it:
+  // none of that plugin's views is used, for the kinds theirs doesn't show either.
+  const lumovis = (key: ResourceKind) => {
+    const view = shipped.get(key)
+    return view && shippedPlugins.has(view.plugin) && localPlugins.has(view.plugin)
+      ? undefined
+      : view
+  }
+  return local.get(kind) ?? local.get(every) ?? lumovis(kind) ?? lumovis(every)
 }
 
 /**
@@ -119,16 +135,16 @@ export function includedPlugins(): Plugin[] {
   return [...shippedPlugins.values()]
 }
 
-/** Every plugin with a place in the sidebar: the user's, and Lumovi's that none of theirs replaces. */
+/**
+ * Every plugin with a place in the sidebar: the user's, and Lumovi's that none of theirs is in
+ * the place of (one of theirs with its name is, whether or not theirs has a place itself).
+ */
 export function listedPlugins(): ListedPlugin[] {
   const listed = (plugins: Iterable<Plugin>) =>
     [...plugins].flatMap(({ name, source, place }) => (place ? [{ name, source, ...place }] : []))
-  const mine = listed(localPlugins.values())
   return [
-    ...mine,
-    ...listed(shippedPlugins.values()).filter(
-      (plugin) => !mine.some((own) => own.name === plugin.name),
-    ),
+    ...listed(localPlugins.values()),
+    ...listed([...shippedPlugins.values()].filter((plugin) => !localPlugins.has(plugin.name))),
   ]
 }
 

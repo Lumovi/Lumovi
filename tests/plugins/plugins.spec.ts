@@ -48,11 +48,12 @@ for (const file of readdirSync(CRDS).filter((f) => f.endsWith('.json') && f !== 
 const views: View[] = []
 const plugins: Plugin[] = []
 const parseProblems: string[] = []
-for (const folder of [PLUGINS, OWN]) {
+for (const folder of [OWN, PLUGINS]) {
   for (const file of readdirSync(folder).filter((f) => f.endsWith('.yaml'))) {
-    // Lumovi's plugins are held inside their groups; its own views of Kubernetes' kinds aren't.
+    // Lumovi's own views of Kubernetes' kinds are no plugin, and what they show no plugin may.
     const parsed = parsePlugin(readFileSync(join(folder, file), 'utf8'), file, {
-      fenced: folder === PLUGINS,
+      ownViews: folder === OWN,
+      lumovisOwn: views.flatMap((view) => view.kinds),
     })
     if (parsed.plugin) {
       views.push(...parsed.plugin.views)
@@ -341,4 +342,116 @@ test('a change is held, as it’s sent, to what a plugin may change', () => {
   )
   // And nothing but a patch or a new object is a plugin's action's.
   expect(changeProblem({ action: 'delete' })).toContain('isn’t a patch or a new object')
+})
+
+// The fence, from the outside: however a file spells a kind and its group, either the file is
+// refused, or every kind it comes to (as Lumovi resolves it: the id its views and changes are
+// found by) is a tool's kind in one of the groups the file declares, or one it says it shows.
+test('no spelling of a kind gets a plugin outside its groups', () => {
+  const GROUPS = [
+    '',
+    '/',
+    '.',
+    ' ',
+    'apps',
+    'apps/x',
+    'apps/',
+    '/apps',
+    'APPS',
+    'apps ',
+    'apps.',
+    'batch/',
+    'rbac.authorization.k8s.io/x',
+    'cert-manager.io/x',
+    'cert-manager.io/v1',
+    'example.com/v1',
+    'example.com/',
+    'Example.com',
+    'example..com',
+    'example.com.',
+    '-example.com',
+    'coordination.k8s.io',
+    'v1',
+    'core',
+    'example.com',
+  ]
+  const KINDS = [
+    'Deployment',
+    'Pod',
+    'Job',
+    'Role',
+    'Secret',
+    'Lease',
+    'Widget',
+    'widget',
+    'Deployment.apps',
+    'Certificate.cert-manager.io',
+    '*.cert-manager.io',
+    '*.coordination.k8s.io',
+    'Widget.example.com',
+    'Wid get',
+    'Widget/v1',
+    ' Widget',
+    '*',
+    '',
+  ]
+  const groupOf = (id: string) => (id.includes('.') ? id.slice(id.indexOf('.') + 1) : '')
+  let accepted = 0
+  for (const declared of [['example.com'], ['example.com', 'apps/x'], ['apps/x']]) {
+    for (const group of GROUPS) {
+      for (const kind of KINDS) {
+        for (const where of ['view', 'place', 'shows', 'create'] as const) {
+          const named = `{ group: ${JSON.stringify(group)}, kind: ${JSON.stringify(kind)} }`
+          const text = [
+            'apiVersion: lumovi.dev/v1beta1',
+            'kind: Plugin',
+            'metadata: { name: probe }',
+            'spec:',
+            '  version: 1.0.0',
+            '  needs: { lumovi: 1.0.0 }',
+            `  groups: ${JSON.stringify(declared)}`,
+            ...(where === 'shows' ? [`  shows: [${named}]`] : []),
+            ...(where === 'place' ? ['  label: Probe', `  kinds: [${named}]`] : []),
+            '  views:',
+            `    - kinds: [${where === 'view' || where === 'shows' ? named : '{ group: example.com, kind: Widget }'}]`,
+            ...(where === 'create'
+              ? [
+                  '      actions:',
+                  '        - name: Make',
+                  `          create: { apiVersion: ${JSON.stringify(group ? `${group}/v1` : 'v1')}, kind: ${JSON.stringify(kind)}, metadata: { generateName: x- } }`,
+                ]
+              : where === 'view'
+                ? [
+                    '      actions:',
+                    '        - { name: Poke, confirm: Sure?, patch: { spec: { a: 1 } } }',
+                  ]
+                : []),
+          ].join('\n')
+          const { plugin } = parsePlugin(text, 'probe.yaml', { lumovisOwn: [] })
+          if (!plugin) continue
+          accepted++
+          const said = `${where}: group ${JSON.stringify(group)}, kind ${JSON.stringify(kind)}`
+          for (const id of [
+            ...(plugin.place?.kinds ?? []),
+            ...plugin.views.flatMap((v) => v.kinds),
+          ]) {
+            // One of Kubernetes' own is there only as a kind the plugin says it shows, with no
+            // page of its own; anything else is in a group the file declares.
+            if (isCustomGroup(groupOf(id))) expect(plugin.groups, said).toContain(groupOf(id))
+            else {
+              expect(plugin.shows, said).toContain(id)
+              expect(isBuiltinKind(id), said).toBe(false)
+            }
+          }
+          // And a group it declares is a tool's, written as a group is.
+          for (const declaredGroup of plugin.groups) {
+            expect(declaredGroup, said).toMatch(/^[a-z0-9.-]+$/)
+            expect(isCustomGroup(declaredGroup), said).toBe(true)
+          }
+        }
+      }
+    }
+  }
+  // (The honest spellings among them are accepted, so the loop isn't passing by refusing all.)
+  expect(accepted).toBeGreaterThan(5)
 })

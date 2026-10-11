@@ -27,6 +27,7 @@ metadata:
 spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
+  groups: [example.com]
   views:
     - name: widgets
       kinds:
@@ -115,22 +116,27 @@ spec:
               annotations: { example.com/stamped: '{{ now }}' }
 `
 
-/** Its view of certificates is used before Lumovi's own. */
+/**
+ * Named as one of Lumovi's plugins, it's in that plugin's place, all of it. And it shows a kind
+ * of Kubernetes' own that Lumovi has no page for, which it says it does.
+ */
 const CERTIFICATES = `
 apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
-  name: plain
+  name: cert-manager
 spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
+  groups: [cert-manager.io]
+  shows: [{ kind: Endpoints }]
   views:
     - name: plain-certificates
       kinds:
         - { group: cert-manager.io, kind: Certificate }
       columns:
         - { name: Common name, path: .spec.commonName, default: none }
-    # A kind in the core group: no group to name.
+    # A kind in the core group: no group to name, and nothing but showing it.
     - kinds:
         - { kind: Endpoints }
       columns:
@@ -150,12 +156,12 @@ const NOT_PLUGINS: Record<string, string> = {
   'a-view.yaml':
     'apiVersion: lumovi.dev/v1beta1\nkind: View\nmetadata: { name: alone }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, kinds: [{ group: example.com, kind: Widget }] }\n',
   'two.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: one }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n---\napiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: two }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: one }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n---\napiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: two }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   // It reads as YAML, and only making its object finds that its alias names nothing set before it.
   'forward.yaml':
     'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: *later }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, label: &later Later }\n',
   'nothing.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: nothing }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 } }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: nothing }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, groups: [example.com] }\n',
   'unlabelled.yaml':
     'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: unlabelled }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, kinds: [{ group: example.com, kind: Gadget }] }\n',
   'placeless.yaml':
@@ -170,7 +176,21 @@ const NOT_PLUGINS: Record<string, string> = {
 }
 
 /** Everything that can be wrong with a plugin's views: all of it is said, and none of it is used. */
-/** A plugin of one view of `kind`, of example.com, with whatever else `spec` says. */
+/** The tools' groups a view's text names, with example.com: what a plugin of it declares. */
+const groupsIn = (view: string) =>
+  [
+    ...new Set([
+      'example.com',
+      ...[...view.matchAll(/group: ([\w.-]+)/g)]
+        .map(([, group]) => group!)
+        .filter((group) => !group.endsWith('k8s.io')),
+    ]),
+  ].join(', ')
+
+/**
+ * A plugin of one view of `kind`, of example.com, with whatever else `spec` says; its groups
+ * are the ones its views name, unless `spec` says something of groups itself.
+ */
 const plugin = (name: string, kind: string, spec = '', view = '') => `
 apiVersion: lumovi.dev/v1beta1
 kind: Plugin
@@ -178,7 +198,7 @@ metadata: { name: ${JSON.stringify(name)} }
 spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
-${spec}  views:
+${spec.includes('groups') ? '' : `  groups: [${groupsIn(view)}]\n`}${spec}  views:
     - kinds: [{ group: example.com, kind: ${kind} }]
 ${view}`
 
@@ -190,23 +210,23 @@ const NOT_THE_FORMAT: Record<string, string> = {
   // name's end kept, and the file's own name as plain as what's in it.
   'long-winded.yaml': plugin(`Shouting-${'a'.repeat(60)}-to-the-end`, 'Gadget'),
   'back\u202Ewards.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: fine }\nspec: { version: "1.0\u202E", needs: { lumovi: 1.0.0 }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: fine }\nspec: { version: "1.0\u202E", needs: { lumovi: 1.0.0 }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   'lumovi.yaml': plugin('lumovi', 'Gadget'),
   'lumovi-tools.yaml': plugin('lumovi-tools', 'Gadget'),
   'kubernetes.yaml': plugin('kubernetes', 'Gadget'),
   'unversioned.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: unversioned }\nspec: { views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: unversioned }\nspec: { groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   'two-numbers.yaml':
-    "apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: two-numbers }\nspec: { version: '1.0', needs: { lumovi: '1.22' }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n",
+    "apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: two-numbers }\nspec: { version: '1.0', needs: { lumovi: '1.22' }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n",
   'zeros.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: zeros }\nspec: { version: 01.2.3, needs: { lumovi: 1.0.123456 }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: zeros }\nspec: { version: 01.2.3, needs: { lumovi: 1.0.123456 }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   // (YAML reads this version as the number 1: the line says what was written.)
   'a-number.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: a-number }\nspec: { version: 1.0, needs: { lumovi: 1.0.0 }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: a-number }\nspec: { version: 1.0, needs: { lumovi: 1.0.0 }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   'needy.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: needy }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0, door: 1 }, groups: nope, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: needy }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0, door: 1 }, groups: nope, shows: nope, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   'too-new.yaml':
-    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: too-new }\nspec: { version: 1.0.0, needs: { lumovi: 99.0.0 }, views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: too-new }\nspec: { version: 1.0.0, needs: { lumovi: 99.0.0 }, groups: [example.com], views: [{ kinds: [{ group: example.com, kind: Gadget }] }] }\n',
   // Groups that are nobody's to declare, in a file that isn't held to its groups either.
   'grabby.yaml': plugin(
     'grabby',
@@ -329,6 +349,98 @@ const NOT_THE_FORMAT: Record<string, string> = {
   ),
 }
 
+/**
+ * Kubernetes' own kinds: one that Lumovi has no page for can be shown, and only shown, by a
+ * plugin that says it does; nothing else of Kubernetes' is a plugin's.
+ */
+const KUBERNETES: Record<string, string> = {
+  // (It calls every one of them critical: said in its own list, and counted nowhere.)
+  'limits.yaml': plugin(
+    'limits',
+    'LimitsUnused',
+    '  shows: [{ kind: LimitRange }]\n',
+    `    - kinds: [{ kind: LimitRange }]
+      columns: [{ name: Limits, path: '.spec.limits[*].type' }]
+      status: [{ health: critical, label: Too tight }]
+`,
+  ),
+  'acts.yaml': plugin(
+    'acts',
+    'ActsUnused',
+    '  shows: [{ kind: LimitRange }]\n',
+    `    - kinds: [{ kind: LimitRange }]
+      actions:
+        - name: Loosen
+          confirm: Sure?
+          patch: { spec: { limits: [] } }
+`,
+  ),
+  'unsaid.yaml': plugin('unsaid', 'UnsaidUnused', '', '    - kinds: [{ kind: LimitRange }]\n'),
+  'paged.yaml': plugin(
+    'paged',
+    'PagedUnused',
+    '',
+    '    - kinds: [{ kind: Pod }, { group: apiextensions.k8s.io, kind: CustomResourceDefinition }]\n',
+  ),
+  'shows-wrong.yaml': plugin(
+    'shows-wrong',
+    'ShowsUnused',
+    '  shows: [{ kind: Pod }, { group: example.com, kind: Widget }, { group: apiextensions.k8s.io, kind: CustomResourceDefinition }, { kind: LimitRange }]\n  label: Shows\n  kinds: [{ kind: LimitRange }]\n',
+  ),
+  // A replacement that can't be used itself: Lumovi's stays, and what would have lost to the
+  // replacement is judged without it.
+  'j-keda.yaml': plugin(
+    'keda',
+    'JKedaUnused',
+    '',
+    '    - kinds: [{ group: keda.sh, kind: ScaledObject }, { group: kustomize.toolkit.fluxcd.io, kind: Kustomization }]\n',
+  ),
+  'k-scalers.yaml': plugin(
+    'scalers',
+    'JKedaUnused',
+    '',
+    '    - kinds: [{ group: keda.sh, kind: ScaledObject }]\n',
+  ),
+  // A kind's name is its own: with its group in it and none beside it, it would be taken for a
+  // kind of Kubernetes' and walk out of the plugin's groups.
+  'dotted.yaml': plugin(
+    'dotted',
+    'DottedUnused',
+    "  shows: [{ kind: Certificate.cert-manager.io }, { kind: '*.coordination.k8s.io' }, { kind: pod }, { group: coordination.k8s.io, kind: '*' }]\n  label: Dotted\n  kinds: [{ kind: Deployment.apps }]\n",
+    `    - kinds: [{ kind: Certificate.cert-manager.io }, { group: example.com, kind: '*.example.com' }]
+      actions:
+        - name: Make
+          create: { apiVersion: v1, kind: Widget.example.com, metadata: { generateName: w- } }
+`,
+  ),
+  // Nor does a group's name hide another: it's a group's name and nothing more.
+  'slashed.yaml': plugin(
+    'slashed',
+    'SlashedUnused',
+    "  groups: [example.com, apps/x, APPS, 'apps.']\n  shows: [{ group: batch/, kind: Job }]\n",
+    `    - kinds: [{ group: apps/x, kind: Deployment }, { group: /, kind: Pod }]
+      actions:
+        - name: Make
+          create: { apiVersion: apps/x/v1, kind: Deployment, metadata: { generateName: d- } }
+        - name: Make another
+          create: { apiVersion: Example.com/v1, kind: SlashedUnused, metadata: { generateName: s- } }
+`,
+  ),
+  // What one of Lumovi's plugins shows is that plugin's, under any other name.
+  'my-kustomizations.yaml': plugin(
+    'my-kustomizations',
+    'KustomUnused',
+    '',
+    '    - kinds: [{ group: kustomize.toolkit.fluxcd.io, kind: Kustomization }]\n',
+  ),
+  'my-rules.yaml': plugin(
+    'my-rules',
+    'RulesUnused',
+    '',
+    '    - kinds: [{ group: constraints.gatekeeper.sh, kind: K8sRequiredLabels }]\n',
+  ),
+}
+
 /** Plugins that are fine by themselves, and not beside each other: the first by file name is used. */
 const BESIDE: Record<string, string> = {
   'a-twin.yaml': plugin('twin', 'Twin'),
@@ -438,7 +550,12 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
   writeFileSync(join(plugins, 'widgets.yaml'), WIDGETS)
   writeFileSync(join(plugins, 'certificates.yml'), CERTIFICATES)
   writeFileSync(join(plugins, 'broken.yaml'), BROKEN)
-  for (const [name, text] of Object.entries({ ...NOT_PLUGINS, ...NOT_THE_FORMAT, ...BESIDE })) {
+  for (const [name, text] of Object.entries({
+    ...NOT_PLUGINS,
+    ...NOT_THE_FORMAT,
+    ...KUBERNETES,
+    ...BESIDE,
+  })) {
     writeFileSync(join(plugins, name), text)
   }
   writeFileSync(join(plugins, 'huge.yaml'), `# ${'x'.repeat(300 * 1024)}\n`)
@@ -565,6 +682,43 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'hurried.yaml: spec.views[0].actions[1]: runs at once, so it has to say so: runs: at-once',
     'hurried.yaml: spec.views[0].actions[2].runs: should be one of at-once, not "sometimes"',
     // A name is one plugin's, and so is a kind: the first by file name is used.
+    // Kubernetes' own kinds: shown only, by a plugin that says so, and never one with a page or
+    // one Lumovi itself shows.
+    'acts.yaml: spec.views[1].actions: a view of Kubernetes’ own kind only shows it, so it can’t have actions',
+    'unsaid.yaml: spec.views[1].kinds[0]: LimitRange is Kubernetes’ own: to show it, name it under spec.shows',
+    'paged.yaml: spec.views[1].kinds[0]: Pod has a page of its own, so it can’t be in a plugin',
+    'paged.yaml: spec.views[1].kinds[1]: CustomResourceDefinition.apiextensions.k8s.io is shown by Lumovi itself, so it can’t be in a plugin',
+    'shows-wrong.yaml: spec.shows[0]: Pod has a page of its own, so it can’t be in a plugin',
+    'shows-wrong.yaml: spec.shows[1]: Widget.example.com isn’t Kubernetes’ own: a view names it once example.com is in spec.groups',
+    'shows-wrong.yaml: spec.shows[2]: CustomResourceDefinition.apiextensions.k8s.io is shown by Lumovi itself, so it can’t be in a plugin',
+    'shows-wrong.yaml: spec.shows[3]: LimitRange isn’t shown by any of its views',
+    'shows-wrong.yaml: spec.kinds[0]: LimitRange is Kubernetes’ own, so it can’t be under a plugin’s place in the sidebar',
+    'needy.yaml: spec.shows: should be a list, not a string',
+    'slashed.yaml: spec.groups[1]: "apps/x" should be an API group’s name, like cert-manager.io',
+    'slashed.yaml: spec.groups[2]: "APPS" should be an API group’s name',
+    'slashed.yaml: spec.groups[3]: "apps." should be an API group’s name',
+    'slashed.yaml: spec.shows[0]: "batch/" should be an API group’s name',
+    'slashed.yaml: spec.views[1].kinds[0]: "apps/x" should be an API group’s name',
+    'slashed.yaml: spec.views[1].kinds[1]: "/" should be an API group’s name',
+    'slashed.yaml: spec.views[1].actions[0]: what it creates: "apps/x/v1" should be an API version, like cert-manager.io/v1',
+    'slashed.yaml: spec.views[1].actions[1]: what it creates: "Example.com/v1" should be an API version',
+    'dotted.yaml: spec.kinds[0]: "Deployment.apps" should be a kind’s own name, like Certificate: its group goes under group',
+    'dotted.yaml: spec.shows[0]: "Certificate.cert-manager.io" should be a kind’s own name',
+    'dotted.yaml: spec.shows[1]: "*.coordination.k8s.io" should be a kind’s own name',
+    'dotted.yaml: spec.shows[2]: "pod" should be a kind’s own name',
+    // (Nor every kind of a group of Kubernetes': each is written out.)
+    'dotted.yaml: spec.shows[3]: "*" should be a kind’s own name',
+    'dotted.yaml: spec.views[1].kinds[0]: "Certificate.cert-manager.io" should be a kind’s own name',
+    'dotted.yaml: spec.views[1].kinds[1]: "*.example.com" should be a kind’s own name',
+    'dotted.yaml: spec.views[1].actions[0]: what it creates: "Widget.example.com" should be a kind’s own name',
+    // What one of Lumovi's plugins has can be had one way: under that plugin's name, all of it.
+    'j-keda.yaml: Kustomization.kustomize.toolkit.fluxcd.io is flux’s kind. A plugin of yours named flux takes its place, all of it',
+    'j-keda.yaml: isn’t in use, so Lumovi’s KEDA is shown instead',
+    'k-scalers.yaml: ScaledObject.keda.sh is keda’s kind. A plugin of yours named keda takes its place, all of it',
+    'my-kustomizations.yaml: Kustomization.kustomize.toolkit.fluxcd.io is flux’s kind. A plugin of yours named flux takes its place, all of it',
+    'my-kustomizations.yaml: isn’t in use',
+    'my-rules.yaml: constraints.gatekeeper.sh is all gatekeeper’s. A plugin of yours named gatekeeper takes its place, all of it',
+    'my-rules.yaml: isn’t in use',
     'b-twin.yaml: twin is a-twin.yaml’s name too',
     // (And what follows for it is said once, after why, as a line of its own.)
     'b-twin.yaml: isn’t in use',
@@ -591,9 +745,9 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     await expect(problems).toContainText(problem)
   }
   // (An empty file is nothing, and says nothing. Lumovi's own views of Kubernetes' kinds are
-  // no plugin: its 32 are counted, and the six of these that could be used.)
+  // no plugin: its 32 are counted, and the seven of these that could be used.)
   await expect(problems).toContainText('empty.yaml: holds nothing')
-  await expect(page.getByText('32 plugins from Lumovi, 6 of yours.')).toBeVisible()
+  await expect(page.getByText('32 plugins from Lumovi, 7 of yours.')).toBeVisible()
   // (Where temporary folders are in the home folder, as on Windows, it's shown from ~.)
   await expect(page.getByText(/lumovi-user-\w+[\\/]plugins/)).toBeVisible()
   const custom = page.getByRole('region', { name: 'Custom resources' })
@@ -608,7 +762,34 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
       .filter({ hasText: 'Endpoints' }),
   ).toContainText('certificates.yml')
 
-  // A view in a plugin of one's own is used before Lumovi's.
+  // A kind of Kubernetes' own, shown by the plugin that says it shows it: its columns and its
+  // status in its own list, and no number of Lumovi's own moved by what it calls them.
+  const kubernetes = page.getByRole('region', { name: 'Kubernetes' })
+  await expect(kubernetes.getByRole('row').filter({ hasText: 'LimitRanges' })).toContainText(
+    'limits.yaml',
+  )
+  await kubernetes.getByRole('button', { name: /^LimitRanges\b/ }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('LimitRanges')
+  await expect(page.getByRole('columnheader', { name: 'Limits' })).toBeVisible()
+  await expect(page.getByRole('grid', { name: 'LimitRanges' })).toContainText('Too tight')
+  await sidebar(page).getByRole('link', { name: 'Overview' }).click()
+  await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('3/4')
+  await expect(page.getByRole('region', { name: 'Workloads healthy' })).toContainText('8/12')
+  await expect(page.getByRole('list', { name: 'Needs attention' })).not.toContainText('Too tight')
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
+
+  // A plugin of one's own with the name of one of Lumovi's is in its place, all of it: said
+  // with the count, shown as theirs, and nothing of Lumovi's plugin is used, for the kinds theirs
+  // doesn't show either.
+  await expect(
+    page.getByText('certificates.yml is in use in place of Lumovi’s cert-manager.'),
+  ).toBeVisible()
+  await expect(
+    custom.getByRole('row').filter({ hasText: 'ClusterIssuers' }).getByRole('cell').nth(3),
+  ).toHaveText('—')
+  await expect(sidebar(page).getByRole('link', { name: 'cert-manager', exact: true })).toHaveCount(
+    0,
+  )
   await openKind(page, 'cert-manager.io', 'Certificates')
   await expect(page.getByRole('columnheader', { name: 'Common name' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Hosts' })).toHaveCount(0)
@@ -793,14 +974,17 @@ const WORKSHOP = String.raw`
 apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
-  name: workshop
+  name: cert-manager
 spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
+  groups: [example.com, cert-manager.io]
   views:
     - name: widget-workshop
       kinds:
         - { group: example.com, kind: Widget }
+        # (Not served by the cluster: what making one says.)
+        - { group: example.com, kind: Thing }
       related:
         - name: Storefront
           kind: Pod
@@ -878,8 +1062,11 @@ spec:
             kind: Widget
             metadata: { name: '{{ .metadata.name }}-in-shop', namespace: shop }
             spec: { size: 2 }
-        - name: Give it a namespace
-          create: { apiVersion: v1, kind: Namespace, metadata: { name: '{{ .metadata.name }}-ns' } }
+        - name: Give it an issuer
+          create:
+            apiVersion: cert-manager.io/v1
+            kind: ClusterIssuer
+            metadata: { name: '{{ .metadata.name }}-issuer' }
         - name: Make a thing
           create: { apiVersion: example.com/v1, kind: Thing, metadata: { name: thing } }
     # Cluster-wide issuers, related to pods in every namespace.
@@ -1089,12 +1276,12 @@ test('view actions that ask for values, and ones that create objects', async ({
   expect(
     writes(clusters.demo, 'POST', '/apis/example.com/v1/namespaces/shop/widgets'),
   ).toHaveLength(1)
-  await menuAction(page, 'Widget', CUSTOM.widget, 'Give it a namespace…')
-  await form.getByRole('button', { name: 'Give it a namespace', exact: true }).click()
-  await expect(toasts(page)).toContainText('Give it a namespace: blue-widget')
-  expect(writes(clusters.demo, 'POST', '/api/v1/namespaces').at(-1)!.body).toMatchObject({
-    metadata: { name: 'blue-widget-ns' },
-  })
+  await menuAction(page, 'Widget', CUSTOM.widget, 'Give it an issuer…')
+  await form.getByRole('button', { name: 'Give it an issuer', exact: true }).click()
+  await expect(toasts(page)).toContainText('Give it an issuer: blue-widget')
+  expect(
+    writes(clusters.demo, 'POST', '/apis/cert-manager.io/v1/clusterissuers').at(-1)!.body,
+  ).toMatchObject({ metadata: { name: 'blue-widget-issuer' } })
 
   // A kind the cluster doesn't serve can't be created: the dialog says why.
   await menuAction(page, 'Widget', CUSTOM.widget, 'Make a thing…')
@@ -1113,10 +1300,23 @@ metadata: { name: flux }
 spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
+  groups: [kustomize.toolkit.fluxcd.io]
   label: GitOps
   icon: git-branch
   kinds:
     - { group: kustomize.toolkit.fluxcd.io, kind: Kustomization }
+`,
+    // Another in the place of one of Lumovi's: with more than one, they're counted.
+    'keda.yaml': `
+apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: keda }
+spec:
+  version: 1.0.0
+  needs: { lumovi: 1.0.0 }
+  groups: [keda.sh]
+  views:
+    - kinds: [{ group: keda.sh, kind: ScaledObject }]
 `,
     // One with a place of its own, and a view for every kind of a group.
     'toys.yaml': `
@@ -1126,6 +1326,7 @@ metadata: { name: toys }
 spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
+  groups: [example.com]
   label: Toys
   category: config
   kinds:
@@ -1140,6 +1341,10 @@ spec:
   })
   await openCluster(page)
   const nav = sidebar(page)
+  await nav.getByRole('link', { name: 'API resources' }).click()
+  await expect(
+    page.getByText('32 plugins from Lumovi, 3 of yours, 2 of them in place of Lumovi’s.'),
+  ).toBeVisible()
   await expect(nav.getByRole('link', { name: 'GitOps', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Flux', exact: true })).toHaveCount(0)
   // One that says where it goes sits there, with the custom resources' icon if it has none.
@@ -1172,7 +1377,7 @@ test('Lumovi’s own plugins are held inside their groups, and a kind is one plu
   const files: Record<string, string> = {
     // Whatever a file says, it can't put itself outside the fence.
     'unfenced.yaml': plugin('unfenced', 'Gadget', '  fenced: false\n  groups: [example.com]\n'),
-    'groupless.yaml': plugin('groupless', 'Gadget'),
+    'groupless.yaml': plugin('groupless', 'Gadget').replace(/ {2}groups: .*\n/, ''),
     'outside.yaml': plugin(
       'outside',
       'Gadget',
@@ -1221,11 +1426,11 @@ test('Lumovi’s own plugins are held inside their groups, and a kind is one plu
   const problems = page.getByRole('list', { name: 'Plugin problems' })
   for (const problem of [
     'unfenced.yaml: spec.fenced: isn’t something a plugin has',
-    'groupless.yaml: spec.groups: is required',
+    'groupless.yaml: spec.groups: is required: the API groups its kinds are in, like [example.com]',
     'outside.yaml: spec.kinds[0]: Thing.elsewhere.example.com isn’t in one of its groups: add elsewhere.example.com to spec.groups',
     'outside.yaml: spec.views[0].kinds[0]: Gadget.example.com isn’t in one of its groups: add example.com to spec.groups',
-    'outside.yaml: spec.views[1].kinds[0]: Lease.coordination.k8s.io is Kubernetes’ own, so it can’t be in a plugin',
-    'outside.yaml: spec.views[1].kinds[1]: Endpoints is Kubernetes’ own, so it can’t be in a plugin',
+    'outside.yaml: spec.views[1].kinds[0]: Lease.coordination.k8s.io is Kubernetes’ own: to show it, name it under spec.shows',
+    'outside.yaml: spec.views[1].kinds[1]: Endpoints is Kubernetes’ own: to show it, name it under spec.shows',
     'maker.yaml: spec.views[0].actions[1].create: makes a Gizmo.example.com, which isn’t one of this plugin’s kinds',
     'maker.yaml: spec.views[0].actions[2].create: makes a Job, which isn’t one of this plugin’s kinds',
     'maker.yaml: spec.views[0].actions[3].create: makes a Pod, which isn’t one of this plugin’s kinds',
