@@ -109,10 +109,14 @@ async function stopped(
   }
   if (INSTRUMENTED) {
     // Ended outright (Windows), its coverage is asked for first.
-    await new Promise<void>((saved) => {
-      child.once('message', () => saved())
-      child.send('lumovi:coverage')
-    })
+    // (One that ends by itself meanwhile has kept its own, and doesn't answer.)
+    await Promise.race([
+      new Promise<void>((saved) => {
+        child.once('message', () => saved())
+        child.send('lumovi:coverage', () => undefined)
+      }),
+      exited,
+    ])
   }
   child.kill('SIGTERM')
   await exited

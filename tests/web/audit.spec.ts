@@ -1912,11 +1912,13 @@ for (const volume of [
       appendFileSync(dayFile(dir), wrote === 'an event' ? line : line.slice(0, 40))
       const taken = readFileSync(dayFile(dir), 'utf8')
       rmSync(lock, { recursive: true })
-      await act()
+      // (Whichever looks first finds it: this change as it's recorded, or a renewal a moment
+      // before it, and then the change itself is refused.)
+      await act().catch(() => undefined)
       await expect
         .poll(() => served.log())
-        .toContain(
-          'The audit history can’t be kept: Another Lumovi took this audit history over: it found this one’s hold on it not renewed.',
+        .toMatch(
+          /The audit history can’t be (kept|looked after): Another Lumovi took this audit history over: it found this one’s hold on it not renewed\./,
         )
       // For good, so it stops: saying why as its last line, and as a failure. Nothing more is
       // written as it does, and it doesn't put its lock back.
@@ -2004,30 +2006,43 @@ for (const volume of [
         } as never),
       )
     await act()
-    const kept = linesOf(dayFile(dir)).length
-    expect(kept).toBeGreaterThan(0)
-    // Another takes the history over: as it would if this one had stopped for longer than its
-    // hold lasts (its node cut off from the volume, say), and then went on.
-    const taker = { id: 'another', pid: 4321, host: 'lumovi-7d9f-2', at: Date.now() + 60_000 }
-    writeFileSync(lock, JSON.stringify(taker))
+    expect(linesOf(dayFile(dir)).length).toBeGreaterThan(0)
     const told = audited(served).length
     const deletes = () =>
       clusters.demo.requests.filter(
         (request) => request.method === 'DELETE' && request.path.endsWith('/configmaps/never-made'),
       ).length
-    const asked = deletes()
-    // The change that finds the history lost was made: it was asked before anyone could know.
-    // From that moment the server takes no more work, so one sent the moment the first has
-    // answered is never made: nothing is done that the history can't hold.
-    await act()
+    // Another takes the history over: as it would if this one had stopped for longer than its
+    // hold lasts (its node cut off from the volume, say), and then went on.
+    const taker = { id: 'another', pid: 4321, host: 'lumovi-7d9f-2', at: Date.now() + 60_000 }
+    let kept = 0
+    let asked = 0
+    let made = 0
+    await expect(async () => {
+      kept = linesOf(dayFile(dir)).length
+      asked = deletes()
+      writeFileSync(lock, JSON.stringify(taker))
+      // Whichever looks first finds the history lost. This change, as it's recorded: it was
+      // made, asked before anyone could know. Or a renewal a moment before it: then the server
+      // already takes no more work, and the change is refused.
+      await act().catch(() => undefined)
+      made = deletes()
+      // (A renewal under way as the other's lock is written can still land over it, which a
+      // real one, coming only once renewals have stopped, doesn't meet. Then the history is
+      // this one's still, the change went into it, and it's taken over again.)
+      expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
+    }).toPass()
+    expect(made - asked).toBeLessThanOrEqual(1)
+    // From that moment nothing more is done that the history can't hold: a change sent right
+    // behind is never made.
     const second = await act().catch((error: Error) => error)
-    expect(deletes()).toBe(asked + 1)
+    expect(deletes()).toBe(made)
     expect(JSON.stringify(second ?? String(second))).not.toContain('"ok":true')
     // It's recorded as ever (on its output, to a webhook), and not written into the history.
     await expect.poll(() => audited(served).length).toBeGreaterThan(told)
     expect(linesOf(dayFile(dir))).toHaveLength(kept)
-    expect(served.log()).toContain(
-      'The audit history can’t be kept: Another Lumovi (process 4321 on lumovi-7d9f-2) took this audit history over: it found this one’s hold on it not renewed. Two can’t keep one history: start this one again, and it waits its turn.',
+    expect(served.log()).toMatch(
+      /The audit history can’t be (kept|looked after): Another Lumovi \(process 4321 on lumovi-7d9f-2\) took this audit history over: it found this one’s hold on it not renewed\. Two can’t keep one history: start this one again, and it waits its turn\./,
     )
     // And it stops, as a failure, its last line saying why and who has the history now: a
     // server that went on would do what people ask with none of it in the history they read.
@@ -2046,8 +2061,8 @@ for (const volume of [
         'Lumovi stops: nothing done through it could be recorded in its audit history any more. Another Lumovi (process 4321 on lumovi-7d9f-2) took this audit history over',
       ),
     })
-    // And no more was asked of the cluster after the one change.
-    expect(deletes()).toBe(asked + 1)
+    // And no more was asked of the cluster since.
+    expect(deletes()).toBe(made)
     await served.stop()
   })
 }
