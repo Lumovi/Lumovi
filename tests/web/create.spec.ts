@@ -3,6 +3,7 @@
  */
 import { chromium, firefox, webkit } from '@playwright/test'
 import { DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
+import { expectFingerSized, expectNoSidewaysScroll, PHONE, signInNarrow } from './phone.ts'
 
 test('Create has its form, served', async ({ page, serve }) => {
   const served = await serve()
@@ -17,6 +18,63 @@ test('Create has its form, served', async ({ page, serve }) => {
   await expect(dialog.getByRole('group', { name: 'Templates' })).toBeVisible()
   await expect(dialog.getByRole('radio', { name: 'YAML' })).toBeChecked()
   await served.stop()
+})
+
+test.describe('under a finger', () => {
+  test.use({ viewport: { width: 768, height: 1024 }, hasTouch: true })
+
+  test('on a tablet each kind’s form is a finger’s size, and nothing goes sideways', async ({
+    page,
+    serve,
+  }) => {
+    const served = await serve()
+    await signInNarrow(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
+    await page.getByRole('button', { name: 'Create…', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    const form = dialog.getByRole('group', { name: 'Form', exact: true })
+    await expect(form).toBeVisible()
+    // Each kind, with what it grows when asked: a variable, storage, a port, a label, a key.
+    const more: Record<string, string[]> = {
+      Deployment: ['Add a variable'],
+      StatefulSet: ['Add storage'],
+      Service: ['Add a label', 'Add a port'],
+      ConfigMap: ['Add a key'],
+      Secret: ['Add a key'],
+    }
+    for (const kind of [
+      'Deployment',
+      'StatefulSet',
+      'DaemonSet',
+      'Job',
+      'CronJob',
+      'Service',
+      'ConfigMap',
+      'Secret',
+      'PersistentVolumeClaim',
+    ]) {
+      await dialog.getByRole('radio', { name: kind, exact: true }).click()
+      await expect(dialog.getByRole('radio', { name: kind, exact: true })).toBeChecked()
+      for (const add of more[kind] ?? []) await form.getByRole('button', { name: add }).click()
+      await expectNoSidewaysScroll(page, `${kind}’s form on a tablet`)
+      await expectFingerSized(page, `${kind}’s form on a tablet`)
+    }
+    // YAML's side too.
+    await dialog.getByRole('radio', { name: 'YAML', exact: true }).click()
+    await expect(dialog.getByRole('group', { name: 'Templates' })).toBeVisible()
+    await expectNoSidewaysScroll(page, 'Create’s YAML on a tablet')
+    await expectFingerSized(page, 'Create’s YAML on a tablet')
+    await served.stop()
+  })
+
+  test('on a phone there’s no Create: nothing is written there', async ({ page, serve }) => {
+    await page.setViewportSize(PHONE)
+    const served = await serve()
+    await signInNarrow(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
+    await expect(page.getByRole('button', { name: 'Create…', exact: true })).toHaveCount(0)
+    await page.keyboard.press('ControlOrMeta+n')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await served.stop()
+  })
 })
 
 // A server's page is opened in whatever browser its person has: what's typed for a Secret's
