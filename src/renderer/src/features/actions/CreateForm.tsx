@@ -538,6 +538,12 @@ function Labelled({
   children: (ids: { label: string; describedBy: string }) => ReactNode
 }) {
   const id = useId()
+  // What's wrong with the field being typed in is the thing to read: where it appears or
+  // changes at the pane's bottom edge, the pane moves just enough to clear the fade there.
+  const said = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (on && error) said.current?.scrollIntoView({ block: 'nearest' })
+  }, [on, error])
   return (
     <div className="min-w-0">
       {/* A path too long to sit beside its label is under it, whole. */}
@@ -562,7 +568,12 @@ function Labelled({
       {children({ label: `${id}-label`, describedBy: `${id}-path ${id}-said` })}
       <div id={`${id}-said`}>
         {error && (
-          <p role="alert" className="mt-1.5 text-xs leading-[17px] text-critical-text selectable">
+          <p
+            ref={said}
+            role="alert"
+            // (The fade is 28 px high; 16 px of room under the sentence.)
+            className="mt-1.5 scroll-mb-11 text-xs leading-[17px] text-critical-text selectable"
+          >
             {error}
           </p>
         )}

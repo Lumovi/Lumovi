@@ -703,6 +703,48 @@ test('what’s begun and left is said or dropped; one pod is one pod; what the Y
   )
 })
 
+test('what’s written in the YAML that a field can’t hold is said under that field', async ({
+  page,
+}) => {
+  await open(page, 'Service')
+  await field(page, 'Name').fill('web')
+  await add(page, 'Add a label').click()
+  await page.keyboard.type('app')
+  await field(page, 'app’s value').fill('web')
+  await field(page, 'Port 1').fill('80')
+  const fitted = await yaml(page)
+  const said = (words: string) => form(page).getByRole('alert').filter({ hasText: words })
+  // A protocol that isn't one; a port's name that can't be; a label's value that isn't text;
+  // a namespace that can't be a name.
+  await type(page, fitted.replace('protocol: TCP', 'protocol: HTTP'))
+  await expect(said('HTTP isn’t one of TCP, UDP and SCTP.')).toBeVisible()
+  await type(page, fitted.replace('    - port: 80\n', '    - port: 80\n      name: My Port\n'))
+  await expect(
+    said('My Port can’t be a port’s name: lowercase letters, digits and “-”.'),
+  ).toBeVisible()
+  await type(page, fitted.replace('    app: web\n', '    app: true\n'))
+  await expect(
+    said('app is a boolean in the YAML, and a label’s value is text: put it in quotes.'),
+  ).toBeVisible()
+  await type(page, fitted.replace('  namespace: shop\n', '  namespace: My Shop\n'))
+  await expect(said('A namespace’s name: lowercase letters, digits and “-”.')).toBeVisible()
+  await expect(create(page)).toBeDisabled()
+  // With no ports written at all, the form still has a place to begin one.
+  await type(page, fitted.replace(/ {2}ports:\n( {4,}.*\n)+/, ''))
+  await add(page, 'Add a port').click()
+  await page.keyboard.type('8080')
+  expect(await yaml(page)).toContain('  ports:\n    - port: 8080\n')
+
+  // A ConfigMap's key that is nothing.
+  await dialog(page).getByRole('radio', { name: 'ConfigMap', exact: true }).click()
+  await field(page, 'Name').fill('settings')
+  const blank = await yaml(page)
+  await type(page, blank.replace('\ndata:\n', '\ndata:\n  "": nothing\n'))
+  await expect(
+    said('An empty key can’t be a key: letters, digits, “-”, “_” and “.”.'),
+  ).toBeVisible()
+})
+
 test('each of these kinds, new, asks for what it must have; and what a name may be', async ({
   page,
 }) => {
@@ -905,6 +947,22 @@ data:
   const other = `kind: ConfigMap\nmetadata:\n  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: '{"data":{"a":"b"}}'\ndata:\n  a: b\n`
   expect(await hidden(other)).toBe(other)
 
+  // The annotation with nothing in it has nothing to hide; a merge of things that are no
+  // Secret's (a list of them, one written in place) is still a Secret that can be hidden.
+  expect(
+    await hidden(
+      'kind: Secret\nmetadata:\n  annotations:\n    kubectl.kubernetes.io/last-applied-configuration:\nstringData:\n  a: S3CR3T\n',
+    ),
+  ).not.toContain('S3CR3T')
+  expect(
+    await hidden(
+      'a: &a {x: 1}\nkind: Secret\nmetadata:\n  labels:\n    <<: [*a, {y: 2}]\nstringData:\n  k: S3CR3T\n',
+    ),
+  ).not.toContain('S3CR3T')
+  // (A key that's an alias, in what isn't a Secret, is that kind's own business too.)
+  const keyed = 'k: &k x\nkind: ConfigMap\n*k : y\ndata:\n  a: b\n'
+  expect(await hidden(keyed)).toBe(keyed)
+
   // A Secret written inside a Secret is one too, wherever in it.
   const nested = await hidden(
     'kind: Secret\nstringData:\n  a: OUTER\nitems:\n  - kind: Secret\n    stringData:\n      b: INNER\n',
@@ -920,6 +978,7 @@ data:
     'x: &a {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}\nkind: Secret\nmetadata:\n  annotations: *a\nstringData: {a: b}\n',
     'x: &m {annotations: {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}}\nkind: Secret\nmetadata: *m\nstringData: {a: b}\n',
     'x: &a {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}\nkind: Secret\nmetadata:\n  annotations:\n    <<: *a\nstringData: {a: b}\n',
+    'x: &v S3CR3T\nkind: Secret\nmetadata:\n  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: *v\nstringData: {a: b}\n',
   ]) {
     await type(page, elsewhere)
     await expect(hide, elsewhere).toBeDisabled()

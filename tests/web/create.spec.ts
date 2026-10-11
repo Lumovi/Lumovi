@@ -64,6 +64,26 @@ test.describe('under a finger', () => {
         `${kind}: the YAML’s state, whole`,
       ).toBe(true)
     }
+    // What's wrong with the field being typed in is clear of the fade at the form's bottom
+    // edge (28 px), with room under it: it's the thing to read.
+    await dialog.getByRole('radio', { name: 'StatefulSet', exact: true }).click()
+    await form.getByRole('button', { name: 'Add storage' }).click()
+    await form.getByRole('textbox', { name: 'Mounted at', exact: true }).fill('')
+    const wrong = form.getByRole('alert')
+    await expect(wrong).toHaveText(
+      'Where it’s mounted is still to say: a path in the container, like /data.',
+    )
+    await expect
+      .poll(() =>
+        wrong.evaluate((said) => {
+          let pane = said.parentElement
+          while (pane && !/auto|scroll/.test(getComputedStyle(pane).overflowY)) {
+            pane = pane.parentElement
+          }
+          return pane!.getBoundingClientRect().bottom - said.getBoundingClientRect().bottom
+        }),
+      )
+      .toBeGreaterThanOrEqual(40)
     // YAML's side too.
     await dialog.getByRole('radio', { name: 'YAML', exact: true }).click()
     await expect(dialog.getByRole('group', { name: 'Templates' })).toBeVisible()
