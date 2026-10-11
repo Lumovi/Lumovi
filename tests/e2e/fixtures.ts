@@ -294,8 +294,9 @@ async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]
       ),
     ).catch((error: Error) => error.message)
     lines.push(`app ${i}: main answered in ${mainMs}ms ${window}; page ${state}`)
-    // Its terminals: what each pty gave the main process, what the page was handed of it, and
-    // how much of it is drawn. (Where a terminal's output stopped, if it did.)
+    // Its terminals: what each pty gave the main process, what the page was handed of it (and
+    // how it began), how much of it is drawn, and what the page sent back. (Where a terminal's
+    // output stopped, if it did; and whether its shell asked something and was answered.)
     const ptys = await within(
       app.evaluate(() =>
         JSON.stringify((globalThis as { __ptys?: unknown }).__ptys ?? 'not counted'),
@@ -311,7 +312,14 @@ async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]
         }),
       ),
     ).catch((error: Error) => error.message)
-    lines.push(`app ${i} terminals: ptys ${ptys}; page ${heard}`)
+    const sent = await within(
+      app.evaluate(() =>
+        JSON.stringify(
+          (globalThis as { __terminalSent?: unknown }).__terminalSent ?? 'not counted',
+        ),
+      ),
+    ).catch((error: Error) => error.message)
+    lines.push(`app ${i} terminals: ptys ${ptys}; page ${heard}; sent back ${sent}`)
   }
   for (const [i, { app }] of launched.entries()) {
     const metrics = await within(
