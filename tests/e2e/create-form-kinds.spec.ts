@@ -440,7 +440,7 @@ stringData:
       .replace('API_KEY: 6d2a57e41a4b1f0c', 'API_KEY: *v'),
   )
   await expect(hide).toBeDisabled()
-  await expect(hide).toHaveAttribute('title', /a value comes through an alias or a merge key/)
+  await expect(hide).toHaveAccessibleDescription(/a value comes through an alias or a merge key/)
   // A comment among the values is where an old one is left: its words are hidden with them.
   await type(page, whole.replace('  API_KEY:', '  # API_KEY: 0ld-v4lue\n  API_KEY:'))
   await expect(hide).toBeEnabled()
@@ -615,6 +615,94 @@ spec:
   })
 })
 
+test('what’s begun and left is said or dropped; one pod is one pod; what the YAML says is shown', async ({
+  page,
+  clusters,
+}) => {
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Pod',
+    metadata: { name: 'the-only-one', namespace: 'shop', labels: { only: 'one' } },
+    spec: { containers: [{ name: 'c', image: 'registry.example/c:1' }] },
+  })
+  await open(page, 'Service')
+  await field(page, 'Name').fill('web')
+  // One pod matches, and it's said as one.
+  await add(page, 'Add a label').click()
+  await page.keyboard.type('only')
+  await field(page, 'only’s value').fill('one')
+  await expect(form(page)).toContainText('1 pod in shop matches now.')
+  // A label begun with a key that's there already stays begun, and says so; removed, it's gone.
+  await add(page, 'Add a label').click()
+  await field(page, 'A new label').fill('only')
+  await field(page, 'A new label').blur()
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'only is there already, and a label is there once.',
+  )
+  await form(page).getByRole('button', { name: 'Remove the new label' }).click()
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
+  // A label's key emptied isn't a label: remove it, or give it one.
+  await field(page, 'Label 1').fill('')
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'A label needs a key: remove it with ×, or give it one.',
+  )
+  expect(await yaml(page)).toContain('    only: one\n')
+  // Left as it can't be, it's the key it was.
+  await field(page, 'Label 1').blur()
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
+  await expect(field(page, 'Label 1')).toHaveValue('only')
+  // A port begun and left empty is nothing yet, and is dropped by its ×.
+  await field(page, 'Port 1').fill('80')
+  await add(page, 'Add a port').click()
+  await expect(field(page, 'A new port')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(field(page, 'A new port')).toHaveValue('')
+  expect(await yaml(page)).not.toContain('- port: \n')
+  await form(page).getByRole('button', { name: 'Remove the new port' }).click()
+  await expect(field(page, 'A new port')).toHaveCount(0)
+  // Among its types only the arrows choose: another key is no choice.
+  const types = form(page).getByRole('radiogroup', { name: 'Type' })
+  await types.getByRole('radio', { name: 'ClusterIP' }).focus()
+  await page.keyboard.press('a')
+  await expect(types.getByRole('radio', { name: 'ClusterIP' })).toBeChecked()
+
+  // A ConfigMap's key, likewise: begun as one that's there, emptied, dropped.
+  await dialog(page).getByRole('radio', { name: 'ConfigMap', exact: true }).click()
+  await add(page, 'Add a key').click()
+  await page.keyboard.type('LOG_LEVEL')
+  await add(page, 'Add a key').click()
+  await field(page, 'A new key').fill('LOG_LEVEL')
+  await field(page, 'A new key').blur()
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'LOG_LEVEL is there already, and a key is there once.',
+  )
+  await form(page).getByRole('button', { name: 'Remove the new key' }).click()
+  await expect(form(page).getByRole('alert')).toHaveCount(0)
+  await field(page, 'Key 1').fill('')
+  await expect(form(page).getByRole('alert')).toHaveText(
+    'A key needs a name: remove it with ×, or give it one.',
+  )
+  await field(page, 'Key 1').blur()
+  await expect(field(page, 'Key 1')).toHaveValue('LOG_LEVEL')
+
+  // A claim whose YAML names a class the cluster hasn't, and a way to mount the form doesn't
+  // offer: each is shown as what it says, in its own field.
+  await dialog(page).getByRole('radio', { name: 'PersistentVolumeClaim', exact: true }).click()
+  await field(page, 'Name').fill('uploads')
+  await field(page, 'Size').fill('5')
+  const fitted = await yaml(page)
+  await type(
+    page,
+    fitted
+      .replace('    - ReadWriteOnce\n', '    - ReadWriteSometimes\n')
+      .replace('spec:\n', 'spec:\n  storageClassName: gone-class\n'),
+  )
+  await expect(choice(page, 'Storage class').locator('option:checked')).toHaveText('gone-class')
+  await expect(choice(page, 'Who can mount it').locator('option:checked')).toHaveText(
+    'ReadWriteSometimes',
+  )
+})
+
 test('each of these kinds, new, asks for what it must have; and what a name may be', async ({
   page,
 }) => {
@@ -750,9 +838,86 @@ items:
   ]) {
     await type(page, elsewhere)
     await expect(hide, elsewhere).toBeDisabled()
-    await expect(hide, elsewhere).toHaveAttribute(
-      'title',
-      'Its values can’t be told from the rest as it’s written: it isn’t YAML as it stands, or a value comes through an alias or a merge key.',
-    )
+    // Why, in words on the page (a finger has no hover), and the button's own description.
+    const why =
+      'Its values can’t be told from the rest as it’s written, so they can’t be hidden: it isn’t YAML as it stands, or a value comes through an alias or a merge key.'
+    await expect(dialog(page).getByText(why), elsewhere).toBeVisible()
+    await expect(hide, elsewhere).toHaveAccessibleDescription(why)
+  }
+  // Read again as YAML whose values can be told, the reason is gone and it can be hidden.
+  await type(page, 'kind: Secret\nstringData:\n  a: S3CR3T\n')
+  await expect(hide).toBeEnabled()
+  await expect(dialog(page).getByText('so they can’t be hidden')).toHaveCount(0)
+})
+
+test('a Secret copied out of a cluster, and one written inside another, are hidden whole', async ({
+  page,
+}) => {
+  await open(page, 'Secret')
+  const show = dialog(page).getByRole('button', { name: 'Show values' })
+  const hide = dialog(page).getByRole('button', { name: 'Hide values' })
+  const hidden = async (text: string) => {
+    await show.click()
+    await type(page, text)
+    await expect(hide).toBeEnabled()
+    await hide.click()
+    await expect(show).toBeVisible()
+    return yaml(page)
+  }
+  // As `kubectl get secret -o yaml` prints one that was applied: an annotation holds the
+  // whole Secret again, its values with it. Hidden, that goes too.
+  const applied = `apiVersion: v1
+kind: Secret
+metadata:
+  name: api
+  annotations:
+    team: checkout
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Secret","metadata":{"name":"api"},"stringData":{"token":"S3CR3T"}}
+data:
+  token: UzNDUjNU
+`
+  const shown = await hidden(applied)
+  expect(shown).toBe(`apiVersion: v1
+kind: Secret
+metadata:
+  name: api
+  annotations:
+    team: checkout
+    kubectl.kubernetes.io/last-applied-configuration: ${HIDDEN}
+data:
+  token: ${HIDDEN}
+`)
+  expect(shown).not.toContain('S3CR3T')
+  expect(shown).not.toContain('UzNDUjNU')
+  // Written on one line, quoted, it goes as well.
+  expect(
+    await hidden(
+      `kind: Secret\nmetadata:\n  annotations: {kubectl.kubernetes.io/last-applied-configuration: '{"stringData":{"a":"S3CR3T"}}'}\nstringData: {a: S3CR3T}\n`,
+    ),
+  ).not.toContain('S3CR3T')
+  // In anything that isn't a Secret the annotation is that kind's own business.
+  const other = `kind: ConfigMap\nmetadata:\n  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: '{"data":{"a":"b"}}'\ndata:\n  a: b\n`
+  expect(await hidden(other)).toBe(other)
+
+  // A Secret written inside a Secret is one too, wherever in it.
+  const nested = await hidden(
+    'kind: Secret\nstringData:\n  a: OUTER\nitems:\n  - kind: Secret\n    stringData:\n      b: INNER\n',
+  )
+  expect(nested).not.toContain('OUTER')
+  expect(nested).not.toContain('INNER')
+  expect(nested).toContain(`      b: ${HIDDEN}`)
+
+  // Annotations written elsewhere and brought in can't be read here for that annotation:
+  // such a Secret can't be hidden, and says so.
+  await show.click()
+  for (const elsewhere of [
+    'x: &a {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}\nkind: Secret\nmetadata:\n  annotations: *a\nstringData: {a: b}\n',
+    'x: &m {annotations: {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}}\nkind: Secret\nmetadata: *m\nstringData: {a: b}\n',
+    'x: &a {kubectl.kubernetes.io/last-applied-configuration: S3CR3T}\nkind: Secret\nmetadata:\n  annotations:\n    <<: *a\nstringData: {a: b}\n',
+  ]) {
+    await type(page, elsewhere)
+    await expect(hide, elsewhere).toBeDisabled()
+    await expect(dialog(page).getByText('so they can’t be hidden'), elsewhere).toBeVisible()
   }
 })
