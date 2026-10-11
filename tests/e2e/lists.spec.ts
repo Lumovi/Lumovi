@@ -368,7 +368,7 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
     await expect(field).toBeFocused()
     // (From the button's own edge rightwards: never over the sidebar. Asked until it's so: the
     // field has the focus as soon as the popover is there, a moment before it's put by its
-    // button, and it grows into its place.)
+    // button. Then, grown to its size, it's measured at rest.)
     const edges = async () => {
       const [at, box] = [await button.boundingBox(), await popover.boundingBox()]
       return at && box
@@ -376,7 +376,12 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
         : { left: NaN, right: NaN }
     }
     await expect.poll(async () => (await edges()).left).toBeGreaterThanOrEqual(-1)
-    await expect.poll(async () => (await edges()).right).toBeLessThanOrEqual(1024)
+    await popover.evaluate((element) =>
+      Promise.all(element.getAnimations().map((animation) => animation.finished)),
+    )
+    const rested = await edges()
+    expect(rested.left).toBeGreaterThanOrEqual(-1)
+    expect(rested.right).toBeLessThanOrEqual(1024)
     // Escape closes it without applying, and the button has the focus again.
     await field.fill('app=nothing')
     await page.keyboard.press('Escape')
