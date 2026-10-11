@@ -1568,6 +1568,8 @@ function comments(text: string): [number, number][] {
  * Secret's kind or its values come through an alias or a merge key, so that a value is
  * written somewhere else in the text.
  */
+const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
+
 function secrets(text: string): [number, number][] | undefined {
   let documents
   try {
@@ -1587,7 +1589,10 @@ function secrets(text: string): [number, number][] | undefined {
     map.items.some((pair) => isScalar(pair.key) && pair.key.value === '<<')
   for (const document of documents) {
     if (document.errors.length > 0) return undefined
+    // What's already taken whole (a Secret's `data`, its `stringData`): not looked into again.
+    const taken = new Set<unknown>()
     visit(document, {
+      Pair: (_key, pair) => (taken.has(pair) ? visit.SKIP : undefined),
       Map(_key, map) {
         const kind = map.get('kind', true) as unknown
         // A kind that's said elsewhere, or a map that takes a Secret's keys from elsewhere,
@@ -1617,9 +1622,31 @@ function secrets(text: string): [number, number][] | undefined {
           }
         }
         if (!isScalar(kind) || kind.value !== 'Secret') return undefined
+        // What `kubectl apply` leaves on an object is the whole object again, values and all:
+        // a Secret copied out of a cluster has it. Its value goes whole; and where its
+        // annotations are written elsewhere, there's no telling whether it has one.
+        const metadata = map.get('metadata', true) as unknown
+        const annotations = isMap(metadata) ? (metadata.get('annotations', true) as unknown) : null
+        if (isAlias(metadata) || isAlias(annotations)) apart = false
+        for (const around of [metadata, annotations]) {
+          if (isMap(around) && (merges(around) || around.items.some((p) => isAlias(p.key)))) {
+            apart = false
+          }
+        }
+        if (isMap(annotations)) {
+          for (const pair of annotations.items) {
+            if (!isScalar(pair.key) || pair.key.value !== LAST_APPLIED) continue
+            const node = pair.value as unknown
+            if (aliased(node)) apart = false
+            const range = (node as { range?: [number, number, number] } | null)?.range
+            if (range) values.push([range[0], Math.max(range[0], range[1])])
+            taken.add(pair)
+          }
+        }
         map.items.forEach((pair, index) => {
           const held = isScalar(pair.key) ? pair.key.value : undefined
           if (held !== 'data' && held !== 'stringData') return
+          taken.add(pair)
           const under = pair.value as unknown
           if (aliased(under) || (isMap(under) && merges(under))) apart = false
           // The block: from its key to the next key of the Secret's, comments and all.
@@ -1636,7 +1663,8 @@ function secrets(text: string): [number, number][] | undefined {
             values.push([range[0], Math.max(range[0], range[1])])
           }
         })
-        return visit.SKIP
+        // (On into the rest of it: a Secret written inside this one is one too.)
+        return undefined
       },
     })
   }
