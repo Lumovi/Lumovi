@@ -1,10 +1,15 @@
 # Longhorn (https://longhorn.io): replicated volumes, their snapshots and backups, and the
 # nodes and disks they're on.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: longhorn
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - longhorn.io
   label: Longhorn
   icon: database
   category: storage

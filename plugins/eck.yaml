@@ -1,11 +1,22 @@
 # Elastic Cloud on Kubernetes (https://www.elastic.co/guide/en/cloud-on-k8s/current):
 # Elasticsearch, Kibana and the rest of the Elastic Stack. Each reports its health as
 # green, yellow or red.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: eck
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - elasticsearch.k8s.elastic.co
+    - kibana.k8s.elastic.co
+    - agent.k8s.elastic.co
+    - beat.k8s.elastic.co
+    - apm.k8s.elastic.co
+    - logstash.k8s.elastic.co
+    - maps.k8s.elastic.co
   label: Elastic
   icon: database
   kinds:

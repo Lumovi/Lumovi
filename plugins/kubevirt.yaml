@@ -1,10 +1,16 @@
 # KubeVirt (https://kubevirt.io): virtual machines, their running instances and migrations,
 # and the disks CDI imports for them.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: kubevirt
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - kubevirt.io
+    - cdi.kubevirt.io
   label: KubeVirt
   icon: server
   kinds:
@@ -53,6 +59,7 @@ spec:
           labels: { vm.kubevirt.io/name: '{{ .metadata.name }}' }
       actions:
         - name: Start
+          runs: at-once
           icon: play
           primary: true
           when: { path: .status.printableStatus, equals: Stopped }

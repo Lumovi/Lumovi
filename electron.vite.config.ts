@@ -51,6 +51,8 @@ export default defineConfig({
     resolve: {
       alias: { ...alias, '@renderer': resolve('src/renderer/src') },
     },
+    // The tests' stand-in for plugins that came inside the build (hooks/plugins.ts).
+    define: { LUMOVI_TEST_BUILD: JSON.stringify(withCoverage) },
     plugins: [
       react(),
       tailwindcss(),

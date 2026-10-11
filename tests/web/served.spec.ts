@@ -319,10 +319,12 @@ test('plugins this server has, and where its metrics come from', async ({ page, 
   writeFileSync(
     join(served.helmDir, 'plugins', 'team.yaml'),
     [
-      'apiVersion: lumovi.dev/v1alpha1',
+      'apiVersion: lumovi.dev/v1beta1',
       'kind: Plugin',
       'metadata: { name: team }',
       'spec:',
+      '  version: 1.0.0',
+      '  needs: { lumovi: 1.0.0 }',
       '  views:',
       '    - kinds: [{ group: cert-manager.io, kind: Certificate }]',
       '      columns: [{ name: Issuer, path: .spec.issuerRef.name }]',
@@ -369,7 +371,7 @@ test('a plugins folder with a long path, on a phone: wrapped inside the screen',
   const long = 'the-widgets-of-the-platform-team-as-we-like-to-see-them.yaml'
   writeFileSync(
     join(folder, long),
-    'apiVersion: lumovi.dev/v1alpha1\nkind: Plugin\nmetadata: { name: widgets }\nspec: { views: [{ kinds: [{ group: example.com, kind: Widget }] }] }\n',
+    'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: widgets }\nspec: { version: 1.0.0, needs: { lumovi: 1.0.0 }, views: [{ kinds: [{ group: example.com, kind: Widget }] }] }\n',
   )
   const served = await serve({ env: { LUMOVI_PLUGINS_DIR: folder } })
   await page.setViewportSize(PHONE)

@@ -218,7 +218,7 @@ helm:
 # Plugins everyone sees, by file name: see https://docs.lumovi.dev/server/plugins.
 #   plugins:
 #     team.yaml: |
-#       apiVersion: lumovi.dev/v1alpha1
+#       apiVersion: lumovi.dev/v1beta1
 #       kind: Plugin
 #       ...
 plugins: {}

@@ -1,9 +1,14 @@
 # Cilium (https://cilium.io): network policies, endpoints and nodes of the cluster's network.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: cilium
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - cilium.io
   label: Cilium
   icon: hexagon
   category: network

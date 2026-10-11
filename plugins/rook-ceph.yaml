@@ -1,9 +1,15 @@
 # Rook (https://rook.io): Ceph clusters, and the pools, filesystems and object stores on them.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: rook-ceph
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - ceph.rook.io
+    - objectbucket.io
   label: Rook Ceph
   icon: layers
   category: storage

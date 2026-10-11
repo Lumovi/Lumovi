@@ -1,10 +1,16 @@
 # Cluster API (https://cluster-api.sigs.k8s.io): the clusters this one manages, and their machines.
 # Status rules read both API versions: v1beta2 says Available where v1beta1 says Ready.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: cluster-api
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - cluster.x-k8s.io
+    - controlplane.cluster.x-k8s.io
   label: Cluster API
   icon: boxes
   kinds:
@@ -78,6 +84,7 @@ spec:
           undo: { spec: { paused: false } }
           done: Paused {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.paused, equals: true }
           patch: { spec: { paused: false } }

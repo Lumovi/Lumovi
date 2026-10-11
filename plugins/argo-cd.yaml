@@ -1,9 +1,14 @@
 # Argo CD (https://argo-cd.readthedocs.io).
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: argo-cd
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - argoproj.io
   label: Argo CD
   icon: git-branch
   kinds:
@@ -58,6 +63,7 @@ spec:
           objectName: '{{ .spec.destination.namespace }}'
       actions:
         - name: Sync
+          runs: at-once
           icon: refresh-cw
           primary: true
           # Argo CD starts an operation it finds on the application; none may be running already.
@@ -68,6 +74,7 @@ spec:
               sync: { syncStrategy: { hook: {} } }
           done: Started syncing {{ .metadata.name }}
         - name: Refresh
+          runs: at-once
           icon: radar
           patch:
             metadata:

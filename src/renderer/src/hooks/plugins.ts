@@ -5,8 +5,10 @@ import {
   everyKindOf,
   includedPlugins,
   listedPlugins,
+  clashes,
   loadShippedPlugins,
   parsePlugin,
+  plain,
   setLocalPlugins,
   type ListedPlugin,
   type Plugin,
@@ -15,14 +17,20 @@ import { useResources } from './resources'
 
 // The plugins Lumovi comes with, bundled with the app; and its own views for Kubernetes'
 // kinds that have no page, which are written as a plugin's are and aren't one.
-const SHIPPED_PROBLEMS = loadShippedPlugins(
-  import.meta.glob<string>('../../../../plugins/*.yaml', {
-    query: '?raw',
-    import: 'default',
-    eager: true,
-  }),
-  import.meta.glob<string>('../views/*.yaml', { query: '?raw', import: 'default', eager: true }),
-)
+const SHIPPED = import.meta.glob<string>('../../../../plugins/*.yaml', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
+const OWN = import.meta.glob<string>('../views/*.yaml', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
+let shippedProblems = loadShippedPlugins(SHIPPED, OWN)
+
+/** Set by the build: true only in the build the tests run. */
+declare const LUMOVI_TEST_BUILD: boolean
 
 /** A line of what's wrong with the plugins: a problem, or what follows from a file's problems. */
 export interface PluginProblem {
@@ -30,6 +38,12 @@ export interface PluginProblem {
   /** Nothing to fix by itself, so it isn't counted among the problems. */
   consequence?: true
 }
+
+/** What follows for a file that's fine by itself and can't be used beside another: said once, after why. */
+const unused = (file: string): PluginProblem => ({
+  text: `${file}: isn’t in use`,
+  consequence: true,
+})
 
 /**
  * The plugins in use: Lumovi's and the user's own, read again on refresh (⌘R) so edits to
@@ -39,7 +53,14 @@ export function usePlugins() {
   return useQuery({
     queryKey: ['plugins'],
     queryFn: async () => {
-      const { directory, files } = await api.app.plugins()
+      const [plugins, { version: lumovi }] = await Promise.all([api.app.plugins(), api.app.info()])
+      const { directory, files } = plugins
+      // (A release build has none of this: Lumovi's own are the ones built into it, and
+      // nothing that's read while it runs is ever taken for one.)
+      if (LUMOVI_TEST_BUILD && plugins.included) {
+        const standIns = plugins.included.map((file) => [file.name, file.text] as const)
+        shippedProblems = loadShippedPlugins({ ...SHIPPED, ...Object.fromEntries(standIns) }, OWN)
+      }
       const included = includedPlugins()
       const parsed = files.map((file) => {
         if (file.error)
@@ -47,7 +68,7 @@ export function usePlugins() {
         // Whatever a file holds, it's that file's problem and never the others'.
         let read: ReturnType<typeof parsePlugin>
         try {
-          read = parsePlugin(file.text, file.name)
+          read = parsePlugin(file.text, file.name, { lumovi })
         } catch (error) {
           const text = `${file.name}: It couldn’t be read: ${(error as Error).message}`
           return { plugin: undefined, problems: [{ text }] }
@@ -64,15 +85,43 @@ export function usePlugins() {
         }
         return { plugin: read.plugin, problems }
       })
-      const local = parsed.flatMap((p): Plugin[] => (p.plugin ? [p.plugin] : []))
+      // A name is one plugin's: of two files with one name the first is used, and the second
+      // says whose name it is.
+      const named = new Map<string, string>()
+      const unique: Plugin[] = []
+      for (const { plugin, problems } of parsed) {
+        if (!plugin) continue
+        const first = named.get(plugin.name)
+        if (first === undefined) {
+          named.set(plugin.name, plugin.source)
+          unique.push(plugin)
+        } else {
+          problems.push(
+            { text: `${plugin.source}: ${plugin.name} is ${first}’s name too` },
+            unused(plugin.source),
+          )
+        }
+      }
+      // And a kind is one plugin's: of two of theirs that show one kind, the first is used.
+      // (How a file of theirs meets one of Lumovi's is as it was: theirs is used for its kinds.)
+      const lost = clashes(unique)
+      const local = unique.filter((plugin) => !lost.has(plugin))
+      for (const { plugin, problems } of parsed) {
+        if (plugin && lost.has(plugin)) {
+          problems.push({ text: `${plugin.source}: ${lost.get(plugin)}` }, unused(plugin.source))
+        }
+      }
       setLocalPlugins(local)
       return {
         directory,
         local,
         included,
         problems: [
-          ...SHIPPED_PROBLEMS.map((text): PluginProblem => ({ text })),
-          ...parsed.flatMap((p) => p.problems),
+          ...shippedProblems.map((text): PluginProblem => ({ text })),
+          // (A file's name is the file's to choose, like what's in it: shown plainly too.)
+          ...parsed
+            .flatMap((p) => p.problems)
+            .map((problem) => ({ ...problem, text: plain(problem.text) })),
         ],
       }
     },

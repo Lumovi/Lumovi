@@ -689,6 +689,8 @@ export interface LocalPlugins {
   directory: string
   /** Each file's text, or why it wasn't read. */
   files: { name: string; text: string; error?: string }[]
+  /** Only ever from the build the tests run: files for it to take as plugins that came inside it. */
+  included?: { name: string; text: string; error?: string }[]
 }
 
 export interface ClusterVersion {

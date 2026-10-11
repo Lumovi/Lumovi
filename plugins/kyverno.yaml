@@ -1,9 +1,16 @@
 # Kyverno (https://kyverno.io): policies, and what they found in the cluster's resources.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: kyverno
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - wgpolicyk8s.io
+    - kyverno.io
+    - policies.kyverno.io
   label: Kyverno
   icon: shield-check
   kinds:

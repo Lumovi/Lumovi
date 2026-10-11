@@ -1,11 +1,16 @@
 # VictoriaMetrics operator (https://docs.victoriametrics.com/operator): VictoriaMetrics and
 # VictoriaLogs, what they scrape, and their alerting rules. The operator reports on all of
 # them in status.updateStatus.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: victoriametrics-operator
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - operator.victoriametrics.com
   label: VictoriaMetrics
   icon: activity
   kinds:

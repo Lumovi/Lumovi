@@ -8,6 +8,9 @@ import { open, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { LocalPlugins } from '@shared/api'
 
+/** Set by the build: true only in the build the tests run. */
+declare const LUMOVI_TEST_BUILD: boolean
+
 const MAX_FILES = 200
 const MAX_BYTES = 256 * 1024
 
@@ -20,20 +23,26 @@ export function pluginsDirectory(
   return { path, shown: path.startsWith(home + sep) ? join('~', relative(home, path)) : path }
 }
 
-export async function readPlugins({
-  path,
-  shown,
-}: {
-  path: string
-  shown: string
-}): Promise<LocalPlugins> {
-  const directory = shown
+export async function readPlugins(
+  { path, shown }: { path: string; shown: string },
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<LocalPlugins> {
+  const own = { directory: shown, files: await filesIn(path) }
+  // (A release build ends here: what follows, and the variable it reads, are left out of it.)
+  if (!LUMOVI_TEST_BUILD) return own
+  // The tests' stand-in for plugins that came inside the build: Lumovi's own are only ever the
+  // ones built in, so a bad one can't be shown to the app any other way.
+  const included = env.LUMOVI_TEST_INCLUDED_PLUGINS_DIR
+  return included ? { ...own, included: await filesIn(included) } : own
+}
+
+async function filesIn(path: string): Promise<LocalPlugins['files']> {
   let entries: Dirent[]
   try {
     entries = await readdir(path, { withFileTypes: true })
   } catch {
     // No folder: no plugins of one's own.
-    return { directory, files: [] }
+    return []
   }
   const names = entries
     // Links too: a ConfigMap mounted as a volume (as the Helm chart's plugins are) is links into
@@ -42,7 +51,7 @@ export async function readPlugins({
     .map((entry) => entry.name)
     .sort()
     .slice(0, MAX_FILES)
-  const files = await Promise.all(
+  return Promise.all(
     names.map(async (name) => {
       try {
         // Checked and read through one open file, so it can't be swapped in between.
@@ -62,5 +71,4 @@ export async function readPlugins({
       }
     }),
   )
-  return { directory, files }
 }

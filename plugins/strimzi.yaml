@@ -1,9 +1,14 @@
 # Strimzi (https://strimzi.io): Kafka clusters, their topics and users, and Kafka Connect.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: strimzi
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - kafka.strimzi.io
   label: Strimzi
   icon: waves
   kinds:
@@ -176,11 +181,13 @@ spec:
           objectName: "{{ .metadata.labels['strimzi.io/cluster'] }}"
       actions:
         - name: Pause
+          runs: at-once
           when: { path: .spec.state, notEquals: paused }
           patch: { spec: { state: paused } }
           undo: { spec: { state: running } }
           done: Paused {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.state, in: [paused, stopped] }
           patch: { spec: { state: running } }
@@ -229,6 +236,7 @@ spec:
               annotations: { strimzi.io/rebalance: approve }
           done: Approved {{ .metadata.name }}
         - name: Refresh
+          runs: at-once
           icon: refresh-cw
           patch:
             metadata:

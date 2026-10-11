@@ -1,10 +1,15 @@
 # Volume snapshots (https://kubernetes.io/docs/concepts/storage/volume-snapshots): point-in-time
 # copies of volumes, taken by CSI drivers.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: volume-snapshots
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - snapshot.storage.k8s.io
   label: Volume Snapshots
   icon: camera
   category: storage
