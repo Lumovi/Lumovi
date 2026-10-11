@@ -13,6 +13,12 @@ import { HostedFleet } from './fleet/fleet'
 import { log } from './log'
 
 const SIGN_IN = { token: 'a token', oidc: 'single sign-on', proxy: 'the proxy in front of it' }
+/**
+ * How long a server that stops by itself has to close (its pages told, what's kept kept, the
+ * node shells' pods deleted: twelve seconds at the most when all of it has to wait) before it's
+ * ended anyway.
+ */
+const STOPS_WITHIN_MS = 20_000
 /** The server's last line when it stops for having lost its audit history; why follows it. */
 const STOPS_WITHOUT_ITS_HISTORY =
   'Lumovi stops: nothing done through it could be recorded in its audit history any more.'
@@ -42,9 +48,17 @@ try {
   // started again it waits its turn for the history, or says who holds it.
   let running: RunningServer | undefined
   const stopped = (why: string) => {
-    log(`${STOPS_WITHOUT_ITS_HISTORY} ${why}`)
-    // As for SIGTERM (people's pages are told, what's kept is kept), then as a failure.
-    void (running?.close() ?? Promise.resolve()).finally(() => process.exit(1))
+    const said = `${STOPS_WITHOUT_ITS_HISTORY} ${why}`
+    log(said)
+    // Gone within a time of its own, whatever closing is doing: nothing outside ends a server
+    // that stops by itself (as whatever runs it does after a SIGTERM), and one half shut,
+    // serving nobody and recording nothing, is what this is for ending.
+    setTimeout(() => process.exit(1), STOPS_WITHIN_MS)
+    // On the loop's next turn: the write that found the history lost returns its refusal
+    // first. Then as for SIGTERM (people's pages are told, what's kept is kept), as a failure.
+    setImmediate(() => {
+      void (running?.close(said) ?? Promise.resolve()).finally(() => process.exit(1))
+    })
   }
   const server = (running = await startServer({
     config,
