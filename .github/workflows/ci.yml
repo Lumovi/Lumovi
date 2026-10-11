@@ -589,7 +589,7 @@ jobs:
     needs: [changes, checks]
     if: needs.changes.outputs.docs != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -600,12 +600,17 @@ jobs:
       - name: Install the three browsers
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run build
-      - name: Run what's drawn differently by engine
+      # (The tests' build: the piece of the page that opens a plugin's box is in no other.)
+      - run: npm run build:coverage
+      - name: Run what differs by engine
         env:
           # Here, a browser that isn't installed or doesn't start fails its test.
           LUMOVI_E2E_BROWSERS: all
-        run: npx playwright test --project=web tests/web/create.spec.ts --grep "typed while hidden"
+        # What's drawn differently, and a plugin's sealed box, which each engine seals itself.
+        run: >-
+          npx playwright test --project=web
+          tests/web/create.spec.ts tests/web/plugin-box.spec.ts
+          --grep "typed while hidden|a plugin’s box in"
 
   # One check for the main branch's ruleset to require: whether every job above passed (theirs
   # are many, and change with the matrix).

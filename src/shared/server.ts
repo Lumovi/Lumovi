@@ -62,6 +62,12 @@ export const PATHS = {
   signIn: 'auth/sign-in',
   callback: 'auth/callback',
   health: 'healthz',
+  /**
+   * A plugin's sealed box, as a server has it: its document and its script, at one place for
+   * every plugin (a browser, not Lumovi, decides which process a frame is in).
+   */
+  box: 'plugin-box/box.html',
+  boxScript: 'plugin-box/box.js',
 } as const
 
 /** The WebSocket close code that means the session ended; its reason says how. */

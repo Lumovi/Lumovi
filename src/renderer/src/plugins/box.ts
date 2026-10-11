@@ -9,6 +9,8 @@
  * a release build has none of this.
  */
 import { BOX_LIMITS, boxAddress, workerText, type BoxNotice } from '@shared/plugin-box'
+import { PATHS } from '@shared/server'
+import { api } from '@renderer/lib/api'
 
 /**
  * Why a box's worker is no more: the plugin's own failure, or Lumovi ending it. `said` is the
@@ -19,6 +21,11 @@ export type BoxEnd =
   | { why: 'failed'; said: string }
   | { why: 'over'; over: 'messages' | 'text' | 'not-text' }
   | { why: 'silent' }
+  /**
+   * Its box never came: the browser wouldn't show it (a server reached at another address than
+   * the one it's told is its own, say), or it couldn't be fetched.
+   */
+  | { why: 'no-box' }
 
 export interface Box {
   /** Sends the worker something of Lumovi's. */
@@ -42,7 +49,11 @@ export interface BoxOptions {
 
 /** Opens a plugin's box and starts its worker. */
 export function openBox({ plugin, code, heard, ended, into = document.body }: BoxOptions): Box {
-  const { document: address } = boxAddress(plugin)
+  // On the desktop a box has an address of its plugin's own, so a process of its own. A server
+  // has one address for every plugin's box: which process a frame is in is the browser's to
+  // say there, and the box itself is all that keeps plugins apart.
+  const { document: own } = boxAddress(plugin)
+  const address = api.host === 'server' ? new URL(PATHS.box, document.baseURI).href : own
   const frame = document.createElement('iframe')
   frame.hidden = true
   frame.setAttribute('sandbox', 'allow-scripts')
@@ -56,6 +67,7 @@ export function openBox({ plugin, code, heard, ended, into = document.body }: Bo
     if (over) return
     over = true
     clearInterval(pings)
+    clearTimeout(waiting)
     removeEventListener('message', ready)
     channel.port1.close()
     frame.remove()
@@ -101,11 +113,14 @@ export function openBox({ plugin, code, heard, ended, into = document.body }: Bo
     if (event.source !== frame.contentWindow || event.origin !== 'null') return
     if ((event.data as { box?: unknown } | null)?.box !== 'ready') return
     removeEventListener('message', ready)
+    clearTimeout(waiting)
     frame.contentWindow!.postMessage({ text: workerText(code) }, '*', [channel.port2])
     pings = setInterval(ping, BOX_LIMITS.pingEveryMs)
   }
   addEventListener('message', ready)
   into.append(frame)
+  // A box that never says it's there is never waited for longer than this.
+  const waiting = setTimeout(() => end({ why: 'no-box' }), BOX_LIMITS.readyWithinMs)
   return { post: (message) => channel.port1.postMessage(message), close }
 }
 
