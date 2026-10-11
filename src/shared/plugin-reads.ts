@@ -463,7 +463,11 @@ export function picked(
     isCustomGroup(kind.group) ? mayBePicked(steps, groups) : readable(kind, steps, groups)
   const root: Named = { whole: false, under: new Map() }
   for (const { steps } of fields) {
-    if (!may(steps)) continue
+    if (!may(steps)) {
+      // (A path a file names and the door won't pick is held back too, and counted.)
+      held.fields++
+      continue
+    }
     let at = root
     for (const { key } of steps) {
       let next = at.under.get(key)
