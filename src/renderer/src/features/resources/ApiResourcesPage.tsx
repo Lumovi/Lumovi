@@ -11,7 +11,7 @@ import { useGo } from '@renderer/hooks/go'
 import { useResources } from '@renderer/hooks/resources'
 import { usePlugins } from '@renderer/hooks/plugins'
 import { api, type KubeApiError } from '@renderer/lib/api'
-import { kindPath } from '@renderer/lib/routes'
+import { kindPath, pluginsPath } from '@renderer/lib/routes'
 import { shownBy, viewFor } from '@renderer/lib/plugins'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
@@ -20,6 +20,8 @@ const PLUGINS_GUIDE = `${DOCS_URL}/custom-resources/write-a-plugin`
 
 /** Every kind the cluster serves, like `kubectl api-resources`, and the plugins that show them. */
 export function ApiResourcesPage() {
+  const { context } = useCluster()
+  const go = useGo()
   const resources = useResources()
   const plugins = usePlugins().data
   const [filter, setFilter] = useState('')
@@ -78,25 +80,24 @@ export function ApiResourcesPage() {
           autoFocus
         />
       </div>
-      {plugins && plugins.problems.length > 0 && (
-        <div
+      {plugins && problemCount! > 0 && (
+        // What's wrong with each is said once, on the page that lists them.
+        <p
           role="alert"
-          className="shrink-0 border-b border-line bg-warn/8 px-5 py-3 text-[13px] text-ink-2"
+          className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-warn/8 px-5 py-2.5 text-[13px] font-medium text-warn-text"
         >
-          <p className="flex items-center gap-2 font-medium text-warn-text">
-            <TriangleAlert className="size-4" />
-            {problemCount === 1
-              ? 'A plugin couldn’t be used'
-              : `${problemCount} problems with plugins`}
-          </p>
-          <ul aria-label="Plugin problems" className="mt-1.5 space-y-0.5 pl-6 font-mono text-xs">
-            {plugins.problems.map((problem) => (
-              <li key={problem.text} className={problem.consequence ? 'text-ink-3' : undefined}>
-                {problem.text}
-              </li>
-            ))}
-          </ul>
-        </div>
+          <TriangleAlert className="size-4" />
+          {problemCount === 1
+            ? 'A plugin couldn’t be used.'
+            : `${problemCount} problems with plugins.`}
+          <button
+            type="button"
+            onClick={() => go(pluginsPath(context))}
+            className="font-medium underline underline-offset-2 hover:text-ink-1"
+          >
+            See Plugins
+          </button>
+        </p>
       )}
       {body}
       {plugins && (
@@ -108,13 +109,7 @@ export function ApiResourcesPage() {
               (api.host === 'desktop'
                 ? `, ${plugins.local.length} of yours`
                 : `, ${plugins.local.length} from this server`)}
-            {/* One in Lumovi's place is named; more are counted, and the column says which. */}
-            {plugins.replacing.length > 1 &&
-              `, ${plugins.replacing.length} of them in place of Lumovi’s`}
-            .{' '}
-            {plugins.replacing.length === 1 &&
-              `${plugins.replacing[0]!.file} is in use in place of Lumovi’s ${plugins.replacing[0]!.label}. `}
-            {api.host === 'desktop' ? 'Yours go in' : 'This server’s are in'}{' '}
+            . {api.host === 'desktop' ? 'Yours go in' : 'This server’s are in'}{' '}
             {/* A folder's path has no spaces to wrap at, and is as long as someone made it. */}
             <span className="font-mono break-all text-ink-2 selectable">{plugins.directory}</span>
           </span>

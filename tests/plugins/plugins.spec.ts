@@ -20,6 +20,7 @@ import {
   type Plugin,
   type View,
 } from '../../src/shared/plugins.ts'
+import { asks } from '../../src/shared/plugin-asks.ts'
 import { mayCarryCode, settle, type PluginFile } from '../../src/shared/plugin-loading.ts'
 import type { Crd, Shape } from '../../scripts/crds.ts'
 
@@ -776,6 +777,112 @@ test('whatever a folder holds: what’s in use doesn’t clash, and what isn’t
         settled.lumovis.filter(({ name }) => name !== entry.plugin!.name),
       )
       expect(again.has(entry.plugin), `${entry.file} in ${said}`).toBe(true)
+    }
+  }
+})
+
+// ——— What a plugin asks for ———
+
+test('what a plugin asks for is read from its file: its kinds, what it reads, each action and what it sends', () => {
+  const flux = asks(plugins.find((plugin) => plugin.name === 'flux')!)
+  expect(flux.kinds).toHaveLength(7)
+  expect(flux.kinds).toContain('Kustomization.kustomize.toolkit.fluxcd.io')
+  expect(flux.groups).toEqual([
+    'kustomize.toolkit.fluxcd.io',
+    'helm.toolkit.fluxcd.io',
+    'source.toolkit.fluxcd.io',
+  ])
+  expect(flux.creates).toEqual([])
+  // The same action on each of its views is one action, on all their kinds.
+  expect(flux.actions.map(({ name }) => name)).toEqual(['Reconcile', 'Suspend', 'Resume'])
+  expect(flux.actions.every(({ kinds }) => kinds.length === 7)).toBe(true)
+  expect(flux.shows).toEqual([])
+  // Every one of its actions says which it is, and what it sends as it's written: what's filled
+  // in later is said as what it is, and what a merge patch removes as removed.
+  const reconcile = flux.actions.find(({ name }) => name === 'Reconcile')!
+  expect(reconcile.runs).toBe('at-once')
+  expect(reconcile.patch).toBe(
+    'metadata:\n  annotations:\n    reconcile.fluxcd.io/requestedAt: (now)',
+  )
+  const resume = flux.actions.find(({ name }) => name === 'Resume')!
+  expect(resume.patch).toContain('suspend: (removed)')
+  // What takes an action back is sent too, later, and is shown with it; and a patch of an
+  // object's status says that it is one.
+  const suspend = flux.actions.find(({ name }) => name === 'Suspend')!
+  expect(suspend.patch).toBe('spec:\n  suspend: true')
+  expect(suspend.undo).toBe('spec:\n  suspend: (removed)')
+  const rollouts = asks(plugins.find((plugin) => plugin.name === 'argo-rollouts')!)
+  expect(rollouts.actions.filter(({ status }) => status).map(({ name }) => name)).toEqual([
+    'Promote',
+    'Abort',
+  ])
+  expect(flux.actions.every(({ status }) => status === undefined)).toBe(true)
+  // One that asks, creates, and takes a choice.
+  const tekton = asks(plugins.find((plugin) => plugin.name === 'tekton')!)
+  expect(tekton.creates).toEqual(['PipelineRun.tekton.dev'])
+  const run = tekton.actions.find(({ creates }) => creates !== undefined)!
+  expect(run.runs).toBe('asks')
+  expect(run.creates).toContain('kind: PipelineRun')
+  expect(run.creates).toContain('(from the object)')
+  // What it lists beside an object, and links to: the kinds its file names.
+  const cnpg = asks(plugins.find((plugin) => plugin.name === 'cloudnative-pg')!)
+  expect(cnpg.related.kinds).toContain('Pod')
+  const certs = asks(plugins.find((plugin) => plugin.name === 'cert-manager')!)
+  expect(certs.links.kinds).toContain('Secret')
+  expect(certs.links.templated).toBe(true)
+  // A null takes a field away in a merge patch, and is a null anywhere else.
+  const [made] = parsePlugin(
+    [
+      'apiVersion: lumovi.dev/v1beta1',
+      'kind: Plugin',
+      'metadata: { name: nulls }',
+      'spec:',
+      '  version: 1.0.0',
+      '  needs: { lumovi: 1.0.0 }',
+      '  groups: [example.com]',
+      '  views:',
+      '    - kinds: [{ group: example.com, kind: Widget }]',
+      '      actions:',
+      '        - name: Harmless',
+      '          runs: at-once',
+      '          patch: { metadata: { labels: { seen: yes, when: "(now)", then: "{{ now }}", mix: "(removed) {{ .spec.x }}", near: "( Now )" } } }',
+      '          undo: { spec: { replicas: 0, image: other, note: null } }',
+      '        - name: Set',
+      '          confirm: Sure?',
+      '          type: json',
+      '          patch: [{ op: add, path: /spec/note, value: null }]',
+      '        - name: Make',
+      '          create: { apiVersion: example.com/v1, kind: Widget, metadata: { generateName: w- }, spec: { note: null } }',
+    ].join('\n'),
+    'nulls.yaml',
+  ).plugin!.views.map((view) => view)
+  const nulls = asks({
+    ...plugins[0]!,
+    views: [made!],
+    place: undefined,
+    groups: ['example.com'],
+    shows: [],
+  })
+  // A text of the file's own that reads as what Lumovi says of something filled in is quoted:
+  // only the real one stands bare.
+  expect(nulls.actions[0]!.patch).toContain('when: "(now)"')
+  expect(nulls.actions[0]!.patch).toContain('then: (now)')
+  expect(nulls.actions[0]!.patch).toContain('mix: "(removed) (from the object)"')
+  // (Any parenthesis of the file's own, so a near miss can't pass for one either.)
+  expect(nulls.actions[0]!.patch).toContain('near: "( Now )"')
+  expect(nulls.actions[0]!.undo).toBe('spec:\n  replicas: 0\n  image: other\n  note: (removed)')
+  expect(nulls.actions[1]!.patch).toContain('value: null')
+  expect(nulls.actions[1]!.json).toBe(true)
+  expect(nulls.actions[0]!.json).toBeUndefined()
+  expect(nulls.actions[2]!.creates).toContain('note: null')
+  // And for every one of Lumovi's: an action is one or the other, and sends something.
+  for (const plugin of plugins) {
+    for (const action of asks(plugin).actions) {
+      expect(['at-once', 'asks'], `${plugin.name}: ${action.name}`).toContain(action.runs)
+      expect(action.patch ?? action.creates, `${plugin.name}: ${action.name}`).toBeTruthy()
+      expect(`${action.patch}${action.creates}`, `${plugin.name}: ${action.name}`).not.toContain(
+        '{{',
+      )
     }
   }
 })

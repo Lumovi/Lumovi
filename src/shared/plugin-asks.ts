@@ -1,0 +1,147 @@
+/**
+ * What a plugin asks for, read from its file: what it may change and create, what it reads, and
+ * each of its actions with what it sends. For a page that says it in Lumovi's words: nothing here
+ * is the plugin's own account of itself.
+ */
+import { Scalar, stringify } from 'yaml'
+import type { Plugin, View, ViewAction } from './plugins'
+import { isCustomGroup, type ResourceKind } from './resources'
+
+/** An action, as a person is told of it. */
+export interface AskedAction {
+  name: string
+  /** Whether its button sends at once, or a dialog shows what it would send first. */
+  runs: 'at-once' | 'asks'
+  /** The kinds its view is for: where its button is. */
+  kinds: ResourceKind[]
+  /** The patch as it's written (YAML), with what's filled in later shown as what it is. */
+  patch?: string
+  /** The object it creates, likewise. */
+  creates?: string
+  /** The patch that takes it back, which is sent too, later, when Undo is pressed. */
+  undo?: string
+  /** It patches the object's status, which is another thing to be allowed than the object. */
+  status?: true
+  /** Its patch is a list of JSON patch operations, not a merge. */
+  json?: true
+}
+
+export interface Asks {
+  /** The tools' kinds it shows: what its actions may change. */
+  kinds: ResourceKind[]
+  /** The API groups it names, which those are all in. */
+  groups: string[]
+  /** The kinds its actions create: each one of `kinds`. */
+  creates: ResourceKind[]
+  /** Kinds of Kubernetes' own that it shows and can't change. */
+  shows: ResourceKind[]
+  /** The kinds its related lists list beside an object; `templated` when one is named by the object. */
+  related: { kinds: string[]; templated: boolean }
+  /** The kinds it links to by name. */
+  links: { kinds: string[]; templated: boolean }
+  actions: AskedAction[]
+}
+
+const groupOf = (kind: ResourceKind) =>
+  kind.includes('.') ? kind.slice(kind.indexOf('.') + 1) : ''
+const unique = <T>(items: T[]) => [...new Set(items)]
+
+/** What Lumovi's own markers are written in: a text of the file's own that has one is quoted. */
+const MARKER = /[()]/
+
+/** What's filled in later, as what it is: the time, a choice of the person's, a field of the object. */
+function filled(text: string): string {
+  return text.replace(/\{\{\s*(.*?)\s*\}\}/g, (_, expression: string) =>
+    expression === 'now'
+      ? '(now)'
+      : expression.startsWith('input.')
+        ? '(what you choose)'
+        : '(from the object)',
+  )
+}
+
+/**
+ * A patch or an object as YAML, with placeholders said as what they are. In a merge patch a null
+ * takes the field away, and is said so; anywhere else a null is a null.
+ */
+function written(body: unknown, merge = false): string {
+  const said = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      // (A text of the file's own that reads as one of these is quoted, whole: only what Lumovi
+      // puts there for something filled in later stands bare.)
+      const own = value.replace(/\{\{.*?\}\}/g, '')
+      if (!MARKER.test(own)) return filled(value)
+      const quoted = new Scalar(filled(value))
+      quoted.type = Scalar.QUOTE_DOUBLE
+      return quoted
+    }
+    if (value === null) return merge ? '(removed)' : null
+    if (Array.isArray(value)) return value.map(said)
+    if (typeof value !== 'object') return value
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, said(item)]))
+  }
+  return stringify(said(body), { lineWidth: 0 }).trimEnd()
+}
+
+/** The kinds a list of templates names: the ones written out, and whether any is filled in. */
+function named(kinds: string[]): { kinds: string[]; templated: boolean } {
+  return {
+    kinds: unique(kinds.filter((kind) => !kind.includes('{{'))),
+    templated: kinds.some((kind) => kind.includes('{{')),
+  }
+}
+
+function asked(view: View, action: ViewAction): AskedAction {
+  const merge = action.type === 'merge'
+  return {
+    name: action.name,
+    runs: action.runs === 'at-once' ? 'at-once' : 'asks',
+    kinds: view.kinds,
+    ...(action.patch !== undefined ? { patch: written(action.patch, merge) } : {}),
+    ...(action.create !== undefined ? { creates: written(action.create) } : {}),
+    ...(action.undo !== undefined ? { undo: written(action.undo, merge) } : {}),
+    ...(action.subresource === 'status' ? { status: true } : {}),
+    ...(action.type === 'json' && action.patch !== undefined ? { json: true } : {}),
+  }
+}
+
+/** The same action on several of a plugin's views is one action, on all their kinds. */
+function folded(actions: AskedAction[]): AskedAction[] {
+  const byWhatItIs = new Map<string, AskedAction>()
+  for (const action of actions) {
+    const { kinds, ...rest } = action
+    const key = JSON.stringify(rest)
+    const same = byWhatItIs.get(key)
+    if (same) same.kinds = unique([...same.kinds, ...kinds])
+    else byWhatItIs.set(key, { ...action, kinds: [...kinds] })
+  }
+  return [...byWhatItIs.values()]
+}
+
+export function asks(plugin: Plugin): Asks {
+  const all = unique([
+    ...(plugin.place?.kinds ?? []),
+    ...plugin.views.flatMap((view) => view.kinds),
+  ])
+  const actions = folded(
+    plugin.views.flatMap((view) => (view.actions ?? []).map((a) => asked(view, a))),
+  )
+  return {
+    kinds: all.filter((kind) => isCustomGroup(groupOf(kind))),
+    groups: plugin.groups,
+    creates: unique(
+      plugin.views.flatMap((view) =>
+        (view.actions ?? []).flatMap(({ create }) => {
+          if (!create) return []
+          const { apiVersion, kind } = create as { apiVersion: string; kind: string }
+          const group = apiVersion.includes('/') ? apiVersion.slice(0, apiVersion.indexOf('/')) : ''
+          return [group ? `${kind}.${group}` : kind]
+        }),
+      ),
+    ),
+    shows: plugin.shows,
+    related: named(plugin.views.flatMap((view) => (view.related ?? []).map(({ kind }) => kind))),
+    links: named(plugin.views.flatMap((view) => (view.links ?? []).map(({ kind }) => kind))),
+    actions,
+  }
+}

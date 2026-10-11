@@ -302,3 +302,111 @@ test('Gatekeeper’s constraints: a tab for each kind its templates made', async
   await expect(row(page, 'Gatekeeper', 'must-have-owner')).toContainText('2 violations')
   await expect(row(page, 'Gatekeeper', 'trusted-registries')).toContainText('No violations')
 })
+
+test('every plugin on one page: what’s in use on this cluster, and what each asks for', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await sidebar(page).getByRole('link', { name: 'All plugins' }).click()
+  await expect(heading(page)).toHaveText('Plugins')
+  await expect(page.getByText('A plugin teaches Lumovi a tool’s kinds')).toBeVisible()
+  await expect(page.getByText('32 from Lumovi')).toBeVisible()
+  const table = page.getByRole('table', { name: 'Plugins' })
+  // Each once: its name and version, the kinds it shows (three at most, then how many more),
+  // whether this cluster has it, and where it came from.
+  const flux = table.getByRole('row').filter({ hasText: /^Flux/ })
+  await expect(flux).toContainText('1.0.0')
+  await expect(flux).toContainText(/Kustomizations, HelmReleases, \S+ and 4 more kinds/)
+  await expect(flux).toContainText('On this cluster: in the sidebar')
+  await expect(flux).toContainText('came with this Lumovi')
+  await expect(table.getByRole('row').filter({ hasText: /^Velero/ })).toContainText(
+    'Not on this cluster',
+  )
+
+  // Opened, it says what it asks for, read from its file: what it may change, what it reads,
+  // and each action with what it sends and whether it asks first.
+  await table.getByRole('button', { name: /^Flux/ }).click()
+  const change = page.getByRole('region', { name: 'May change and create' })
+  await expect(change).toContainText('Only the kinds it shows:')
+  await expect(change).toContainText('Kustomization, HelmRelease')
+  await expect(change).toContainText(
+    'all in the API groups it names: kustomize.toolkit.fluxcd.io, helm.toolkit.fluxcd.io, source.toolkit.fluxcd.io',
+  )
+  await expect(change).toContainText('Never Kubernetes’ own kinds')
+  const read = page.getByRole('region', { name: 'May read' })
+  await expect(read).toContainText('Its own kinds’ objects')
+  await expect(read).toContainText('It reads no logs and no Secret’s value')
+  const actions = page.getByRole('region', { name: 'Its actions, and what each sends' })
+  const reconcile = actions.getByRole('listitem').filter({ hasText: 'Reconcile' }).first()
+  await expect(reconcile).toContainText('on all 7 kinds')
+  await expect(reconcile).toContainText('runs at once')
+  await expect(actions.getByRole('listitem')).toHaveCount(3)
+  await expect(reconcile).toContainText('reconcile.fluxcd.io/requestedAt: (now)')
+  // What takes an action back is sent too, and is shown under it.
+  const suspend = actions.getByRole('listitem').filter({ hasText: 'Suspend' }).first()
+  await expect(suspend).toContainText('Undo sends:')
+  await expect(suspend).toContainText('suspend: (removed)')
+  // One that asks first and creates; one that lists other kinds beside its objects and links
+  // to some; one with no actions at all.
+  await table.getByRole('button', { name: /^Tekton/ }).click()
+  await expect(page.getByRole('region', { name: 'May change and create' })).toContainText(
+    'Creates: PipelineRun, one of its own kinds.',
+  )
+  await expect(page.getByRole('region', { name: 'May change and create' })).toContainText(
+    'Nor the owners or finalizers of one it creates.',
+  )
+  const run = page
+    .getByRole('region', { name: 'Its actions, and what each sends' })
+    .getByRole('listitem')
+    .filter({ hasText: 'Creates' })
+    .first()
+  await expect(run).toContainText('asks first')
+  await expect(run).toContainText('kind: PipelineRun')
+  await table.getByRole('button', { name: /^Argo Rollouts/ }).click()
+  await expect(
+    page
+      .getByRole('region', { name: 'Its actions, and what each sends' })
+      .getByRole('listitem')
+      .filter({ hasText: 'Promote' })
+      .first(),
+  ).toContainText('to its status')
+  await table.getByRole('button', { name: /^CloudNativePG/ }).click()
+  await expect(page.getByRole('region', { name: 'May read' })).toContainText(
+    /Beside an object it lists .*Pods.*, picked by their labels or fields\. The list is Lumovi’s own/,
+  )
+  await table.getByRole('button', { name: /^cert-manager/ }).click()
+  await expect(page.getByRole('region', { name: 'May read' })).toContainText(
+    /It links to .*Secrets.* by name\. A link opens Lumovi’s page for the object/,
+  )
+  await expect(page.getByRole('region', { name: 'May change and create' })).toHaveText(
+    /Nothing\. It has no actions\./,
+  )
+  // Pressed again, it closes.
+  await table.getByRole('button', { name: /^cert-manager/ }).click()
+  await expect(page.getByRole('region', { name: 'May read' })).toHaveCount(0)
+
+  // Narrowed: to what this cluster has, and by name.
+  const which = page.getByRole('group', { name: 'Which plugins' })
+  await expect(which.getByRole('button', { name: /^All 32$/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await which.getByRole('button', { name: /^On this cluster/ }).click()
+  await expect(table.getByRole('row').filter({ hasText: /^Velero/ })).toHaveCount(0)
+  await expect(table.getByRole('row').filter({ hasText: /^Flux/ })).toHaveCount(1)
+  await which.getByRole('button', { name: /^Not in use 0$/ }).click()
+  await expect(page.getByText('Nothing matches')).toBeVisible()
+  await which.getByRole('button', { name: /^All/ }).click()
+  await page.getByPlaceholder('Search plugins').fill('velero')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await expect(page.getByText('1 of 32 shown.')).toBeVisible()
+  // Down goes from the search to the first plugin.
+  await page.keyboard.press('ArrowDown')
+  await expect(table.getByRole('button', { name: /^Velero/ })).toBeFocused()
+
+  // And the command palette finds the page.
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('combobox').fill('all plugins')
+  await page.getByRole('option', { name: 'All plugins' }).click()
+  await expect(heading(page)).toHaveText('Plugins')
+})
