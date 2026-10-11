@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { audited, DEMO, DEMO_TOKEN, expect, PEOPLE, signIn, test } from './fixtures.ts'
+import { expectNoSidewaysScroll, PHONE, signInNarrow } from './phone.ts'
 
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
@@ -312,27 +313,28 @@ test('where Lumovi has admins, only they change what’s set for everyone', asyn
   await elsewhere.close()
 })
 
-test('views this server has, and where its metrics come from', async ({ page, serve }) => {
-  const views = await serve()
-  mkdirSync(join(views.helmDir, 'views'))
+test('plugins this server has, and where its metrics come from', async ({ page, serve }) => {
+  const served = await serve()
+  mkdirSync(join(served.helmDir, 'plugins'))
   writeFileSync(
-    join(views.helmDir, 'views', 'team.yaml'),
+    join(served.helmDir, 'plugins', 'team.yaml'),
     [
       'apiVersion: lumovi.dev/v1alpha1',
-      'kind: View',
-      'metadata: { name: team-certificates }',
+      'kind: Plugin',
+      'metadata: { name: team }',
       'spec:',
-      '  kinds: [{ group: cert-manager.io, kind: Certificate }]',
-      '  columns: [{ name: Issuer, path: .spec.issuerRef.name }]',
+      '  views:',
+      '    - kinds: [{ group: cert-manager.io, kind: Certificate }]',
+      '      columns: [{ name: Issuer, path: .spec.issuerRef.name }]',
     ].join('\n'),
   )
-  await signIn(page, `${views.url}cluster/demo/api-resources`, DEMO_TOKEN)
+  await signIn(page, `${served.url}cluster/demo/api-resources`, DEMO_TOKEN)
   await expect(
-    page.getByText(/views from Lumovi, 1 from this server\. This server’s are in/),
+    page.getByText('32 plugins from Lumovi, 1 from this server. This server’s are in'),
   ).toBeVisible()
 
   // Chosen for everyone on the server, and kept.
-  await page.goto(`${views.url}cluster/demo/metrics`)
+  await page.goto(`${served.url}cluster/demo/metrics`)
   await page.getByRole('button', { name: /^Prometheus 3\.5\.0/ }).click()
   await page.getByRole('radio', { name: /Don’t use history/ }).check()
   await page.getByRole('button', { name: 'Save' }).click()
@@ -349,13 +351,26 @@ test('views this server has, and where its metrics come from', async ({ page, se
   const chosen = await serve({
     env: {
       LUMOVI_METRICS_SOURCE: 'data/prometheus-archive:9090',
-      LUMOVI_VIEWS_DIR: undefined,
+      LUMOVI_PLUGINS_DIR: undefined,
     },
   })
   await signIn(page, `${chosen.url}cluster/demo/metrics`, DEMO_TOKEN)
   await expect(page.getByText(/prometheus-archive/).first()).toBeVisible()
   await page.goto(`${chosen.url}cluster/demo/api-resources`)
-  await expect(page.getByText(/This server’s are in \/etc\/lumovi\/views/)).toBeVisible()
+  await expect(page.getByText(/This server’s are in \/etc\/lumovi\/plugins/)).toBeVisible()
+})
+
+test('a plugins folder with a long path, on a phone: wrapped inside the screen', async ({
+  page,
+  serve,
+}) => {
+  const folder = join(mkdtempSync(join(tmpdir(), 'lumovi-plugins-')), 'a'.repeat(60), 'plugins')
+  mkdirSync(folder, { recursive: true })
+  const served = await serve({ env: { LUMOVI_PLUGINS_DIR: folder } })
+  await page.setViewportSize(PHONE)
+  await signInNarrow(page, `${served.url}cluster/demo/api-resources`, DEMO_TOKEN)
+  await expect(page.getByText(folder)).toBeVisible()
+  await expectNoSidewaysScroll(page, 'API resources with a long folder')
 })
 
 test('links open in a tab of their own', async ({ page, context, serve }) => {

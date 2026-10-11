@@ -3,7 +3,7 @@ import type { KubeObject } from '@shared/api'
 import { isBuiltinKind, kindOf, type BuiltinKind } from '@shared/resources'
 import { age, formatDateTime } from '@renderer/lib/format'
 import { replicaCounts } from '@renderer/lib/health'
-import { fieldValue, viewFor } from '@renderer/lib/views'
+import { fieldValue, viewFor } from '@renderer/lib/plugins'
 import {
   externalAddress,
   isDefaultStorageClass,

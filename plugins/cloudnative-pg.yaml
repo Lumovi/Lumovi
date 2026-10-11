@@ -1,0 +1,144 @@
+# CloudNativePG (https://cloudnative-pg.io): PostgreSQL clusters and their backups.
+apiVersion: lumovi.dev/v1alpha1
+kind: Plugin
+metadata:
+  name: cloudnative-pg
+spec:
+  label: CloudNativePG
+  icon: database
+  kinds:
+    - { group: postgresql.cnpg.io, kind: Cluster }
+    - { group: postgresql.cnpg.io, kind: Pooler }
+    - { group: postgresql.cnpg.io, kind: Backup }
+    - { group: postgresql.cnpg.io, kind: ScheduledBackup }
+    - { group: postgresql.cnpg.io, kind: Database }
+  views:
+    - name: cloudnative-pg-clusters
+      kinds:
+        - { group: postgresql.cnpg.io, kind: Cluster }
+      icon: database
+      columns:
+        - { name: Instances, path: .spec.instances, type: number }
+        - { name: Ready, path: .status.readyInstances, type: number, default: '0' }
+        - { name: Primary, path: .status.currentPrimary }
+      status:
+        - when: { path: .status.phase, equals: Cluster in healthy state }
+          health: healthy
+          label: Healthy
+        - when: { path: .status.phase, matches: fail|error|unrecoverable }
+          health: critical
+          label: '{{ .status.phase }}'
+          detail: '{{ .status.phaseReason }}'
+        - when: { path: .status.phase, exists: true }
+          health: progressing
+          label: '{{ .status.phase }}'
+          detail: '{{ .status.phaseReason }}'
+      details:
+        - { name: Image, path: .status.image }
+        - { name: Primary, path: .status.currentPrimary }
+        - { name: Storage, path: .spec.storage.size }
+        - { name: Last backup, path: .status.lastSuccessfulBackup, type: date }
+      links:
+        - name: Primary
+          kind: Pod
+          objectName: '{{ .status.currentPrimary }}'
+      related:
+        - name: Instances
+          kind: Pod
+          labels: { cnpg.io/cluster: '{{ .metadata.name }}', cnpg.io/podRole: instance }
+        - name: Volumes
+          kind: PersistentVolumeClaim
+          labels: { cnpg.io/cluster: '{{ .metadata.name }}' }
+      actions:
+        - name: Back up now
+          icon: archive
+          primary: true
+          inputs:
+            - name: method
+              label: Method
+              type: choice
+              options: [barmanObjectStore, volumeSnapshot]
+          create:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Backup
+            metadata:
+              generateName: '{{ .metadata.name }}-'
+            spec:
+              cluster: { name: '{{ .metadata.name }}' }
+              method: '{{ input.method }}'
+          done: Started a backup of {{ .metadata.name }}
+        - name: Switch over
+          icon: refresh-cw
+          when: { path: '.status.instanceNames[1]', exists: true }
+          inputs:
+            - name: instance
+              label: New primary
+              type: choice
+              from: '.status.instanceNames[*]'
+          confirm: >-
+            The instance chosen becomes the primary, and {{ .status.currentPrimary }} a replica.
+            Connections to the primary drop for a moment.
+          subresource: status
+          patch:
+            status:
+              targetPrimary: '{{ input.instance }}'
+              phase: Switchover in progress
+              phaseReason: Switching over to {{ input.instance }}
+          done: Switching {{ .metadata.name }} over to {{ input.instance }}
+        - name: Restart
+          icon: refresh-cw
+          confirm: The instances restart one at a time, replicas first and the primary last, with a switchover.
+          patch:
+            metadata:
+              annotations: { kubectl.kubernetes.io/restartedAt: '{{ now }}' }
+          done: Restarted {{ .metadata.name }}
+    - name: cloudnative-pg-backups
+      kinds:
+        - { group: postgresql.cnpg.io, kind: Backup }
+      icon: archive
+      columns:
+        - { name: Cluster, path: .spec.cluster.name }
+        - { name: Method, path: .spec.method, default: barmanObjectStore }
+        - { name: Started, path: .status.startedAt, type: date }
+      status:
+        - when: { path: .status.phase, equals: completed }
+          health: healthy
+          label: Completed
+        - when: { path: .status.phase, equals: failed }
+          health: critical
+          label: Failed
+          detail: '{{ .status.error }}'
+        - health: progressing
+          label: '{{ .status.phase ?? "Pending" }}'
+      links:
+        - name: Cluster
+          kind: Cluster.postgresql.cnpg.io
+          objectName: '{{ .spec.cluster.name }}'
+    - name: cloudnative-pg-scheduled-backups
+      kinds:
+        - { group: postgresql.cnpg.io, kind: ScheduledBackup }
+      icon: timer
+      columns:
+        - { name: Schedule, path: .spec.schedule }
+        - { name: Last, path: .status.lastScheduleTime, type: date }
+        - { name: Next, path: .status.nextScheduleTime, type: date }
+      links:
+        - name: Cluster
+          kind: Cluster.postgresql.cnpg.io
+          objectName: '{{ .spec.cluster.name }}'
+      related:
+        - name: Backups
+          kind: Backup.postgresql.cnpg.io
+          labels: { cnpg.io/scheduled-backup: '{{ .metadata.name }}' }
+      actions:
+        - name: Suspend
+          when: { path: .spec.suspend, notEquals: true }
+          patch: { spec: { suspend: true } }
+          undo: { spec: { suspend: false } }
+          done: Suspended {{ .metadata.name }}
+        - name: Resume
+          primary: true
+          when: { path: .spec.suspend, equals: true }
+          patch: { spec: { suspend: false } }
+          undo: { spec: { suspend: true } }
+          done: Resumed {{ .metadata.name }}

@@ -52,7 +52,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { apiGroupOf, isCustomGroup, type BuiltinKind, type ResourceKind } from '@shared/resources'
-import { viewFor, type AddOn, type ViewIconName } from '@renderer/lib/views'
+import { viewFor, type ListedPlugin, type ViewIconName } from '@renderer/lib/plugins'
 
 export const KIND_ICONS: Record<BuiltinKind, LucideIcon> = {
   Node: Server,
@@ -130,9 +130,9 @@ export function kindIcon(kind: ResourceKind): LucideIcon {
   return isCustomGroup(apiGroupOf(kind)) ? Puzzle : Shapes
 }
 
-/** An add-on's icon: its own, or the one for custom resources. */
-export function addOnIcon(addOn: AddOn): LucideIcon {
-  return VIEW_ICONS[addOn.icon ?? 'puzzle']
+/** A plugin's icon: its own, or the one for custom resources. */
+export function pluginIcon(plugin: ListedPlugin): LucideIcon {
+  return VIEW_ICONS[plugin.icon ?? 'puzzle']
 }
 
 /** A kind's icon, as an element. */
@@ -140,7 +140,7 @@ export function KindIcon({ kind, className }: { kind: ResourceKind; className?: 
   return createElement(kindIcon(kind), { className, 'aria-hidden': true })
 }
 
-/** An add-on's icon, as an element. */
-export function AddOnIcon({ addOn, className }: { addOn: AddOn; className?: string }) {
-  return createElement(addOnIcon(addOn), { className, 'aria-hidden': true })
+/** A plugin's icon, as an element. */
+export function PluginIcon({ plugin, className }: { plugin: ListedPlugin; className?: string }) {
+  return createElement(pluginIcon(plugin), { className, 'aria-hidden': true })
 }

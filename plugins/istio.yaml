@@ -1,0 +1,56 @@
+# Istio (https://istio.io): traffic routing and security.
+apiVersion: lumovi.dev/v1alpha1
+kind: Plugin
+metadata:
+  name: istio
+spec:
+  label: Istio
+  icon: waypoints
+  kinds:
+    - { group: networking.istio.io, kind: VirtualService }
+    - { group: networking.istio.io, kind: DestinationRule }
+    - { group: networking.istio.io, kind: Gateway }
+    - { group: networking.istio.io, kind: ServiceEntry }
+    - { group: security.istio.io, kind: PeerAuthentication }
+    - { group: security.istio.io, kind: AuthorizationPolicy }
+  views:
+    - name: istio-routing
+      kinds:
+        - { group: networking.istio.io, kind: VirtualService }
+      icon: network
+      columns:
+        - { name: Hosts, path: '.spec.hosts[*]' }
+        - { name: Gateways, path: '.spec.gateways[*]', default: mesh }
+    - name: istio-destination-rules
+      kinds:
+        - { group: networking.istio.io, kind: DestinationRule }
+      icon: network
+      columns:
+        - { name: Host, path: .spec.host }
+        - { name: Subsets, path: '.spec.subsets[*].name' }
+        - { name: TLS, path: .spec.trafficPolicy.tls.mode }
+    - name: istio-gateways
+      kinds:
+        - { group: networking.istio.io, kind: Gateway }
+      icon: globe
+      columns:
+        - { name: Hosts, path: '.spec.servers[*].hosts[*]' }
+        - { name: Ports, path: '.spec.servers[*].port.number' }
+      details:
+        - { name: Selector, path: .spec.selector }
+    - name: istio-service-entries
+      kinds:
+        - { group: networking.istio.io, kind: ServiceEntry }
+      icon: cloud
+      columns:
+        - { name: Hosts, path: '.spec.hosts[*]' }
+        - { name: Location, path: .spec.location }
+        - { name: Resolution, path: .spec.resolution }
+    - name: istio-security
+      kinds:
+        - { group: security.istio.io, kind: PeerAuthentication }
+        - { group: security.istio.io, kind: AuthorizationPolicy }
+      icon: shield-check
+      columns:
+        - { name: mTLS, path: .spec.mtls.mode }
+        - { name: Action, path: .spec.action }

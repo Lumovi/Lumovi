@@ -37,7 +37,7 @@ npm run dev:server -- --fleet # a fleet of the demo clusters, signed in to as Al
 | `npm run coverage:check`                | Fail unless every file is loaded, and more than 95% runs      |
 | `npm run test:durations -- <run id>`    | Record each test's time on CI, which splits CI's shards       |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
-| `npm run views:check`                   | Check Lumovi's views against the CRDs of their tools          |
+| `npm run plugins:check`                 | Check Lumovi's plugins against the CRDs of their tools        |
 | `npm run crds`                          | Fetch those CRDs again, at the versions `sources.json` pins   |
 | `npm run package`                       | Build an unpacked app for this platform in `release/`         |
 | `npm run dist`                          | Build installers for this platform                            |
@@ -58,7 +58,7 @@ charts/       The Helm chart that runs the server (its image: Dockerfile)
 tests/
   e2e/            Playwright tests that drive the real Electron app
   web/            The served app in Chromium, and the server's HTTP and WebSocket
-  views/          Lumovi's views, checked against the CRDs of their tools (crds/)
+  plugins/        Lumovi's plugins, checked against the CRDs of their tools (crds/)
   mock-cluster/   A mock Kubernetes API server with realistic demo clusters
   mock-oidc/      A small OpenID Connect provider, for single sign-on
   integration/    The same app (and the image, with the chart) against a real kind cluster
@@ -127,7 +127,7 @@ They change things for real and check the result with kubectl: scaling, rollouts
 rollbacks, YAML edits and conflicts, creating from YAML, cordoning and draining against a
 PodDisruptionBudget, shells, port forwards, debug containers, every usage-history query
 against Prometheus, custom resources (a CRD of their own, with validation, status and
-scaling, and the Prometheus operator's through Lumovi's views), Helm releases (read in
+scaling, and the Prometheus operator's through Lumovi's plugin), Helm releases (read in
 both storage drivers, upgraded, rolled back and uninstalled with helm, and a chart installed
 from a folder), and what a view-only account is offered. They also install the image with
 the Helm chart and sign in to it, behind a proxy and with a token.

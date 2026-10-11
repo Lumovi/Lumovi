@@ -35,9 +35,9 @@ spec:
   template:
     metadata:
       annotations:
-        # A change to the views rolls out a new pod, which reads them. (A fleet's kubeconfig is
+        # A change to the plugins rolls out a new pod, which reads them. (A fleet's kubeconfig is
         # read again as it changes.)
-        checksum/views: {{ toJson .Values.views | sha256sum }}
+        checksum/plugins: {{ toJson .Values.plugins | sha256sum }}
         {{- if .Values.auth.keepSessions }}
         {{- $keySecret := .Values.auth.stateKeySecret | default (printf "%s-state-key" (include "lumovi.fullname" .)) }}
         {{- $key := lookup "v1" "Secret" .Release.Namespace $keySecret }}
@@ -214,8 +214,8 @@ spec:
               value: {{ .Values.helm.allowPrivateCharts | quote }}
             - name: LUMOVI_ARTIFACT_HUB_URL
               value: {{ .Values.helm.artifactHubUrl | quote }}
-            - name: LUMOVI_VIEWS_DIR
-              value: /etc/lumovi/views
+            - name: LUMOVI_PLUGINS_DIR
+              value: /etc/lumovi/plugins
             - name: LUMOVI_NODE_SHELL
               value: {{ ternary "on" "off" .Values.nodeShell.enabled | quote }}
             - name: LUMOVI_NODE_SHELL_NAMESPACE
@@ -283,9 +283,9 @@ spec:
             # helm's caches, and the kubeconfigs Lumovi writes for each run of it.
             - name: tmp
               mountPath: /tmp
-            {{- if .Values.views }}
-            - name: views
-              mountPath: /etc/lumovi/views
+            {{- if .Values.plugins }}
+            - name: plugins
+              mountPath: /etc/lumovi/plugins
               readOnly: true
             {{- end }}
             {{- if and $fleet .Values.fleet.kubeconfigSecret }}
@@ -302,10 +302,10 @@ spec:
         - name: tmp
           emptyDir: {}
         {{- include "lumovi.caVolume" . | nindent 8 }}
-        {{- if .Values.views }}
-        - name: views
+        {{- if .Values.plugins }}
+        - name: plugins
           configMap:
-            name: {{ include "lumovi.fullname" . }}-views
+            name: {{ include "lumovi.fullname" . }}-plugins
         {{- end }}
         {{- if .Values.audit.persistence.enabled }}
         - name: audit

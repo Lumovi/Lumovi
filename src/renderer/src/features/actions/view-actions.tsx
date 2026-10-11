@@ -19,7 +19,7 @@ import {
   type InputValues,
   type ViewAction,
   type ViewInput,
-} from '@renderer/lib/views'
+} from '@renderer/lib/plugins'
 import { toYaml } from '@renderer/lib/yaml'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'

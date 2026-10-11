@@ -30,7 +30,7 @@ const NOT_ON_A_PHONE = 'This isn’t done from a phone. Open Lumovi on a larger 
 const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'> = {
   'app.info': 'reads',
   'app.settings': 'reads',
-  'app.views': 'reads',
+  'app.plugins': 'reads',
   'app.setTheme': 'here',
   'app.openExternal': 'here',
   'app.saveFile': 'here',

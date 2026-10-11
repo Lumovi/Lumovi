@@ -14,7 +14,7 @@ import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useObject } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
 import { useClusterName } from '@renderer/hooks/settings'
-import { useViews } from '@renderer/hooks/views'
+import { usePlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
@@ -82,7 +82,7 @@ function Detail({
 }) {
   const object = useObject(target.kind, target.name, target.namespace)
   // Views decide the icon, status and actions of the kinds they cover.
-  useViews()
+  usePlugins()
   const status = object.data && statusFor(target.kind, object.data)
   const involved = object.data?.involvedObject as { kind: string; name: string } | undefined
   const gone = (object.error as KubeApiError | null)?.code === 'not-found'

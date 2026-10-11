@@ -55,7 +55,7 @@ test.describe('custom resources', () => {
     await expect(
       page.getByRole('rowgroup', { name: 'cert-manager.io', exact: true }),
     ).toContainText('ClusterIssuers')
-    // A tool's kinds are a click away under its add-on, so they aren't kept here too.
+    // A tool's kinds are a click away under its plugin, so they aren't kept here too.
     await openKind(page, 'cert-manager.io', 'Certificates')
     await expect(page).toHaveTitle(/^Certificates · demo/)
     await expect(lately.getByRole('link', { name: 'Certificates' })).toHaveCount(0)
@@ -244,7 +244,7 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(kubernetes).toContainText('LimitRanges')
   await expect(kubernetes).toContainText('rbac.authorization.k8s.io/v1')
   await expect(kubernetes).toContainText('Pods')
-  await expect(page.getByText(/\d+ views from Lumovi/)).toBeVisible()
+  await expect(page.getByText('32 plugins from Lumovi')).toBeVisible()
 
   const filter = page.getByPlaceholder('Filter kinds')
   await filter.fill('ks')

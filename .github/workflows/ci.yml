@@ -63,8 +63,8 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      # Lumovi's views against the CRDs of the operators they're for (tests/views).
-      - run: npm run views:check
+      # Lumovi's plugins against the CRDs of the operators they're for (tests/plugins).
+      - run: npm run plugins:check
       # The app ships the helm the server's image has (scripts/helm.ts, and the Dockerfile's).
       - name: One helm for the app and the image
         run: |

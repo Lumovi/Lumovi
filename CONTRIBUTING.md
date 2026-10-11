@@ -67,34 +67,34 @@ integration tests (see [docs/development.md](docs/development.md#integration-tes
 
 ## Adding a tool
 
-Lumovi shows what popular operators run through _views_ and _add-ons_, written as data
-in `src/renderer/src/views/<tool>.yaml` (the format:
-[docs.lumovi.dev/reference/view-format](https://docs.lumovi.dev/reference/view-format)).
-An add-on gives a tool its entry in the sidebar and lists its kinds; views say how each kind
-is shown: its columns, status, details, related objects, links and actions. Adding a tool
+Lumovi shows what popular operators run through _plugins_, written as data in
+`plugins/<tool>.yaml` (the format:
+[docs.lumovi.dev/reference/plugin-format](https://docs.lumovi.dev/reference/plugin-format)).
+A plugin gives a tool its entry in the sidebar and lists its kinds, and its views say how each
+kind is shown: its columns, status, details, related objects, links and actions. Adding a tool
 needs no code, and is a good first contribution. To ask for one instead, open a
 [_Support a tool_](https://github.com/Lumovi/Lumovi/issues/new?template=tool_request.yml)
 issue.
 
-1. Pin the tool's CRDs: add its release to `tests/views/crds/sources.json`, under the
-   add-on's name, with the URLs of its CRD manifests, and run `npm run crds -- <name>`. That
-   keeps what the check needs of them in `tests/views/crds/<name>.json`. A chart's templates
+1. Pin the tool's CRDs: add its release to `tests/plugins/crds/sources.json`, under the
+   plugin's name, with the URLs of its CRD manifests, and run `npm run crds -- <name>`. That
+   keeps what the check needs of them in `tests/plugins/crds/<name>.json`. A chart's templates
    work too (`"helm": true`), and for a tool whose operator creates its CRDs itself, the JSON
    Schema of each kind will do (KubeVirt's come from the
    [CRDs catalog](https://github.com/datreeio/CRDs-catalog)).
-2. Write `src/renderer/src/views/<name>.yaml`: the `AddOn`, then a `View` for each kind (or
-   group of kinds) worth more than the generic columns. Status rules are where views help
+2. Write `plugins/<name>.yaml`: one `kind: Plugin`, with its label and kinds, and under
+   `views:` a view for each kind (or group of kinds) worth more than the generic columns. Status rules are where views help
    most: say what healthy, in progress, failing and paused look like for this tool.
-3. Run `npm run views:check`. It checks every kind, path, template, link, related list and
+3. Run `npm run plugins:check`. It checks every kind, path, template, link, related list and
    action against the CRDs you pinned, so a misremembered field fails here rather than
    showing nothing. Labels and annotations aren't in schemas, so check those against the
    tool's documentation, or a real cluster.
-4. Look at it: put the file in `~/.lumovi/views` (or the folder `LUMOVI_VIEWS_DIR`
-   names) while running `npm run dev` against a cluster with the tool installed. Views are
+4. Look at it: put the file in `~/.lumovi/plugins` (or the folder `LUMOVI_PLUGINS_DIR`
+   names) while running `npm run dev` against a cluster with the tool installed. Plugins are
    read again on refresh (⌘R / Ctrl+R).
 
-To check views against a newer release of a tool, change its version in `sources.json`, run
-`npm run crds -- <name>` and `npm run views:check`.
+To check plugins against a newer release of a tool, change its version in `sources.json`, run
+`npm run crds -- <name>` and `npm run plugins:check`.
 
 ## Coverage
 

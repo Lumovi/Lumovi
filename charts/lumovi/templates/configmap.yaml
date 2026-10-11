@@ -1,13 +1,13 @@
-{{- if and (include "lumovi.dashboard" .) (.Values.views) }}
+{{- if and (include "lumovi.dashboard" .) (.Values.plugins) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "lumovi.fullname" . }}-views
+  name: {{ include "lumovi.fullname" . }}-plugins
   labels:
     {{- include "lumovi.labels" . | nindent 4 }}
 data:
-  {{- range $name, $view := .Values.views }}
+  {{- range $name, $plugin := .Values.plugins }}
   {{ $name }}: |
-    {{- $view | nindent 4 }}
+    {{- $plugin | nindent 4 }}
   {{- end }}
 {{- end }}

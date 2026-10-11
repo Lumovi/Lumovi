@@ -142,8 +142,8 @@ export interface ServerConfig {
   allowPrivateCharts: boolean
   /** Files of certificate authorities to trust besides Node's and the system's (LUMOVI_CA_FILE). */
   caFiles: string[]
-  /** Where the views everyone shares are (a ConfigMap's, say). */
-  viewsDir: string
+  /** Where the plugins everyone shares are (a ConfigMap's, say). */
+  pluginsDir: string
   /** Where the page's files are: the renderer's build, next to the server's. */
   rendererDir: string
   /**
@@ -332,7 +332,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     fileCopyMaxBytes: fileCopyLimit(value('LUMOVI_FILE_COPY_MAX_BYTES')),
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
     caFiles: list(value('LUMOVI_CA_FILE')),
-    viewsDir: value('LUMOVI_VIEWS_DIR') ?? '/etc/lumovi/views',
+    pluginsDir: value('LUMOVI_PLUGINS_DIR') ?? '/etc/lumovi/plugins',
     rendererDir,
     assistants,
     audit: auditConfig(value),

@@ -168,7 +168,7 @@ test.describe('the map', () => {
   })
 
   test('what a custom resource relates to, by its view', async ({ page }) => {
-    // Karpenter's kinds are tabs of its add-on.
+    // Karpenter's kinds are tabs of its plugin.
     await page
       .getByRole('navigation', { name: 'Resources' })
       .getByRole('link', { name: 'Karpenter', exact: true })

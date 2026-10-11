@@ -714,7 +714,7 @@ test('the palette opens shortcuts and all clusters, even while clusters load', a
   const { page, app } = lumovi
   await openCluster(page)
   const palette = page.getByRole('dialog', { name: 'Command palette' })
-  const input = page.getByPlaceholder('Jump to a view, object, namespace or cluster…')
+  const input = page.getByPlaceholder('Jump to a page, object, namespace or cluster…')
 
   await page.keyboard.press('Meta+k')
   await input.fill('keyboard')

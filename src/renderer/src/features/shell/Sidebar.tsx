@@ -27,22 +27,22 @@ import {
 import { IconButton } from '@renderer/components/Button'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { Picker } from '@renderer/components/Picker'
-import { AddOnIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
+import { PluginIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
 import { GithubMark } from '@renderer/components/GithubMark'
 import { StatusDot } from '@renderer/components/Status'
 import { Switch } from '@renderer/components/Switch'
-import { useAddOns, type ServedAddOn } from '@renderer/hooks/add-ons'
+import { useServedPlugins, type ServedPlugin } from '@renderer/hooks/plugins'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
-import { useViews } from '@renderer/hooks/views'
+import { usePlugins } from '@renderer/hooks/plugins'
 import { useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
 import {
-  addOnPath,
+  pluginPath,
   apiResourcesPath,
   clusterPath,
   helmPath,
@@ -137,18 +137,18 @@ function GoHint({ target }: { target: string }) {
   )
 }
 
-/** An add-on's entry: current on its page, and on its kinds' lists. */
-function AddOnItem({ served }: { served: ServedAddOn }) {
+/** A plugin's entry: current on its page, and on its kinds' lists. */
+function PluginItem({ served }: { served: ServedPlugin }) {
   const { context } = useCluster()
   const [page, kind] = useLocation().pathname.split('/').slice(3)
-  const { addOn, kinds } = served
+  const { plugin, kinds } = served
   return (
     <NavItem
-      to={addOnPath(context, addOn.name)}
+      to={pluginPath(context, plugin.name)}
       current={page === 'r' && kinds.some((r) => r.kind === decodeURIComponent(kind!))}
     >
-      <AddOnIcon addOn={addOn} className="size-4 shrink-0 text-ink-3" />
-      <span className="truncate">{addOn.label}</span>
+      <PluginIcon plugin={plugin} className="size-4 shrink-0 text-ink-3" />
+      <span className="truncate">{plugin.label}</span>
     </NavItem>
   )
 }
@@ -156,7 +156,7 @@ function AddOnItem({ served }: { served: ServedAddOn }) {
 export function Sidebar() {
   const { context } = useCluster()
   const session = useSession()
-  const addOns = useAddOns()
+  const plugins = useServedPlugins()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
   const navigate = useNavigate()
   const nav = useRef<HTMLElement>(null)
@@ -185,7 +185,7 @@ export function Sidebar() {
       <nav
         ref={nav}
         aria-label="Resources"
-        // With add-ons it can be longer than the window; it scrolls without a scrollbar, as macOS's do.
+        // With plugins it can be longer than the window; it scrolls without a scrollbar, as macOS's do.
         className="min-h-0 flex-1 [scrollbar-width:none] overflow-y-auto px-3 pb-3 no-drag"
         style={
           fades
@@ -230,15 +230,15 @@ export function Sidebar() {
                 </NavItem>
               )
             })}
-            {/* Add-ons that extend Kubernetes' own, like Gateway API, sit with them. */}
-            {addOns
-              .filter((served) => served.addOn.category === category)
+            {/* Plugins that extend Kubernetes' own, like Gateway API, sit with them. */}
+            {plugins
+              .filter((served) => served.plugin.category === category)
               .map((served) => (
-                <AddOnItem key={served.addOn.name} served={served} />
+                <PluginItem key={served.plugin.name} served={served} />
               ))}
           </div>
         ))}
-        <CustomResources addOns={addOns} />
+        <CustomResources plugins={plugins} />
       </nav>
       <Sponsor />
       <div className="flex items-center gap-1 border-t border-line px-3 py-2 no-drag narrow:px-1 narrow:pb-[max(0.5rem,env(safe-area-inset-bottom))] touch:flex-wrap narrow:[&_button]:size-11 touch:[&_button]:size-11">
@@ -276,7 +276,7 @@ function useGoesOn(ref: RefObject<HTMLElement | null>): { up: boolean; down: boo
     }
     measure()
     list.addEventListener('scroll', measure, { passive: true })
-    // The window's size, and what's in the list (add-ons, as they're found), change it too.
+    // The window's size, and what's in the list (plugins, as they're found), change it too.
     const resized = new ResizeObserver(measure)
     resized.observe(list)
     const changed = new MutationObserver(measure)
@@ -461,26 +461,26 @@ function SwitcherItem({
 }
 
 /**
- * Pinned kinds, the add-ons of the tools the cluster has, and the custom
+ * Pinned kinds, the plugins of the tools the cluster has, and the custom
  * kinds opened lately in this cluster: a few, however many the cluster has.
  * Browsing them all is what API resources is for.
  */
-function CustomResources({ addOns }: { addOns: ServedAddOn[] }) {
+function CustomResources({ plugins }: { plugins: ServedPlugin[] }) {
   const { context } = useCluster()
   const resources = useResources().data
   // Views pick the kinds' icons.
-  useViews()
+  usePlugins()
   const pinnedKinds = usePrefs((prefs) => prefs.pinned)
   const recentKinds = usePrefs((prefs) => prefs.recentKinds[context])
   const served = new Map((resources ?? []).map((r) => [r.kind as string, r]))
   const pinned = pinnedKinds.flatMap((kind) => served.get(kind) ?? [])
-  // Kinds an add-on has are a click away already.
-  const inAddOns = new Set(addOns.flatMap(({ kinds }) => kinds.map((r) => r.kind)))
+  // Kinds a plugin has are a click away already.
+  const inPlugins = new Set(plugins.flatMap(({ kinds }) => kinds.map((r) => r.kind)))
   const recent = (recentKinds ?? [])
-    .filter((kind) => !pinnedKinds.includes(kind) && !inAddOns.has(kind))
+    .filter((kind) => !pinnedKinds.includes(kind) && !inPlugins.has(kind))
     .flatMap((kind) => served.get(kind) ?? [])
     .filter((r) => isCustomGroup(r.group))
-  const ownSection = addOns.filter((served) => !served.addOn.category)
+  const ownSection = plugins.filter((served) => !served.plugin.category)
   const custom = (resources ?? []).filter((r) => isCustomGroup(r.group)).length
   const item = (resource: ResourceDefinition) => {
     const Icon = kindIcon(resource.kind)
@@ -504,10 +504,10 @@ function CustomResources({ addOns }: { addOns: ServedAddOn[] }) {
       {ownSection.length > 0 && (
         <div className="mt-4">
           <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-            Add-ons
+            Plugins
           </h3>
           {ownSection.map((served) => (
-            <AddOnItem key={served.addOn.name} served={served} />
+            <PluginItem key={served.plugin.name} served={served} />
           ))}
         </div>
       )}
