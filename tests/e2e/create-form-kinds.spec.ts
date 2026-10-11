@@ -4,15 +4,7 @@
  * both sides until they're asked for) and a PersistentVolumeClaim.
  */
 import type { Page } from '@playwright/test'
-import {
-  check,
-  FORM_KINDS,
-  HIDDEN,
-  masked,
-  read,
-  unowned,
-} from '../../src/renderer/src/lib/create-form.ts'
-import { pathText } from '../../src/renderer/src/lib/yaml-edit.ts'
+import { HIDDEN } from '../../src/renderer/src/lib/create-form.ts'
 import { dialog, menuAction, open as openObject, toasts, writes } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
 
@@ -623,36 +615,59 @@ spec:
   })
 })
 
-// ——— Asked directly ———
-
-test('each of these kinds, new, fits its form and asks for what it must have', () => {
+test('each of these kinds, new, asks for what it must have; and what a name may be', async ({
+  page,
+}) => {
+  await open(page, 'Service')
   for (const [kind, empty] of [
-    ['Service', ['Name', 'Port']],
-    ['ConfigMap', ['Name']],
-    ['Secret', ['Name']],
-    ['PersistentVolumeClaim', ['Name', 'Size']],
+    ['Service', 'Name and Port are still empty.'],
+    ['ConfigMap', 'Name is still empty.'],
+    ['Secret', 'Name is still empty.'],
+    ['PersistentVolumeClaim', 'Name and Size are still empty.'],
   ] as const) {
-    const form = FORM_KINDS[kind]
-    const reading = read(form.blank('shop'), form)
-    expect(reading.fits, kind).toBe(true)
-    if (!reading.fits) continue
-    expect(unowned(reading.object, form).map(pathText), kind).toEqual([])
-    expect(check(reading.object, form), kind).toEqual({ missing: empty, problems: [] })
+    await dialog(page).getByRole('radio', { name: kind, exact: true }).click()
+    await expect(status(page), kind).toHaveText(empty)
+    // Nothing wrong but what's empty, and nothing the form has no field for.
+    await expect(form(page).getByRole('alert'), kind).toHaveCount(0)
+    await expect(form(page), kind).not.toContainText('The YAML also sets')
+    await expect(form(page), kind).not.toContainText('The form can’t show this YAML')
   }
   // Their names aren't a workload's: a Service's starts with a letter, the others may have dots.
-  const named = (kind: 'Service' | 'ConfigMap', name: string) => {
-    const form = FORM_KINDS[kind]
-    const reading = read(form.blank('shop').replace('name:', `name: ${name}`), form)
-    return reading.fits ? check(reading.object, form).problems.map((problem) => problem.field) : []
+  const SERVICE =
+    'Lowercase letters, digits and “-”, starting with a letter and ending with a letter or digit, 63 at most.'
+  const OTHER =
+    'Lowercase letters, digits, “-” and “.”, starting and ending with a letter or digit.'
+  for (const [kind, name, said] of [
+    ['Service', '1web', SERVICE],
+    ['Service', 'web.internal', SERVICE],
+    ['Service', 'web', undefined],
+    ['ConfigMap', '1web', undefined],
+    ['ConfigMap', 'web.internal', undefined],
+    ['ConfigMap', 'Web', OTHER],
+    ['PersistentVolumeClaim', 'uploads_2', OTHER],
+  ] as const) {
+    await dialog(page).getByRole('radio', { name: kind, exact: true }).click()
+    await field(page, 'Name').fill(name)
+    if (said) await expect(form(page).getByRole('alert'), `${kind} ${name}`).toHaveText(said)
+    else await expect(form(page).getByRole('alert'), `${kind} ${name}`).toHaveCount(0)
   }
-  expect(named('Service', '"1web"')).toEqual(['name'])
-  expect(named('Service', 'web.internal')).toEqual(['name'])
-  expect(named('ConfigMap', '"1web"')).toEqual([])
-  expect(named('ConfigMap', 'web.internal')).toEqual([])
-  expect(named('ConfigMap', 'Web')).toEqual(['name'])
 })
 
-test('a Secret’s values are hidden wherever one is written, or nothing is shown', () => {
+test('a Secret’s values are hidden wherever one is written, or it isn’t hidden at all', async ({
+  page,
+}) => {
+  await open(page, 'Secret')
+  const show = dialog(page).getByRole('button', { name: 'Show values' })
+  const hide = dialog(page).getByRole('button', { name: 'Hide values' })
+  /** What's shown of `text` once its values are hidden. */
+  const hidden = async (text: string) => {
+    await show.click()
+    await type(page, text)
+    await expect(hide).toBeEnabled()
+    await hide.click()
+    await expect(show).toBeVisible()
+    return yaml(page)
+  }
   const text = `# A comment of the document's stays.
 apiVersion: v1
 kind: Secret
@@ -680,8 +695,9 @@ items:
   - kind: ConfigMap
     data: {shown: as-it-is} # and not this
 `
-  // Every value, and the words of every comment among them, which is where an old one is left.
-  expect(masked(text)).toBe(`# A comment of the document's stays.
+  // Every value, and the words of every comment among them, which is where an old one is
+  // left: in the Secret itself, and in one that's an item of a List.
+  expect(await hidden(text)).toBe(`# A comment of the document's stays.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -706,19 +722,22 @@ items:
   - kind: ConfigMap
     data: {shown: as-it-is} # and not this
 `)
-  // Something in place of its keys and values is hidden whole; line ends stay as they were.
-  expect(masked('kind: Secret\nstringData: just-this\n')).toBe(
+  // Something in place of its keys and values is hidden whole.
+  expect(await hidden('kind: Secret\nstringData: just-this\n')).toBe(
     `kind: Secret\nstringData: ${HIDDEN}\n`,
   )
-  expect(masked('kind: Secret\r\nstringData:\r\n  a: b # c\r\n')).toBe(
-    `kind: Secret\r\nstringData:\r\n  a: ${HIDDEN} # ${HIDDEN}\r\n`,
-  )
-  // What can't be read has no values to tell from the rest: there's no text to show.
-  expect(masked('kind: Secret\nstringData: [unclosed\n')).toBeNull()
-  expect(masked('kind: Secret\nstringData:\n  a: b\n  a: c\n')).toBeNull()
-  // Nor has one whose value is written elsewhere and brought in: by an alias, as a whole map,
-  // or through a merge key; nor one that's a Secret by a kind said elsewhere.
+  // (An alias in what isn't a Secret is nobody's value: it's shown as it is.)
+  const other = 'kind: ConfigMap\nx: &a 1\ndata: {a: *a}\n'
+  expect(await hidden(other)).toBe(other)
+
+  // What can't be read has no values to tell from the rest; nor has a Secret whose value is
+  // written elsewhere and brought in (by an alias, as a whole map, through a merge key),
+  // or that's a Secret by a kind or a key said elsewhere. None can be hidden: it stays shown,
+  // and the button says why.
+  await show.click()
   for (const elsewhere of [
+    'kind: Secret\nstringData: [unclosed\n',
+    'kind: Secret\nstringData:\n  a: b\n  a: c\n',
     'kind: Secret\nmetadata:\n  annotations: {k: &v S3CR3T}\nstringData: {a: *v}\n',
     'x: &d {a: S3CR3T}\nkind: Secret\nstringData: *d\n',
     'base: &b {a: S3CR3T}\nkind: Secret\nstringData:\n  <<: *b\n',
@@ -726,13 +745,14 @@ items:
     'k: &k Secret\nkind: *k\nstringData: {a: S3CR3T}\n',
     'b: &b {kind: Secret}\n<<: *b\nstringData: {a: S3CR3T}\n',
     'b: &b {stringData: {a: S3CR3T}}\nkind: Secret\n<<: *b\n',
-    // (Or whose key is said elsewhere: `*k` is `stringData`, or `kind`.)
     'k: &k stringData\nkind: Secret\n*k :\n  a: S3CR3T\n',
     'k: &k kind\n*k : Secret\nstringData:\n  a: S3CR3T\n',
   ]) {
-    expect(masked(elsewhere), elsewhere).toBeNull()
+    await type(page, elsewhere)
+    await expect(hide, elsewhere).toBeDisabled()
+    await expect(hide, elsewhere).toHaveAttribute(
+      'title',
+      'Its values can’t be told from the rest as it’s written: it isn’t YAML as it stands, or a value comes through an alias or a merge key.',
+    )
   }
-  // (An alias in what isn't a Secret is nobody's value.)
-  const other = 'kind: ConfigMap\nx: &a 1\ndata: {a: *a}\n'
-  expect(masked(other)).toBe(other)
 })
