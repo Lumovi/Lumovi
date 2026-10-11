@@ -187,8 +187,12 @@ export class DoorPage {
       DOOR_LIMITS.stepsASecond * most,
       left.steps + passed * DOOR_LIMITS.stepsASecond,
     )
-    if ((left.commits -= 1) < 0) return tooMuch('commits in a second', DOOR_LIMITS.commitsASecond)
-    if ((left.steps -= steps.length) < 0) {
+    // (Steps are whole and what's filled isn't: refused only when clearly over, never for the
+    // hair that arithmetic leaves under a whole step.)
+    if ((left.commits -= 1) < -0.5) {
+      return tooMuch('commits in a second', DOOR_LIMITS.commitsASecond)
+    }
+    if ((left.steps -= steps.length) < -0.5) {
       return tooMuch('steps in a second', DOOR_LIMITS.stepsASecond)
     }
     const changed = new Set<number>()
