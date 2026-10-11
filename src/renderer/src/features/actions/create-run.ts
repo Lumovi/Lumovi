@@ -137,7 +137,15 @@ export function plan(
       problems.push({ label: 'YAML', ok: false, error: document.errors[0]!.message })
       continue
     }
-    const object = document.toJS() as KubeObject | null
+    let object: KubeObject | null
+    try {
+      object = document.toJS() as KubeObject | null
+    } catch (error) {
+      // (YAML can read as YAML and still not make an object: an alias to an anchor that isn't
+      // set before it is found out only here.)
+      problems.push({ label: 'YAML', ok: false, error: (error as Error).message })
+      continue
+    }
     // Empty documents, like one after a trailing ---, are fine.
     if (object === null) continue
     if (typeof object !== 'object' || typeof object.kind !== 'string') {
