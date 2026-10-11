@@ -555,3 +555,63 @@ test('a frame of the window goes nowhere but to a box’s own document', async (
     .poll(async () => (await kept(page, 'echo')).heard.at(-1))
     .toBe('heard "still there?"')
 })
+
+test('a window that isn’t showing doesn’t count a plugin’s silence against it', async ({
+  lumovi: { page },
+}) => {
+  test.setTimeout(90_000)
+  // The page as it is while its window is hidden or behind another: the system may hold its
+  // timers and a plugin's back then, and an unanswered ping says nothing.
+  await page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }),
+  )
+  // One that's silent from its first moment without holding a processor (which is ended on a
+  // clock of its own): what goes back for a ping of Lumovi's isn't an answer to it. (Nothing
+  // but Lumovi's own words answers for Lumovi: a worker that breaks its first lines is silent.)
+  await open(page, 'stuck', `JSON.stringify = () => 'not an answer'`)
+  await new Promise((later) =>
+    setTimeout(later, BOX_LIMITS.pingEveryMs * (BOX_LIMITS.missedPings + 3)),
+  )
+  expect((await kept(page, 'stuck')).ended).toBeUndefined()
+  // Showing again, its silence counts from then, from the start.
+  await page.evaluate(() =>
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    }),
+  )
+  await new Promise((later) => setTimeout(later, BOX_LIMITS.pingEveryMs * 2))
+  expect((await kept(page, 'stuck')).ended).toBeUndefined()
+  await expect
+    .poll(async () => (await kept(page, 'stuck')).ended, {
+      // (Unhurried: a busy computer spaces the pings out, and a long gap starts the count over.)
+      timeout: BOX_LIMITS.pingEveryMs * (BOX_LIMITS.missedPings + 4) + 30_000,
+    })
+    .toEqual({ why: 'silent' })
+})
+
+test('a box closed is closed once, and only a plugin’s name opens one', async ({
+  lumovi: { page, app },
+}) => {
+  await open(page, 'echo', ECHO)
+  await expect.poll(async () => (await kept(page, 'echo')).count).toBe(1)
+  // Closed again, as a page leaving twice would: nothing more happens, and nothing is said.
+  await close(page, 'echo')
+  await close(page, 'echo')
+  expect((await boxFrames(app)).boxes).toEqual([])
+  expect((await kept(page, 'echo')).ended).toBeUndefined()
+  // A name that isn't a plugin's has no address, so no box: refused before a frame is made.
+  for (const name of ['Not A Name', 'lumovi', 'lumovi-own', 'kubernetes', 'a/../b', '']) {
+    const refused = await page.evaluate((name) => {
+      const w = window as unknown as { __lumoviBox: { openBox(options: object): unknown } }
+      try {
+        w.__lumoviBox.openBox({ plugin: name, code: '', heard() {}, ended() {} })
+        return 'opened'
+      } catch (error) {
+        return (error as Error).message
+      }
+    }, name)
+    expect(refused, name).toBe(`${name} isn’t a plugin’s name`)
+  }
+  expect(await page.locator('iframe').count()).toBe(0)
+})
