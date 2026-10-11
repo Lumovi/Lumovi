@@ -216,10 +216,22 @@ test('a way back from the provider is taken once, and what it says is kept short
   oidc.refuse = `access_denied\u0007${'x'.repeat(300)}`
   const callback = page.waitForRequest((r) => r.url().includes('/auth/callback'))
   await page.goto(`${served.url}auth/sign-in`)
-  const back = (await callback).url()
+  const taken = await callback
+  const back = taken.url()
+  // The sign-in's cookie, kept as it was sent on the way back: the browser drops it when its six
+  // seconds are up, however long a slow computer takes to get this far.
+  const sent = /(?:^|; )lumovi-sign-in=([^;]*)/.exec((await taken.allHeaders()).cookie ?? '')
+  expect(sent, 'the way back carries the sign-in’s cookie').not.toBeNull()
+  const cookie = {
+    name: 'lumovi-sign-in',
+    value: sent![1]!,
+    domain: new URL(back).hostname,
+    path: '/',
+  }
   await expect(notice(page, 'Signing in was cancelled, or the provider said no.')).toBeVisible()
-  const cookie = (await context.cookies()).find((c) => c.name === 'lumovi-sign-in')!
-  // Taken again, with its cookie: as one that took too long, and not recorded again.
+  // Taken again, with its cookie (put back, in case its six seconds are up already): as one that
+  // took too long, and not recorded again.
+  await context.addCookies([{ ...cookie, expires: -1 }])
   await page.goto(back)
   await expect(
     notice(page, 'That sign-in took too long, or started in another browser. Try again.'),
