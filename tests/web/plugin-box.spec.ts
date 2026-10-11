@@ -108,15 +108,17 @@ test('the box’s two files are the same for whoever asks, never redirect, and a
 test('a server’s address has to name one host, or it doesn’t start', async ({ clusters }) => {
   // What's written into the pages' policies as "this address exactly" can't be a pattern, or
   // two addresses, or carry anyone's password.
-  for (const address of [
-    'https://*.example.com',
-    'https://a.example,https://evil.example',
-    'https://someone:secret@lumovi.example',
-  ]) {
+  for (const address of ['https://*.example.com', 'https://a.example,https://evil.example']) {
     expect(await refusedConfig(clusters, { LUMOVI_URL: address }), address).toContain(
       `LUMOVI_URL must name one host (letters, digits, hyphens and dots, or an address), not "${address}".`,
     )
   }
+  // (And what it carried isn't said back: a server's log is no place for it.)
+  const said = await refusedConfig(clusters, {
+    LUMOVI_URL: 'https://someone:secret@lumovi.example',
+  })
+  expect(said).toContain('LUMOVI_URL can’t carry a user and password.')
+  expect(said).not.toContain('secret')
 })
 
 test('a box that the browser won’t show ends, and says its box never came', async ({

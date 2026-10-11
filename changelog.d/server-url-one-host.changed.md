@@ -1,3 +1,4 @@
-- A server no longer starts with a `LUMOVI_URL` that doesn't name one host: a `*` in it, a
-  comma, or a user and password are refused, with a line that says so. Its pages' security
-  policy names that address exactly.
+- A server's `LUMOVI_URL` names one host: a name of letters, digits, hyphens and dots, or an IP
+  address. One with a `*`, a comma, or a user and password in it is refused when the server
+  starts, with a line that says so. The security policy sent with a server's pages names that
+  address exactly.
