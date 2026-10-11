@@ -20,7 +20,7 @@ import {
   yesOrNo,
   type Part,
 } from '../../src/shared/kit/declare.ts'
-import { DOOR_LIMITS, PluginPage, ROOT, type Stopped } from '../../src/shared/plugin-door.ts'
+import { DOOR_LIMITS, DoorPage, ROOT, type Stopped } from '../../src/shared/plugin-door.ts'
 
 const PARTS: Record<string, Part> = {
   Stack: { name: 'Stack', holds: 'parts', props: { gap: number(0, 8, true) } },
@@ -37,7 +37,7 @@ const PARTS: Record<string, Part> = {
 
 /** A page with a fixed clock, and `send` for a commit's steps. */
 function page(clock = { now: 0 }) {
-  const page = new PluginPage(PARTS, () => clock.now)
+  const page = new DoorPage(PARTS, () => clock.now)
   const send = (...steps: unknown[]) => page.take(JSON.stringify({ commit: steps }))
   return { page, send, clock }
 }
@@ -197,7 +197,7 @@ test.describe('a plugin’s page', () => {
       { commit: [] },
     ]
     for (const message of messages) {
-      const page = new PluginPage(PARTS, () => 0)
+      const page = new DoorPage(PARTS, () => 0)
       const result = stopped(page.take(message as string))
       expect(result.why, String(message)).toBe('not-allowed')
       expect(page.stopped).toEqual(result)
@@ -258,26 +258,55 @@ test.describe('a plugin’s page', () => {
       expect(line, line).not.toContain('xxxx')
     }
     expect(lines[0]).toBe(
-      'step 1: Stack: takes nothing named "style<U+000A>2026-10-12 Lumovi: all is well<U+202E>xxx…"',
+      'step 1: Stack: takes nothing named "style 2026-10-12 Lumovi: all is well U+202E xxx…"',
     )
   })
 
-  test('a text has no character that can’t be seen, on the page or in a part', () => {
-    for (const unseen of ['\u202E', '\u200B', '\u0000', '\u2028', '\uD83D', '\uFEFF', '\u3164']) {
+  test('a text is taken whatever its characters: what’s in a cluster isn’t the plugin’s to answer for', () => {
+    // (What can't be seen is drawn as a mark of Lumovi's by the part that shows it: `inPieces`.)
+    const texts = [
+      '👨\u200D👩\u200D👧',
+      'می\u200Cخواهم',
+      'un\u00ADseen',
+      'safe\u202Egnp.exe',
+      'a\u0000b',
+      'a\uD83Db',
+    ]
+    const { send, page } = page_()
+    for (const [i, text] of texts.entries()) {
       expect(
-        stopped(page_().send(['text', 1, `a${unseen}b`])).what,
-        JSON.stringify(unseen),
-      ).toMatch(
-        /^step 1: a text: holds a character that can’t be seen or isn’t text \(U\+[0-9A-F]{4}\)$/,
-      )
-      expect(stopped(page_().send(['make', 1, 'Button', { label: `a${unseen}b` }])).why).toBe(
-        'not-allowed',
-      )
+        send(['text', 2 * i + 1, text], ['make', 2 * i + 2, 'Button', { label: text }]),
+      ).toEqual({ changed: [] })
+      expect(page.node(2 * i + 1)?.text).toBe(text)
+      expect(page.node(2 * i + 2)?.props.label).toBe(text)
     }
-    // A line's end and a tab are text; so is every script, and a space that keeps two words together.
-    expect(page_().send(['text', 1, 'one\n\ttwo, é, 日本, 🙂, 12\u00A0MB'])).toEqual({
-      changed: [],
+    expect(page.stopped).toBeUndefined()
+  })
+
+  test('what a part’s kinds can’t say, the part says: one property agreeing with another', () => {
+    const parts: Record<string, Part> = {
+      Pair: {
+        name: 'Pair',
+        holds: 'nothing',
+        props: { names: list(text(10), 5), values: list(number(0, 9), 5) },
+        also: (props) =>
+          (props.names as string[] | undefined)?.length ===
+          (props.values as number[] | undefined)?.length
+            ? undefined
+            : 'a value for every name',
+      },
+    }
+    const made = (props: unknown) =>
+      new DoorPage(parts, () => 0).take(JSON.stringify({ commit: [['make', 1, 'Pair', props]] }))
+    expect(made({ names: ['a'], values: [1] })).toEqual({ changed: [] })
+    expect(made({ names: ['a'], values: [] })).toEqual({
+      why: 'not-allowed',
+      what: 'step 1: Pair: a value for every name',
     })
+    // (Only what passed its kinds is asked about.)
+    expect(stopped(made({ names: 'a', values: [] })).what).toBe(
+      'step 1: Pair.names: should be a list',
+    )
   })
 
   test('what was checked can’t be changed after', () => {
@@ -289,7 +318,7 @@ test.describe('a plugin’s page', () => {
         props: { rows: list(record({ name: text(10) }), 5) },
       },
     }
-    const page = new PluginPage(parts, () => 0)
+    const page = new DoorPage(parts, () => 0)
     page.take(JSON.stringify({ commit: [['make', 1, 'Rows', { rows: [{ name: 'a' }] }]] }))
     const props = page.node(1)!.props as { rows: { name: string }[] }
     expect(
@@ -307,7 +336,7 @@ test.describe('a plugin’s page', () => {
     for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) expect(send()).toEqual({ changed: [] })
     expect(stopped(send()).why).toBe('too-much')
     // And with no clock given it has one of its own.
-    expect(new PluginPage(PARTS).take('{"commit":[]}')).toEqual({ changed: [] })
+    expect(new DoorPage(PARTS).take('{"commit":[]}')).toEqual({ changed: [] })
   })
 
   test('a number is new once, and only a whole one above nothing', () => {
@@ -531,6 +560,47 @@ test.describe('a plugin’s page', () => {
     expect(moving).toBeLessThan(200)
   })
 
+  test('the other worst second: a leaf put and taken at the bottom of wide parts', () => {
+    // 31 parts one under another, four of them holding 990 others; then every step of a second
+    // making, putting and taking a leaf under the last.
+    const { send, clock, page } = page_()
+    let id = 0
+    const chain: number[] = []
+    for (let level = 0; level < 31; level++) {
+      clock.now += 1000
+      const steps: unknown[][] = [
+        ['make', ++id, 'Stack', {}],
+        ['put', chain.at(-1) ?? ROOT, id],
+      ]
+      chain.push(id)
+      if (level % 8 === 3) {
+        for (let i = 0; i < 990; i++)
+          steps.push(['make', ++id, 'Stack', {}], ['put', chain.at(-1)!, id])
+      }
+      expect(send(...steps)).toHaveProperty('changed')
+    }
+    expect(page.holds.nodes).toBe(31 + 4 * 990)
+    const bottom = chain.at(-1)!
+    const commits = Array.from(
+      { length: DOOR_LIMITS.stepsASecond / DOOR_LIMITS.stepsACommit },
+      () => {
+        const steps: unknown[][] = []
+        while (steps.length + 3 <= DOOR_LIMITS.stepsACommit)
+          steps.push(['make', ++id, 'Stack', {}], ['put', bottom, id], ['take', bottom, id])
+        return JSON.stringify({ commit: steps })
+      },
+    )
+    clock.now += 1000
+    const started = performance.now()
+    for (const commit of commits) expect(page.take(commit)).toEqual({ changed: [bottom] })
+    const taking = performance.now() - started
+    // (Measured: about 40 ms on a laptop.)
+    expect(taking).toBeLessThan(200)
+    // And the heights it keeps are still right: one more level fits, and no more.
+    expect(send(['make', ++id, 'Stack', {}], ['put', bottom, id])).toEqual({ changed: [bottom] })
+    expect(stopped(send(['make', ++id, 'Stack', {}], ['put', id - 1, id])).why).toBe('too-much')
+  })
+
   test('what was made and never put anywhere can be let go of', () => {
     const { send, page } = page_()
     send(['make', 1, 'Stack', {}], ['make', 2, 'Stack', {}], ['put', 1, 2], ['text', 3, 'abc'])
@@ -554,6 +624,10 @@ test.describe('a plugin’s page', () => {
     expect(Object.isFrozen(node) && Object.isFrozen(node.children)).toBe(true)
     expect(() => (node.children as number[]).push(5)).toThrow()
     expect(node).toEqual({ part: 'Stack', props: {}, children: [2] })
+    send(['text', 3, 'a'])
+    expect(Object.isFrozen(page.node(3)!.props) && Object.isFrozen(page.node(ROOT)!.props)).toBe(
+      true,
+    )
     expect(page.node(1)?.children).toEqual([2])
   })
 

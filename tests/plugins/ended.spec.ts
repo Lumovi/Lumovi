@@ -3,7 +3,14 @@
  * own words shown as text that can't pass for Lumovi's.
  */
 import { expect, test } from '@playwright/test'
-import { inPieces } from '../../src/shared/kit/characters.ts'
+import {
+  codePoint,
+  inPieces,
+  MARKS_AT_MOST,
+  quotedBack,
+  shortInPieces,
+  spelled,
+} from '../../src/shared/kit/characters.ts'
 import { endedWords, SAID_AT_MOST, type PageEnd } from '../../src/shared/plugin-ended.ts'
 
 const STILL =
@@ -73,47 +80,116 @@ test('a fault of Lumovi’s own is said as that, with no word of stopping', () =
   })
 })
 
-test('a plugin’s own words come in pieces: its text as it is, what can’t be seen as a mark of Lumovi’s', () => {
-  const u = (unseen: string) => ({ unseen })
-  const said = (text: string) => inPieces(text, SAID_AT_MOST)
-  expect(said('plain words, é and 日本 and 🙂')).toEqual(['plain words, é and 日本 and 🙂'])
-  // The mark's own spelling, typed by a plugin, is its text and nothing more.
-  expect(said('<U+200B> U+200B')).toEqual(['<U+200B> U+200B'])
-  expect(said('a\u200Bb')).toEqual(['a', u('U+200B'), 'b'])
-  expect(said('a\u0000\u001b\u007f')).toEqual(['a', u('U+0000'), u('U+001B'), u('U+007F')])
-  // What turns the direction of text, or hides in it.
-  expect(said('safe\u202Egnp.exe')).toEqual(['safe', u('U+202E'), 'gnp.exe'])
-  expect(said('\u2066a\u2069\u2060\uFEFF\u00AD')).toEqual([
-    u('U+2066'),
-    'a',
-    u('U+2069'),
-    u('U+2060'),
-    u('U+FEFF'),
-    u('U+00AD'),
+const u = (unseen: string) => ({ unseen })
+
+test('a text that isn’t Lumovi’s comes in pieces: text as written, and marks for what would act', () => {
+  // Text, drawn as written: every script and emoji, every space, what writing is joined and
+  // broken with, the weak direction marks, a code point with no glyph.
+  for (const text of [
+    'plain words, é and 日本 and 🙂 and ❤️',
+    '<U+200B> U+202E',
+    '👨‍👩‍👧 🏳️‍🌈',
+    'می‌خواهم',
+    'क्‍ष',
+    'super­califragilistic',
+    '﻿name',
+    'שלום 123 ‏!',
+    'a​b⁠c͏d‎e؜f',
+    'a b c d e f　g',
+    'a\tb',
+    'e' + '́'.repeat(60),
+    'x�y\u{E01EF}͸',
   ])
-  // Spaces that aren't the plain one, a tab, letters drawn as nothing.
-  expect(said('a\u00A0b\u3000c\td\u3164')).toEqual([
-    'a',
-    u('U+00A0'),
-    'b',
-    u('U+3000'),
-    'c',
-    u('U+0009'),
-    'd',
-    u('U+3164'),
+    expect(inPieces(text), JSON.stringify(text)).toEqual([text])
+  // A line's end is one, however it was written, and never a mark.
+  expect(inPieces('a\r\nb\rc\u0085d e f\n')).toEqual(['a\nb\nc\nd\ne\nf\n'])
+  // What turns text round is a mark, and what follows it isn't turned.
+  expect(inPieces('abc‮def')).toEqual(['abc', u('U+202E'), 'def'])
+  for (const turning of ['‪', '‫', '‬', '‭', '⁦', '⁧', '⁨', '⁩'])
+    expect(inPieces(`a${turning}b`)).toEqual(['a', u(codePoint(turning)), 'b'])
+  // Controls; an escape sequence as one mark, and an escape that starts none alone.
+  expect(inPieces('x\u0000y\u0007\u007f\u0080\u009f\u000b')).toEqual([
+    'x',
+    u('U+0000'),
+    'y',
+    u('U+0007'),
+    u('U+007F'),
+    u('U+0080'),
+    u('U+009F'),
+    u('U+000B'),
   ])
-  // Half of a pair, a code point of nobody's, one that isn't assigned.
-  expect(said('a\uD83Db\uE000c\uFFFFd')).toEqual([
-    'a',
-    u('U+D83D'),
-    'b',
-    u('U+E000'),
-    'c',
-    u('U+FFFF'),
-    'd',
+  expect(inPieces('\u001b[31mfailed\u001b[0m')).toEqual([u('U+001B'), 'failed', u('U+001B')])
+  expect(inPieces('\u001b[38;5;196mred\u001bO \u001b[' + '1'.repeat(17) + 'm')).toEqual([
+    u('U+001B'),
+    'red',
+    u('U+001B'),
+    'O ',
+    u('U+001B'),
+    '[' + '1'.repeat(17) + 'm',
   ])
+  // The other format characters, tags, blank letters, the object's placeholder.
+  for (const marked of [
+    '᠎',
+    '⁪',
+    '￹',
+    '￻',
+    '￼',
+    '\u{1D173}',
+    '\u{E0001}',
+    '\u{E0067}',
+    '\u{E007F}',
+    'ᅟ',
+    'ᅠ',
+    'ㅤ',
+    'ﾠ',
+  ])
+    expect(inPieces(`a${marked}b`), codePoint(marked)).toEqual(['a', u(codePoint(marked)), 'b'])
+  // Private use, noncharacters, half of a pair.
+  for (const marked of [
+    '',
+    '',
+    '\u{F0000}',
+    '\u{10FFFD}',
+    '﷐',
+    '￾',
+    '￿',
+    '\u{1FFFE}',
+    '\u{10FFFF}',
+    '\uD800',
+    '\uDFFF',
+  ])
+    expect(inPieces(`a${marked}b`), codePoint(marked)).toEqual(['a', u(codePoint(marked)), 'b'])
+  // A controller's message, as one comes: taken whole.
+  expect(
+    inPieces('﻿Reconcile failed:\r\n\u001b[31mError\u001b[0m: admission webhook denied ✋\r\n'),
+  ).toEqual([
+    '﻿Reconcile failed:\n',
+    u('U+001B'),
+    'Error',
+    u('U+001B'),
+    ': admission webhook denied ✋\n',
+  ])
+  // Twenty marks a text, and then how many more there were.
+  const many = inPieces('\u0007'.repeat(4000))
+  expect(many).toHaveLength(MARKS_AT_MOST + 1)
+  expect(many.at(-1)).toEqual({ more: 3980 })
+  expect(inPieces('\u0007'.repeat(MARKS_AT_MOST))).toHaveLength(MARKS_AT_MOST)
+  expect(inPieces(5 as unknown as string)).toEqual(['5'])
+})
+
+test('where a mark can’t be drawn it’s spelled, by the same rule', () => {
+  expect(spelled('abc‮def')).toBe('abc U+202E def')
+  expect(spelled('می‌خواهم 👨‍👩‍👧')).toBe('می‌خواهم 👨‍👩‍👧')
+  expect(spelled('\u0007'.repeat(4000))).toMatch(/^( U\+0007 ){20} and 3,980 more $/)
+  expect(quotedBack('style\n2026 "all well"‮' + 'x'.repeat(500))).toBe(
+    '"style 2026 \\"all well\\" U+202E xxxxxxxxxxxxxxxxxx…"',
+  )
+})
+
+test('a plugin’s last words: short, five lines at most, cut by characters', () => {
+  const said = (text: string) => shortInPieces(text, SAID_AT_MOST, 5)
   // Lines stay lines, five at most; empty ones and every end past the fifth line are a space.
-  expect(said('one\r\ntwo\n\n\n three\u2028four\rfive\nsix\nseven\n')).toEqual([
+  expect(said('one\r\ntwo\n\n\n three four\rfive\nsix\nseven\n')).toEqual([
     'one\ntwo\nthree\nfour\nfive six seven',
   ])
   expect(said('\n'.repeat(300) + 'a')).toEqual(['a'])
@@ -122,9 +198,9 @@ test('a plugin’s own words come in pieces: its text as it is, what can’t be 
       .join('')
       .split('\n'),
   ).toHaveLength(5)
-  // Cut by characters, never through a pair; and each mark counts as the one character it stands for.
+  expect(said('a‮b')).toEqual(['a', u('U+202E'), 'b'])
+  // Cut by characters, never through a pair.
   expect(said('🙂'.repeat(SAID_AT_MOST + 5))).toEqual(['🙂'.repeat(SAID_AT_MOST)])
-  expect(said('\u200B'.repeat(500))).toHaveLength(SAID_AT_MOST)
-  expect(said(5 as unknown as string)).toEqual(['5'])
+  expect(said('\u0007'.repeat(500))).toHaveLength(MARKS_AT_MOST + 1)
   expect(said('   ')).toEqual([])
 })

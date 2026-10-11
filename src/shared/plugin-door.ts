@@ -13,7 +13,7 @@
  * at. So a page is whole, as its plugin described it, or it's stopped and Lumovi says why.
  */
 import { quotedBack } from './kit/characters'
-import { unseenProblem, wrongWithFields, type Part } from './kit/declare'
+import { wrongWithFields, type Part } from './kit/declare'
 
 /**
  * What a plugin's page is held to. Each is a first line and not a measured one: what settles it
@@ -71,6 +71,8 @@ interface Held extends PageNode {
   parent?: number
   /** How many levels are under it, itself counted. */
   height: number
+  /** How many of its children are of each height: its own is one more than the greatest. */
+  heights: number[]
   /** The characters it holds: its text, or its properties as text. */
   size: number
 }
@@ -86,10 +88,12 @@ const isId = (value: unknown): value is number =>
  * name; `now` is a clock in milliseconds: the page's own, never a plugin's, and one that only
  * goes forward (a computer's clock can be set back, and a second would then never end).
  */
-export class PluginPage {
+export class DoorPage {
   readonly #parts: Readonly<Record<string, Part>>
   readonly #now: () => number
-  readonly #nodes = new Map<number, Held>([[ROOT, { props: {}, children: [], height: 1, size: 0 }]])
+  readonly #nodes = new Map<number, Held>([
+    [ROOT, { props: NONE, children: [], height: 1, heights: [], size: 0 }],
+  ])
   /** The newest id made: one made after it has a greater one, so none is ever used twice. */
   #newest = 0
   #held = 0
@@ -227,6 +231,9 @@ export class PluginPage {
   #props(part: Part, props: unknown): Stopped | number {
     const wrong = wrongWithFields(props, part.props, part.required ?? [], part.name)
     if (wrong) return notAllowed(wrong)
+    // (A part's own words about a plugin's properties are Lumovi's: it quotes nothing as written.)
+    const also = part.also?.(props as Record<string, unknown>)
+    if (also) return notAllowed(`${part.name}: ${also}`)
     return JSON.stringify(props).length
   }
 
@@ -243,6 +250,7 @@ export class PluginPage {
       props: frozen(props as Record<string, unknown>),
       children: [],
       height: 1,
+      heights: [],
       size,
     })
   }
@@ -250,10 +258,15 @@ export class PluginPage {
   #text(id: unknown, text: unknown, changed: Set<number>): Stopped | undefined {
     if (typeof text !== 'string') return notAllowed('a text that isn’t text')
     if (text.length > DOOR_LIMITS.text) return tooMuch('a text', DOOR_LIMITS.text)
-    const unseen = unseenProblem(text, 'a text')
-    if (unseen) return notAllowed(unseen)
     if (this.#fresh(id))
-      return this.#hold(id, { props: {}, text, children: [], height: 1, size: text.length })
+      return this.#hold(id, {
+        props: NONE,
+        text,
+        children: [],
+        height: 1,
+        heights: [],
+        size: text.length,
+      })
     const node = isId(id) ? this.#nodes.get(id) : undefined
     if (!node || node.part !== undefined)
       return notAllowed('sets the text of something that isn’t a text')
@@ -294,15 +307,21 @@ export class PluginPage {
     return depth
   }
 
-  /** `height`, counted again from what's under `id`, and so on up: after something is taken away. */
-  #measure(id: number): void {
-    for (let at: number | undefined = id; at !== undefined;) {
+  /**
+   * A child of `id` came (`now`), went (`was`) or changed its height: `id`'s own height follows,
+   * and so on up. A part keeps a count of its children by height, so this never looks at them
+   * one by one, however many there are.
+   */
+  #childHeight(id: number, was: number | undefined, now: number | undefined): void {
+    for (let at: number | undefined = id; at !== undefined && was !== now;) {
       const node: Held = this.#nodes.get(at)!
-      let height = 1
-      for (const child of node.children)
-        height = Math.max(height, 1 + this.#nodes.get(child)!.height)
-      if (height === node.height) return
-      node.height = height
+      if (was !== undefined) node.heights[was]!--
+      if (now !== undefined) node.heights[now] = (node.heights[now] ?? 0) + 1
+      let tallest = node.heights.length - 1
+      while (tallest > 0 && !node.heights[tallest]) tallest--
+      node.heights.length = tallest + 1
+      was = node.height
+      now = node.height = Math.max(tallest, 0) + 1
       at = node.parent
     }
   }
@@ -368,11 +387,7 @@ export class PluginPage {
     }
     parent.children.splice(at, 0, id as number)
     child.parent = where
-    // (Putting only ever makes a tree taller: no counting again.)
-    for (let up: Held | undefined = parent, height = under; up && up.height < height; height++) {
-      up.height = height
-      up = up.parent === undefined ? undefined : this.#nodes.get(up.parent)
-    }
+    if (was < 0) this.#childHeight(where, undefined, child.height)
     changed.add(where)
     return undefined
   }
@@ -393,8 +408,8 @@ export class PluginPage {
     const at = parent && isId(id) ? parent.children.indexOf(id) : -1
     if (!parent || at < 0) return notAllowed('takes away what isn’t there')
     parent.children.splice(at, 1)
+    this.#childHeight(from as number, this.#nodes.get(id as number)!.height, undefined)
     this.#forget(id as number)
-    this.#measure(from as number)
     changed.add(from as number)
     return undefined
   }
@@ -425,6 +440,9 @@ function frozen<T>(value: T): T {
   }
   return value
 }
+
+/** What a text has for properties, and the page itself: nothing, and the same nothing. */
+const NONE: Readonly<Record<string, unknown>> = Object.freeze({})
 
 const notAllowed = (what: string): Stopped => ({ why: 'not-allowed', what })
 const tooMuch = (what: string, most: number): Stopped => ({
