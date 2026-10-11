@@ -1032,7 +1032,7 @@ export interface LumoviApi {
     openExternal(url: string): Promise<boolean>
     /** Saves `text` as a file named `name` (asking where, on the desktop); false if the user cancels. */
     saveFile(name: string, text: string): Promise<Result<boolean>>
-    /** The user's own view files, read when asked. */
+    /** The user's own plugin files, read when asked. */
     plugins(): Promise<LocalPlugins>
   }
   /** Usage history from the cluster's Prometheus or VictoriaMetrics. */

@@ -212,9 +212,22 @@ function KindTable({
                     <td className="truncate border-b border-line py-1.5 pr-3 text-ink-2">
                       {resource.namespaced ? 'Namespaced' : 'Cluster'}
                     </td>
-                    {/* A file's name can be longer than the column: its end tells two apart. */}
+                    {/*
+                      A file's name can be longer than the column: its end tells two apart. (On a
+                      phone the column hasn't room for a start, an ellipsis and an end: there it's
+                      cut at its end, until the page is cards.)
+                    */}
                     <td className="border-b border-line py-1.5 pr-3 text-xs text-ink-2">
-                      {view ? <MiddleTruncate text={shownBy(view)} /> : '—'}
+                      {view ? (
+                        <>
+                          <MiddleTruncate text={shownBy(view)} className="phone:hidden" />
+                          <span data-end-cut className="hidden truncate phone:block">
+                            {shownBy(view)}
+                          </span>
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="border-b border-line py-1 pr-2 text-right">
                       <IconButton
