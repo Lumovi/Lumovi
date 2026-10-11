@@ -23,6 +23,8 @@ const TESTS_ONLY = [
   'LUMOVI_SPONSOR_URL',
   // What the tests reach a plugin's box by.
   '__lumoviBox',
+  // The page the kit's parts are seen and tested on.
+  'lumovi-kit-page',
 ]
 
 const PLUGIN = `
