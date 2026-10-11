@@ -1416,6 +1416,8 @@ export const IPC = {
   terminalClose: 'terminal:close',
   terminalData: 'terminal:data',
   terminalExit: 'terminal:exit',
+  /** Lumovi ended a plugin's process: which plugin, and what it was over. */
+  pluginEnded: 'plugin:ended',
   forwardStart: 'forward:start',
   forwardList: 'forward:list',
   forwardStop: 'forward:stop',

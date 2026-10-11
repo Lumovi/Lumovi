@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, nativeTheme, screen, type Rectangle } from 'electron'
 import type { WindowState } from '@shared/api'
 import icon from '../../build/icon.png?asset'
+import { guardFrames } from './plugin-box'
 
 /** Keep in sync with the `--app-bg`/`--text-2` tokens in the renderer's theme. */
 const CHROME = {
@@ -94,6 +95,8 @@ export function createMainWindow(
   win.webContents.on('will-navigate', (event) => {
     if (page(event.url) !== page(url)) event.preventDefault()
   })
+  // Nor does a frame of it go anywhere but to a plugin's sealed box.
+  guardFrames(win)
 
   void win.loadURL(url)
   return win

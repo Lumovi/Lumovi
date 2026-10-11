@@ -36,6 +36,7 @@ import { readPolicy } from './policy'
 import { SettingsStore } from './settings'
 import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
+import { filterRequests, registerBoxScheme, serveBoxes, watchBoxes } from './plugin-box'
 import { createMainWindow, rendererUrl } from './window'
 
 // Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
@@ -56,6 +57,8 @@ if (stdio) {
   app.quit()
 } else {
   const shellReady = loadLoginShellEnv()
+  // Where a plugin's code will run: its protocol has to be named before the app is ready.
+  registerBoxScheme()
 
   app.on('window-all-closed', () => app.quit())
 
@@ -81,6 +84,11 @@ if (stdio) {
     session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission))
 
     const url = rendererUrl()
+    // A plugin's sealed box: its two files, and nothing a box asks the network for let through.
+    serveBoxes(url)
+    // (On the session the window's page is in. Lumovi's own requests elsewhere don't pass it:
+    // the updater has a session of its own, and the clusters are reached from Node.)
+    filterRequests(session.defaultSession)
     // The kubeconfig files chosen in Lumovi, or else KUBECONFIG's, or ~/.kube/config; then those
     // added; then the clusters added in Lumovi, each a file of its own.
     const kubeconfigs = join(app.getPath('userData'), 'clusters')
@@ -411,8 +419,27 @@ if (stdio) {
       void files.cancelAll()
     }
     win.webContents.on('did-start-navigation', (details) => {
-      if (!details.isSameDocument) closeStreams()
+      // (The page's own: a plugin's box arriving in a frame of it ends nothing.)
+      if (details.isMainFrame && !details.isSameDocument) closeStreams()
     })
+    // A plugin's process is measured while it runs, and ended when it's over its limits.
+    watchBoxes(
+      win,
+      (plugin, over) => {
+        console.warn(
+          over === 'shared'
+            ? `Lumovi ended the plugin ${plugin}: it wasn’t in a process of its own`
+            : `Lumovi ended the plugin ${plugin}: it was over its ${over === 'memory' ? 'memory' : 'time on the processor'}`,
+        )
+        // (Nothing of the page listens yet: until something shows a plugin's page, a box's page
+        // learns of it by its unanswered pings.)
+        send(IPC.pluginEnded, plugin, over)
+      },
+      (plugin, why) =>
+        console.warn(
+          `Lumovi couldn’t take the plugin ${plugin} off its page, where it isn’t in a process of its own: ${why}`,
+        ),
+    )
     // Node shells' pods are deleted as their shells end: quitting waits for that (a few
     // seconds at most; their deadline ends any that are left).
     let waited = false
