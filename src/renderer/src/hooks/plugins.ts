@@ -89,6 +89,12 @@ export function usePlugins() {
         local,
         replacing,
         included,
+        /** What became of each file of the folder, and which of Lumovi's are in use beside them. */
+        files: settled.files,
+        lumovisInUse: settled.lumovis,
+        /** What's wrong with Lumovi's own (in a release, nothing). */
+        shipped: shippedProblems,
+        lumovi,
         problems: [...shippedProblems.map((text): PluginProblem => ({ text })), ...problems],
       }
     },

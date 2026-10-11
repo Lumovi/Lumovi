@@ -40,6 +40,11 @@ export function helmPath(context: string): string {
   return `${clusterPath(context)}/helm`
 }
 
+/** Every plugin there is: what's in use, what isn't and why, and what each asks for. */
+export function pluginsPath(context: string): string {
+  return `${clusterPath(context)}/plugins`
+}
+
 /** A plugin's page: its kinds, all together and a tab each. */
 export function pluginPath(context: string, name: string): string {
   return `${clusterPath(context)}/plugins/${encodeURIComponent(name)}`

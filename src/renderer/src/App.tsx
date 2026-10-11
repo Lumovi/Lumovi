@@ -11,6 +11,7 @@ import { AccessPage } from './features/access/AccessPage'
 import { AccessUpdates } from './features/access/use-access'
 import { YourAccessPage } from './features/access/YourAccessPage'
 import { PluginPage } from './features/plugins/PluginPage'
+import { PluginsPage } from './features/plugins/PluginsPage'
 import { ApprovalCenter } from './features/assistants/ApprovalCenter'
 import { AssistantsPage } from './features/assistants/AssistantsPage'
 import { AuditPage } from './features/audit/AuditPage'
@@ -100,6 +101,7 @@ const routes: RouteObject[] = [
                 element: <ResourcePage key={resource.kind} resource={resource} />,
               })),
               { path: 'r/:kind', element: <CustomResourcePage /> },
+              { path: 'plugins', element: <PluginsPage /> },
               { path: 'plugins/:name', element: <PluginPage /> },
               { path: 'api-resources', element: <ApiResourcesPage /> },
               { path: 'helm', element: <HelmPage /> },

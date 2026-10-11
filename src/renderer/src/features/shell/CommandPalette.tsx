@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   Blocks,
+  Plug,
   ChartSpline,
   CornerDownLeft,
   FilePlus2,
@@ -46,6 +47,7 @@ import { matchWords } from '@renderer/lib/match'
 import {
   pluginPath,
   apiResourcesPath,
+  pluginsPath,
   clusterPath,
   helmPath,
   formatRef,
@@ -281,10 +283,17 @@ function Palette({ onDone }: { onDone: () => void }) {
           </Item>
           <Item
             icon={<Blocks />}
-            value="API resources kinds custom resources CRDs plugins"
+            value="API resources kinds custom resources CRDs"
             onSelect={run(() => go(apiResourcesPath(context)))}
           >
             API resources
+          </Item>
+          <Item
+            icon={<Plug />}
+            value="All plugins what each asks for"
+            onSelect={run(() => go(pluginsPath(context)))}
+          >
+            All plugins
           </Item>
         </Command.Group>
         <Command.Group heading="Namespace">

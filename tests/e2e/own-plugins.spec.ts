@@ -9,6 +9,29 @@ import { expect, mockOpenExternal, openCluster, panel, row, rows, test } from '.
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 
+/** The page of every plugin: what's in use, what isn't and why. */
+async function allPlugins(page: Page) {
+  await sidebar(page).getByRole('link', { name: 'All plugins' }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Plugins')
+}
+
+/** What that page says is wrong, as lines "file: problem", each file's under its own row. */
+function problemLines(page: Page): Promise<string[]> {
+  return page.getByRole('list', { name: /^Problems with / }).evaluateAll((lists) =>
+    lists.flatMap((list) => {
+      const file = list.getAttribute('aria-label')!.slice('Problems with '.length)
+      return [...list.querySelectorAll('li')].map((line) => `${file}: ${line.textContent}`)
+    }),
+  )
+}
+
+/** That the page says `problem` (a line "file: problem", or a part of one). */
+async function expectProblem(page: Page, problem: string) {
+  await expect
+    .poll(async () => (await problemLines(page)).join('\n'), { message: problem })
+    .toContain(problem)
+}
+
 /** Opens a custom kind's list from its API group on the API resources page. */
 async function openKind(page: Page, group: string, label: string) {
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
@@ -565,8 +588,7 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
   writeFileSync(join(plugins, 'notes.txt'), 'not a plugin')
   await openCluster(page)
 
-  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
-  const problems = page.getByRole('list', { name: 'Plugin problems' })
+  await allPlugins(page)
   for (const problem of [
     // One file a reason: each is said with its file, and none of them is used.
     'not-a-plugin.yaml: should start with apiVersion: lumovi.dev/v1beta1 and kind: Plugin',
@@ -589,7 +611,6 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'huge.yaml: It’s larger than 256 KB.',
     // Lumovi's of that name stays, and that's said: theirs isn't what they're looking at.
     'my-flux.yaml: spec: a label, an icon or a category is for a place in the sidebar, and that needs kinds',
-    'my-flux.yaml: isn’t in use, so Lumovi’s Flux is shown instead',
     // Everything wrong in one plugin's views is said, each in its place.
     'broken.yaml: spec.views[0].kinds: should not be empty',
     'spec.views[0].icon: should be one of activity, archive',
@@ -720,18 +741,10 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'dotted.yaml: spec.views[1].actions[0]: what it creates: "Widget.example.com" should be a kind’s own name',
     // What one of Lumovi's plugins has can be had one way: under that plugin's name, all of it.
     'j-keda.yaml: Kustomization.kustomize.toolkit.fluxcd.io is flux’s kind. A plugin of yours named flux takes its place, all of it',
-    'j-keda.yaml: isn’t in use, so Lumovi’s KEDA is shown instead',
     'k-scalers.yaml: ScaledObject.keda.sh is keda’s kind. A plugin of yours named keda takes its place, all of it',
     'my-kustomizations.yaml: Kustomization.kustomize.toolkit.fluxcd.io is flux’s kind. A plugin of yours named flux takes its place, all of it',
-    'my-kustomizations.yaml: isn’t in use',
     'my-rules.yaml: constraints.gatekeeper.sh is all gatekeeper’s. A plugin of yours named gatekeeper takes its place, all of it',
-    'my-rules.yaml: isn’t in use',
     'b-twin.yaml: twin is a-twin.yaml’s name too',
-    // (And what follows for it is said once, after why, as a line of its own.)
-    'b-twin.yaml: isn’t in use',
-    'd-gadgets.yaml: isn’t in use',
-    'f-moon.yaml: isn’t in use',
-    'h-stars.yaml: isn’t in use',
     'd-gadgets.yaml: Gadget.example.com is already gadgets’ kind',
     'f-moon.yaml: moons.example.com is all moons’, so another plugin can’t have it',
     'h-stars.yaml: stars.example.com is in one-star’s groups too, so this plugin can’t have every kind of it',
@@ -749,11 +762,24 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'spec.views[1].actions[7].inputs[2]: only a choice has options',
     'spec.views[1].actions[7].inputs[3]: a choice needs options, or a path to read them from',
   ]) {
-    await expect(problems).toContainText(problem)
+    await expectProblem(page, problem)
   }
+  // What follows for a file is said in its row: that it isn't in use, and, where it has the
+  // name of one of Lumovi's, that Lumovi's is shown instead.
+  const fileRow = (file: string) =>
+    page.getByRole('table', { name: 'Plugins' }).locator('tr[data-state]').filter({ hasText: file })
+  await expect(fileRow('my-flux.yaml')).toContainText('Not in use. 2 problems to fix in the file.')
+  await expect(fileRow('my-flux.yaml')).toContainText('Lumovi’s Flux is shown instead')
+  await expect(fileRow('j-keda.yaml')).toContainText('Lumovi’s KEDA is shown instead')
+  await expect(fileRow('b-twin.yaml')).toContainText('Not in use.')
+  // A file's name is the file's to choose: on this page too it's shown with nothing in it that
+  // can't be seen, in its row and in its path.
+  await expect(fileRow('backU+202Ewards.yaml')).toContainText('Not in use.')
+  await expect(fileRow('backU+202Ewards.yaml')).toContainText(/plugins[\\/]backU\+202Ewards\.yaml/)
   // (An empty file is nothing, and says nothing. Lumovi's own views of Kubernetes' kinds are
   // no plugin: its 32 are counted, and the seven of these that could be used.)
-  await expect(problems).toContainText('empty.yaml: holds nothing')
+  await expectProblem(page, 'empty.yaml: holds nothing')
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   await expect(page.getByText('32 plugins from Lumovi, 7 of yours.')).toBeVisible()
   // (Where temporary folders are in the home folder, as on Windows, it's shown from ~.)
   await expect(page.getByText(/lumovi-user-\w+[\\/]plugins/)).toBeVisible()
@@ -788,9 +814,16 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
   // A plugin of one's own with the name of one of Lumovi's is in its place, all of it: said
   // with the count, shown as theirs, and nothing of Lumovi's plugin is used, for the kinds theirs
   // doesn't show either.
-  await expect(
-    page.getByText('certificates.yml is in use in place of Lumovi’s cert-manager.'),
-  ).toBeVisible()
+  await allPlugins(page)
+  const table = page.getByRole('table', { name: 'Plugins' })
+  await expect(table.locator('tr[data-state="in-place-of"]')).toContainText(
+    'In use in place of Lumovi’s cert-manager',
+  )
+  await expect(table.locator('tr[data-state="in-place-of"]')).toContainText('certificates.yml')
+  await expect(table.locator('tr[data-state="replaced"]')).toContainText(
+    'Not in use: your certificates.yml is used in its place, all of it.',
+  )
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   await expect(
     custom.getByRole('row').filter({ hasText: 'ClusterIssuers' }).getByRole('cell').nth(3),
   ).toHaveText('—')
@@ -903,9 +936,12 @@ test('plugins live in ~/.lumovi/plugins unless LUMOVI_PLUGINS_DIR says otherwise
   // Lumovi's 32: not the file that couldn't be used, nor Lumovi's own views of Kubernetes' kinds,
   // which are no plugin.
   await expect(page.getByRole('alert')).toContainText('A plugin couldn’t be used')
-  await expect(
-    page.getByRole('list', { name: 'Plugin problems' }).getByRole('listitem'),
-  ).toHaveText(['mine.yaml: should start with apiVersion: lumovi.dev/v1beta1 and kind: Plugin'])
+  // What's wrong with it is said on the page of every plugin, which the line leads to.
+  await page.getByRole('alert').getByRole('button', { name: 'See Plugins' }).click()
+  await expect
+    .poll(() => problemLines(page))
+    .toEqual(['mine.yaml: should start with apiVersion: lumovi.dev/v1beta1 and kind: Plugin'])
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   await expect(page.getByText('32 plugins from Lumovi. Yours go in')).toBeVisible()
   // A plugin of theirs named as one of Lumovi's, with something wrong with it (here, a spec
   // that's no map): Lumovi's stays in use, which is said after its problem and isn't counted
@@ -924,13 +960,14 @@ test('plugins live in ~/.lumovi/plugins unless LUMOVI_PLUGINS_DIR says otherwise
     /^the-widgets-of-\S+…m\.yaml$/,
   )
   await expect(page.getByRole('alert')).toContainText('2 problems with plugins')
-  await expect(
-    page.getByRole('list', { name: 'Plugin problems' }).getByRole('listitem'),
-  ).toHaveText([
-    'mine.yaml: should start with apiVersion: lumovi.dev/v1beta1 and kind: Plugin',
-    'my-flux.yaml: spec: should be a map of fields, not a list',
-    'my-flux.yaml: isn’t in use, so Lumovi’s Flux is shown instead',
-  ])
+  await allPlugins(page)
+  await expect
+    .poll(() => problemLines(page))
+    .toEqual([
+      'mine.yaml: should start with apiVersion: lumovi.dev/v1beta1 and kind: Plugin',
+      'my-flux.yaml: spec: should be a map of fields, not a list',
+    ])
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   await page.getByRole('button', { name: 'How to write a plugin' }).click()
   await expect.poll(opened).toEqual(['https://docs.lumovi.dev/custom-resources/write-a-plugin'])
 
@@ -947,10 +984,11 @@ test('plugins live in ~/.lumovi/plugins unless LUMOVI_PLUGINS_DIR says otherwise
     }))
   }, WIDGETS)
   await page.reload()
+  await allPlugins(page)
+  await expect
+    .poll(() => problemLines(page))
+    .toEqual(['odd.yaml: It couldn’t be read: source is not a string'])
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
-  await expect(
-    page.getByRole('list', { name: 'Plugin problems' }).getByRole('listitem'),
-  ).toHaveText(['odd.yaml: It couldn’t be read: source is not a string'])
   await expect(page.getByText('32 plugins from Lumovi, 1 of yours.')).toBeVisible()
 })
 
@@ -968,10 +1006,11 @@ test('plugins a ConfigMap mounts, as links into a folder of its own', async ({ l
   symlinkSync('nowhere.yaml', join(plugins, 'gone.yaml'))
   await openCluster(page)
 
+  await allPlugins(page)
+  await expect
+    .poll(async () => (await problemLines(page)).join('\n'))
+    .toMatch(/^gone\.yaml: It couldn’t be read: ENOENT[^\n]*$/)
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
-  await expect(
-    page.getByRole('list', { name: 'Plugin problems' }).getByRole('listitem'),
-  ).toHaveText([/^gone\.yaml: It couldn’t be read: ENOENT/])
   const custom = page.getByRole('region', { name: 'Custom resources' })
   await expect(custom.getByRole('row').filter({ hasText: 'Widgets' })).toContainText('widgets.yaml')
 })
@@ -1349,9 +1388,9 @@ spec:
   await openCluster(page)
   const nav = sidebar(page)
   await nav.getByRole('link', { name: 'API resources' }).click()
-  await expect(
-    page.getByText('32 plugins from Lumovi, 3 of yours, 2 of them in place of Lumovi’s.'),
-  ).toBeVisible()
+  await expect(page.getByText('32 plugins from Lumovi, 3 of yours.')).toBeVisible()
+  await allPlugins(page)
+  await expect(page.getByText('In use in place of Lumovi’s', { exact: false })).toHaveCount(2)
   await expect(nav.getByRole('link', { name: 'GitOps', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Flux', exact: true })).toHaveCount(0)
   // One that says where it goes sits there, with the custom resources' icon if it has none.
@@ -1429,8 +1468,7 @@ test('Lumovi’s own plugins are held inside their groups, and a kind is one plu
   for (const [name, text] of Object.entries(files)) writeFileSync(join(included, name), text)
   const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included } })
   await openCluster(page)
-  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
-  const problems = page.getByRole('list', { name: 'Plugin problems' })
+  await allPlugins(page)
   for (const problem of [
     'unfenced.yaml: spec.fenced: isn’t something a plugin has',
     'groupless.yaml: spec.groups: is required: the API groups its kinds are in, like [example.com]',
@@ -1443,9 +1481,10 @@ test('Lumovi’s own plugins are held inside their groups, and a kind is one plu
     'maker.yaml: spec.views[0].actions[3].create: makes a Pod, which isn’t one of this plugin’s kinds',
     'second-flux.yaml: Kustomization.kustomize.toolkit.fluxcd.io is already flux’s kind',
   ]) {
-    await expect(problems).toContainText(problem)
+    await expectProblem(page, problem)
   }
-  await expect(problems).not.toContainText('planets.yaml')
+  expect((await problemLines(page)).join('\n')).not.toContain('planets.yaml')
+  await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   // The one of them that's fine is one of Lumovi's.
   await expect(page.getByText('33 plugins from Lumovi.')).toBeVisible()
 })

@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   List,
   Lock,
+  Plug,
   ScrollText,
   ShipWheel,
 } from 'lucide-react'
@@ -44,6 +45,7 @@ import { matchWords } from '@renderer/lib/match'
 import {
   pluginPath,
   apiResourcesPath,
+  pluginsPath,
   clusterPath,
   helmPath,
   kindPath,
@@ -501,16 +503,18 @@ function CustomResources({ plugins }: { plugins: ServedPlugin[] }) {
           {pinned.map(item)}
         </div>
       )}
-      {ownSection.length > 0 && (
-        <div className="mt-4">
-          <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-            Plugins
-          </h3>
-          {ownSection.map((served) => (
-            <PluginItem key={served.plugin.name} served={served} />
-          ))}
-        </div>
-      )}
+      <div className="mt-4">
+        <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+          Plugins
+        </h3>
+        {ownSection.map((served) => (
+          <PluginItem key={served.plugin.name} served={served} />
+        ))}
+        {/* Every plugin there is, in use here or not: last, under the ones this cluster has. */}
+        <NavItem end to={pluginsPath(context)}>
+          <Plug className="size-4 text-ink-3" /> All plugins
+        </NavItem>
+      </div>
       <div className="mt-4">
         <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
           Custom resources
