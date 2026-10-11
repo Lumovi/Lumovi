@@ -164,7 +164,14 @@ export function read(text: string, form: FormKind): Read {
       }
     }
   }
-  const objects = documents.map((d) => d.toJS() as unknown).filter((o) => o !== null)
+  // (What reads as YAML can still not make an object: an alias to an anchor that isn't set
+  // before it is only found out when the object is made.)
+  let objects: unknown[]
+  try {
+    objects = documents.map((d) => d.toJS() as unknown).filter((o) => o !== null)
+  } catch (error) {
+    return { fits: false, why: `It isn’t YAML as it stands: ${(error as Error).message}.` }
+  }
   if (objects.length !== 1) {
     return {
       fits: false,
@@ -1588,7 +1595,13 @@ function secrets(text: string): [number, number][] | undefined {
         if (isAlias(kind)) apart = false
         // Nor is a key that's an alias one that can be read here: `*k` may be `stringData`.
         if (map.items.some((pair) => isAlias(pair.key))) {
-          const read = map.toJS(document) as { kind?: unknown } | null
+          // (An alias that names nothing can't be read at all: nor can its map be told apart.)
+          let read: { kind?: unknown } | null = { kind: 'Secret' }
+          try {
+            read = map.toJS(document) as { kind?: unknown } | null
+          } catch {
+            // As it is: taken for one.
+          }
           if (read?.kind === 'Secret') apart = false
         }
         if (merges(map)) {

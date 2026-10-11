@@ -432,6 +432,12 @@ test('YAML the form can’t show: it steps back, says why, and can go back', asy
       /It isn’t YAML as it stands: .+ at line 5, column \d+\. The YAML is what gets created/,
       null,
     ],
+    // (It reads as YAML; that its alias names nothing set before it is found on making it.)
+    [
+      fitted.replace('  replicas: 3', '  replicas: *later'),
+      /It isn’t YAML as it stands: Unresolved alias \(the anchor must be set before the alias\): later\. The YAML is what gets created/,
+      null,
+    ],
     [
       fitted.replace('  replicas: 3', '  replicas: &n 3'),
       'spec.replicas is anchored, to be repeated elsewhere in the YAML, so the form can’t edit it alone.',
