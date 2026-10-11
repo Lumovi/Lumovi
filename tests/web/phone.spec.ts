@@ -3,7 +3,7 @@
  * an object, a detail a page of its own, dialogs sheets, and a few things to do, each a
  * finger's size. Nothing scrolls sideways, held upright or on its side, in either theme.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { call, connect } from './assistant-client.ts'
 import { DEMO, DEMO_TOKEN, expect, PEOPLE, signIn, test } from './fixtures.ts'
 import {
@@ -61,6 +61,15 @@ const approveCameAlive = (page: Page) =>
 const menu = (page: Page) => page.getByRole('button', { name: 'Menu' })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Sidebar' })
 
+/**
+ * How far one thing's top is under another's, in px; nothing, while either isn't drawn (a
+ * page that has just changed its size draws again: a box read then is no box).
+ */
+async function apart(upper: Locator, lower: Locator): Promise<number> {
+  const [from, to] = [await upper.boundingBox(), await lower.boundingBox()]
+  return from && to ? to.y - from.y : 0
+}
+
 /** Upright and on its side, light and dark: nothing sideways, and everything a finger's size. */
 async function expectAPhonesPage(page: Page, where: string, check: () => Promise<void>) {
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -75,7 +84,9 @@ async function expectAPhonesPage(page: Page, where: string, check: () => Promise
       await expectFingerSized(page, `${where}, ${held}, ${colorScheme}`)
     }
   }
+  // Upright again, and drawn so before it's left: whoever asked reads the page next.
   await page.setViewportSize(PHONE)
+  await check()
 }
 
 test('the sidebar is a drawer: behind a button, holding focus, closed by Escape or going somewhere', async ({
@@ -307,7 +318,8 @@ test('a link to another object is a finger’s size: alone, and one under anothe
     await expect(detail.getByRole('button', { name: 'ServiceAccount/storefront' })).toBeVisible()
   })
   // (Drawn no taller than its text: the row doesn't grow for it.)
-  expect((await node.boundingBox())!.height).toBeLessThan(20)
+  // (Asked until it's so: the page has just been turned back upright, and draws again.)
+  await expect.poll(async () => (await node.boundingBox())?.height ?? Infinity).toBeLessThan(20)
   await node.tap()
   await expect(page.getByRole('complementary', { name: /^Node / })).toBeVisible()
 
@@ -319,9 +331,7 @@ test('a link to another object is a finger’s size: alone, and one under anothe
   await expectAPhonesPage(page, 'a service account’s page', async () => {
     await expect(registry).toBeVisible()
   })
-  expect((await registry.boundingBox())!.y - (await token.boundingBox())!.y).toBeGreaterThanOrEqual(
-    44,
-  )
+  await expect.poll(() => apart(token, registry)).toBeGreaterThanOrEqual(44)
 
   // With room for a table (a tablet), its rows of links are a finger's height apart too.
   await page.setViewportSize({ width: 768, height: 1024 })
@@ -330,11 +340,10 @@ test('a link to another object is a finger’s size: alone, and one under anothe
     .getByRole('complementary', { name: 'ServiceAccount storefront' })
     .getByRole('table', { name: 'Bindings' })
   await expect(bindings.getByRole('row')).toHaveCount(4)
-  const tops = await bindings
-    .getByRole('button', { name: /^RoleBinding\// })
-    .evaluateAll((links) => links.map((link) => link.getBoundingClientRect().top))
-  for (const [i, top] of tops.entries())
-    if (i > 0) expect(top - tops[i - 1]!).toBeGreaterThanOrEqual(44)
+  const links = bindings.getByRole('button', { name: /^RoleBinding\// })
+  await expect(links).toHaveCount(3)
+  await expect.poll(() => apart(links.nth(0), links.nth(1))).toBeGreaterThanOrEqual(44)
+  await expect.poll(() => apart(links.nth(1), links.nth(2))).toBeGreaterThanOrEqual(44)
 })
 
 test('a role’s rules are cards that say what its table says, and its bindings links to press', async ({
@@ -362,20 +371,28 @@ test('a role’s rules are cards that say what its table says, and its bindings 
   ])
   // No name is broken while there's a line for it: one fact a line, where one wouldn't fit.
   const named = rules.nth(1).getByText('payments-credentials')
-  expect((await named.boundingBox())!.height).toBeLessThan(20)
-  const facts = await rules
-    .nth(1)
-    .locator('dt')
-    .evaluateAll((all) => all.map((dt) => dt.getBoundingClientRect().left))
-  expect(new Set(facts).size).toBe(1)
+  await expect.poll(async () => (await named.boundingBox())?.height ?? Infinity).toBeLessThan(20)
+  await expect
+    .poll(() =>
+      rules
+        .nth(1)
+        .locator('dt')
+        .evaluateAll((all) => new Set(all.map((dt) => dt.getBoundingClientRect().left)).size),
+    )
+    .toBe(1)
   // Who it's granted to, and the way there: the first card's link, pressed from its edge.
   const card = role.getByRole('list', { name: 'Granted by' }).getByRole('listitem')
   await expect(card).toHaveText([
     'Binding: RoleBinding/checkout-reads-configToServiceAccount shop/checkoutInshop',
   ])
-  await granted.scrollIntoViewIfNeeded()
-  const box = (await granted.boundingBox())!
-  await page.touchscreen.tap(box.x + box.width / 2, box.y - 12)
+  // (Where it is, read in one look at the page once it's there to see.)
+  await expect(granted).toBeVisible()
+  const above = await granted.evaluate((link) => {
+    link.scrollIntoView({ block: 'center' })
+    const box = link.getBoundingClientRect()
+    return { x: box.x + box.width / 2, y: box.y - 12 }
+  })
+  await page.touchscreen.tap(above.x, above.y)
   await expect(
     page.getByRole('complementary', { name: 'RoleBinding checkout-reads-config' }),
   ).toBeVisible()
