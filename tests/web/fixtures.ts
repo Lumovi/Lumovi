@@ -40,8 +40,12 @@ const FAKE_HELM = resolve('tests/e2e/helm', process.platform === 'win32' ? 'helm
 
 /** Istanbul's coverage: each file's maps and counters (only the counters change). */
 type Coverage = Record<string, Record<string, unknown>>
-/** The renderer's maps, from the first page that had them (every page has the same). */
-let maps: Coverage | undefined
+/**
+ * The renderer's maps, of every page read. Pages don't all have the same: a route that's loaded
+ * when it's opened brings its files' maps then, so what one page had is added to, never kept as
+ * the whole.
+ */
+const maps: Coverage = {}
 
 function saveCoverage(data: unknown): void {
   if (!data) return
@@ -371,29 +375,56 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
   },
   context: async ({ context }, use) => {
     // Pages that navigate (signing in reloads them) leave their counters in their
-    // localStorage (see vite-coverage.ts); the maps they belong to are any page's.
+    // localStorage (see vite-coverage.ts); the maps they belong to are read from the pages.
     const coverageOf = (page: Page) =>
       page
         .evaluate(() => (window as { __coverage__?: Coverage }).__coverage__)
         .catch(() => undefined)
-    context.on('page', (page) =>
-      page.on('load', () => {
-        if (!maps) void coverageOf(page).then((coverage) => (maps ??= coverage))
-      }),
-    )
+    const learn = (coverage: Coverage | undefined) => {
+      if (coverage) Object.assign(maps, coverage)
+    }
+    // (Its files' names first: the maps are large, and are read only for a file not yet known.)
+    const learnNew = (page: Page) =>
+      void page
+        .evaluate(() => Object.keys((window as { __coverage__?: Coverage }).__coverage__ ?? {}))
+        .catch(() => [])
+        .then((files) => {
+          if (files.some((file) => !(file in maps))) void coverageOf(page).then(learn)
+        })
+    context.on('page', (page) => {
+      page.on('load', () => learnNew(page))
+      // A script that comes later (a route loaded when it's opened) brings its files' maps then:
+      // read once it has run, so they're known before the page can leave.
+      page.on('requestfinished', (request) => {
+        if (request.resourceType() !== 'script') return
+        void page
+          .waitForTimeout(100)
+          .catch(() => undefined)
+          .then(() => learnNew(page))
+      })
+    })
     await use(context)
+    // The pages still open are read whole: their counters, and whatever maps weren't known yet.
     for (const page of context.pages()) {
       const coverage = await coverageOf(page)
-      maps ??= coverage
+      learn(coverage)
       saveCoverage(coverage)
     }
     for (const { localStorage } of (await context.storageState()).origins) {
       const kept = localStorage.find((item) => item.name === 'lumovi:coverage')
-      if (!kept || !maps) continue
+      if (!kept) continue
       const counts = JSON.parse(kept.value) as Coverage
+      // Counters with no map can't be merged, and dropping them would lower the coverage quietly:
+      // said here, by name, as what it is.
+      const unmapped = Object.keys(counts).filter((path) => !(path in maps))
+      if (unmapped.length > 0) {
+        throw new Error(
+          `The tests’ own coverage bookkeeping (tests/web/fixtures.ts), not what this test is about: a page left counters for ${unmapped.join(', ')} and no page that was read had the maps for them.`,
+        )
+      }
       saveCoverage(
         Object.fromEntries(
-          Object.entries(counts).map(([path, hits]) => [path, { ...maps![path], ...hits }]),
+          Object.entries(counts).map(([path, hits]) => [path, { ...maps[path], ...hits }]),
         ),
       )
     }
