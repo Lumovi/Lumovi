@@ -32,7 +32,11 @@ import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
 const CLEANUP_MS = 10_000
-/** What a server that stops for a failure of its own answers to anything still asked of it. */
+/**
+ * What a server that stops for a failure of its own answers to anything still asked of it. No
+ * more than that: it's said to whoever reaches the port, signed in or not, and why (which names
+ * another server's process and host) is for the log and the audit event, where an operator reads.
+ */
 const NO_MORE_WORK = 'This Lumovi is stopping and takes no more work.'
 /**
  * The same, to a person at a page, who asked for something and can't start a server again:
@@ -75,12 +79,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
   const connections = new Set<PageConnection>()
-  /** Why it takes no more work, once it doesn't: every request and every page's message asks. */
-  let refusing: string | undefined
+  /** Whether it takes no more work: every request and every page's message asks. */
+  let refusing = false
   const audit = await openAudit(config.audit, (why) => {
     // At once, before anything else can be asked of it: what's done from here on couldn't be
     // recorded where its auditors read.
-    refusing = `${NO_MORE_WORK} ${why}`
+    refusing = true
     options.auditLost?.(why)
   })
   // Who may do what: what the chart says, and what admins set on the Access page.
@@ -270,7 +274,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   const server = http.createServer((req, res) => {
     if (refusing) {
-      sendJson(res, 503, { error: refusing })
+      sendJson(res, 503, { error: NO_MORE_WORK })
       return
     }
     // Answering only fails when the connection did; there's nobody to tell.
