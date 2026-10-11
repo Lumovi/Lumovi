@@ -294,6 +294,24 @@ async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]
       ),
     ).catch((error: Error) => error.message)
     lines.push(`app ${i}: main answered in ${mainMs}ms ${window}; page ${state}`)
+    // Its terminals: what each pty gave the main process, what the page was handed of it, and
+    // how much of it is drawn. (Where a terminal's output stopped, if it did.)
+    const ptys = await within(
+      app.evaluate(() =>
+        JSON.stringify((globalThis as { __ptys?: unknown }).__ptys ?? 'not counted'),
+      ),
+    ).catch((error: Error) => error.message)
+    const heard = await within(
+      page.evaluate(() =>
+        JSON.stringify({
+          handed: (window as { __terminalHeard?: unknown }).__terminalHeard ?? 'not counted',
+          drawn: [...document.querySelectorAll<HTMLElement>('.xterm-rows')].map(
+            (rows) => rows.innerText.trim().length,
+          ),
+        }),
+      ),
+    ).catch((error: Error) => error.message)
+    lines.push(`app ${i} terminals: ptys ${ptys}; page ${heard}`)
   }
   for (const [i, { app }] of launched.entries()) {
     const metrics = await within(
