@@ -308,14 +308,22 @@ test('filters live in the URL and survive Back', async ({ page }) => {
 })
 
 test.describe('a list’s bar keeps to one row as it narrows', () => {
-  /** Where each of these sits down the page: the same for all on one row. */
+  /**
+   * Where each of these sits down the page: the same for all on one row. (No number for what
+   * isn't drawn at that instant: a bar that has just changed its shape draws again.)
+   */
   const tops = (locators: Locator[]) =>
     Promise.all(
       locators.map(async (locator) => {
-        const box = (await locator.boundingBox())!
-        return Math.round(box.y + box.height / 2)
+        const box = await locator.boundingBox()
+        return box ? Math.round(box.y + box.height / 2) : NaN
       }),
     )
+  /** Whether these are on one row; asked until they are, since a measure is of one instant. */
+  const oneRow = async (locators: Locator[]) => {
+    const all = await tops(locators)
+    return all.every((top) => top === all[0])
+  }
 
   test('beside an open object the fields shrink, at the default window', async ({ page }) => {
     await openCluster(page)
@@ -327,9 +335,7 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
     await row(page, 'Services', DEMO.services.storefront).getByRole('gridcell').nth(1).click()
     await expect(panel(page, 'Service', DEMO.services.storefront)).toBeVisible()
     // Both fields are still fields, on the count's row.
-    await expect
-      .poll(async () => new Set(await tops([bar.getByText(/^\d+ items$/), labels, filter])).size)
-      .toBe(1)
+    await expect.poll(() => oneRow([bar.getByText(/^\d+ items$/), labels, filter])).toBe(true)
     await expect(bar.getByText('/', { exact: true })).toBeVisible()
   })
 
@@ -349,7 +355,7 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
     await expect(button).toBeVisible()
     await expect(bar.getByRole('textbox', { name: 'Label selector' })).toHaveCount(0)
     await expect(bar.getByText('/', { exact: true })).toHaveCount(0)
-    expect(new Set(await tops([bar.getByText(/^\d+ items$/), button, filter])).size).toBe(1)
+    await expect.poll(() => oneRow([bar.getByText(/^\d+ items$/), button, filter])).toBe(true)
     // The key still finds the filter, without its hint.
     await page.keyboard.press('/')
     await expect(filter).toBeFocused()
@@ -360,10 +366,17 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
     const popover = page.getByRole('dialog', { name: 'Label selector' })
     const field = popover.getByRole('textbox', { name: 'Label selector' })
     await expect(field).toBeFocused()
-    const box = (await popover.boundingBox())!
-    // (From the button's own edge rightwards: never over the sidebar.)
-    expect(box.x).toBeGreaterThanOrEqual((await button.boundingBox())!.x - 1)
-    expect(box.x + box.width).toBeLessThanOrEqual(1024)
+    // (From the button's own edge rightwards: never over the sidebar. Asked until it's so: the
+    // field has the focus as soon as the popover is there, a moment before it's put by its
+    // button, and it grows into its place.)
+    const edges = async () => {
+      const [at, box] = [await button.boundingBox(), await popover.boundingBox()]
+      return at && box
+        ? { left: box.x - at.x, right: box.x + box.width }
+        : { left: NaN, right: NaN }
+    }
+    await expect.poll(async () => (await edges()).left).toBeGreaterThanOrEqual(-1)
+    await expect.poll(async () => (await edges()).right).toBeLessThanOrEqual(1024)
     // Escape closes it without applying, and the button has the focus again.
     await field.fill('app=nothing')
     await page.keyboard.press('Escape')
@@ -414,8 +427,12 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
     await expect(panel(page, 'Pod', DEMO.pods.debugShell)).toBeVisible()
     const chips = bar.locator('button[aria-pressed]')
     await expect(chips.first()).toBeVisible()
-    const [first, chip] = await tops([bar.getByText(/^\d+ items$/), chips.first()])
-    expect(chip!).toBeGreaterThan(first! + 20)
+    await expect
+      .poll(async () => {
+        const [first, chip] = await tops([bar.getByText(/^\d+ items$/), chips.first()])
+        return chip! - first!
+      })
+      .toBeGreaterThan(20)
     expect(await chips.evaluateAll((all) => all.every((c) => c.scrollWidth <= c.clientWidth))).toBe(
       true,
     )
