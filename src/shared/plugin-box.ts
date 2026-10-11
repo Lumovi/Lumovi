@@ -43,6 +43,8 @@ export const BOX_LIMITS = {
    */
   missedPings: 5,
   pingEveryMs: 2000,
+  /** How long a box has to say it's there, once it's asked for. */
+  readyWithinMs: 10_000,
   /** What a worker may send up in a second, and at once: messages, and characters of text. */
   messagesASecond: 2000,
   textAMessage: 8 * 1024 * 1024,

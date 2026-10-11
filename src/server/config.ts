@@ -240,6 +240,18 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
   }
   const publicSetting = value('LUMOVI_URL')
   const publicUrl = publicSetting ? url('LUMOVI_URL', publicSetting) : undefined
+  // Its host is written into the pages' policies as one address exactly: a name of letters,
+  // digits, hyphens and dots, or an address in brackets, and nobody's user and password.
+  if (
+    publicUrl &&
+    (publicUrl.username ||
+      publicUrl.password ||
+      !/^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9.-]*[a-z0-9])?)$/i.test(publicUrl.hostname))
+  ) {
+    throw new ConfigError(
+      `LUMOVI_URL must name one host (letters, digits, hyphens and dots, or an address), not "${publicSetting}".`,
+    )
+  }
   let auth: AuthConfig = { mode: 'token' }
   if (mode === 'oidc') {
     const issuer = required('LUMOVI_OIDC_ISSUER', 'for single sign-on')

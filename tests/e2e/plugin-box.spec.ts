@@ -320,15 +320,16 @@ test('a plugin read as near a whole core for half a minute is ended, though it a
   }, pid)
   const since = Date.now()
   const ENDED = 'Lumovi ended the plugin steady: it was over its time on the processor'
-  // Not before a good part of its half a minute is up...
-  await new Promise((later) => setTimeout(later, BOX_LIMITS.processorForMs * 0.4))
+  // Not before its half a minute is nearly up: nothing is ended for the processor until it
+  // has been measured for the whole of that time...
+  await new Promise((later) => setTimeout(later, BOX_LIMITS.processorForMs * 0.6))
   expect(log()).not.toContain(ENDED)
   expect(await alive(app, pid)).toBe(true)
   // ...and then it is: for the processor, with its pings all answered.
   await expect.poll(log, { timeout: BOX_LIMITS.processorForMs + 30_000 }).toContain(ENDED)
-  // (Read as a whole core, it's over an average of half a core once half of the thirty
-  // measures say so; it was measured for a while before, so that's when.)
-  expect(Date.now() - since).toBeGreaterThan(BOX_LIMITS.processorForMs * 0.45)
+  // (Once it has its thirty measures, half of them or more a whole core: it had two or three
+  // before the reading was changed, so that's nearly the whole half minute later.)
+  expect(Date.now() - since).toBeGreaterThan(BOX_LIMITS.processorForMs * 0.8)
   // And the page hears nothing more of it.
   await expect
     .poll(async () => (await kept(page, 'steady')).ended, {
@@ -487,4 +488,70 @@ test('a plugin’s boxes can be taken off the page by Lumovi itself, and only th
     ),
   ).toBe(0)
   expect(() => takeOffScript(['"); alert(1); ("'])).toThrow()
+})
+
+test('the box’s protocol serves its two files and nothing else, however it’s asked', async ({
+  lumovi: { app },
+}) => {
+  // Asked from the main process, as nothing of a page may.
+  const ask = (url: string, method = 'GET') =>
+    app.evaluate(
+      async ({ net }, { url, method }) => {
+        const answer = await net.fetch(url, { method, bypassCustomProtocolHandlers: false })
+        return { status: answer.status, type: answer.headers.get('content-type') ?? '' }
+      },
+      { url, method },
+    )
+  // With the request filter on, even that is cancelled: it's nobody's frame that asks.
+  await expect(ask('lumovi-plugin://echo/box.html')).rejects.toThrow(/ERR_BLOCKED_BY_CLIENT/)
+  // (Taken away, to hear the protocol itself.)
+  await app.evaluate(({ session }) => session.defaultSession.webRequest.onBeforeRequest(null))
+  expect(await ask('lumovi-plugin://echo/box.html')).toMatchObject({ status: 200 })
+  expect((await ask('lumovi-plugin://echo/box.js')).type).toContain('text/javascript')
+  for (const [url, method] of [
+    ['lumovi-plugin://echo/other.html', 'GET'],
+    ['lumovi-plugin://echo/', 'GET'],
+    // Anything added to its address isn't its address.
+    ['lumovi-plugin://echo/box.html?d=SECRET', 'GET'],
+    // A name no plugin can have.
+    ['lumovi-plugin://lumovi/box.html', 'GET'],
+    ['lumovi-plugin://Not_A_Name/box.html', 'GET'],
+    // Only asked for, never sent to.
+    ['lumovi-plugin://echo/box.html', 'POST'],
+  ] as const) {
+    expect((await ask(url, method)).status, `${method} ${url}`).toBe(404)
+  }
+})
+
+test('a frame of the window goes nowhere but to a box’s own document', async ({
+  lumovi: { page, app },
+}) => {
+  await open(page, 'echo', ECHO)
+  await expect.poll(async () => (await kept(page, 'echo')).count).toBe(1)
+  // By the test's hand on the box's page (no plugin's code runs there): to the box's own
+  // script as if it were a page, which the page's policy lets through and the app's own guard
+  // doesn't.
+  const went = await app.evaluate(async ({ BrowserWindow }) => {
+    const [win] = BrowserWindow.getAllWindows()
+    const frame = win!.webContents.mainFrame.framesInSubtree.find((at) =>
+      at.url.startsWith('lumovi-plugin:'),
+    )!
+    await frame
+      .executeJavaScript(`location.href = 'lumovi-plugin://echo/box.js'`)
+      .catch(() => undefined)
+    await new Promise((later) => setTimeout(later, 500))
+    return win!.webContents.mainFrame.framesInSubtree
+      .map((at) => at.url)
+      .filter((url) => url.startsWith('lumovi-plugin:'))
+  })
+  expect(went).toEqual(['lumovi-plugin://echo/box.html'])
+  // And it's the same box still: its worker answers.
+  await page.evaluate(() =>
+    (
+      window as unknown as { __boxes: Record<string, { box: { post(m: unknown): void } }> }
+    ).__boxes.echo!.box.post('still there?'),
+  )
+  await expect
+    .poll(async () => (await kept(page, 'echo')).heard.at(-1))
+    .toBe('heard "still there?"')
 })

@@ -20,20 +20,24 @@ const TYPES: Record<string, string> = {
 /** Fonts and images come compressed already. */
 const COMPRESSIBLE = new Set(['.js', '.css', '.svg'])
 
-/** As strict as the desktop app's: nothing but the server's own files and WebSocket. */
-export const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "frame-src 'none'",
-].join('; ')
+/**
+ * As strict as the desktop app's: nothing but the server's own files and WebSocket. `box`: the
+ * one address a page may show in a frame, a plugin's sealed box, where the server has one.
+ */
+export const contentSecurityPolicy = (box?: string): string =>
+  [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    `frame-src ${box ?? "'none'"}`,
+  ].join('; ')
 
 export type Encoding = 'br' | 'gzip'
 

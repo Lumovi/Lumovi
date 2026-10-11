@@ -6,6 +6,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
+import { BOX_SCRIPT, BOX_SCRIPT_HEADERS, boxDocument, boxHeaders } from '@shared/plugin-box'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { ServerAccess } from './access'
@@ -20,7 +21,7 @@ import { Transfers } from './file-transfers'
 import { cookies, redirect, sameOrigin, SECURITY_HEADERS, sendJson } from './http'
 import { log } from './log'
 import { OidcClient } from './oidc'
-import { acceptedEncoding, CONTENT_SECURITY_POLICY, Pages } from './pages'
+import { acceptedEncoding, contentSecurityPolicy, Pages } from './pages'
 import { Sessions } from './sessions'
 import { ClusterSettings } from './cluster-settings'
 import { Joins, type JoinRefusal } from './fleet/joins'
@@ -75,6 +76,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const { config, hosted } = options
   const base = config.basePath
   const pages = new Pages(config.rendererDir, base)
+  // A plugin's sealed box: only where the server knows its own address, since the box's policy
+  // names the page that may show it and is never built from what a request claims.
+  const box = config.publicUrl
+    ? {
+        document: new URL(`${base}${PATHS.box}`, config.publicUrl).href,
+        script: new URL(`${base}${PATHS.boxScript}`, config.publicUrl).href,
+        page: config.publicUrl.origin,
+      }
+    : undefined
   /** Each page's socket, with its session, so its pages can be told when it ends. */
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
@@ -207,6 +217,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       else sendJson(res, 404, { error: `Lumovi is at ${base}` })
       return
     }
+    if (answerBox(req, res, path)) return
     const route = `${req.method} ${path}`
     const signer = () => {
       const caller = auth.identify(req)
@@ -244,11 +255,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       res.writeHead(200, {
         ...SECURITY_HEADERS,
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+        'Content-Security-Policy': contentSecurityPolicy(box?.document),
         'Cache-Control': 'no-store',
       })
       res.end(req.method === 'HEAD' ? undefined : pages.page(cookies(req)[THEME_COOKIE]))
     }
+  }
+
+  /**
+   * A plugin's sealed box: its two files, the same for whoever asks and whatever is added to
+   * the address. Nobody is looked up, no cookie is read or set, and nothing ever redirects; and
+   * nothing else is under its folder, the page least of all.
+   */
+  function answerBox(req: IncomingMessage, res: ServerResponse, path: string): boolean {
+    if (!path.startsWith('plugin-box/') && path !== 'plugin-box') return false
+    const file = path === PATHS.box ? 'document' : path === PATHS.boxScript ? 'script' : undefined
+    if (!box || !file) {
+      sendJson(res, 404, { error: `There’s no ${path}` })
+    } else if (req.method !== 'GET' && req.method !== 'HEAD') {
+      sendJson(res, 405, { error: 'Only GET' }, { Allow: 'GET, HEAD' })
+    } else if (file === 'document') {
+      res.writeHead(200, boxHeaders(box.script, box.page))
+      res.end(req.method === 'HEAD' ? undefined : boxDocument(box.script))
+    } else {
+      res.writeHead(200, BOX_SCRIPT_HEADERS)
+      res.end(req.method === 'HEAD' ? undefined : BOX_SCRIPT)
+    }
+    return true
   }
 
   async function file(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
