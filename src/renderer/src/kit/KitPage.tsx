@@ -4,6 +4,7 @@
  * plugin's page from it. A release build has none of this.
  */
 import { useState } from 'react'
+import { useParams } from 'react-router'
 import type { Health } from '@shared/health'
 import {
   tableProblem,
@@ -11,6 +12,7 @@ import {
   type TableInnerRow,
   type TableRow,
 } from '@shared/kit/table'
+import { KitFrame } from './KitFrame'
 import { Table } from './Table'
 
 /** What a release build is checked not to hold (tests/integration/release-build.spec.ts). */
@@ -166,6 +168,20 @@ const REFUSED: TableSaid[] = [
     rows: [{ ...RESOURCES.rows[3]!, cells: [{ kind: 'number', value: 1 }, { kind: 'none' }] }],
   },
   { ...RESOURCES, rows: [{ ...RESOURCES.rows[3]!, rest: { from: 2, text: 'Nowhere' } }] },
+  { ...RESOURCES, rows: [{ ...RESOURCES.rows[3]!, rest: { from: -1, text: 'Nowhere' } }] },
+  {
+    ...RESOURCES,
+    rows: [
+      RESOURCES.rows[0]!,
+      {
+        ...RESOURCES.rows[2]!,
+        rows: [
+          RESOURCES.rows[2]!.rows![0]!,
+          { ...RESOURCES.rows[2]!.rows![1]!, cells: [{ kind: 'none' }] },
+        ],
+      },
+    ],
+  },
 ]
 
 const NODES: TableSaid = {
@@ -269,13 +285,23 @@ const many = (count: number, tick: number): TableSaid => ({
   }),
 })
 
+/** The kit's parts: the Table's cases, or (`kit/frame`) a page's frame. */
 export function KitPage() {
+  const frame = useParams().part === 'frame'
+  return (
+    <div id={KIT_PAGE} className="h-full overflow-y-auto">
+      {frame ? <KitFrame /> : <Tables />}
+    </div>
+  )
+}
+
+function Tables() {
   const [events, setEvents] = useState<string[]>([])
   const [rows, setRows] = useState(0)
   const said = (table: string, what: string) => (carries: object) =>
     setEvents((was) => [...was, `${table}: ${what} ${JSON.stringify(carries)}`])
   return (
-    <div id={KIT_PAGE} className="h-full overflow-y-auto">
+    <>
       <div className="grid grid-cols-2 items-start gap-x-8 gap-y-7 p-8 phone:grid-cols-1 phone:gap-y-6 phone:p-4">
         <Table table={NODE_POOLS} />
         <Table
@@ -338,6 +364,6 @@ export function KitPage() {
           <li key={i}>{event}</li>
         ))}
       </ol>
-    </div>
+    </>
   )
 }
