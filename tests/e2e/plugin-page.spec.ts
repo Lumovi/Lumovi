@@ -328,3 +328,70 @@ test('a page that goes silent is stopped, and one whose place Lumovi ended says 
     if (!again) await expect(ended(page)).not.toContainText('stopping the page')
   }
 })
+
+test('a page at the door’s limits, changing as fast as a plugin may, leaves Lumovi’s own page answering', async ({
+  lumovi: { page },
+}) => {
+  test.slow()
+  // The widest part there can be, a row of Lumovi's with two texts in each place; then, for
+  // three seconds, commits of the most steps a commit may have, each step moving a row across
+  // all the others: about 16,000 steps a second (the most is 20,000; a plugin's own timer
+  // isn't exact, and one commit too many in a second would stop it).
+  // (One place is left for the line that says it's done.)
+  const wide = DOOR_LIMITS.inOnePart - 1
+  const code = `box.then(({ post }) => {
+    const send = (commit) => post(JSON.stringify({ commit }))
+    send([['make', 1, 'Stack', {}], ['put', 0, 1]])
+    for (let from = 0; from < ${wide}; from += 500) {
+      const steps = []
+      for (let i = from; i < Math.min(from + 500, ${wide}); i++) {
+        steps.push(['make', i + 2, 'Field', { name: 'row ' + i, value: 'value ' + i }], ['put', 1, i + 2])
+      }
+      send(steps)
+    }
+    let sent = 0
+    const timer = setInterval(() => {
+      const steps = []
+      for (let i = 0; i < ${DOOR_LIMITS.stepsACommit}; i++) {
+        steps.push(i % 2 ? ['put', 1, 2 + ((i * 7 + sent) % ${wide})] : ['put', 1, 2 + ((i * 13 + sent) % ${wide}), 2 + ((i * 13 + sent + 500) % ${wide})])
+      }
+      send(steps)
+      if (++sent === 25) {
+        clearInterval(timer)
+        send([['make', 5000, 'Label', {}], ['text', 5001, 'done moving'], ['put', 5000, 5001], ['put', 1, 5000, 2]])
+      }
+    }, 120)
+  })`
+  await show(page, { code })
+  await expect(surface(page).locator('[data-part="Field"]')).toHaveCount(wide)
+  // The page's own frames while it goes on: how long Lumovi's thread is held at a time.
+  const frames = await page.evaluate(
+    () =>
+      new Promise<{ frames: number; worst: number; over100: number; median: number }>((done) => {
+        const gaps: number[] = []
+        let last = performance.now()
+        const tick = (now: number) => {
+          gaps.push(now - last)
+          last = now
+          if (document.body.innerText.includes('done moving')) {
+            const sorted = [...gaps].sort((a, b) => a - b)
+            done({
+              frames: gaps.length,
+              worst: Math.round(sorted.at(-1)!),
+              over100: gaps.filter((gap) => gap > 100).length,
+              median: Math.round(sorted[Math.floor(sorted.length / 2)]!),
+            })
+          } else requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      }),
+  )
+  console.log(`a page at its limits: ${JSON.stringify(frames)}`)
+  // It wasn't stopped (it kept inside every limit), it's all there, and no single stretch held
+  // Lumovi's page for long: the limits' claim, through to the drawing. (Measured on a laptop:
+  // frames 8 ms apart, the worst 33 ms. A quarter of a second leaves room for a slow machine,
+  // and is still far from the second the limits are counted in.)
+  await expect(ended(page)).toHaveCount(0)
+  await expect(surface(page).locator('[data-part="Field"]')).toHaveCount(wide)
+  expect(frames.worst).toBeLessThan(250)
+})
