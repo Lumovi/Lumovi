@@ -484,6 +484,50 @@ export function picked(
   )
 }
 
+/** The most Secrets one object may name by one declared path: past it, none. */
+export const SECRETS_NAMED_AT_MOST = 20
+
+/**
+ * The Secrets an object of a plugin's own kind names by a path its file declares
+ * (`spec.showsSecrets`): each a name Lumovi reads from the object as it holds it, never
+ * anything a plugin sent. Field names only; a step into a list is taken of each item. Nothing
+ * if the path is under `metadata` (a label or an annotation is too easily written by something
+ * else to be what names a Secret), if anything it finds isn't a Secret's name, or if it finds
+ * more than twenty: past that none, not the first twenty.
+ *
+ * Only names: nothing of a Secret is read to make them, and a token made for one is for that
+ * Secret, in the object's own namespace, and the keys the file names.
+ */
+export function secretsNamed(object: unknown, steps: readonly Step[]): string[] {
+  if (steps.length === 0 || !steps.every((step) => 'key' in step && !NEVER_STEPS.has(step.key))) {
+    return []
+  }
+  const keys = (steps as readonly { key: string }[]).map((step) => step.key)
+  if (keys[0] === 'metadata' || Array.isArray(object)) return []
+  let found: unknown[] = [object]
+  for (const key of keys) {
+    const next: unknown[] = []
+    for (const value of found) {
+      for (const item of Array.isArray(value) ? value : [value]) {
+        if (
+          typeof item === 'object' &&
+          item !== null &&
+          !Array.isArray(item) &&
+          Object.hasOwn(item, key)
+        ) {
+          next.push((item as Record<string, unknown>)[key])
+        }
+      }
+    }
+    found = next
+  }
+  // (A path that ends at a list of names names each.)
+  const names = found.flatMap((value) => (Array.isArray(value) ? value : [value]))
+  if (names.length === 0 || names.length > SECRETS_NAMED_AT_MOST) return []
+  if (!names.every((name): name is string => typeof name === 'string' && NAME.test(name))) return []
+  return [...new Set(names)]
+}
+
 /** What all of a plugin's pages keep between them: counted in one place. */
 export interface PluginCount {
   lists: number

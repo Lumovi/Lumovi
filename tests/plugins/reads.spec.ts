@@ -14,6 +14,7 @@ import {
   readable,
   readAsk,
   resolvedAs,
+  secretsNamed,
   type Grant,
   type Granted,
 } from '../../src/shared/plugin-reads.ts'
@@ -855,4 +856,64 @@ test('a refresh too soon isn’t made, and doesn’t stop the plugin; but it’s
   for (let i = 0; i < READ_LIMITS.asksASecond; i++)
     expect(page.take({ refresh: true })).toBe('too-soon')
   expect(page.take({ refresh: true })).toMatchObject({ why: 'too-much' })
+})
+
+test('a Secret is named only by a declared path of an object, as Lumovi holds it', () => {
+  const certificate = {
+    metadata: {
+      name: 'shop',
+      namespace: 'shop',
+      labels: { secret: 'from-a-label' },
+      annotations: { secret: 'from-an-annotation' },
+    },
+    spec: {
+      secretName: 'shop-tls',
+      issuers: [{ secret: { name: 'ca-a' } }, { secret: { name: 'ca-b' } }, {}],
+      names: ['one', 'two'],
+    },
+    status: { secret: 'shop-tls-next', count: 3, odd: '../kube-system/admin', empty: '' },
+  }
+  const named = (path: string) => secretsNamed(certificate, parse(`.${path}`))
+  expect(named('spec.secretName')).toEqual(['shop-tls'])
+  expect(named('status.secret')).toEqual(['shop-tls-next'])
+  // Into a list, of each item; and a list of names, each.
+  expect(named('spec.issuers.secret.name')).toEqual(['ca-a', 'ca-b'])
+  expect(named('spec.names')).toEqual(['one', 'two'])
+  // Not under metadata; not what isn't a name; not a field that isn't there or isn't text.
+  for (const path of [
+    'metadata.labels.secret',
+    'metadata.annotations.secret',
+    'metadata.name',
+    'status.odd',
+    'status.empty',
+    'status.count',
+    'spec.missing',
+    'spec',
+    'spec.issuers',
+  ]) {
+    expect(named(path), path).toEqual([])
+  }
+  // Field names only: no index, wildcard or filter, nor the names every object answers to.
+  for (const steps of [
+    parse('.spec.issuers[0].secret.name'),
+    parse('.spec.issuers[*].secret.name'),
+    [{ key: '__proto__' }],
+    [{ key: 'spec' }, { key: 'constructor' }],
+    [],
+  ]) {
+    expect(secretsNamed(certificate, steps)).toEqual([])
+  }
+  // One name in a list that isn't a name: none of them. Twenty at most, and past that none.
+  expect(secretsNamed({ spec: { names: ['fine', 'Not A Name'] } }, parse('.spec.names'))).toEqual(
+    [],
+  )
+  const many = (count: number) => ({
+    spec: { names: Array.from({ length: count }, (_, i) => `s-${i}`) },
+  })
+  expect(secretsNamed(many(20), parse('.spec.names'))).toHaveLength(20)
+  expect(secretsNamed(many(21), parse('.spec.names'))).toEqual([])
+  // The same name twice is one Secret.
+  expect(secretsNamed({ spec: { names: ['a', 'a'] } }, parse('.spec.names'))).toEqual(['a'])
+  for (const value of [null, 'text', 5, [certificate]])
+    expect(secretsNamed(value, parse('.spec.secretName'))).toEqual([])
 })
