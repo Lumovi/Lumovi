@@ -210,13 +210,22 @@ test('a private cluster joins with one command, and its agent keeps a token of i
   })
 })
 
+/** How long a join token lasts in the test below. */
+const JOIN_SECONDS = 25
+
 test('a join token that isn’t one, or expired, is refused; an agent stopped half way joins again', async ({
   page,
   context,
   serve,
   clusters,
 }) => {
-  const hub = await serve({ env: { ...hubEnv(clusters), LUMOVI_FLEET_JOIN_SECONDS: '6' } })
+  // A join token lasts long enough here for the three agents below to start and stop with it,
+  // on the slowest machine (each is a process of its own: with six seconds, the second found it
+  // expired on Windows); the last step waits it out.
+  test.slow()
+  const hub = await serve({
+    env: { ...hubEnv(clusters), LUMOVI_FLEET_JOIN_SECONDS: String(JOIN_SECONDS) },
+  })
   const origin = hub.url.replace(/\/$/, '')
   await as(context, 'admin@example.com')
   await page.goto(hub.url)
@@ -270,7 +279,7 @@ test('a join token that isn’t one, or expired, is refused; an agent stopped ha
 
   // Past its time: refused, said so.
   const late = await connect(page, 'lab')
-  await page.waitForTimeout(6100)
+  await page.waitForTimeout(JOIN_SECONDS * 1000 + 100)
   const expired = agentOf(hub.url, clusters, {
     LUMOVI_AGENT_NAME: 'lab',
     LUMOVI_AGENT_JOIN_TOKEN: late,
