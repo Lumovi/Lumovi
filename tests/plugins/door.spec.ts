@@ -14,6 +14,7 @@ import {
   record,
   text,
   time,
+  handedFields,
   wrongWith,
   wrongWithFields,
   wrongWithPart,
@@ -303,10 +304,44 @@ test.describe('a plugin’s page', () => {
       why: 'not-allowed',
       what: 'step 1: Pair: a value for every name',
     })
+    // A check that throws refuses; the door doesn't throw.
+    parts.Pair = { ...parts.Pair!, also: () => (undefined as unknown as { a: string }).a }
+    expect(made({ names: [], values: [] })).toEqual({
+      why: 'not-allowed',
+      what: 'step 1: Pair: has properties it can’t check',
+    })
+    delete parts.Pair.also
     // (Only what passed its kinds is asked about.)
     expect(stopped(made({ names: 'a', values: [] })).what).toBe(
       'step 1: Pair.names: should be a list',
     )
+  })
+
+  test('a part is handed every text as one that isn’t Lumovi’s, wherever it is in its properties', () => {
+    const fields = {
+      label: text(10),
+      size: number(0, 9),
+      rows: list(
+        record({ name: text(10), cell: choice('kind', { none: {}, text: { text: text(10) } }) }),
+        5,
+      ),
+    }
+    const props = {
+      label: 'a',
+      size: 2,
+      rows: [{ name: 'b', cell: { kind: 'text', text: 'c' } }, { cell: { kind: 'none' } }],
+    }
+    expect(wrongWithFields(props, fields, [], 'Part')).toBeUndefined()
+    const given = handedFields(props, fields)
+    expect(given).toEqual({
+      label: { their: 'a' },
+      size: 2,
+      rows: [
+        { name: { their: 'b' }, cell: { kind: 'text', text: { their: 'c' } } },
+        { cell: { kind: 'none' } },
+      ],
+    })
+    expect(Object.isFrozen(given) && Object.isFrozen((given.rows as unknown[])[0])).toBe(true)
   })
 
   test('what was checked can’t be changed after', () => {

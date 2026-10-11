@@ -431,8 +431,7 @@ if (stdio) {
             ? `Lumovi ended the plugin ${plugin}: it wasn’t in a process of its own`
             : `Lumovi ended the plugin ${plugin}: it was over its ${over === 'memory' ? 'memory' : 'time on the processor'}`,
         )
-        // (Nothing of the page listens yet: until something shows a plugin's page, a box's page
-        // learns of it by its unanswered pings.)
+        // (The page says so where the plugin's page was: `plugins/page.ts`.)
         send(IPC.pluginEnded, plugin, over)
       },
       (plugin, why) =>

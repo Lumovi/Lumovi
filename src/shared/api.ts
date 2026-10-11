@@ -1041,6 +1041,13 @@ export interface LumoviApi {
     /** Called when the window enters or leaves full screen (where macOS hides its window controls). */
     onFullScreen(listener: (fullScreen: boolean) => void): () => void
     /**
+     * Called when Lumovi ended a plugin's process: over its memory, over its processor time, or
+     * found not apart from the rest.
+     */
+    onPluginEnded(
+      listener: (plugin: string, over: 'memory' | 'processor' | 'shared') => void,
+    ): () => void
+    /**
      * Says whether a terminal on this computer has focus: its ⌘ keys are then its own
      * (⌘T, ⌘W…), not the menu's.
      */

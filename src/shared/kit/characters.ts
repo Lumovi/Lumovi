@@ -16,7 +16,8 @@
  * - what turns text round (the embeddings, overrides and isolates; the three weak marks that
  *   right-to-left writing uses are text);
  * - control characters, but a line's end and a tab;
- * - the format characters that aren't what writing is joined and broken with, the tags among them;
+ * - the format characters that aren't what writing is joined and broken with, the tags among
+ *   them (but the tags of a flag, after its flag, two to six and closed);
  * - letters that draw as blank, and the placeholder for an object;
  * - private use, noncharacters, and half of a pair.
  * Everything else is text, as written: every script, emoji, every space, the joiners, the soft
@@ -24,7 +25,7 @@
  */
 /* eslint-disable no-control-regex */
 const MARKED =
-  /\u001b\[[\u0020-\u003f]{0,16}[\u0040-\u007e]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u0084\u0086-\u009f\u202a-\u202e\u2066-\u2069\u180e\u206a-\u206f\ufff9-\ufffc\u{1d173}-\u{1d17a}\u{e0001}\u{e0020}-\u{e007f}\u115f\u1160\u3164\uffa0\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}\ufdd0-\ufdef\ufffe\uffff\u{1FFFE}\u{1FFFF}\u{2FFFE}\u{2FFFF}\u{3FFFE}\u{3FFFF}\u{4FFFE}\u{4FFFF}\u{5FFFE}\u{5FFFF}\u{6FFFE}\u{6FFFF}\u{7FFFE}\u{7FFFF}\u{8FFFE}\u{8FFFF}\u{9FFFE}\u{9FFFF}\u{AFFFE}\u{AFFFF}\u{BFFFE}\u{BFFFF}\u{CFFFE}\u{CFFFF}\u{DFFFE}\u{DFFFF}\u{EFFFE}\u{EFFFF}\u{FFFFE}\u{FFFFF}\u{10FFFE}\u{10FFFF}\p{Cs}]/gu
+  /(\u{1f3f4}[\u{e0030}-\u{e0039}\u{e0061}-\u{e007a}]{2,6}\u{e007f})|\u001b\[[\u0020-\u003f]{0,16}[\u0040-\u007e]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u0084\u0086-\u009f\u202a-\u202e\u2066-\u2069\u180e\u206a-\u206f\ufff9-\ufffc\u{1d173}-\u{1d17a}\u{e0001}\u{e0020}-\u{e007f}\u115f\u1160\u3164\uffa0\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}\ufdd0-\ufdef\ufffe\uffff\u{1FFFE}\u{1FFFF}\u{2FFFE}\u{2FFFF}\u{3FFFE}\u{3FFFF}\u{4FFFE}\u{4FFFF}\u{5FFFE}\u{5FFFF}\u{6FFFE}\u{6FFFF}\u{7FFFE}\u{7FFFF}\u{8FFFE}\u{8FFFF}\u{9FFFE}\u{9FFFF}\u{AFFFE}\u{AFFFF}\u{BFFFE}\u{BFFFF}\u{CFFFE}\u{CFFFF}\u{DFFFE}\u{DFFFF}\u{EFFFE}\u{EFFFF}\u{FFFFE}\u{FFFFF}\u{10FFFE}\u{10FFFF}\p{Cs}]/gu
 
 /* eslint-enable no-control-regex */
 
@@ -50,6 +51,8 @@ export function inPieces(text: string): Piece[] {
   let from = 0
   let marks = 0
   for (const marked of lines.matchAll(MARKED)) {
+    // (A flag made with tags, whole and closed, is text; a tag anywhere else is a mark.)
+    if (marked[1] !== undefined) continue
     if (marked.index > from) pieces.push(lines.slice(from, marked.index))
     from = marked.index + marked[0].length
     if (++marks <= MARKS_AT_MOST) pieces.push({ unseen: codePoint(marked[0]) })

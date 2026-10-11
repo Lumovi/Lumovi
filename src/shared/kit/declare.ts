@@ -257,33 +257,81 @@ export function wrongWithPart(part: Part): string | undefined {
 }
 
 /**
- * The TypeScript type of a value of a kind, as a part of Lumovi's is handed it. Two aren't what
- * came up the channel: the door puts the object itself where a plugin could only name the token
+ * A text that isn't Lumovi's, as a part is handed it: not a string, so that nothing draws it as
+ * it stands. Only what makes such a text safe takes one (`TheirText`, or `spelled` where a mark
+ * can't be drawn), and a part that writes it straight into its page doesn't compile.
+ */
+export interface Their {
+  readonly their: string
+}
+
+/**
+ * `value`, checked as `kind` already, as a part is handed it: every text in it a `Their`. (An
+ * object's token and a handler's stay what they are here: the door swaps those where it knows
+ * what they stand for.)
+ */
+export function handed(value: unknown, kind: Kind): unknown {
+  switch (kind.kind) {
+    case 'text':
+      return Object.freeze({ their: value as string })
+    case 'list':
+      return Object.freeze((value as unknown[]).map((item) => handed(item, kind.of)))
+    case 'record':
+      return handedFields(value as Record<string, unknown>, kind.fields)
+    case 'choice': {
+      const which = (value as Record<string, string>)[kind.by]!
+      return Object.freeze({
+        ...handedFields(value as Record<string, unknown>, kind.of[which]!),
+        [kind.by]: which,
+      })
+    }
+    default:
+      return value
+  }
+}
+
+/** Named values, checked already, as a part is handed them. */
+export function handedFields(
+  value: Readonly<Record<string, unknown>>,
+  fields: Readonly<Record<string, Kind>>,
+): Readonly<Record<string, unknown>> {
+  const all: Record<string, unknown> = {}
+  for (const key of Object.keys(value)) {
+    if (Object.hasOwn(fields, key)) all[key] = handed(value[key], fields[key]!)
+  }
+  return Object.freeze(all)
+}
+
+/**
+ * The TypeScript type of a value of a kind, as a part of Lumovi's is handed it. Three aren't
+ * what came up the channel: a text is a `Their`; the door puts the object itself where a plugin could only name the token
  * Lumovi gave it, and a function where a plugin named a handler.
  */
-export type ValueOf<K, P extends Part = Part> = K extends { kind: 'text' | 'time' }
-  ? string
-  : K extends { kind: 'object' }
-    ? ObjectRef
-    : K extends { kind: 'handler'; event: infer E }
-      ? (carries: CarriedBy<P, E>) => void
-      : K extends { kind: 'number' }
-        ? number
-        : K extends { kind: 'yes-or-no' }
-          ? boolean
-          : K extends { kind: 'one-of'; values: readonly (infer V)[] }
-            ? V
-            : K extends { kind: 'list'; of: infer Of }
-              ? ValueOf<Of, P>[]
-              : K extends { kind: 'record'; fields: infer F }
-                ? { [N in keyof F]?: ValueOf<F[N], P> }
-                : K extends { kind: 'choice'; by: infer By extends string; of: infer Of }
-                  ? {
-                      [W in keyof Of]: { [B in By]: W } & {
-                        [N in keyof Of[W]]?: ValueOf<Of[W][N], P>
-                      }
-                    }[keyof Of]
-                  : never
+export type ValueOf<K, P extends Part = Part> = K extends { kind: 'text' }
+  ? Their
+  : K extends { kind: 'time' }
+    ? string
+    : K extends { kind: 'object' }
+      ? ObjectRef
+      : K extends { kind: 'handler'; event: infer E }
+        ? (carries: CarriedBy<P, E>) => void
+        : K extends { kind: 'number' }
+          ? number
+          : K extends { kind: 'yes-or-no' }
+            ? boolean
+            : K extends { kind: 'one-of'; values: readonly (infer V)[] }
+              ? V
+              : K extends { kind: 'list'; of: infer Of }
+                ? ValueOf<Of, P>[]
+                : K extends { kind: 'record'; fields: infer F }
+                  ? { [N in keyof F]?: ValueOf<F[N], P> }
+                  : K extends { kind: 'choice'; by: infer By extends string; of: infer Of }
+                    ? {
+                        [W in keyof Of]: { [B in By]: W } & {
+                          [N in keyof Of[W]]?: ValueOf<Of[W][N], P>
+                        }
+                      }[keyof Of]
+                    : never
 
 /** What a handler of a part is called with, for one of its events. */
 type CarriedBy<P extends Part, E> = E extends keyof NonNullable<P['events']>
