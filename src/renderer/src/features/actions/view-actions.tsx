@@ -5,7 +5,7 @@ import { kindFor } from '@shared/resources'
 import { VIEW_ICONS } from '@renderer/components/KindIcon'
 import { Stepper } from '@renderer/components/Stepper'
 import { YamlText } from '@renderer/components/YamlText'
-import { useChange, type ClusterChange, type ChangeMeta } from '@renderer/hooks/change'
+import { useChange, type ClusterChange, type PluginChangeMeta } from '@renderer/hooks/change'
 import { useGo } from '@renderer/hooks/go'
 import { resourceFor } from '@renderer/hooks/resources'
 import { cn } from '@renderer/lib/cn'
@@ -34,7 +34,7 @@ export function viewChange(
   context: string,
   inputs: InputValues = {},
   now = Date.now(),
-): InstantChange {
+): InstantChange & { meta: PluginChangeMeta } {
   const { name, namespace } = object.metadata
   const step = (patch: NonNullable<ViewAction['patch']>, title: string) => {
     const body = renderPatch(patch, object, now, inputs)
@@ -49,6 +49,7 @@ export function viewChange(
         },
       },
       meta: {
+        plugin: true as const,
         title,
         command: kubectl(
           context,
@@ -129,12 +130,13 @@ function createChange(
   inputs: InputValues,
   { suffix, now }: { suffix: string; now: number },
   go: (to: string) => void,
-): { request: ClusterChange; meta: ChangeMeta; created: KubeObject } {
+): { request: ClusterChange; meta: PluginChangeMeta; created: KubeObject } {
   const { kind, object: created } = createdObject(action, object, inputs, suffix, now)
   const { name, namespace } = created.metadata
   return {
     request: { kind, namespace, change: { action: 'create', object: created } },
     meta: {
+      plugin: true,
       title: action.done
         ? render(action.done, object, now, inputs)
         : `${action.name}: ${object.metadata.name}`,

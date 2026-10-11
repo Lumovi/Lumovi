@@ -1,9 +1,14 @@
 # CloudNativePG (https://cloudnative-pg.io): PostgreSQL clusters and their backups.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: cloudnative-pg
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - postgresql.cnpg.io
   label: CloudNativePG
   icon: database
   kinds:
@@ -132,11 +137,13 @@ spec:
           labels: { cnpg.io/scheduled-backup: '{{ .metadata.name }}' }
       actions:
         - name: Suspend
+          runs: at-once
           when: { path: .spec.suspend, notEquals: true }
           patch: { spec: { suspend: true } }
           undo: { spec: { suspend: false } }
           done: Suspended {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.suspend, equals: true }
           patch: { spec: { suspend: false } }

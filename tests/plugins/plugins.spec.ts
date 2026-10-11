@@ -11,13 +11,15 @@ import { expect, test } from '@playwright/test'
 import { parse, type Step } from '@shared/jsonpath'
 import { isBuiltinKind, isCustomGroup, apiGroupOf, kindFor } from '@shared/resources'
 import {
+  changeProblem,
+  clashes,
   EXPRESSION,
   parsePlugin,
   PLACEHOLDER,
   type Condition,
   type Plugin,
   type View,
-} from '../../src/renderer/src/lib/plugins.ts'
+} from '../../src/shared/plugins.ts'
 import type { Crd, Shape } from '../../scripts/crds.ts'
 
 const PLUGINS = 'plugins'
@@ -48,7 +50,10 @@ const plugins: Plugin[] = []
 const parseProblems: string[] = []
 for (const folder of [PLUGINS, OWN]) {
   for (const file of readdirSync(folder).filter((f) => f.endsWith('.yaml'))) {
-    const parsed = parsePlugin(readFileSync(join(folder, file), 'utf8'), file)
+    // Lumovi's plugins are held inside their groups; its own views of Kubernetes' kinds aren't.
+    const parsed = parsePlugin(readFileSync(join(folder, file), 'utf8'), file, {
+      fenced: folder === PLUGINS,
+    })
     if (parsed.plugin) {
       views.push(...parsed.plugin.views)
       // (Lumovi's own views are no plugin: only their fields are checked.)
@@ -57,6 +62,8 @@ for (const folder of [PLUGINS, OWN]) {
     parseProblems.push(...parsed.problems)
   }
 }
+// A kind is one plugin's, though three of these share a group: a clash among Lumovi's own fails here.
+for (const [plugin, problem] of clashes(plugins)) parseProblems.push(`${plugin.source}: ${problem}`)
 
 // ——— Shapes ———
 
@@ -298,4 +305,40 @@ test('the CRDs kept here are the ones sources.json names', () => {
     .filter((f) => f.endsWith('.json') && f !== 'sources.json')
     .map((f) => basename(f, '.json'))
   expect(kept.sort()).toEqual(Object.keys(sources).sort())
+})
+
+// The second wall. The file's check refuses every way that's known of writing a change to what
+// isn't a plugin's; so nothing a file can say reaches this one, and it's shown what a file
+// couldn't: a change already filled in, as it would be sent.
+test('a change is held, as it’s sent, to what a plugin may change', () => {
+  const patch = (body: unknown) => changeProblem({ action: 'patch', patch: body })
+  expect(patch({ spec: { suspend: true }, metadata: { annotations: { a: 'b' } } })).toBeUndefined()
+  expect(patch([{ op: 'replace', path: '/spec/size', value: 3 }])).toBeUndefined()
+  expect(patch({ metadata: { finalizers: [] } })).toBe(
+    'changes metadata.finalizers, which a plugin can’t change',
+  )
+  expect(patch({ metadata: { namespace: 'elsewhere' } })).toContain('metadata.namespace')
+  // What one placeholder for a whole operation would have come to.
+  expect(patch([{ op: 'remove', path: '/metadata/finalizers' }])).toContain('metadata.finalizers')
+  expect(patch([{ op: 'move', from: '/metadata/ownerReferences/0', path: '/spec/x' }])).toContain(
+    'metadata.ownerReferences',
+  )
+  expect(patch([{ op: 'replace', path: '/metadata', value: {} }])).toContain(
+    'all of an object’s metadata',
+  )
+  expect(patch([{ op: 'replace', path: '', value: {} }])).toContain('the object whole')
+  expect(patch(['{{ .spec.op }}'])).toContain('fills in an operation whole')
+  expect(patch({ metadata: '{{ .spec.metadata }}' })).toContain('metadata whole')
+  const create = (metadata: unknown) =>
+    changeProblem({
+      action: 'create',
+      object: { apiVersion: 'example.com/v1', kind: 'Gadget', metadata },
+    })
+  // A new object has its name and may have its namespace: its owners aren't a plugin's to say.
+  expect(create({ name: 'gadget-abcde', namespace: 'shop', labels: { a: 'b' } })).toBeUndefined()
+  expect(create({ name: 'gadget-abcde', ownerReferences: [] })).toContain(
+    'metadata.ownerReferences',
+  )
+  // And nothing but a patch or a new object is a plugin's action's.
+  expect(changeProblem({ action: 'delete' })).toContain('isn’t a patch or a new object')
 })

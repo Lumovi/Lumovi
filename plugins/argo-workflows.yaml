@@ -1,9 +1,14 @@
 # Argo Workflows (https://argoproj.github.io/workflows): workflows, their templates and schedules.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: argo-workflows
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - argoproj.io
   label: Argo Workflows
   icon: workflow
   kinds:
@@ -68,6 +73,7 @@ spec:
           labels: { workflows.argoproj.io/workflow: '{{ .metadata.name }}' }
       actions:
         - name: Suspend
+          runs: at-once
           icon: timer
           when:
             all:
@@ -77,6 +83,7 @@ spec:
           undo: { spec: { suspend: null } }
           done: Suspended {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.suspend, equals: true }
           patch: { spec: { suspend: null } }
@@ -149,11 +156,13 @@ spec:
             spec: '{{ .spec.workflowSpec }}'
           done: Submitted {{ .metadata.name }}
         - name: Suspend
+          runs: at-once
           when: { path: .spec.suspend, notEquals: true }
           patch: { spec: { suspend: true } }
           undo: { spec: { suspend: false } }
           done: Suspended {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.suspend, equals: true }
           patch: { spec: { suspend: false } }

@@ -1,10 +1,16 @@
 # Linkerd (https://linkerd.io): the mesh's policy (servers, routes and who may reach them) and
 # service profiles.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: linkerd
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - policy.linkerd.io
+    - linkerd.io
   label: Linkerd
   icon: waypoints
   category: network

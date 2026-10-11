@@ -1,5 +1,6 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { ChangeRequest, KubeObject, Result } from '@shared/api'
+import { changeProblem } from '@shared/plugins'
 import { api } from '@renderer/lib/api'
 import { useActivity } from '@renderer/state/activity'
 import { useCluster } from '@renderer/state/cluster'
@@ -24,6 +25,12 @@ export function refreshAfterChange(queryClient: QueryClient, context: string, ki
   setTimeout(refresh, SETTLE_DELAY)
 }
 
+/** A plugin's action's change: one that can't be made without saying whose it is. */
+export type PluginChangeMeta = ChangeMeta & {
+  plugin: true
+  undo?: { change: ClusterChange; meta: Omit<ChangeMeta, 'undo' | 'action'> & { plugin: true } }
+}
+
 export interface ChangeMeta {
   /** What happened, in the past tense: "Scaled storefront to 5 replicas". */
   title: string
@@ -35,6 +42,8 @@ export interface ChangeMeta {
   action?: { label: string; run: () => void }
   /** Only log the change; the caller reports it (e.g. a drain's many evictions). */
   silent?: boolean
+  /** It's a plugin's action's: held, as it's sent, to what a plugin may change. */
+  plugin?: true
 }
 
 /**
@@ -51,6 +60,10 @@ export function useChange() {
     request: ClusterChange,
     meta: ChangeMeta,
   ): Promise<Result<KubeObject | null>> => {
+    // A plugin's change is checked as it is now, filled in: its file was checked when it was
+    // read, and nothing a file's check missed is sent on the strength of it. (An undo is sent
+    // from here too, with its own step's meta: below.)
+    const refused = meta.plugin ? changeProblem(request.change) : undefined
     const id = start({
       context,
       title: meta.title,
@@ -59,6 +72,13 @@ export function useChange() {
         ? { kind: request.kind, name: request.name, namespace: request.namespace }
         : undefined,
     })
+    if (refused) {
+      // (What to do about it is for whoever wrote the plugin: a person using it is told what, not how.)
+      const message = `Lumovi didn’t send this: it ${refused.split(':')[0]}.`
+      // It got past the check of the plugin's file by a way nobody knew: worth its line in the log.
+      finish(id, 'failed', message)
+      return { ok: false, error: { code: 'invalid', message } }
+    }
     const result = await api.kube.change({ ...request, context })
     if (!result.ok) {
       // About a Secret, what the cluster said isn't kept in the activity log, as it isn't in

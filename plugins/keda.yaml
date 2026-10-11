@@ -1,9 +1,14 @@
 # KEDA (https://keda.sh): event-driven autoscaling of workloads and jobs.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: keda
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - keda.sh
   label: KEDA
   icon: gauge
   kinds:
@@ -53,6 +58,7 @@ spec:
           objectName: '{{ .status.hpaName }}'
       actions:
         - name: Pause
+          runs: at-once
           when: { path: ".metadata.annotations['autoscaling.keda.sh/paused']", notEquals: 'true' }
           patch:
             metadata:
@@ -78,6 +84,7 @@ spec:
               annotations: { autoscaling.keda.sh/paused-replicas: null }
           done: Paused {{ .spec.scaleTargetRef.name }} at {{ input.replicas }} replicas
         - name: Resume
+          runs: at-once
           primary: true
           when:
             any:

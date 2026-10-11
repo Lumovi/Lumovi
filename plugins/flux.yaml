@@ -1,9 +1,16 @@
 # Flux (https://fluxcd.io): what it applies, and where it fetches it from.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: flux
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - kustomize.toolkit.fluxcd.io
+    - helm.toolkit.fluxcd.io
+    - source.toolkit.fluxcd.io
   label: Flux
   icon: git-merge
   kinds:
@@ -56,6 +63,7 @@ spec:
           namespace: '{{ .spec.sourceRef.namespace }}'
       actions:
         - name: Reconcile
+          runs: at-once
           icon: refresh-cw
           primary: true
           when: { path: .spec.suspend, notEquals: true }
@@ -64,11 +72,13 @@ spec:
               annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
           done: Asked Flux to reconcile {{ .metadata.name }}
         - name: Suspend
+          runs: at-once
           when: { path: .spec.suspend, notEquals: true }
           patch: { spec: { suspend: true } }
           undo: { spec: { suspend: null } }
           done: Suspended {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.suspend, equals: true }
           patch:
@@ -119,6 +129,7 @@ spec:
           namespace: '{{ .spec.chart.spec.sourceRef.namespace }}'
       actions:
         - name: Reconcile
+          runs: at-once
           icon: refresh-cw
           primary: true
           when: { path: .spec.suspend, notEquals: true }
@@ -127,11 +138,13 @@ spec:
               annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
           done: Asked Flux to reconcile {{ .metadata.name }}
         - name: Suspend
+          runs: at-once
           when: { path: .spec.suspend, notEquals: true }
           patch: { spec: { suspend: true } }
           undo: { spec: { suspend: null } }
           done: Suspended {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.suspend, equals: true }
           patch:
@@ -181,6 +194,7 @@ spec:
         - { name: Fetched, path: .status.artifact.lastUpdateTime, type: date }
       actions:
         - name: Reconcile
+          runs: at-once
           icon: refresh-cw
           primary: true
           when: { path: .spec.suspend, notEquals: true }
@@ -189,11 +203,13 @@ spec:
               annotations: { reconcile.fluxcd.io/requestedAt: '{{ now }}' }
           done: Asked Flux to fetch {{ .metadata.name }}
         - name: Suspend
+          runs: at-once
           when: { path: .spec.suspend, notEquals: true }
           patch: { spec: { suspend: true } }
           undo: { spec: { suspend: null } }
           done: Suspended {{ .metadata.name }}
         - name: Resume
+          runs: at-once
           primary: true
           when: { path: .spec.suspend, equals: true }
           patch:

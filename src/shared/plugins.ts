@@ -1,0 +1,1005 @@
+/**
+ * What a plugin's file is, and the one checker of it: read here by the app, and the same file
+ * is what the plugins' own repository checks its files with. A plugin is one file: its place in
+ * the sidebar, where it has one (a label and the kinds under it), and its views, each saying how
+ * a kind is shown (its columns, status, details, related objects and actions). A plugin can't run
+ * code: its views read fields with JSONPath and change objects only with the patches they spell
+ * out. The format: https://docs.lumovi.dev/reference/plugin-format.
+ */
+import { parseAllDocuments } from 'yaml'
+import { checkPath } from './jsonpath'
+import {
+  isBuiltinKind,
+  isCustomGroup,
+  kindFor,
+  type ResourceCategory,
+  type ResourceKind,
+} from './resources'
+import type { Health } from './health'
+
+export const VIEW_API_VERSION = 'lumovi.dev/v1beta1'
+
+/** Icons a view can pick, by their Lucide names. */
+export const VIEW_ICON_NAMES = [
+  'activity',
+  'archive',
+  'bell',
+  'box',
+  'boxes',
+  'bug',
+  'camera',
+  'cloud',
+  'database',
+  'file-check',
+  'flame',
+  'gauge',
+  'git-branch',
+  'git-merge',
+  'globe',
+  'hexagon',
+  'key-round',
+  'layers',
+  'lock',
+  'network',
+  'package',
+  'play',
+  'puzzle',
+  'radar',
+  'refresh-cw',
+  'rocket',
+  'route',
+  'scaling',
+  'server',
+  'server-cog',
+  'shield-check',
+  'signpost',
+  'timer',
+  'waves',
+  'waypoints',
+  'workflow',
+] as const
+
+export type ViewIconName = (typeof VIEW_ICON_NAMES)[number]
+
+export type ValueType = 'string' | 'number' | 'date' | 'boolean' | 'count'
+
+export type Scalar = string | number | boolean | null
+
+/** A value read from objects: a list column, or a fact in the details. */
+export interface ViewField {
+  name: string
+  path: string
+  type: ValueType
+  /** Shown when the path finds nothing. */
+  default?: string
+}
+
+export type Condition =
+  | {
+      path: string
+      equals?: Scalar
+      notEquals?: Scalar
+      in?: Scalar[]
+      exists?: boolean
+      matches?: string
+    }
+  | { all: Condition[] }
+  | { any: Condition[] }
+
+export interface StatusRule {
+  /** Applies when this holds; a rule without one always applies. */
+  when?: Condition
+  health: Health
+  /** Templates: text with {{ .path }} values in it. */
+  label: string
+  detail?: string
+}
+
+export interface ViewLink {
+  name: string
+  /** Templates naming the related object: "Secret", "{{ .spec.issuerRef.kind }}.cert-manager.io"… */
+  kind: string
+  objectName: string
+  /** The object's own namespace unless set (and none for cluster-wide kinds). */
+  namespace?: string
+}
+
+/** Objects of another kind that belong to an object, listed in a tab of its own. */
+export interface ViewRelated {
+  /** The tab's name: "Instances", "Nodes"… */
+  name: string
+  /** A template naming their kind: "Pod", "NodeClaim.karpenter.sh"… */
+  kind: string
+  /** The labels they have, each a template: `cnpg.io/cluster: '{{ .metadata.name }}'`. */
+  labels?: Record<string, string>
+  /** A template: "spec.nodeName={{ .status.nodeName }}". */
+  fieldSelector?: string
+  /** Where they are: the object's own namespace unless set (every one, for cluster-wide objects). */
+  namespace?: string
+}
+
+/** What an action's inputs were given: numbers for number inputs, and text ('' when left empty). */
+export type InputValues = Record<string, string | number>
+
+/** A value an action asks for before it runs, filled in where its templates say `{{ input.name }}`. */
+export interface ViewInput {
+  name: string
+  label: string
+  /** `text` (the default), a `number`, or a `choice` of `options`, or of what `from` finds. */
+  type: 'text' | 'number' | 'choice'
+  options?: Scalar[]
+  from?: string
+  /** A template for the value it starts with. */
+  default?: string
+}
+
+export interface ViewAction {
+  name: string
+  icon?: ViewIconName
+  when?: Condition
+  /** What it asks for first; it always asks when it has inputs. */
+  inputs?: ViewInput[]
+  /** The change it makes: a patch of the object, or another object to create. */
+  patch?: Record<string, unknown> | Record<string, unknown>[]
+  /** An object to create (templates and all), shown before it's created. */
+  create?: Record<string, unknown>
+  /** `merge` (the default) or `json` (a list of operations). */
+  type: 'merge' | 'json'
+  /** Patches the object's status instead. */
+  subresource?: 'status'
+  /** The patch that takes it back, offered as Undo. */
+  undo?: Record<string, unknown> | Record<string, unknown>[]
+  /** Asks first, with this text; otherwise it runs at once. */
+  confirm?: string
+  /** What happened, for the notification: "Suspended {{ .metadata.name }}". */
+  done?: string
+  primary?: boolean
+  danger?: boolean
+  /** Said by an action that asks nothing first (no confirm, no inputs, nothing created). */
+  runs?: 'at-once'
+}
+
+export interface View {
+  /** Its own name where it has one, or its plugin's and its place among the plugin's views. */
+  name: string
+  /** The plugin it's a part of. */
+  plugin: string
+  /** Where it came from: "Lumovi", or the user's file. */
+  source: string
+  kinds: ResourceKind[]
+  icon?: ViewIconName
+  columns?: ViewField[]
+  status?: StatusRule[]
+  details?: ViewField[]
+  links?: ViewLink[]
+  related?: ViewRelated[]
+  actions?: ViewAction[]
+}
+
+/** The sidebar's sections for Kubernetes' own kinds, which a plugin can sit in. */
+export const PLUGIN_CATEGORIES = ['cluster', 'network', 'config', 'storage'] as const
+
+/**
+ * A plugin's place in the sidebar: a tool's kinds under one entry, which leads to a page with a
+ * tab for each. (A plugin of nothing but views has none.)
+ */
+export interface PluginPlace {
+  label: string
+  icon?: ViewIconName
+  /** A section of Kubernetes' own kinds to sit in, instead of Plugins. */
+  category?: Exclude<ResourceCategory, 'workloads'>
+  /** In the order of their tabs. */
+  kinds: ResourceKind[]
+}
+
+/** One file: a name, a place in the sidebar where it has one, and its views. */
+export interface Plugin {
+  name: string
+  /** Its own version: three numbers. */
+  version: string
+  /** What it needs to work: the oldest Lumovi, as three numbers. */
+  needs: { lumovi: string }
+  /**
+   * The API groups its kinds are in: a fence round what it may name, and no more than that. What
+   * is a plugin's own is the kinds it claims (under its place, or in a view); a group can be
+   * shared by plugins.
+   */
+  groups: string[]
+  /** Where it came from: "Lumovi", or the user's file. */
+  source: string
+  place?: PluginPlace
+  views: View[]
+}
+
+/** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
+export type ListedPlugin = Pick<Plugin, 'name' | 'source'> & PluginPlace
+
+// ——— Checking ———
+
+/** What a part of a view must look like; checked against the YAML before it's used. */
+type Shape =
+  | 'string'
+  | 'boolean'
+  | 'scalar'
+  | 'path'
+  | 'template'
+  | 'regex'
+  | 'patch'
+  | { oneOf: readonly string[] }
+  | { list: Shape; nonEmpty?: boolean }
+  /** Any keys, each value a `Shape`. */
+  | { map: Shape }
+  | {
+      fields: Record<string, Shape | { shape: Shape; required: true }>
+      /** A last check of the whole object, once its fields are fine. */
+      refine?: (value: Record<string, unknown>) => string | undefined
+    }
+
+const HEALTHS = ['healthy', 'progressing', 'warning', 'critical', 'neutral'] as const
+
+/** A view's kinds as Lumovi names them: "Certificate.cert-manager.io", "Secret". */
+const kindId = ({ group, kind }: { group?: string; kind: string }) =>
+  kindFor(group ? `${group}/v1` : 'v1', kind)
+
+const conditionShape: Shape = {
+  fields: {
+    path: 'path',
+    equals: 'scalar',
+    notEquals: 'scalar',
+    in: { list: 'scalar', nonEmpty: true },
+    exists: 'boolean',
+    matches: 'regex',
+    get all() {
+      return { list: conditionShape, nonEmpty: true }
+    },
+    get any() {
+      return { list: conditionShape, nonEmpty: true }
+    },
+  },
+  refine: (c) =>
+    [c.path, c.all, c.any].filter((v) => v !== undefined).length === 1
+      ? undefined
+      : 'needs exactly one of path, all or any',
+}
+
+/** A kind, or every kind of a group (`kind: '*'`), like the constraints Gatekeeper's templates make. */
+const kindsShape: Shape = {
+  list: {
+    fields: { group: 'string', kind: { shape: 'string', required: true } },
+    refine: (k) =>
+      k.kind === '*' && !k.group ? 'every kind (*) is of a group: name it' : undefined,
+  },
+  nonEmpty: true,
+}
+
+const fieldShape: Shape = {
+  fields: {
+    name: { shape: 'string', required: true },
+    path: { shape: 'path', required: true },
+    type: { oneOf: ['string', 'number', 'date', 'boolean', 'count'] },
+    default: 'string',
+  },
+}
+
+const INPUT_NAME = /^[A-Za-z_]\w*$/
+
+const inputShape: Shape = {
+  fields: {
+    name: { shape: 'string', required: true },
+    label: { shape: 'string', required: true },
+    type: { oneOf: ['text', 'number', 'choice'] },
+    options: { list: 'scalar', nonEmpty: true },
+    from: 'path',
+    default: 'template',
+  },
+  refine: (input) => {
+    if (!INPUT_NAME.test(input.name as string)) {
+      return `${quoted(input.name)} should be letters, digits and _, like replicas`
+    }
+    const choice = input.type === 'choice'
+    const given = [input.options, input.from].filter((v) => v !== undefined).length
+    if (choice && given !== 1) return 'a choice needs options, or a path to read them from'
+    return !choice && given > 0 ? 'only a choice has options' : undefined
+  },
+}
+
+/** What of an object's metadata is the cluster's, or its owner's, and no plugin's to set. */
+const GUARDED_IN_A_CREATE = ['ownerReferences', 'finalizers', 'managedFields']
+const GUARDED_IN_A_PATCH = [
+  ...GUARDED_IN_A_CREATE,
+  'namespace',
+  'name',
+  'uid',
+  'resourceVersion',
+  'generation',
+  'creationTimestamp',
+  'deletionTimestamp',
+]
+
+/**
+ * What a patch (a merge's object, or a list of operations) or a new object does to an object's
+ * metadata that isn't a plugin's to do, as the file writes it. Checked on what's written, so
+ * what's written there can't be something filled in later: metadata is a map written out, and
+ * an operation's path holds no placeholder; and none replaces metadata whole, or the object.
+ *
+ * It's used twice. On the file, where it's the first wall: what's written. And on the change as
+ * it is once it's filled in, where it's sent (`changeProblem`): whatever got past the first, by
+ * a way nobody thought of, is held to the same list there.
+ */
+function metadataProblem(body: unknown, guarded: string[]): string | undefined {
+  const named = (key: string) => `changes metadata.${key}, which a plugin can’t change`
+  if (Array.isArray(body)) {
+    for (const op of body as unknown[]) {
+      // (An operation that's one placeholder would be whatever it finds: any operation at all.)
+      if (typeof op !== 'object' || op === null || Array.isArray(op)) {
+        return 'fills in an operation whole, which a plugin can’t: write it out'
+      }
+      const { path, from } = op as { path?: unknown; from?: unknown }
+      if (typeof path !== 'string' || (from !== undefined && typeof from !== 'string')) {
+        return 'needs each operation’s path written out, as text'
+      }
+      for (const place of [path, from].filter((p) => p !== undefined)) {
+        if (place.includes('{{')) {
+          return 'fills in where an operation changes, which a plugin can’t: write its path out'
+        }
+        if (place === '' || place === '/') return 'replaces the object whole, which a plugin can’t'
+        if (place === '/metadata') {
+          return 'replaces all of an object’s metadata, which a plugin can’t change'
+        }
+        const key = guarded.find(
+          (k) => place === `/metadata/${k}` || place.startsWith(`/metadata/${k}/`),
+        )
+        if (key) return named(key)
+      }
+    }
+    return undefined
+  }
+  if (typeof body !== 'object' || body === null || !('metadata' in body)) return undefined
+  const { metadata } = body as { metadata: unknown }
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+    return 'fills in an object’s metadata whole, which a plugin can’t: write it out'
+  }
+  const key = guarded.find((k) => k in metadata)
+  return key && named(key)
+}
+
+/**
+ * Why a change a plugin's action came to, filled in and ready to send, isn't a plugin's to make;
+ * nothing, for one that is. The second wall: the file was checked when it was read, and this is
+ * the same check on what would be sent.
+ */
+export function changeProblem(change: {
+  action: string
+  patch?: unknown
+  object?: unknown
+}): string | undefined {
+  if (change.action === 'patch') return metadataProblem(change.patch, GUARDED_IN_A_PATCH)
+  return change.action === 'create'
+    ? metadataProblem(change.object, GUARDED_IN_A_CREATE)
+    : 'isn’t a patch or a new object, which is all a plugin’s action makes'
+}
+
+/** What's wrong with an action as a whole, once its fields are fine. */
+function actionProblem(a: Record<string, unknown>): string | undefined {
+  if ((a.patch === undefined) === (a.create === undefined)) {
+    return 'needs a patch, or an object to create (not both)'
+  }
+  if (a.create !== undefined) {
+    const { apiVersion, kind, metadata } = a.create as Record<string, unknown>
+    const { name, generateName } = (metadata ?? {}) as Record<string, unknown>
+    const text = (value: unknown) => typeof value === 'string' && value !== ''
+    if (
+      typeof apiVersion !== 'string' ||
+      typeof kind !== 'string' ||
+      !(text(name) || text(generateName))
+    ) {
+      return 'what it creates needs an apiVersion, a kind, and a metadata.name or generateName'
+    }
+    if (a.undo !== undefined) return 'can’t undo creating something'
+  }
+  if (
+    ![a.patch, a.undo].every((p) => p === undefined || Array.isArray(p) === (a.type === 'json'))
+  ) {
+    return 'patches are an object for type merge, and a list for type json'
+  }
+  const inputs = new Set(((a.inputs ?? []) as { name: string }[]).map((input) => input.name))
+  const used = JSON.stringify([a.patch, a.create, a.confirm, a.done]).matchAll(INPUT_PLACEHOLDER)
+  const unknown = [...used].find(([, name]) => !inputs.has(name!))
+  if (unknown) return `{{ input.${unknown[1]} }} isn’t one of its inputs`
+  const guarded =
+    metadataProblem(a.patch, GUARDED_IN_A_PATCH) ??
+    metadataProblem(a.undo, GUARDED_IN_A_PATCH) ??
+    metadataProblem(a.create, GUARDED_IN_A_CREATE)
+  if (guarded) return guarded
+  // An action that asks nothing first says so, where a reviewer sees it; and only such a one.
+  const asks = a.confirm !== undefined || a.inputs !== undefined || a.create !== undefined
+  if (!asks && a.runs === undefined) return 'runs at once, so it has to say so: runs: at-once'
+  return asks && a.runs !== undefined ? 'asks first, so it can’t say runs: at-once' : undefined
+}
+
+const VIEW_SHAPE: Shape = {
+  fields: {
+    kinds: { shape: kindsShape, required: true },
+    icon: { oneOf: VIEW_ICON_NAMES },
+    columns: { list: fieldShape },
+    status: {
+      list: {
+        fields: {
+          when: conditionShape,
+          health: { shape: { oneOf: HEALTHS }, required: true },
+          label: { shape: 'template', required: true },
+          detail: 'template',
+        },
+      },
+    },
+    details: { list: fieldShape },
+    links: {
+      list: {
+        fields: {
+          name: { shape: 'string', required: true },
+          kind: { shape: 'template', required: true },
+          objectName: { shape: 'template', required: true },
+          namespace: 'template',
+        },
+      },
+    },
+    related: {
+      list: {
+        fields: {
+          name: { shape: 'string', required: true },
+          kind: { shape: 'template', required: true },
+          labels: { map: 'template' },
+          fieldSelector: 'template',
+          namespace: 'template',
+        },
+        // Without a selector, they'd be every object of the kind.
+        refine: (r) =>
+          r.labels || r.fieldSelector ? undefined : 'needs labels or a fieldSelector to find them',
+      },
+    },
+    actions: {
+      list: {
+        fields: {
+          name: { shape: 'string', required: true },
+          icon: { oneOf: VIEW_ICON_NAMES },
+          when: conditionShape,
+          inputs: { list: inputShape, nonEmpty: true },
+          patch: 'patch',
+          create: 'patch',
+          type: { oneOf: ['merge', 'json'] },
+          subresource: { oneOf: ['status'] },
+          runs: { oneOf: ['at-once'] },
+          undo: 'patch',
+          confirm: 'template',
+          done: 'template',
+          primary: 'boolean',
+          danger: 'boolean',
+        },
+        refine: actionProblem,
+      },
+    },
+  },
+}
+
+/** What a plugin says of its place in the sidebar; its views are each checked as a view. */
+const PLACE_SHAPE: Shape = {
+  fields: {
+    label: 'string',
+    icon: { oneOf: VIEW_ICON_NAMES },
+    category: { oneOf: PLUGIN_CATEGORIES },
+    kinds: kindsShape,
+  },
+  refine: (spec) => {
+    // Its place in the sidebar is its kinds, under its label: both, or neither.
+    if (spec.kinds === undefined) {
+      return Object.keys(spec).length > 0
+        ? 'a label, an icon or a category is for a place in the sidebar, and that needs kinds'
+        : undefined
+    }
+    if (spec.label === undefined) return 'needs a label for its place in the sidebar'
+    // Kubernetes' own kinds have their pages, each in its place in the sidebar.
+    return (spec.kinds as { group?: string; kind: string }[])
+      .map(kindId)
+      .filter(isBuiltinKind)
+      .map((kind) => `${kind} has a page of its own, so it can’t be in a plugin`)[0]
+  },
+}
+
+/**
+ * What a plugin's name may be: what it's known by wherever it's granted something, so it's
+ * fixed while nobody has one of their own.
+ */
+export const PLUGIN_NAME = /^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+/** A version: three numbers, and nothing that would need comparing any other way. */
+const THREE_NUMBERS = /^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})$/
+
+/**
+ * Whether version `a` is older than `b`, three numbers each. (A Lumovi between releases has a
+ * tail after its numbers, "1.22.0-beta.1": it counts as its release.)
+ */
+function older(a: string, b: string): boolean {
+  const [x, y] = [a, b].map((version) => version.split(/[-+]/)[0]!.split('.').map(Number))
+  const at = x!.findIndex((part, i) => part !== y![i])
+  return at >= 0 && x![at]! < y![at]!
+}
+
+/** What a plugin needs to work; one thing so far. */
+const NEEDS_SHAPE: Shape = { fields: { lumovi: { shape: 'string', required: true } } }
+
+/** How long a name or a label may be, and a sentence. */
+const NAME_LENGTH = 80
+const SENTENCE_LENGTH = 500
+const NAMES = new Set(['name', 'label', 'default'])
+const SENTENCES = new Set(['confirm', 'detail', 'done'])
+/**
+ * Characters nobody sees, which can make a text read as another: the ones that turn its
+ * direction, the ones with no width or that only look like a space, the breaks that aren't a
+ * line's end, and the tags.
+ */
+// (The joiner among them combines with what's before it, which is why it's here.)
+/* eslint-disable no-misleading-character-class */
+const UNSEEN =
+  /[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\u3164\ufeff\uffa0\ufff9-\ufffb\u{e0001}-\u{e007f}]/u
+/* eslint-enable no-misleading-character-class */
+// eslint-disable-next-line no-control-regex
+const NOT_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u
+
+const codePoint = (character: string) =>
+  `U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`
+
+/**
+ * A line about a file, safe to show: what a file holds is quoted in it (a name, a value, the
+ * file's own name), and a character that can't be seen there could turn Lumovi's own sentence
+ * round. Each is shown as its code point instead; and no line is a page long.
+ */
+export function plain(line: string): string {
+  const shown = line
+    .replace(new RegExp(UNSEEN, 'gu'), codePoint)
+    .replace(new RegExp(NOT_TEXT, 'gu'), codePoint)
+  return shown.length > LINE_LENGTH ? `${shown.slice(0, LINE_LENGTH)}…` : shown
+}
+const LINE_LENGTH = 400
+
+/** How much of what a file says is quoted back in a line about it. */
+const QUOTED_LENGTH = 40
+
+/** What a file says, quoted in a line about it: cut short, a name in its middle (its end tells two apart). */
+function quoted(value: unknown, name = false): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  const cut =
+    text.length <= QUOTED_LENGTH
+      ? text
+      : name
+        ? `${text.slice(0, QUOTED_LENGTH - 7)}…${text.slice(-6)}`
+        : `${text.slice(0, QUOTED_LENGTH - 1)}…`
+  return typeof value === 'string' ? JSON.stringify(cut) : cut
+}
+
+/** What's wrong with the texts of a plugin, each where it is: every text is plain, and a name short. */
+function textProblems(value: unknown, where: string, key = '', sent = false): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, i) => textProblems(item, `${where}[${i}]`, key, sent))
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).flatMap(([field, item]) => [
+      // (A key is shown too: a label's, in the YAML a person agrees to.)
+      ...characterProblems(field, `${where}.${plain(field)}`, true),
+      // What's sent to the cluster is the cluster's to limit: lengths are for a plugin's own texts.
+      ...textProblems(item, `${where}.${plain(field)}`, field, sent || BODIES.has(field)),
+    ])
+  }
+  if (typeof value !== 'string') return []
+  const characters = characterProblems(value, where, NAMES.has(key) && !sent)
+  if (characters.length || sent) return characters
+  // (A status rule's label is a template, as long as the paths in it; what it comes to is short.)
+  const template = key === 'label' && where.includes('.status[')
+  const most =
+    NAMES.has(key) && !template
+      ? NAME_LENGTH
+      : SENTENCES.has(key) || template
+        ? SENTENCE_LENGTH
+        : Infinity
+  return value.length > most ? [`${where}: is longer than ${most} characters`] : []
+}
+
+/** The parts of an action that are sent to the cluster as they're written. */
+const BODIES = new Set(['patch', 'undo', 'create'])
+
+/** The first character of `text` that can't be seen, or isn't text (a line break is, but not in a name). */
+function characterProblems(text: string, where: string, name: boolean): string[] {
+  const unseen = UNSEEN.exec(text)
+  if (unseen) return [`${where}: holds a character that can’t be seen (${codePoint(unseen[0])})`]
+  const notText = NOT_TEXT.exec(text) ?? (name ? /[\n\t]/.exec(text) : null)
+  return notText ? [`${where}: holds a character that isn’t text (${codePoint(notText[0])})`] : []
+}
+
+/** A view as a plugin lists it: a view's fields, and a name where it's worth one. */
+const VIEW_ITEM_SHAPE: Shape = {
+  ...(VIEW_SHAPE as Extract<Shape, { fields: unknown }>),
+  fields: { name: 'string', ...(VIEW_SHAPE as Extract<Shape, { fields: unknown }>).fields },
+}
+
+/**
+ * `{{ .path }}` in a template, with a fallback for when it finds nothing:
+ * `{{ .path ?? "text" }}` or `{{ .path ?? .other.path }}`. `{{ now }}` is the time.
+ */
+export const PLACEHOLDER = /\{\{\s*(.*?)\s*\}\}/g
+export const EXPRESSION = /^(\S+?)(?:\s*\?\?\s*(?:"([^"]*)"|(\.\S*)))?$/
+/** `{{ input.name }}`: an action's input, wherever it is in a template. */
+const INPUT_PLACEHOLDER = /\{\{\s*input\.(\w+)/g
+/** A template that's one placeholder and nothing else: a value of its own. */
+export const ONLY_PLACEHOLDER = /^\{\{\s*([^{}]*?)\s*\}\}$/
+/** An input's value as a path in a template. */
+export const INPUT_PATH = /^input\.\w+$/
+
+function templateProblem(template: string): string | undefined {
+  for (const [, expression] of template.matchAll(PLACEHOLDER)) {
+    const [, path, , fallback] = EXPRESSION.exec(expression!) ?? []
+    if (!path) return `{{ ${expression} }} should be a path, maybe with ?? "a fallback"`
+    try {
+      for (const p of [path, fallback]) if (p && p !== 'now' && !INPUT_PATH.test(p)) checkPath(p)
+    } catch (error) {
+      return (error as Error).message
+    }
+  }
+  return undefined
+}
+
+const describe = (value: unknown) =>
+  value === null
+    ? 'null'
+    : Array.isArray(value)
+      ? 'a list'
+      : typeof value === 'object'
+        ? 'an object'
+        : `a ${typeof value}`
+
+/** Problems with `value` as `shape`, each prefixed with where it is; `noun` is what it's part of. */
+function check(value: unknown, shape: Shape, where: string, noun: string): string[] {
+  const fail = (message: string) => [`${where}: ${message}`]
+  if (typeof shape === 'string') {
+    switch (shape) {
+      case 'boolean':
+        return typeof value === 'boolean'
+          ? []
+          : fail(`should be true or false, not ${describe(value)}`)
+      case 'scalar':
+        return ['string', 'number', 'boolean'].includes(typeof value) || value === null
+          ? []
+          : fail(`should be a single value, not ${describe(value)}`)
+      case 'patch':
+        return typeof value === 'object' && value !== null
+          ? []
+          : fail(`should be a patch (an object or a list), not ${describe(value)}`)
+      default: {
+        if (typeof value !== 'string') return fail(`should be text, not ${describe(value)}`)
+        try {
+          if (shape === 'path') checkPath(value)
+          if (shape === 'regex') new RegExp(value)
+        } catch (error) {
+          return fail((error as Error).message)
+        }
+        const problem = shape === 'template' ? templateProblem(value) : undefined
+        return problem ? fail(problem) : []
+      }
+    }
+  }
+  if ('oneOf' in shape) {
+    return shape.oneOf.includes(value as string)
+      ? []
+      : fail(`should be one of ${shape.oneOf.join(', ')}, not ${quoted(value)}`)
+  }
+  if ('list' in shape) {
+    if (!Array.isArray(value)) return fail(`should be a list, not ${describe(value)}`)
+    if (shape.nonEmpty && value.length === 0) return fail('should not be empty')
+    return value.flatMap((item, i) => check(item, shape.list, `${where}[${i}]`, noun))
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail(`should be a map of fields, not ${describe(value)}`)
+  }
+  if ('map' in shape) {
+    return Object.entries(value).flatMap(([key, item]) =>
+      check(item, shape.map, `${where}.${key}`, noun),
+    )
+  }
+  const fields = value as Record<string, unknown>
+  const problems = Object.keys(fields)
+    .filter((key) => !(key in shape.fields))
+    .map((key) => `${where}.${key}: isn’t something ${noun} has`)
+  for (const [key, rule] of Object.entries(shape.fields)) {
+    const { shape: inner, required } =
+      typeof rule === 'object' && 'required' in rule ? rule : { shape: rule, required: false }
+    if (fields[key] === undefined) {
+      if (required) problems.push(`${where}.${key}: is required`)
+    } else {
+      problems.push(...check(fields[key], inner, `${where}.${key}`, noun))
+    }
+  }
+  const refined = problems.length === 0 ? shape.refine?.(fields) : undefined
+  return refined ? [...problems, `${where}: ${refined}`] : problems
+}
+
+/** A kind as a file names it. */
+interface NamedKind {
+  group?: string
+  kind: string
+}
+
+/**
+ * What a plugin names outside its fence, each where it is. Its declared groups are the fence:
+ * none of them Kubernetes' own or Lumovi's; and, for a plugin that's held to it (`fenced`), every
+ * kind it names is in one of them, and it creates nothing but kinds it claims itself: a group
+ * can be shared by plugins, so being in the group isn't enough to make one.
+ */
+function fenceProblems(
+  groups: string[],
+  placed: NamedKind[] | undefined,
+  views: { kinds: NamedKind[]; actions?: { create?: Record<string, unknown> }[] }[],
+  fenced: boolean,
+): string[] {
+  const problems = groups.flatMap((group, g) =>
+    group === 'lumovi.dev' || group.endsWith('.lumovi.dev')
+      ? [`spec.groups[${g}]: lumovi.dev is Lumovi’s own, so a plugin can’t have it`]
+      : isCustomGroup(group)
+        ? []
+        : [
+            `spec.groups[${g}]: ${group || 'the core group'} is Kubernetes’ own, so a plugin can’t have it`,
+          ],
+  )
+  if (!fenced) return problems
+  const inside = ({ group = '', kind }: NamedKind, where: string) => {
+    if (groups.includes(group)) return
+    problems.push(
+      isCustomGroup(group)
+        ? `${where}: ${kindId({ group, kind })} isn’t in one of its groups: add ${group} to spec.groups`
+        : `${where}: ${kindId({ group, kind })} is Kubernetes’ own, so it can’t be in a plugin`,
+    )
+  }
+  placed?.forEach((kind, k) => inside(kind, `spec.kinds[${k}]`))
+  views.forEach((view, i) =>
+    view.kinds.forEach((kind, k) => inside(kind, `spec.views[${i}].kinds[${k}]`)),
+  )
+  const claimed = new Set([...(placed ?? []), ...views.flatMap((view) => view.kinds)].map(kindId))
+  views.forEach((view, i) =>
+    view.actions?.forEach(({ create }, a) => {
+      if (!create) return
+      const made = kindFor(create.apiVersion as string, create.kind as string)
+      const group = made.includes('.') ? made.slice(made.indexOf('.') + 1) : ''
+      if (!claimed.has(made) && !claimed.has(`*.${group}`)) {
+        problems.push(
+          `spec.views[${i}].actions[${a}].create: makes a ${made}, which isn’t one of this plugin’s kinds`,
+        )
+      }
+    }),
+  )
+  return problems
+}
+
+/**
+ * The plugin a file holds (YAML, one document), or everything that's wrong with it: a plugin is
+ * used whole or not at all. (Its name comes with the problems where it could be read, for
+ * saying what's shown in its stead.)
+ */
+export function parsePlugin(
+  text: string,
+  source: string,
+  options: { lumovi?: string; fenced?: boolean } = {},
+): { plugin?: Plugin; name?: string; problems: string[] } {
+  const read = readPlugin(text, source, options)
+  return { ...read, problems: read.problems.map(plain) }
+}
+
+function readPlugin(
+  text: string,
+  source: string,
+  {
+    lumovi,
+    fenced = false,
+  }: {
+    /** The Lumovi that's reading it, where that's known: a plugin that needs a newer one is refused. */
+    lumovi?: string
+    /**
+     * Whether it's held inside its declared groups, as Lumovi's plugins are: every kind it names
+     * in one of them, none of them Kubernetes' own, and nothing created but its own kinds.
+     */
+    fenced?: boolean
+  } = {},
+): { plugin?: Plugin; name?: string; problems: string[] } {
+  const refused = (problem: string) => ({ problems: [`${source}: ${problem}`] })
+  const documents = parseAllDocuments(text)
+  const broken = documents.find((document) => document.errors.length)
+  if (broken) return refused(broken.errors[0]!.message)
+  let read: unknown[]
+  try {
+    read = documents.map((document) => document.toJS() as unknown).filter((doc) => doc !== null)
+  } catch (error) {
+    // (YAML can read as YAML and still not make an object: an alias to an anchor that isn't
+    // set before it is found out only here.)
+    return refused((error as Error).message)
+  }
+  if (read.length === 0) return refused('holds nothing')
+  const doc = read[0] as Record<string, unknown>
+  const start = `should start with apiVersion: ${VIEW_API_VERSION} and kind: Plugin`
+  if (typeof doc !== 'object' || doc.apiVersion !== VIEW_API_VERSION) return refused(start)
+  if (doc.kind === 'View') {
+    return refused(
+      'a view goes inside a plugin: start with kind: Plugin and put this under its views.',
+    )
+  }
+  if (doc.kind !== 'Plugin') return refused(start)
+  if (read.length > 1) return refused(`holds ${read.length} documents, and a file is one plugin`)
+  const name = (doc.metadata as { name?: unknown } | undefined)?.name
+  if (typeof name !== 'string' || !name) return refused('needs metadata.name')
+  if (!PLUGIN_NAME.test(name)) {
+    return refused(
+      `metadata.name: ${quoted(name, true)} should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit, at most 63 characters`,
+    )
+  }
+  // (What Lumovi says a change is from is a plugin's name: none reads as Lumovi itself.)
+  if (name === 'lumovi') {
+    return refused('metadata.name: "lumovi" is Lumovi’s own name, which a plugin can’t have')
+  }
+  if (name === 'kubernetes') {
+    return refused('metadata.name: "kubernetes" is Kubernetes’ own name, which a plugin can’t have')
+  }
+  if (name.startsWith('lumovi-')) {
+    return refused(
+      `metadata.name: ${quoted(name, true)} starts with Lumovi’s own name, which a plugin can’t have`,
+    )
+  }
+  if (doc.spec === undefined) return { name, ...refused('needs spec') }
+  if (typeof doc.spec !== 'object' || doc.spec === null || Array.isArray(doc.spec)) {
+    return { name, ...refused(`spec: should be a map of fields, not ${describe(doc.spec)}`) }
+  }
+  const { views: listed, version, needs, groups, ...place } = doc.spec as Record<string, unknown>
+  const problems = check(place, PLACE_SHAPE, `${source}: spec`, 'a plugin')
+  const threeNumbers = (value: unknown, where: string, like: string) => {
+    if (value === undefined) problems.push(`${source}: ${where}: is required`)
+    else if (typeof value !== 'string' || !THREE_NUMBERS.test(value)) {
+      // (As it's written: YAML reads 1.0 as the number 1.)
+      const node = documents[0]!.getIn(where.split('.'), true) as { source?: string } | undefined
+      const written = typeof value === 'number' ? (node?.source ?? value) : value
+      problems.push(`${source}: ${where}: ${quoted(written)} should be three numbers, like ${like}`)
+    }
+  }
+  threeNumbers(version, 'spec.version', '1.0.0')
+  if (needs === undefined) problems.push(`${source}: spec.needs.lumovi: is required`)
+  else {
+    const wrong = check(needs, NEEDS_SHAPE, `${source}: spec.needs`, 'a plugin')
+    problems.push(...wrong)
+    if (wrong.length === 0) {
+      threeNumbers((needs as { lumovi: string }).lumovi, 'spec.needs.lumovi', '1.22.0')
+    }
+  }
+  if (groups === undefined) {
+    if (fenced) problems.push(`${source}: spec.groups: is required`)
+  } else {
+    problems.push(...check(groups, { list: 'string' }, `${source}: spec.groups`, 'a plugin'))
+  }
+  problems.push(...textProblems(doc.spec, `${source}: spec`))
+  if (listed !== undefined && !Array.isArray(listed)) {
+    problems.push(`${source}: spec.views: should be a list, not ${describe(listed)}`)
+  }
+  const items = Array.isArray(listed) ? (listed as unknown[]) : []
+  items.forEach((item, i) => {
+    problems.push(...check(item, VIEW_ITEM_SHAPE, `${source}: spec.views[${i}]`, 'a view'))
+  })
+  if (problems.length === 0) {
+    // A kind is shown one way: a second view of it in the same file would be dropped unsaid.
+    const shownBy = new Map<ResourceKind, number>()
+    items.forEach((item, i) => {
+      ;(item as { kinds: { group?: string; kind: string }[] }).kinds.forEach((kind, k) => {
+        const first = shownBy.get(kindId(kind))
+        if (first === undefined) shownBy.set(kindId(kind), i)
+        else {
+          problems.push(
+            `${source}: spec.views[${i}].kinds[${k}]: ${kindId(kind)} is already shown by spec.views[${first}]`,
+          )
+        }
+      })
+    })
+  }
+  if (problems.length === 0) {
+    problems.push(
+      ...fenceProblems(
+        (groups ?? []) as string[],
+        place.kinds as NamedKind[] | undefined,
+        items as { kinds: NamedKind[]; actions?: { create?: Record<string, unknown> }[] }[],
+        fenced,
+      ).map((problem) => `${source}: ${problem}`),
+    )
+  }
+  const needed = (needs as { lumovi: string } | undefined)?.lumovi
+  if (problems.length === 0 && lumovi && older(lumovi, needed!)) {
+    problems.push(`${source}: needs Lumovi ${needed} or newer; this is ${lumovi}`)
+  }
+  if (problems.length === 0 && items.length === 0 && place.kinds === undefined) {
+    problems.push(`${source}: spec: needs views, or kinds for a place in the sidebar`)
+  }
+  if (problems.length) return { name, problems }
+  const withType = (fields?: ViewField[]) =>
+    fields?.map((f) => ({ ...f, type: f.type ?? 'string' }))
+  const views = items.map((item, i): View => {
+    const spec = item as Omit<View, 'name' | 'plugin' | 'source' | 'kinds'> & {
+      name?: string
+      kinds: { group?: string; kind: string }[]
+    }
+    return {
+      ...spec,
+      name: spec.name ?? `${name} ${i + 1}`,
+      plugin: name,
+      source,
+      kinds: spec.kinds.map(kindId),
+      columns: withType(spec.columns),
+      details: withType(spec.details),
+      actions: spec.actions?.map((a) => ({
+        ...a,
+        type: a.type ?? 'merge',
+        inputs: a.inputs?.map((input) => ({ ...input, type: input.type ?? 'text' })),
+      })),
+    }
+  })
+  const { kinds, ...rest } = place as Omit<PluginPlace, 'kinds'> & {
+    kinds?: { group?: string; kind: string }[]
+  }
+  return {
+    plugin: {
+      name,
+      version: version as string,
+      needs: needs as { lumovi: string },
+      groups: (groups ?? []) as string[],
+      source,
+      ...(kinds ? { place: { ...rest, kinds: kinds.map(kindId) } } : {}),
+      views,
+    },
+    problems: [],
+  }
+}
+
+/**
+ * Which of `plugins` can't be used beside the ones before it, and why: a kind is one plugin's.
+ * A group can be shared (three tools have kinds in argoproj.io), but not a kind in it; and a
+ * plugin that shows every kind of a group (`*.group`) has that group to itself. Of two that
+ * clash it's always the later that loses, so the same one on every start.
+ */
+/** "flux’s", "argo-rollouts’". */
+const whose = (name: string) => (name.endsWith('s') ? `${name}’` : `${name}’s`)
+
+export function clashes(plugins: Plugin[]): Map<Plugin, string> {
+  const lost = new Map<Plugin, string>()
+  const owner = new Map<ResourceKind, string>()
+  const whole = new Map<string, string>()
+  const present = new Map<string, string>()
+  const groupOf = (kind: ResourceKind) =>
+    kind.includes('.') ? kind.slice(kind.indexOf('.') + 1) : ''
+  for (const plugin of plugins) {
+    const kinds = [...(plugin.place?.kinds ?? []), ...plugin.views.flatMap((view) => view.kinds)]
+    const groups = new Set([...plugin.groups, ...kinds.map(groupOf)])
+    const problem =
+      [...groups].flatMap((group) =>
+        whole.has(group)
+          ? [`${group} is all ${whose(whole.get(group)!)}, so another plugin can’t have it`]
+          : [],
+      )[0] ??
+      kinds.flatMap((kind) => {
+        if (kind.startsWith('*.') && present.has(groupOf(kind))) {
+          const first = present.get(groupOf(kind))
+          return [
+            `${groupOf(kind)} is in ${whose(first!)} groups too, so this plugin can’t have every kind of it`,
+          ]
+        }
+        return owner.has(kind) ? [`${kind} is already ${whose(owner.get(kind)!)} kind`] : []
+      })[0]
+    if (problem) {
+      lost.set(plugin, problem)
+      continue
+    }
+    for (const kind of kinds) {
+      owner.set(kind, plugin.name)
+      if (kind.startsWith('*.')) whole.set(groupOf(kind), plugin.name)
+    }
+    for (const group of groups) if (!present.has(group)) present.set(group, plugin.name)
+  }
+  return lost
+}

@@ -82,9 +82,15 @@ issue.
    work too (`"helm": true`), and for a tool whose operator creates its CRDs itself, the JSON
    Schema of each kind will do (KubeVirt's come from the
    [CRDs catalog](https://github.com/datreeio/CRDs-catalog)).
-2. Write `plugins/<name>.yaml`: one `kind: Plugin`, with its label and kinds, and under
-   `views:` a view for each kind (or group of kinds) worth more than the generic columns. Status rules are where views help
-   most: say what healthy, in progress, failing and paused look like for this tool.
+2. Write `plugins/<name>.yaml`: one `kind: Plugin`. It says what it is (its `version`, three
+   numbers, starting at 1.0.0; under `needs`, the oldest Lumovi it works with; its `groups`,
+   the API groups its kinds are in), then its label and kinds, and under `views:` a view for
+   each kind (or group of kinds) worth more than the generic columns. Status rules are where
+   views help most: say what healthy, in progress, failing and paused look like for this tool.
+   A plugin stays inside its groups: every kind it names is in one of them, none of them is
+   Kubernetes' own, and what an action creates is one of the plugin's own kinds. A kind is one
+   plugin's, though tools can share a group. An action that asks nothing before it changes
+   something (no `confirm`, no `inputs`, nothing created) says so: `runs: at-once`.
 3. Run `npm run plugins:check`. It checks every kind, path, template, link, related list and
    action against the CRDs you pinned, so a misremembered field fails here rather than
    showing nothing. Labels and annotations aren't in schemas, so check those against the

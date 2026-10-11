@@ -1,9 +1,15 @@
 # Crossplane (https://crossplane.io): the packages that extend it.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: crossplane
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - pkg.crossplane.io
+    - apiextensions.crossplane.io
   label: Crossplane
   icon: cloud
   kinds:

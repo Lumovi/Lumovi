@@ -1,9 +1,15 @@
 # cert-manager (https://cert-manager.io): certificates, their requests, and issuers.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: cert-manager
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - cert-manager.io
+    - acme.cert-manager.io
   label: cert-manager
   icon: shield-check
   kinds:

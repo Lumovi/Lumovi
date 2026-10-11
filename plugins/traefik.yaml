@@ -1,9 +1,14 @@
 # Traefik (https://traefik.io): its routes, and what they pass requests through.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: traefik
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - traefik.io
   label: Traefik
   icon: signpost
   category: network

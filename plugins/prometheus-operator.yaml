@@ -1,9 +1,14 @@
 # Prometheus operator (https://prometheus-operator.dev), as kube-prometheus-stack installs it.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: prometheus-operator
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - monitoring.coreos.com
   label: Prometheus Operator
   icon: flame
   kinds:

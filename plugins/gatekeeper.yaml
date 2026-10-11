@@ -1,10 +1,19 @@
 # OPA Gatekeeper (https://open-policy-agent.github.io/gatekeeper): constraint templates, the
 # constraints made from them (a kind for each template), and mutations.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: gatekeeper
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - constraints.gatekeeper.sh
+    - templates.gatekeeper.sh
+    - mutations.gatekeeper.sh
+    - expansion.gatekeeper.sh
+    - config.gatekeeper.sh
   label: Gatekeeper
   icon: shield-check
   kinds:

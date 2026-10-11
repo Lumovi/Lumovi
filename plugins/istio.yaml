@@ -1,9 +1,15 @@
 # Istio (https://istio.io): traffic routing and security.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: istio
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - networking.istio.io
+    - security.istio.io
   label: Istio
   icon: waypoints
   kinds:

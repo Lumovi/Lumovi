@@ -1,10 +1,15 @@
 # Vertical Pod Autoscaler (https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler):
 # the requests it recommends for workloads, and whether it applies them.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: vertical-pod-autoscaler
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - autoscaling.k8s.io
   label: Vertical Pod Autoscaler
   icon: scaling
   kinds:

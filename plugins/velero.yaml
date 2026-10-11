@@ -1,9 +1,14 @@
 # Velero (https://velero.io): backups of cluster resources and volumes.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: velero
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - velero.io
   label: Velero
   icon: archive
   kinds:
@@ -65,11 +70,13 @@ spec:
           detail: '{{ .status.validationErrors }}'
       actions:
         - name: Pause
+          runs: at-once
           when: { path: .spec.paused, notEquals: true }
           patch: { spec: { paused: true } }
           undo: { spec: { paused: false } }
           done: Paused {{ .metadata.name }}
         - name: Unpause
+          runs: at-once
           primary: true
           when: { path: .spec.paused, equals: true }
           patch: { spec: { paused: false } }

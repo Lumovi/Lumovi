@@ -1,9 +1,14 @@
 # Gateway API (https://gateway-api.sigs.k8s.io): gateways and the routes attached to them.
-apiVersion: lumovi.dev/v1alpha1
+apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
   name: gateway-api
 spec:
+  version: 1.0.0
+  needs:
+    lumovi: 1.22.0
+  groups:
+    - gateway.networking.k8s.io
   label: Gateway API
   icon: route
   category: network
