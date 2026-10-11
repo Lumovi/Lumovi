@@ -9,6 +9,8 @@
  * a plugin sends is a class, a style, an address, markup or code: there's no kind for them.
  */
 
+import { quotedBack, unseenIn } from './characters'
+
 /** A kind of value a property (or what a call carries) can be. */
 export type Kind =
   /** Plain text, at most `max` characters. */
@@ -53,6 +55,11 @@ export interface Part {
   events?: Readonly<Record<string, Readonly<Record<string, Kind>>>>
 }
 
+/**
+ * A text, `max` characters at most. No text of a plugin's has a character that can't be seen or
+ * isn't text (a line's end and a tab are text): it would sit in Lumovi's own parts, beside what
+ * Lumovi draws.
+ */
 export const text = (max: number): Kind => ({ kind: 'text', max })
 export const number = (min: number, max: number, whole = false): Kind =>
   whole ? { kind: 'number', min, max, whole } : { kind: 'number', min, max }
@@ -93,6 +100,14 @@ const NEVER = new Set(['__proto__', 'constructor', 'prototype'])
 /** How deep a value may be nested, whatever its kind says: a declaration can't ask for more. */
 const DEEPEST = 6
 
+/** What's wrong with a text of a plugin's as text: a character nobody sees, or that isn't text. */
+export function unseenProblem(text: string, where: string): string | undefined {
+  const unseen = unseenIn(text, true)
+  return unseen
+    ? `${where}: holds a character that can’t be seen or isn’t text (${unseen})`
+    : undefined
+}
+
 /**
  * What's wrong with `value` as `kind`, or nothing. `where` is said first ("columns[2].label").
  * Only own, plain data passes: what came up the channel was text, read as JSON, so a value is
@@ -108,7 +123,8 @@ export function wrongWith(
   switch (kind.kind) {
     case 'text':
       if (typeof value !== 'string') return `${where}: should be text`
-      return value.length > kind.max ? `${where}: is longer than ${kind.max} characters` : undefined
+      if (value.length > kind.max) return `${where}: is longer than ${kind.max} characters`
+      return unseenProblem(value, where)
     case 'number':
       if (typeof value !== 'number' || !Number.isFinite(value))
         return `${where}: should be a number`
@@ -173,7 +189,10 @@ export function wrongWithFields(
   }
   const at = (key: string) => (where ? `${where}.${key}` : key)
   for (const key of Object.keys(value)) {
-    if (NEVER.has(key) || !Object.hasOwn(fields, key)) return `${at(key)}: isn’t something it takes`
+    // (A name a plugin chose is quoted, never said as it wrote it.)
+    if (NEVER.has(key) || !Object.hasOwn(fields, key)) {
+      return `${where || 'it'}: takes nothing named ${quotedBack(key)}`
+    }
     const wrong = wrongWith((value as Record<string, unknown>)[key], fields[key]!, at(key), depth)
     if (wrong) return wrong
   }

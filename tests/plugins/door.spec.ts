@@ -90,7 +90,7 @@ test.describe('a value against its kind', () => {
     for (const key of ['__proto__', 'constructor', 'prototype']) {
       const value = JSON.parse(`{"${key}": "a"}`) as unknown
       expect(wrongWithFields(value, { [key]: text(5) }, [], 'Part')).toBe(
-        `Part.${key}: isn’t something it takes`,
+        `Part: takes nothing named "${key}"`,
       )
     }
   })
@@ -207,7 +207,10 @@ test.describe('a plugin’s page', () => {
   test('once stopped it takes nothing more, and says the same', () => {
     const { page, send } = page_()
     const first = stopped(send(['make', 1, 'Nothing', {}]))
-    expect(first).toEqual({ why: 'not-allowed', what: 'step 1: names a part Lumovi doesn’t have' })
+    expect(first).toEqual({
+      why: 'not-allowed',
+      what: 'step 1: names a part Lumovi doesn’t have: "Nothing"',
+    })
     expect(send(['make', 1, 'Stack', {}])).toEqual(first)
     expect(page.node(1)).toBeUndefined()
   })
@@ -233,8 +236,78 @@ test.describe('a plugin’s page', () => {
     const { send } = page_()
     send(['make', 1, 'Stack', {}])
     expect(stopped(send(['change', 1, { gap: 2, onPress: 'h1' }])).what).toBe(
-      'step 1: Stack.onPress: isn’t something it takes',
+      'step 1: Stack: takes nothing named "onPress"',
     )
+  })
+
+  test('what a plugin wrote is never said back as it wrote it: short, one line, nothing unseen', () => {
+    const long = `style\n2026-10-12 Lumovi: all is well\u202E${'x'.repeat(10_000)}`
+    const lines = [
+      stopped(page_().send(['make', 1, 'Stack', { [long]: 1 }])).what,
+      stopped(page_().send(['make', 1, long, {}])).what,
+      stopped(page_().send(['make', long, 'Stack', {}])).what,
+      stopped(page_().send(['make', 1, 'Stack', { gap: { [long]: long } }])).what,
+      stopped(page_().send(['make', 1, 'Button', { label: long }])).what,
+      stopped(page_().send(['make', 1, 'Button', { label: 'a', onPress: long }])).what,
+      stopped(page_().send([long, 1])).what,
+    ]
+    for (const line of lines) {
+      expect(line.length, line).toBeLessThan(120)
+      expect(line, line).not.toMatch(/[\n\u202E]/)
+      // (Quoted, so what follows the break reads as the plugin's and not as a line of Lumovi's.)
+      expect(line, line).not.toContain('xxxx')
+    }
+    expect(lines[0]).toBe(
+      'step 1: Stack: takes nothing named "style<U+000A>2026-10-12 Lumovi: all is well<U+202E>xxx…"',
+    )
+  })
+
+  test('a text has no character that can’t be seen, on the page or in a part', () => {
+    for (const unseen of ['\u202E', '\u200B', '\u0000', '\u2028', '\uD83D', '\uFEFF', '\u3164']) {
+      expect(
+        stopped(page_().send(['text', 1, `a${unseen}b`])).what,
+        JSON.stringify(unseen),
+      ).toMatch(
+        /^step 1: a text: holds a character that can’t be seen or isn’t text \(U\+[0-9A-F]{4}\)$/,
+      )
+      expect(stopped(page_().send(['make', 1, 'Button', { label: `a${unseen}b` }])).why).toBe(
+        'not-allowed',
+      )
+    }
+    // A line's end and a tab are text; so is every script, and a space that keeps two words together.
+    expect(page_().send(['text', 1, 'one\n\ttwo, é, 日本, 🙂, 12\u00A0MB'])).toEqual({
+      changed: [],
+    })
+  })
+
+  test('what was checked can’t be changed after', () => {
+    const parts: Record<string, Part> = {
+      ...PARTS,
+      Rows: {
+        name: 'Rows',
+        holds: 'nothing',
+        props: { rows: list(record({ name: text(10) }), 5) },
+      },
+    }
+    const page = new PluginPage(parts, () => 0)
+    page.take(JSON.stringify({ commit: [['make', 1, 'Rows', { rows: [{ name: 'a' }] }]] }))
+    const props = page.node(1)!.props as { rows: { name: string }[] }
+    expect(
+      Object.isFrozen(props) && Object.isFrozen(props.rows) && Object.isFrozen(props.rows[0]),
+    ).toBe(true)
+    page.take(JSON.stringify({ commit: [['change', 1, { rows: [] }]] }))
+    expect(Object.isFrozen(page.node(1)!.props.rows)).toBe(true)
+  })
+
+  test('a clock set back doesn’t make a second last forever', () => {
+    const { send, clock } = page_()
+    clock.now = 50_000
+    for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) send()
+    clock.now = 10_000
+    for (let i = 0; i < DOOR_LIMITS.commitsASecond; i++) expect(send()).toEqual({ changed: [] })
+    expect(stopped(send()).why).toBe('too-much')
+    // And with no clock given it has one of its own.
+    expect(new PluginPage(PARTS).take('{"commit":[]}')).toEqual({ changed: [] })
   })
 
   test('a number is new once, and only a whole one above nothing', () => {
@@ -274,12 +347,12 @@ test.describe('a plugin’s page', () => {
       [['put', 1, 1], 'under itself'],
       [['put', 2, 1], 'under itself'],
       [['put', ROOT, 2], 'under another'],
-      [['put', 1, 4], 'doesn’t hold'],
-      [['put', ROOT, 4], 'doesn’t hold'],
-      [['put', 3, 6], 'doesn’t hold'],
-      [['put', 5, 6], 'doesn’t hold'],
-      [['put', 6, 3], 'doesn’t hold'],
-      [['put', 4, 3], 'doesn’t hold'],
+      [['put', 1, 4], 'which holds'],
+      [['put', ROOT, 4], 'which holds'],
+      [['put', 3, 6], 'which holds'],
+      [['put', 5, 6], 'which holds'],
+      [['put', 6, 3], 'which holds'],
+      [['put', 4, 3], 'which holds'],
       [['put', 1, 9], 'isn’t there'],
       [['put', 9, 1], 'isn’t there'],
       [['put', '0', 1], 'isn’t there'],
@@ -300,6 +373,19 @@ test.describe('a plugin’s page', () => {
       expect(result.why, JSON.stringify(step)).toBe('not-allowed')
       expect(result.what, JSON.stringify(step)).toContain(what)
     }
+    // Said with the thing itself, for whoever writes the plugin.
+    expect(stopped(page_().send(...base, ['put', 5, 6])).what).toBe(
+      'step 8: puts a Button into a Row, which holds only Label',
+    )
+    expect(stopped(page_().send(...base, ['put', ROOT, 4])).what).toBe(
+      'step 8: puts a text into the page itself, which holds only parts',
+    )
+    expect(stopped(page_().send(...base, ['put', 6, 3])).what).toBe(
+      'step 8: puts a Label into a Button, which holds nothing',
+    )
+    expect(stopped(page_().send(...base, ['make', 3, 'Stack', {}])).what).toBe(
+      'step 8: makes something under a number that isn’t new: 3',
+    )
     // What a Row holds by name, it holds.
     expect(page_().send(...base, ['put', 5, 3])).toEqual({ changed: [1, 5] })
   })
@@ -397,6 +483,80 @@ test.describe('a plugin’s page', () => {
     expect(stopped(result).why).toBe('too-much')
   })
 
+  test('over a ceiling it’s stopped: what one part holds, and a move isn’t one more', () => {
+    const { send, clock } = page_()
+    let id = 1
+    send(['make', 1, 'Stack', {}], ['put', ROOT, 1])
+    while (id <= DOOR_LIMITS.inOnePart) {
+      clock.now += 1000
+      const steps: unknown[][] = []
+      for (let i = 0; i < 500; i++) steps.push(['make', ++id, 'Stack', {}], ['put', 1, id])
+      expect(send(...steps)).toEqual({ changed: [1] })
+    }
+    expect(send(['put', 1, 2], ['put', 1, 3, 2])).toEqual({ changed: [1] })
+    expect(stopped(send(['make', ++id, 'Stack', {}], ['put', 1, id])).what).toBe(
+      'step 2: what one part holds: more than 1,000',
+    )
+  })
+
+  test('the worst second the ceilings allow costs Lumovi far less than a second', () => {
+    // The widest part there can be, and every step of a second moving something across it; then
+    // a page of the most parts, taken away and made again.
+    const { send, clock, page } = page_()
+    let id = 1
+    send(['make', 1, 'Stack', {}], ['put', ROOT, 1])
+    for (let n = 0; n < 2; n++) {
+      clock.now += 1000
+      const steps: unknown[][] = []
+      for (let i = 0; i < 500; i++) steps.push(['make', ++id, 'Stack', {}], ['put', 1, id])
+      send(...steps)
+    }
+    const commits = Array.from(
+      { length: DOOR_LIMITS.stepsASecond / DOOR_LIMITS.stepsACommit },
+      (_, c) =>
+        JSON.stringify({
+          commit: Array.from({ length: DOOR_LIMITS.stepsACommit }, (_, i) =>
+            (i + c) % 2
+              ? ['put', 1, 2 + (i % 1000)]
+              : ['put', 1, 1001 - (i % 1000), 2 + ((i + 500) % 1000)],
+          ),
+        }),
+    )
+    clock.now += 1000
+    const started = performance.now()
+    for (const commit of commits) expect(page.take(commit)).toEqual({ changed: [1] })
+    const moving = performance.now() - started
+    expect(page.stopped).toBeUndefined()
+    // (Measured: about 20 ms on a laptop. A fifth of a second leaves room for a slow machine.)
+    expect(moving).toBeLessThan(200)
+  })
+
+  test('what was made and never put anywhere can be let go of', () => {
+    const { send, page } = page_()
+    send(['make', 1, 'Stack', {}], ['make', 2, 'Stack', {}], ['put', 1, 2], ['text', 3, 'abc'])
+    expect(page.holds).toEqual({ nodes: 3, characters: 7 })
+    expect(send(['take', null, 1], ['take', null, 3])).toEqual({ changed: [] })
+    expect(page.holds).toEqual({ nodes: 0, characters: 0 })
+    // Not what's under something, not the page itself, not what's gone.
+    for (const id of [2, ROOT, 9, '1']) {
+      const other = page_()
+      other.send(['make', 1, 'Stack', {}], ['make', 2, 'Stack', {}], ['put', 1, 2])
+      expect(stopped(other.send(['take', null, id])).what, String(id)).toBe(
+        'step 1: takes away what isn’t there',
+      )
+    }
+  })
+
+  test('what’s read of the page is a copy nobody can change', () => {
+    const { send, page } = page_()
+    send(['make', 1, 'Stack', {}], ['make', 2, 'Stack', {}], ['put', 1, 2], ['put', ROOT, 1])
+    const node = page.node(1)!
+    expect(Object.isFrozen(node) && Object.isFrozen(node.children)).toBe(true)
+    expect(() => (node.children as number[]).push(5)).toThrow()
+    expect(node).toEqual({ part: 'Stack', props: {}, children: [2] })
+    expect(page.node(1)?.children).toEqual([2])
+  })
+
   test('over a ceiling it’s stopped: how deep, however the page is put together', () => {
     // From the top down: the 32nd level is the last.
     const down = page_()
@@ -413,14 +573,25 @@ test.describe('a plugin’s page', () => {
       'step 1: how deep a page goes: more than 32',
     )
 
-    // From the bottom up, off the page: stopped as it would go on.
+    // Off the page it's the same rule, from the bottom up and from the top down: nothing is
+    // built that could never be put on.
     const up = page_()
     up.send(...makes)
-    for (let i = DOOR_LIMITS.depth; i > 0; i--)
+    for (let i = DOOR_LIMITS.depth; i > 1; i--)
       expect(up.send(['put', i, i + 1])).toEqual({ changed: [i] })
-    expect(stopped(up.send(['put', ROOT, 1])).what).toBe(
-      'step 1: how deep a page goes: more than 32',
+    expect(stopped(up.send(['put', 1, 2])).what).toBe('step 1: how deep a page goes: more than 32')
+    const loose = page_()
+    loose.send(...makes)
+    for (let i = 1; i < DOOR_LIMITS.depth; i++)
+      expect(loose.send(['put', i, i + 1])).toEqual({ changed: [i] })
+    expect(stopped(loose.send(['put', DOOR_LIMITS.depth, DOOR_LIMITS.depth + 1])).why).toBe(
+      'too-much',
     )
+    // And 32 built off the page go on whole.
+    const whole = page_()
+    whole.send(...makes)
+    for (let i = DOOR_LIMITS.depth - 1; i > 0; i--) whole.send(['put', i, i + 1])
+    expect(whole.send(['put', ROOT, 1])).toEqual({ changed: [ROOT] })
 
     // Two halves, each allowed, joined in the middle.
     const halves = page_()
