@@ -643,6 +643,8 @@ test('kubectl matching the cluster: kept for next time, and yours when it can’
   launch,
   downloads,
 }) => {
+  // Lumovi started three times, with four terminals (on Windows, each takes long).
+  test.slow()
   // What was downloaded isn't what was published: it's not used, nor kept.
   downloads.fail = 'checksum'
   const first = await launch({ env: SHELL })
