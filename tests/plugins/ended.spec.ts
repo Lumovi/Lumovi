@@ -144,6 +144,13 @@ test('a text that isn’t Lumovi’s comes in pieces: text as written, and marks
     'ﾠ',
   ])
     expect(inPieces(`a${marked}b`), codePoint(marked)).toEqual(['a', u(codePoint(marked)), 'b'])
+  // A flag made with tags is text when it's whole: its flag, two to six tags, closed.
+  const england = '🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}'
+  expect(inPieces(`${england} England`)).toEqual([`${england} England`])
+  expect(inPieces('🏴\u{E0067}\u{E0062}')).toEqual(['🏴', u('U+E0067'), u('U+E0062')])
+  expect(inPieces('🏴\u{E0067}\u{E007F}')).toHaveLength(3)
+  expect(inPieces('🏴' + '\u{E0067}'.repeat(7) + '\u{E007F}')).toHaveLength(9)
+  expect(inPieces('🏴\u{E0041}\u{E0042}\u{E007F}')).toHaveLength(4)
   // Private use, noncharacters, half of a pair.
   for (const marked of [
     '',

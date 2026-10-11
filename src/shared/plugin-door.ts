@@ -232,8 +232,13 @@ export class DoorPage {
     const wrong = wrongWithFields(props, part.props, part.required ?? [], part.name)
     if (wrong) return notAllowed(wrong)
     // (A part's own words about a plugin's properties are Lumovi's: it quotes nothing as written.)
-    const also = part.also?.(props as Record<string, unknown>)
-    if (also) return notAllowed(`${part.name}: ${also}`)
+    try {
+      const also = part.also?.(props as Record<string, unknown>)
+      if (also) return notAllowed(`${part.name}: ${also}`)
+    } catch {
+      // (A check of Lumovi's that didn't expect what it was given refuses it; it never throws on.)
+      return notAllowed(`${part.name}: has properties it can’t check`)
+    }
     return JSON.stringify(props).length
   }
 

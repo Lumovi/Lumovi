@@ -9,6 +9,7 @@
  * can't draw over the row above.
  */
 import { inPieces, type Piece } from '@shared/kit/characters'
+import type { Their } from '@shared/kit/declare'
 import { cn } from '@renderer/lib/cn'
 
 /** The mark for a character that can't be seen or would act: its code point, in a hairline box. */
@@ -52,11 +53,12 @@ export function Pieces({ pieces, oneLine }: { pieces: readonly Piece[]; oneLine?
  */
 export function TheirText({
   text,
-  pieces = inPieces(text ?? ''),
+  pieces = inPieces(typeof text === 'string' ? text : (text?.their ?? '')),
   lines,
   className,
 }: {
-  text?: string
+  /** A text a part was handed, or (for the page's own texts) the text itself. */
+  text?: Their | string
   /** Pieces already made (a plugin's last words are cut before they're pieces). */
   pieces?: readonly Piece[]
   lines?: boolean
