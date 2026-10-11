@@ -1,14 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
+import { settle } from '@shared/plugin-loading'
 import { apiGroupOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
 import { api } from '@renderer/lib/api'
 import {
   everyKindOf,
   includedPlugins,
   listedPlugins,
-  clashes,
   loadShippedPlugins,
   lumovisOwnKinds,
-  parsePlugin,
   plain,
   setLocalPlugins,
   type ListedPlugin,
@@ -40,12 +39,6 @@ export interface PluginProblem {
   consequence?: true
 }
 
-/** What follows for a file that's fine by itself and can't be used beside another: said once, after why. */
-const unused = (file: string): PluginProblem => ({
-  text: `${file}: isn’t in use`,
-  consequence: true,
-})
-
 /**
  * The plugins in use: Lumovi's and the user's own, read again on refresh (⌘R) so edits to
  * them show up. Subscribing re-renders when they change.
@@ -63,98 +56,40 @@ export function usePlugins() {
         shippedProblems = loadShippedPlugins({ ...SHIPPED, ...Object.fromEntries(standIns) }, OWN)
       }
       const included = includedPlugins()
-      const parsed = files.map((file) => {
-        if (file.error)
-          return { plugin: undefined, problems: [{ text: `${file.name}: ${file.error}` }] }
-        // Whatever a file holds, it's that file's problem and never the others'.
-        let read: ReturnType<typeof parsePlugin>
-        try {
-          read = parsePlugin(file.text, file.name, { lumovi, lumovisOwn: lumovisOwnKinds() })
-        } catch (error) {
-          const text = `${file.name}: It couldn’t be read: ${(error as Error).message}`
-          return { plugin: undefined, problems: [{ text }] }
-        }
-        const problems: PluginProblem[] = read.problems.map((text) => ({ text }))
-        // A plugin of theirs that would have replaced one of Lumovi's leaves it in use while
-        // it has a problem: said after the file's problems, since Lumovi's looks much like theirs.
-        const stead = read.plugin ? undefined : included.find(({ name }) => name === read.name)
-        if (stead) {
-          problems.push({
-            text: `${file.name}: isn’t in use, so Lumovi’s ${stead.place?.label ?? stead.name} is shown instead`,
+      const settled = settle(included, files, api.host === 'desktop' ? 'yours' : 'server', {
+        lumovi,
+        lumovisOwn: lumovisOwnKinds(),
+      })
+      const local = settled.files.flatMap(({ state, plugin }) =>
+        state === 'not-in-use' ? [] : [plugin!],
+      )
+      const label = (plugin: Plugin) => plugin.place?.label ?? plugin.name
+      // Theirs that are in use in place of one of Lumovi's: said with the count, not as a problem.
+      const replacing = settled.files.flatMap(({ file, state, lumovis }) =>
+        state === 'in-place-of' ? [{ file, label: label(lumovis!) }] : [],
+      )
+      // What's wrong with each file, and after it, once, what follows: that it isn't in use
+      // (where it's fine by itself and can't be used beside another), and that Lumovi's own is
+      // shown instead of it (where it has that plugin's name, and so looks much like it).
+      const problems = settled.files.flatMap(({ file, state, problems, lumovis, beside }) => {
+        const lines: PluginProblem[] = problems.map((text) => ({ text }))
+        if (state === 'not-in-use' && (lumovis || beside)) {
+          lines.push({
+            text: plain(
+              `${file}: isn’t in use${lumovis ? `, so Lumovi’s ${label(lumovis)} is shown instead` : ''}`,
+            ),
             consequence: true,
           })
         }
-        return { plugin: read.plugin, problems }
+        return lines
       })
-      // A name is one plugin's: of two files with one name the first is used, and the second
-      // says whose name it is.
-      const named = new Map<string, string>()
-      const unique: Plugin[] = []
-      for (const { plugin, problems } of parsed) {
-        if (!plugin) continue
-        const first = named.get(plugin.name)
-        if (first === undefined) {
-          named.set(plugin.name, plugin.source)
-          unique.push(plugin)
-        } else {
-          problems.push(
-            { text: `${plugin.source}: ${plugin.name} is ${first}’s name too` },
-            unused(plugin.source),
-          )
-        }
-      }
-      // And a kind is one plugin's. One of theirs with the name of one of Lumovi's is in its
-      // place, all of it; under any other name, what one of Lumovi's shows is Lumovi's. (A
-      // replacement that can't be used itself leaves Lumovi's where it was, for the others too:
-      // so it's settled again whenever one of them falls.)
-      // Theirs that are in use in place of one of Lumovi's: said with the count, not as a problem.
-      const replacing: { file: string; label: string }[] = []
-      // A replacement that can't be used itself is out for good, and the rest are judged
-      // again without it: what lost to it may be fine now, and no line names a plugin that
-      // isn't in use. (Each round puts at least one more out, so it ends.)
-      const fallen = new Map<Plugin, string>()
-      let lost = new Map<Plugin, string>()
-      for (;;) {
-        const standing = unique.filter((plugin) => !fallen.has(plugin))
-        const held = included.filter((plugin) => !standing.some(({ name }) => name === plugin.name))
-        lost = clashes(standing, held)
-        const replacements = [...lost].filter(([plugin]) =>
-          included.some(({ name }) => name === plugin.name),
-        )
-        if (replacements.length === 0) break
-        for (const [plugin, problem] of replacements) fallen.set(plugin, problem)
-      }
-      lost = new Map([...fallen, ...lost])
-      const local = unique.filter((plugin) => !lost.has(plugin))
-      for (const { plugin, problems } of parsed) {
-        if (!plugin) continue
-        const lumovis = included.find(({ name }) => name === plugin.name)
-        const label = lumovis && (lumovis.place?.label ?? lumovis.name)
-        if (lost.has(plugin)) {
-          problems.push(
-            { text: `${plugin.source}: ${lost.get(plugin)}` },
-            {
-              text: `${plugin.source}: isn’t in use${label ? `, so Lumovi’s ${label} is shown instead` : ''}`,
-              consequence: true,
-            },
-          )
-        } else if (label && local.includes(plugin)) {
-          replacing.push({ file: plugin.source, label })
-        }
-      }
       setLocalPlugins(local)
       return {
         directory,
         local,
         replacing,
         included,
-        problems: [
-          ...shippedProblems.map((text): PluginProblem => ({ text })),
-          // (A file's name is the file's to choose, like what's in it: shown plainly too.)
-          ...parsed
-            .flatMap((p) => p.problems)
-            .map((problem) => ({ ...problem, text: plain(problem.text) })),
-        ],
+        problems: [...shippedProblems.map((text): PluginProblem => ({ text })), ...problems],
       }
     },
     staleTime: Infinity,

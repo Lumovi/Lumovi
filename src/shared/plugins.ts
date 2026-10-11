@@ -392,7 +392,7 @@ function metadataProblem(body: unknown, guarded: string[]): string | undefined {
   if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
     return 'fills in an object’s metadata whole, which a plugin can’t: write it out'
   }
-  const key = guarded.find((k) => k in metadata)
+  const key = guarded.find((k) => Object.hasOwn(metadata, k))
   return key && named(key)
 }
 
@@ -548,6 +548,23 @@ const PLACE_SHAPE: Shape = {
  * fixed while nobody has one of their own.
  */
 export const PLUGIN_NAME = /^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+/**
+ * Why `name` can't be a plugin's name, or nothing if it can: the pattern, and the names that
+ * would read as Lumovi's own or the cluster's (what Lumovi says a change is from is a plugin's
+ * name). The one place this is decided, for everything that's named as a plugin is.
+ */
+export function nameProblem(name: string): string | undefined {
+  if (!PLUGIN_NAME.test(name)) {
+    return `${quoted(name, true)} should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit, at most 63 characters`
+  }
+  if (name === 'lumovi') return '"lumovi" is Lumovi’s own name, which a plugin can’t have'
+  if (name === 'kubernetes')
+    return '"kubernetes" is Kubernetes’ own name, which a plugin can’t have'
+  return name.startsWith('lumovi-')
+    ? `${quoted(name, true)} starts with Lumovi’s own name, which a plugin can’t have`
+    : undefined
+}
 
 /** A version: three numbers, and nothing that would need comparing any other way. */
 const THREE_NUMBERS = /^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})$/
@@ -743,7 +760,9 @@ function check(value: unknown, shape: Shape, where: string, noun: string): strin
   }
   const fields = value as Record<string, unknown>
   const problems = Object.keys(fields)
-    .filter((key) => !(key in shape.fields))
+    // (Its own fields, by name: every object answers to `constructor` and `toString`, and a
+    // file's key of that name is no field of anything.)
+    .filter((key) => !Object.hasOwn(shape.fields, key))
     .map((key) => `${where}.${key}: isn’t something ${noun} has`)
   for (const [key, rule] of Object.entries(shape.fields)) {
     const { shape: inner, required } =
@@ -931,23 +950,8 @@ function readPlugin(
   if (read.length > 1) return refused(`holds ${read.length} documents, and a file is one plugin`)
   const name = (doc.metadata as { name?: unknown } | undefined)?.name
   if (typeof name !== 'string' || !name) return refused('needs metadata.name')
-  if (!PLUGIN_NAME.test(name)) {
-    return refused(
-      `metadata.name: ${quoted(name, true)} should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit, at most 63 characters`,
-    )
-  }
-  // (What Lumovi says a change is from is a plugin's name: none reads as Lumovi itself.)
-  if (name === 'lumovi') {
-    return refused('metadata.name: "lumovi" is Lumovi’s own name, which a plugin can’t have')
-  }
-  if (name === 'kubernetes') {
-    return refused('metadata.name: "kubernetes" is Kubernetes’ own name, which a plugin can’t have')
-  }
-  if (name.startsWith('lumovi-')) {
-    return refused(
-      `metadata.name: ${quoted(name, true)} starts with Lumovi’s own name, which a plugin can’t have`,
-    )
-  }
+  const unfit = nameProblem(name)
+  if (unfit) return refused(`metadata.name: ${unfit}`)
   if (doc.spec === undefined) return { name, ...refused('needs spec') }
   if (typeof doc.spec !== 'object' || doc.spec === null || Array.isArray(doc.spec)) {
     return { name, ...refused(`spec: should be a map of fields, not ${describe(doc.spec)}`) }
@@ -961,6 +965,16 @@ function readPlugin(
     ...place
   } = doc.spec as Record<string, unknown>
   const problems = check(place, PLACE_SHAPE, `${source}: spec`, 'a plugin')
+  // What a file says beside its spec is its start and its name, and nothing else: an unknown
+  // key there is as unknown as one anywhere.
+  const unknown = (object: object, known: string[], where: string) =>
+    Object.keys(object)
+      .filter((key) => !known.includes(key))
+      .map((key) => `${source}: ${where}${plain(key)}: isn’t something a plugin has`)
+  problems.push(
+    ...unknown(doc, ['apiVersion', 'kind', 'metadata', 'spec'], ''),
+    ...unknown(doc.metadata as object, ['name'], 'metadata.'),
+  )
   const threeNumbers = (value: unknown, where: string, like: string) => {
     if (value === undefined) problems.push(`${source}: ${where}: is required`)
     else if (typeof value !== 'string' || !THREE_NUMBERS.test(value)) {

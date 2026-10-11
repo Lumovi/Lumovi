@@ -20,6 +20,7 @@ import {
   type Plugin,
   type View,
 } from '../../src/shared/plugins.ts'
+import { mayCarryCode, settle, type PluginFile } from '../../src/shared/plugin-loading.ts'
 import type { Crd, Shape } from '../../scripts/crds.ts'
 
 const PLUGINS = 'plugins'
@@ -454,4 +455,327 @@ test('no spelling of a kind gets a plugin outside its groups', () => {
   }
   // (The honest spellings among them are accepted, so the loop isn't passing by refusing all.)
   expect(accepted).toBeGreaterThan(5)
+})
+
+// ——— Which copy of a plugin is in use ———
+
+/** A file holding a plugin of `name` that shows `kinds` (each "Kind.group"). */
+function file(fileName: string, name: string, kinds: string[], extra = ''): PluginFile {
+  const named = kinds.map((id) => {
+    const [kind, ...group] = id.split('.')
+    return `{ group: ${group.join('.')}, kind: ${JSON.stringify(kind)} }`
+  })
+  const groups = [...new Set(kinds.map((id) => id.slice(id.indexOf('.') + 1)))]
+  return {
+    name: fileName,
+    text: [
+      'apiVersion: lumovi.dev/v1beta1',
+      'kind: Plugin',
+      `metadata: { name: ${name} }`,
+      'spec:',
+      '  version: 1.0.0',
+      '  needs: { lumovi: 1.0.0 }',
+      `  groups: [${groups.join(', ')}]`,
+      extra,
+      `  views: [{ kinds: [${named.join(', ')}] }]`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  }
+}
+
+test('which copy of a plugin is in use: Lumovi’s, one in its place by its name, the first of two', () => {
+  const flux = plugins.find((plugin) => plugin.name === 'flux')!
+  const keda = plugins.find((plugin) => plugin.name === 'keda')!
+  const states = (files: PluginFile[]) =>
+    Object.fromEntries(
+      settle(plugins, files, 'yours').files.map((entry) => [
+        entry.file,
+        [entry.state, entry.lumovis?.name, ...entry.problems].filter(Boolean).join(' | '),
+      ]),
+    )
+  // Each line: the files of a folder, and what becomes of each.
+  expect(states([file('mine.yaml', 'mine', ['Widget.example.com'])])).toEqual({
+    'mine.yaml': 'in-use',
+  })
+  // Named as one of Lumovi's, it's in its place; under another name, Lumovi's kind is Lumovi's.
+  expect(
+    states([
+      file('a.yaml', 'flux', ['Kustomization.kustomize.toolkit.fluxcd.io']),
+      file('b.yaml', 'other', ['ScaledObject.keda.sh']),
+    ]),
+  ).toEqual({
+    'a.yaml': 'in-place-of | flux',
+    'b.yaml':
+      'not-in-use | b.yaml: ScaledObject.keda.sh is keda’s kind. A plugin of yours named keda takes its place, all of it',
+  })
+  // Of two with one name, and of two that show one kind, the first by file name.
+  expect(
+    states([
+      file('b.yaml', 'twin', ['Gadget.example.com']),
+      file('a.yaml', 'twin', ['Widget.example.com']),
+      file('d.yaml', 'second', ['Widget.example.com']),
+    ]),
+  ).toEqual({
+    'a.yaml': 'in-use',
+    'b.yaml': 'not-in-use | b.yaml: twin is a.yaml’s name too',
+    'd.yaml': 'not-in-use | d.yaml: Widget.example.com is already twin’s kind',
+  })
+  // One in Lumovi's place that can't be used itself leaves Lumovi's there, for the others too.
+  expect(
+    states([
+      file('a.yaml', 'keda', ['ScaledObject.keda.sh', 'Kustomization.kustomize.toolkit.fluxcd.io']),
+      file('b.yaml', 'scalers', ['ScaledObject.keda.sh']),
+    ]),
+  ).toEqual({
+    'a.yaml':
+      'not-in-use | keda | a.yaml: Kustomization.kustomize.toolkit.fluxcd.io is flux’s kind. A plugin of yours named flux takes its place, all of it',
+    'b.yaml':
+      'not-in-use | b.yaml: ScaledObject.keda.sh is keda’s kind. A plugin of yours named keda takes its place, all of it',
+  })
+  // A file with the name of one of Lumovi's is judged before the others, whatever its file's
+  // name: the place is its own, and what another file takes of that plugin's is what's refused.
+  expect(
+    states([
+      file('aaa.yaml', 'aaa', ['Kustomization.kustomize.toolkit.fluxcd.io']),
+      file('flux.yaml', 'flux', ['Kustomization.kustomize.toolkit.fluxcd.io']),
+    ]),
+  ).toEqual({
+    'aaa.yaml':
+      'not-in-use | aaa.yaml: Kustomization.kustomize.toolkit.fluxcd.io is already flux’s kind',
+    'flux.yaml': 'in-place-of | flux',
+  })
+  // Two with Lumovi's names, one showing a kind of the other's plugin that the other doesn't
+  // show itself: both are in use, whichever file's name comes first, since nobody else has it.
+  for (const [first, second] of [
+    ['a.yaml', 'b.yaml'],
+    ['b.yaml', 'a.yaml'],
+  ] as const) {
+    expect(
+      states([
+        file(first, 'keda', ['ScaledObject.keda.sh', 'Kustomization.kustomize.toolkit.fluxcd.io']),
+        file(second, 'flux', ['A.example.com']),
+      ]),
+    ).toEqual({ [first]: 'in-place-of | keda', [second]: 'in-place-of | flux' })
+  }
+  // And one that's out is out against what's in use at the end: here the first falls to one of
+  // Lumovi's, which frees the kind the second lost to it.
+  expect(
+    states([
+      file('a.yaml', 'keda', ['ScaledObject.keda.sh', 'Certificate.cert-manager.io']),
+      file('b.yaml', 'flux', ['ScaledObject.keda.sh']),
+    ]),
+  ).toEqual({
+    'a.yaml':
+      'not-in-use | keda | a.yaml: Certificate.cert-manager.io is cert-manager’s kind. A plugin of yours named cert-manager takes its place, all of it',
+    'b.yaml':
+      'not-in-use | flux | b.yaml: ScaledObject.keda.sh is keda’s kind. A plugin of yours named keda takes its place, all of it',
+  })
+  // Of two files with one name the second is out, whatever becomes of the first: here the first
+  // isn't used either, and the name is still its own.
+  expect(
+    states([
+      file('a.yaml', 'twin', ['ScaledObject.keda.sh']),
+      file('b.yaml', 'twin', ['Widget.example.com']),
+    ]),
+  ).toEqual({
+    'a.yaml':
+      'not-in-use | a.yaml: ScaledObject.keda.sh is keda’s kind. A plugin of yours named keda takes its place, all of it',
+    'b.yaml': 'not-in-use | b.yaml: twin is a.yaml’s name too',
+  })
+  // A file that can't be read, or isn't a plugin, is its own problem; one named as Lumovi's
+  // says which of Lumovi's is shown instead.
+  expect(
+    states([
+      { name: 'gone.yaml', text: '', error: 'It couldn’t be read: ENOENT' },
+      { name: 'odd.yaml', text: 5 as unknown as string },
+      {
+        name: 'flux.yaml',
+        text: 'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: flux }\nspec: [1]\n',
+      },
+    ]),
+  ).toEqual({
+    'flux.yaml': 'not-in-use | flux | flux.yaml: spec: should be a map of fields, not a list',
+    'gone.yaml': 'not-in-use | gone.yaml: It couldn’t be read: ENOENT',
+    'odd.yaml': 'not-in-use | odd.yaml: It couldn’t be read: source is not a string',
+  })
+  // (And not of a file with that name when another file is in that plugin's place.)
+  expect(
+    states([
+      file('a.yaml', 'flux', ['Kustomization.kustomize.toolkit.fluxcd.io']),
+      {
+        name: 'b.yaml',
+        text: 'apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: flux }\nspec: [1]\n',
+      },
+    ]),
+  ).toEqual({
+    'a.yaml': 'in-place-of | flux',
+    'b.yaml': 'not-in-use | b.yaml: spec: should be a map of fields, not a list',
+  })
+  // What's in use of Lumovi's is all of them but the ones a file is in the place of.
+  const settled = settle(
+    plugins,
+    [file('a.yaml', 'flux', ['Kustomization.kustomize.toolkit.fluxcd.io'])],
+    'server',
+  )
+  expect(settled.lumovis).toHaveLength(plugins.length - 1)
+  expect(settled.lumovis).not.toContain(flux)
+  expect(settled.lumovis).toContain(keda)
+  expect(settled.files.map(({ state, plugin }) => [state, plugin!.name])).toEqual([
+    ['in-place-of', 'flux'],
+  ])
+  expect(settled.files[0]!.origin).toBe('server')
+})
+
+test('every file comes back once, in one state, whatever order the files are handed in', () => {
+  const files = [
+    file('a.yaml', 'twin', ['Widget.example.com']),
+    file('b.yaml', 'twin', ['Gadget.example.com']),
+    file('c.yaml', 'flux', ['Kustomization.kustomize.toolkit.fluxcd.io', 'ScaledObject.keda.sh']),
+    file('d.yaml', 'keda', ['ScaledObject.keda.sh']),
+    file('e.yaml', 'more', ['Widget.example.com', 'Thing.example.com']),
+    file('f.yaml', 'things', ['Thing.example.com']),
+    { name: 'g.yaml', text: 'spec: [unclosed' },
+    { name: 'h.yaml', text: '' },
+  ]
+  const told = (handed: PluginFile[]) =>
+    settle(plugins, handed, 'yours').files.map(({ file, state, problems }) => ({
+      file,
+      state,
+      problems,
+    }))
+  const first = told(files)
+  expect(first.map((entry) => entry.file)).toEqual(files.map(({ name }) => name))
+  // Rotated and reversed: the same answer, in the files' own order.
+  for (let turn = 1; turn < files.length; turn++) {
+    const turned = [...files.slice(turn), ...files.slice(0, turn)]
+    expect(told(turned)).toEqual(first)
+    expect(told(turned.reverse())).toEqual(first)
+  }
+})
+
+test('only what came inside Lumovi may carry code: a folder’s file is data, whatever it says', () => {
+  expect(mayCarryCode('lumovi')).toBe(true)
+  for (const origin of ['yours', 'server', 'installed'] as const)
+    expect(mayCarryCode(origin)).toBe(false)
+  // There's no field for code in a plugin's file, so a file that names some is refused like
+  // any file with something unknown in it: nothing of it is used.
+  for (const extra of ['  code: ./index.js', '  src: [a.ts]', '  entry: { page: main.js }']) {
+    const [entry] = settle(
+      plugins,
+      [file('coded.yaml', 'coded', ['Widget.example.com'], extra)],
+      'yours',
+    ).files
+    expect(entry!.state).toBe('not-in-use')
+    expect(entry!.problems.join(' ')).toContain('isn’t something a plugin has')
+  }
+})
+
+test('a key nobody knows is refused wherever a file has keys, the names every object answers to among them', () => {
+  const NAMES = [
+    'code',
+    'origin',
+    'constructor',
+    'toString',
+    'valueOf',
+    'hasOwnProperty',
+    '__proto__',
+  ]
+  const base = (at: string, key: string) => {
+    const extra = (where: string, indent: string) => (at === where ? `${indent}${key}: x\n` : '')
+    return (
+      `apiVersion: lumovi.dev/v1beta1\nkind: Plugin\n${extra('top', '')}` +
+      `metadata:\n  name: probe\n${extra('metadata', '  ')}` +
+      `spec:\n  version: 1.0.0\n${extra('spec', '  ')}` +
+      `  needs:\n    lumovi: 1.0.0\n${extra('needs', '    ')}` +
+      `  groups: [example.com]\n  label: Probe\n  kinds:\n    - group: example.com\n      kind: Widget\n${extra('place kind', '      ')}` +
+      `  views:\n    - kinds: [{ group: example.com, kind: Widget }]\n${extra('view', '      ')}` +
+      `      columns:\n        - name: A\n          path: .a\n${extra('column', '          ')}` +
+      `      status:\n        - health: healthy\n          label: Fine\n          when:\n            path: .a\n${extra('condition', '            ')}` +
+      `      actions:\n        - name: Poke\n          confirm: Sure?\n          patch: { spec: { a: 1 } }\n${extra('action', '          ')}` +
+      `          inputs:\n            - name: n\n              label: N\n${extra('input', '              ')}`
+    )
+  }
+  // (As it stands, with nothing added, it's a plugin.)
+  expect(parsePlugin(base('nowhere', 'x'), 'probe.yaml').problems).toEqual([])
+  for (const at of [
+    'top',
+    'metadata',
+    'spec',
+    'needs',
+    'place kind',
+    'view',
+    'column',
+    'condition',
+    'action',
+    'input',
+  ]) {
+    for (const key of NAMES) {
+      const { plugin, problems } = parsePlugin(base(at, key), 'probe.yaml')
+      expect(plugin, `${key} at ${at}`).toBeUndefined()
+      expect(problems.join(' | '), `${key} at ${at}`).toContain(`${key}: isn’t something`)
+    }
+  }
+})
+
+test('whatever a folder holds: what’s in use doesn’t clash, and what isn’t would still lose to it', () => {
+  // A few thousand folders, the same ones every run: files with Lumovi's names and their own,
+  // showing kinds of Lumovi's plugins and of nobody's, in every mix of a few.
+  const NAMES = ['flux', 'keda', 'cert-manager', 'mine', 'theirs', 'ours']
+  const KINDS = [
+    'Kustomization.kustomize.toolkit.fluxcd.io',
+    'ScaledObject.keda.sh',
+    'Certificate.cert-manager.io',
+    'A.example.com',
+    'B.example.com',
+  ]
+  let seed = 7
+  const next = (below: number) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed % below
+  }
+  for (let folder = 0; folder < 3000; folder++) {
+    const files = Array.from({ length: 1 + next(5) }, (_, i) => {
+      const kinds = KINDS.filter(() => next(3) === 0)
+      return file(
+        `${'zyxwv'[next(5)]}${i}.yaml`,
+        NAMES[next(NAMES.length)]!,
+        kinds.length ? kinds : [KINDS[3 + next(2)]!],
+      )
+    })
+    const settled = settle(plugins, files, 'yours')
+    const inUse = settled.files.filter((entry) => entry.state !== 'not-in-use')
+    const said = JSON.stringify(
+      settled.files.map((entry) => [entry.file, entry.plugin?.name, entry.state]),
+    )
+    // Nothing in use clashes with anything in use, or with what's left of Lumovi's.
+    expect(
+      clashes(
+        inUse.map((entry) => entry.plugin!),
+        settled.lumovis,
+      ).size,
+      said,
+    ).toBe(0)
+    // One in Lumovi's place: Lumovi's of that name isn't in use beside it.
+    for (const entry of inUse) {
+      expect(
+        settled.lumovis.some(({ name }) => name === entry.plugin!.name),
+        said,
+      ).toBe(false)
+    }
+    // And each that lost by what it shows would lose again to what's in use at the end (with
+    // Lumovi's of its own name out of the way, as it would be if it stood).
+    const names = new Map<string, string>()
+    for (const entry of settled.files) {
+      if (!entry.plugin) continue
+      const twin = names.has(entry.plugin.name)
+      if (!twin) names.set(entry.plugin.name, entry.file)
+      if (entry.state !== 'not-in-use' || twin) continue
+      const again = clashes(
+        [...inUse.map((other) => other.plugin!), entry.plugin],
+        settled.lumovis.filter(({ name }) => name !== entry.plugin!.name),
+      )
+      expect(again.has(entry.plugin), `${entry.file} in ${said}`).toBe(true)
+    }
+  }
 })
