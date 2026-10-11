@@ -990,6 +990,26 @@ const today = () => new Date().toISOString().slice(0, 10)
  * A server that lost its audit history to another Lumovi stops by itself: its last line says
  * so and why, and it ends as a failure (whatever runs it shows that, and starts it again).
  */
+/**
+ * What a call made by the page came to, given a few seconds: its answer, why it failed, or
+ * `unanswered`. (A page whose server has gone waits half a minute for the next one before a
+ * call of its fails: longer than these tests have for it.)
+ */
+const UNANSWERED = 'unanswered'
+const cameTo = (call: () => Promise<unknown>, ms = 5000): Promise<string> =>
+  Promise.race([
+    call().then(
+      (answer) => JSON.stringify(answer) ?? '',
+      (error: Error) => error.message,
+    ),
+    new Promise<string>((over) => setTimeout(() => over(UNANSWERED), ms)),
+  ])
+/** How a page's call fails when its connection goes (the page's own words). */
+const LOST = 'Lost the connection to Lumovi.'
+/** How a page's call is answered by a server that takes no more work. */
+const NOT_DONE =
+  'This Lumovi is stopping, because it can no longer keep its audit history: what you asked for wasn’t done. Try again in a moment, or tell whoever runs Lumovi.'
+
 async function stopsForItsHistory(served: Served, why: string) {
   await expect
     .poll(() => served.log(), { timeout: 20_000 })
@@ -1739,7 +1759,16 @@ for (const volume of [
     // Still the first one's, and whole, however often it was renewed meanwhile: it's never read
     // half written, and nothing is left beside it.
     expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ id: hold.id, pid: hold.pid })
-    expect(readdirSync(dir).filter((name) => name.startsWith('audit.lock'))).toEqual(['audit.lock'])
+    // (Looked at until nothing is: a renewal is written beside the lock, under its holder's own
+    // name, and moved over it. Anything else beside it is something left.)
+    await expect
+      .poll(() => {
+        const beside = readdirSync(dir).filter((name) => name.startsWith('audit.lock.'))
+        expect(beside.filter((name) => name !== `audit.lock.${hold.id}`)).toEqual([])
+        return beside
+      })
+      .toEqual([])
+    expect(existsSync(lock)).toBe(true)
     await holder.stop()
     if (GRACEFUL) expect(existsSync(lock)).toBe(false)
     // Held by one elsewhere (a pod on a node that's gone, say), renewing it no more: waited for,
@@ -1914,7 +1943,7 @@ for (const volume of [
       rmSync(lock, { recursive: true })
       // (Whichever looks first finds it: this change as it's recorded, or a renewal a moment
       // before it, and then the change itself is refused.)
-      await act().catch(() => undefined)
+      await cameTo(act)
       await expect
         .poll(() => served.log())
         .toMatch(
@@ -2018,6 +2047,7 @@ for (const volume of [
     let kept = 0
     let asked = 0
     let made = 0
+    let said = ''
     await expect(async () => {
       kept = linesOf(dayFile(dir)).length
       asked = deletes()
@@ -2025,19 +2055,24 @@ for (const volume of [
       // Whichever looks first finds the history lost. This change, as it's recorded: it was
       // made, asked before anyone could know. Or a renewal a moment before it: then the server
       // already takes no more work, and the change is refused.
-      await act().catch(() => undefined)
+      said = await cameTo(act)
       made = deletes()
       // (A renewal under way as the other's lock is written can still land over it, which a
       // real one, coming only once renewals have stopped, doesn't meet. Then the history is
       // this one's still, the change went into it, and it's taken over again.)
       expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual(taker)
     }).toPass()
-    expect(made - asked).toBeLessThanOrEqual(1)
+    // A change that's refused is never also made, and one that's made is never answered with
+    // the refusal. (One whose answer the closing connection took may be either.)
+    if (said.includes(NOT_DONE)) expect(made).toBe(asked)
+    else if (said !== UNANSWERED && !said.includes(LOST)) expect(made).toBe(asked + 1)
+    else expect(made - asked).toBeLessThanOrEqual(1)
     // From that moment nothing more is done that the history can't hold: a change sent right
-    // behind is never made.
-    const second = await act().catch((error: Error) => error)
+    // behind is never made, and isn't said to have been.
+    const second = await cameTo(act)
     expect(deletes()).toBe(made)
-    expect(JSON.stringify(second ?? String(second))).not.toContain('"ok":true')
+    expect(second).not.toContain('"ok":true')
+    expect([NOT_DONE, LOST, UNANSWERED].some((how) => second.includes(how))).toBe(true)
     // It's recorded as ever (on its output, to a webhook), and not written into the history.
     await expect.poll(() => audited(served).length).toBeGreaterThan(told)
     expect(linesOf(dayFile(dir))).toHaveLength(kept)

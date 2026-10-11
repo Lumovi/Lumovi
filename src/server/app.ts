@@ -34,6 +34,13 @@ import { ServerState, stateKey } from './state'
 const CLEANUP_MS = 10_000
 /** What a server that stops for a failure of its own answers to anything still asked of it. */
 const NO_MORE_WORK = 'This Lumovi is stopping and takes no more work.'
+/**
+ * The same, to a person at a page, who asked for something and can't start a server again:
+ * why in a clause, that what they asked for wasn't done (a change or a list alike), and
+ * what to do.
+ */
+const NOT_DONE =
+  'This Lumovi is stopping, because it can no longer keep its audit history: what you asked for wasn’t done. Try again in a moment, or tell whoever runs Lumovi.'
 
 export interface RunningServer {
   /** Where it listens, e.g. http://127.0.0.1:8080/. */
@@ -382,7 +389,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         added,
         sponsor,
         transfers,
-        refusing: () => refusing,
+        refusing: () => (refusing ? NOT_DONE : undefined),
         rejected: () =>
           sessions.end(
             caller.session!,
