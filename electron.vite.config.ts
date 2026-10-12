@@ -60,6 +60,11 @@ export default defineConfig({
       ...coverage('renderer', withCoverage),
       licenses(),
     ],
+    // A page's workers are bundled as modules, and counted in coverage builds as the page is.
+    worker: {
+      format: 'es',
+      plugins: () => coverage('worker', withCoverage),
+    },
     build: {
       minify: true,
       sourcemap: false,

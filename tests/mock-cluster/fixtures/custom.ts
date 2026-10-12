@@ -1355,7 +1355,14 @@ export function widgets(b: Builder): void {
           enum: ['red', 'green', 'blue'],
           description: 'What the widget looks like.',
         },
-        aliases: { type: 'array', items: { type: 'string' } },
+        aliases: {
+          type: 'array',
+          items: { type: 'string' },
+          // (A character that turns text round: a schema's words are the cluster's text.)
+          description: 'Other names it goes by, \u202Eeulb\u202C among them.',
+        },
+        // (A name with one too: offered spelled.)
+        'badge\u202Etxt': { type: 'string' },
         parts: {
           type: 'array',
           items: {

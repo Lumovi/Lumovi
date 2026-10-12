@@ -65,6 +65,7 @@ import {
   type Resources,
 } from '@renderer/lib/create-form'
 import { linesAt, pathText, type Path } from '@renderer/lib/yaml-edit'
+import { useSchemaSource } from '@renderer/hooks/schema-source'
 import { useCluster } from '@renderer/state/cluster'
 import { Results } from './CreateDialog'
 import { createCommand, useCreating } from './create-run'
@@ -90,6 +91,7 @@ const COASTING = 150
 
 export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () => void }) {
   const { context, namespace: picked } = useCluster()
+  const schema = useSchemaSource()
   const production = useProduction(context)
   const { readOnly, why: readOnlyWhy } = useReadOnly()
   const start = picked ?? 'default'
@@ -532,6 +534,8 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     onChange={(next) => !hidden && change(next)}
                     onSave={() => ready && !pending && void create(text)}
                     label="YAML to create"
+                    // (A Secret's values hidden aren't its text: nothing to check.)
+                    schema={hidden ? undefined : schema}
                     lines={marks}
                     reveal={
                       // What the cluster refused is brought well into view; a field's own lines,

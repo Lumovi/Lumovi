@@ -99,6 +99,14 @@ export function ActionDialog({
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
           aria-describedby={undefined}
+          // Escape in an editor's panel (its search, its list of problems) closes the panel,
+          // not the dialog. (A completion or a card takes its Escape before the dialog hears it:
+          // see schema-editor.ts.)
+          onEscapeKeyDown={(event) => {
+            if ((event.target as HTMLElement | null)?.closest?.('.cm-panel')) {
+              event.preventDefault()
+            }
+          }}
           onOpenAutoFocus={(event) => {
             event.preventDefault()
             const dialog = event.currentTarget as HTMLElement

@@ -534,7 +534,7 @@ export interface TableColumn {
   priority: number
 }
 
-/** The part of a kind's OpenAPI schema Lumovi uses to explain its fields. */
+/** The part of a kind's OpenAPI schema Lumovi uses to explain its fields, and check them. */
 export interface FieldSchema {
   type?: string
   description?: string
@@ -543,6 +543,18 @@ export interface FieldSchema {
   properties?: Record<string, FieldSchema>
   items?: FieldSchema
   additionalProperties?: FieldSchema
+  /** Its fields that must be set. */
+  required?: string[]
+  /** An object that takes any field (one whose fields its schema keeps, or doesn't say). */
+  open?: true
+  /** A value that's a number or text (a port by number or name, a quantity: 1, "500m"). */
+  numberOrText?: true
+  /** One that may be null. */
+  nullable?: true
+  /** The name of the type it is, where the schema names it: "PodSpec", "Container". */
+  named?: string
+  /** What it is when it isn't set, where the schema says. */
+  default?: unknown
 }
 
 /** A Helm release, as its latest revision describes it. */

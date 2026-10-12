@@ -1,5 +1,7 @@
+import { inPieces } from '@shared/kit/characters'
 import { cn } from '@renderer/lib/cn'
 import { tokenizeYamlLine, type YamlTokenType } from '@renderer/lib/yaml'
+import { Pieces } from '@renderer/plugins/TheirText'
 
 const TOKEN_CLASS: Record<YamlTokenType, string> = {
   key: 'text-accent-strong',
@@ -11,7 +13,10 @@ const TOKEN_CLASS: Record<YamlTokenType, string> = {
   plain: 'text-ink-1',
 }
 
-/** YAML, highlighted, with line numbers. */
+/**
+ * YAML, highlighted, with line numbers. It's mostly the cluster's text, so it's drawn in pieces:
+ * what would turn a line round or can't be seen is a mark, never itself.
+ */
 export function YamlText({ text, label }: { text: string; label: string }) {
   const lines = text.trimEnd().split('\n')
   return (
@@ -26,7 +31,7 @@ export function YamlText({ text, label }: { text: string; label: string }) {
             <span className="pr-5 whitespace-pre">
               {tokenizeYamlLine(line).map((token, i) => (
                 <span key={i} className={cn(TOKEN_CLASS[token.type])}>
-                  {token.text}
+                  <Pieces pieces={inPieces(token.text)} />
                 </span>
               ))}
             </span>

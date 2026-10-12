@@ -6,6 +6,7 @@ import { useReadOnly } from '@renderer/hooks/settings'
 import { cn } from '@renderer/lib/cn'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
+import { useSchemaSource } from '@renderer/hooks/schema-source'
 import { useUi } from '@renderer/state/ui'
 import { ActionDialog } from './ActionDialog'
 import { CreateForm } from './CreateForm'
@@ -142,6 +143,7 @@ function CreateYaml({ sides, onClose }: { sides: React.ReactNode; onClose: () =>
   const target = namespace ?? 'default'
   const [text, setText] = useState(() => TEMPLATES.Deployment!(target))
   const { outcomes, setOutcomes, pending, command, create } = useCreating(target, onClose)
+  const schema = useSchemaSource()
 
   return (
     <ActionDialog
@@ -188,6 +190,7 @@ function CreateYaml({ sides, onClose }: { sides: React.ReactNode; onClose: () =>
           }}
           onSave={() => void create(text)}
           label="YAML to create"
+          schema={schema}
         />
       </div>
       <p className="text-xs text-ink-3">
