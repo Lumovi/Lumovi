@@ -291,6 +291,7 @@ test('what a table is refused for, where its kinds can’t say it', async ({ pag
     'Row 1, cell 1 is a number, and its column takes text.',
     'Row 1’s rest starts at column 3, and the table has 2 columns.',
     'Row 1’s rest doesn’t start at one of the table’s columns.',
+    'Row 1, cell 1 isn’t a kind of cell.',
     'In row 2, inner row 2 has 1 cell, and the table has 2 columns.',
   ])
 })

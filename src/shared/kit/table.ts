@@ -192,6 +192,11 @@ export function tableProblem(table: Table): string | undefined {
       for (const [c, cell] of each.cells.entries()) {
         const takes = table.columns[c]!.kind
         if (cell.kind !== 'none' && cell.kind !== takes) {
+          // (By its own words only: a kind that isn't one of them is said to be none, whatever
+          // was checked before this.)
+          if (!Object.hasOwn(A_KIND, cell.kind) || !Object.hasOwn(A_KIND, takes)) {
+            return `${here}, cell ${c + 1} isn’t a kind of cell.`
+          }
           return `${here}, cell ${c + 1} is ${A_KIND[cell.kind]}, and its column takes ${A_KIND[takes]}.`
         }
       }
