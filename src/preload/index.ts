@@ -35,6 +35,7 @@ const api: LumoviApi = {
     setNodeShell: (context, setting) => invoke(IPC.setNodeShell, context, setting),
     openExternal: (url) => invoke(IPC.openExternal, url),
     saveFile: (name, text) => invoke(IPC.saveFile, name, text),
+    showSaved: (token) => invoke(IPC.showSaved, token),
     plugins: () => invoke(IPC.plugins),
   },
   kube: {

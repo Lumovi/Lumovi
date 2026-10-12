@@ -1030,6 +1030,13 @@ export interface AccessCheck {
 /** Where Lumovi runs: the desktop app, or a server in a cluster that pages connect to. */
 export type Host = 'desktop' | 'server'
 
+/** A file saved: the name it was saved as, and on the desktop a token to show it by. */
+export interface SavedFile {
+  name: string
+  /** For `app.showSaved`: it stands for where the file is, which the page isn't told. */
+  token?: string
+}
+
 export interface LumoviApi {
   /** The operating system the page runs on, as Node.js names it (darwin, win32, linux). */
   platform: string
@@ -1075,8 +1082,16 @@ export interface LumoviApi {
     setNodeShell(context: string, setting: NodeShellSetting | null): Promise<Settings>
     /** Opens a web page in the browser. */
     openExternal(url: string): Promise<boolean>
-    /** Saves `text` as a file named `name` (asking where, on the desktop); false if the user cancels. */
-    saveFile(name: string, text: string): Promise<Result<boolean>>
+    /**
+     * Saves `text` as a file named `name` (asking where, on the desktop): the name it was saved
+     * as, never where; null if the user cancels.
+     */
+    saveFile(name: string, text: string): Promise<Result<SavedFile | null>>
+    /**
+     * The desktop app's: shows a file `saveFile` saved in the file manager, by the token it gave
+     * back; nothing else is shown (false).
+     */
+    showSaved?(token: string): Promise<boolean>
     /** The user's own plugin files, read when asked. */
     plugins(): Promise<LocalPlugins>
   }
@@ -1398,6 +1413,7 @@ export const IPC = {
   setNodeShell: 'app:set-node-shell',
   openExternal: 'app:open-external',
   saveFile: 'app:save-file',
+  showSaved: 'app:show-saved',
   plugins: 'app:plugins',
   contexts: 'kube:contexts',
   kubeconfigFiles: 'kubeconfig:files',

@@ -30,7 +30,7 @@ import { fieldValue, viewFor } from '@renderer/lib/plugins'
 import { isWorkloadType } from '@renderer/lib/workloads'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
-import { SelectionBar } from '../actions/BulkActions'
+import { countOf, SelectionBar } from '../actions/BulkActions'
 import { PluginTabs } from '../plugins/PluginPage'
 import { WorkloadTabs } from '../workloads/WorkloadTabs'
 import {
@@ -42,6 +42,7 @@ import {
   type CellContext,
 } from './columns'
 import { SearchInput } from '@renderer/components/SearchInput'
+import { useListColumns } from './ColumnsMenu'
 import { useListState } from './list-state'
 import {
   countBy,
@@ -164,9 +165,20 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   }
 
   const counts = countBy(withHealth ? items : [], (object) => statusOf(kind, object).health)
+  // The columns as the person chose them for this kind in this cluster.
+  const chosen = useListColumns({
+    list: kind,
+    columns,
+    listed: items,
+    ctx,
+    title: resource.label,
+    count: (n) => countOf(kind, n),
+    namespaced: resource.namespaced,
+  })
+  const shown = chosen.columns
 
   const needle = state.q.trim().toLowerCase()
-  const { column, desc } = sortedBy(columns, state, defaultSort)
+  const { column, desc } = sortedBy(shown, state, defaultSort)
   const matching = items
     .filter((o) => state.health.length === 0 || state.health.includes(statusOf(kind, o).health))
     .filter((o) => !needle || searchText(o, shownValues(o)).includes(needle))
@@ -174,6 +186,8 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const pages = Math.max(1, Math.ceil(rows.length / state.size))
   const page = Math.min(state.page, pages)
   const pageRows = rows.slice((page - 1) * state.size, page * state.size)
+  // Only what's on screen: rows hidden by a filter since stay out of it.
+  const pickedRows = rows.filter((o) => picked.keys.has(objectKey(o)))
 
   const toggleHealth = (health: Health) =>
     update({
@@ -190,7 +204,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
 
   let body
   if (list.isPending) {
-    body = <TableSkeleton columns={columns} label={`Loading ${noun}`} />
+    body = <TableSkeleton columns={shown} label={`Loading ${noun}`} />
   } else if (!list.data) {
     body = <ErrorState error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
   } else if (items.length === 0) {
@@ -228,7 +242,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           resetKey={`${page}/${state.size}`}
           ref={gridRef}
           label={resource.label}
-          columns={columns}
+          columns={shown}
           rows={pageRows}
           ctx={ctx}
           selected={params.get('open')?.replace(`${kind}/`, '')}
@@ -239,12 +253,14 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           followSelection={params.has('open')}
           picked={kind === 'Event' ? undefined : picked.keys}
           onPick={kind === 'Event' ? undefined : (keys) => setPicked({ scope: scopeKey, keys })}
+          layout={chosen.layout}
+          onCopy={() => chosen.copy(pickedRows)}
         />
         <SelectionBar
           noun={noun}
-          // Only what's on screen: rows hidden by a filter since stay out of it.
-          objects={rows.filter((o) => picked.keys.has(objectKey(o)))}
+          objects={pickedRows}
           onClear={() => setPicked({ scope: scopeKey, keys: new Set() })}
+          onCopy={() => chosen.copy(pickedRows)}
         />
         <Pagination
           page={page}
@@ -278,7 +294,8 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
               onApply={(labels) => update({ labels })}
               compact
             />
-            <SortButton columns={columns} sort={{ id: column.id, desc }} onSort={onSort} />
+            <SortButton columns={shown} sort={{ id: column.id, desc }} onSort={onSort} />
+            {chosen.button(rows)}
           </div>
           <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-4 py-2">
             <span className="mr-1 text-[13px] text-ink-2">
@@ -315,6 +332,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           noun={noun}
           onFilter={(q) => update({ q })}
           onArrowDown={() => gridRef.current?.focus()}
+          after={chosen.button(rows)}
         />
       )}
 

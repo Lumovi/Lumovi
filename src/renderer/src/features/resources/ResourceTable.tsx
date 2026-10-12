@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDown, ArrowUp, Copy, PanelRightOpen, Terminal } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns3, Copy, EyeOff, PanelRightOpen, Terminal } from 'lucide-react'
 import { ContextMenu } from 'radix-ui'
 import {
   useEffect,
@@ -12,6 +12,10 @@ import {
   type Ref,
 } from 'react'
 import type { KubeObject } from '@shared/api'
+import { spelled } from '@shared/kit/characters'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { Tooltip } from '@renderer/components/Tooltip'
+import { MiddleCut } from '@renderer/kit/MiddleCut'
 import { kindOf } from '@shared/resources'
 import { objectKey } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
@@ -22,7 +26,9 @@ import { RowActions } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { useLayout } from '@renderer/lib/layout'
-import type { CellContext, Column } from './columns'
+import { ALWAYS_SHOWN, fitInOrder, NARROWEST, NARROWEST_NAME, WIDTH_STEP } from './column-choices'
+import type { TableLayout } from './ColumnsMenu'
+import { TheirCell, type CellContext, type Column } from './columns'
 import { ResourceRows } from './ResourceRows'
 
 const ROW_HEIGHT = 46
@@ -80,6 +86,13 @@ export interface ResourceTableProps {
   onPick?: (keys: Set<string>) => void
   /** Each row's identity, for selection and picking: `namespace/name` unless kinds mix. */
   rowKey?: (object: KubeObject) => string
+  /**
+   * The person's choices of columns (`useListColumns`): how the columns give way, and what the
+   * header's menu and its edges do.
+   */
+  layout?: TableLayout
+  /** Copies the picked rows: ⌘C, while rows are picked. */
+  onCopy?: () => void
 }
 
 /**
@@ -111,6 +124,8 @@ function ResourceGrid({
   picked,
   onPick,
   rowKey = objectKey,
+  layout,
+  onCopy,
 }: ResourceTableProps) {
   const id = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -138,7 +153,111 @@ function ResourceGrid({
   const selectable = onPick !== undefined
   // What the columns have: the table's width, less the rows' padding and the checkboxes.
   const frame = ROW_PADDING + (selectable ? PICK_WIDTH : 0)
-  const visible = fitColumns(columns, width - frame)
+  // A column being sized is at its new width at once: the last ones give way as it widens.
+  const [sizing, setSizing] = useState<{ id: string; width: number }>()
+  const sized = sizing
+    ? columns.map((column) =>
+        column.id === sizing.id ? { ...column, width: `${sizing.width}px` } : column,
+      )
+    : columns
+  // As chosen, the columns give way in the person's order; otherwise by their priorities.
+  const fitted = layout?.chosen
+    ? fitInOrder(sized, width - frame)
+    : (() => {
+        const visible = fitColumns(sized, width - frame)
+        return {
+          visible,
+          unfit: sized.filter((column) => !visible.includes(column)).map((column) => column.id),
+        }
+      })()
+  const visible = fitted.visible
+  const unfit = fitted.unfit.join('\n')
+  const report = layout?.unfit
+  useEffect(() => report?.(unfit ? unfit.split('\n') : []), [unfit, report])
+  // The heading whose menu is open.
+  const [heading, setHeading] = useState<Column>()
+
+  // Sizing a column: by its heading's right edge, or from the keyboard on a focused heading.
+  const sizingFrom = useRef<{ id: string; x: number; from: number; least: number }>(undefined)
+  // The width a key gave a column last: the next key goes on from it, drawn yet or not.
+  const keyed = useRef<{ id: string; width: number }>(undefined)
+  const sizeKeys = (event: KeyboardEvent<HTMLElement>, column: Column) => {
+    if (!layout || !event.altKey || event.metaKey || event.ctrlKey) return
+    const cell = event.currentTarget
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      event.preventDefault()
+      // (⌥← and ⌥→ are back and forward everywhere else.)
+      event.stopPropagation()
+      const step = event.key === 'ArrowRight' ? WIDTH_STEP : -WIDTH_STEP
+      const now =
+        keyed.current?.id === column.id ? keyed.current.width : cell.getBoundingClientRect().width
+      const width = Math.max(leastOf(column, cell), Math.round(now + step))
+      keyed.current = { id: column.id, width }
+      layout.size(column.id, width)
+    } else if (event.code === 'Digit0') {
+      event.preventDefault()
+      keyed.current = undefined
+      layout.size(column.id, undefined)
+    }
+  }
+  const endSizing = (commit: boolean) => {
+    const from = sizingFrom.current
+    sizingFrom.current = undefined
+    if (from && sizing && commit) layout!.size(from.id, sizing.width)
+    setSizing(undefined)
+  }
+  /**
+   * A heading's right edge: 8 px to take hold of, a line under the pointer, the accent down the
+   * table's height while it's dragged; a double-click gives the column its own width back.
+   */
+  const edge = (column: Column) => {
+    const now = sizing?.id === column.id
+    return (
+      <span
+        aria-hidden
+        onClick={(event) => event.stopPropagation()}
+        onDoubleClick={() => {
+          keyed.current = undefined
+          layout!.size(column.id, undefined)
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault()
+          event.stopPropagation()
+          const cell = event.currentTarget.parentElement!
+          const from = cell.getBoundingClientRect().width
+          event.currentTarget.setPointerCapture(event.pointerId)
+          keyed.current = undefined
+          sizingFrom.current = {
+            id: column.id,
+            x: event.clientX,
+            from,
+            least: leastOf(column, cell),
+          }
+          setSizing({ id: column.id, width: Math.round(from) })
+        }}
+        onPointerMove={(event) => {
+          const from = sizingFrom.current
+          if (!from) return
+          const width = Math.round(from.from + event.clientX - from.x)
+          setSizing({ id: from.id, width: Math.max(from.least, width) })
+        }}
+        onPointerUp={() => endSizing(true)}
+        onPointerCancel={() => endSizing(false)}
+        className="group/edge absolute top-0 -right-1 bottom-0 z-10 w-2 cursor-col-resize touch:hidden"
+      >
+        <span
+          className={cn(
+            'absolute right-[3px] w-0.5 rounded-full',
+            now
+              ? 'top-0 bg-accent'
+              : 'top-2 bottom-2 hidden bg-line-strong group-focus-within/head:block group-focus-within/head:bg-accent group-hover/edge:block',
+          )}
+          style={now ? { height: scrollRef.current?.clientHeight } : undefined}
+        />
+      </span>
+    )
+  }
   // The React Compiler is not used, so the virtualizer's unmemoizable API is fine here.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -217,6 +336,11 @@ function ResourceGrid({
         pickPage(true)
         return
       }
+      if (event.key === 'c' && (event.metaKey || event.ctrlKey) && picked!.size > 0 && onCopy) {
+        event.preventDefault()
+        onCopy()
+        return
+      }
       if (event.key === 'Escape' && picked!.size > 0) {
         // Only the selection goes; an open detail panel stays.
         event.preventDefault()
@@ -253,60 +377,134 @@ function ResourceGrid({
         className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur"
         style={{ minWidth: grid.minWidth }}
       >
-        <div role="row" className="grid h-9 items-center px-3 touch:h-11" style={grid}>
-          {selectable && (
+        <ContextMenu.Root>
+          <ContextMenu.Trigger asChild disabled={!layout}>
             <div
-              role="columnheader"
-              className="flex h-full items-center justify-center"
-              onClick={() => pickPage(pickedOnPage < rows.length)}
+              role="row"
+              className="grid h-9 items-center px-3 touch:h-11"
+              style={grid}
+              onContextMenu={(event: MouseEvent) => {
+                const at = (event.target as HTMLElement).closest('[data-column]')
+                setHeading(visible.find((column) => column.id === at?.getAttribute('data-column')))
+              }}
             >
-              <Checkbox
-                label="Select all rows on this page"
-                checked={pickedOnPage === rows.length}
-                indeterminate={pickedOnPage > 0 && pickedOnPage < rows.length}
-              />
-            </div>
-          )}
-          {visible.map((column) => {
-            const isSorted = sort.id === column.id
-            return (
-              <div
-                key={column.id}
-                role="columnheader"
-                aria-sort={isSorted ? (sort.desc ? 'descending' : 'ascending') : undefined}
-                className={cn('flex min-w-0 px-3', column.align === 'right' && 'justify-end')}
-              >
-                {column.sort ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort(column.id)}
-                    // A header keeps to its line: cut short in a narrow column, its arrow kept.
-                    className={cn(
-                      'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1 touch:finger touch:h-11',
-                      isSorted ? 'text-ink-1' : 'text-ink-3',
-                    )}
-                    title={column.header}
-                  >
-                    <span className="truncate">{column.header}</span>
-                    {isSorted &&
-                      (sort.desc ? (
-                        <ArrowDown className="size-3 shrink-0" />
+              {selectable && (
+                <div
+                  role="columnheader"
+                  className="flex h-full items-center justify-center"
+                  onClick={() => pickPage(pickedOnPage < rows.length)}
+                >
+                  <Checkbox
+                    label="Select all rows on this page"
+                    checked={pickedOnPage === rows.length}
+                    indeterminate={pickedOnPage > 0 && pickedOnPage < rows.length}
+                  />
+                </div>
+              )}
+              {visible.map((column) => {
+                const isSorted = sort.id === column.id
+                const drawn =
+                  column.headerCut === 'middle' ? (
+                    <span data-words className="flex min-w-0">
+                      {column.headerTheirs ? (
+                        <MiddleCut
+                          text={{ their: column.header }}
+                          tip={false}
+                          className="min-w-0"
+                        />
                       ) : (
-                        <ArrowUp className="size-3 shrink-0" />
-                      ))}
-                  </button>
+                        <MiddleTruncate text={column.header} className="min-w-0" />
+                      )}
+                    </span>
+                  ) : column.headerTheirs ? (
+                    <span data-words className="flex min-w-0">
+                      <TheirCell text={column.header} />
+                    </span>
+                  ) : (
+                    <span data-words className="truncate">
+                      {column.header}
+                    </span>
+                  )
+                // (A tooltip of more than the header is drawn, not a title: it can hold marks.)
+                const words = column.headerTip ? (
+                  <Tooltip content={column.headerTip}>{drawn}</Tooltip>
                 ) : (
-                  <span
-                    className="truncate text-2xs font-medium tracking-wider whitespace-nowrap text-ink-3 uppercase"
-                    title={column.header}
+                  drawn
+                )
+                // (Else a title: words not Lumovi's spelled, as a title can't draw a mark.)
+                const title = column.headerTip
+                  ? undefined
+                  : column.headerTheirs
+                    ? spelled(column.header)
+                    : column.header
+                return (
+                  <div
+                    key={column.id}
+                    role="columnheader"
+                    data-column={column.id}
+                    aria-sort={isSorted ? (sort.desc ? 'descending' : 'ascending') : undefined}
+                    onKeyDown={(event) => sizeKeys(event, column)}
+                    // (Sized another way meanwhile, the keys go on from what's drawn.)
+                    onBlur={() => (keyed.current = undefined)}
+                    className={cn(
+                      'group/head relative flex h-full min-w-0 items-center px-3',
+                      column.align === 'right' && 'justify-end',
+                    )}
                   >
-                    {column.header}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                    {column.sort ? (
+                      <button
+                        type="button"
+                        onClick={() => onSort(column.id)}
+                        // A header keeps to its line: cut short in a narrow column, its arrow kept.
+                        className={cn(
+                          'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1 touch:finger touch:h-11',
+                          isSorted ? 'text-ink-1' : 'text-ink-3',
+                        )}
+                        title={title}
+                      >
+                        {words}
+                        {isSorted &&
+                          (sort.desc ? (
+                            <ArrowDown className="size-3 shrink-0" />
+                          ) : (
+                            <ArrowUp className="size-3 shrink-0" />
+                          ))}
+                      </button>
+                    ) : (
+                      <span
+                        // (A stop of its own where it can be sized from the keyboard.)
+                        tabIndex={layout ? 0 : undefined}
+                        className="flex min-w-0 text-2xs font-medium tracking-wider whitespace-nowrap text-ink-3 uppercase outline-none focus-visible:text-ink-1"
+                        title={title}
+                      >
+                        {words}
+                      </span>
+                    )}
+                    {layout && edge(column)}
+                  </div>
+                )
+              })}
+            </div>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content
+              className={menuContent}
+              // (Where the focus goes next is the menu's, or the list's.)
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
+              <ContextMenu.Item
+                className={menuItem}
+                disabled={!heading || heading.id === ALWAYS_SHOWN}
+                onSelect={() => heading && layout!.hide(heading.id)}
+              >
+                <EyeOff className="size-4 text-ink-3" /> Hide this column
+              </ContextMenu.Item>
+              <ContextMenu.Item className={menuItem} onSelect={() => layout!.openMenu()}>
+                <Columns3 className="size-4 text-ink-3" /> Columns…
+              </ContextMenu.Item>
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
       </div>
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
@@ -421,6 +619,25 @@ function RowMenu({ object, onOpen }: { object: KubeObject; onOpen: (object: Kube
       {actionsFor(object).length > 0 && <RowActions object={object} />}
     </>
   )
+}
+
+let measuring: CanvasRenderingContext2D | null | undefined
+
+/**
+ * The least a column can be sized to: 64 px, or its heading's first word, whichever is wider; a
+ * name 160 px. (Measured as the heading draws it, in its own padding.)
+ */
+function leastOf(column: Column, cell: HTMLElement): number {
+  if (column.id === ALWAYS_SHOWN) return NARROWEST_NAME
+  const words = cell.querySelector<HTMLElement>('[data-words]')
+  measuring ??= document.createElement('canvas').getContext('2d')
+  if (!words || !measuring) return NARROWEST
+  const style = getComputedStyle(words)
+  measuring.font = style.font
+  const word = (column.header.split(/\s+/)[0] ?? '').toUpperCase()
+  const spacing = (parseFloat(style.letterSpacing) || 0) * word.length
+  const padding = parseFloat(getComputedStyle(cell).paddingLeft) * 2
+  return Math.max(NARROWEST, Math.ceil(measuring.measureText(word).width + spacing + padding))
 }
 
 /** A checkbox for picking rows; its cell handles clicks, the keyboard goes through the grid. */

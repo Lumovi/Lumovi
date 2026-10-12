@@ -4,6 +4,7 @@ import {
   CirclePause,
   CirclePlay,
   CircleX,
+  Copy,
   LoaderCircle,
   Minus,
   RotateCw,
@@ -169,11 +170,14 @@ export function SelectionBar({
   objects,
   noun,
   onClear,
+  onCopy,
 }: {
   objects: KubeObject[]
   /** What they're called together when their kinds differ ("workloads"). */
   noun: string
   onClear: () => void
+  /** Copies them as the list shows them: first, as it changes nothing. */
+  onCopy?: () => void
 }) {
   const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
@@ -203,6 +207,12 @@ export function SelectionBar({
         <span className="mr-2 text-[13px] font-medium whitespace-nowrap text-ink-1 tabular-nums">
           {objects.length} selected
         </span>
+        {onCopy && (
+          <Button variant="ghost" onClick={onCopy} className="h-7 px-2.5 text-xs">
+            <Copy className="!size-3.5" />
+            Copy
+          </Button>
+        )}
         {actions.map((action) => {
           const button = (
             <Button

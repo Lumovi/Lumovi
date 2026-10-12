@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { eventCount, lastSeen } from '@shared/events'
 import type { KubeObject, TableColumn, UsageSample } from '@shared/api'
+import { inPieces, spelled } from '@shared/kit/characters'
 import type { BuiltinKind, ResourceKind } from '@shared/resources'
 import { Meter } from '@renderer/components/Meter'
 import { StatusPill } from '@renderer/components/Status'
@@ -12,6 +13,8 @@ import { describeSchedule, nextRun } from '@renderer/lib/cron'
 import { roleRefOf, rulesOf, subjectsOf, subjectText } from '@renderer/lib/rbac'
 import { allocatable } from '@renderer/lib/usage'
 import { fieldValue, type View, type ViewField } from '@renderer/lib/plugins'
+import { MiddleCut } from '@renderer/kit/MiddleCut'
+import { TheirText } from '@renderer/plugins/TheirText'
 
 export interface CellContext {
   /** Live usage keyed by `metricsKey`, when the metrics API is available. */
@@ -26,6 +29,12 @@ export interface CellContext {
 export interface Column {
   id: string
   header: string
+  /** A header that isn't Lumovi's words (a label's key): drawn in pieces, as cluster text is. */
+  headerTheirs?: boolean
+  /** What its header's tooltip says, if more than the header: drawn, so it can hold marks. */
+  headerTip?: ReactNode
+  /** A header that's a key's whole name is cut in its middle, where keys differ, not at its end. */
+  headerCut?: 'middle'
   /** CSS grid track size. */
   width: string
   align?: 'right'
@@ -38,9 +47,51 @@ export interface Column {
    * cell, unless said here; `false` for what a line can't hold (a meter).
    */
   fact?: ((object: KubeObject, ctx: CellContext) => ReactNode) | false
+  /**
+   * Its words for an object, where its cell's text isn't them (a meter's, say): what a copied row
+   * and a saved CSV hold.
+   */
+  text?: (object: KubeObject, ctx: CellContext) => string
+  /**
+   * What a saved CSV holds, where it isn't those words: a time whole, in UTC; a number bare, in
+   * the unit its `header` names ("CPU (cores)"). Nothing is an empty cell.
+   */
+  csv?: {
+    header?: string
+    value: (object: KubeObject, ctx: CellContext) => string | number | undefined
+  }
   /** The name column's: it says each object's namespace (every namespace is listed). */
   namespaced?: boolean
   sort?: (object: KubeObject, ctx: CellContext) => string | number
+}
+
+/**
+ * A cell's text that isn't Lumovi's (the cluster's, a plugin's), in pieces on one line, cut at
+ * its end where it doesn't fit. One with a mark is cut by measuring, so the marks of the part cut
+ * away stand after the "…" and are never cut with it; one without is cut as any cell is. `title`:
+ * what it says under a pointer, spelled.
+ */
+export function TheirCell({
+  text,
+  title,
+  className,
+}: {
+  text: string
+  title?: string
+  className?: string
+}) {
+  if (inPieces(text).every((piece) => typeof piece === 'string')) {
+    return (
+      <span className={cn('min-w-0 truncate', className)} title={title}>
+        <TheirText text={text} inline />
+      </span>
+    )
+  }
+  return (
+    <span className="flex min-w-0" title={title}>
+      <MiddleCut text={{ their: text }} end={0} tip={false} className={cn('flex-1', className)} />
+    </span>
+  )
 }
 
 /** "1 restart", "3 restarts": a count that says what it's of. */
@@ -112,6 +163,8 @@ export const ageColumn: Column = {
   width: '72px',
   align: 'right',
   cell: (o, ctx) => muted(age(o.metadata.creationTimestamp!, ctx.now)),
+  // (An age and a time are different things: the file has the time it counts from.)
+  csv: { header: 'Created', value: (o) => utc(o.metadata.creationTimestamp!) },
   sort: (o) => -Date.parse(o.metadata.creationTimestamp!),
 }
 
@@ -146,6 +199,19 @@ const imagesColumn: Column = {
     )
   },
 }
+
+/** A time for a file: in UTC, to the second where it has no less ("2026-10-12T07:41:09Z"). */
+function utc(time: string | Date): string {
+  const at = typeof time === 'string' ? Date.parse(time) : time.getTime()
+  return Number.isNaN(at) ? String(time) : new Date(at).toISOString().replace('.000Z', 'Z')
+}
+
+/**
+ * A share of what can be allocated, for a file: 0 to 100 (or more, as usage can pass it for a
+ * while) to one place, as it's worked out from two measures; none without both.
+ */
+const shareOf = (used: number | undefined, total: number) =>
+  used === undefined || !(total > 0) ? undefined : ((used / total) * 100).toFixed(1)
 
 function usageMeter(used: number, total: number, label: string, text: string) {
   return (
@@ -207,6 +273,7 @@ const podColumns: Column[] = [
       const usage = usageOf(o, ctx)
       return usage ? <span className="tabular-nums">{formatCpu(usage.cpu)}</span> : none
     },
+    csv: { header: 'CPU (cores)', value: (o, ctx) => usageOf(o, ctx)?.cpu },
     sort: (o, ctx) => usageOf(o, ctx)?.cpu ?? -1,
   },
   {
@@ -218,6 +285,7 @@ const podColumns: Column[] = [
       const usage = usageOf(o, ctx)
       return usage ? <span className="tabular-nums">{formatBytes(usage.memory)}</span> : none
     },
+    csv: { header: 'Memory (bytes)', value: (o, ctx) => usageOf(o, ctx)?.memory },
     sort: (o, ctx) => usageOf(o, ctx)?.memory ?? -1,
   },
   {
@@ -255,6 +323,10 @@ const nodeColumns: Column[] = [
       const ratio = usage.cpu / allocatable(o).cpu
       return usageMeter(usage.cpu, allocatable(o).cpu, `${o.metadata.name} CPU`, percent(ratio))
     },
+    csv: {
+      header: 'CPU (% of allocatable)',
+      value: (o, ctx) => shareOf(usageOf(o, ctx)?.cpu, allocatable(o).cpu),
+    },
     fact: false,
     sort: (o, ctx) => (usageOf(o, ctx)?.cpu ?? -1) / allocatable(o).cpu,
   },
@@ -272,6 +344,10 @@ const nodeColumns: Column[] = [
         `${o.metadata.name} memory`,
         percent(ratio),
       )
+    },
+    csv: {
+      header: 'Memory (% of allocatable)',
+      value: (o, ctx) => shareOf(usageOf(o, ctx)?.memory, allocatable(o).memory),
     },
     fact: false,
     sort: (o, ctx) => (usageOf(o, ctx)?.memory ?? -1) / allocatable(o).memory,
@@ -445,6 +521,12 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
           ? none
           : muted(`in ${age(new Date(ctx.now).toISOString(), next.getTime())}`)
       },
+      csv: {
+        value: (o) => {
+          const next = nextRun(o.spec.schedule, o.spec.timeZone)
+          return o.spec.suspend || !next ? undefined : utc(next)
+        },
+      },
     },
     {
       id: 'last',
@@ -452,6 +534,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '88px',
       cell: (o, ctx) =>
         o.status.lastScheduleTime ? muted(`${age(o.status.lastScheduleTime, ctx.now)} ago`) : none,
+      csv: { value: (o) => o.status.lastScheduleTime && utc(o.status.lastScheduleTime) },
     },
     {
       id: 'active',
@@ -734,6 +817,7 @@ const eventColumns: Column[] = [
     width: '108px',
     align: 'right',
     cell: (o, ctx) => muted(age(lastSeen(o), ctx.now)),
+    csv: { value: (o) => utc(lastSeen(o)) },
     sort: (o) => -Date.parse(lastSeen(o)),
   },
 ]
@@ -822,6 +906,7 @@ function serverColumn(column: TableColumn, index: number): Column {
   return {
     id: `server:${column.name}`,
     header: column.name,
+    headerTheirs: true,
     width: numeric ? 'minmax(88px, 0.5fr)' : 'minmax(120px, 1fr)',
     align: numeric ? 'right' : undefined,
     priority: 2,
@@ -831,10 +916,15 @@ function serverColumn(column: TableColumn, index: number): Column {
       return numeric ? (
         <span className="tabular-nums">{number.format(cell as number)}</span>
       ) : (
-        <span className="truncate" title={String(cell)}>
-          {String(cell)}
-        </span>
+        <TheirCell text={String(cell)} title={spelled(String(cell))} />
       )
+    },
+    // A number as it came, without the list's separators; text, whatever the column says, as text.
+    csv: {
+      value: (o, ctx) => {
+        const cell = value(o, ctx)
+        return isBlank(cell) ? undefined : typeof cell === 'number' ? cell : String(cell)
+      },
     },
     sort: (o, ctx) => {
       const cell = value(o, ctx)
@@ -857,6 +947,7 @@ function viewColumn(field: ViewField): Column {
   return {
     id: `view:${field.name}`,
     header: field.name,
+    headerTheirs: true,
     width: numeric ? 'minmax(88px, 0.5fr)' : 'minmax(120px, 1fr)',
     align: numeric ? 'right' : undefined,
     priority: 2,
@@ -871,10 +962,18 @@ function viewColumn(field: ViewField): Column {
         )
       }
       return (
-        <span className={cn('truncate', numeric && 'tabular-nums')} title={text}>
-          {text}
-        </span>
+        <TheirCell
+          text={text}
+          title={spelled(text)}
+          className={numeric ? 'tabular-nums' : undefined}
+        />
       )
+    },
+    csv: {
+      value: (o) => {
+        const { text, time } = fieldValue(field, o)
+        return time ? utc(time) : text
+      },
     },
     sort: (o) => fieldValue(field, o).sort,
   }

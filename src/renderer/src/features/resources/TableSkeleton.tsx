@@ -1,3 +1,4 @@
+import { TheirText } from '@renderer/plugins/TheirText'
 import type { Column } from './columns'
 
 const ROWS = 12
@@ -16,7 +17,7 @@ export function TableSkeleton({ columns, label }: { columns: Column[]; label: st
             key={column.id}
             className="px-3 text-2xs font-medium tracking-wider text-ink-3 uppercase"
           >
-            {column.header}
+            {column.headerTheirs ? <TheirText text={column.header} inline /> : column.header}
           </span>
         ))}
       </div>

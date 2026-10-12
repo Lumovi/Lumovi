@@ -19,6 +19,7 @@ import {
 } from '@renderer/lib/workloads'
 import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
+import { useListColumns } from '../resources/ColumnsMenu'
 import { sortedBy, sortRows, type CellContext } from '../resources/columns'
 import { useListState } from '../resources/list-state'
 import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
@@ -88,8 +89,19 @@ export function WorkloadsPage() {
     metrics: usage,
   }
   const counts = countBy(workloads, (o) => statusOf(kindOf(o), o).health)
+  // The columns as the person chose them for workloads in this cluster.
+  const chosen = useListColumns({
+    list: 'workloads',
+    columns,
+    listed: workloads,
+    ctx,
+    title: 'Workloads',
+    count: (n) => `${n} ${n === 1 ? 'workload' : 'workloads'}`,
+    namespaced: true,
+  })
+  const shown = chosen.columns
   const needle = state.q.trim().toLowerCase()
-  const { column, desc } = sortedBy(columns, state, 'status')
+  const { column, desc } = sortedBy(shown, state, 'status')
   const matching = workloads
     .filter(
       (o) => state.health.length === 0 || state.health.includes(statusOf(kindOf(o), o).health),
@@ -99,6 +111,8 @@ export function WorkloadsPage() {
   const pages = Math.max(1, Math.ceil(rows.length / state.size))
   const page = Math.min(state.page, pages)
   const pageRows = rows.slice((page - 1) * state.size, page * state.size)
+  // Only what's on screen: rows hidden by a filter since stay out of it.
+  const pickedRows = rows.filter((o) => picked.keys.has(rowKey(o)))
   const goToPage = (next: number) => update({ page: Math.max(1, Math.min(pages, next)) })
 
   // Lists that couldn't be read leave their kind out; ones that couldn't be refreshed keep it.
@@ -113,7 +127,7 @@ export function WorkloadsPage() {
 
   let body
   if (all.some(([, q]) => q.isPending)) {
-    body = <TableSkeleton columns={columns} label="Loading workloads" />
+    body = <TableSkeleton columns={shown} label="Loading workloads" />
   } else if (unread.length === all.length) {
     body = <ErrorState error={unread[0]![1].error as KubeApiError} onRetry={retry} />
   } else if (workloads.length === 0) {
@@ -137,7 +151,7 @@ export function WorkloadsPage() {
           resetKey={`${page}/${state.size}`}
           ref={gridRef}
           label="Workloads"
-          columns={columns}
+          columns={shown}
           rows={pageRows}
           ctx={ctx}
           rowKey={rowKey}
@@ -149,12 +163,14 @@ export function WorkloadsPage() {
           followSelection={params.has('open')}
           picked={picked.keys}
           onPick={(keys) => setPicked({ scope: where, keys })}
+          layout={chosen.layout}
+          onCopy={() => chosen.copy(pickedRows)}
         />
         <SelectionBar
           noun="workloads"
-          // Only what's on screen: rows hidden by a filter since stay out of it.
-          objects={rows.filter((o) => picked.keys.has(rowKey(o)))}
+          objects={pickedRows}
           onClear={() => setPicked({ scope: where, keys: new Set() })}
+          onCopy={() => chosen.copy(pickedRows)}
         />
         <Pagination
           page={page}
@@ -196,6 +212,7 @@ export function WorkloadsPage() {
         noun="workloads"
         onFilter={(q) => update({ q })}
         onArrowDown={() => gridRef.current?.focus()}
+        after={chosen.button(rows)}
       />
       {unread.length > 0 && unread.length < all.length && (
         <div role="status" className="shrink-0 border-b border-warn/25 bg-warn/10 px-5 py-1.5">

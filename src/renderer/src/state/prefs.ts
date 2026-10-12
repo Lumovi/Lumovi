@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { RangeId } from '@renderer/lib/promql'
+import type { ColumnChoices } from '@renderer/features/resources/column-choices'
 
 const MAX_RECENT = 5
 /** Custom kinds kept in the sidebar per cluster, most recently opened first. */
@@ -42,6 +43,13 @@ interface Prefs {
   /** Whether the clusters page shows the clusters hidden from it. */
   showHidden: boolean
   setShowHidden: (showHidden: boolean) => void
+  /**
+   * What was chosen for each list's columns, by `<context>/<list>` (a kind, or a page's own list:
+   * "workloads", "helm", a plugin's).
+   */
+  columns: Record<string, ColumnChoices>
+  /** Keeps what was chosen for a list's columns; nothing, to go back to Lumovi's. */
+  setColumns: (list: string, choices: ColumnChoices | undefined) => void
   /** The side of Create used last, which opens first: its form, or its YAML. */
   createSide: 'form' | 'yaml'
   setCreateSide: (side: Prefs['createSide']) => void
@@ -62,6 +70,12 @@ export const usePrefs = create<Prefs>()(
         set((prefs) => {
           const { [context]: _forgotten, ...namespaces } = prefs.namespaces
           return { namespaces }
+        }),
+      columns: {},
+      setColumns: (list, choices) =>
+        set((prefs) => {
+          const { [list]: _old, ...others } = prefs.columns
+          return { columns: choices ? { ...others, [list]: choices } : others }
         }),
       recent: [],
       touchRecent: (context) =>

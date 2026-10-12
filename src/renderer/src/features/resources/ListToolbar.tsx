@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Gauge, Tag } from 'lucide-react'
+import { spelled } from '@shared/kit/characters'
 import { Button } from '@renderer/components/Button'
 import {
   useImperativeHandle,
@@ -16,6 +17,7 @@ import { Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { HEALTH_RANK, type Health } from '@renderer/lib/health'
+import { TheirText } from '@renderer/plugins/TheirText'
 import type { Column } from './columns'
 
 const HEALTH_ORDER = (Object.keys(HEALTH_RANK) as Health[]).sort(
@@ -227,15 +229,16 @@ export function LabelSelector({
 const BAR = { narrow: 480, compact: 720 }
 const GAP = 8
 /** The least the label selector's field, its button and the filter take. */
-const LEAST = { selector: 160, button: 32, filter: 128 }
+const LEAST = { selector: 160, button: 32, filter: 128, squeezed: 80 }
 
 /**
  * The bar over a list: how many there are, a chip per health level, then to the right what the
- * page adds (`before`, which never gives way), a note, the label selector and the filter. Its
- * fields keep to one row. As it narrows they give way first, from 240 px each;
- * under 480 px (720 where there are chips) the label selector is a button; and the chips, which
- * never shrink, take a row of their own under the first whenever it can't hold them beside
- * everything else at its least, and wrap there.
+ * page adds (`before`, which never gives way), a note, the label selector, the filter and what
+ * ends it (`after`: the Columns button, which never gives way either). Its fields keep to one
+ * row. As it narrows they give way first, from 240 px each; under 480 px (720 where there are
+ * chips) the label selector is a button; and the chips, which never shrink, take a row of their
+ * own under the first whenever it can't hold them beside everything else at its least, and wrap
+ * there.
  *
  * (That is measured: wrapping alone would send the fields under the chips, not the chips under
  * the fields.)
@@ -252,6 +255,7 @@ export function ListBar({
   noun,
   onFilter,
   onArrowDown,
+  after,
 }: {
   count: string
   /** The health chips, when the list has any. */
@@ -268,6 +272,8 @@ export function ListBar({
   noun: string
   onFilter: (q: string) => void
   onArrowDown: () => void
+  /** What ends the row, after the filter: the Columns button. */
+  after?: ReactNode
 }) {
   const bar = useRef<HTMLDivElement>(null)
   const counted = useRef<HTMLSpanElement>(null)
@@ -301,11 +307,12 @@ export function ListBar({
       each.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, each.length - 1),
       ...(extras.current ? [extras.current.offsetWidth] : []),
       ...(onLabels ? [compact ? LEAST.button : LEAST.selector] : []),
-      LEAST.filter,
+      after && width < BAR.compact ? LEAST.squeezed : LEAST.filter,
+      ...(after ? [LEAST.button] : []),
     ]
     const least = parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1)
     setStacked(least > width)
-  }, [width, compact, chips, count, before, note, onLabels])
+  }, [width, compact, chips, count, before, note, onLabels, after])
 
   const chipped = chips ? (
     <div ref={chipRow} className={cn('flex gap-2', stacked ? 'flex-wrap' : 'shrink-0')}>
@@ -365,8 +372,14 @@ export function ListBar({
           onArrowDown={onArrowDown}
           placeholder={width < BAR.narrow ? 'Filter' : `Filter ${noun}`}
           hint={width >= BAR.narrow}
-          className={cn('min-w-32 shrink basis-60', roomy && 'grow')}
+          className={cn(
+            'min-w-32 shrink basis-60',
+            roomy && 'grow',
+            // (Where the bar is narrow, the filter gives the button after it its room.)
+            after && width < BAR.compact && 'min-w-20',
+          )}
         />
+        {after}
       </div>
       {stacked && chipped}
     </div>
@@ -374,7 +387,7 @@ export function ListBar({
 }
 
 /** A square button beside a phone's filter field: 44 px each way. */
-const squareButton =
+export const squareButton =
   'grid size-11 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface-2 text-ink-2 shadow-xs outline-offset-[-2px] [&_svg]:size-4'
 
 /**
@@ -399,7 +412,11 @@ export function SortButton({
     <>
       <button
         type="button"
-        aria-label={current ? `Sort: by ${current.header.toLowerCase()}` : 'Sort'}
+        aria-label={
+          current
+            ? `Sort: by ${current.headerTheirs ? spelled(current.header) : current.header.toLowerCase()}`
+            : 'Sort'
+        }
         onClick={() => setOpen(true)}
         className={squareButton}
       >
@@ -424,7 +441,13 @@ export function SortButton({
                     }}
                     className="flex h-11 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-ink-1 outline-offset-[-2px] active:bg-surface-3"
                   >
-                    <span className="flex-1">{column.header}</span>
+                    <span className="flex-1">
+                      {column.headerTheirs ? (
+                        <TheirText text={column.header} inline />
+                      ) : (
+                        column.header
+                      )}
+                    </span>
                     {chosen && (
                       <>
                         <span className="flex items-center gap-1 text-xs text-ink-3">

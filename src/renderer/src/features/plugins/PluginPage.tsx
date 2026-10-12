@@ -35,6 +35,7 @@ import {
   type CellContext,
   type Column,
 } from '../resources/columns'
+import { useListColumns } from '../resources/ColumnsMenu'
 import { useListState } from '../resources/list-state'
 import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
@@ -340,8 +341,19 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
   // Ages are relative to the last refresh, which keeps rendering pure.
   const ctx: CellContext = { now: Math.max(...all.map(([, q]) => q.dataUpdatedAt)) }
   const counts = countBy(objects, (o) => statusOf(kindOf(o), o).health)
+  // The columns as the person chose them for this plugin's list in this cluster.
+  const chosen = useListColumns({
+    list: `plugin:${plugin.name}`,
+    columns,
+    listed: objects,
+    ctx,
+    title: plugin.label,
+    count: (n) => `${n} ${n === 1 ? 'object' : 'objects'}`,
+    namespaced: kinds.some((r) => r.namespaced),
+  })
+  const shown = chosen.columns
   const needle = state.q.trim().toLowerCase()
-  const { column, desc } = sortedBy(columns, state, 'status')
+  const { column, desc } = sortedBy(shown, state, 'status')
   const matching = objects
     .filter(
       (o) => state.health.length === 0 || state.health.includes(statusOf(kindOf(o), o).health),
@@ -351,6 +363,8 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
   const pages = Math.max(1, Math.ceil(rows.length / state.size))
   const page = Math.min(state.page, pages)
   const pageRows = rows.slice((page - 1) * state.size, page * state.size)
+  // Only what's on screen: rows hidden by a filter since stay out of it.
+  const pickedRows = rows.filter((o) => picked.keys.has(rowKey(o)))
   const goToPage = (next: number) => update({ page: Math.max(1, Math.min(pages, next)) })
 
   // Lists that couldn't be read leave their kind out; ones that couldn't be refreshed keep it.
@@ -364,7 +378,7 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
 
   let body
   if (all.some(([, q]) => q.isPending)) {
-    body = <TableSkeleton columns={columns} label={`Loading ${plugin.label}`} />
+    body = <TableSkeleton columns={shown} label={`Loading ${plugin.label}`} />
   } else if (unread.length === all.length) {
     body = <ErrorState error={unread[0]![1].error as KubeApiError} onRetry={retry} />
   } else if (objects.length === 0) {
@@ -388,7 +402,7 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
           resetKey={`${page}/${state.size}`}
           ref={gridRef}
           label={plugin.label}
-          columns={columns}
+          columns={shown}
           rows={pageRows}
           ctx={ctx}
           rowKey={rowKey}
@@ -400,12 +414,14 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
           followSelection={params.has('open')}
           picked={picked.keys}
           onPick={(keys) => setPicked({ scope: where, keys })}
+          layout={chosen.layout}
+          onCopy={() => chosen.copy(pickedRows)}
         />
         <SelectionBar
           noun="objects"
-          // Only what's on screen: rows hidden by a filter since stay out of it.
-          objects={rows.filter((o) => picked.keys.has(rowKey(o)))}
+          objects={pickedRows}
           onClear={() => setPicked({ scope: where, keys: new Set() })}
+          onCopy={() => chosen.copy(pickedRows)}
         />
         <Pagination
           page={page}
@@ -445,6 +461,7 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
         noun={plugin.label}
         onFilter={(q) => update({ q })}
         onArrowDown={() => gridRef.current?.focus()}
+        after={chosen.button(rows)}
       />
       {unread.length > 0 && unread.length < all.length && (
         <div role="status" className="shrink-0 border-b border-warn/25 bg-warn/10 px-5 py-1.5">
