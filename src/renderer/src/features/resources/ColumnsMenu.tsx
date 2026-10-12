@@ -333,7 +333,7 @@ function ColumnsButton({
           className={
             phone
               ? squareButton
-              : 'relative grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3 data-[state=open]:text-ink-1 [&_svg]:size-4'
+              : 'relative grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 data-[state=open]:bg-surface-3 data-[state=open]:text-ink-1 touch:size-11 [&_svg]:size-4'
           }
         >
           <Columns3 />
