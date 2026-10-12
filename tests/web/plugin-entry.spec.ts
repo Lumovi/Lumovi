@@ -103,4 +103,6 @@ test('a plugin’s entry says what it may change and create, what it reads and s
   // An action that's a JSON patch says so over what it sends.
   await expect(actions).toContainText('Paint red')
   await expect(actions).toContainText('A JSON patch')
+  // And what it sends, as the file writes it.
+  await expect(actions).toContainText('/spec/color')
 })

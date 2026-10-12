@@ -28,30 +28,33 @@ test('a plugins folder’s files that can’t be read are each said by name, and
   symlinkSync(join(elsewhere, 'a-folder.yaml'), join(folder, 'b-folder.yaml'))
   // Over the limit: 256 KB and a byte.
   writeFileSync(join(folder, 'c-large.yaml'), `# ${'x'.repeat(256 * 1024)}\n`)
-  // One nobody may read.
+  // One nobody may read. (Nobody but root: like GitHub's, the runner isn't.)
   writeFileSync(join(folder, 'd-locked.yaml'), WIDGETS)
   chmodSync(join(folder, 'd-locked.yaml'), 0)
-  // A link to itself, and a link to nothing.
-  symlinkSync('e-loop.yaml', join(folder, 'e-loop.yaml'))
-  symlinkSync('nowhere.yaml', join(folder, 'f-gone.yaml'))
+  try {
+    // A link to itself, and a link to nothing.
+    symlinkSync('e-loop.yaml', join(folder, 'e-loop.yaml'))
+    symlinkSync('nowhere.yaml', join(folder, 'f-gone.yaml'))
 
-  const served = await serve({ env: { LUMOVI_PLUGINS_DIR: folder } })
-  await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
-  const read = await page.evaluate(() =>
-    (
-      window as unknown as { lumovi: { app: { plugins(): Promise<LocalPlugins> } } }
-    ).lumovi.app.plugins(),
-  )
-  expect(read.files.map(({ name, error }) => [name, error ?? 'read'])).toEqual([
-    ['a-widgets.yaml', 'read'],
-    ['b-folder.yaml', 'It isn’t a file.'],
-    ['c-large.yaml', 'It’s larger than 256 KB.'],
-    ['d-locked.yaml', 'Lumovi isn’t allowed to read it.'],
-    ['e-loop.yaml', 'It couldn’t be read.'],
-    ['f-gone.yaml', 'It isn’t there: a link to a file that’s gone.'],
-  ])
-  // Nothing of the folder's path is said to the page: only each file's name.
-  expect(JSON.stringify(read.files)).not.toContain(folder)
-  // (Put back as it was, for whoever cleans the folder up.)
-  chmodSync(join(folder, 'd-locked.yaml'), 0o600)
+    const served = await serve({ env: { LUMOVI_PLUGINS_DIR: folder } })
+    await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
+    const read = await page.evaluate(() =>
+      (
+        window as unknown as { lumovi: { app: { plugins(): Promise<LocalPlugins> } } }
+      ).lumovi.app.plugins(),
+    )
+    expect(read.files.map(({ name, error }) => [name, error ?? 'read'])).toEqual([
+      ['a-widgets.yaml', 'read'],
+      ['b-folder.yaml', 'It isn’t a file.'],
+      ['c-large.yaml', 'It’s larger than 256 KB.'],
+      ['d-locked.yaml', 'Lumovi isn’t allowed to read it.'],
+      ['e-loop.yaml', 'It couldn’t be read.'],
+      ['f-gone.yaml', 'It isn’t there: a link to a file that’s gone.'],
+    ])
+    // Nothing of the folder's path is said to the page: only each file's name.
+    expect(JSON.stringify(read.files)).not.toContain(folder)
+  } finally {
+    // (Put back as it was, whatever came of the test, for whoever cleans the folder up.)
+    chmodSync(join(folder, 'd-locked.yaml'), 0o600)
+  }
 })
