@@ -13,6 +13,10 @@
  *             process (or, in a browser, the tests) to be written before the
  *             page reloads; its maps are written by the build too
  *             (`RENDERER_MAPS`), for counters a browser kept without them
+ * - worker:   a page's worker sends its counters after each message it posts;
+ *             the page takes them (its app code never sees them) and adds what's
+ *             new to its own, which go as the page's do; its maps are written
+ *             with the page's (`RENDERER_MAPS`)
  *
  * The collection hooks are appended after instrumentation, so they are never
  * counted as application code. Files are keyed by repo-relative POSIX paths so
@@ -24,7 +28,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { createInstrumenter } from 'istanbul-lib-instrument'
 import type { Plugin } from 'vite'
 
-type Target = 'main' | 'server' | 'preload' | 'renderer'
+type Target = 'main' | 'server' | 'preload' | 'renderer' | 'worker'
 
 const MAIN_FLUSH = `
 import { app as __lumoviApp, ipcMain as __lumoviIpc } from 'electron';
@@ -107,6 +111,73 @@ const RENDERER_SAVE = `
 });
 `
 
+// A worker posts its counters after each message of its own: all of them so far, for the page
+// to take what's new since the last. Its maps go once, with the first; after that, its counts.
+const WORKER_SEND = `
+;(() => {
+  const post = globalThis.postMessage.bind(globalThis)
+  let mapped = false
+  globalThis.postMessage = (...message) => {
+    post(...message)
+    const coverage = globalThis.__coverage__ || {}
+    const counters = mapped
+      ? Object.fromEntries(
+          Object.entries(coverage).map(([path, file]) => [
+            path,
+            { hash: file.hash, s: file.s, f: file.f, b: file.b },
+          ]),
+        )
+      : coverage
+    mapped = true
+    post({ __lumoviCoverage__: counters })
+  }
+})();
+`
+
+// Before the page's own code: its workers' counters are taken as they come, before any
+// listener of the page's hears of them, and what's new in each is added to the page's. A file
+// the page has too is counted against the page's maps only where both were made from the same
+// code (istanbul's hash); otherwise the worker's are kept under a name of their own, which no
+// build's maps have, so the tests' bookkeeping fails on it by name rather than count them wrong.
+const RENDERER_WORKERS = `
+;(() => {
+  const Base = globalThis.Worker
+  if (!Base) return
+  const add = (counters, before) => {
+    const into = (globalThis.__coverage__ = globalThis.__coverage__ || {})
+    for (const [path, file] of Object.entries(counters)) {
+      const was = before[path] || { s: {}, f: {}, b: {} }
+      const key =
+        into[path] && into[path].hash !== file.hash ? path + ' (a worker’s, from other code)' : path
+      if (!into[key] && !file.statementMap) continue
+      const counts = (into[key] = into[key] || { ...file, s: {}, f: {}, b: {} })
+      for (const [id, hits] of Object.entries(file.s)) {
+        counts.s[id] = (counts.s[id] || 0) + hits - (was.s[id] || 0)
+      }
+      for (const [id, hits] of Object.entries(file.f)) {
+        counts.f[id] = (counts.f[id] || 0) + hits - (was.f[id] || 0)
+      }
+      for (const [id, hits] of Object.entries(file.b)) {
+        counts.b[id] = hits.map((n, i) => ((counts.b[id] || [])[i] || 0) + n - ((was.b[id] || [])[i] || 0))
+      }
+    }
+  }
+  globalThis.Worker = class extends Base {
+    constructor(...args) {
+      super(...args)
+      let before = {}
+      this.addEventListener('message', (event) => {
+        const counters = event.data && event.data.__lumoviCoverage__
+        if (!counters) return
+        event.stopImmediatePropagation()
+        add(counters, before)
+        before = counters
+      })
+    }
+  }
+})();
+`
+
 const toPosix = (path: string) => path.split(sep).join('/')
 
 /**
@@ -116,6 +187,13 @@ const toPosix = (path: string) => path.split(sep).join('/')
  */
 export const RENDERER_MAPS = 'out/renderer-coverage-maps.json'
 
+/**
+ * The renderer's files' maps, and its workers': one object, filled by both builds' transforms
+ * (a worker's build runs inside the renderer's), and written once, by the renderer's, after its
+ * workers' are done. A file only a worker runs is then mapped too, not "counted with no maps".
+ */
+const maps: Record<string, unknown> = {}
+
 export function coverage(target: Target, enabled: boolean): Plugin[] {
   // (A build made as a release's leaves none behind from an earlier one.)
   if (!enabled) {
@@ -123,7 +201,6 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
       ? [{ name: 'lumovi:coverage-none', buildStart: () => rmSync(RENDERER_MAPS, { force: true }) }]
       : []
   }
-  const maps: Record<string, unknown> = {}
   // Vite reports module ids with forward slashes on every OS (C:/repo/src/... on Windows).
   const srcDir = `${toPosix(resolve('src'))}/`.toLowerCase()
   const instrumenter = createInstrumenter({
@@ -146,7 +223,8 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
         // Repo-relative POSIX paths let coverage from Linux, macOS and Windows runs merge.
         const key = toPosix(relative(process.cwd(), file))
         const instrumented = instrumenter.instrumentSync(code, key)
-        if (target === 'renderer') maps[key] = instrumenter.lastFileCoverage()
+        if (target === 'renderer' || target === 'worker')
+          maps[key] = instrumenter.lastFileCoverage()
         return { code: instrumented, map: instrumenter.lastSourceMap() as never }
       },
       writeBundle() {
@@ -162,7 +240,8 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
         if (target === 'main') return code + MAIN_FLUSH
         if (target === 'server') return SERVER_FLUSH + code
         if (target === 'preload') return code + PRELOAD_EXPOSE
-        return code + RENDERER_SAVE
+        if (target === 'worker') return code + WORKER_SEND
+        return RENDERER_WORKERS + code + RENDERER_SAVE
       },
     },
   ]

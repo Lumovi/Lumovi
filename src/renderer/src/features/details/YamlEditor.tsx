@@ -10,6 +10,7 @@ import { useChange } from '@renderer/hooks/change'
 import { api } from '@renderer/lib/api'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { toYaml } from '@renderer/lib/yaml'
+import { useSchemaSource } from '@renderer/hooks/schema-source'
 import { useCluster } from '@renderer/state/cluster'
 import { kindOf, target } from '../actions/common'
 
@@ -83,6 +84,7 @@ function fromEditing(edited: Record<string, unknown>, base: KubeObject): KubeObj
 export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () => void }) {
   const { context } = useCluster()
   const change = useChange()
+  const schema = useSchemaSource()
   const { name, namespace } = object.metadata
   // Edits apply to the version they started from, even as the panel refreshes.
   const [base, setBase] = useState(object)
@@ -233,6 +235,7 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
             }}
             onSave={() => void review()}
             label={`YAML of ${name}`}
+            schema={schema}
           />
         </div>
       )}

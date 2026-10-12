@@ -24,8 +24,17 @@
  * hyphen, the byte order mark, and a code point this browser has no glyph for.
  */
 /* eslint-disable no-control-regex */
-const MARKED =
-  /(\u{1f3f4}[\u{e0030}-\u{e0039}\u{e0061}-\u{e007a}]{2,6}\u{e007f})|\u001b\[[\u0020-\u003f]{0,16}[\u0040-\u007e]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u0084\u0086-\u009f\u202a-\u202e\u2066-\u2069\u180e\u206a-\u206f\ufff9-\ufffc\u{1d173}-\u{1d17a}\u{e0001}\u{e0020}-\u{e007f}\u115f\u1160\u3164\uffa0\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}\ufdd0-\ufdef\ufffe\uffff\u{1FFFE}\u{1FFFF}\u{2FFFE}\u{2FFFF}\u{3FFFE}\u{3FFFF}\u{4FFFE}\u{4FFFF}\u{5FFFE}\u{5FFFF}\u{6FFFE}\u{6FFFF}\u{7FFFE}\u{7FFFF}\u{8FFFE}\u{8FFFF}\u{9FFFE}\u{9FFFF}\u{AFFFE}\u{AFFFF}\u{BFFFE}\u{BFFFF}\u{CFFFE}\u{CFFFF}\u{DFFFE}\u{DFFFF}\u{EFFFE}\u{EFFFF}\u{FFFFE}\u{FFFFF}\u{10FFFE}\u{10FFFF}\p{Cs}]/gu
+/**
+ * One character that's drawn as a mark, alone: what any text of the cluster's or a plugin's
+ * marks. (Lumovi's YAML editor shows each of these as its placeholder, and more besides.)
+ */
+export const MARKED_CHARACTER =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u0084\u0086-\u009f\u202a-\u202e\u2066-\u2069\u180e\u206a-\u206f\ufff9-\ufffc\u{1d173}-\u{1d17a}\u{e0001}\u{e0020}-\u{e007f}\u115f\u1160\u3164\uffa0\ue000-\uf8ff\u{f0000}-\u{ffffd}\u{100000}-\u{10fffd}\ufdd0-\ufdef\ufffe\uffff\u{1FFFE}\u{1FFFF}\u{2FFFE}\u{2FFFF}\u{3FFFE}\u{3FFFF}\u{4FFFE}\u{4FFFF}\u{5FFFE}\u{5FFFF}\u{6FFFE}\u{6FFFF}\u{7FFFE}\u{7FFFF}\u{8FFFE}\u{8FFFF}\u{9FFFE}\u{9FFFF}\u{AFFFE}\u{AFFFF}\u{BFFFE}\u{BFFFF}\u{CFFFE}\u{CFFFF}\u{DFFFE}\u{DFFFF}\u{EFFFE}\u{EFFFF}\u{FFFFE}\u{FFFFF}\u{10FFFE}\u{10FFFF}\p{Cs}]/u
+/** A flag made with tags, whole and closed: text, though its tags alone would be marks. */
+const FLAG = /(\u{1f3f4}[\u{e0030}-\u{e0039}\u{e0061}-\u{e007a}]{2,6}\u{e007f})/u
+/** An escape sequence (the colours in an error): one mark. */
+const ESCAPE = /\u001b\[[\u0020-\u003f]{0,16}[\u0040-\u007e]/u
+const MARKED = new RegExp(`${FLAG.source}|${ESCAPE.source}|${MARKED_CHARACTER.source}`, 'gu')
 
 /* eslint-enable no-control-regex */
 

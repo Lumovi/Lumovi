@@ -1,7 +1,7 @@
 /**
  * Kind schemas from the cluster's OpenAPI v3 documents (Kubernetes 1.27 and
- * later), for explaining fields. Custom resources publish the schema of
- * their CRD there too.
+ * later), for explaining fields and checking them as they're typed. Custom
+ * resources publish the schema of their CRD there too.
  */
 import type { FieldSchema } from '@shared/api'
 import type { ResourceDefinition } from '@shared/resources'
@@ -11,13 +11,26 @@ interface OpenApiSchema {
   description?: string
   format?: string
   enum?: unknown[]
+  default?: unknown
   properties?: Record<string, OpenApiSchema>
   items?: OpenApiSchema
   additionalProperties?: OpenApiSchema | boolean
+  required?: string[]
+  nullable?: boolean
   $ref?: string
   allOf?: OpenApiSchema[]
+  anyOf?: OpenApiSchema[]
+  oneOf?: OpenApiSchema[]
   'x-kubernetes-group-version-kind'?: { group: string; version: string; kind: string }[]
+  'x-kubernetes-preserve-unknown-fields'?: boolean
+  'x-kubernetes-int-or-string'?: boolean
 }
+
+/** Kubernetes' own values that are a number or text, by their schemas' names. */
+const NUMBER_OR_TEXT = new Set([
+  'io.k8s.apimachinery.pkg.util.intstr.IntOrString',
+  'io.k8s.apimachinery.pkg.api.resource.Quantity',
+])
 
 interface OpenApiDocument {
   components: { schemas: Record<string, OpenApiSchema> }
@@ -61,7 +74,7 @@ export async function schemaOf(
   return root ? simplify(root, schemas, new Set()) : null
 }
 
-/** Keeps what explains fields, with references resolved. */
+/** Keeps what explains fields and checks them, with references resolved. */
 function simplify(
   schema: OpenApiSchema,
   schemas: Record<string, OpenApiSchema>,
@@ -77,13 +90,17 @@ function simplify(
     if (seen.has(name)) return { description: schema.description }
     const named = schemas[name]!
     target = { ...named, description: schema.description ?? named.description }
+    if (NUMBER_OR_TEXT.has(name)) target['x-kubernetes-int-or-string'] = true
     visited = new Set(seen).add(name)
   }
   const field: FieldSchema = {}
-  if (target.type) field.type = target.type
+  if (ref) field.named = ref.slice(ref.lastIndexOf('.') + 1)
+  // (A choice of shapes isn't checked: a value of any of them is let be.)
+  if (target.type && !target.anyOf && !target.oneOf) field.type = target.type
   if (target.description) field.description = target.description
   if (target.format) field.format = target.format
   if (target.enum) field.enum = target.enum
+  if (target.default !== undefined) field.default = target.default
   if (target.properties) {
     field.properties = Object.fromEntries(
       Object.entries(target.properties).map(([key, value]) => [
@@ -96,5 +113,19 @@ function simplify(
   if (typeof target.additionalProperties === 'object') {
     field.additionalProperties = simplify(target.additionalProperties, schemas, visited)
   }
+  if (target.required?.length) field.required = target.required
+  if (
+    target['x-kubernetes-preserve-unknown-fields'] ||
+    target.additionalProperties === true ||
+    target.anyOf ||
+    target.oneOf
+  ) {
+    field.open = true
+  }
+  if (target['x-kubernetes-int-or-string'] || target.format === 'int-or-string') {
+    field.numberOrText = true
+    delete field.type
+  }
+  if (target.nullable) field.nullable = true
   return field
 }

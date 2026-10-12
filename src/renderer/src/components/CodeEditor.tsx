@@ -15,11 +15,17 @@ import {
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
+  highlightSpecialChars,
   keymap,
   lineNumbers,
 } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { MARKED_CHARACTER } from '@shared/kit/characters'
+import type { SchemaSource } from '@renderer/hooks/schema-source'
+import type { DocumentKind } from '@renderer/lib/yaml-schema'
+import { TheirText } from '@renderer/plugins/TheirText'
+import { schemaEditor } from './schema-editor'
 
 /** The app's YAML colours (see YamlTab), so editing looks like reading. */
 const highlight = HighlightStyle.define([
@@ -58,6 +64,9 @@ const theme = EditorView.theme({
   },
   '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text-2)' },
   '.cm-cursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
+  // A character shown by its placeholder is something there, not something wrong: quiet, not red.
+  // (Inside .cm-content: one step more particular than the base theme's red, which it outweighs.)
+  '.cm-content .cm-specialChar': { color: 'var(--text-3)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
     backgroundColor: 'var(--accent-soft) !important',
   },
@@ -118,7 +127,8 @@ const marks = StateField.define({
 
 /**
  * A YAML editor: line numbers, undo, search (⌘F), and Tab to indent. ⌘S (or
- * Ctrl+S) calls `onSave`.
+ * Ctrl+S) calls `onSave`. Given the cluster's schemas (`schema`), it checks its documents by
+ * their kinds' as they're typed, completes fields, and describes them (`schema-editor.ts`).
  *
  * `value` is the editor's whole document: what's selected, copied and searched is that text
  * and no other. Whoever shows something in place of the real text (a Secret's values, hidden)
@@ -133,6 +143,7 @@ export function CodeEditor({
   reveal,
   readOnly = false,
   autoFocus = true,
+  schema,
 }: {
   value: string
   onChange: (value: string) => void
@@ -149,6 +160,8 @@ export function CodeEditor({
   readOnly?: boolean
   /** Whether it takes the focus as it opens (it does, where it's all there is to fill in). */
   autoFocus?: boolean
+  /** The cluster's schemas, for YAML of its kinds (`useSchemaSource`): the same for its life. */
+  schema?: SchemaSource
 }) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -160,6 +173,8 @@ export function CodeEditor({
   const editable = useRef(new Compartment())
   // What the document was last set to from outside: such a change isn't the user's typing.
   const setting = useRef(false)
+  // The kinds the documents name whose cluster publishes no schema for them: said above.
+  const [unchecked, setUnchecked] = useState<string[]>([])
 
   useEffect(() => {
     view.current = new EditorView({
@@ -167,7 +182,22 @@ export function CodeEditor({
       state: EditorState.create({
         doc: value,
         extensions: [
+          // (Before the line numbers: its marks' gutter is left of them.)
+          schema
+            ? schemaEditor(schema, (kinds: DocumentKind[]) => {
+                const names = kinds.flatMap((kind) => {
+                  const known = schema.get(kind.apiVersion, kind.kind)
+                  return known && known.schema === null ? [known.name] : []
+                })
+                setUnchecked((was) => (was.join('\n') === names.join('\n') ? was : names))
+              })
+            : [],
           lineNumbers(),
+          // What turns a line round or can't be seen is a placeholder, never itself: the YAML is
+          // often the cluster's, and an override in a value would reorder the line it's on.
+          // (CodeMirror's own set, and every character a text's mark is drawn for: so what an
+          // editor shows marked is never less than what any view of it does.)
+          highlightSpecialChars({ addSpecialChars: MARKED_CHARACTER }),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           drawSelection(),
@@ -280,5 +310,17 @@ export function CodeEditor({
     return () => cancelAnimationFrame(frame)
   }, [line, high])
 
-  return <div ref={host} className="h-full min-h-0 overflow-hidden" />
+  const editor = <div ref={host} className="h-full min-h-0 overflow-hidden" />
+  if (!schema) return editor
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {unchecked.map((name) => (
+        <p key={name} className="shrink-0 border-b border-line px-3 py-1.5 text-xs text-ink-3">
+          The cluster publishes no schema for <TheirText text={name} inline />, so only the YAML
+          itself is checked.
+        </p>
+      ))}
+      <div className="min-h-0 flex-1">{editor}</div>
+    </div>
+  )
 }

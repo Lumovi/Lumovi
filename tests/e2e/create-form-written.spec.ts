@@ -19,10 +19,6 @@ import { expect, openCluster, test } from './fixtures.ts'
 const form = (page: Page) => dialog(page).getByRole('group', { name: 'Form', exact: true })
 const field = (page: Page, name: string) => form(page).getByRole('textbox', { name, exact: true })
 const editor = (page: Page) => dialog(page).getByRole('textbox', { name: 'YAML to create' })
-const yaml = (page: Page) =>
-  editor(page).evaluate((content) =>
-    [...content.querySelectorAll('.cm-line')].map((line) => line.textContent).join('\n'),
-  )
 
 /** Replaces the editor's text with `text`, as pasting it over what's there does. */
 async function paste(page: Page, text: string) {
@@ -173,10 +169,14 @@ spec:
 const recorded: Record<string, string> = {}
 const RECORD = process.env.LUMOVI_RECORD === '1'
 
-/** The editor's text, which is what's expected of it there (or, recording, what is). */
+/**
+ * What the editor holds, which is what's expected of it there (or, recording, what is): its
+ * document, not its lines as drawn, where a character that can't be seen (the byte-order mark)
+ * is shown by a placeholder.
+ */
 async function expectText(page: Page, key: string) {
   // The form's last edit has reached the editor once its status says so.
-  const text = await yaml(page)
+  const text = await held(page)
   if (RECORD) recorded[key] = text
   else expect(text, key).toBe(EXPECTED[key])
 }

@@ -129,6 +129,90 @@ test('mistakes in the YAML are explained before anything is saved', async ({ pag
   await expect(detail.getByRole('alert')).toContainText('name doesn’t match')
 })
 
+test('what would turn a line round, or can’t be seen, is shown, never itself: in the YAML viewed and edited', async ({
+  page,
+  lumovi,
+  clusters,
+}) => {
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'ConfigMap',
+    metadata: {
+      name: 'marked-config',
+      namespace: 'shop',
+      creationTimestamp: new Date().toISOString(),
+    },
+    // An override, and an embedding CodeMirror's own set leaves out; and one of each kind of
+    // character any view marks: a filler, a tag, a musical format control, a noncharacter and
+    // private use.
+    data: {
+      note: 'invoice\u202Etxt.exe',
+      other: 'left\u202Bright',
+      filler: 'a\u3164b',
+      tag: 'a\u{E0041}b',
+      music: 'a\u{1D173}b',
+      nonchar: 'a\uFDD0b',
+      private: 'a\uE000b',
+      // A flag spelled with tags: whole text in a view; in the editor its tags are shown.
+      flag: '\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}',
+    },
+  })
+  await open(page, 'ConfigMaps', 'marked-config')
+  const detail = panel(page, 'ConfigMap', 'marked-config')
+  await detail.getByRole('tab', { name: 'YAML' }).click()
+  // Viewed: a mark in its place, and the line reads as it's written.
+  const viewed = detail.getByRole('tabpanel', { name: 'YAML' })
+  await expect(viewed.getByRole('img', { name: 'invisible character U+202E' })).toHaveCount(1)
+  await expect(viewed.getByRole('img', { name: 'invisible character U+202B' })).toHaveCount(1)
+  await expect(viewed).toContainText('note: invoiceU+202Etxt.exe')
+  for (const code of ['U+3164', 'U+E0041', 'U+1D173', 'U+FDD0', 'U+E000']) {
+    await expect(viewed.getByRole('img', { name: `invisible character ${code}` })).toHaveCount(1)
+  }
+  // (The flag's tags aren't marks there: no tag but U+E0041 is.)
+  await expect(viewed.getByRole('img', { name: /invisible character U\+E00(6|7)/ })).toHaveCount(0)
+  // Edited: CodeMirror's placeholder in its place, named.
+  await detail.getByRole('button', { name: 'Edit', exact: true }).click()
+  const line = (key: string) => detail.locator('.cm-line', { hasText: `${key}:` })
+  // Every one a view marks, the editor marks too.
+  for (const key of ['filler', 'tag', 'music', 'nonchar', 'private']) {
+    await expect(line(key).locator('.cm-specialChar'), key).toHaveCount(1)
+  }
+  // And more: what would be saved, every character of it, the flag's six tags too.
+  await expect(line('flag').locator('.cm-specialChar')).toHaveCount(6)
+  await expect(line('note').locator('.cm-specialChar')).toHaveAttribute(
+    'title',
+    'Control character right-to-left override',
+  )
+  await expect(line('note')).toHaveText('note: invoice•txt.exe')
+  // Quiet, not red: it says something is there, not that something's wrong. In either theme, the
+  // quiet ink as the page resolves it there (the base theme's red differs by theme too).
+  const placeholder = line('note').locator('.cm-specialChar')
+  const quiet = () =>
+    placeholder.evaluate((element) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--text-3)'
+      element.parentElement!.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    })
+  const inks: string[] = []
+  for (const theme of ['light', 'dark'] as const) {
+    await lumovi.app.evaluate(({ nativeTheme }, source) => {
+      nativeTheme.themeSource = source
+    }, theme)
+    await expect
+      .poll(() => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches))
+      .toBe(theme === 'dark')
+    inks.push(await quiet())
+    await expect(placeholder).toHaveCSS('color', inks.at(-1)!)
+  }
+  // (The two themes' inks differ: each was checked in its own.)
+  expect(inks[0]).not.toBe(inks[1])
+  await expect(line('other').locator('.cm-specialChar')).toHaveCount(1)
+  await expect(line('other')).toHaveText('other: left•right')
+})
+
 test('a change made meanwhile is caught, not overwritten', async ({ page, clusters }) => {
   await open(page, 'ConfigMaps', 'storefront-config')
   await menuAction(page, 'ConfigMap', 'storefront-config', 'Edit YAML')
