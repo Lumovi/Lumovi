@@ -5,7 +5,13 @@ import type { KubeObject } from '@shared/api'
 import { kindOf } from '@shared/resources'
 import { LinkTab, LinkTabs } from '@renderer/components/LinkTabs'
 import { KindIcon } from '@renderer/components/KindIcon'
-import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
+import {
+  EmptyState,
+  ErrorState,
+  Loading,
+  StaleNotice,
+  UnreadNotice,
+} from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { Button } from '@renderer/components/Button'
 import { useGo } from '@renderer/hooks/go'
@@ -16,6 +22,7 @@ import { useList, useListResponses } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
 import type { KubeApiError } from '@renderer/lib/api'
 import { HEALTH_NAMES, HEALTH_RANK, statusOf } from '@renderer/lib/health'
+import { namespacesParam, readOf, scopeOf, unreadOf } from '@renderer/lib/namespaces'
 import { pluginAsksPath, pluginPagePath, pluginPath, kindPath } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
@@ -308,7 +315,9 @@ function searchText(object: KubeObject): string {
 /** Every object of a plugin's kinds in one list, the ones in trouble first. */
 function PluginObjects({ served }: { served: ServedPlugin }) {
   const { plugin, kinds } = served
-  const { namespace } = useCluster()
+  const { namespace, namespaces } = useCluster()
+  // (Picked rows are the namespaces' that were picked when they were: another pick, other rows.)
+  const where = namespacesParam(namespaces) ?? null
   const [params] = useSearchParams()
   const [state, update] = useListState('status')
   const gridRef = useRef<HTMLDivElement>(null)
@@ -316,10 +325,10 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
   const open = useOpenObject()
   // Rows picked for bulk actions, for this namespace only.
   const [picked, setPicked] = useState<{ scope: string | null; keys: ReadonlySet<string> }>({
-    scope: namespace,
+    scope: where,
     keys: new Set(),
   })
-  if (picked.scope !== namespace) setPicked({ scope: namespace, keys: new Set() })
+  if (picked.scope !== where) setPicked({ scope: where, keys: new Set() })
 
   const lists = useListResponses(kinds, state.labels || undefined)
   const all = kinds.map((resource, i) => [resource, lists[i]!] as const)
@@ -349,7 +358,9 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
   const stale = all.find(([, q]) => q.isError && q.data)?.[1]
   const truncated = all.some(([, q]) => q.data?.truncated)
   const retry = () => all.forEach(([, q]) => void q.refetch())
-  const scope = namespace ? `in ${namespace}` : 'in this cluster'
+  // Picked namespaces any kind's list couldn't read: said, and not counted where nothing was found.
+  const unreadNamespaces = unreadOf(all.map(([, q]) => q.data))
+  const scope = scopeOf(readOf(namespaces, unreadNamespaces))
 
   let body
   if (all.some(([, q]) => q.isPending)) {
@@ -388,13 +399,13 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
           onPage={(delta) => goToPage(page + delta)}
           followSelection={params.has('open')}
           picked={picked.keys}
-          onPick={(keys) => setPicked({ scope: namespace, keys })}
+          onPick={(keys) => setPicked({ scope: where, keys })}
         />
         <SelectionBar
           noun="objects"
           // Only what's on screen: rows hidden by a filter since stay out of it.
           objects={rows.filter((o) => picked.keys.has(rowKey(o)))}
-          onClear={() => setPicked({ scope: namespace, keys: new Set() })}
+          onClear={() => setPicked({ scope: where, keys: new Set() })}
         />
         <Pagination
           page={page}
@@ -447,6 +458,7 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
       {stale && (
         <StaleNotice error={stale.error as KubeApiError} onRetry={() => void stale.refetch()} />
       )}
+      <UnreadNotice unread={unreadNamespaces} noun={`objects from ${plugin.label}`} />
       {truncated && (
         <p
           role="note"

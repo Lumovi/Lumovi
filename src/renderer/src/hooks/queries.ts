@@ -2,6 +2,7 @@ import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
 import type { KubeList, KubeObject } from '@shared/api'
 import type { ResourceDefinition, ResourceKind } from '@shared/resources'
 import { api, unwrap } from '@renderer/lib/api'
+import { AT_ONCE, settledAtMost, whyUnread, type PickedList } from '@renderer/lib/namespaces'
 import { useCluster } from '@renderer/state/cluster'
 
 /** How often lists and metrics refresh while the window is visible. */
@@ -22,7 +23,7 @@ export function useVersion(context: string, refetchInterval: number | false = fa
 }
 
 interface ListOptions {
-  /** `null` means all namespaces; `undefined` uses the namespace picked in the header. */
+  /** `null` means all namespaces; `undefined` uses the namespaces picked in the header. */
   namespace?: string | null
   labelSelector?: string
   fieldSelector?: string
@@ -35,20 +36,66 @@ export function listPollInterval(items: number): number {
   return items > 500 ? 10_000 : POLL_INTERVAL
 }
 
+/**
+ * Several namespaces' lists of one kind, as one: their objects one after another, and the API
+ * server's columns, which are the kind's whatever the namespace.
+ */
+export function joinLists(lists: KubeList[]): KubeList {
+  const tables = lists.map((list) => list.table)
+  const totals = lists.map((list) => list.total)
+  return {
+    items: lists.flatMap((list) => list.items),
+    truncated: lists.some((list) => list.truncated),
+    ...(totals.every((total) => total !== undefined)
+      ? { total: totals.reduce((sum, total) => sum! + total!, 0) }
+      : {}),
+    ...(tables.every((table) => table !== undefined) && tables.length > 0
+      ? {
+          table: {
+            columns: tables[0]!.columns,
+            cells: tables.flatMap((table) => table!.cells),
+          },
+        }
+      : {}),
+  }
+}
+
 /** A list's query, for useQuery or useQueries. */
 function listQuery<T>(
   context: string,
-  selected: string | null,
+  selected: readonly string[] | null,
   kind: ResourceKind,
   options: ListOptions,
-  select: (list: KubeList) => T,
+  select: (list: PickedList) => T,
 ) {
-  const namespace = (options.namespace === undefined ? selected : options.namespace) ?? undefined
+  const namespaces =
+    options.namespace === undefined
+      ? selected
+      : options.namespace === null
+        ? null
+        : [options.namespace]
   const { labelSelector, fieldSelector, enabled = true } = options
+  // (One namespace's key is its name, as it always was; several are named together, sorted.)
+  const key = namespaces?.length ? [...namespaces].sort().join(',') : undefined
+  const listIn = (namespace?: string) =>
+    unwrap(api.kube.list({ context, kind, namespace, labelSelector, fieldSelector }))
   return {
-    queryKey: ['list', context, kind, namespace, labelSelector, fieldSelector],
-    queryFn: () =>
-      unwrap(api.kube.list({ context, kind, namespace, labelSelector, fieldSelector })),
+    queryKey: ['list', context, kind, key, labelSelector, fieldSelector],
+    // Several namespaces are each read on their own, as anyone may whose access is to each of
+    // them: at most AT_ONCE at a time, the rest after. One that can't be read is left out and
+    // said (`unread`); only when none can is the list an error.
+    queryFn: async (): Promise<PickedList> => {
+      if (!namespaces || namespaces.length < 2) return listIn(namespaces?.[0])
+      const settled = await settledAtMost(namespaces, AT_ONCE, listIn)
+      const read = settled.flatMap((each) => (each.status === 'fulfilled' ? [each.value] : []))
+      if (read.length === 0) throw (settled[0] as PromiseRejectedResult).reason
+      const unread = settled.flatMap((each, i) =>
+        each.status === 'rejected'
+          ? [{ namespace: namespaces[i]!, why: whyUnread(each.reason) }]
+          : [],
+      )
+      return { ...joinLists(read), ...(unread.length ? { unread } : {}) }
+    },
     select,
     refetchInterval: (query: { state: { data?: KubeList } }) =>
       listPollInterval(query.state.data?.items.length ?? 0),
@@ -57,9 +104,13 @@ function listQuery<T>(
   }
 }
 
-function useListQuery<T>(kind: ResourceKind, options: ListOptions, select: (list: KubeList) => T) {
-  const { context, namespace } = useCluster()
-  return useQuery(listQuery(context, namespace, kind, options, select))
+function useListQuery<T>(
+  kind: ResourceKind,
+  options: ListOptions,
+  select: (list: PickedList) => T,
+) {
+  const { context, namespaces } = useCluster()
+  return useQuery(listQuery(context, namespaces, kind, options, select))
 }
 
 const selectItems = (list: KubeList) => list.items
@@ -73,7 +124,7 @@ export function useList(kind: ResourceKind, options: ListOptions = {}) {
   return useListQuery(kind, options, selectItems)
 }
 
-const selectAll = (list: KubeList) => list
+const selectAll = (list: PickedList) => list
 
 /** The whole list, with the API server's columns for kinds that get them. */
 export function useListResponse(kind: ResourceKind, options: ListOptions) {
@@ -82,15 +133,15 @@ export function useListResponse(kind: ResourceKind, options: ListOptions) {
 
 /**
  * The whole lists of several kinds, as `useListResponse` reads each: in the
- * namespace picked, or the whole cluster for kinds without namespaces.
+ * namespaces picked, or the whole cluster for kinds without namespaces.
  */
 export function useListResponses(resources: ResourceDefinition[], labelSelector?: string) {
-  const { context, namespace } = useCluster()
+  const { context, namespaces } = useCluster()
   return useQueries({
     queries: resources.map((resource) =>
       listQuery(
         context,
-        namespace,
+        namespaces,
         resource.kind,
         { namespace: resource.namespaced ? undefined : null, labelSelector },
         selectAll,
@@ -101,10 +152,10 @@ export function useListResponses(resources: ResourceDefinition[], labelSelector?
 
 /** Several lists at once, each as `useList` reads it. */
 export function useLists(lists: ({ kind: ResourceKind } & ListOptions)[]) {
-  const { context, namespace } = useCluster()
+  const { context, namespaces } = useCluster()
   return useQueries({
     queries: lists.map(({ kind, ...options }) =>
-      listQuery(context, namespace, kind, options, selectItems),
+      listQuery(context, namespaces, kind, options, selectItems),
     ),
   })
 }
@@ -123,12 +174,32 @@ export function useObject(kind: ResourceKind, name: string, namespace?: string) 
   })
 }
 
-export function useMetrics(target: 'nodes' | 'pods', namespace?: string | null, enabled = true) {
+/**
+ * Live usage of nodes, or of pods: in `namespace`, in each of several namespaces (one at a time,
+ * as a list of them is read), or everywhere (`null`, or nothing).
+ */
+export function useMetrics(
+  target: 'nodes' | 'pods',
+  namespace?: string | readonly string[] | null,
+  enabled = true,
+) {
   const { context } = useCluster()
-  const ns = namespace ?? undefined
+  const namespaces = typeof namespace === 'string' ? [namespace] : (namespace ?? [])
+  const key = namespaces.length ? [...namespaces].sort().join(',') : undefined
+  const usageIn = (ns?: string) => unwrap(api.kube.metrics({ context, target, namespace: ns }))
   return useQuery({
-    queryKey: ['metrics', context, target, ns],
-    queryFn: () => unwrap(api.kube.metrics({ context, target, namespace: ns })),
+    queryKey: ['metrics', context, target, key],
+    // (As lists are: each on its own, AT_ONCE at a time; one that can't be read adds nothing.)
+    queryFn: async () => {
+      if (namespaces.length < 2) return usageIn(namespaces[0])
+      const settled = await settledAtMost(namespaces, AT_ONCE, usageIn)
+      const read = settled.flatMap((each) => (each.status === 'fulfilled' ? [each.value] : []))
+      if (read.length === 0) throw (settled[0] as PromiseRejectedResult).reason
+      return {
+        available: read.every((snapshot) => snapshot.available),
+        items: read.flatMap((snapshot) => snapshot.items),
+      }
+    },
     refetchInterval: POLL_INTERVAL,
     placeholderData: keepPreviousData,
     enabled,

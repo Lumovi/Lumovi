@@ -18,8 +18,10 @@ import type { ReactNode } from 'react'
 import type { KubeErrorCode } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { unreadLine, type Unread } from '@renderer/lib/namespaces'
 import { Link } from 'react-router'
 import { Button, buttonClass } from './Button'
+import { Tooltip } from './Tooltip'
 
 /** Served pages reach the cluster through the Lumovi server, as whoever signed in. */
 const served = api.host === 'server'
@@ -192,6 +194,39 @@ export function StaleNotice({
       <button type="button" onClick={onRetry} className="shrink-0 font-medium hover:underline">
         Retry
       </button>
+    </div>
+  )
+}
+
+/**
+ * Which picked namespaces' `noun` couldn't be read, and why, in StaleNotice's look: under it, where
+ * both show. It goes once a later read reaches them.
+ */
+export function UnreadNotice({ unread, noun }: { unread?: readonly Unread[]; noun: string }) {
+  if (!unread?.length) return null
+  const { line, each } = unreadLine(unread, noun)
+  const said = <span className="min-w-0 flex-1 truncate phone:whitespace-normal">{line}</span>
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 animate-fade-in items-center gap-2 border-b border-warn/25 bg-warn/10 px-5 py-1.5 text-xs text-warn-text"
+    >
+      <TriangleAlert className="size-3.5 shrink-0" />
+      {each ? (
+        <Tooltip
+          content={
+            <div>
+              {each.map((one) => (
+                <div key={one}>{one}</div>
+              ))}
+            </div>
+          }
+        >
+          {said}
+        </Tooltip>
+      ) : (
+        said
+      )}
     </div>
   )
 }

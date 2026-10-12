@@ -11,13 +11,20 @@ import {
 } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
 import { kindIcon } from '@renderer/components/KindIcon'
-import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
+import {
+  EmptyState,
+  ErrorState,
+  Loading,
+  StaleNotice,
+  UnreadNotice,
+} from '@renderer/components/States'
 import { usePluginOf } from '@renderer/hooks/plugins'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
 import { usePlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
+import { namespacesParam, readOf, scopeOf } from '@renderer/lib/namespaces'
 import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
 import { fieldValue, viewFor } from '@renderer/lib/plugins'
 import { isWorkloadType } from '@renderer/lib/workloads'
@@ -86,7 +93,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const kind = resource.kind
   const builtin = isBuiltinKind(kind)
   const noun = builtin ? resource.label.toLowerCase() : resource.label
-  const { context, namespace } = useCluster()
+  const { context, namespace, namespaces } = useCluster()
   const touchKind = usePrefs((prefs) => prefs.touchKind)
   // Custom kinds opened lately stay at hand in the sidebar.
   useEffect(() => {
@@ -105,7 +112,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const phone = useLayout() === 'phone'
   // Rows picked for bulk actions, for this list only.
-  const scopeKey = `${kind}/${namespace}`
+  const scopeKey = `${kind}/${namespacesParam(namespaces) ?? null}`
   const [picked, setPicked] = useState<{ scope: string; keys: ReadonlySet<string> }>({
     scope: scopeKey,
     keys: new Set(),
@@ -139,7 +146,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const metricsTarget = METRICS_TARGET[kind]
   const metrics = useMetrics(
     metricsTarget ?? 'pods',
-    resource.namespaced ? namespace : null,
+    resource.namespaced ? namespaces : null,
     metricsTarget !== undefined,
   )
 
@@ -176,7 +183,10 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     })
   const onSort = (id: string) => update({ sort: id, desc: column.id === id ? !desc : false })
   const goToPage = (next: number) => update({ page: Math.max(1, Math.min(pages, next)) })
-  const scope = resource.namespaced && namespace ? `in ${namespace}` : 'in this cluster'
+  // (What couldn't be read is said above the list, and isn't counted where nothing was found.)
+  const unread = response.data?.unread
+  const scope = resource.namespaced ? scopeOf(readOf(namespaces, unread)) : 'in this cluster'
+  const notice = <UnreadNotice unread={unread} noun={noun} />
 
   let body
   if (list.isPending) {
@@ -185,19 +195,27 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     body = <ErrorState error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
   } else if (items.length === 0) {
     body = (
-      <EmptyState icon={kindIcon(kind)} title={`No ${noun} ${scope}`}>
-        {state.labels
-          ? `Nothing matches the label selector “${state.labels}”.`
-          : resource.namespaced && namespace
-            ? 'Try another namespace, or all namespaces.'
-            : 'Nothing to show yet.'}
-      </EmptyState>
+      <>
+        {notice}
+        <EmptyState icon={kindIcon(kind)} title={`No ${noun} ${scope}`}>
+          {state.labels
+            ? `Nothing matches the label selector “${state.labels}”.`
+            : resource.namespaced && namespaces
+              ? namespace
+                ? 'Try another namespace, or all namespaces.'
+                : 'Pick other namespaces, or all of them.'
+              : 'Nothing to show yet.'}
+        </EmptyState>
+      </>
     )
   } else if (rows.length === 0) {
     body = (
-      <EmptyState icon={SearchX} title="Nothing matches">
-        No {noun} match the current filters.
-      </EmptyState>
+      <>
+        {notice}
+        <EmptyState icon={SearchX} title="Nothing matches">
+          No {noun} match the current filters.
+        </EmptyState>
+      </>
     )
   } else {
     body = (
@@ -205,6 +223,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
         {list.isError && (
           <StaleNotice error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
         )}
+        {notice}
         <ResourceTable
           resetKey={`${page}/${state.size}`}
           ref={gridRef}

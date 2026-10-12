@@ -7,9 +7,12 @@ const MAX_RECENT = 5
 const MAX_RECENT_KINDS = 5
 
 interface Prefs {
-  /** The namespace picked per context; `null` is "All namespaces". */
-  namespaces: Record<string, string | null>
-  setNamespace: (context: string, namespace: string | null) => void
+  /**
+   * The namespaces picked per context; `null` is "All namespaces". (A name alone is how one was
+   * kept before several could be picked.)
+   */
+  namespaces: Record<string, readonly string[] | string | null>
+  setNamespaces: (context: string, namespaces: readonly string[] | null) => void
   /** The namespace a context was last left in, forgotten: it opens where it's set to. */
   forgetNamespace: (context: string) => void
   /** Contexts opened most recently, newest first. */
@@ -51,8 +54,10 @@ export const usePrefs = create<Prefs>()(
   persist(
     (set) => ({
       namespaces: {},
-      setNamespace: (context, namespace) =>
-        set((prefs) => ({ namespaces: { ...prefs.namespaces, [context]: namespace } })),
+      setNamespaces: (context, namespaces) =>
+        set((prefs) => ({
+          namespaces: { ...prefs.namespaces, [context]: namespaces?.length ? namespaces : null },
+        })),
       forgetNamespace: (context) =>
         set((prefs) => {
           const { [context]: _forgotten, ...namespaces } = prefs.namespaces
