@@ -75,8 +75,8 @@ export interface KnownPlugin {
    */
   digest: string
   /**
-   * What its code may read, from its file: its groups, and the kinds it claims, read whole. (Of
-   * Kubernetes' own kinds, the fields its file names: none until `spec.reads` is read.)
+   * What its code may read, from its file: its groups, the kinds it claims, read whole, and of
+   * Kubernetes' own kinds the fields its file names (`spec.reads`).
    */
   grant: Grant
 }
@@ -86,7 +86,25 @@ function grantOf(plugin: Plugin): Grant {
   return Object.freeze({
     groups: Object.freeze([...plugin.groups]),
     own: Object.freeze(ownKinds(plugin)),
-    reads: Object.freeze({}),
+    // (A copy: what's handed out can't change the plugin, nor the plugin what was handed out.)
+    reads: Object.freeze(
+      Object.fromEntries(
+        Object.entries(plugin.reads).map(([kind, said]) => [
+          kind,
+          Object.freeze({
+            ...said,
+            fields: Object.freeze(
+              said.fields.map(({ path, steps }) =>
+                Object.freeze({
+                  path,
+                  steps: Object.freeze(steps.map((step) => Object.freeze({ ...step }))),
+                }),
+              ),
+            ),
+          }),
+        ]),
+      ),
+    ),
   })
 }
 

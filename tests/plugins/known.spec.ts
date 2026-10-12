@@ -351,3 +351,43 @@ test('the folders’ files are marked without being read: a change of any of the
   expect(await filesMark({ path: join(folder, 'nowhere') })).toBe('[[]]')
   delete (globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD
 })
+
+test('what one of Lumovi’s own may read of Kubernetes’ kinds is its file’s `reads`, handed out as a copy no one can change', () => {
+  const toys = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  pages: [{ id: overview, title: Overview }]
+  reads:
+    - { group: '', kind: Node, fields: [metadata.name, metadata.labels], status: true }
+`
+  const included = readIncluded({ 'plugins/toys.yaml': toys }, texts(OWN))
+  expect(included.problems).toEqual([])
+  const [known] = knownPlugins(included, [], 'yours', LUMOVI, sha)
+  expect(known?.grant).toEqual({
+    groups: ['example.com'],
+    own: ['example.com/Widget'],
+    reads: {
+      '/Node': {
+        fields: [
+          { path: 'metadata.name', steps: [{ key: 'metadata' }, { key: 'name' }] },
+          { path: 'metadata.labels', steps: [{ key: 'metadata' }, { key: 'labels' }] },
+        ],
+        status: true,
+        events: false,
+        usage: false,
+      },
+    },
+  })
+  const node = known!.grant.reads['/Node']!
+  expect(() => (node.fields as unknown[]).push({ path: 'spec' })).toThrow()
+  expect(() => ((node.fields[0]!.steps as { key: string }[])[0]!.key = 'status')).toThrow()
+  expect(() => ((node as { usage: boolean }).usage = true)).toThrow()
+  // And the plugin it was read from is as it was.
+  expect(included.plugins[0]!.plugin.reads['/Node']!.fields).toHaveLength(2)
+})

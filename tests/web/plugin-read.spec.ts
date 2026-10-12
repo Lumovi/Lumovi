@@ -12,7 +12,10 @@ import type { PluginRead, PluginReadQuery } from '../../src/shared/plugin-reads.
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { audited, DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
 
-/** A stand-in for one of Lumovi's own: its code may read Widgets, its own kind. */
+/**
+ * A stand-in for one of Lumovi's own: its code may read Widgets, its own kind, and of Nodes
+ * their names and labels.
+ */
 const TOYS = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata: { name: toys }
@@ -23,6 +26,8 @@ spec:
   label: Toys
   kinds: [{ group: example.com, kind: Widget }]
   pages: [{ id: overview, title: Overview }]
+  reads:
+    - { group: '', kind: Node, fields: [metadata.name, metadata.labels] }
 `
 
 const read = (page: Page, query: Omit<PluginReadQuery, 'context'>) =>
@@ -69,10 +74,21 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
   })
   // Who manages which field never comes with it.
   expect(JSON.stringify(one)).not.toContain('managedFields')
+  // Of Kubernetes' own Nodes, what its file names and nothing else, picked on the server.
+  const nodes = await read(page, { plugin: 'toys', kind: '/Node' })
+  expect(nodes.ok && nodes.answer.objects.length).toBeGreaterThan(0)
+  for (const { name, object } of nodes.ok ? nodes.answer.objects : []) {
+    expect(Object.keys(object), name).toEqual(['metadata'])
+    // (A Node without labels has its name alone.)
+    expect(['labels', 'name'], name).toEqual(
+      expect.arrayContaining(Object.keys(object.metadata as object)),
+    )
+    expect((object.metadata as { name: string }).name).toBe(name)
+  }
 
   // What isn't granted; what isn't there; what isn't a plugin whose code runs.
   for (const [query, refused] of [
-    [{ plugin: 'toys', kind: '/Node' }, 'not-granted'],
+    [{ plugin: 'toys', kind: '/Pod' }, 'not-granted'],
     [{ plugin: 'toys', kind: '/Secret', namespace: 'default' }, 'not-granted'],
     [{ plugin: 'toys', kind: 'core/Secret' }, 'no-such-kind'],
     [{ plugin: 'toys', kind: 'example.com/Widget', name: CUSTOM.widget }, 'needs-namespace'],
@@ -102,7 +118,8 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
     .toEqual([
       ['Read Widgets for the plugin toys', 'success', digest],
       [`Read Widget ${CUSTOM.widget} for the plugin toys`, 'success', digest],
-      ['Read Nodes for the plugin toys', 'refused', digest],
+      ['Read Nodes for the plugin toys', 'success', digest],
+      ['Read Pods for the plugin toys', 'refused', digest],
       ['Read Secrets for the plugin toys', 'refused', digest],
       ['Read Secret.core for the plugin toys', 'failure', digest],
       [`Read Widget ${CUSTOM.widget} for the plugin toys`, 'failure', digest],
