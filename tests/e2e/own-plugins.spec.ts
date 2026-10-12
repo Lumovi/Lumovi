@@ -257,7 +257,8 @@ const NOT_THE_FORMAT: Record<string, string> = {
   'grabby.yaml': plugin(
     'grabby',
     'Gadget',
-    "  groups: [example.com, apps, '', lumovi.dev, plugins.lumovi.dev]\n",
+    // (And add-ons' groups that sit under k8s.io, which are a plugin's to have as any other.)
+    "  groups: [example.com, apps, '', lumovi.dev, plugins.lumovi.dev, kubernetes.io, node.kubernetes.io, k8s.io, gateway.networking.k8s.io, autoscaling.k8s.io, snapshot.storage.k8s.io, cluster.x-k8s.io]\n",
   ),
   'twice.yaml': plugin(
     'twice',
@@ -672,6 +673,11 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'grabby.yaml: spec.groups[2]: the core group is Kubernetes’ own, so a plugin can’t have it',
     'grabby.yaml: spec.groups[3]: lumovi.dev is Lumovi’s own, so a plugin can’t have it',
     'grabby.yaml: spec.groups[4]: lumovi.dev is Lumovi’s own, so a plugin can’t have it',
+    // Kubernetes' own names, where its labels and annotations live; an add-on's group under
+    // k8s.io (the four after them in the file) is refused for nothing.
+    'grabby.yaml: spec.groups[5]: kubernetes.io is Kubernetes’ own, so a plugin can’t have it',
+    'grabby.yaml: spec.groups[6]: node.kubernetes.io is Kubernetes’ own, so a plugin can’t have it',
+    'grabby.yaml: spec.groups[7]: k8s.io is Kubernetes’ own, so a plugin can’t have it',
     'twice.yaml: spec.views[1].kinds[1]: Gadget.example.com is already shown by spec.views[0]',
     // What isn't a plugin's to change.
     'guarded.yaml: spec.views[0].actions[0]: changes metadata.finalizers, which a plugin can’t change',

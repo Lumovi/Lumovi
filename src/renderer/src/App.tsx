@@ -106,6 +106,7 @@ const routes: RouteObject[] = [
               { path: 'r/:kind', element: <CustomResourcePage /> },
               { path: 'plugins', element: <PluginsPage /> },
               { path: 'plugins/:name', element: <PluginPage /> },
+              { path: 'plugins/:name/:page', element: <PluginPage /> },
               { path: 'api-resources', element: <ApiResourcesPage /> },
               // The kit's parts, each with its hard cases: for the tests' build alone, until
               // something in Lumovi draws a plugin's page from them. A release has none of it.

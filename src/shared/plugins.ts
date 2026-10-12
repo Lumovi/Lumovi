@@ -12,6 +12,7 @@ import {
   isBuiltinKind,
   isCustomGroup,
   kindFor,
+  RESOURCES,
   type ResourceCategory,
   type ResourceKind,
 } from './resources'
@@ -211,10 +212,27 @@ export interface Plugin {
   source: string
   place?: PluginPlace
   views: View[]
+  /** What it adds to Lumovi's pages: only a plugin whose file may carry code has any. */
+  added: Added
 }
 
+/**
+ * What a plugin adds to Lumovi's pages: pages of its own (tabs of its entry in the sidebar, first
+ * of them), a tab on an object of its own kinds, and commands in the palette that each open one
+ * of its pages. Each is known by the plugin's name and its own id; nothing in an id is a path,
+ * and no destination carries anything beyond a page's id.
+ */
+export interface Added {
+  pages: { id: string; title: string }[]
+  tabs: { id: string; title: string; kinds: ResourceKind[] }[]
+  commands: { name: string; page: string }[]
+}
+
+/** How many of each a plugin may add, and how long a title or a command's name may be. */
+export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
+
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
-export type ListedPlugin = Pick<Plugin, 'name' | 'source'> & PluginPlace
+export type ListedPlugin = Pick<Plugin, 'name' | 'source' | 'version' | 'added'> & PluginPlace
 
 // ——— Checking ———
 
@@ -543,6 +561,331 @@ const PLACE_SHAPE: Shape = {
   },
 }
 
+/** A place in the sidebar for a plugin with pages of its own: a label, an icon, kinds or none. */
+const PAGES_PLACE_SHAPE: Shape = {
+  fields: {
+    label: 'string',
+    icon: { oneOf: VIEW_ICON_NAMES },
+    category: { oneOf: PLUGIN_CATEGORIES },
+    kinds: kindsShape,
+  },
+  refine: (spec) => {
+    if (spec.label === undefined) return 'pages need a place in the sidebar: give it a label'
+    // A plugin's pages stand with the plugins: Lumovi's own sections are Lumovi's.
+    if (spec.category !== undefined) {
+      return 'a plugin with pages of its own stands under Plugins in the sidebar: leave out its category'
+    }
+    return ((spec.kinds ?? []) as { group?: string; kind: string }[])
+      .map(kindId)
+      .filter(isBuiltinKind)
+      .map((kind) => `${kind} has a page of its own, so it can’t be in a plugin`)[0]
+  },
+}
+
+const PAGE_SHAPE: Shape = {
+  fields: { id: { shape: 'string', required: true }, title: { shape: 'string', required: true } },
+}
+const TAB_SHAPE: Shape = {
+  fields: {
+    id: { shape: 'string', required: true },
+    title: { shape: 'string', required: true },
+    kinds: { shape: kindsShape, required: true },
+  },
+}
+const COMMAND_SHAPE: Shape = {
+  fields: { name: { shape: 'string', required: true }, page: { shape: 'string', required: true } },
+}
+
+/**
+ * The tabs Lumovi gives an object, by their names: a plugin's tab can't be called one of them.
+ * Keep it the detail's own list (features/details/DetailPanel.tsx); a test holds the two to it.
+ */
+export const LUMOVIS_TABS = [
+  'Overview',
+  'Pods',
+  'Logs',
+  'Shell',
+  'Metrics',
+  'Map',
+  'Events',
+  'Audit',
+  'YAML',
+]
+/**
+ * What the palette itself has, by name, besides each kind's list: a plugin's command can't be
+ * called one of them. Keep it the palette's own (features/shell/CommandPalette.tsx); a test holds
+ * the two to it.
+ */
+export const LUMOVIS_COMMANDS = [
+  'Overview',
+  'Workloads',
+  'Metrics',
+  'Right-sizing',
+  'Helm releases',
+  'API resources',
+  'All plugins',
+  'All namespaces',
+  'All clusters',
+  'Create…',
+  'New terminal',
+  'Metrics source…',
+  'AI assistants…',
+  'Audit log',
+  'Access',
+  'Your access',
+  'Keyboard shortcuts',
+]
+/**
+ * What a command's name may not start with: a command only opens a page, and a name that says it
+ * changes something would tell a lie in the palette, where a person types to act.
+ */
+const CHANGING = [
+  'delete',
+  'remove',
+  'restart',
+  'scale',
+  'apply',
+  'sync',
+  'roll back',
+  'rollback',
+  'promote',
+  'abort',
+  'suspend',
+  'resume',
+  'create',
+  'edit',
+  'drain',
+  'cordon',
+  'uncordon',
+  'evict',
+  'stop',
+  'run',
+  'install',
+  'upgrade',
+  'uninstall',
+  'patch',
+  'reconcile',
+  'trigger',
+]
+
+/** Greek and Cyrillic letters that are drawn as Latin ones, by the Latin letter each reads as. */
+const LOOKALIKES: Record<string, string> = Object.fromEntries(
+  [
+    ['АВЕКМНОРСТХІЈЅҮԚԜ', 'ABEKMHOPCTXIJSYQW'],
+    ['аеорсухіјѕԁӏүԛԝһ', 'aeopcyxijsdlyqwh'],
+    ['ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ', 'ABEZHIKMNOPTYX'],
+    ['αοινκρυ', 'aoivkpu'],
+  ].flatMap(([from, to]) => [...from!].map((letter, i) => [letter, to![i]!])),
+)
+
+/**
+ * Latin, and the alphabets with letters drawn as Latin ones: a word with letters of two of them
+ * can look like a word it isn't. (Others, Han and kana among them, have none to mistake: "API网关"
+ * is a name.)
+ */
+const DRAWN_ALIKE = [
+  'Latin',
+  'Greek',
+  'Cyrillic',
+  'Armenian',
+  'Cherokee',
+  'Coptic',
+  'Lisu',
+  'Canadian_Aboriginal',
+  'Georgian',
+  'Tifinagh',
+].map((script) => new RegExp(`\\p{Script=${script}}`, 'u'))
+
+/**
+ * A name as it's compared with another: its compatibility forms folded (full-width letters,
+ * ligatures), Greek and Cyrillic letters drawn as Latin ones read as those, without its case,
+ * its spaces or the punctuation at its ends.
+ */
+const squeezed = (name: string) =>
+  [...name.normalize('NFKC')]
+    .map((letter) => LOOKALIKES[letter] ?? letter)
+    .join('')
+    .toLowerCase()
+    .replace(/\s+/gu, '')
+    .replace(/^\p{P}+|\p{P}+$/gu, '')
+
+/**
+ * A verb's forms a name may start with: "restart", "restarts", "restarting". (Not "restarted":
+ * what's done describes what a page shows, "Stopped pods".)
+ */
+function verbForms(verb: string): string[] {
+  const stem = verb.replace(/e$/, '')
+  const doubled = `${verb}${verb.at(-1)}`
+  // ("apply": "applies".)
+  const ies = /[^aeiou]y$/.test(verb) ? [`${verb.slice(0, -1)}ies`] : []
+  return [verb, `${verb}s`, `${verb}es`, ...ies, `${stem}ing`, `${doubled}ing`]
+}
+
+/** Whether a name starts with a verb that changes something, in any of its forms, as it reads. */
+function changing(name: string): boolean {
+  const words = name
+    .normalize('NFKC')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+  return CHANGING.some((verb) => {
+    const [first, ...rest] = verb.split(' ')
+    return (
+      verbForms(first!).includes(words[0] ?? '') && rest.every((word, i) => words[i + 1] === word)
+    )
+  })
+}
+
+/**
+ * What's wrong with what a file adds to Lumovi's pages: that it may not add any, or how what it
+ * adds is written. Each line starts at its place in `spec`.
+ */
+function addedProblems(
+  added: { pages: unknown; tabs: unknown; commands: unknown },
+  place: Record<string, unknown>,
+  carriesCode: boolean,
+): string[] {
+  const given = (['pages', 'tabs', 'commands'] as const).filter((key) => added[key] !== undefined)
+  if (given.length === 0) return []
+  // (Only a plugin that came inside Lumovi may: its pages are drawn from its own code.)
+  if (!carriesCode) {
+    return given.map(
+      (key) =>
+        `spec.${key}: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet`,
+    )
+  }
+  const problems: string[] = []
+  const lists = { pages: PAGE_SHAPE, tabs: TAB_SHAPE, commands: COMMAND_SHAPE } as const
+  for (const key of given) {
+    const value = added[key]
+    const most = ADDED_LIMITS[key]
+    problems.push(
+      ...check(
+        value,
+        { list: lists[key], nonEmpty: true },
+        `spec.${key}`,
+        `a plugin’s ${key.slice(0, -1)}`,
+      ),
+    )
+    if (Array.isArray(value) && value.length > most) {
+      problems.push(`spec.${key}: holds ${value.length}, and a plugin may add ${most} at most`)
+    }
+  }
+  if (added.commands !== undefined && added.pages === undefined) {
+    problems.push('spec.commands: a command opens one of the plugin’s pages, and it has none')
+  }
+  if (problems.length) return problems
+
+  const pages = (added.pages ?? []) as { id: string; title: string }[]
+  const tabs = (added.tabs ?? []) as { id: string; title: string; kinds: NamedKind[] }[]
+  const commands = (added.commands ?? []) as { name: string; page: string }[]
+  /**
+   * What's wrong with a title or a command's name, as any of the three may have it: nothing (an
+   * empty list) where what's wrong is said already, of every text in the file.
+   */
+  const nameProblem = (name: string, where: string, theirs: string[]): string[] | undefined => {
+    if (characterProblems(name, where, false).length) return []
+    if (name.trim() === '' || name !== name.trim())
+      return [`${where}: should be a name, with nothing round it`]
+    if (name.length > ADDED_LIMITS.name) {
+      return [`${where}: is longer than ${ADDED_LIMITS.name} characters`]
+    }
+    // (A line break isn't a name's, though a sentence may have one.)
+    const broken = characterProblems(name, where, true)
+    if (broken.length) return broken
+    // A word with letters of two alphabets drawn alike reads as another ("YАML").
+    const mixed = name
+      .normalize('NFKC')
+      .split(/[^\p{L}\p{M}]+/u)
+      .some((word) => DRAWN_ALIKE.filter((alphabet) => alphabet.test(word)).length > 1)
+    if (mixed) {
+      return [
+        `${where}: ${quoted(name)} mixes letters of two alphabets in one word, so it can look like a word it isn’t`,
+      ]
+    }
+    if (/[/:]/.test(name.normalize('NFKC')))
+      return [`${where}: ${quoted(name)} holds a / or a :, which read as an address`]
+    if (squeezed(name).startsWith('lumovi')) {
+      return [`${where}: ${quoted(name)} starts with Lumovi’s own name`]
+    }
+    if (theirs.some((own) => squeezed(own) === squeezed(name))) {
+      return [
+        `${where}: ${quoted(name)} is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s`,
+      ]
+    }
+    return undefined
+  }
+  const ids = new Map<string, string>()
+  const id = (value: string, where: string) => {
+    if (!PLUGIN_NAME.test(value)) {
+      problems.push(
+        `${where}: ${quoted(value, true)} should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit`,
+      )
+    } else if (ids.has(value)) {
+      problems.push(`${where}: ${value} is already the id of ${ids.get(value)}`)
+    } else ids.set(value, where.slice(0, where.lastIndexOf('.')))
+  }
+  const once = (names: Map<string, string>, name: string, where: string) => {
+    const first = names.get(squeezed(name))
+    if (first !== undefined)
+      problems.push(`${where}: ${quoted(name)} is already the name of ${first}`)
+    else names.set(squeezed(name), where.slice(0, where.lastIndexOf('.')))
+  }
+  // The entry's own tabs: All, and its kinds (their names, one and many).
+  const entrysOwn = [
+    'All',
+    ...((place.kinds ?? []) as NamedKind[]).flatMap(({ kind }) => [kind, `${kind}s`]),
+  ]
+  const titles = new Map<string, string>()
+  pages.forEach((page, p) => {
+    id(page.id, `spec.pages[${p}].id`)
+    const wrong = nameProblem(page.title, `spec.pages[${p}].title`, entrysOwn)
+    if (wrong) problems.push(...wrong)
+    else once(titles, page.title, `spec.pages[${p}].title`)
+  })
+  const tabTitles = new Map<string, string>()
+  const tabbed = new Map<ResourceKind, string>()
+  tabs.forEach((tab, t) => {
+    id(tab.id, `spec.tabs[${t}].id`)
+    const wrong = nameProblem(tab.title, `spec.tabs[${t}].title`, LUMOVIS_TABS)
+    if (wrong) problems.push(...wrong)
+    else once(tabTitles, tab.title, `spec.tabs[${t}].title`)
+    tab.kinds.forEach((kind, k) => {
+      const kindName = kindId(kind)
+      const first = tabbed.get(kindName)
+      if (first !== undefined) {
+        problems.push(
+          `spec.tabs[${t}].kinds[${k}]: ${kindName} already has a tab of this plugin’s, ${first}`,
+        )
+      } else tabbed.set(kindName, `spec.tabs[${t}]`)
+    })
+  })
+  const names = new Map<string, string>()
+  const pageIds = new Set(pages.map((page) => page.id))
+  commands.forEach((command, c) => {
+    const where = `spec.commands[${c}]`
+    const wrong = nameProblem(command.name, `${where}.name`, [
+      ...LUMOVIS_COMMANDS,
+      // (And each kind's list, which the palette goes to by its name.)
+      ...RESOURCES.map(({ label }) => label),
+    ])
+    if (wrong) problems.push(...wrong)
+    else {
+      if (changing(command.name)) {
+        problems.push(
+          `${where}.name: ${quoted(command.name)}: a command only opens a page: name it after the page`,
+        )
+      } else once(names, command.name, `${where}.name`)
+    }
+    if (!pageIds.has(command.page)) {
+      problems.push(
+        `${where}.page: ${quoted(command.page, true)} isn’t the id of one of the plugin’s pages`,
+      )
+    }
+  })
+  return problems
+}
+
 /**
  * What a plugin's name may be: what it's known by wherever it's granted something, so it's
  * fixed while nobody has one of their own.
@@ -788,6 +1131,12 @@ export interface ParseOptions {
    * nothing a file says, and no folder a person or a server has, makes it so.
    */
   ownViews?: boolean
+  /**
+   * The file may carry code (`mayCarryCode`: it came inside Lumovi). Said by whoever reads it,
+   * from where it came; nothing a file says makes it so, and unsaid it's false: what such a file
+   * adds to Lumovi's pages is refused.
+   */
+  carriesCode?: boolean
 }
 
 /** A kind as a file names it. */
@@ -795,6 +1144,15 @@ interface NamedKind {
   group?: string
   kind: string
 }
+
+/**
+ * A name that's Kubernetes' own and no add-on's: `kubernetes.io` and every name under it (where
+ * its own labels and annotations live), and `k8s.io` itself. A name under `k8s.io` may be an
+ * add-on's group (the Gateway API's is), and those stay a plugin's to have; the ones that are
+ * Kubernetes' built-in API groups are refused as such.
+ */
+const kubernetesOwnName = (group: string) =>
+  group === 'k8s.io' || group === 'kubernetes.io' || group.endsWith('.kubernetes.io')
 
 /**
  * What a plugin names outside its fence, each where it is. Its declared groups are the fence:
@@ -817,7 +1175,7 @@ function fenceProblems(
   const problems = groups.flatMap((group, g) =>
     group === 'lumovi.dev' || group.endsWith('.lumovi.dev')
       ? [`spec.groups[${g}]: lumovi.dev is Lumovi’s own, so a plugin can’t have it`]
-      : isCustomGroup(group)
+      : isCustomGroup(group) && !kubernetesOwnName(group)
         ? []
         : [
             `spec.groups[${g}]: ${group || 'the core group'} is Kubernetes’ own, so a plugin can’t have it`,
@@ -923,7 +1281,7 @@ export function parsePlugin(
 function readPlugin(
   text: string,
   source: string,
-  { lumovi, lumovisOwn = [], ownViews = false }: ParseOptions,
+  { lumovi, lumovisOwn = [], ownViews = false, carriesCode = false }: ParseOptions,
 ): { plugin?: Plugin; name?: string; problems: string[] } {
   const refused = (problem: string) => ({ problems: [`${source}: ${problem}`] })
   const documents = parseAllDocuments(text)
@@ -962,9 +1320,18 @@ function readPlugin(
     needs,
     groups,
     shows,
+    pages,
+    tabs,
+    commands,
     ...place
   } = doc.spec as Record<string, unknown>
-  const problems = check(place, PLACE_SHAPE, `${source}: spec`, 'a plugin')
+  // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
+  const problems = check(
+    place,
+    pages === undefined ? PLACE_SHAPE : PAGES_PLACE_SHAPE,
+    `${source}: spec`,
+    'a plugin',
+  )
   // What a file says beside its spec is its start and its name, and nothing else: an unknown
   // key there is as unknown as one anywhere.
   const unknown = (object: object, known: string[], where: string) =>
@@ -1049,7 +1416,49 @@ function readPlugin(
   if (problems.length === 0 && lumovi && older(lumovi, needed!)) {
     problems.push(`${source}: needs Lumovi ${needed} or newer; this is ${lumovi}`)
   }
-  if (problems.length === 0 && items.length === 0 && place.kinds === undefined) {
+  problems.push(
+    ...addedProblems({ pages, tabs, commands }, place, carriesCode).map(
+      (problem) => `${source}: ${problem}`,
+    ),
+  )
+  if (problems.length === 0) {
+    // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
+    // reads the object through the door, by the door's reading rules for that kind and that
+    // person, never as Lumovi read it). Never one of Kubernetes' own, which a plugin may show but
+    // never claims, whatever views it has of it. A view of every kind of a group claims each.
+    const own = new Set<ResourceKind>(
+      [
+        ...((place.kinds ?? []) as NamedKind[]),
+        ...items.flatMap((item) => (item as { kinds: NamedKind[] }).kinds),
+      ]
+        .filter(({ group }) => isCustomGroup(group ?? '') && !kubernetesOwnName(group ?? ''))
+        .map(kindId)
+        .filter((kind) => !isBuiltinKind(kind)),
+    )
+    ;((tabs ?? []) as { kinds: NamedKind[] }[]).forEach((tab, t) => {
+      tab.kinds.forEach((kind, k) => {
+        const id = kindId(kind)
+        // (The core group, the groups Kubernetes serves and its own names are never a plugin's.)
+        const group = kind.group ?? ''
+        const kubernetes = isBuiltinKind(id) || !isCustomGroup(group) || kubernetesOwnName(group)
+        if (kind.kind === '*') {
+          // (An object's tabs are found by its kind, so a tab names each of its kinds.)
+          problems.push(
+            `${source}: spec.tabs[${t}].kinds[${k}]: a tab is on kinds named one by one; it can’t be on every kind of a group`,
+          )
+        } else if (kubernetes) {
+          problems.push(
+            `${source}: spec.tabs[${t}].kinds[${k}]: a tab is only on the plugin’s own kinds, and ${id} is Kubernetes’`,
+          )
+        } else if (!own.has(id) && !own.has(kindId({ group: kind.group, kind: '*' }))) {
+          problems.push(
+            `${source}: spec.tabs[${t}].kinds[${k}]: a tab is only on the plugin’s own kinds, and ${id} isn’t one it claims`,
+          )
+        }
+      })
+    })
+  }
+  if (problems.length === 0 && items.length === 0 && place.kinds === undefined && !pages) {
     problems.push(`${source}: spec: needs views, or kinds for a place in the sidebar`)
   }
   if (problems.length) return { name, problems }
@@ -1086,8 +1495,18 @@ function readPlugin(
       groups: (groups ?? []) as string[],
       shows: ((shows ?? []) as NamedKind[]).map(kindId),
       source,
-      ...(kinds ? { place: { ...rest, kinds: kinds.map(kindId) } } : {}),
+      ...(kinds || pages ? { place: { ...rest, kinds: (kinds ?? []).map(kindId) } } : {}),
       views,
+      added: {
+        pages: ((pages ?? []) as Added['pages']).map(({ id, title }) => ({ id, title })),
+        tabs: ((tabs ?? []) as { id: string; title: string; kinds: NamedKind[] }[]).map(
+          ({ id, title, kinds: on }) => ({ id, title, kinds: on.map(kindId) }),
+        ),
+        commands: ((commands ?? []) as Added['commands']).map(({ name, page }) => ({
+          name,
+          page,
+        })),
+      },
     },
     problems: [],
   }

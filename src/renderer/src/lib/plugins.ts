@@ -19,6 +19,7 @@ import {
   clashes,
   parsePlugin,
   type Condition,
+  type Added,
   type InputValues,
   type ListedPlugin,
   type Plugin,
@@ -69,7 +70,8 @@ export function loadShippedPlugins(
   // A kind is one plugin's, among Lumovi's as among anyone's.
   const read: Plugin[] = []
   for (const [path, text] of Object.entries(files)) {
-    const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds })
+    // (Lumovi's own: the ones whose files may carry code.)
+    const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds, carriesCode: true })
     if (parsed.plugin) read.push(parsed.plugin)
     problems.push(...parsed.problems)
   }
@@ -135,13 +137,33 @@ export function includedPlugins(): Plugin[] {
   return [...shippedPlugins.values()]
 }
 
+/** Set by the build: true only in the build the tests run. */
+declare const LUMOVI_TEST_BUILD: boolean
+
+/** What a plugin adds to nothing: what a plugin adds in a release build until the door draws it. */
+const NOTHING: Added = { pages: [], tabs: [], commands: [] }
+
 /**
  * Every plugin with a place in the sidebar: the user's, and Lumovi's that none of theirs is in
  * the place of (one of theirs with its name is, whether or not theirs has a place itself).
  */
 export function listedPlugins(): ListedPlugin[] {
   const listed = (plugins: Iterable<Plugin>) =>
-    [...plugins].flatMap(({ name, source, place }) => (place ? [{ name, source, ...place }] : []))
+    [...plugins].flatMap(({ name, source, version, place, added }) =>
+      place
+        ? [
+            {
+              name,
+              source,
+              version,
+              ...place,
+              // (Its pages, tabs and commands are drawn by the door, which isn't in a release yet:
+              // until it is, only the tests' build takes them.)
+              added: LUMOVI_TEST_BUILD ? added : NOTHING,
+            },
+          ]
+        : [],
+    )
   return [
     ...listed(localPlugins.values()),
     ...listed([...shippedPlugins.values()].filter((plugin) => !localPlugins.has(plugin.name))),

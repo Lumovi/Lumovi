@@ -1,0 +1,1 @@
+- On a phone, the tabs at the top of Workloads, Metrics and a plugin’s page are big enough to tap.

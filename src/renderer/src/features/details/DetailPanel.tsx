@@ -1,4 +1,4 @@
-import { ArrowLeft, Maximize2, Minimize2, X } from 'lucide-react'
+import { ArrowLeft, Maximize2, Minimize2, Plug, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
@@ -8,13 +8,14 @@ import { CopyButton } from '@renderer/components/CopyButton'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { barButton } from '@renderer/components/Sheet'
 import { KindIcon } from '@renderer/components/KindIcon'
-import { ErrorState, Loading, StaleNotice } from '@renderer/components/States'
+import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
+import { Tooltip } from '@renderer/components/Tooltip'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useObject } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
 import { useClusterName } from '@renderer/hooks/settings'
-import { usePlugins } from '@renderer/hooks/plugins'
+import { usePlugins, useServedPlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
@@ -27,6 +28,8 @@ import { ActionBar } from '../actions/ActionSurfaces'
 import { ObjectAudit } from '../audit/ObjectAudit'
 import { actionsFor } from '../actions/catalog'
 import { ON_A_PHONE } from '@renderer/web/phone-gate'
+import { GoToPlugins } from '../plugins/PluginPage'
+import { PluginBody } from '../plugins/PluginBody'
 import { EventsTab } from './EventsTab'
 import { LogsView, PodLogs } from '../logs/LogsView'
 import { MapTab } from './MapTab'
@@ -274,6 +277,20 @@ function DetailTabs({
   // Custom kinds' pods have usage history too, found by name.
   const metrics = hasMetrics(kind) || (pods && !isBuiltinKind(kind))
   const phone = useLayout() === 'phone'
+  // A tab of a plugin's on an object of its own kinds: one a plugin a kind, after Lumovi's own.
+  const pluginTabs = useServedPlugins().flatMap(({ plugin }) =>
+    plugin.added.tabs
+      .filter((each) => each.kinds.includes(kind))
+      .map((each) => ({ plugin, tab: each, value: `plugin:${plugin.name}/${each.id}` })),
+  )
+  // The one that was open, kept while it is: if its plugin stops being in use, the tab stays
+  // where it was and says so, until another is chosen.
+  const [pluginTabOpen, setPluginTabOpen] = useState<(typeof pluginTabs)[number]>()
+  const openPluginTab = pluginTabs.find((each) => each.value === tab)
+  // (By value: the list is made anew each time it's drawn.)
+  if (openPluginTab && openPluginTab.value !== pluginTabOpen?.value) setPluginTabOpen(openPluginTab)
+  if (!openPluginTab && pluginTabOpen && pluginTabOpen.value !== tab) setPluginTabOpen(undefined)
+  const gone = pluginTabOpen && !openPluginTab ? pluginTabOpen : undefined
   const tabs = [
     { value: 'overview', label: 'Overview' },
     ...(pods ? [{ value: 'pods', label: ownPods?.name ?? 'Pods' }] : []),
@@ -290,6 +307,18 @@ function DetailTabs({
     ...(MAPLESS.has(kind) ? [] : [{ value: 'map', label: 'Map' }]),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'audit', label: 'Audit' },
+    // (Before YAML, so YAML stays last wherever a person looks for it.)
+    ...[...pluginTabs, ...(gone ? [gone] : [])].map(({ plugin, tab: each, value }) => ({
+      value,
+      label: (
+        <Tooltip content={`From the plugin ${plugin.label} ${plugin.version}`}>
+          <span className="flex items-center gap-1.5">
+            <Plug aria-hidden className="size-3.5 shrink-0" />
+            {each.title}
+          </span>
+        </Tooltip>
+      ),
+    })),
     { value: 'yaml', label: 'YAML' },
     // A shell needs a keyboard, and a map more room than a phone has: neither is offered there.
   ].filter((tab) => !phone || !NOT_ON_A_PHONE.has(tab.value))
@@ -370,6 +399,31 @@ function DetailTabs({
           namespace={object.metadata.namespace}
         />
       </TabContent>
+      {pluginTabs.map(({ plugin, tab: each, value }) => (
+        <TabContent key={value} value={value} className={own}>
+          <PluginBody
+            plugin={plugin}
+            tab={each.id}
+            object={{
+              kind,
+              name: object.metadata.name,
+              namespace: object.metadata.namespace,
+            }}
+          />
+        </TabContent>
+      ))}
+      {gone && (
+        <TabContent value={gone.value} className={long}>
+          <EmptyState
+            icon={Plug}
+            title={`${gone.plugin.label} isn’t in use any more.`}
+            footer={<GoToPlugins name={gone.plugin.name} />}
+          >
+            Its pages, its tabs and its commands were taken away while this was open. Plugins says
+            why.
+          </EmptyState>
+        </TabContent>
+      )}
       <TabContent value="yaml" className={own}>
         <YamlTab object={object} />
       </TabContent>

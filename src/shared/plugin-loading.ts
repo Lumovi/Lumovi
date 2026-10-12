@@ -103,7 +103,11 @@ export function settle(
     })
     if (file.error) return refused([`${file.name}: ${file.error}`])
     try {
-      const read = parsePlugin(file.text, file.name, options)
+      // (Whether it may carry code is its origin's to say, whatever a caller passed.)
+      const read = parsePlugin(file.text, file.name, {
+        ...options,
+        carriesCode: mayCarryCode(origin),
+      })
       return read.plugin
         ? { file: file.name, origin, plugin: read.plugin, state: 'in-use', problems: [] }
         : refused(read.problems, read.name)
