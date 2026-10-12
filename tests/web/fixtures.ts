@@ -316,6 +316,13 @@ export function helmKubeconfigs(served: Served): { args: string[]; kubeconfig: s
   }
 }
 
+/**
+ * What Lumovi's own page says of each request it makes (Sec-Fetch-Site), for a test that makes
+ * one in its place: a session signed in from a page is held to it. (Spelled as a request's own
+ * headers are, so that spread over them it replaces, never doubles, what's there.)
+ */
+export const FROM_LUMOVI = { 'sec-fetch-site': 'same-origin' }
+
 /** Signs in with a token, on the sign-in page any address shows without a session. */
 export async function signIn(page: Page, url: string, token: string): Promise<void> {
   await page.goto(url)

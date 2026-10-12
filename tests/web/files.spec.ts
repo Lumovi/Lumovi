@@ -12,7 +12,16 @@ import { extract, type Header } from 'tar-stream'
 import WebSocket from 'ws'
 import { PageFiles, Transfers } from '../../src/server/file-transfers.ts'
 import type { Crafted } from '../mock-cluster/files.ts'
-import { audited, DEMO, DEMO_TOKEN, expect, signIn, test, type Served } from './fixtures.ts'
+import {
+  audited,
+  DEMO,
+  DEMO_TOKEN,
+  expect,
+  FROM_LUMOVI,
+  signIn,
+  test,
+  type Served,
+} from './fixtures.ts'
 
 const POD = DEMO.pods.storefront[0]!
 const IN = { context: 'demo', namespace: 'shop', pod: POD, container: 'app' }
@@ -685,15 +694,19 @@ test('a copy’s address works once, soon, and only for whoever asked', async ({
   const other: BrowserContext = await browser.newContext()
   const stranger = await other.request.get(await address())
   expect(stranger.status()).toBe(404)
-  const unknown = await page.request.get(`${served.url}api/files/${'A'.repeat(43)}`)
+  const unknown = await page.request.get(`${served.url}api/files/${'A'.repeat(43)}`, {
+    headers: FROM_LUMOVI,
+  })
   expect([unknown.status(), await unknown.json()]).toEqual([
     404,
     { error: 'There’s no such copy here: it was fetched already, or took too long. Try again.' },
   ])
   // Not as an upload either.
-  expect((await page.request.post(await address(), { data: 'x' })).status()).toBe(404)
+  expect(
+    (await page.request.post(await address(), { data: 'x', headers: FROM_LUMOVI })).status(),
+  ).toBe(404)
   // Whoever asked for it, once.
-  const fetched = await page.request.get(await address())
+  const fetched = await page.request.get(await address(), { headers: FROM_LUMOVI })
   expect(fetched.status()).toBe(200)
   expect(fetched.headers()).toMatchObject({
     'content-disposition': `attachment; filename="app.log"; filename*=UTF-8''app.log`,
@@ -703,7 +716,7 @@ test('a copy’s address works once, soon, and only for whoever asked', async ({
     'x-content-type-options': 'nosniff',
   })
   expect(await fetched.text()).toContain('listening on :8080')
-  expect((await page.request.get(await address())).status()).toBe(404)
+  expect((await page.request.get(await address(), { headers: FROM_LUMOVI })).status()).toBe(404)
   expect((await copying).end).toMatchObject({ outcome: 'done', bytes: 33 })
   await other.close()
 
@@ -725,7 +738,7 @@ test('a copy’s address works once, soon, and only for whoever asked', async ({
   await expect.poll(address).not.toBe(before)
   await page.evaluate((id) => window.lumovi!.files.cancel(id), id)
   await expect.poll(() => ended(served, 'files.download').at(-1)?.outcome).toBe('cancelled')
-  expect((await page.request.get(await address())).status()).toBe(404)
+  expect((await page.request.get(await address(), { headers: FROM_LUMOVI })).status()).toBe(404)
   clusters.demo.files.craft('/loot', {
     entries: [{ name: './loot', content: 'x'.repeat(4000) }],
     cut: true,
@@ -735,7 +748,7 @@ test('a copy’s address works once, soon, and only for whoever asked', async ({
   const stopped = await address()
   expect((await download(page, '/loot')).end).toMatchObject({ outcome: 'failed' })
   expect(await address()).not.toBe(stopped)
-  expect((await page.request.get(await address())).status()).toBe(404)
+  expect((await page.request.get(await address(), { headers: FROM_LUMOVI })).status()).toBe(404)
 
   // One the browser never fetches is given up on.
   expect((await download(page, '/var/log/app.log')).end).toMatchObject({

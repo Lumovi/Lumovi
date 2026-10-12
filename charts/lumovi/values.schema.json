@@ -171,6 +171,10 @@
           "exclusiveMinimum": 0,
           "maximum": 168
         },
+        "secFetchSite": {
+          "description": "on or off (YAML may read an unquoted on or off as true or false: either is taken).",
+          "enum": ["on", "off", true, false]
+        },
         "keepSessions": {
           "type": "boolean"
         },

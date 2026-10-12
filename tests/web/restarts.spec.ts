@@ -17,6 +17,7 @@ import { call, connect, type Assistant } from './assistant-client.ts'
 import {
   DEMO,
   expect,
+  FROM_LUMOVI,
   inCluster,
   PEOPLE,
   refusedConfig,
@@ -144,7 +145,10 @@ test('a sign-out that can’t be kept says so, and signs out all the same', asyn
   // computer: the page waits for it, to say what wasn't kept.
   await page.route('**/api/session', async (route) => {
     if (route.request().method() !== 'DELETE') return route.continue()
-    const response = await route.fetch()
+    // (Fetched again as the page sent it: the browser adds where it came from only after this.)
+    const response = await route.fetch({
+      headers: { ...route.request().headers(), ...FROM_LUMOVI },
+    })
     await new Promise((done) => setTimeout(done, 1_500))
     await route.fulfill({ response })
   })

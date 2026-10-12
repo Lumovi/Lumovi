@@ -86,6 +86,13 @@ jobs:
               --set ingress.enabled=true --set networkPolicy.enabled=true \
               --set 'networkPolicy.from[0].podSelector.matchLabels.app=oauth2-proxy' >/dev/null
           done
+          # Requests from Lumovi's own page only, unless it's switched off (YAML's own off taken too);
+          # anything but on or off refused.
+          helm template lumovi charts/lumovi --set auth.secFetchSite=off \
+            --show-only templates/deployment.yaml | grep -A1 LUMOVI_SEC_FETCH_SITE | grep -q '"off"'
+          helm template lumovi charts/lumovi --show-only templates/deployment.yaml \
+            | grep -A1 LUMOVI_SEC_FETCH_SITE | grep -q '"on"'
+          (! helm template lumovi charts/lumovi --set auth.secFetchSite=maybe 2>/dev/null)
           # Behind a proxy, only the proxy reaches Lumovi: without saying which pods it is, refused;
           # with them, a NetworkPolicy lets them alone in, whether networkPolicy.enabled says so.
           (! helm template lumovi charts/lumovi --set auth.mode=proxy 2>/dev/null)

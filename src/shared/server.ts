@@ -31,7 +31,7 @@ export interface Session {
  * (or came from another browser), it failed (the server's log says how), or
  * the server won't act as that user.
  */
-export type SignInProblem = 'denied' | 'expired' | 'failed' | 'refused'
+export type SignInProblem = 'denied' | 'expired' | 'failed' | 'refused' | 'browser'
 
 /** `GET api/session` without a session (401): how to sign in. */
 export interface SignIn {

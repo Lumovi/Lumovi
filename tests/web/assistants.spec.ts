@@ -9,7 +9,16 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { Assistant, call, callback, connect } from './assistant-client.ts'
-import { audited, DEMO, expect, PEOPLE, refusedConfig, signIn, test } from './fixtures.ts'
+import {
+  audited,
+  DEMO,
+  expect,
+  FROM_LUMOVI,
+  PEOPLE,
+  refusedConfig,
+  signIn,
+  test,
+} from './fixtures.ts'
 
 /** What a change came to: waiting for it again while the assistant is told to (slow machines). */
 async function outcome(client: Client, asked: Promise<{ text: string }>): Promise<string> {
@@ -429,7 +438,7 @@ test('a person may deny an assistant, and a request that isn’t right is refuse
   })
   expect(fromElsewhere.status()).toBe(403)
   const malformed = await page.request.post(`${served.url}api/assistants/authorize`, {
-    headers: { Origin: new URL(served.url).origin },
+    headers: { Origin: new URL(served.url).origin, ...FROM_LUMOVI },
     data: { approved: 'yes' },
   })
   expect(await malformed.json()).toEqual({
@@ -536,7 +545,7 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
   const request = page.getByRole('region', { name: 'Allow an assistant' })
   await expect(request).toContainText('Then it goes back to cursor.')
   const allowed = await page.request.post(`${served.url}api/assistants/authorize`, {
-    headers: { Origin: new URL(served.url).origin },
+    headers: { Origin: new URL(served.url).origin, ...FROM_LUMOVI },
     data: { query: query.toString(), approved: true },
   })
   const sentBack = new URL((await allowed.json()).redirect)
@@ -591,7 +600,7 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
 
   // A fresh code: swapped once, for another assistant's it's refused.
   const again = await page.request.post(`${served.url}api/assistants/authorize`, {
-    headers: { Origin: new URL(served.url).origin },
+    headers: { Origin: new URL(served.url).origin, ...FROM_LUMOVI },
     data: { query: query.toString(), approved: true },
   })
   const fresh = new URL((await again.json()).redirect).searchParams.get('code')!
@@ -600,7 +609,7 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
     'invalid_grant',
   ])
   const third = await page.request.post(`${served.url}api/assistants/authorize`, {
-    headers: { Origin: new URL(served.url).origin },
+    headers: { Origin: new URL(served.url).origin, ...FROM_LUMOVI },
     data: { query: query.toString(), approved: true },
   })
   const good = new URL((await third.json()).redirect).searchParams.get('code')!
@@ -658,7 +667,7 @@ test('codes are swapped for tokens once, with their PKCE verifier, and renewed',
   // A refresh token used again, after a moment (no retry): someone else has a copy, and its
   // assistant is let go. Tokens nobody used, run out, go too.
   const allowed4 = await page.request.post(`${served.url}api/assistants/authorize`, {
-    headers: { Origin: new URL(served.url).origin },
+    headers: { Origin: new URL(served.url).origin, ...FROM_LUMOVI },
     data: { query: query.toString(), approved: true },
   })
   const copied = await (

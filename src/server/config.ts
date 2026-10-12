@@ -118,6 +118,13 @@ export interface ServerConfig {
   groupsPrefix: string
   sessionHours: number
   /**
+   * Whether a signed-in session's requests must say they come from Lumovi's own page
+   * (Sec-Fetch-Site: same-origin), where its browser said where its sign-in came from
+   * (LUMOVI_SEC_FETCH_SITE, on unless it's off). Off, no session is held by it, and no plugin's code
+   * is handed to any (`secondWall` in auth.ts).
+   */
+  fetchSite: 'on' | 'off'
+  /**
    * Where what a restart mustn't lose is kept (who's signed in, the assistants they allowed): a
    * Secret of the namespace Lumovi runs in (LUMOVI_STATE_SECRET), a file under LUMOVI_DATA_DIR,
    * or only in memory.
@@ -217,11 +224,19 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     if (!setting) throw new ConfigError(`${name} must be set ${why}.`)
     return setting
   }
+  // (What isn't an address is never said back: it may hold a password.)
   const url = (name: string, setting: string) => {
     if (!/^https?:\/\//.test(setting) || !URL.canParse(setting)) {
-      throw new ConfigError(`${name} must be an http or https URL, not "${setting}".`)
+      throw new ConfigError(`${name} must be an http or https URL.`)
     }
     return new URL(setting)
+  }
+  const onOrOff = (name: string) => {
+    const setting = value(name) ?? 'on'
+    if (setting !== 'on' && setting !== 'off') {
+      throw new ConfigError(`${name} must be on or off, not "${setting}".`)
+    }
+    return setting
   }
   /** A number above 0, at most `max`: fractions are fine (sessions of a few minutes). */
   const number = (name: string, fallback: number, max: number) => {
@@ -337,6 +352,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     usernamePrefix: value('LUMOVI_USERNAME_PREFIX') ?? '',
     groupsPrefix: value('LUMOVI_GROUPS_PREFIX') ?? '',
     sessionHours: number('LUMOVI_SESSION_HOURS', 12, MAX_SESSION_HOURS),
+    fetchSite: onOrOff('LUMOVI_SEC_FETCH_SITE'),
     state: stateKeeping(env, value),
     stateKey: stateKeyOf(value('LUMOVI_STATE_KEY')),
     heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
