@@ -50,6 +50,8 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'kube.schema': 'reads',
   'kube.list': 'reads',
   'kube.get': 'reads',
+  // (Some of a Secret's values, picked by key where it's read: a read, as a get is.)
+  'kube.secretValues': 'reads',
   'kube.metrics': 'reads',
   'kube.can': 'reads',
   'kube.history': 'reads',
