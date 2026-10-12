@@ -27,7 +27,7 @@ const OWN = import.meta.glob<string>('../renderer/src/views/*.yaml', {
 const utf8 = new TextEncoder()
 
 /** The answer to the last ask, and what it was made from: checked again only when that changes. */
-let last: { from: string; known: KnownPlugin[] } | undefined
+let last: { from: string; known: readonly Readonly<KnownPlugin>[] } | undefined
 
 /**
  * The plugins in use here, by the backend's own reading, now: the folder is read again each
@@ -41,7 +41,7 @@ export async function plugins(
   host: Host,
   lumovi: string,
   env: NodeJS.ProcessEnv = process.env,
-): Promise<KnownPlugin[]> {
+): Promise<readonly Readonly<KnownPlugin>[]> {
   const read = await readFiles(directory, env)
   const origin = host === 'desktop' ? 'yours' : 'server'
   const from = JSON.stringify([

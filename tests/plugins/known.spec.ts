@@ -5,12 +5,20 @@
  */
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { mayCarryCode, type PluginFile } from '../../src/shared/plugin-loading.ts'
-import { knownPlugins, readIncluded } from '../../src/shared/plugins-known.ts'
+import { knownPlugins, readIncluded, type KnownPlugin } from '../../src/shared/plugins-known.ts'
 import {
   includedPlugins,
   loadShippedPlugins,
@@ -107,8 +115,8 @@ test('an answer can’t be changed by whoever asked: the next asker is told the 
   expect(Object.isFrozen(known) && known.every((plugin) => Object.isFrozen(plugin))).toBe(true)
   // The origin is what `mayCarryCode` is asked with.
   expect(() => ((mine as { origin: string }).origin = 'lumovi')).toThrow()
-  expect(() => known.sort(() => -1)).toThrow()
-  expect(() => (known.length = 0)).toThrow()
+  expect(() => (known as KnownPlugin[]).sort(() => -1)).toThrow()
+  expect(() => ((known as KnownPlugin[]).length = 0)).toThrow()
   expect(mine.origin).toBe('yours')
   // A file in use handed over without its digest isn't left out quietly.
   expect(() =>
@@ -208,9 +216,29 @@ test('a folder’s file is read once: its text and its digest are of the same by
         ['d-endless.yaml', 'It isn’t a file.', undefined],
         ['e-folder.yaml', 'It isn’t a file.', undefined],
         ['f-pipe.yaml', 'It isn’t a file.', undefined],
-        ['g-nowhere.yaml', 'It couldn’t be read', undefined],
+        ['g-nowhere.yaml', 'It isn’t there', undefined],
       ],
     )
+  }
+  // A file that can't be opened: said by its name alone and in Lumovi's words, never the
+  // system's (which carry the folder's whole path: they go to the log).
+  if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+    writeFileSync(join(folder, 'j-locked.yaml'), 'n: 1\n')
+    chmodSync(join(folder, 'j-locked.yaml'), 0o000)
+    const warned: string[] = []
+    const warn = console.warn
+    console.warn = (line: string) => warned.push(line)
+    const closed = (await readFiles({ path: folder })).files.filter(({ name }) =>
+      /^[gj]-/.test(name),
+    )
+    console.warn = warn
+    expect(closed).toEqual([
+      { name: 'g-nowhere.yaml', text: '', error: 'It isn’t there: a link to a file that’s gone.' },
+      { name: 'j-locked.yaml', text: '', error: 'Lumovi isn’t allowed to read it.' },
+    ])
+    expect(JSON.stringify(closed)).not.toContain(folder)
+    expect(warned.join('\n')).toContain(folder)
+    chmodSync(join(folder, 'j-locked.yaml'), 0o600)
   }
   // A file over the limit is refused by its size; one of exactly the limit is read whole.
   writeFileSync(join(folder, 'h-large.yaml'), Buffer.alloc(256 * 1024 + 1, 0x61))

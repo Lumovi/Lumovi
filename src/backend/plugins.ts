@@ -80,10 +80,12 @@ async function filesIn(path: string): Promise<ReadFile[]> {
     // Links too: a ConfigMap mounted as a volume (as the Helm chart's plugins are) is links into
     // a folder of its own.
     .filter((entry) => (entry.isFile() || entry.isSymbolicLink()) && /\.ya?ml$/i.test(entry.name))
-    .map((entry) => entry.name)
-    .sort()
+    .map((entry) => ({ name: entry.name, link: entry.isSymbolicLink() }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .slice(0, MAX_FILES)
-  return Promise.all(names.map((name) => within(READ_MS, name, fileRead(join(path, name), name))))
+  return Promise.all(
+    names.map(({ name, link }) => within(READ_MS, name, fileRead(join(path, name), name, link))),
+  )
 }
 
 /** `reading`, or after `ms` that it took too long: no file holds the others up. */
@@ -101,7 +103,7 @@ function within(ms: number, name: string, reading: Promise<ReadFile>): Promise<R
  * a plain file is refused before a byte is read, the open never waits for a pipe's other end,
  * and no more than the limit and one byte is ever read.
  */
-async function fileRead(path: string, name: string): Promise<ReadFile> {
+async function fileRead(path: string, name: string, link: boolean): Promise<ReadFile> {
   try {
     // Checked and read through one open file, so it can't be swapped in between. (Opened
     // without waiting: a pipe nobody writes to would otherwise hold the open for ever.)
@@ -132,7 +134,21 @@ async function fileRead(path: string, name: string): Promise<ReadFile> {
       await file.close()
     }
   } catch (error) {
-    // A link to nothing, or to a folder: the others still load.
-    return { name, text: '', error: `It couldn’t be read: ${(error as Error).message}` }
+    // The others still load. What the page is told is by the file's name alone, in Lumovi's
+    // words; the system's own, which carry the folder's whole path, go to the log.
+    console.warn(`Lumovi couldn’t read the plugin file ${name}: ${(error as Error).message}`)
+    const code = (error as NodeJS.ErrnoException).code
+    return {
+      name,
+      text: '',
+      error:
+        code === 'ENOENT'
+          ? link
+            ? 'It isn’t there: a link to a file that’s gone.'
+            : 'It isn’t there.'
+          : code === 'EACCES' || code === 'EPERM'
+            ? 'Lumovi isn’t allowed to read it.'
+            : 'It couldn’t be read.',
+    }
   }
 }
