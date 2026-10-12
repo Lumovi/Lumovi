@@ -65,7 +65,21 @@ export interface Part {
    * part may: one that's heavy to draw, or reads something of its own for each.
    */
   most?: number
+  /** A ceiling it counts against with other parts (`shared`). */
+  counts?: Shared
 }
+
+/**
+ * A ceiling parts count against together: how many of all of them one page may have, made and
+ * not yet taken away (the live things they each open, say). Known by its name, which is also how
+ * a page that goes over it is told: parts that name one ceiling count against one, and must say
+ * the same of it (`wrongWithParts`).
+ */
+export interface Shared {
+  readonly name: string
+  readonly most: number
+}
+export const shared = (name: string, most: number): Shared => Object.freeze({ name, most })
 
 /**
  * A text, `max` characters at most. Any character is taken (most of a page's texts are what's in
@@ -209,13 +223,38 @@ export function wrongWithFields(
 }
 
 /**
- * What's wrong with a declaration itself, or nothing: checked as Lumovi starts and in its own
- * tests, so a part that's declared carelessly never reaches a plugin.
+ * What's wrong with a page's parts as declared, or nothing: each part's own declaration, and
+ * what they say together (a shared ceiling the same wherever it's named).
+ */
+export function wrongWithParts(parts: Readonly<Record<string, Part>>): string | undefined {
+  const ceilings = new Map<string, { most: number; by: string }>()
+  for (const part of Object.values(parts)) {
+    const wrong = wrongWithPart(part)
+    if (wrong) return wrong
+    if (!part.counts) continue
+    const { name, most } = part.counts
+    const named = ceilings.get(name)
+    if (named && named.most !== most) {
+      return `${part.name}: ${name} is ${most} here and ${named.most} where ${named.by} names it, and a shared ceiling has one number`
+    }
+    if (!named) ceilings.set(name, { most, by: part.name })
+  }
+  return undefined
+}
+
+/**
+ * What's wrong with a declaration itself, or nothing: checked (with the others, `wrongWithParts`)
+ * by the door before it starts a page, and in Lumovi's own tests, so a part that's declared
+ * carelessly never reaches a plugin.
  */
 export function wrongWithPart(part: Part): string | undefined {
   if (!NAME.test(part.name)) return `${part.name}: isn’t a part’s name`
-  if (part.most !== undefined && !(Number.isSafeInteger(part.most) && part.most > 0)) {
+  const whole = (most: number) => Number.isSafeInteger(most) && most > 0
+  if (part.most !== undefined && !whole(part.most)) {
     return `${part.name}: how many a page may have should be a whole number, 1 or more`
+  }
+  if (part.counts && !whole(part.counts.most)) {
+    return `${part.name}: how many of ${part.counts.name} a page may have should be a whole number, 1 or more`
   }
   const kindProblem = (kind: Kind, where: string, depth = 0): string | undefined => {
     if (depth > DEEPEST) return `${where}: is declared deeper than anything is checked`

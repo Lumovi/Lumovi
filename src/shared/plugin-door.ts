@@ -13,7 +13,7 @@
  * at. So a page is whole, as its plugin described it, or it's stopped and Lumovi says why.
  */
 import { quotedBack } from './kit/characters'
-import { wrongWithFields, type Part } from './kit/declare'
+import { wrongWithFields, wrongWithParts, type Part } from './kit/declare'
 
 /**
  * What a plugin's page is held to. Each is a first line and not a measured one: what settles it
@@ -110,6 +110,8 @@ export class DoorPage {
   #commits = 0
   /** How many of each part the page has (made, and not yet taken away). */
   readonly #made = new Map<string, number>()
+  /** And how many of the parts that count against each ceiling they share, by its name. */
+  readonly #sharing = new Map<string, number>()
   /** What it may still send: filled as time passes, to `secondsAtOnce` seconds' worth at most. */
   #left: { at: number | undefined; steps: number; commits: number } = {
     at: undefined,
@@ -119,6 +121,9 @@ export class DoorPage {
   #stopped: Stopped | undefined
 
   constructor(parts: Readonly<Record<string, Part>>, now: () => number = () => performance.now()) {
+    // (Lumovi's own parts, declared wrongly: no page starts with them, and the fault is Lumovi's.)
+    const wrong = wrongWithParts(parts)
+    if (wrong) throw new Error(`Lumovi’s own parts are declared wrongly: ${wrong}`)
     this.#parts = parts
     this.#now = now
   }
@@ -289,9 +294,11 @@ export class DoorPage {
     }
     const size = this.#props(this.#parts[name]!, props)
     if (typeof size !== 'number') return size
-    const { most } = this.#parts[name]!
+    const { most, counts } = this.#parts[name]!
     const made = this.#made.get(name) ?? 0
     if (most !== undefined && made >= most) return tooMuch(`a page’s ${name} parts`, most)
+    const sharing = counts ? (this.#sharing.get(counts.name) ?? 0) : 0
+    if (counts && sharing >= counts.most) return tooMuch(`a page’s ${counts.name}`, counts.most)
     const wrong = this.#hold(id, {
       part: name,
       props: frozen(props as Record<string, unknown>),
@@ -300,7 +307,10 @@ export class DoorPage {
       heights: [],
       size,
     })
-    if (!wrong) this.#made.set(name, made + 1)
+    if (!wrong) {
+      this.#made.set(name, made + 1)
+      if (counts) this.#sharing.set(counts.name, sharing + 1)
+    }
     return wrong
   }
 
@@ -469,7 +479,11 @@ export class DoorPage {
       const node = this.#nodes.get(next)!
       gone.push(...node.children)
       this.#held -= node.size
-      if (node.part !== undefined) this.#made.set(node.part, this.#made.get(node.part)! - 1)
+      if (node.part !== undefined) {
+        this.#made.set(node.part, this.#made.get(node.part)! - 1)
+        const { counts } = this.#parts[node.part]!
+        if (counts) this.#sharing.set(counts.name, this.#sharing.get(counts.name)! - 1)
+      }
       this.#nodes.delete(next)
     }
   }
