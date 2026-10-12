@@ -66,8 +66,7 @@ integration tests (see [docs/development.md](docs/development.md#integration-tes
 
 ## Adding a tool
 
-Lumovi shows what popular operators run through _plugins_, written as data in
-`plugins/<tool>.yaml` (the format:
+Lumovi shows what popular operators run through _plugins_, written as data (the format:
 [docs.lumovi.dev/reference/plugin-format](https://docs.lumovi.dev/reference/plugin-format)).
 A plugin gives a tool its entry in the sidebar and lists its kinds, and its views say how each
 kind is shown: its columns, status, details, related objects, links and actions. Adding a tool
@@ -75,33 +74,18 @@ needs no code, and is a good first contribution. To ask for one instead, open a
 [_Support a tool_](https://github.com/Lumovi/Lumovi/issues/new?template=tool_request.yml)
 issue.
 
-1. Pin the tool's CRDs: add its release to `tests/plugins/crds/sources.json`, under the
-   plugin's name, with the URLs of its CRD manifests, and run `npm run crds -- <name>`. That
-   keeps what the check needs of them in `tests/plugins/crds/<name>.json`. A chart's templates
-   work too (`"helm": true`), and for a tool whose operator creates its CRDs itself, the JSON
-   Schema of each kind will do (KubeVirt's come from the
-   [CRDs catalog](https://github.com/datreeio/CRDs-catalog)).
-2. Write `plugins/<name>.yaml`: one `kind: Plugin`. It says what it is (its `version`, three
-   numbers, starting at 1.0.0; under `needs`, the oldest Lumovi it works with; its `groups`,
-   the API groups its kinds are in), then its label and kinds, and under `views:` a view for
-   each kind (or group of kinds) worth more than the generic columns. Status rules are where
-   views help most: say what healthy, in progress, failing and paused look like for this tool.
-   A plugin stays inside its groups: every kind it names is in one of them, none of them is
-   Kubernetes' own, and what an action creates is one of the plugin's own kinds. (A kind of
-   Kubernetes' own without a page in Lumovi can be shown, with no actions, if the plugin names
-   it under `shows`.) A kind is one plugin's, though tools can share a group. An action that asks nothing before it changes
-   something (no `confirm`, no `inputs`, nothing created) says so: `runs: at-once`.
-3. Run `npm run plugins:check`. It checks every kind, path, template, link, related list and
-   action against the CRDs you pinned, so a misremembered field fails here rather than
-   showing nothing. Labels and annotations aren't in schemas, so check those against the
-   tool's documentation, or a real cluster.
-4. Look at it: put the file in `~/.lumovi/plugins` (or the folder `LUMOVI_PLUGINS_DIR`
-   names) while running `npm run dev` against a cluster with the tool installed. (A file
-   there with the name of a plugin Lumovi comes with is used in its place.) Plugins are
-   read again on refresh (⌘R / Ctrl+R).
+The plugins Lumovi comes with live in their own repository,
+[Lumovi-plugins](https://github.com/Lumovi/Lumovi-plugins): a tool is added there, checked by
+Lumovi's own checker against its operator's pinned CRDs, and released as one signed bundle.
+Its README says how. Lumovi's build takes the release that `plugins.lock.json` names (its
+version, the commit its tag points at, and the SHA-256 of its bundle and its index) and checks
+all of it again before a plugin is built in (`scripts/plugins-bundle.ts`). Moving Lumovi to a
+newer release is a change to that file, and nothing else.
 
-To check plugins against a newer release of a tool, change its version in `sources.json`, run
-`npm run crds -- <name>` and `npm run plugins:check`.
+To look at a plugin while you write it, put its file in `~/.lumovi/plugins` (or the folder
+`LUMOVI_PLUGINS_DIR` names) while running `npm run dev` against a cluster with the tool
+installed. A file there with the name of a plugin Lumovi comes with is used in its place.
+Plugins are read again on refresh (⌘R / Ctrl+R).
 
 ## Coverage
 
