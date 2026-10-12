@@ -1,7 +1,8 @@
 /**
- * A plugin's page, open: its code in its box, what it sends taken by the door, and the tree the
- * door keeps for Lumovi to draw. Whatever ends it (the box, the door, the main process) ends it
- * once, with the reason a person is told; its box is taken away with it.
+ * A plugin's page, open: its code in its box, what it sends taken by the door (its page's
+ * commits by the tree, its asks to read by the reads), and the tree the door keeps for Lumovi to
+ * draw. Whatever ends it (the box, the door, the main process) ends it once, with the reason a
+ * person is told; its box is taken away with it, and its reads.
  */
 import type { ComponentType, ReactNode } from 'react'
 import type { Part } from '@shared/kit/declare'
@@ -9,6 +10,7 @@ import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
 import { api } from '@renderer/lib/api'
 import { openBox, type BoxEnd } from './box'
+import { PageReading } from './reads'
 
 /** A part of Lumovi's a plugin may name: how it's declared, and what draws it. */
 export interface KitPart {
@@ -59,9 +61,37 @@ function boxEnd(end: BoxEnd): PageEnd {
   }
 }
 
-/** Opens the page of the plugin named `plugin` (its box's address), from its `code`. */
+/**
+ * Of what a plugin sent, an ask to read: anything short that reads as an object and isn't a
+ * commit. (Anything else is the door's to take, and to say what's wrong with: an ask is never
+ * long, and a commit always says it's one.)
+ */
+function askIn(text: string): object | undefined {
+  if (text.length > ASK_AT_MOST) return undefined
+  let read: unknown
+  try {
+    read = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  return typeof read === 'object' &&
+    read !== null &&
+    !Array.isArray(read) &&
+    !Object.hasOwn(read, 'commit')
+    ? read
+    : undefined
+}
+
+/** Longer than any ask can be: its kind, its namespace and its name at their longest. */
+const ASK_AT_MOST = 1024
+
+/**
+ * Opens the page of the plugin named `plugin` (its box's address), from its `code`. What it
+ * reads, it reads in `context`.
+ */
 export function openPage(options: {
   plugin: string
+  context: string
   code: string
   parts: Readonly<Record<string, KitPart>>
 }): OpenPage {
@@ -95,6 +125,7 @@ export function openPage(options: {
     close() {
       stopListening?.()
       cancelAnimationFrame(telling)
+      reading.close()
       box.close()
     },
   }
@@ -123,17 +154,24 @@ export function openPage(options: {
     toTell.clear()
     listeners.forEach((listener) => listener())
   }
+  // (What's read is sent down to its code once the box is there: nothing is read before.)
+  const reading = new PageReading({
+    context: options.context,
+    plugin: options.plugin,
+    send: (text) => box.post(text),
+  })
   const box = openBox({
     plugin: options.plugin,
     code: options.code,
     heard(text) {
       if (page.end) return
-      const taken = page.tree.take(text)
-      if ('why' in taken) {
+      const ask = askIn(text)
+      const taken = ask === undefined ? page.tree.take(text) : reading.ask(ask)
+      if (taken && 'why' in taken) {
         // (For whoever writes the plugin: the line quotes nothing as it was written.)
         console.warn(`Lumovi stopped the plugin ${options.plugin}: ${taken.what}`)
         ended({ why: taken.why })
-      } else toDraw(taken.changed)
+      } else if (taken) toDraw(taken.changed)
     },
     ended: (end) => ended(boxEnd(end)),
   })

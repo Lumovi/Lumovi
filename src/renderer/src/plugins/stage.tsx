@@ -137,6 +137,8 @@ interface Shown {
   name: string
   version: string
   code: string
+  /** The cluster its reads are made in: none, and each is refused. */
+  context?: string
   /** An ending to show without waiting for it to happen (for a picture of each). */
   ended?: PageEnd
 }
@@ -174,7 +176,12 @@ function Stage({ shown }: { shown: Shown }) {
 /** The page, opened once for as long as this is shown: opening it again makes this anew. */
 function Opened({ shown, onAgain }: { shown: Shown; onAgain: () => void }): ReactNode {
   const [page] = useState<OpenPage>(() =>
-    openPage({ plugin: shown.plugin, code: shown.code, parts: PARTS }),
+    openPage({
+      plugin: shown.plugin,
+      context: shown.context ?? '',
+      code: shown.code,
+      parts: PARTS,
+    }),
   )
   useEffect(() => () => page.close(), [page])
   const end = useSyncExternalStore(page.subscribe, () => page.end)
