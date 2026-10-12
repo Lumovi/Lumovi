@@ -136,7 +136,11 @@ async function fileRead(path: string, name: string, link: boolean): Promise<Read
   } catch (error) {
     // The others still load. What the page is told is by the file's name alone, in Lumovi's
     // words; the system's own, which carry the folder's whole path, go to the log.
-    console.warn(`Lumovi couldn’t read the plugin file ${name}: ${(error as Error).message}`)
+    // (Both quoted: a name with a line break in it, which the system's words repeat, stays one
+    // line of the log.)
+    console.warn(
+      `Lumovi couldn’t read the plugin file ${JSON.stringify(name)}: ${JSON.stringify((error as Error).message)}`,
+    )
     const code = (error as NodeJS.ErrnoException).code
     return {
       name,
