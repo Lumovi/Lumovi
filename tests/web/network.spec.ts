@@ -152,6 +152,44 @@ test('its own connections go through the proxy the environment says, but what NO
     .toMatch(/^It can’t be reached: the connection failed \(ENOTFOUND\)\.$/)
   expect(proxy.seen.slice(before)).toEqual([])
   await direct.stop()
+  // With a port, only that port of that name is left out; and the lower-case spellings of both
+  // are read as the upper-case ones are.
+  const thatPort = await serve({
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_AUDITORS: 'auditors',
+      LUMOVI_AUDIT_WEBHOOK_URL: `http://hooks.test:${hook.port}/in`,
+      http_proxy: proxy.url,
+      no_proxy: `hooks.test:${hook.port}`,
+    },
+  })
+  const beforePort = proxy.seen.length
+  await page.goto(`${thatPort.url}audit`)
+  await expect
+    .poll(() => webhookProblem(page), { timeout: 15_000 })
+    .toMatch(/^It can’t be reached: the connection failed \(ENOTFOUND\)\.$/)
+  expect(proxy.seen.slice(beforePort)).toEqual([])
+  await thatPort.stop()
+  // Another port of the same name isn't left out: the webhook is reached, through the proxy
+  // (named in lower case: what reaches the proxy here is what proves that spelling is read).
+  const otherPort = await serve({
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_AUDITORS: 'auditors',
+      LUMOVI_AUDIT_WEBHOOK_URL: `http://hooks.test:${hook.port}/in`,
+      http_proxy: proxy.url,
+      NO_PROXY: `hooks.test:${hook.port + 1}, other.test`,
+    },
+  })
+  const [beforeOther, bodies] = [proxy.seen.length, hook.bodies.length]
+  await page.goto(`${otherPort.url}audit`)
+  await expect.poll(() => hook.bodies.length).toBeGreaterThan(bodies)
+  expect(proxy.seen.slice(beforeOther)).toContainEqual(
+    expect.stringMatching(
+      new RegExp(`^(CONNECT hooks\\.test:${hook.port}|POST http://hooks\\.test:${hook.port}/in)$`),
+    ),
+  )
+  await otherPort.stop()
   // `*`: nothing through it, as Node only takes it alone.
   const none = await serve({
     env: {
