@@ -4,9 +4,10 @@
  * the messages a test's server answers (to save its coverage; to stop, on Windows), and the
  * stand-ins the tests hand it in place of what a release only ever has built in or fetches.
  */
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { RENDERER_MAPS } from '../../scripts/vite-coverage.ts'
 import { openCluster } from '../e2e/fixtures.ts'
 import { CONTEXT, expect, test } from './fixtures.ts'
 
@@ -75,6 +76,8 @@ test('a build made as a release’s carries nothing the tests’ build adds for 
     for (const name of TESTS_ONLY) if (text.includes(name)) found.push(`${file}: ${name}`)
   }
   expect(found).toEqual([])
+  // Nor the maps a coverage build writes beside its pages, from an earlier build.
+  expect(existsSync(resolve(RENDERER_MAPS)), RENDERER_MAPS).toBe(false)
 })
 
 test('a release’s pages hold no way to hand a plugin’s box any code', () => {
