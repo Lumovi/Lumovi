@@ -406,6 +406,8 @@ if (stdio) {
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
       knownPlugins: () => plugins(pluginsDirectory(homedir()), 'desktop', app.getVersion()),
+      // (A window of the desktop app's: its box is a process of its own, kept apart by Electron.)
+      handOverTo: () => ({ host: 'desktop' }),
       rendererUrl: url,
       audit,
       auditLog,

@@ -216,24 +216,34 @@ test('an object of its own kind is handed over whole: all but who manages it and
 })
 
 test('a read the backend takes from Lumovi’s page has exactly its keys, each of its kind', () => {
+  // (What the page's code was handed with: its file's digest and its code's.)
+  const handed = { digest: `sha256:${'a'.repeat(64)}`, codeDigest: `sha256:${'c'.repeat(64)}` }
   const fine = [
-    { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool' },
-    { context: 'demo', plugin: 'karpenter', kind: '/Node', name: 'ip-10-0-1-5' },
-    { context: 'demo', plugin: 'karpenter', kind: '/Pod', namespace: 'shop', name: 'cart-7d9f' },
+    { context: 'demo', plugin: 'karpenter', ...handed, kind: 'karpenter.sh/NodePool' },
+    { context: 'demo', plugin: 'karpenter', ...handed, kind: '/Node', name: 'ip-10-0-1-5' },
+    {
+      context: 'demo',
+      plugin: 'karpenter',
+      ...handed,
+      kind: '/Pod',
+      namespace: 'shop',
+      name: 'cart-7d9f',
+    },
   ]
   for (const query of fine) expect(readQuery(query), JSON.stringify(query)).toEqual(query)
   // (Left out, and said as nothing, are the same.)
-  expect(readQuery({ context: 'demo', plugin: 'k', kind: '/Node', namespace: undefined })).toEqual({
-    context: 'demo',
-    plugin: 'k',
-    kind: '/Node',
-  })
+  expect(
+    readQuery({ context: 'demo', plugin: 'k', ...handed, kind: '/Node', namespace: undefined }),
+  ).toEqual({ context: 'demo', plugin: 'k', ...handed, kind: '/Node' })
   const wrong: unknown[] = [
     null,
     'demo',
     [fine[0]],
     { ...fine[0], also: 1 },
     { ...fine[0], context: '' },
+    { ...fine[0], digest: undefined },
+    { ...fine[0], codeDigest: 'sha256:abc' },
+    { ...fine[0], digest: `sha256:${'A'.repeat(64)}` },
     { ...fine[0], plugin: '' },
     { ...fine[0], plugin: 7 },
     { ...fine[0], kind: 'Node' },

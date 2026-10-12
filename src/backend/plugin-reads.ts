@@ -95,6 +95,11 @@ export function pluginReads({ kube, known, audit }: PluginReading) {
     if (!plugin || !mayCarryCode(plugin.origin)) {
       return refuse({ kind: named }, undefined, 'not-in-use')
     }
+    // And only the code, and the file, its page was handed: never a grant read since, for code
+    // that came before it (or a plugin that has no code at all).
+    if (q.digest !== plugin.digest || q.codeDigest !== plugin.codeDigest) {
+      return refuse({ kind: named }, plugin, 'changed')
+    }
     let resource: ResourceDefinition
     try {
       resource = await kube.resource(q.context, named)
@@ -196,6 +201,7 @@ function record(
 
 /** What's not allowed, rather than what failed: by the plugin's file, the cluster or Lumovi. */
 const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
+  'changed',
   'not-granted',
   'not-in-use',
   'not-allowed',

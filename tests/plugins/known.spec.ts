@@ -425,3 +425,57 @@ spec:
   expect(() => ((shown!.steps as { key: string }[])[1]!.key = 'other')).toThrow()
   expect(included.plugins[0]!.plugin.showsSecrets[0]!.keys).toEqual(['tls.crt', 'ca.crt'])
 })
+
+test('one of Lumovi’s own has the code beside its file, by its own digest; a folder’s file has none', async () => {
+  const toys = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  pages: [{ id: overview, title: Overview }]
+`
+  const code = 'box.then(({ post }) => post("{}"))\n'
+  const included = readIncluded({ 'plugins/toys.yaml': toys }, texts(OWN))
+  const [mine] = knownPlugins(included, [], 'yours', LUMOVI, sha, {
+    'toys.js': code,
+    'other.js': 'x',
+  })
+  expect(mine).toMatchObject({ name: 'toys', origin: 'lumovi', code, codeDigest: sha(code) })
+  // Without code beside it: none.
+  expect(knownPlugins(included, [], 'yours', LUMOVI, sha)[0]).not.toHaveProperty('codeDigest')
+  // A folder's file in its place is data: no code, whatever is beside Lumovi's own.
+  const data = toys.replace(/^ {2}pages:.*\n/m, '')
+  const theirs = knownPlugins(
+    included,
+    [{ name: 'toys.yaml', text: data, digest: sha(data) }],
+    'yours',
+    LUMOVI,
+    sha,
+    { 'toys.js': code },
+  ).find(({ name }) => name === 'toys')!
+  expect(theirs.origin).toBe('yours')
+  expect(theirs).not.toHaveProperty('code')
+  expect(theirs).not.toHaveProperty('codeDigest')
+
+  // In the tests' build, a stand-in's code is read beside it, and marked with it.
+  ;(globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD = true
+  const { filesMark, readFiles } = await import('../../src/backend/plugins.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-code-'))
+  const stand = mkdtempSync(join(tmpdir(), 'lumovi-code-included-'))
+  writeFileSync(join(stand, 'toys.yaml'), toys)
+  writeFileSync(join(stand, 'toys.js'), code)
+  // (A folder's own `.js` is no plugin's code: never read.)
+  writeFileSync(join(folder, 'mine.js'), 'x')
+  const env = { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: stand }
+  const read = await readFiles({ path: folder }, env)
+  expect(read.files).toEqual([])
+  expect(read.includedCode).toEqual([{ name: 'toys.js', text: code, digest: sha(code) }])
+  const before = await filesMark({ path: folder }, env)
+  writeFileSync(join(stand, 'toys.js'), `${code}// changed\n`)
+  expect(await filesMark({ path: folder }, env)).not.toBe(before)
+  delete (globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD
+})

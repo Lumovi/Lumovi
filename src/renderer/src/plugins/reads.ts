@@ -38,6 +38,7 @@ const countOf = (plugin: string) => {
 
 /** What ends a read, rather than failing once: said as its end. */
 const ENDS: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
+  'changed',
   'not-yet',
   'not-granted',
   'not-in-use',
@@ -63,14 +64,27 @@ export class PageReading {
   readonly #going = new Map<number, Going>()
   readonly #context: string
   readonly #plugin: string
+  /** What the page's code was handed with: every read names them. */
+  readonly #handed: { digest: string; codeDigest: string }
   readonly #send: (text: string) => void
+  readonly #changed: () => void
   #heldSaid = false
   #closed = false
 
-  constructor(options: { context: string; plugin: string; send: (text: string) => void }) {
+  constructor(options: {
+    context: string
+    plugin: string
+    /** The digests of the file and the code the page was handed (`PluginCode`). */
+    handed: { digest: string; codeDigest: string }
+    send: (text: string) => void
+    /** The plugin changed since the page was handed its code: the page is to end, said so. */
+    changed: () => void
+  }) {
     this.#context = options.context
     this.#plugin = options.plugin
+    this.#handed = options.handed
     this.#send = options.send
+    this.#changed = options.changed
     const count = countOf(options.plugin)
     this.#reads = new PageReads(count)
     this.tokens = new Tokens(count)
@@ -102,6 +116,7 @@ export class PageReading {
     const query: PluginReadQuery = {
       context: this.#context,
       plugin: this.#plugin,
+      ...this.#handed,
       kind,
       ...(namespace === undefined ? {} : { namespace }),
       ...(ask.what === 'object' ? { name: ask.name } : {}),
@@ -216,6 +231,8 @@ export class PageReading {
     this.#end(read)
     this.#reads.refused(read)
     this.#tell({ read, ended: refused, said: READ_REFUSED[refused] })
+    // (A page whose plugin changed under it ends: its code is not the plugin's any more.)
+    if (refused === 'changed') this.#changed()
   }
 
   /** A read is over: nothing of it is read again, and its tokens are no more. */

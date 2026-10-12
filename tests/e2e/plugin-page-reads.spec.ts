@@ -52,14 +52,19 @@ const reading = (...asks: object[]) => `box.then(({ post, listen }) => {
   for (const ask of asks) post(JSON.stringify(ask))
 })`
 
-async function show(page: Page, code: string) {
+/**
+ * Puts the plugin's page on the stage with `code` as its code: beside its file (`toys.js`), and
+ * taken as Lumovi hands it over, the one way a page that reads is given code.
+ */
+async function show(page: Page, folder: string, code: string) {
+  writeFileSync(join(folder, 'toys.js'), code)
   await page.waitForFunction(() => '__lumoviDoor' in window)
   await page.evaluate(
     (shown) =>
       (window as unknown as { __lumoviDoor: { show(shown: object): void } }).__lumoviDoor.show(
         shown,
       ),
-    { plugin: 'toys', name: 'Toys', version: '1.2.0', context: 'demo', code },
+    { plugin: 'toys', name: 'Toys', version: '1.2.0', context: 'demo' },
   )
 }
 
@@ -89,10 +94,12 @@ test('a plugin’s page reads its own kind through the door: each object with a 
   launch,
   clusters,
 }) => {
-  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included() } })
+  const folder = included()
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
   await openCluster(page)
   await show(
     page,
+    folder,
     reading(
       { read: 1, what: 'list', kind: 'example.com/Widget' },
       { read: 2, what: 'list', kind: '/Node' },
@@ -124,7 +131,8 @@ test('a read the plugin ends is read no more; a refresh reads its own lists agai
   launch,
   clusters,
 }) => {
-  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included() } })
+  const folder = included()
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
   await openCluster(page)
   const widgets = () =>
     clusters.demo.requests.filter(
@@ -133,6 +141,7 @@ test('a read the plugin ends is read no more; a refresh reads its own lists agai
   // It ends read 1 once it has it, refreshes (twice: the second too soon), then asks read 2.
   await show(
     page,
+    folder,
     `box.then(({ post, listen }) => {
       const commit = (steps) => post(JSON.stringify({ commit: steps }))
       commit([['make', 1, 'Stack', {}], ['put', 0, 1]])
@@ -160,15 +169,20 @@ test('a read the plugin ends is read no more; a refresh reads its own lists agai
 test('an ask that isn’t one, or more asks than a second takes, stops the plugin', async ({
   launch,
 }) => {
-  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included() } })
+  const folder = included()
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
   await openCluster(page)
-  await show(page, reading({ read: 1, what: 'list', kind: 'example.com/Widget', label: 'x' }))
+  await show(
+    page,
+    folder,
+    reading({ read: 1, what: 'list', kind: 'example.com/Widget', label: 'x' }),
+  )
   await expect(ended(page)).toHaveAttribute('data-why', 'not-allowed')
   await expect(ended(page)).toContainText('It sent something a plugin can’t.')
 
   // (A refresh too soon isn't made, and doesn't stop it: but it's one of its second's asks.)
   const many = Array.from({ length: READ_LIMITS.asksASecond + 1 }, () => ({ refresh: true }))
-  await show(page, reading(...many))
+  await show(page, folder, reading(...many))
   await expect(ended(page)).toHaveAttribute('data-why', 'too-much')
 })
 
@@ -192,6 +206,7 @@ test('a Secret an object of its own kind names comes down as a token of its own,
   // It shows each object's name, its token, and its Secrets' tokens, every time it's handed them.
   await show(
     page,
+    folder,
     `box.then(({ post, listen }) => {
       const commit = (steps) => post(JSON.stringify({ commit: steps }))
       commit([['make', 1, 'Stack', {}], ['put', 0, 1], ['make', 2, 'Field', { name: 'read 1', value: '' }], ['put', 1, 2]])

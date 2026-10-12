@@ -79,6 +79,13 @@ export interface KnownPlugin {
    * Kubernetes' own kinds the fields its file names (`spec.reads`).
    */
   grant: Grant
+  /**
+   * Its code, where it has some: only one of Lumovi's own can (a folder's file is data). Handed
+   * to a page by `pluginCode` alone, and only as `mayHandOver` allows.
+   */
+  code?: string
+  /** `sha256:` and the hex of its code's bytes (its text as UTF-8): what every read names. */
+  codeDigest?: string
 }
 
 /** What a plugin's code may read, by its file. */
@@ -133,6 +140,11 @@ export function knownPlugins(
   lumovi: string,
   /** The digest of one of Lumovi's own: of its file's bytes, which are its text as UTF-8. */
   digest: (text: string) => string,
+  /**
+   * The code that comes with Lumovi's own plugins, by its file's name: beside a plugin's file,
+   * named as it is (`karpenter.js` beside `karpenter.yaml`). A folder's files carry none.
+   */
+  codes: Readonly<Record<string, string>> = {},
 ): readonly Readonly<KnownPlugin>[] {
   const settled = settle(
     included.plugins.map(({ plugin }) => plugin),
@@ -152,6 +164,8 @@ export function knownPlugins(
   const known: KnownPlugin[] = [
     ...settled.lumovis.map((plugin) => {
       const { file, text } = own.get(plugin)!
+      const codeFile = file.replace(/\.ya?ml$/i, '.js')
+      const code = Object.hasOwn(codes, codeFile) ? codes[codeFile] : undefined
       return {
         name: plugin.name,
         version: plugin.version,
@@ -159,6 +173,7 @@ export function knownPlugins(
         file,
         digest: digest(text),
         grant: grantOf(plugin),
+        ...(code === undefined ? {} : { code, codeDigest: digest(code) }),
       }
     }),
     ...settled.files.flatMap(({ file, plugin, state }) =>

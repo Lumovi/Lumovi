@@ -425,6 +425,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const connection = new PageConnection(ws, {
         ...options,
         identity: caller.identity,
+        held: caller.held,
         audit,
         actor,
         auditor: () =>

@@ -3,6 +3,7 @@
  * and nothing more, picked there; a refusal as a code. (The server's, and the audit history,
  * in tests/web/plugin-read.spec.ts: the handler is one.)
  */
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,7 +24,17 @@ spec:
   pages: [{ id: overview, title: Overview }]
 `
 
-const read = (page: Page, query: Omit<PluginReadQuery, 'context'>) =>
+/** Its code, beside its file: what a page of it would be handed. */
+const CODE = 'box.then(() => {})\n'
+const sha = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`
+/** What a page's code was handed with, which its reads name. */
+const HANDED = { digest: sha(TOYS), codeDigest: sha(CODE) }
+
+const read = (
+  page: Page,
+  query: Omit<PluginReadQuery, 'context' | 'digest' | 'codeDigest'> &
+    Partial<Pick<PluginReadQuery, 'digest' | 'codeDigest'>>,
+) =>
   page.evaluate(
     (q) =>
       (
@@ -31,7 +42,7 @@ const read = (page: Page, query: Omit<PluginReadQuery, 'context'>) =>
           lumovi: { kube: { pluginRead(q: PluginReadQuery): Promise<PluginRead> } }
         }
       ).lumovi.kube.pluginRead({ context: 'demo', ...q }),
-    query,
+    { ...HANDED, ...query },
   )
 
 test('the main process reads for a plugin’s page what its file grants, and nothing it doesn’t', async ({
@@ -39,6 +50,7 @@ test('the main process reads for a plugin’s page what its file grants, and not
 }) => {
   const included = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
   writeFileSync(join(included, 'toys.yaml'), TOYS)
+  writeFileSync(join(included, 'toys.js'), CODE)
   const { page, userDataDir } = await launch({
     env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included },
   })

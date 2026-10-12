@@ -18,6 +18,12 @@ const SHIPPED = import.meta.glob<string>('../../plugins/*.yaml', {
   import: 'default',
   eager: true,
 })
+// The code that comes with them: beside a plugin's file, named as it is. (None yet.)
+const SHIPPED_CODE = import.meta.glob<string>('../../plugins/*.js', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
 const OWN = import.meta.glob<string>('../renderer/src/views/*.yaml', {
   query: '?raw',
   import: 'default',
@@ -53,7 +59,7 @@ export async function plugins(
   const from = JSON.stringify([
     origin,
     lumovi,
-    ...[read.files, read.included ?? []].map((files) =>
+    ...[read.files, read.included ?? [], read.includedCode ?? []].map((files) =>
       files.map(({ name, digest, error }) => [name, digest ?? error]),
     ),
   ])
@@ -68,10 +74,25 @@ export async function plugins(
       ? Object.fromEntries(read.included.map((file) => [file.name, file.text]))
       : {}
   const included = readIncluded({ ...SHIPPED, ...standIns }, OWN)
+  // Their code, by its file's name; the tests' stand-ins' beside theirs.
+  const codes = Object.fromEntries([
+    ...Object.entries(SHIPPED_CODE).map(([path, text]) => [
+      path.slice(path.lastIndexOf('/') + 1),
+      text,
+    ]),
+    ...(LUMOVI_TEST_BUILD && read.includedCode
+      ? read.includedCode.filter((file) => !file.error).map((file) => [file.name, file.text])
+      : []),
+  ])
   // One of Lumovi's own: the bytes of its file are its text as UTF-8 (a test holds that of every
   // one of them, so what a build carries is what `shasum` gives for the file in the repository).
-  const known = knownPlugins(included, read.files, origin, lumovi, (text) =>
-    digestOf(utf8.encode(text)),
+  const known = knownPlugins(
+    included,
+    read.files,
+    origin,
+    lumovi,
+    (text) => digestOf(utf8.encode(text)),
+    codes,
   )
   last = { mark, from, known }
   return known

@@ -28,6 +28,8 @@ import {
 } from '@shared/kit/declare'
 import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
+import type { PluginCode } from '@shared/plugin-hand-over'
+import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { openPage, type KitPart, type OpenPage } from './page'
 import { PluginFrame } from './PluginFrame'
@@ -136,7 +138,8 @@ interface Shown {
   plugin: string
   name: string
   version: string
-  code: string
+  /** The test's own code; none, and the plugin's own is taken as Lumovi hands it over. */
+  code?: string
   /** The cluster its reads are made in: none, and each is refused. */
   context?: string
   /** An ending to show without waiting for it to happen (for a picture of each). */
@@ -173,13 +176,64 @@ function Stage({ shown }: { shown: Shown }) {
   )
 }
 
-/** The page, opened once for as long as this is shown: opening it again makes this anew. */
+/**
+ * The page, opened once for as long as this is shown: opening it again makes this anew. With the
+ * test's own code, as it's given; without, the plugin's code as Lumovi hands it over (or why
+ * not), which is the only way a page outside the tests is ever given any.
+ */
 function Opened({ shown, onAgain }: { shown: Shown; onAgain: () => void }): ReactNode {
+  const [handed, setHanded] = useState<PluginCode | undefined>(() =>
+    shown.code === undefined
+      ? undefined
+      : { ok: true, code: shown.code, digest: '', codeDigest: '' },
+  )
+  useEffect(() => {
+    if (shown.code !== undefined) return
+    let here = true
+    void api.kube.pluginCode(shown.plugin).then((answer) => here && setHanded(answer))
+    return () => void (here = false)
+  }, [shown])
+  if (handed === undefined) return null
+  if (!handed.ok) {
+    return (
+      <PluginFrame
+        name={shown.name}
+        version={shown.version}
+        end={{ why: 'not-handed', refused: handed.refused }}
+        onAgain={onAgain}
+        onFault={() => undefined}
+      >
+        {null}
+      </PluginFrame>
+    )
+  }
+  return (
+    <Running
+      shown={shown}
+      code={handed.code}
+      handed={shown.code === undefined ? handed : undefined}
+      onAgain={onAgain}
+    />
+  )
+}
+
+function Running({
+  shown,
+  code,
+  handed,
+  onAgain,
+}: {
+  shown: Shown
+  code: string
+  handed?: { digest: string; codeDigest: string }
+  onAgain: () => void
+}): ReactNode {
   const [page] = useState<OpenPage>(() =>
     openPage({
       plugin: shown.plugin,
       context: shown.context ?? '',
-      code: shown.code,
+      code,
+      ...(handed ? { handed: { digest: handed.digest, codeDigest: handed.codeDigest } } : {}),
       parts: PARTS,
     }),
   )

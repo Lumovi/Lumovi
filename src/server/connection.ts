@@ -135,6 +135,8 @@ export interface ConnectionOptions {
   hosted: Hosted
   config: ServerConfig
   identity: Identity
+  /** Whether the second wall holds for this page's session: what a plugin's hand-over asks. */
+  held: boolean
   version: string
   env: NodeJS.ProcessEnv
   /** The audit log; who the page's person is to it (and where from); whether they read everyone's. */
@@ -203,6 +205,7 @@ export class PageConnection {
       hosted,
       config,
       identity,
+      held,
       version,
       env,
       rejected,
@@ -328,6 +331,9 @@ export class PageConnection {
       pluginsDirectory: { path: config.pluginsDir, shown: config.pluginsDir },
       knownPlugins: () =>
         plugins({ path: config.pluginsDir, shown: config.pluginsDir }, 'server', version),
+      // (No browser has passed the box's check yet: there is none. So a server hands no one a
+      // plugin's code, whatever else holds.)
+      handOverTo: () => ({ host: 'server', held, checked: false }),
       audit: recording,
     })
     const auditing = auditHandlers(

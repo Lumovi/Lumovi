@@ -7,6 +7,7 @@
  * every character that can't be seen spelled out, so it can't pass for a sentence of Lumovi's.
  */
 import { shortInPieces, type Piece } from './kit/characters'
+import { notHandedWhy, type NotHanded } from './plugin-hand-over'
 import { whose } from './plugins'
 
 /** Every way a plugin's page ends. */
@@ -28,6 +29,10 @@ export type PageEnd =
    * plugin's surface says this; nothing a plugin sends can, or it could have Lumovi blame itself.
    */
   | { why: 'drawing' }
+  /** Its code wasn't handed to this page, and why (`mayHandOver`): it never started. */
+  | { why: 'not-handed'; refused: NotHanded }
+  /** Its file or its code changed since the page was handed them. */
+  | { why: 'changed' }
 
 export interface EndedWords {
   title: string
@@ -48,7 +53,10 @@ const STILL =
 const ADVICE =
   'On a very large cluster a page can need more than a plugin is allowed. If it happens again, tell the plugin’s author.'
 
-const WHY: Record<Exclude<PageEnd['why'], 'failed' | 'no-box' | 'drawing'>, string> = {
+const WHY: Record<
+  Exclude<PageEnd['why'], 'failed' | 'no-box' | 'drawing' | 'not-handed' | 'changed'>,
+  string
+> = {
   memory: 'It was using more memory than a plugin may.',
   processor: 'Over the last half minute it used more than half of a processor core.',
   shared: 'It wasn’t running apart from the rest, as a plugin must.',
@@ -59,6 +67,29 @@ const WHY: Record<Exclude<PageEnd['why'], 'failed' | 'no-box' | 'drawing'>, stri
 
 /** What stands in the place of the page of the plugin shown as `name`, ended by `end`. */
 export function endedWords(name: string, end: PageEnd): EndedWords {
+  if (end.why === 'not-handed') {
+    // (As the place says of a plugin taken away while its page was open.)
+    if (end.refused === 'not-in-use') {
+      return {
+        title: `${name} isn’t in use any more.`,
+        still: 'The rest of Lumovi is as it was.',
+        again: false,
+      }
+    }
+    return {
+      title: `${whose(name)} page couldn’t start.`,
+      why: notHandedWhy(end.refused),
+      still: 'The rest of Lumovi is as it was.',
+      again: false,
+    }
+  }
+  if (end.why === 'changed') {
+    return {
+      title: `${name} changed since its page was opened.`,
+      still: 'The rest of Lumovi is as it was.',
+      again: true,
+    }
+  }
   if (end.why === 'no-box') {
     return {
       title: `${whose(name)} page couldn’t start.`,

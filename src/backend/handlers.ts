@@ -41,6 +41,7 @@ import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from './settings'
 import { readPlugins } from './plugins'
+import { pluginCodes, type HandOverTo } from './plugin-code'
 import { pluginReads, secretsAskedFor } from './plugin-reads'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
@@ -59,6 +60,8 @@ export interface Backend {
   pluginsDirectory: { path: string; shown: string }
   /** The plugins in use, as the backend reads them now (`plugins` in `./plugins-known`). */
   knownPlugins: () => Promise<readonly Readonly<KnownPlugin>[]>
+  /** Where the page is, for the hand-over: a desktop window, or a server's browser and its walls. */
+  handOverTo: () => HandOverTo
   /** The audit log, as the page's person records to it. */
   audit: Recorder
 }
@@ -81,6 +84,7 @@ export function handlers({
   files,
   pluginsDirectory,
   knownPlugins,
+  handOverTo,
   audit,
 }: Backend): Handlers {
   /** Recorded once it's done, as it came out: but not what was only tried (a dry run). */
@@ -279,6 +283,10 @@ export function handlers({
         return result
       },
       [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit }),
+      ...(() => {
+        const codes = pluginCodes({ known: knownPlugins, to: handOverTo, audit })
+        return { [IPC.pluginCode]: codes.code, [IPC.pluginHandOver]: codes.whether }
+      })(),
       [IPC.metrics]: (query) => kube.metrics(query),
       [IPC.change]: recorded(async (request: ChangeRequest) => {
         const result = await kube.change(request)

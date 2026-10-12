@@ -576,6 +576,13 @@ export interface PluginReadQuery {
   context: string
   /** The plugin whose page asks, by its name: what else it is, the backend knows. */
   plugin: string
+  /**
+   * What the page's code was handed with (`PluginCode`): its file's digest and its code's. A
+   * read is made only for the plugin as the backend has it now, so a grant is never applied to
+   * code it wasn't read with.
+   */
+  digest: string
+  codeDigest: string
   /** As the plugin asked: `group/Kind`. What it names is the backend's to find. */
   kind: string
   namespace?: string
@@ -628,6 +635,8 @@ export type ReadRefusal =
   | 'failed'
   /** A read Lumovi doesn't make for a plugin yet: an object's events, or its usage. */
   | 'not-yet'
+  /** The plugin's file or code isn't what the page was handed with: it changed since. */
+  | 'changed'
 
 /** What a plugin's code is told, with the code, of a read that wasn't made. */
 export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
@@ -642,6 +651,7 @@ export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
   unreachable: 'The cluster didn’t answer.',
   failed: 'Lumovi couldn’t read this.',
   'not-yet': 'Lumovi doesn’t read this for a plugin yet.',
+  changed: 'This plugin changed since its page was opened.',
 }
 
 /** What a read for a plugin comes to. */
@@ -655,7 +665,9 @@ export type PluginRead =
 export function readQuery(value: unknown): PluginReadQuery | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const q = value as Record<string, unknown>
-  if (!has(q, 'context', 'plugin', 'kind', 'namespace', 'name')) return undefined
+  if (!has(q, 'context', 'plugin', 'digest', 'codeDigest', 'kind', 'namespace', 'name')) {
+    return undefined
+  }
   const optional = (key: string) => (Object.hasOwn(q, key) ? q[key] : undefined)
   const { namespace, name } = { namespace: optional('namespace'), name: optional('name') }
   const fine =
@@ -663,6 +675,10 @@ export function readQuery(value: unknown): PluginReadQuery | undefined {
     q.context !== '' &&
     typeof q.plugin === 'string' &&
     q.plugin !== '' &&
+    typeof q.digest === 'string' &&
+    DIGEST.test(q.digest) &&
+    typeof q.codeDigest === 'string' &&
+    DIGEST.test(q.codeDigest) &&
     typeof q.kind === 'string' &&
     KIND.test(q.kind) &&
     (namespace === undefined || (typeof namespace === 'string' && NAME.test(namespace))) &&
@@ -671,11 +687,16 @@ export function readQuery(value: unknown): PluginReadQuery | undefined {
   return {
     context: q.context as string,
     plugin: q.plugin as string,
+    digest: q.digest as string,
+    codeDigest: q.codeDigest as string,
     kind: q.kind as string,
     ...(namespace === undefined ? {} : { namespace: namespace as string }),
     ...(name === undefined ? {} : { name: name as string }),
   }
 }
+
+/** A digest, as the backend makes them: `sha256:` and the hex. */
+const DIGEST = /^sha256:[0-9a-f]{64}$/
 
 /** `group/Kind` as its two halves. */
 export function kindAsked(kind: string): { group: string; kind: string } {

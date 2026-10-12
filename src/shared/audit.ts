@@ -53,8 +53,9 @@ export const AUDIT_ACTIONS = {
   'files.download': 'access',
   'secret.read': 'access',
   'helm.values.read': 'access',
-  // What a plugin's page was handed, read as the person.
+  // What a plugin's page was handed, read as the person; and which code it ran.
   'plugin.read': 'access',
+  'plugin.code': 'access',
   // Signing in to a server, and out.
   'session.sign-in': 'sign-in',
   'session.sign-out': 'sign-in',

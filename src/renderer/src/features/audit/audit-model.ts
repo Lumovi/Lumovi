@@ -237,6 +237,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'secret.read': { label: 'Read a Secret', icon: KeyRound },
   'helm.values.read': { label: 'Read a release’s values', icon: KeyRound },
   'plugin.read': { label: 'Read for a plugin’s page', icon: Plug },
+  'plugin.code': { label: 'Handed a plugin’s code', icon: Plug },
   'session.sign-in': { label: 'Signed in', icon: LogIn },
   'session.sign-out': { label: 'Signed out', icon: LogOut },
   'session.expired': { label: 'Session ended', icon: TimerOff },

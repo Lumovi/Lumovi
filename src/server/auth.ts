@@ -51,7 +51,15 @@ type Started = PendingSignIn & { expires: number }
  * didn't say it came from Lumovi's own page (`unsaid`), or nobody.
  */
 export type Caller =
-  { identity: Identity; session?: string } | { refused: true } | { unsaid: true } | undefined
+  | {
+      identity: Identity
+      session?: string
+      /** Whether the second wall holds for it: what the hand-over of a plugin's code asks. */
+      held: boolean
+    }
+  | { refused: true }
+  | { unsaid: true }
+  | undefined
 
 /** What a request refused by the second wall is told: the header, and nothing else of it. */
 export const UNSAID =
@@ -185,7 +193,9 @@ export class Auth {
         .map((group) => group.trim())
         .filter(Boolean)
       const user = { name, groups }
-      return this.hosted.refuses(user) ? { refused: true } : { identity: { user } }
+      return this.hosted.refuses(user)
+        ? { refused: true }
+        : { identity: { user }, held: this.secondWall(undefined) === 'held' }
     }
     const cookie = cookies(req)[SESSION_COOKIE]
     // (As it's kept, nothing done to it. An expired session isn't there: its timer ended it, as
@@ -207,7 +217,13 @@ export class Auth {
     const session = this.sessions.get(cookie)
     // Back after a restart: what renews its token (single sign-on) starts again.
     if (session?.resumed) this.#keepFresh(session.id)
-    return session && { identity: session.identity, session: session.id }
+    return (
+      session && {
+        identity: session.identity,
+        session: session.id,
+        held: this.secondWall(session) === 'held',
+      }
+    )
   }
 
   /** `GET api/session`: who is signed in, or how to sign in. */
