@@ -93,6 +93,11 @@ jobs:
           helm template lumovi charts/lumovi --show-only templates/deployment.yaml \
             | grep -A1 LUMOVI_SEC_FETCH_SITE | grep -q '"on"'
           (! helm template lumovi charts/lumovi --set auth.secFetchSite=maybe 2>/dev/null)
+          # Behind a proxy, held only where its operator says it passes the header through.
+          helm template lumovi charts/lumovi --set auth.mode=proxy --set auth.proxy.secFetchSite=on \
+            --set 'networkPolicy.from[0].podSelector.matchLabels.app=sign-in-proxy' \
+            --show-only templates/deployment.yaml | grep -A1 LUMOVI_PROXY_SEC_FETCH_SITE | grep -q '"on"'
+          (! helm template lumovi charts/lumovi --set auth.proxy.secFetchSite=on 2>/dev/null)
           # Behind a proxy, only the proxy reaches Lumovi: without saying which pods it is, refused;
           # with them, a NetworkPolicy lets them alone in, whether networkPolicy.enabled says so.
           (! helm template lumovi charts/lumovi --set auth.mode=proxy 2>/dev/null)

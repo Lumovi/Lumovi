@@ -125,6 +125,10 @@ spec:
             - name: LUMOVI_PROXY_SIGN_OUT_URL
               value: {{ . | quote }}
             {{- end }}
+            - name: LUMOVI_PROXY_SEC_FETCH_SITE
+              value: {{ has (toString .Values.auth.proxy.secFetchSite) (list "on" "true") | ternary "on" "off" | quote }}
+            {{- else if has (toString .Values.auth.proxy.secFetchSite) (list "on" "true") }}
+            {{- fail (printf "auth.proxy.secFetchSite is for auth.mode proxy; with %s the header is always checked." .Values.auth.mode) }}
             {{- end }}
             {{- with .Values.auth.usernamePrefix }}
             - name: LUMOVI_USERNAME_PREFIX

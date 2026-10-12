@@ -69,6 +69,8 @@ export class Auth {
   readonly #finished = new Map<string, number>()
   /** Sessions whose browser stopped saying where requests come from: said once each. */
   readonly #stopped = new WeakSet<object>()
+  /** Those behind the sign-in proxy whose requests stopped saying where they come from, said once. */
+  readonly #stoppedBehindProxy = new Set<string>()
 
   constructor(
     private readonly config: ServerConfig,
@@ -79,6 +81,11 @@ export class Auth {
   ) {
     this.#window = setInterval(() => this.#sayUnrecorded(), FAILED_WINDOW_MS)
     this.#window.unref()
+    if (config.auth.mode === 'proxy' && this.secondWall(undefined) === 'not-held') {
+      log(
+        'Plugins that run code aren’t offered: this server’s proxy isn’t said to pass Sec-Fetch-Site through (LUMOVI_PROXY_SEC_FETCH_SITE).',
+      )
+    }
   }
 
   /** As the server stops: what was only counted, said. */
@@ -136,12 +143,17 @@ export class Auth {
   /**
    * The second wall, for a session: `held`, where every request it carries must say it comes
    * from Lumovi's own page; or `not-held`, an old browser's (it said nothing of where its sign-in
-   * came from), any session's with LUMOVI_SEC_FETCH_SITE off, and anyone's behind a sign-in proxy
-   * (no sign-in here to note). Asked by the rule (`identify`) and by whatever hands a plugin's
-   * code over, the one never without the other: nothing `not-held` is given a plugin's code.
+   * came from), and any session's with LUMOVI_SEC_FETCH_SITE off. Behind a sign-in proxy there's
+   * no sign-in here to note: everyone's held where its operator says it passes the header through
+   * (LUMOVI_PROXY_SEC_FETCH_SITE), and no one's otherwise. The one place this is decided: asked by
+   * the rule (`identify`) and by whatever hands a plugin's code over, the one never without the
+   * other: nothing `not-held` is given a plugin's code.
    */
   secondWall(session: Pick<StoredSession, 'saysWhereFrom'> | undefined): 'held' | 'not-held' {
-    if (this.config.auth.mode === 'proxy' || this.config.fetchSite === 'off') return 'not-held'
+    if (this.config.fetchSite === 'off') return 'not-held'
+    if (this.config.auth.mode === 'proxy') {
+      return this.config.auth.passesFetchSite ? 'held' : 'not-held'
+    }
     return session?.saysWhereFrom ? 'held' : 'not-held'
   }
 
@@ -156,6 +168,18 @@ export class Auth {
     if (auth.mode === 'proxy') {
       const name = req.headers[auth.userHeader]
       if (typeof name !== 'string' || name === '') return undefined
+      // Held: each request on its own, as the proxy passes it on; one that says nothing of where
+      // it comes from is refused, never let through.
+      const site = req.headers['sec-fetch-site']
+      if (!socket && this.secondWall(undefined) === 'held' && site !== 'same-origin') {
+        if (site === undefined && !this.#stoppedBehindProxy.has(name)) {
+          this.#stoppedBehindProxy.add(name)
+          log(
+            `A request of ${name}’s came through the sign-in proxy without Sec-Fetch-Site, and was refused: the browser is too old to send it, or the proxy doesn’t pass it on. See LUMOVI_PROXY_SEC_FETCH_SITE.`,
+          )
+        }
+        return { unsaid: true }
+      }
       const groups = String(req.headers[auth.groupsHeader] ?? '')
         .split(',')
         .map((group) => group.trim())

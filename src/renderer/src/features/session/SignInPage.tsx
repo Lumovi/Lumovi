@@ -1,4 +1,13 @@
-import { CircleAlert, Info, KeyRound, LogIn, RotateCw, ServerOff, UserX } from 'lucide-react'
+import {
+  CircleAlert,
+  Info,
+  KeyRound,
+  LogIn,
+  RotateCw,
+  ServerOff,
+  ShieldAlert,
+  UserX,
+} from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { REPO_URL } from '@shared/app'
 import type { SignInProblem } from '@shared/server'
@@ -139,9 +148,12 @@ export function SignInPage({
       signIn.problem ??
       (signIn.ended && (signIn.ended === 'expired' ? 'expired-session' : 'signed-out')),
   )
+  // Behind a proxy, a request this browser sent without saying where it came from: said in the
+  // proxy's own card, in place of what it says when the proxy named nobody.
+  const proxyRefused = signIn.auth === 'proxy' && notice === 'browser'
   return (
     <Frame title={signIn.auth === 'proxy' ? undefined : 'Sign in to Lumovi'}>
-      {notice && <NoticeBar notice={notice} />}
+      {notice && !proxyRefused && <NoticeBar notice={notice} />}
       {signIn.unkept && <NoticeBar notice={{ text: signIn.unkept, problem: true }} />}
       {signIn.auth === 'token' && <TokenForm />}
       {signIn.auth === 'oidc' && (
@@ -159,7 +171,24 @@ export function SignInPage({
           </p>
         </div>
       )}
-      {signIn.auth === 'proxy' && (
+      {proxyRefused && (
+        <div role="alert" className={cn(card, 'flex flex-col items-center text-center')}>
+          <ShieldAlert className="mb-3 size-6 text-warn-text" />
+          <h2 className="text-[14px] font-semibold text-ink-1">
+            Lumovi refused a request from this browser
+          </h2>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
+            It didn’t say it came from Lumovi’s own page (the{' '}
+            <span className="font-mono text-xs whitespace-nowrap">Sec-Fetch-Site</span> header):
+            this browser may be too old to send it, or the sign-in proxy may not pass it on. If
+            trying again doesn’t help, ask whoever runs Lumovi.
+          </p>
+          <Button className="mt-4" onClick={() => window.location.reload()}>
+            <RotateCw /> Try again
+          </Button>
+        </div>
+      )}
+      {signIn.auth === 'proxy' && !proxyRefused && (
         <div className={cn(card, 'flex flex-col items-center text-center')}>
           <UserX className="mb-3 size-6 text-ink-3" />
           <h2 className="text-[14px] font-semibold text-ink-1">Lumovi doesn’t know who you are</h2>

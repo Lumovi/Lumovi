@@ -127,6 +127,15 @@ auth:
     groupsHeader: X-Forwarded-Groups
     # Where signing out of the proxy is, like https://lumovi.example.com/oauth2/sign_out
     signOutUrl: ''
+    # With auth.mode proxy: whether your proxy passes the browser's Sec-Fetch-Site header through
+    # to Lumovi unchanged. On: every request is checked as with single sign-on, and a request
+    # without the header is refused, so a browser that doesn't send it (Safari before 16.4,
+    # Firefox before 90, Chrome before 76) can't use Lumovi on this server. Off, the default:
+    # Lumovi can't tell a request from its own page from one sent by another page, so plugins
+    # that run code aren't offered on this server. Turn it on only after checking that the header
+    # reaches Lumovi: a proxy that drops it locks everyone out, and one that sets it itself makes
+    # the check mean nothing.
+    secFetchSite: 'off'
 
   # Prefixed to impersonated users' and groups' names, like the API server's
   # --oidc-username-prefix: "oidc:" makes alice@example.com oidc:alice@example.com in RBAC.
