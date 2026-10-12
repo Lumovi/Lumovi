@@ -3,7 +3,7 @@
  * and the list saved as CSV by the browser.
  */
 import { readFileSync } from 'node:fs'
-import { DEMO_TOKEN, expect, test } from './fixtures.ts'
+import { DEMO, DEMO_TOKEN, expect, test } from './fixtures.ts'
 import { expectFingerSized, expectNoSidewaysScroll, PHONE, signInNarrow } from './phone.ts'
 
 test.use({ viewport: PHONE, hasTouch: true, isMobile: true })
@@ -51,4 +51,48 @@ test('columns chosen on a phone: a sheet a finger works, and the cards say the c
   // Nothing's sized on a phone, so nothing doesn't fit: no count on the button.
   await expect(button).toHaveText('')
   await expectNoSidewaysScroll(page, 'a list with chosen columns, on a phone')
+})
+
+test('on a phone, a key not every pod has is a fact only where it is; events lead with their reason', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/pods?namespaces=shop`, DEMO_TOKEN)
+  await page.getByRole('button', { name: 'Columns', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Columns' })
+  await sheet.getByPlaceholder('Label or annotation key').fill('prometheus.io/port')
+  await sheet.getByRole('option', { name: /^prometheus\.io\/port\b/ }).click()
+  await sheet.getByRole('button', { name: 'Close' }).click()
+  const card = (name: string) =>
+    page.getByRole('list', { name: 'Pods' }).getByRole('listitem').filter({ hasText: name })
+  await expect(card(DEMO.pods.storefront[0]!)).toContainText('9901')
+  await expect(card(DEMO.pods.checkout[0]!)).toBeVisible()
+  await expect(card(DEMO.pods.checkout[0]!)).not.toContainText('9901')
+
+  // An event's name is a hash: its card leads with its reason.
+  await page.goto(`${served.url}cluster/demo/events?namespaces=shop`)
+  const event = page.getByRole('list', { name: 'Events' }).getByRole('listitem').first()
+  await expect(event).toContainText(/BackOff|Pulled|Scheduled|Started|Created|Killing/)
+  await expect(event).not.toContainText(/\.[0-9a-f]{16}/)
+})
+
+test('on a phone, a custom resource is sorted by a column of its CRD’s, named as the cluster names it', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(
+    page,
+    `${served.url}cluster/demo/r/Certificate.cert-manager.io?namespaces=shop`,
+    DEMO_TOKEN,
+  )
+  await expect(page.getByRole('list', { name: 'Certificates' }).getByRole('listitem')).toHaveCount(
+    3,
+  )
+  await page.getByRole('button', { name: /^Sort/ }).click()
+  const sheet = page.getByRole('dialog', { name: 'Sort by' })
+  await sheet.getByRole('option', { name: 'Secret' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Sort: by Secret' })).toBeVisible()
 })

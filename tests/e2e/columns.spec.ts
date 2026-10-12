@@ -103,6 +103,9 @@ async function choices(page: Page) {
   )
 }
 
+/** kubectl's record of what was applied: an annotation no column is made of. */
+const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
+
 /** The shop's pods, as the cluster lists them. */
 const SHOP_PODS = demoCluster().objects.filter(
   (o) => o.kind === 'Pod' && o.metadata.namespace === 'shop',
@@ -719,4 +722,333 @@ test('a column the cluster says is a number writes a number as it is; text is te
   expect(cell('worded', 'Note')).toBe('plain')
   // What isn't a number in a number's column the cluster sends as nothing: empty, never NaN.
   expect(cell('worded', 'Count')).toBe('')
+})
+
+test('a column is dragged to its place in the menu: never above the name, and let go of, it isn’t clicked', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await go(page, '#/cluster/demo/pods?namespaces=shop')
+  await expect(rows(page, 'Pods').first()).toBeVisible()
+  await button(page).click()
+  const item = (name: string) =>
+    menu(page)
+      .getByRole('listitem')
+      .filter({ has: page.getByRole('checkbox', { name: new RegExp(`^${escaped(name)}`) }) })
+  const middle = async (name: string) => {
+    const at = (await item(name).boundingBox())!
+    return { x: at.x + at.width / 2, y: at.y + at.height / 2, top: at.y, bottom: at.y + at.height }
+  }
+  const drag = async (name: string, toY: number) => {
+    const from = await middle(name)
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    // (A press that hardly moves is no drag yet.)
+    await page.mouse.move(from.x, from.y - 2)
+    await page.mouse.move(from.x, toY, { steps: 8 })
+  }
+  // Up the list, above Status: a line says where it lands.
+  await drag('Node', (await middle('Status')).top + 2)
+  await expect(menu(page).locator('li[aria-hidden].bg-accent')).toHaveCount(1)
+  await page.mouse.up()
+  expect((await choices(page)).slice(0, 3)).toEqual(['Name', 'Node', 'Status'])
+  expect((await headings(page)).slice(0, 3)).toEqual(['Name', 'Node', 'Status'])
+  // Let go of, it's still shown: the drag was no click.
+  await expect(box(page, 'Node')).toHaveAttribute('aria-checked', 'true')
+  // Past the last: it's last.
+  await drag('Status', (await middle('Age')).bottom + 10)
+  await expect(menu(page).locator('li[aria-hidden].bg-accent')).toHaveCount(1)
+  await page.mouse.up()
+  expect((await choices(page)).at(-1)).toBe('Status')
+  // Above the name: it lands after it.
+  await drag('Age', (await middle('Name')).top + 1)
+  await page.mouse.up()
+  expect((await choices(page)).slice(0, 2)).toEqual(['Name', 'Age'])
+  // Dragged and let go of where it was: nothing moves.
+  const before = await choices(page)
+  await drag('Ready', (await middle('Ready')).y + 6)
+  await page.mouse.up()
+  expect(await choices(page)).toEqual(before)
+})
+
+test('a list without names keeps one column at least, and its first moves like the rest', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await go(page, '#/cluster/demo/events?namespaces=shop')
+  const events = page.getByRole('grid', { name: 'Events' })
+  await expect(events.getByRole('row').nth(1)).toBeVisible()
+  await button(page).click()
+  const all = await choices(page)
+  expect(all[0]).toBe('Type')
+  // Its first isn't held there: ⌥↓ moves it.
+  await expect(box(page, 'Type')).toBeFocused()
+  await page.keyboard.press('Alt+ArrowDown')
+  expect((await choices(page)).slice(0, 2)).toEqual([all[1], 'Type'])
+  // Hidden down to one, that one stays.
+  const shown = async () =>
+    (await events.getByRole('columnheader').allTextContents()).filter(Boolean)
+  for (const name of all.filter((each) => each !== 'Reason')) await box(page, name).click()
+  await expect.poll(shown).toEqual(['Reason'])
+  await box(page, 'Reason').click()
+  await expect(box(page, 'Reason')).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(shown).toEqual(['Reason'])
+  // One shown again.
+  await box(page, 'Message').click()
+  await expect(box(page, 'Message')).toHaveAttribute('aria-checked', 'true')
+  await expect(events.getByRole('columnheader', { name: 'Message' })).toHaveCount(1)
+})
+
+test('the keys offered: the most common first, alike by name, never kubectl’s own; the keyboard moves through them', async ({
+  page,
+  clusters,
+}) => {
+  clusters.demo.upsert(shopPod('applied-1', { [LAST_APPLIED]: '{}' }))
+  clusters.demo.upsert(shopPod('scraped-1', { 'prometheus.io/scrape': 'true' }))
+  await openCluster(page)
+  await go(page, '#/cluster/demo/pods?namespaces=shop')
+  await expect(rows(page, 'Pods').first()).toBeVisible()
+  await button(page).click()
+  // Every pod has these three: by name.
+  await field(page).fill('app.kubernetes.io/')
+  await expect(menu(page).getByRole('group', { name: 'Labels' }).getByRole('option')).toHaveText([
+    /^app\.kubernetes\.io\/component/,
+    /^app\.kubernetes\.io\/name/,
+    /^app\.kubernetes\.io\/part-of/,
+  ])
+  // Four have this one, three that: the most common first.
+  await field(page).fill('prometheus')
+  const offered = menu(page).getByRole('group', { name: 'Annotations' }).getByRole('option')
+  await expect(offered).toHaveText([/^prometheus\.io\/scrape/, /^prometheus\.io\/port/])
+  // ↑ from the first goes round to the last.
+  await expect(offered.first()).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('ArrowUp')
+  await expect(offered.last()).toHaveAttribute('aria-selected', 'true')
+  // kubectl's own record of what was applied is no column anyone wants: not offered.
+  await field(page).fill('kubectl')
+  await expect(menu(page).getByRole('option')).toHaveText([
+    'Add label “kubectl”',
+    'Add annotation “kubectl”',
+  ])
+  // A key has no spaces: nothing's offered, and the keys do nothing.
+  const before = await choices(page)
+  await field(page).fill('two words')
+  await expect(menu(page).getByRole('option')).toHaveCount(0)
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  expect(await choices(page)).toEqual(before)
+  // One added twice is one column.
+  for (let i = 0; i < 2; i++) {
+    await field(page).fill('team.example.com/owner')
+    await menu(page)
+      .getByRole('option', { name: 'Add annotation “team.example.com/owner”' })
+      .click()
+  }
+  await expect(header(page, 'owner')).toHaveCount(1)
+})
+
+test('a key not every pod has: a dash where it isn’t, copied as one, and sorted first', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await go(page, '#/cluster/demo/pods?namespaces=shop')
+  await expect(rows(page, 'Pods').first()).toBeVisible()
+  await button(page).click()
+  await field(page).fill('prometheus.io/scrape')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
+  await expect(header(page, 'scrape')).toHaveCount(1)
+  // Sorted by it: the pods without it first, then the storefront's.
+  await header(page, 'scrape').getByRole('button').click()
+  await expect(rows(page, 'Pods').first()).not.toContainText('storefront')
+  await expect(rows(page, 'Pods').last()).toContainText('storefront')
+  // One picked and copied: a dash where it has none.
+  await row(page, 'Pods', DEMO.pods.checkout[0]!).getByRole('checkbox').click()
+  await page
+    .getByRole('toolbar', { name: 'Selected rows' })
+    .getByRole('button', { name: 'Copy' })
+    .click()
+  await expect(toasts(page)).toContainText('Copied 1 row')
+  // (The added column is the last.)
+  const [, line] = (await clipboardText(page)).split('\n').map((each) => each.split('\t'))
+  expect(line!.at(-1)).toBe('—')
+})
+
+test('a key none of the listed objects has is said for none listed, the one listed, and all of them', async ({
+  page,
+  clusters,
+}) => {
+  const web = structuredClone(clusters.demo.object('Deployment', 'shop', 'storefront')!)
+  web.metadata = { ...web.metadata, name: 'legacy-web', namespace: 'legacy', uid: undefined }
+  clusters.demo.upsert(web)
+  await openCluster(page)
+  const said = async (to: string, words: string) => {
+    await go(page, to)
+    await button(page).click()
+    await field(page).fill('team.example.com/owner')
+    await expect(menu(page)).toContainText(words)
+    await page.keyboard.press('Escape')
+    await expect(menu(page)).toHaveCount(0)
+  }
+  await said(
+    '#/cluster/demo/pods?namespaces=argocd',
+    'No pods are listed here yet, so the column will be empty until some are.',
+  )
+  await said(
+    '#/cluster/demo/workloads?namespaces=legacy',
+    'The one workload listed doesn’t have it yet.',
+  )
+  await said('#/cluster/demo/workloads?namespaces=shop', 'None of the 4 workloads has it yet.')
+})
+
+test('a heading’s edge pressed with another button sizes nothing; a release sorted by a column hidden since is sorted by name', async ({
+  lumovi,
+}) => {
+  const { page, app } = lumovi
+  await openCluster(page)
+  await go(page, '#/cluster/demo/pods?namespaces=shop')
+  await expect(rows(page, 'Pods').first()).toBeVisible()
+  const own = await width(page, 'Restarts')
+  const edge = header(page, 'Restarts').locator('.cursor-col-resize')
+  const at = (await edge.boundingBox())!
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2)
+  await page.mouse.down({ button: 'right' })
+  await page.mouse.move(at.x + at.width / 2 + 40, at.y + at.height / 2)
+  await page.mouse.up({ button: 'right' })
+  await page.keyboard.press('Escape')
+  expect(await width(page, 'Restarts')).toBe(own)
+
+  // Helm's releases: sorted by the chart, which is then hidden, they're sorted by name.
+  await go(page, '#/cluster/demo/helm')
+  const releases = page.getByRole('grid', { name: 'Helm releases' })
+  await releases.getByRole('button', { name: 'Chart' }).click()
+  await expect(releases.getByRole('columnheader', { name: 'Chart' })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  )
+  await releases.getByRole('columnheader', { name: 'Chart' }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Hide this column' }).click()
+  await expect(releases.getByRole('columnheader', { name: 'Name' })).toHaveAttribute(
+    'aria-sort',
+    'ascending',
+  )
+  // Saved as CSV, named for the releases and the cluster.
+  const offered = await saveAs(app, join(mkdtempSync(join(tmpdir(), 'lumovi-csv-')), 'r.csv'))
+  await button(page).click()
+  await menu(page).getByRole('button', { name: 'Download CSV' }).click()
+  await expect(toasts(page)).toContainText('Saved r.csv')
+  expect(await offered()).toEqual([
+    expect.stringMatching(new RegExp(`releases-\\S+-${today()}\\.csv$`)),
+  ])
+})
+
+/** A CSV line's fields: a quoted one may hold commas, and "" for a quote. */
+function fieldsOf(line: string): string[] {
+  const fields: string[] = []
+  let at = 0
+  while (at <= line.length) {
+    if (line[at] === '"') {
+      let text = ''
+      let from = at + 1
+      for (;;) {
+        const quote = line.indexOf('"', from)
+        text += line.slice(from, quote)
+        if (line[quote + 1] !== '"') {
+          at = quote + 2
+          break
+        }
+        text += '"'
+        from = quote + 2
+      }
+      fields.push(text)
+    } else {
+      const comma = line.indexOf(',', at)
+      const end = comma === -1 ? line.length : comma
+      fields.push(line.slice(at, end))
+      at = end + 1
+    }
+  }
+  return fields
+}
+
+/** A plugin of one view, of widgets: a column of when each is due. */
+const DUE = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata:
+  name: widget-due
+spec:
+  version: 1.0.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  views:
+    - name: widgets
+      kinds:
+        - { group: example.com, kind: Widget }
+      columns:
+        - { name: Due, path: '.spec.due', type: date }
+`
+
+test('Download CSV: a time in UTC, nothing where there’s none, a share of what a node can allocate', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page, app, userDataDir } = lumovi
+  // A node with no metrics yet.
+  const node = structuredClone(clusters.demo.object('Node', undefined, 'worker-3')!)
+  node.metadata = { ...node.metadata, name: 'worker-9', uid: undefined }
+  clusters.demo.upsert(node)
+  // Widgets due at a time, at no time anyone wrote as one, and at none.
+  for (const [name, due] of [
+    ['due-at', '2026-10-01T10:00:00.000Z'],
+    ['due-soon', 'soon'],
+    ['due-never', undefined],
+  ] as const) {
+    const widget = structuredClone(
+      clusters.demo.object('Widget.example.com', 'default', CUSTOM.widget)!,
+    )
+    widget.metadata = { ...widget.metadata, name, uid: undefined }
+    widget.spec = { ...(widget.spec as object), ...(due ? { due } : {}) }
+    clusters.demo.upsert(widget)
+  }
+  mkdirSync(join(userDataDir, 'plugins'), { recursive: true })
+  writeFileSync(join(userDataDir, 'plugins', 'widget-due.yaml'), DUE)
+  await openCluster(page)
+  /** The list's CSV, by its rows' names and its headings. */
+  const csv = async (file: string) => {
+    const path = join(mkdtempSync(join(tmpdir(), 'lumovi-csv-')), file)
+    await saveAs(app, path)
+    await button(page).click()
+    await menu(page).getByRole('button', { name: 'Download CSV' }).click()
+    await expect(toasts(page).getByText(`Saved ${file}`)).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    const lines = readFileSync(path, 'utf8').slice(1).split('\r\n').map(fieldsOf)
+    const heads = lines[0]!
+    return (name: string, column: string) =>
+      lines.find((line) => line[0] === name)![heads.indexOf(column)]
+  }
+  const UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/
+
+  // CronJobs: the next run in UTC, none for a suspended one; no last run for one never run.
+  await go(page, '#/cluster/demo/cronjobs?namespaces=batch')
+  await expect(rows(page, 'CronJobs').first()).toBeVisible()
+  const cron = await csv('cronjobs.csv')
+  expect(cron('nightly-report', 'Next run')).toMatch(UTC)
+  expect(cron('nightly-report', 'Last run')).toMatch(UTC)
+  expect(cron('cleanup', 'Next run')).toBe('')
+  expect(cron('quarterly-audit', 'Last run')).toBe('')
+
+  // Nodes: a share of what's allocatable, and none without metrics.
+  await go(page, '#/cluster/demo/nodes')
+  await expect(rows(page, 'Nodes').first()).toBeVisible()
+  const nodes = await csv('nodes.csv')
+  expect(nodes('worker-1', 'CPU (% of allocatable)')).toMatch(/^\d+\.\d$/)
+  expect(nodes('worker-9', 'CPU (% of allocatable)')).toBe('')
+
+  // A view's time: in UTC; one that isn't a time, as written; none, nothing.
+  await go(page, '#/cluster/demo/r/Widget.example.com?namespaces=default')
+  await expect(rows(page, 'Widgets').first()).toBeVisible()
+  const widgets = await csv('widgets.csv')
+  expect(widgets('due-at', 'Due')).toBe('2026-10-01T10:00:00Z')
+  expect(widgets('due-soon', 'Due')).toBe('soon')
+  expect(widgets('due-never', 'Due')).toBe('')
 })
