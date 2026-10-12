@@ -13,10 +13,11 @@ import {
   SearchX,
   TriangleAlert,
 } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
 import type { Loaded } from '@shared/plugin-loading'
-import { plain, type Plugin } from '@shared/plugins'
+import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
 import type { ResourceDefinition, ResourceKind } from '@shared/resources'
 import { PluginIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
@@ -26,6 +27,7 @@ import { useResources } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
+import { ASKED_PLUGIN } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 
 /** A line of the list: one of Lumovi's plugins, or a file of the folder. */
@@ -87,7 +89,30 @@ export function PluginsPage() {
   const phone = useLayout() === 'phone'
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
-  const [opened, setOpened] = useState<string>()
+  // The address may name a plugin to open (a link to what it asks for). A name only: anything
+  // that isn't one, or that no plugin here has, opens nothing.
+  const [params, setParams] = useSearchParams()
+  const named = params.get(ASKED_PLUGIN)
+  const asked = named !== null && PLUGIN_NAME.test(named) ? named : undefined
+  // What a person opened or closed by hand, and the name the address had then (`instead`):
+  // their choice holds while the address names none, and gives way when it names another.
+  const [byHand, setByHand] = useState<{ key?: string; instead?: string }>()
+  if (byHand && asked !== byHand.instead) {
+    // The address has moved on since: to no name (the hand's choice is now all there is), or to
+    // another plugin, whose row is the one to open.
+    setByHand(asked === undefined ? { key: byHand.key } : undefined)
+  }
+  // The row the address asked for is brought into view by its own first line (the plugin's
+  // name, not only what it asks under it), once each time the address names one.
+  const broughtIntoView = useRef<string>(undefined)
+  useEffect(() => {
+    if (asked === undefined) broughtIntoView.current = undefined
+  }, [asked])
+  const intoView = (element: HTMLElement | null) => {
+    if (!element || !asked || broughtIntoView.current === asked) return
+    broughtIntoView.current = asked
+    element.scrollIntoView({ block: 'start' })
+  }
 
   if (!plugins) return <Loading label="Reading the plugins…" />
 
@@ -140,6 +165,20 @@ export function PluginsPage() {
     )
   // (Files, as the filter beside it counts them: one that holds no plugin is still theirs.)
   const own = rows.filter((row) => row.origin !== 'lumovi').length
+  // Of two rows with the asked name, the one in use: what the link was about.
+  const askedRow = asked
+    ? (rows.find((row) => row.plugin?.name === asked && inUse(row)) ??
+      rows.find((row) => row.plugin?.name === asked))
+    : undefined
+  const opened = byHand ? byHand.key : askedRow?.key
+  const setOpened = (key: string | undefined) => {
+    setByHand({ key, instead: asked })
+    // (Closed or changed by hand, the address stops naming one: back and reload show the page.)
+    if (named !== null) {
+      params.delete(ASKED_PLUGIN)
+      setParams(params, { replace: true })
+    }
+  }
   const selected = rows.find((row) => row.key === opened)
 
   // On a phone a plugin opens as a page of its own, with a way back.
@@ -253,8 +292,12 @@ export function PluginsPage() {
               {shown.map((row) => (
                 <Fragment key={row.key}>
                   <tr
+                    ref={row.key === askedRow?.key ? intoView : undefined}
                     data-state={row.state}
-                    className={cn('align-top', row.state === 'replaced' && 'text-ink-3')}
+                    className={cn(
+                      'scroll-mt-10 align-top',
+                      row.state === 'replaced' && 'text-ink-3',
+                    )}
                   >
                     <td className="border-b border-line py-3 pr-3 pl-5">
                       <Name

@@ -45,6 +45,14 @@ export function pluginsPath(context: string): string {
   return `${clusterPath(context)}/plugins`
 }
 
+/** What links to a plugin's row on the page of every plugin name it by, in the address. */
+export const ASKED_PLUGIN = 'plugin'
+
+/** The page of every plugin, with this one's row opened: what it asks for. */
+export function pluginAsksPath(context: string, name: string): string {
+  return `${pluginsPath(context)}?${ASKED_PLUGIN}=${encodeURIComponent(name)}`
+}
+
 /** A plugin's page: its kinds, all together and a tab each. */
 export function pluginPath(context: string, name: string): string {
   return `${clusterPath(context)}/plugins/${encodeURIComponent(name)}`
