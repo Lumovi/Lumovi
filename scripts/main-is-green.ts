@@ -1,12 +1,8 @@
 /**
- * A red main stops every merge. A pull request's "CI passed" asks, as it finishes, how CI's
- * newest finished run on main ended, and fails while that one failed: with main's commit, the
- * job that failed there and where to read it. Once main is green again, running that one job
- * again passes it (seconds; .github/workflows/pull-request.yml can't know when, so someone
- * does: `gh run rerun <run> --failed`).
- *
- * The pull request that mends main carries the label `fixes-main` (and says how in its text):
- * it alone may merge while main is red.
+ * A red main is a warning on every pull request, not a stop. A pull request's "CI passed" asks,
+ * as it finishes, how CI's newest finished run on main ended, and while that one failed says so
+ * as a warning: main's commit, the jobs that failed there, and where to read them. It passes all
+ * the same; a pull request fails only for its own jobs.
  *
  * Everything but a pass is red, with one exception: a run somebody cancelled says nothing of the
  * code, and the newest before it is asked. A run whose job ran out of its time is not that,
@@ -14,14 +10,11 @@
  * branch, 2026-10-11): what tells them apart is the job's own annotation, "The job has exceeded
  * the maximum execution time", and a run with one is red. A hang on main must stop the line.
  *
- *   node scripts/main-is-green.ts     (GH_TOKEN, GITHUB_REPOSITORY, PR_NUMBER)
+ *   node scripts/main-is-green.ts     (GH_TOKEN, GITHUB_REPOSITORY)
  *
  * tests/web/ci-changes.spec.ts tries what it makes of main's runs.
  */
 import { execFileSync } from 'node:child_process'
-
-/** The label of the pull request that mends a red main. */
-export const FIXES_MAIN = 'fixes-main'
 
 export interface Run {
   id: number
@@ -46,59 +39,71 @@ export function redOf(runs: Run[]): Run | undefined {
 
 /** What a pull request is told while main is red. */
 export const sentence = (red: Run, failed: string[]) =>
-  `main is red at ${red.sha.slice(0, 7)} (${failed.join(', ') || `its run ended as ${red.conclusion}`}): nothing merges until it’s green again, or this pull request mends it and says so with the label ${FIXES_MAIN}. ${red.url}`
+  `main is red at ${red.sha.slice(0, 7)} (${failed.join(', ') || `its run ended as ${red.conclusion}`}): a warning, not a stop. See that this pull request isn’t why. ${red.url}`
+
+/** What a pull request's "CI passed" says of main's newest runs: a warning while it's red, or nothing. */
+export const warningOf = (runs: Run[], failed: string[]): string | undefined => {
+  const red = redOf(runs)
+  return red && sentence(red, failed)
+}
+
+/** Asks GitHub: `gh api <path> --jq <jq>`, its answer as text. */
+export type Gh = (path: string, jq: string) => string
+
+/**
+ * What a pull request's "CI passed" says of main, asking GitHub with `gh`: a warning while main
+ * is red, or that it's green. Never a failure: where GitHub doesn't answer (an outage, a limit),
+ * that's a warning too, since it says nothing of the pull request either.
+ */
+export function told(gh: Gh, repository: string): string {
+  try {
+    const runs = JSON.parse(
+      gh(
+        `repos/${repository}/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=20`,
+        '[.workflow_runs[] | {id, sha: .head_sha, conclusion, url: .html_url}]',
+      ),
+    ) as Run[]
+    const jobsOf = (run: Run, conclusion: string) =>
+      JSON.parse(
+        gh(
+          `repos/${repository}/actions/runs/${run.id}/jobs?per_page=100`,
+          `[.jobs[] | select(.conclusion == "${conclusion}") | {id, name}]`,
+        ),
+      ) as { id: number; name: string }[]
+    // A cancelled run: cancelled by somebody, or out of time? Asked of the newest runs only, down
+    // to the first that says anything.
+    let outOfTime: string[] = []
+    for (const run of runs) {
+      if (run.conclusion !== 'cancelled') break
+      outOfTime = jobsOf(run, 'cancelled')
+        .filter(({ id }) =>
+          gh(`repos/${repository}/check-runs/${id}/annotations`, '.[].message').includes(
+            OUT_OF_TIME,
+          ),
+        )
+        .map(({ name }) => `${name} ran out of time`)
+      run.ranOutOfTime = outOfTime.length > 0
+      if (run.ranOutOfTime) break
+    }
+    const red = redOf(runs)
+    if (!red) return 'Main is green.'
+    const failed = [
+      ...outOfTime,
+      // (Its own "CI passed" fails with whatever failed: that says nothing more.)
+      ...jobsOf(red, 'failure')
+        .map(({ name }) => name)
+        .filter((name) => name !== 'CI passed'),
+    ]
+    return `::warning::${sentence(red, failed)}`
+  } catch (error) {
+    // (Its first line: a workflow's command is one line.)
+    const said = (error instanceof Error ? error.message : String(error)).split('\n')[0]
+    return `::warning::Lumovi couldn’t read main’s runs: ${said}`
+  }
+}
 
 if (import.meta.main) {
-  const repository = process.env.GITHUB_REPOSITORY!
-  const gh = (path: string, jq: string) =>
-    execFileSync('gh', ['api', path, '--jq', jq], { encoding: 'utf8' })
-  const runs = JSON.parse(
-    gh(
-      `repos/${repository}/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=20`,
-      '[.workflow_runs[] | {id, sha: .head_sha, conclusion, url: .html_url}]',
-    ),
-  ) as Run[]
-  const jobsOf = (run: Run, conclusion: string) =>
-    JSON.parse(
-      gh(
-        `repos/${repository}/actions/runs/${run.id}/jobs?per_page=100`,
-        `[.jobs[] | select(.conclusion == "${conclusion}") | {id, name}]`,
-      ),
-    ) as { id: number; name: string }[]
-  // A cancelled run: cancelled by somebody, or out of time? Asked of the newest runs only, down
-  // to the first that says anything.
-  let outOfTime: string[] = []
-  for (const run of runs) {
-    if (run.conclusion !== 'cancelled') break
-    outOfTime = jobsOf(run, 'cancelled')
-      .filter(({ id }) =>
-        gh(`repos/${repository}/check-runs/${id}/annotations`, '.[].message').includes(OUT_OF_TIME),
-      )
-      .map(({ name }) => `${name} ran out of time`)
-    run.ranOutOfTime = outOfTime.length > 0
-    if (run.ranOutOfTime) break
-  }
-  const red = redOf(runs)
-  if (!red) {
-    console.log('Main is green.')
-    process.exit(0)
-  }
-  const failed = [
-    ...outOfTime,
-    // (Its own "CI passed" fails with whatever failed: that says nothing more.)
-    ...jobsOf(red, 'failure')
-      .map(({ name }) => name)
-      .filter((name) => name !== 'CI passed'),
-  ]
-  const labels = process.env.PR_NUMBER
-    ? gh(`repos/${repository}/issues/${process.env.PR_NUMBER}/labels`, '.[].name').split('\n')
-    : []
-  if (labels.includes(FIXES_MAIN)) {
-    console.log(
-      `Main is red at ${red.sha.slice(0, 7)}, and this pull request mends it (${FIXES_MAIN}).`,
-    )
-    process.exit(0)
-  }
-  console.error(`::error::${sentence(red, failed)}`)
-  process.exit(1)
+  const gh: Gh = (path, jq) => execFileSync('gh', ['api', path, '--jq', jq], { encoding: 'utf8' })
+  // (A warning, and never a failure: the pull request's own jobs are what it's judged by.)
+  console.log(told(gh, process.env.GITHUB_REPOSITORY!))
 }

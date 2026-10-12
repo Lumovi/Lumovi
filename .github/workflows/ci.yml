@@ -616,10 +616,12 @@ jobs:
   # are many, and change with the matrix).
   #
   # A pull request's also says two things that aren't about its own code, both read as they are
-  # when this job runs, so that running this one job again (seconds) is all it takes once they've
-  # changed (.github/workflows/pull-request.yml does that by itself where it can):
-  # - main is green: a red main stops every merge until it's green again (scripts/main-is-green.ts);
-  # - its changelog entry is there, or its text says why none is (scripts/changelog.ts).
+  # when this job runs:
+  # - whether main is red: said as a warning, and never a reason for this job to fail
+  #   (scripts/main-is-green.ts);
+  # - its changelog entry is there, or its text says why none is (scripts/changelog.ts); running
+  #   this one job again (seconds) is all it takes once the text is right
+  #   (.github/workflows/pull-request.yml does that by itself where it can).
   passed:
     name: CI passed
     if: always()
@@ -628,7 +630,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      # Main's newest run, and this pull request's labels and text as they are now.
+      # Main's newest run, and this pull request's text as it is now.
       actions: read
       pull-requests: read
     steps:
@@ -649,11 +651,10 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           node-version-file: .nvmrc
-      - name: Main is green
+      - name: Whether main is red
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: scripts/judge.sh main-is-green.ts
       # (Not a release's own pull request: it gathers the entries, and writes their section.)
       - name: Its changelog entry

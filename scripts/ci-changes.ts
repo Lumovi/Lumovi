@@ -16,8 +16,8 @@
  *
  * Main, a release's pull request (`release-*`) and a run by hand run everything. Main's own run,
  * after each merge, is the one that binds: what a pull request's can't see (something only macOS
- * reached that a change elsewhere stops being reached) shows there, and a red main stops every
- * merge (the workflow's "Main is green").
+ * reached that a change elsewhere stops being reached) shows there, and a red main is a warning
+ * on every pull request (the workflow's "Whether main is red").
  *
  *   node scripts/ci-changes.ts [changed files...]   (by default, HEAD's against its first parent)
  *

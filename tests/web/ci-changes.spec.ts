@@ -4,10 +4,11 @@
  * the files as a pull request would change them (a file moved is both where it was and where it
  * is), and what's in them, then and now.
  */
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { plan } from '../../scripts/ci-changes.ts'
-import { redOf, sentence } from '../../scripts/main-is-green.ts'
+import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
 
 /** A pull request changing `changed`, whose files hold `texts` (now, or then: deleted). */
@@ -278,15 +279,64 @@ test('main is red unless its newest finished run passed: only a run somebody can
       'aaaaaaa1',
     )
   }
-  // What a pull request is told: main's commit, what failed there, how it's lifted, where to read.
+  // What a pull request is told: main's commit, what failed there, and where to read it.
   expect(
     sentence(run('eeeeeee5f', 'failure'), ['E2E (macos-latest, 2/4)', 'Coverage (all platforms)']),
   ).toBe(
-    'main is red at eeeeeee (E2E (macos-latest, 2/4), Coverage (all platforms)): nothing merges until it’s green again, or this pull request mends it and says so with the label fixes-main. https://github.com/Lumovi/Lumovi/actions/runs/eeeeeee5f',
+    'main is red at eeeeeee (E2E (macos-latest, 2/4), Coverage (all platforms)): a warning, not a stop. See that this pull request isn’t why. https://github.com/Lumovi/Lumovi/actions/runs/eeeeeee5f',
   )
   expect(
     sentence(run('fffffff6f', 'cancelled', true), ['E2E (macos-latest, 2/4) ran out of time']),
   ).toContain('main is red at fffffff (E2E (macos-latest, 2/4) ran out of time)')
+})
+
+test('a red main is a warning on a pull request, never its failure; a green one says nothing', () => {
+  const run = (sha: string, conclusion: string) => ({
+    id: 1,
+    sha,
+    conclusion,
+    url: `https://github.com/Lumovi/Lumovi/actions/runs/${sha}`,
+  })
+  // Red: said, with main's commit and what failed there (the script prints it as a warning, and
+  // ends well: "CI passed" fails only where the pull request's own jobs did).
+  expect(warningOf([run('aaaaaaa1', 'failure')], ['Coverage (all platforms)'])).toBe(
+    'main is red at aaaaaaa (Coverage (all platforms)): a warning, not a stop. See that this pull request isn’t why. https://github.com/Lumovi/Lumovi/actions/runs/aaaaaaa1',
+  )
+  // Green, or nothing finished yet: nothing to say.
+  expect(warningOf([run('bbbbbbb2', 'success'), run('aaaaaaa1', 'failure')], [])).toBeUndefined()
+  expect(warningOf([], [])).toBeUndefined()
+  // What "CI passed" prints, asking a GitHub that answers each question as given here.
+  const github =
+    (answers: Record<string, unknown>): Gh =>
+    (path) => {
+      const asked = Object.keys(answers).find((start) => path.includes(start))
+      if (!asked) throw new Error(`Nothing for ${path}`)
+      return JSON.stringify(answers[asked])
+    }
+  expect(told(github({ '/runs?': [run('aaaaaaa1', 'success')] }), 'Lumovi/Lumovi')).toBe(
+    'Main is green.',
+  )
+  expect(
+    told(
+      github({ '/runs?': [run('aaaaaaa1', 'failure')], '/jobs?': [{ id: 7, name: 'Coverage' }] }),
+      'Lumovi/Lumovi',
+    ),
+  ).toBe(
+    '::warning::main is red at aaaaaaa (Coverage): a warning, not a stop. See that this pull request isn’t why. https://github.com/Lumovi/Lumovi/actions/runs/aaaaaaa1',
+  )
+  // GitHub not answering says nothing of the pull request either: a warning, on one line.
+  const down: Gh = () => {
+    throw new Error(
+      'Command failed: gh api repos/Lumovi/Lumovi/actions/…\nHTTP 504: Gateway Timeout',
+    )
+  }
+  expect(told(down, 'Lumovi/Lumovi')).toBe(
+    '::warning::Lumovi couldn’t read main’s runs: Command failed: gh api repos/Lumovi/Lumovi/actions/…',
+  )
+  // And nothing in it reads a label: no pull request is let through, or held, by one.
+  expect(readFileSync('scripts/main-is-green.ts', 'utf8')).not.toMatch(
+    /fixes-main|labels|exit\(1\)/,
+  )
 })
 
 test('a release starts by itself only from the commit that set the version', () => {
