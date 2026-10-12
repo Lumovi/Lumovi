@@ -78,6 +78,56 @@ export const CRAFTED: Record<string, () => Buffer> = {
     gif.writeUInt16LE(0, FIRST_FRAME + 5)
     return gif
   },
+  'a PNG that doesn’t begin with its header': () => {
+    const png = Buffer.from(picture('example-light.png'))
+    // The first chunk's name: anything but IHDR.
+    png.write('tEXt', 12, 'latin1')
+    return png
+  },
+  'a GIF with no frames': () =>
+    // Its header, its screen and its palette, and then its end.
+    Buffer.concat([picture('animated.gif').subarray(0, 6 + 7 + 4 * 3), Buffer.of(0x3b)]),
+  'a WebP with nothing in it': () => riff.join([]),
+  'a WebP that begins with something else': () => riff.join([['EXIF', Buffer.alloc(8)]]),
+  'a WebP whose lossy frame is broken': () =>
+    riff.join(
+      riff.chunks(picture('still-lossy.webp')).map(([type, data]) => {
+        if (type !== 'VP8 ') return [type, data]
+        const broken = Buffer.from(data)
+        // Where a frame's start code is.
+        broken.fill(0, 3, 6)
+        return [type, broken]
+      }),
+    ),
+  'a WebP whose lossless frame is broken': () =>
+    riff.join(
+      riff.chunks(picture('still-lossless.webp')).map(([type, data]) => {
+        if (type !== 'VP8L') return [type, data]
+        const broken = Buffer.from(data)
+        // Its first byte says what it is.
+        broken[0] = 0
+        return [type, broken]
+      }),
+    ),
+  'a WebP that says it’s animated, with no frames': () =>
+    riff.join(riff.chunks(picture('animated.webp')).filter(([type]) => type !== 'ANMF')),
+  'a WebP that says it has a picture, with none': () => {
+    // An extended header, not animated, and nothing after it.
+    const header = Buffer.alloc(10)
+    header.writeUIntLE(407, 4, 3)
+    header.writeUIntLE(135, 7, 3)
+    return riff.join([['VP8X', header]])
+  },
+  'a WebP frame past the picture’s edges': () =>
+    riff.join(
+      riff.chunks(picture('animated.webp')).map(([type, data], i, all) => {
+        if (type !== 'ANMF' || all.findIndex(([t]) => t === 'ANMF') !== i) return [type, data]
+        const moved = Buffer.from(data)
+        // Its place from the left, in pairs of pixels: far outside.
+        moved.writeUIntLE(4000, 0, 3)
+        return [type, moved]
+      }),
+    ),
   'a WebP frame too short to be one': () =>
     riff.join(
       riff
