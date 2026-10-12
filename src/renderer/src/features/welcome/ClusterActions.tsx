@@ -35,6 +35,8 @@ export interface ClusterActionHandlers {
   copyForKubectl: (cluster: Cluster) => void
   /** One added in Lumovi: removed, its file with it (asked first). */
   remove: (cluster: Cluster) => void
+  /** A folder's that asks first: what its credentials do, to be allowed (then it's opened). */
+  allow: (cluster: Cluster) => void
 }
 
 /** Kept in the menu: not taken by the row it's in (React's events pass through portals). */

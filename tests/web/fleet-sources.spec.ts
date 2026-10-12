@@ -318,6 +318,37 @@ test('kubeconfig files, read again as they change', async ({ page, context, serv
   await expect.poll(() => served.log()).toContain('Fleet: qa removed')
 })
 
+test('a kubeconfig file is read again as soon as it changes, not only on the fleet’s refresh', async ({
+  page,
+  context,
+  serve,
+  clusters,
+}) => {
+  const file = join(mkdtempSync(join(tmpdir(), 'lumovi-fleet-')), 'clusters.yaml')
+  writeFileSync(file, kubeconfig('staging', clusters.sandbox.url))
+  const served = await serve({
+    env: {
+      LUMOVI_AUTH: 'proxy',
+      LUMOVI_FLEET_KUBECONFIG_FILE: file,
+      // An hour: only its change can have it read again within the test.
+      LUMOVI_FLEET_REFRESH_SECONDS: '3600',
+    },
+  })
+  await as(context, 'alice@example.com')
+  await page.goto(served.url)
+  await expect(card(page, 'staging')).toBeVisible()
+  // Replaced by a rename, as tools write: read again within seconds.
+  writeFileSync(`${file}.new`, kubeconfig('qa', clusters.sandbox.url))
+  renameSync(`${file}.new`, file)
+  await expect.poll(() => served.log(), { timeout: 5_000 }).toContain('Fleet: qa added')
+  // Written in place, again.
+  writeFileSync(file, kubeconfig('uat', clusters.sandbox.url))
+  await expect.poll(() => served.log(), { timeout: 5_000 }).toContain('Fleet: uat added')
+  // (The page asks every 30 s; opened again, it has it.)
+  await page.reload()
+  await expect(card(page, 'uat')).toBeVisible()
+})
+
 test('a cluster from a kubeconfig file says which file, in its settings', async ({
   page,
   context,

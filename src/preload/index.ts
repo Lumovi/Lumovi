@@ -77,6 +77,10 @@ const api: LumoviApi = {
     useDefault: () => invoke(IPC.kubeconfigUseDefault),
     show: (path) => invoke(IPC.kubeconfigShow, path),
     chooseAgain: (path) => invoke(IPC.kubeconfigChooseAgain, path),
+    addFolder: () => invoke(IPC.kubeconfigAddFolder),
+    asks: (context) => invoke(IPC.kubeconfigAsks, context),
+    agree: (context, consents) => invoke(IPC.kubeconfigAgree, context, consents),
+    onChange: (listener) => subscribe(IPC.kubeconfigChanged, listener),
   },
   addedClusters: {
     import: () => invoke(IPC.addedImport),

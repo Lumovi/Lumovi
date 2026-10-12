@@ -27,7 +27,7 @@ export function ManagedBadge({ reason }: { reason: string }) {
           <p className="mt-1 text-xs leading-relaxed text-ink-2">
             {managed?.problem
               ? reason
-              : 'Your organization’s policy keeps Lumovi to the kubeconfig in KUBECONFIG or ~/.kube/config, so it can’t add files or clusters.'}
+              : 'Your organization’s policy keeps Lumovi to the kubeconfig in KUBECONFIG or ~/.kube/config, so it can’t add files, folders or clusters.'}
           </p>
           {managed?.source && (
             // Cut from the start: the policy's file name shows.

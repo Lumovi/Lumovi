@@ -16,7 +16,7 @@ import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:pa
 import { spawn, type IPty } from 'node-pty'
 import type { LocalShellRequest, Result, ShellExit } from '@shared/api'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
-import type { KubeConfigStore } from '@backend/kube/kubeconfig'
+import { quoted, type KubeConfigStore } from '@backend/kube/kubeconfig'
 import { assertQuery, assertString, invalid } from '@backend/kube/validate'
 import type { MatchingKubectl } from './kubectl'
 
@@ -258,6 +258,14 @@ export class LocalTerminals {
         throw new KubeRequestError(
           'invalid',
           `Your kubeconfig has no context called “${r.context}”.`,
+        )
+      }
+      // A folder's kubeconfigs aren't handed to kubectl: it would run what their credentials run,
+      // agreed to or not.
+      if (this.deps.store.fromFolder(context.name)) {
+        throw new KubeRequestError(
+          'invalid',
+          `${quoted(context.name)} is from a folder of kubeconfigs, and Lumovi’s terminals don’t hand those to kubectl. Open one for a cluster from a kubeconfig file instead.`,
         )
       }
       const namespace = r.namespace ?? context.namespace

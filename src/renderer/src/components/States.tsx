@@ -108,6 +108,11 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
     hint: 'The certificate authority its agent sent isn’t the one Lumovi trusts for its cluster.',
     icon: ShieldAlert,
   },
+  consent: {
+    title: 'Asks before it runs',
+    hint: 'It’s from a folder of kubeconfigs, and its credentials do something on this computer you haven’t allowed yet.',
+    icon: ShieldAlert,
+  },
 }
 
 /** For errors Lumovi didn't see coming: a bug, or a failure outside the API. */

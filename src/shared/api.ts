@@ -134,6 +134,13 @@ export interface Settings {
   kubeconfigFiles?: string[]
   /** The desktop app's: kubeconfig files added after those (chosen, or KUBECONFIG's). */
   kubeconfigAdded?: string[]
+  /** The desktop app's: folders whose kubeconfigs are read after those, in the order added. */
+  kubeconfigFolders?: string[]
+  /**
+   * The desktop app's: what a folder's kubeconfigs have their credentials do that the person
+   * agreed to, by file: keyed digests only (consent.ts), never a command or a secret.
+   */
+  kubeconfigConsents?: Record<string, string[]>
   /** The desktop app's: how each cluster shows in Lumovi, by its context. */
   clusters?: Record<string, ClusterSettings>
   /** Whether to look for new versions in the background (Help → Check for Updates Automatically). */
@@ -438,8 +445,46 @@ export interface KubeconfigFiles {
     /** As last read: how many contexts it has, or why it couldn't be read (and was left out). */
     contexts?: number
     problem?: string
+    /**
+     * It couldn't be read (`problem`, from `failedAt`), and what it said when it last could is
+     * kept: as it was written at `keptFrom`.
+     */
+    keptFrom?: string
+    failedAt?: string
+    /** Why those of its contexts that take a cluster or user from a folder's kubeconfig aren't used. */
+    refused?: string[]
     /** One of Lumovi's own: when it was added. */
     addedAt?: string
+  }[]
+  /**
+   * The folders added, in the order added: the kubeconfigs in each (directly in it, by name,
+   * read after the files above), and the files in it that aren't read, with why.
+   */
+  folders: {
+    path: string
+    /** Why it can't be read at all; it stays, to be removed. */
+    problem?: 'gone' | 'not-a-folder' | 'not-allowed'
+    files: {
+      /** Its name in the folder. */
+      name: string
+      /** Where it's read from (a link's: the file it leads to, in the folder). */
+      path: string
+      contexts?: number
+      problem?: string
+      keptFrom?: string
+      failedAt?: string
+      /** How many of its contexts ask before their credentials are used (agreed to: none). */
+      asks?: number
+      /**
+       * Why those of its contexts that take a cluster or user from another kubeconfig aren't used
+       * (a folder's kubeconfig is used whole).
+       */
+      refused?: string[]
+    }[]
+    skipped: {
+      name: string
+      why: 'folder' | 'link-out' | 'hidden' | 'large' | 'not-kubeconfig' | 'not-allowed'
+    }[]
   }[]
   /**
    * Where the files before those added come from: chosen in Lumovi, KUBECONFIG, or the default
@@ -551,6 +596,11 @@ export type KubeErrorCode =
   | 'not-allowed'
   /** A fleet's agent sent a certificate authority the hub doesn't trust for its cluster. */
   | 'untrusted-agent'
+  /**
+   * The desktop app's: what a folder's kubeconfig has its credentials do (run a program, send a
+   * file, go to a server not verified) isn't agreed to yet, so nothing of it is used.
+   */
+  | 'consent'
 
 export interface KubeError {
   code: KubeErrorCode
@@ -1380,7 +1430,12 @@ export interface LumoviApi {
      * cancels.
      */
     choose(how: 'replace' | 'add'): Promise<Result<KubeconfigFiles | null>>
-    /** One Lumovi was given (chosen or added) no longer read; the file itself is left as it is. */
+    /** Asks for a folder whose kubeconfigs are read after the rest; null if the user cancels. */
+    addFolder(): Promise<Result<KubeconfigFiles | null>>
+    /**
+     * One Lumovi was given (chosen, added, or a folder) no longer read; the file or folder itself
+     * is left as it is.
+     */
     remove(path: string): Promise<Result<KubeconfigFiles>>
     /** Back to KUBECONFIG's, or ~/.kube/config. */
     useDefault(): Promise<Result<KubeconfigFiles>>
@@ -1391,6 +1446,15 @@ export interface LumoviApi {
     chooseAgain(path: string): Promise<Result<KubeconfigFiles | null>>
     /** Shows one of them, or Lumovi's own folder, in Finder or Explorer. */
     show(path: string): Promise<void>
+    /**
+     * What a folder's context has its credentials do on this computer that isn't agreed to yet
+     * (programs run, files sent, servers not verified), exactly as it would do it.
+     */
+    asks(context: string): Promise<Result<PastedKubeconfig>>
+    /** Allows that (`consents`, as `asks` gave them); kept until what it does changes. */
+    agree(context: string, consents: string[]): Promise<Result<KubeconfigFiles>>
+    /** Something read changed on disk (a context added elsewhere, a file in a folder). */
+    onChange(listener: () => void): () => void
   }
   /**
    * The desktop app's: clusters added in Lumovi from a pasted or imported kubeconfig, each kept as
@@ -1683,6 +1747,10 @@ export const IPC = {
   kubeconfigUseDefault: 'kubeconfig:use-default',
   kubeconfigShow: 'kubeconfig:show',
   kubeconfigChooseAgain: 'kubeconfig:choose-again',
+  kubeconfigAddFolder: 'kubeconfig:add-folder',
+  kubeconfigAsks: 'kubeconfig:asks',
+  kubeconfigAgree: 'kubeconfig:agree',
+  kubeconfigChanged: 'kubeconfig:changed',
   addedImport: 'added:import',
   addedInspect: 'added:inspect',
   addedCheck: 'added:check',

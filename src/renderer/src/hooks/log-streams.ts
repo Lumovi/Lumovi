@@ -50,6 +50,7 @@ const LASTING: ReadonlySet<KubeErrorCode> = new Set([
   'forbidden',
   'tls',
   'insecure',
+  'consent',
 ])
 /** The page updates at most this often, however fast lines arrive. */
 const FLUSH_MS = 100

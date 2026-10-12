@@ -139,6 +139,12 @@ addEventListener(SETTINGS_CHANGED, () => {
   void queryClient.invalidateQueries({ queryKey: ['usage'] })
 })
 
+// The desktop app's kubeconfig changed on disk (a context a cloud's tool added, a file in a
+// folder): the clusters read again, and so the files, without Reload.
+api.kubeconfigFiles?.onChange(() => {
+  void queryClient.invalidateQueries({ queryKey: ['contexts'] })
+})
+
 // The desktop app's page is a file, so it keeps its place in the hash; a served page has real
 // addresses, below the server's base path, that can be shared.
 const router =

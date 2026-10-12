@@ -541,7 +541,10 @@ function ClusterRow({
     <Command.Item
       value={`${recent ? RECENT_VALUE : ''}${context.name}`}
       keywords={keywordsOf(cluster)}
-      onSelect={() => go(clusterPath(context.name))}
+      // A folder's that asks first: what it'd do, to be allowed, before it's opened.
+      onSelect={() =>
+        code === 'consent' && actions ? actions.allow(cluster) : go(clusterPath(context.name))
+      }
       onContextMenu={(event) => {
         if (!actions) return
         event.preventDefault()
@@ -602,7 +605,10 @@ function ClusterRow({
           // Being checked: a place for its version.
           <span className="inline-block h-2.5 w-[72px] animate-shimmer rounded bg-surface-3 align-middle" />
         ) : version.isError ? (
-          <span className="text-critical-text" title={version.error.message}>
+          <span
+            className={code === 'consent' ? 'text-warn-text' : 'text-critical-text'}
+            title={version.error.message}
+          >
             {(code && PROBLEMS[code]) ?? ERROR_LABELS[code!]}
           </span>
         ) : (
@@ -632,7 +638,11 @@ function ClusterRow({
 /** A file that's gone, or can't be read, while the others still are: said, and what to do. */
 function FileNotices({ files }: { files: KubeconfigFiles }) {
   const actions = useFileActions()
-  const troubled = files.files.filter((file) => trouble(file))
+  // (One kept as last read still has its clusters here: the popover says it.)
+  const troubled = files.files.filter((file) => {
+    const wrong = trouble(file)
+    return wrong === 'gone' || wrong === 'unreadable'
+  })
   return troubled.map((file) => {
     const gone = trouble(file) === 'gone'
     const path = tilde(file.path, files.home)
