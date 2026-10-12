@@ -6,18 +6,20 @@
  * and the identity its certificates name is the real one, checked as the build checks it.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { X509Certificate } from '@sigstore/core'
 import { expect, test } from '@playwright/test'
 import {
+  DOWNLOAD_LIMIT,
   fetchRelease,
   PLUGINS_REPOSITORY,
   PLUGINS_SIGNER,
   PluginsBundleError,
   readLock,
   releaseFiles,
+  takePlugins,
   verifyRelease,
   type Lock,
   type Release,
@@ -341,6 +343,13 @@ test('what’s served is what the signed index says, as UTF-8 with nothing in fr
       `${NAMES.index}: names gamma, which the bundle doesn’t hold`,
     ].join('\n'),
   )
+  // A plugin the index names twice, as if it were one.
+  const twice = await release({
+    index: (index) => {
+      index.plugins.push({ ...index.plugins[0]! })
+    },
+  })
+  expect(verdict(twice.release, twice.lock)).toBe(`${NAMES.index}: names alpha twice`)
   // A name that isn't a plugin's, which would be a file's name.
   const named = await release({ texts: { '../alpha': PLUGINS.alpha } })
   expect(verdict(named.release, named.lock)).toBe(
@@ -376,28 +385,92 @@ test('downloaded once into the cache, where the release has them; what it hasn�
       ? new Response('Not Found', { status: 404 })
       : new Response(new Uint8Array(made[file]))
   }) as typeof fetch
-  const fetched = await fetchRelease(lock, cache, download)
+  const fetched = await fetchRelease(lock, { cache, download })
+  expect(fetched.cached).toBe(false)
   expect(asked).toEqual(
     Object.values(NAMES).map(
       (name) => `https://github.com/Lumovi/Lumovi-plugins/releases/download/v1.0.0/${name}`,
     ),
   )
-  expect(fetched.attestation).toBeUndefined()
-  expect(fetched.bundle?.equals(made.bundle)).toBe(true)
+  expect(fetched.release.attestation).toBeUndefined()
+  expect(fetched.release.bundle?.equals(made.bundle)).toBe(true)
+  // Kept whole, under its own name, and nothing half-written left beside it.
   expect(readFileSync(join(cache, VERSION, NAMES.bundle)).equals(made.bundle)).toBe(true)
+  expect(readdirSync(join(cache, VERSION)).filter((name) => name.endsWith('.part'))).toEqual([])
   expect(existsSync(join(cache, VERSION, NAMES.attestation))).toBe(false)
   // Again: from the cache, and the one it hasn't asked for again.
   asked.length = 0
-  await fetchRelease(lock, cache, download)
+  expect((await fetchRelease(lock, { cache, download })).cached).toBe(true)
   expect(asked).toEqual([
     `https://github.com/Lumovi/Lumovi-plugins/releases/download/v1.0.0/${NAMES.attestation}`,
   ])
   // A release that can't be reached stops the build, saying where.
   const broken = (async () => new Response('', { status: 500 })) as unknown as typeof fetch
   await expect(
-    fetchRelease(lock, mkdtempSync(join(tmpdir(), 'plugins-cache-')), broken),
+    fetchRelease(lock, { cache: mkdtempSync(join(tmpdir(), 'plugins-cache-')), download: broken }),
   ).rejects.toThrow(
     `${NAMES.bundle}: couldn’t be downloaded: https://github.com/Lumovi/Lumovi-plugins/releases/download/v1.0.0/${NAMES.bundle} answered 500`,
+  )
+})
+
+test('a cached copy that’s wrong is downloaded again, once, before anything is refused', async () => {
+  const { release: made, lock } = await release()
+  const cache = mkdtempSync(join(tmpdir(), 'plugins-cache-'))
+  let downloads = 0
+  const download = (async (url: string) => {
+    downloads++
+    const name = url.slice(url.lastIndexOf('/') + 1)
+    const file = Object.entries(NAMES).find(([, each]) => each === name)?.[0] as keyof Release
+    return new Response(new Uint8Array(made[file]))
+  }) as typeof fetch
+  await fetchRelease(lock, { cache, download })
+  // A download cut short, left in the cache.
+  writeFileSync(join(cache, VERSION, NAMES.bundle), made.bundle.subarray(0, 10))
+  downloads = 0
+  expect(await takePlugins(lock, trust, { cache, download })).toEqual({
+    'alpha.yaml': PLUGINS.alpha,
+    'beta.yaml': PLUGINS.beta,
+  })
+  expect(downloads).toBe(Object.keys(NAMES).length)
+  expect(readFileSync(join(cache, VERSION, NAMES.bundle)).equals(made.bundle)).toBe(true)
+  // And a release that's wrong as downloaded is refused after that one more try, not before.
+  const wrong = (async (url: string) => {
+    const name = url.slice(url.lastIndexOf('/') + 1)
+    const file = Object.entries(NAMES).find(([, each]) => each === name)?.[0] as keyof Release
+    return new Response(new Uint8Array(name === NAMES.bundle ? Buffer.from('{}') : made[file]))
+  }) as typeof fetch
+  await expect(
+    takePlugins(lock, trust, {
+      cache: mkdtempSync(join(tmpdir(), 'plugins-cache-')),
+      download: wrong,
+    }),
+  ).rejects.toThrow(`${NAMES.bundle}: its SHA-256 is ${sha256(Buffer.from('{}'))}`)
+})
+
+test('a download larger than any release’s file is cut off, saying so', async () => {
+  const { lock } = await release()
+  const huge = (async () =>
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(1024 * 1024))
+        },
+      }),
+    )) as unknown as typeof fetch
+  await expect(
+    fetchRelease(lock, { cache: mkdtempSync(join(tmpdir(), 'plugins-cache-')), download: huge }),
+  ).rejects.toThrow(
+    `${NAMES.bundle}: is larger than 16 MB, and no file of a plugins release is that large`,
+  )
+  // Or said so before it's read, where the answer says how large it is.
+  const said = (async () =>
+    new Response('x', {
+      headers: { 'content-length': String(DOWNLOAD_LIMIT + 1) },
+    })) as unknown as typeof fetch
+  await expect(
+    fetchRelease(lock, { cache: mkdtempSync(join(tmpdir(), 'plugins-cache-')), download: said }),
+  ).rejects.toThrow(
+    `${NAMES.bundle}: is larger than 16 MB, and no file of a plugins release is that large`,
   )
 })
 
