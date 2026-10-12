@@ -26,6 +26,23 @@ const strip = (sheet: Locator) => sheet.locator('[data-note-strip]')
 /** The notes that float over the page: not shown at all while one is a sheet's first line. */
 const floating = (page: Page) => page.locator('section[aria-label="Notifications"]')
 const box = async (locator: Locator) => (await locator.boundingBox())!
+/**
+ * Where something is, once it has stopped moving: a sheet slides up into its place, and a
+ * measure taken on the way is of nowhere (a sheet's first line was once found under the
+ * screen's foot, on a slow machine). Two looks the same, one after the other.
+ */
+async function atRest(locator: Locator) {
+  let last: Awaited<ReturnType<Locator['boundingBox']>> = null
+  await expect
+    .poll(async () => {
+      const now = await locator.boundingBox()
+      const still = now !== null && JSON.stringify(now) === JSON.stringify(last)
+      last = now
+      return still
+    })
+    .toBe(true)
+  return last!
+}
 const approveOf = (sheet: Locator) => sheet.getByRole('button', { name: /^Approve/ })
 
 /** An assistant connected (from a computer), and the page a phone's. */
@@ -103,9 +120,11 @@ test('a note that comes while a sheet is open is the sheet’s first line: its w
     /^The change before: scaled cart to 4 replicas, in demo\./,
   )
   await expect(floating(page)).toBeHidden()
-  const inFirst = await box(strip(second))
+  const inFirst = await atRest(strip(second))
   expect(inFirst.height).toBe(32)
-  expect(inFirst.y + inFirst.height).toBeLessThanOrEqual((await box(second.getByRole('heading'))).y)
+  expect(inFirst.y + inFirst.height).toBeLessThanOrEqual(
+    (await atRest(second.getByRole('heading'))).y,
+  )
   // Its answers haven't moved for it, while it shows…
   await expect(approveOf(second)).toBeEnabled()
   expect(await box(second.getByRole('button', { name: 'Reject…' }))).toEqual(reject)
