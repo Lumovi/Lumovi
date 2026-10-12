@@ -623,6 +623,8 @@ test('the sidebar leaves room for macOS’s window controls, except in full scre
 })
 
 test('the window remembers its size and position', async ({ launch }) => {
+  // (Lumovi launched, quit and launched again in one test: on a Windows runner, most of a minute.)
+  test.slow()
   // Keep the size the app chose, and pick one that fits 1024x768 CI screens
   // (Windows shrinks new windows to the screen).
   const env = { LUMOVI_E2E_WINDOW: undefined }
