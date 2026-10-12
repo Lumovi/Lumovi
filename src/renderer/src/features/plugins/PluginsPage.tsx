@@ -724,6 +724,20 @@ function MayRead({ asked, names }: { asked: Asks; names: Names }) {
           plugin reads nothing of it.
         </p>
       )}
+      {asked.reads.map((read) => {
+        const more = [
+          read.status && 'status',
+          read.events && 'events',
+          read.usage && 'usage',
+        ].filter((said): said is string => Boolean(said))
+        return (
+          <p key={read.kind}>
+            Of {names.plural(read.kind)}, its code is handed only{' '}
+            <span className="font-mono text-xs text-ink-1 selectable">{listed(read.fields)}</span>
+            {more.length > 0 && `, with their ${listed(more)}`}, as far as you may read them.
+          </p>
+        )
+      })}
       <p>It reads no logs and no Secret’s value, and sends nothing anywhere but to this cluster.</p>
     </div>
   )

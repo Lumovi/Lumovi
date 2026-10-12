@@ -7,8 +7,12 @@
  * out. The format: https://docs.lumovi.dev/reference/plugin-format.
  */
 import { parseAllDocuments } from 'yaml'
-import { checkPath } from './jsonpath'
+import { checkPath, parse } from './jsonpath'
+import { readable, READABLE, resolvedAs, type Granted, type ResolvedKind } from './plugin-reads'
 import {
+  apiGroupOf,
+  apiKindOf,
+  builtinResource,
   isBuiltinKind,
   isCustomGroup,
   kindFor,
@@ -214,6 +218,12 @@ export interface Plugin {
   views: View[]
   /** What it adds to Lumovi's pages: only a plugin whose file may carry code has any. */
   added: Added
+  /**
+   * What its code may read of Kubernetes' own kinds (`spec.reads`), by kind (`group/Kind`; the
+   * core group: `/Kind`): the door picks these and nothing else. Its own kinds are read whole,
+   * and aren't here. Nothing, where its file says none; only a file that may carry code says any.
+   */
+  reads: Readonly<Record<string, Granted>>
 }
 
 /**
@@ -227,6 +237,12 @@ export interface Added {
   tabs: { id: string; title: string; kinds: ResourceKind[] }[]
   commands: { name: string; page: string }[]
 }
+
+/**
+ * How much a plugin's code may say it reads: kinds, paths a kind, and how long a path may be (a
+ * key in it is at most a label's or an annotation's, 253).
+ */
+export const READS_LIMITS = { kinds: 20, fields: 30, path: 253 } as const
 
 /** How many of each a plugin may add, and how long a title or a command's name may be. */
 export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
@@ -580,6 +596,163 @@ const PAGES_PLACE_SHAPE: Shape = {
       .filter(isBuiltinKind)
       .map((kind) => `${kind} has a page of its own, so it can’t be in a plugin`)[0]
   },
+}
+
+/** One kind a plugin's code reads (`spec.reads`): which, which fields, and what else of it. */
+const READ_SHAPE: Shape = {
+  fields: {
+    group: { shape: 'string', required: true },
+    kind: { shape: 'string', required: true },
+    fields: { shape: { list: 'string', nonEmpty: true }, required: true },
+    status: 'boolean',
+    events: 'boolean',
+    usage: 'boolean',
+  },
+  refine: (item) => {
+    const no = (['status', 'events', 'usage'] as const).find((key) => item[key] === false)
+    if (no) return `${no} should be true, or left out`
+    if (item.kind === '*') return 'a read is of one kind, named: never every kind of a group'
+    return groupNameProblem(item.group) ?? kindNameProblem(item.kind)
+  },
+}
+
+/** A kind as Lumovi finds it in the cluster, from how a file names it: never by its spelling. */
+function resolvedOf(named: NamedKind): ResolvedKind {
+  const id = kindId(named)
+  const builtin = builtinResource(id)
+  return builtin
+    ? resolvedAs(builtin.group, builtin.apiKind)
+    : resolvedAs(apiGroupOf(id), apiKindOf(id))
+}
+
+/** A path as a file writes it under `reads`: field names, a key in brackets where it has dots. */
+const READ_PATH = /^[A-Za-z0-9_]/
+/**
+ * A step of one: a field's name, or a key as Kubernetes has a label's or an annotation's (a name,
+ * after a DNS prefix and a / where it has one). Nothing else is drawn where a person reads it.
+ */
+const READ_STEP =
+  /^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$/
+
+interface ReadItem {
+  group: string
+  kind: string
+  fields: string[]
+  status?: true
+  events?: true
+  usage?: true
+}
+
+/**
+ * What's wrong with what a file says its code reads, once it may say it: each line starts at
+ * its place in `spec`. Every kind is asked of as Lumovi resolves it, and every path of the
+ * door's own list (`readable`), so the checker and the door can't disagree.
+ */
+function readsProblems(
+  reads: unknown,
+  groups: readonly string[],
+  own: ReadonlySet<ResourceKind>,
+): string[] {
+  const shaped = check(reads, { list: READ_SHAPE, nonEmpty: true }, 'spec.reads', 'a read')
+  if (Array.isArray(reads) && reads.length > READS_LIMITS.kinds) {
+    shaped.push(
+      `spec.reads: holds ${reads.length}, and a plugin’s code reads ${READS_LIMITS.kinds} kinds at most`,
+    )
+  }
+  if (shaped.length) return shaped
+  const problems: string[] = []
+  const said = new Map<string, number>()
+  ;(reads as ReadItem[]).forEach((item, i) => {
+    const at = `spec.reads[${i}]`
+    const id = kindId(item)
+    const kind = resolvedOf(item)
+    const key = `${kind.group}/${kind.kind}`
+    if (own.has(id) || own.has(kindId({ group: item.group, kind: '*' }))) {
+      problems.push(
+        `${at}: ${id} is one of this plugin’s own kinds, which its code reads whole: leave it out`,
+      )
+      return
+    }
+    if (kind.group === '' && kind.kind === 'Secret') {
+      problems.push(`${at}: a Secret is never read by a plugin’s code`)
+      return
+    }
+    if (isCustomGroup(kind.group)) {
+      problems.push(
+        `${at}: ${id} is neither this plugin’s own kind nor one of Kubernetes’: its code reads only those`,
+      )
+      return
+    }
+    const first = said.get(key)
+    if (first !== undefined) {
+      problems.push(`${at}: ${id} is said already, in spec.reads[${first}]: one item a kind`)
+      return
+    }
+    said.set(key, i)
+    if (!Object.hasOwn(READABLE, key)) {
+      problems.push(`${at}: ${id} isn’t on Lumovi’s list of what a plugin may read yet`)
+      return
+    }
+    if (item.fields.length > READS_LIMITS.fields) {
+      problems.push(
+        `${at}.fields: holds ${item.fields.length}, and an item names ${READS_LIMITS.fields} paths at most`,
+      )
+      return
+    }
+    const seen = new Set<string>()
+    item.fields.forEach((path, j) => {
+      const where = `${at}.fields[${j}]`
+      if (path.length > READS_LIMITS.path) {
+        problems.push(`${where}: is longer than ${READS_LIMITS.path} characters`)
+        return
+      }
+      let steps
+      try {
+        if (!READ_PATH.test(path) || path !== path.trim()) throw new Error()
+        steps = parse(`.${path}`)
+      } catch {
+        problems.push(`${where}: ${quoted(path)} should be field names, like metadata.name`)
+        return
+      }
+      if (steps.some((step) => 'key' in step && !READ_STEP.test(step.key))) {
+        problems.push(`${where}: ${quoted(path)} should be field names, like metadata.name`)
+        return
+      }
+      // (The same field however it's spelt: `metadata["name"]` is `metadata.name`.)
+      const same = JSON.stringify(steps.map((step) => ('key' in step ? step.key : step)))
+      if (!steps.every((step) => 'key' in step)) {
+        problems.push(
+          `${where}: ${quoted(path)} should name one field: no wildcard, index or filter`,
+        )
+      } else if (seen.has(same)) {
+        problems.push(`${where}: ${quoted(path)} is said twice`)
+      } else if (!readable(kind, steps, groups)) {
+        problems.push(
+          `${where}: ${quoted(path)} isn’t on Lumovi’s list of what a plugin may read of ${id} yet`,
+        )
+      }
+      seen.add(same)
+    })
+  })
+  return problems
+}
+
+/** What a file says its code reads, by kind: once it's found right. */
+function readsOf(reads: unknown): Record<string, Granted> {
+  return Object.fromEntries(
+    ((reads ?? []) as ReadItem[]).map((item) => {
+      const kind = resolvedOf(item)
+      return [
+        `${kind.group}/${kind.kind}`,
+        {
+          fields: item.fields.map((path) => ({ path, steps: parse(`.${path}`) })),
+          status: item.status === true,
+          events: item.events === true,
+          usage: item.usage === true,
+        },
+      ]
+    }),
+  )
 }
 
 const PAGE_SHAPE: Shape = {
@@ -1323,6 +1496,7 @@ function readPlugin(
     pages,
     tabs,
     commands,
+    reads,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -1421,6 +1595,12 @@ function readPlugin(
       (problem) => `${source}: ${problem}`,
     ),
   )
+  // (Only a plugin that came inside Lumovi carries code, so only its file says what that reads.)
+  if (reads !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.reads: only a plugin that comes with Lumovi has code yet, so only its file can say what that code reads`,
+    )
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -1435,6 +1615,14 @@ function readPlugin(
         .map(kindId)
         .filter((kind) => !isBuiltinKind(kind)),
     )
+    // What its code reads of other kinds: Kubernetes' own, by the door's list.
+    if (reads !== undefined) {
+      problems.push(
+        ...readsProblems(reads, (groups ?? []) as string[], own).map(
+          (problem) => `${source}: ${problem}`,
+        ),
+      )
+    }
     ;((tabs ?? []) as { kinds: NamedKind[] }[]).forEach((tab, t) => {
       tab.kinds.forEach((kind, k) => {
         const id = kindId(kind)
@@ -1507,6 +1695,7 @@ function readPlugin(
           page,
         })),
       },
+      reads: readsOf(reads),
     },
     problems: [],
   }
