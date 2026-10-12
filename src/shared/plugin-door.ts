@@ -108,6 +108,8 @@ export class DoorPage {
   #held = 0
   /** Commits taken: each one that changed a part or a text stamps it with its count. */
   #commits = 0
+  /** How many of each part the page has (made, and not yet taken away). */
+  readonly #made = new Map<string, number>()
   /** What it may still send: filled as time passes, to `secondsAtOnce` seconds' worth at most. */
   #left: { at: number | undefined; steps: number; commits: number } = {
     at: undefined,
@@ -287,7 +289,10 @@ export class DoorPage {
     }
     const size = this.#props(this.#parts[name]!, props)
     if (typeof size !== 'number') return size
-    return this.#hold(id, {
+    const { most } = this.#parts[name]!
+    const made = this.#made.get(name) ?? 0
+    if (most !== undefined && made >= most) return tooMuch(`a page’s ${name} parts`, most)
+    const wrong = this.#hold(id, {
       part: name,
       props: frozen(props as Record<string, unknown>),
       children: [],
@@ -295,6 +300,8 @@ export class DoorPage {
       heights: [],
       size,
     })
+    if (!wrong) this.#made.set(name, made + 1)
+    return wrong
   }
 
   #text(id: unknown, text: unknown, changed: Set<number>): Stopped | undefined {
@@ -462,6 +469,7 @@ export class DoorPage {
       const node = this.#nodes.get(next)!
       gone.push(...node.children)
       this.#held -= node.size
+      if (node.part !== undefined) this.#made.set(node.part, this.#made.get(node.part)! - 1)
       this.#nodes.delete(next)
     }
   }
