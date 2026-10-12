@@ -3,6 +3,7 @@
  * shell with kubectl pointed at a cluster (in that terminal only), and the
  * commands Lumovi shows pasted in to run.
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -73,11 +74,47 @@ async function inputLine(page: Page) {
   )
 }
 
+/**
+ * How long Windows PowerShell's first prompt is waited for: on a busy runner it has come later
+ * than 10 s with its console already up (LMV-237), and 30 s still says a terminal never answered.
+ */
+const PROMPT_MS = 30_000
+
 /** Waits for the shell's prompt (after Lumovi's line), and for the terminal to have focus. */
 async function ready(page: Page) {
-  await expect(screen(page)).toContainText(/in this terminal\..*[$#>]/s)
+  await expect(screen(page)).toContainText(
+    /in this terminal\..*[$#>]/s,
+    WINDOWS ? { timeout: PROMPT_MS } : {},
+  )
   await focused(page)
 }
+
+// So a test that starts more than one shell keeps the time each of their prompts may take.
+test.slow(WINDOWS, 'Windows PowerShell can take most of a minute to give a prompt on a busy runner')
+
+/**
+ * Windows PowerShell, started once before this worker's first terminal as a terminal's shell
+ * starts (its console module with it): what it loads from disk is then at hand for each terminal
+ * after it. Never a reason to fail: a slow start is only slow, and its time goes into each test's
+ * diagnostics.
+ */
+let warmed = ''
+test.beforeAll(() => {
+  if (!WINDOWS) return
+  test.setTimeout(90_000)
+  const from = Date.now()
+  try {
+    execFileSync('powershell', ['-NoLogo', '-Command', 'Import-Module PSReadLine; exit'], {
+      timeout: 60_000,
+    })
+    warmed = `started and ended in ${Date.now() - from}ms`
+  } catch {
+    warmed = `hadn’t started and ended in ${Date.now() - from}ms`
+  }
+})
+test.beforeEach(() => {
+  if (warmed) test.info().annotations.push({ type: 'PowerShell before it', description: warmed })
+})
 
 /** Waits for the terminal shown to have focus: not one in a tab that's hidden. */
 async function focused(page: Page) {
