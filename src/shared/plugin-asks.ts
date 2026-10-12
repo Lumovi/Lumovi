@@ -5,7 +5,7 @@
  */
 import { Scalar, stringify } from 'yaml'
 import type { Plugin, View, ViewAction } from './plugins'
-import { isCustomGroup, type ResourceKind } from './resources'
+import { isCustomGroup, kindFor, type ResourceKind } from './resources'
 
 /** An action, as a person is told of it. */
 export interface AskedAction {
@@ -39,6 +39,17 @@ export interface Asks {
   related: { kinds: string[]; templated: boolean }
   /** The kinds it links to by name. */
   links: { kinds: string[]; templated: boolean }
+  /**
+   * What its code reads of Kubernetes' own kinds (`spec.reads`): each kind, its paths as the file
+   * writes them, and whether its status, events and usage too.
+   */
+  reads: {
+    kind: ResourceKind
+    fields: string[]
+    status: boolean
+    events: boolean
+    usage: boolean
+  }[]
   actions: AskedAction[]
 }
 
@@ -142,6 +153,16 @@ export function asks(plugin: Plugin): Asks {
     shows: plugin.shows,
     related: named(plugin.views.flatMap((view) => (view.related ?? []).map(({ kind }) => kind))),
     links: named(plugin.views.flatMap((view) => (view.links ?? []).map(({ kind }) => kind))),
+    reads: Object.entries(plugin.reads).map(([id, read]) => {
+      const group = id.slice(0, id.indexOf('/'))
+      return {
+        kind: kindFor(group ? `${group}/v1` : 'v1', id.slice(id.indexOf('/') + 1)),
+        fields: read.fields.map(({ path }) => path),
+        status: read.status,
+        events: read.events,
+        usage: read.usage,
+      }
+    }),
     actions,
   }
 }

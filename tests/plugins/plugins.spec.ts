@@ -787,6 +787,263 @@ test('whatever a folder holds: what’s in use doesn’t clash, and what isn’t
 
 // ——— What a plugin asks for ———
 
+test('a plugin’s code says what it reads of Kubernetes’ own kinds, by the door’s list, and nothing else', () => {
+  /** A plugin of Karpenter's kinds whose code reads `reads`; one that came inside Lumovi unless said. */
+  const plugin = (reads: string | undefined, carriesCode = true) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [karpenter.sh]',
+        '  views:',
+        '    - kinds: [{ group: karpenter.sh, kind: NodePool }]',
+        ...(reads === undefined ? [] : [`  reads: ${reads}`]),
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [], carriesCode },
+    )
+  const said = (reads: string) => plugin(reads).problems.join('\n')
+  const keys = (path: string) => path.split('.').map((key) => ({ key }))
+
+  // The example: a Node's fields, one annotation of its own group's, and its status, events and
+  // usage; a Pod's fields. Each path as written, and its steps.
+  const example = plugin(`
+    - group: ''
+      kind: Node
+      fields:
+        - metadata.name
+        - metadata.labels
+        - metadata.creationTimestamp
+        - metadata.annotations["karpenter.sh/do-not-disrupt"]
+        - spec.taints
+        - status.capacity
+        - status.allocatable
+      status: true
+      events: true
+      usage: true
+    - group: ''
+      kind: Pod
+      fields: [metadata.name, metadata.namespace, spec.nodeName, status.phase]`)
+  expect(example.problems).toEqual([])
+  expect(example.plugin!.reads).toEqual({
+    '/Node': {
+      fields: [
+        { path: 'metadata.name', steps: keys('metadata.name') },
+        { path: 'metadata.labels', steps: keys('metadata.labels') },
+        { path: 'metadata.creationTimestamp', steps: keys('metadata.creationTimestamp') },
+        {
+          path: 'metadata.annotations["karpenter.sh/do-not-disrupt"]',
+          steps: [
+            { key: 'metadata' },
+            { key: 'annotations' },
+            { key: 'karpenter.sh/do-not-disrupt' },
+          ],
+        },
+        { path: 'spec.taints', steps: keys('spec.taints') },
+        { path: 'status.capacity', steps: keys('status.capacity') },
+        { path: 'status.allocatable', steps: keys('status.allocatable') },
+      ],
+      status: true,
+      events: true,
+      usage: true,
+    },
+    '/Pod': {
+      fields: ['metadata.name', 'metadata.namespace', 'spec.nodeName', 'status.phase'].map(
+        (path) => ({ path, steps: keys(path) }),
+      ),
+      status: false,
+      events: false,
+      usage: false,
+    },
+  })
+  // What the Plugins page says it reads: the paths as the file writes them.
+  expect(asks(example.plugin!).reads).toEqual([
+    {
+      kind: 'Node',
+      fields: [
+        'metadata.name',
+        'metadata.labels',
+        'metadata.creationTimestamp',
+        'metadata.annotations["karpenter.sh/do-not-disrupt"]',
+        'spec.taints',
+        'status.capacity',
+        'status.allocatable',
+      ],
+      status: true,
+      events: true,
+      usage: true,
+    },
+    {
+      kind: 'Pod',
+      fields: ['metadata.name', 'metadata.namespace', 'spec.nodeName', 'status.phase'],
+      status: false,
+      events: false,
+      usage: false,
+    },
+  ])
+  // A file that says none reads nothing.
+  expect(plugin(undefined).plugin!.reads).toEqual({})
+
+  // A folder's file carries no code, so it says nothing of what code reads.
+  expect(plugin("[{ group: '', kind: Pod, fields: [metadata.name] }]", false).problems).toEqual([
+    'probe.yaml: spec.reads: only a plugin that comes with Lumovi has code yet, so only its file can say what that code reads',
+  ])
+
+  const POD = "group: '', kind: Pod"
+  for (const [reads, problem] of [
+    ['{}', 'probe.yaml: spec.reads: should be a list, not an object'],
+    ['[]', 'probe.yaml: spec.reads: should not be empty'],
+    ['[Pod]', 'probe.yaml: spec.reads[0]: should be a map of fields, not a string'],
+    [
+      `[{ ${POD}, fields: [metadata.name], logs: true }]`,
+      'probe.yaml: spec.reads[0].logs: isn’t something a read has',
+    ],
+    ['[{ kind: Pod, fields: [metadata.name] }]', 'probe.yaml: spec.reads[0].group: is required'],
+    [
+      "[{ group: '', kind: 3, fields: [metadata.name] }]",
+      'probe.yaml: spec.reads[0].kind: should be text, not a number',
+    ],
+    [`[{ ${POD} }]`, 'probe.yaml: spec.reads[0].fields: is required'],
+    [`[{ ${POD}, status: true }]`, 'probe.yaml: spec.reads[0].fields: is required'],
+    [`[{ ${POD}, fields: [] }]`, 'probe.yaml: spec.reads[0].fields: should not be empty'],
+    [
+      `[{ ${POD}, fields: [metadata.name], events: false }]`,
+      'probe.yaml: spec.reads[0]: events should be true, or left out',
+    ],
+    [
+      `[{ ${POD}, fields: [metadata.name], usage: yes }]`,
+      'probe.yaml: spec.reads[0].usage: should be true or false, not a string',
+    ],
+    [
+      "[{ group: karpenter.sh, kind: '*', fields: [metadata.name] }]",
+      'probe.yaml: spec.reads[0]: a read is of one kind, named: never every kind of a group',
+    ],
+    [
+      "[{ group: '', kind: __proto__, fields: [metadata.name] }]",
+      'probe.yaml: spec.reads[0]: "__proto__" should be a kind’s own name, like Certificate: its group goes under group',
+    ],
+    [
+      '[{ group: __proto__, kind: Pod, fields: [metadata.name] }]',
+      'probe.yaml: spec.reads[0]: "__proto__" should be an API group’s name, like cert-manager.io',
+    ],
+    // Its own kinds are read whole; another tool's are its plugin's.
+    [
+      '[{ group: karpenter.sh, kind: NodePool, fields: [spec.limits] }]',
+      'probe.yaml: spec.reads[0]: NodePool.karpenter.sh is one of this plugin’s own kinds, which its code reads whole: leave it out',
+    ],
+    [
+      '[{ group: cert-manager.io, kind: Certificate, fields: [metadata.name] }]',
+      'probe.yaml: spec.reads[0]: Certificate.cert-manager.io is neither this plugin’s own kind nor one of Kubernetes’: its code reads only those',
+    ],
+    // Never a Secret, however it's spelt: what's spelt otherwise is no kind of Kubernetes'.
+    [
+      "[{ group: '', kind: Secret, fields: [metadata.name] }]",
+      'probe.yaml: spec.reads[0]: a Secret is never read by a plugin’s code',
+    ],
+    [
+      '[{ group: core, kind: Secret, fields: [metadata.name] }]',
+      'probe.yaml: spec.reads[0]: Secret.core is neither this plugin’s own kind nor one of Kubernetes’: its code reads only those',
+    ],
+    // A kind with no list isn't read at all: a ConfigMap's data with it.
+    [
+      "[{ group: '', kind: ConfigMap, fields: [data] }]",
+      'probe.yaml: spec.reads[0]: ConfigMap isn’t on Lumovi’s list of what a plugin may read yet',
+    ],
+    [
+      '[{ group: apps, kind: Deployment, fields: [metadata.name] }]',
+      'probe.yaml: spec.reads[0]: Deployment isn’t on Lumovi’s list of what a plugin may read yet',
+    ],
+    [
+      `[{ ${POD}, fields: [metadata.name] }, { ${POD}, fields: [spec.nodeName] }]`,
+      'probe.yaml: spec.reads[1]: Pod is said already, in spec.reads[0]: one item a kind',
+    ],
+    // A path: a line of the list, exactly, as field names.
+    [
+      `[{ ${POD}, fields: [spec.containers.env] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "spec.containers.env" isn’t on Lumovi’s list of what a plugin may read of Pod yet',
+    ],
+    [
+      `[{ ${POD}, fields: [spec] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "spec" isn’t on Lumovi’s list of what a plugin may read of Pod yet',
+    ],
+    [
+      `[{ ${POD}, fields: ['metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]'] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "metadata.annotations[\\"kubectl.kubernete…" isn’t on Lumovi’s list of what a plugin may read of Pod yet',
+    ],
+    [
+      `[{ ${POD}, fields: ['metadata.annotations["example.com/owner"]'] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "metadata.annotations[\\"example.com/owner…" isn’t on Lumovi’s list of what a plugin may read of Pod yet',
+    ],
+    [
+      `[{ ${POD}, fields: [metadata.__proto__] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "metadata.__proto__" should be field names, like metadata.name',
+    ],
+    [
+      `[{ ${POD}, fields: [.metadata.name] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: ".metadata.name" should be field names, like metadata.name',
+    ],
+    [
+      `[{ ${POD}, fields: [$.metadata.name] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "$.metadata.name" should be field names, like metadata.name',
+    ],
+    [
+      `[{ ${POD}, fields: [''] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "" should be field names, like metadata.name',
+    ],
+    [
+      `[{ ${POD}, fields: ['metadata..name'] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "metadata..name" should be field names, like metadata.name',
+    ],
+    [
+      `[{ ${POD}, fields: ['spec.containers[*].image'] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "spec.containers[*].image" should name one field: no wildcard, index or filter',
+    ],
+    [
+      `[{ ${POD}, fields: ['spec.containers[0].image'] }]`,
+      'probe.yaml: spec.reads[0].fields[0]: "spec.containers[0].image" should name one field: no wildcard, index or filter',
+    ],
+    [
+      `[{ ${POD}, fields: [metadata.name, metadata.name] }]`,
+      'probe.yaml: spec.reads[0].fields[1]: "metadata.name" is said twice',
+    ],
+  ]) {
+    expect(said(reads!), reads).toBe(problem)
+  }
+
+  // The same field, however it's spelt, is said once; and a key is a key's characters.
+  expect(said(`[{ ${POD}, fields: [metadata.name, 'metadata["name"]'] }]`)).toBe(
+    'probe.yaml: spec.reads[0].fields[1]: "metadata[\\"name\\"]" is said twice',
+  )
+  expect(said(`[{ ${POD}, fields: ['metadata.annotations["karpenter.sh/\u0430bc"]'] }]`)).toBe(
+    'probe.yaml: spec.reads[0].fields[0]: "metadata.annotations[\\"karpenter.sh/\u0430bc\\"]" should be field names, like metadata.name',
+  )
+  expect(said(`[{ ${POD}, fields: ['metadata.annotations["karpenter.sh/a\u202eb"]'] }]`)).toContain(
+    'holds a character that can’t be seen (U+202E)',
+  )
+
+  // As much as it may say, and no more.
+  const item = (i: number) => `{ group: '', kind: Pod${i}, fields: [metadata.name] }`
+  expect(said(`[${Array.from({ length: 21 }, (_, i) => item(i)).join(', ')}]`)).toContain(
+    'probe.yaml: spec.reads: holds 21, and a plugin’s code reads 20 kinds at most',
+  )
+  expect(said(`[{ ${POD}, fields: [${Array(31).fill('metadata.name').join(', ')}] }]`)).toBe(
+    'probe.yaml: spec.reads[0].fields: holds 31, and an item names 30 paths at most',
+  )
+  const long = `metadata.annotations["karpenter.sh/${'x'.repeat(254 - 'metadata.annotations["karpenter.sh/"]'.length)}"]`
+  expect(long.length).toBe(254)
+  expect(said(`[{ ${POD}, fields: ['${long}'] }]`)).toBe(
+    'probe.yaml: spec.reads[0].fields[0]: is longer than 253 characters',
+  )
+  // Its own group's annotation, by its key, is a Pod's to read too.
+  expect(
+    said(`[{ ${POD}, fields: ['metadata.annotations["karpenter.sh/do-not-disrupt"]'] }]`),
+  ).toBe('')
+})
+
 test('what a plugin asks for is read from its file: its kinds, what it reads, each action and what it sends', () => {
   const flux = asks(plugins.find((plugin) => plugin.name === 'flux')!)
   expect(flux.kinds).toHaveLength(7)
