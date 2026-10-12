@@ -31,10 +31,12 @@ const grid = (page: Page) => page.getByRole('grid', { name: 'Pods' })
 const header = (page: Page, name: string | RegExp) =>
   grid(page).getByRole('columnheader', { name, exact: typeof name === 'string' })
 const button = (page: Page) => page.getByRole('button', { name: 'Columns', exact: true })
+/** A text as a pattern that matches it and nothing else: a key's dots are dots. */
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const menu = (page: Page) => page.getByRole('dialog', { name: 'Columns' })
 const box = (page: Page, name: string | RegExp) =>
   menu(page).getByRole('checkbox', {
-    name: typeof name === 'string' ? new RegExp(`^${name}`) : name,
+    name: typeof name === 'string' ? new RegExp(`^${escaped(name)}`) : name,
   })
 const field = (page: Page) => menu(page).getByPlaceholder('Label or annotation key')
 const width = (page: Page, name: string) =>
@@ -82,7 +84,7 @@ async function openKind(page: Page, group: string, label: string) {
     .click()
   await page
     .getByRole('rowgroup', { name: group, exact: true })
-    .getByRole('button', { name: new RegExp(`^${label}\\b`) })
+    .getByRole('button', { name: new RegExp(`^${escaped(label)}\\b`) })
     .click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(label)
 }
@@ -250,7 +252,7 @@ test('a label or an annotation becomes a column, offered from what the listed ob
   await button(page).click()
 
   // ⌫ on a row takes an added one away; so does its ×.
-  await box(page, new RegExp(`^${component.replace(/\./g, '\\.')}.*annotation`)).focus()
+  await box(page, new RegExp(`^${escaped(component)}.*annotation`)).focus()
   await page.keyboard.press('Backspace')
   await expect(header(page, 'component')).toHaveCount(1)
   await menu(page)
@@ -265,6 +267,32 @@ test('a label or an annotation becomes a column, offered from what the listed ob
   await header(page, 'component').getByRole('button').click()
   await expect(rows(page, 'Pods').first()).toContainText('backend')
   await expect(rows(page, 'Pods').last()).toContainText('frontend')
+})
+
+test('an added key is cut in its middle in the menu, keeping the end that tells keys apart', async ({
+  page,
+  clusters,
+}) => {
+  const prefix = 'deploy.platform.example.com/escalation-contact-for-'
+  clusters.demo.upsert(
+    shopPod('keyed-1', { [`${prefix}weekdays`]: 'ops', [`${prefix}weekends`]: 'on-call' }),
+  )
+  await openCluster(page)
+  await go(page, '#/cluster/demo/pods?namespaces=shop')
+  await expect(rows(page, 'Pods').first()).toBeVisible()
+  await button(page).click()
+  for (const end of ['weekdays', 'weekends']) {
+    // (A key the listed pods carry is offered, and chosen first.)
+    await field(page).fill(`${prefix}${end}`)
+    await expect(menu(page).getByRole('option').first()).toContainText(end)
+    await page.keyboard.press('Enter')
+    await expect(box(page, `${prefix}${end}`)).toBeVisible()
+  }
+  for (const end of ['weekdays', 'weekends']) {
+    await expect(
+      box(page, `${prefix}${end}`).locator('[aria-hidden]').filter({ hasText: '…' }).last(),
+    ).toHaveText(new RegExp(`^deploy\\.\\S*…\\S*${end.slice(-4)}$`))
+  }
 })
 
 test('the header’s own menu hides a column, or opens the menu', async ({ page }) => {
