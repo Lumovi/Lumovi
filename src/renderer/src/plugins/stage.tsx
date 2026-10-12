@@ -14,7 +14,19 @@ import {
   type ReactNode,
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { number, oneOf, text, yesOrNo, type PropsOf } from '@shared/kit/declare'
+import {
+  handedFields,
+  number,
+  oneOf,
+  text,
+  wrongWith,
+  wrongWithFields,
+  wrongWithPart,
+  wrongWithParts,
+  yesOrNo,
+  type PropsOf,
+} from '@shared/kit/declare'
+import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
 import { cn } from '@renderer/lib/cn'
 import { openPage, type KitPart, type OpenPage } from './page'
@@ -195,5 +207,17 @@ export const stage = {
     root?.unmount()
     host?.remove()
     root = host = undefined
+  },
+  /**
+   * The door's own checks, for the tests to try door.spec's cases in this built page: what's
+   * measured of them is then what ran in a page.
+   */
+  doorChecks: {
+    DoorPage,
+    wrongWith,
+    wrongWithFields,
+    wrongWithPart,
+    wrongWithParts,
+    handedFields,
   },
 }
