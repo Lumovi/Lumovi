@@ -6,24 +6,16 @@
  */
 import type { Host } from '@shared/api'
 import { knownPlugins, readIncluded, type KnownPlugin } from '@shared/plugins-known'
+// The plugins Lumovi comes with, from the release its lock pins, as the build checked them: the
+// same files the page's bundle has, built into this one, and the code beside them, named as each
+// plugin's file is.
+import SHIPPED, { code as SHIPPED_CODE } from 'virtual:lumovi-plugins'
 import { digestOf, filesMark, readFiles } from './plugins'
 
 /** Set by the build: true only in the build the tests run. */
 declare const LUMOVI_TEST_BUILD: boolean
 
-// The plugins Lumovi comes with, and its own views of Kubernetes' kinds: the same files the
-// page's bundle has, built into this one.
-const SHIPPED = import.meta.glob<string>('../../plugins/*.yaml', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-})
-// The code that comes with them: beside a plugin's file, named as it is. (None yet.)
-const SHIPPED_CODE = import.meta.glob<string>('../../plugins/*.js', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-})
+// Its own views of Kubernetes' kinds.
 const OWN = import.meta.glob<string>('../renderer/src/views/*.yaml', {
   query: '?raw',
   import: 'default',
@@ -76,16 +68,13 @@ export async function plugins(
   const included = readIncluded({ ...SHIPPED, ...standIns }, OWN)
   // Their code, by its file's name; the tests' stand-ins' beside theirs.
   const codes = Object.fromEntries([
-    ...Object.entries(SHIPPED_CODE).map(([path, text]) => [
-      path.slice(path.lastIndexOf('/') + 1),
-      text,
-    ]),
+    ...Object.entries(SHIPPED_CODE),
     ...(LUMOVI_TEST_BUILD && read.includedCode
       ? read.includedCode.filter((file) => !file.error).map((file) => [file.name, file.text])
       : []),
   ])
-  // One of Lumovi's own: the bytes of its file are its text as UTF-8 (a test holds that of every
-  // one of them, so what a build carries is what `shasum` gives for the file in the repository).
+  // One of Lumovi's own: the bytes of its file are its text as UTF-8, which the release's index
+  // pins and the build checked (a test holds it of every one of them, and of their code).
   const known = knownPlugins(
     included,
     read.files,

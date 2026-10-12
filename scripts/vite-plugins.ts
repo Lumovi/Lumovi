@@ -1,10 +1,11 @@
 /**
  * `virtual:lumovi-plugins`: the plugins Lumovi comes with, each plugin's file by its file name,
- * from the bundle plugins.lock.json pins, downloaded and checked as the build starts
- * (plugins-bundle.ts). If they can't be, the build stops, saying why.
+ * and (`code`) the code beside it by its own, from the bundle plugins.lock.json pins, downloaded
+ * and checked as the build starts (plugins-bundle.ts). If they can't be, the build stops, saying
+ * why.
  */
 import type { Plugin } from 'vite'
-import { verifiedPlugins, type PluginFiles } from './plugins-bundle.ts'
+import { pluginsAndCode, verifiedPlugins, type PluginFiles } from './plugins-bundle.ts'
 
 const ID = 'virtual:lumovi-plugins'
 const RESOLVED = `\0${ID}`
@@ -24,7 +25,11 @@ export function lumoviPlugins(take: () => Promise<PluginFiles> = verifiedPlugins
     resolveId: (id) => (id === ID ? RESOLVED : undefined),
     load(id) {
       if (id !== RESOLVED) return undefined
-      return `export default Object.freeze(${JSON.stringify(files)})`
+      const { plugins, code } = pluginsAndCode(files ?? {})
+      return [
+        `export default Object.freeze(${JSON.stringify(plugins)})`,
+        `export const code = Object.freeze(${JSON.stringify(code)})`,
+      ].join('\n')
     },
   }
 }

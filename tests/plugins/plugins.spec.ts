@@ -25,7 +25,7 @@ import {
 import { asks } from '../../src/shared/plugin-asks.ts'
 import { mayCarryCode, settle, type PluginFile } from '../../src/shared/plugin-loading.ts'
 import type { Crd, Shape } from '../../scripts/crds.ts'
-import { readLock, takePlugins, trust } from '../../scripts/plugins-bundle.ts'
+import { pluginsAndCode, readLock, takePlugins, trust } from '../../scripts/plugins-bundle.ts'
 
 const PLUGINS = 'plugins'
 /** Lumovi's own views, for Kubernetes' kinds that have no page: written as a plugin's are. */
@@ -96,7 +96,7 @@ test.beforeAll(async () => {
           .filter((f) => f.endsWith('.yaml'))
           .map((f) => [f, readFileSync(join(PLUGINS, f), 'utf8')]),
       )
-    : await takePlugins(readLock(), trust())
+    : pluginsAndCode(await takePlugins(readLock(), trust())).plugins
   for (const [file, text] of Object.entries(files)) read(text, file, false)
   taken = Object.keys(files).length
   // A kind is one plugin's, though three of these share a group: a clash among Lumovi's own fails

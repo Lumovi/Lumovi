@@ -19,8 +19,9 @@
  * release that passed every check is kept in the cache (.cache/plugins), one entry for each lock,
  * whole or not at all.
  *
- * Anything else stops the build, saying why. Then the build serves each plugin's file, by its
- * file name, as `virtual:lumovi-plugins` (vite-plugins.ts).
+ * Anything else stops the build, saying why. Then the build serves each plugin's file, and the
+ * code beside it where it has any, by their file names, as `virtual:lumovi-plugins`
+ * (vite-plugins.ts).
  *
  * As for kubectl, a certificate is dated by the log's signed timestamp, and no proof that the
  * signing is in Sigstore's transparency log (Rekor) is asked for: the certificate names the
@@ -77,8 +78,18 @@ export interface Trust {
   repository: string
 }
 
-/** The plugins' files, by file name ("karpenter.yaml"): what `virtual:lumovi-plugins` serves. */
+/**
+ * The plugins' files, by file name: each plugin's ("karpenter.yaml"), and the code beside it
+ * where it has any ("karpenter.js"). What `virtual:lumovi-plugins` serves.
+ */
 export type PluginFiles = Record<string, string>
+
+/** The plugins' files apart from their code: what the page and the backend each take. */
+export function pluginsAndCode(files: PluginFiles): { plugins: PluginFiles; code: PluginFiles } {
+  const of = (end: string) =>
+    Object.fromEntries(Object.entries(files).filter(([name]) => name.endsWith(end)))
+  return { plugins: of('.yaml'), code: of('.js') }
+}
 
 /** Why the plugins can't be built in: each line a file, and what's wrong with it. */
 export class PluginsBundleError extends Error {}
@@ -333,6 +344,9 @@ export function verifyRelease(release: Release, lock: Lock, trust: Trust): Plugi
         problems.push(`${names.bundle}: ${name}/${path} isn’t what the index says it is`)
       } else if (path === 'plugin.yaml') {
         files[`${name}.yaml`] = served
+      } else if (path === 'plugin.js') {
+        // Its code, named as its file is: what the backend hands a page of it.
+        files[`${name}.js`] = served
       }
       if (path === 'plugin.yaml') carried = true
     }
