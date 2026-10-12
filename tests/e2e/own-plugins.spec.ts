@@ -1015,7 +1015,7 @@ test('plugins a ConfigMap mounts, as links into a folder of its own', async ({ l
   await allPlugins(page)
   await expect
     .poll(async () => (await problemLines(page)).join('\n'))
-    .toMatch(/^gone\.yaml: It couldn’t be read: ENOENT[^\n]*$/)
+    .toBe('gone.yaml: It isn’t there: a link to a file that’s gone.')
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   const custom = page.getByRole('region', { name: 'Custom resources' })
   await expect(custom.getByRole('row').filter({ hasText: 'Widgets' })).toContainText('widgets.yaml')

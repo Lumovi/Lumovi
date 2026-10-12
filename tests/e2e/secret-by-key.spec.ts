@@ -74,8 +74,9 @@ test('a Secret’s values by key on the desktop: the asked keys’ and no others
     expect(await refused({ ...query, keys: [] })).toBe(
       'invalid: Expected 1 to 20 of the Secret’s keys, each once and each a key’s name',
     )
+    // (One for a plugin's page names what named the Secret too: without, it's malformed.)
     expect(await refused({ ...query, keys: ['token'], forPlugin: 'flux' })).toBe(
-      'invalid: Expected a Secret and its keys',
+      'invalid: Expected a Secret, its keys and what named it',
     )
     expect(await refused({ ...query, name: 'no-such-secret', keys: ['token'] })).toBe(
       'not-found: There’s no such Secret.',
