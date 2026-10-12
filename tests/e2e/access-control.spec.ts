@@ -189,6 +189,60 @@ test('a cluster role: everything, URLs, and rules gathered from others', async (
   await expect(reports).toContainText(
     'Its rules are also part of ClusterRole/all-reports, ClusterRole/everything and ClusterRole/shop-admin, which gather them',
   )
+
+  // A selector's expressions, each as kubectl writes it, and read as the cluster reads them:
+  // a role is gathered where every one of them holds, and not where one doesn't.
+  const role = (name: string, labels: Record<string, string>, extra: object = {}) =>
+    clusters.demo.upsert({
+      apiVersion: 'rbac.authorization.k8s.io/v1',
+      kind: 'ClusterRole',
+      metadata: { name, labels },
+      ...extra,
+    })
+  role(
+    'tiered',
+    {},
+    {
+      aggregationRule: {
+        clusterRoleSelectors: [
+          {
+            matchExpressions: [
+              { key: 'tier', operator: 'NotIn', values: ['legacy', 'frozen'] },
+              { key: 'managed', operator: 'Exists' },
+              { key: 'retired', operator: 'DoesNotExist' },
+              { key: 'team', operator: 'In', values: ['shop'] },
+            ],
+          },
+        ],
+      },
+    },
+  )
+  role('tier-current', { tier: 'current', managed: 'yes', team: 'shop' })
+  role('tier-unsaid', { managed: 'yes', team: 'shop' })
+  role('tier-legacy', { tier: 'legacy', managed: 'yes', team: 'shop' })
+  role('tier-unmanaged', { tier: 'current', team: 'shop' })
+  role('tier-retired', { tier: 'current', managed: 'yes', team: 'shop', retired: '2025' })
+  role('tier-other-team', { tier: 'current', managed: 'yes', team: 'payments' })
+  await open(page, 'Cluster Roles', 'tiered')
+  await expect(panel(page, 'ClusterRole', 'tiered')).toContainText(
+    'Its rules are gathered by the cluster from the cluster roles labelled tier notin (legacy, frozen), managed, !retired, team in (shop).',
+  )
+  for (const [name, gathered] of [
+    ['tier-current', true],
+    // (A label that isn't there isn't one of the values it mustn't be.)
+    ['tier-unsaid', true],
+    ['tier-legacy', false],
+    ['tier-unmanaged', false],
+    ['tier-retired', false],
+    ['tier-other-team', false],
+  ] as const) {
+    await open(page, 'Cluster Roles', name)
+    const its = panel(page, 'ClusterRole', name)
+    // (Every one of them is gathered by the role that gathers every role.)
+    await expect(its).toContainText('ClusterRole/everything')
+    if (gathered) await expect(its, name).toContainText('ClusterRole/tiered')
+    else await expect(its, name).not.toContainText('ClusterRole/tiered')
+  }
 })
 
 test('a binding: its role and its subjects, each a link where it’s an object', async ({ page }) => {
