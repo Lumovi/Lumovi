@@ -13,6 +13,7 @@ import {
   type TableRow,
 } from '@shared/kit/table'
 import { KitFrame } from './KitFrame'
+import { KitShown } from './KitShown'
 import { Table } from './Table'
 
 /** What a release build is checked not to hold (tests/integration/release-build.spec.ts). */
@@ -169,6 +170,16 @@ const REFUSED: TableSaid[] = [
   },
   { ...RESOURCES, rows: [{ ...RESOURCES.rows[3]!, rest: { from: 2, text: 'Nowhere' } }] },
   { ...RESOURCES, rows: [{ ...RESOURCES.rows[3]!, rest: { from: -1, text: 'Nowhere' } }] },
+  // (A kind that isn't one: said so, and never looked up as if it were.)
+  {
+    ...RESOURCES,
+    rows: [
+      {
+        ...RESOURCES.rows[3]!,
+        cells: [{ kind: 'constructor' } as never, { kind: 'none' }],
+      },
+    ],
+  },
   {
     ...RESOURCES,
     rows: [
@@ -285,12 +296,12 @@ const many = (count: number, tick: number): TableSaid => ({
   }),
 })
 
-/** The kit's parts: the Table's cases, or (`kit/frame`) a page's frame. */
+/** The kit's parts: the Table's cases, (`kit/frame`) a page's frame, or (`kit/shown`) what's shown by reference. */
 export function KitPage() {
-  const frame = useParams().part === 'frame'
+  const { part } = useParams()
   return (
     <div id={KIT_PAGE} className="h-full overflow-y-auto">
-      {frame ? <KitFrame /> : <Tables />}
+      {part === 'frame' ? <KitFrame /> : part === 'shown' ? <KitShown /> : <Tables />}
     </div>
   )
 }

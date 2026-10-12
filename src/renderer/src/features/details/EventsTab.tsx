@@ -1,6 +1,14 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Activity, Info, SearchX, TriangleAlert } from 'lucide-react'
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react'
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+} from 'react'
 import type { KubeObject } from '@shared/api'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
@@ -17,15 +25,25 @@ const ABOUT = 72
 const GAP = 4
 
 /** Events about one object, newest first — the same lookup `kubectl describe` does. */
-export function EventsTab({ object }: { object: KubeObject }) {
+export function EventsTab({
+  object,
+  refused,
+}: {
+  object: KubeObject
+  /** In place of the usual error where the events may not be read: said by whoever shows them. */
+  refused?: ReactNode
+}) {
   const events = useList('Event', {
     namespace: object.metadata.namespace ?? null,
     fieldSelector: `involvedObject.kind=${object.kind},involvedObject.name=${object.metadata.name}`,
   })
 
   if (events.isPending) return <Loading label="Loading events…" />
-  if (events.data === undefined)
+  if (events.data === undefined) {
+    const { code } = events.error as KubeApiError
+    if (refused && (code === 'forbidden' || code === 'not-allowed')) return refused
     return <ErrorState error={events.error as KubeApiError} onRetry={() => void events.refetch()} />
+  }
   if (events.data.length === 0) {
     return (
       <EmptyState icon={Activity} title="No recent events">
@@ -67,7 +85,8 @@ function Events({ events }: { events: KubeObject[] }) {
   if (!filtering && sorted.length <= IN_VIEW_FROM) return <EventList events={sorted} />
   return (
     <div>
-      <div className="flex items-center gap-3 px-5 pt-4">
+      {/* (Shown in a card of its own, the field stays above the events as they scroll in it.) */}
+      <div className="flex items-center gap-3 px-(--events-field-inset,1.25rem) pt-(--events-gap,1rem) [.events-in-a-card_&]:sticky [.events-in-a-card_&]:top-0 [.events-in-a-card_&]:z-10 [.events-in-a-card_&]:bg-(--events-ground) [.events-in-a-card_&]:pb-2">
         <SearchInput
           value={filter}
           onChange={setFilter}
@@ -99,7 +118,11 @@ function Events({ events }: { events: KubeObject[] }) {
 /** Every event drawn: what a list of a couple of hundred or fewer is. */
 function EventList({ events }: { events: KubeObject[] }) {
   return (
-    <ol aria-label="Events" className="relative space-y-1 px-5 py-4">
+    <ol
+      aria-label="Events"
+      // (Where it's shown may set how far in it stands: a card's rows start at its own edge.)
+      className="relative mx-(--events-inset,1.25rem) space-y-1 py-(--events-gap,1rem)"
+    >
       {events.map((event) => (
         <EventRow key={event.metadata.name} event={event} />
       ))}
@@ -159,7 +182,7 @@ function EventsInView({ events }: { events: KubeObject[] }) {
     <ol
       ref={list}
       aria-label="Events"
-      className="relative mx-5 my-4"
+      className="relative mx-(--events-inset,1.25rem) my-(--events-gap,1rem)"
       style={{ height: virtualizer.getTotalSize() }}
     >
       {virtualizer.getVirtualItems().map((item) => (
