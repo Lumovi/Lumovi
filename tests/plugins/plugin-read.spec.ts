@@ -547,7 +547,11 @@ test('a Secret read for a plugin’s page is that plugin’s, held to the one it
   const q = { context: 'demo', namespace: 'shop', name: 'shop-tls', keys: ['tls.crt'] }
   const by = { kind: 'Widget.karpenter.sh', name: 'w1', path: 'spec.secretName' }
   const press = (more: object) =>
-    secretsAskedFor({ ...q, forPlugin: 'karpenter', namedBy: by, ...more }, known, kube)
+    secretsAskedFor(
+      { ...q, forPlugin: 'karpenter', namedBy: by, digest: FILE, codeDigest: CODE, ...more },
+      known,
+      kube,
+    )
   // Not a plugin's page: the read as it was asked, and nothing else looked at.
   expect(await secretsAskedFor(q, known, kube)).toEqual({ query: q })
   expect(asked).toEqual([])
@@ -568,6 +572,18 @@ test('a Secret read for a plugin’s page is that plugin’s, held to the one it
     refused: { code: 'not-allowed', message },
     recorded: { query: { ...q, ...query }, plugin: showing },
   })
+  // Only for the file and the code its page was handed: stale, or not said, and nothing is read.
+  for (const handed of [
+    { digest: `sha256:${'b'.repeat(64)}` },
+    { codeDigest: `sha256:${'d'.repeat(64)}` },
+    { digest: undefined },
+    { codeDigest: undefined },
+  ]) {
+    expect(await press(handed), JSON.stringify(handed)).toEqual({
+      refused: { code: 'conflict', message: READ_REFUSED.changed },
+      recorded: { query: q, plugin: showing },
+    })
+  }
   // A key another item declares, of the Secret this item named: refused, before it's read.
   expect(await press({ keys: ['ca.crt'] })).toEqual(
     refused(SECRET_KEYS_UNDECLARED, { keys: ['ca.crt'] }),

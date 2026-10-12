@@ -40,6 +40,16 @@ test('code is handed only where every wall holds, and the first that doesn’t s
   expect(mayHandOver(plugin(), server(false, true))).toBe('not-held')
   expect(mayHandOver(plugin(), server(true, false))).toBe('not-checked')
   expect(mayHandOver(plugin(), server(true, true))).toBe(true)
+  // Only those words, as a yes: anything else, or a place it doesn't know, is no.
+  for (const to of [
+    { host: 'server', held: 'yes', checked: 1 },
+    { host: 'server', held: true, checked: 'true' },
+    { host: 'other' },
+    { host: 'server' },
+    {},
+  ]) {
+    expect(mayHandOver(plugin(), to as unknown as HandOverTo), JSON.stringify(to)).not.toBe(true)
+  }
   // (What a plugin is comes before where it's asked for: a server says not-in-use first too.)
   expect(mayHandOver(plugin({ origin: 'server' }), server(false, false))).toBe('not-in-use')
 })

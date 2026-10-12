@@ -744,6 +744,12 @@ export interface SecretValuesQuery {
    * and reads only the keys that path's item declares.
    */
   namedBy?: { kind: ResourceKind; name: string; path: string }
+  /**
+   * What that plugin's page was handed its code with (`PluginCode`): a Secret is shown only
+   * for the file and the code the page runs, as any read of a plugin's.
+   */
+  digest?: string
+  codeDigest?: string
 }
 
 /**

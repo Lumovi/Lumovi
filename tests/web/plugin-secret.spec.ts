@@ -4,6 +4,7 @@
  * history with the plugin, counted apart from a read on the Secret's own page. (Whether a value
  * crossed is said yes or no: never the value.)
  */
+import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,6 +30,11 @@ spec:
     - { group: example.com, kind: Widget, path: spec.caSecretName, keys: [ca.crt] }
 `
 
+/** Its code, beside its file; and what a page of it is handed it with, which a press names. */
+const CODE = 'box.then(() => {})\n'
+const sha = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`
+const HANDED = { digest: sha(TOYS), codeDigest: sha(CODE) }
+
 /** Reads some of a Secret's values, and says only whether any crossed. */
 const read = (page: Page, query: Omit<SecretValuesQuery, 'context'>) =>
   page.evaluate(async (q) => {
@@ -49,6 +55,7 @@ test('a Secret pressed on a plugin’s page is read for that plugin, of the keys
 }) => {
   const included = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
   writeFileSync(join(included, 'toys.yaml'), TOYS)
+  writeFileSync(join(included, 'toys.js'), CODE)
   clusters.demo.upsert({
     apiVersion: 'v1',
     kind: 'Secret',
@@ -72,7 +79,7 @@ test('a Secret pressed on a plugin’s page is read for that plugin, of the keys
   const secret = { namespace: 'default', name: 'shop-tls' }
   const namedBy = { kind: 'Widget.example.com', name: 'tls-widget', path: 'spec.secretName' }
   const press = (keys: string[], more: Partial<SecretValuesQuery> = {}) =>
-    read(page, { ...secret, keys, forPlugin: 'toys', namedBy, ...more })
+    read(page, { ...secret, keys, forPlugin: 'toys', namedBy, ...HANDED, ...more })
 
   // A key the item that named it says its pages show: read, as the person.
   expect(await press(['tls.crt'])).toEqual({ ok: true, keys: [['tls.crt', true]] })
@@ -92,6 +99,12 @@ test('a Secret pressed on a plugin’s page is read for that plugin, of the keys
       message: SECRET_NOT_NAMED,
     })
   }
+  // A page handed other code than the plugin has now: nothing of the Secret is read.
+  expect(await press(['tls.crt'], { codeDigest: sha('other code') })).toEqual({
+    ok: false,
+    code: 'conflict',
+    message: 'This plugin changed since its page was opened.',
+  })
   // A plugin not in use, and a name no plugin could have: no read of anyone's, and none recorded.
   expect(await press(['tls.crt'], { forPlugin: 'nobody' })).toMatchObject({
     ok: false,
