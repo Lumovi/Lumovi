@@ -188,6 +188,16 @@ export function registerIpc(deps: Dependencies): void {
       assertString(path, 'path')
       return kubeconfigFiles.chooseAgain(path)
     },
+    [IPC.kubeconfigAddFolder]: () => kubeconfigFiles.addFolder(),
+    [IPC.kubeconfigAsks]: (context) => {
+      assertString(context, 'context')
+      return kubeconfigFiles.asks(context)
+    },
+    [IPC.kubeconfigAgree]: (context, consents) => {
+      assertString(context, 'context')
+      if (!isStrings(consents)) throw invalid('consents must be strings')
+      return kubeconfigFiles.agree(context, consents)
+    },
     [IPC.addedImport]: () => addedClusters.import(),
     [IPC.addedInspect]: (text, editing) => {
       assertString(text, 'text')

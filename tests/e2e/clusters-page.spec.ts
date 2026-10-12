@@ -171,7 +171,7 @@ test('an organization’s lock: Managed in place of changes, and the files shown
   await page.getByRole('button', { name: 'Managed' }).click()
   const managed = page.getByRole('dialog').filter({ hasText: 'Managed by your organization' })
   await expect(managed).toContainText(
-    'Your organization’s policy keeps Lumovi to the kubeconfig in KUBECONFIG or ~/.kube/config, so it can’t add files or clusters.',
+    'Your organization’s policy keeps Lumovi to the kubeconfig in KUBECONFIG or ~/.kube/config, so it can’t add files, folders or clusters.',
   )
   await expect(managed).toContainText(policy)
   await page.keyboard.press('Escape')

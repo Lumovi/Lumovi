@@ -204,14 +204,37 @@ export class SettingsStore implements SettingsAccess {
   }
 
   /**
-   * The kubeconfig files chosen in Lumovi in place of KUBECONFIG's (or ~/.kube/config), and
-   * those added after them, unless the organization's policy keeps to the default.
+   * The kubeconfig files chosen in Lumovi in place of KUBECONFIG's (or ~/.kube/config), those
+   * added after them, and the folders of them added, unless the organization's policy keeps to
+   * the default.
    */
-  kubeconfigFiles(): { chosen: string[]; added: string[] } {
-    if (this.policy.managed?.kubeconfigFilesLocked) return { chosen: [], added: [] }
+  kubeconfigFiles(): { chosen: string[]; added: string[]; folders: string[] } {
+    if (this.policy.managed?.kubeconfigFilesLocked) return { chosen: [], added: [], folders: [] }
     return {
       chosen: this.#settings.kubeconfigFiles ?? [],
       added: this.#settings.kubeconfigAdded ?? [],
+      folders: this.#settings.kubeconfigFolders ?? [],
+    }
+  }
+
+  /** What a folder's kubeconfig has its credentials do that the person agreed to (digests). */
+  kubeconfigConsents(file: string): string[] {
+    return this.#settings.kubeconfigConsents?.[file] ?? []
+  }
+
+  /** Keeps those, for that file, with any agreed to before (the newest last, a few hundred at most). */
+  agreeTo(file: string, consents: string[]): void {
+    const all = this.#settings.kubeconfigConsents ?? {}
+    const kept = [...new Set([...(all[file] ?? []), ...consents])].slice(-MAX_CONSENTS)
+    this.update({ kubeconfigConsents: { ...all, [file]: kept } })
+  }
+
+  /** What was agreed to for the files no longer read in any folder, forgotten. */
+  forgetConsents(keep: (file: string) => boolean): void {
+    const all = this.#settings.kubeconfigConsents ?? {}
+    const kept = Object.fromEntries(Object.entries(all).filter(([file]) => keep(file)))
+    if (Object.keys(kept).length !== Object.keys(all).length) {
+      this.update({ kubeconfigConsents: kept })
     }
   }
 
@@ -263,6 +286,8 @@ export class SettingsStore implements SettingsAccess {
         // Where each is (they're read where they are, never written).
         ...(paths(stored.kubeconfigFiles) ? { kubeconfigFiles: stored.kubeconfigFiles } : {}),
         ...(paths(stored.kubeconfigAdded) ? { kubeconfigAdded: stored.kubeconfigAdded } : {}),
+        ...(paths(stored.kubeconfigFolders) ? { kubeconfigFolders: stored.kubeconfigFolders } : {}),
+        ...consentsOf(stored.kubeconfigConsents),
         // A cluster's that don't make sense (edited by hand, say) are left as if unset.
         ...clustersOf(stored.clusters),
         // On unless turned off.
@@ -397,6 +422,29 @@ function agreedOf(value: unknown): { pluginsAgreed?: Record<string, AgreedRecord
 /** Whether a setting is a list of files, each where it is. */
 const paths = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((file) => typeof file === 'string' && isAbsolute(file))
+
+/** The most digests kept for one file. */
+const MAX_CONSENTS = 200
+
+/** What was agreed to, by file, as kept: digests alone (anything else is left out). */
+function consentsOf(value: unknown): { kubeconfigConsents?: Record<string, string[]> } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const consents = Object.fromEntries(
+    Object.entries(value).flatMap(([file, digests]) =>
+      isAbsolute(file) && Array.isArray(digests)
+        ? [
+            [
+              file,
+              digests.filter(
+                (digest) => typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest),
+              ),
+            ],
+          ]
+        : [],
+    ),
+  )
+  return Object.keys(consents).length > 0 ? { kubeconfigConsents: consents } : {}
+}
 
 /**
  * What AI assistants may do, as kept: unless it was edited into something

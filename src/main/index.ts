@@ -15,6 +15,7 @@ import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { HelmService } from '@backend/helm/service'
 import { FileCopies, fileCopyLimits } from '@backend/kube/files'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
+import { KubeconfigWatcher } from '@backend/kube/watch'
 import { LogStreams } from '@backend/kube/logs'
 import { KubeService } from '@backend/kube/service'
 import { Forwards, Terminals } from '@backend/kube/streams'
@@ -28,6 +29,8 @@ import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
 import { KubeconfigFiles } from './kubeconfig-files'
 import { AddedClusters, ownKubeconfigs } from './added-clusters'
+import { useConsentKey } from './consent'
+import { refusalOf } from './folder-consents'
 import { runStdio, STDIO } from './mcp-stdio'
 import { KUBECTL_MIRROR, Kubectls } from './kubectl'
 import type { TrustRoot } from './kubectl-signature'
@@ -108,13 +111,25 @@ if (stdio) {
     // (On the session the window's page is in. Lumovi's own requests elsewhere don't pass it:
     // the updater has a session of its own, and the clusters are reached from Node.)
     filterRequests(session.defaultSession)
+    // What a kubeconfig's credentials do here, agreed to by the person: known again after a restart.
+    useConsentKey(app.getPath('userData'))
     // The kubeconfig files chosen in Lumovi, or else KUBECONFIG's, or ~/.kube/config; then those
-    // added; then the clusters added in Lumovi, each a file of its own.
+    // added; then the clusters added in Lumovi, each a file of its own; then the folders'
+    // kubeconfigs. A folder's context is used once what its credentials do is agreed to. Each
+    // time they're read, what's watched is too (a file chosen, a folder added).
     const kubeconfigs = join(app.getPath('userData'), 'clusters')
-    const store = new KubeConfigStore(process.env, () => ({
-      ...settings.kubeconfigFiles(),
-      own: ownKubeconfigs(kubeconfigs, policy.managed),
-    }))
+    const watching: { watcher?: KubeconfigWatcher } = {}
+    const store = new KubeConfigStore(
+      process.env,
+      () => ({
+        ...settings.kubeconfigFiles(),
+        own: ownKubeconfigs(kubeconfigs, policy.managed),
+      }),
+      {
+        refuse: (parts) => refusalOf(parts, settings.kubeconfigConsents(parts.context.file)),
+        loaded: () => watching.watcher?.refresh(),
+      },
+    )
     const kubeconfigFiles = new KubeconfigFiles({
       settings,
       store,
@@ -127,6 +142,15 @@ if (stdio) {
           properties: ['openFile', 'multiSelections', 'showHiddenFiles'],
         })
         return canceled ? null : filePaths
+      },
+      pickFolder: async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+          title: 'Add a folder of kubeconfigs',
+          buttonLabel: 'Add',
+          defaultPath: join(homedir(), '.kube'),
+          properties: ['openDirectory', 'showHiddenFiles'],
+        })
+        return canceled ? null : (filePaths[0] ?? null)
       },
       reveal: (path) => shell.showItemInFolder(path),
       ownFolder: kubeconfigs,
@@ -262,6 +286,18 @@ if (stdio) {
       send(IPC.pluginsChanged),
     )
     pluginsWatch.set(settings.pluginDeveloperMode())
+    // A kubeconfig changed elsewhere (a context a cloud's tool added, a file in a folder): read
+    // again, and the page told, without Reload.
+    watching.watcher = new KubeconfigWatcher(
+      () => {
+        const { paths, folders } = store.paths()
+        return { files: paths, folders: folders.map(({ folder }) => folder) }
+      },
+      () => {
+        store.load()
+        send(IPC.kubeconfigChanged)
+      },
+    )
     const deps = {
       store,
       envReady,

@@ -883,7 +883,7 @@ function wordsOf(line: string): string[] {
  * What its credentials would do here, exactly, to be allowed or not: first a server not
  * verified, then the rest (a program run, a file sent, what Lumovi kept sent somewhere new).
  */
-function Agreement({
+export function Agreement({
   inspected,
   kind,
   addsAtOnce,

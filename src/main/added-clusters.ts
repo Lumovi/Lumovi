@@ -11,7 +11,7 @@
  *
  * The page gets an added cluster's text back with its secrets as placeholders: they stay here.
  */
-import { createHmac, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import {
   closeSync,
   constants,
@@ -28,10 +28,9 @@ import {
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { KubeConfig } from '@kubernetes/client-node'
-import { parse, stringify } from 'yaml'
+import { stringify } from 'yaml'
 import type {
   ClusterCheck,
-  CredentialCommand,
   KubeconfigFiles as Files,
   ManagedSettings,
   PastedKubeconfig,
@@ -41,10 +40,23 @@ import { kubeRequest } from '@backend/kube/client'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
 import { loadKubeConfig, type KubeConfigStore } from '@backend/kube/kubeconfig'
 import { withProxy } from '@backend/network'
+import {
+  agreedTo,
+  authOf,
+  commandsOf,
+  connectionOf,
+  consent,
+  dig,
+  MAX_TEXT,
+  readKubeconfig,
+  tokenFilesOf,
+  tooLarge,
+  unagreed,
+  unverifiedOf,
+  type Raw,
+} from './consent'
 import { lockedBy, type KubeconfigFiles } from './kubeconfig-files'
 
-/** The most a kubeconfig is read of: far more than any has. */
-const MAX_TEXT = 1024 * 1024
 /** How long the server has to answer, and the credentials to work (a browser sign-in included). */
 const SERVER_WAIT_MS = 10_000
 const CREDENTIALS_WAIT_MS = 60_000
@@ -60,13 +72,6 @@ export function ownKubeconfigs(folder: string, managed: ManagedSettings | undefi
   } catch {
     return []
   }
-}
-
-/** A kubeconfig as written: its entries, each by name. */
-interface Raw {
-  clusters: { name: string; cluster: Record<string, unknown> }[]
-  users: { name: string; user: Record<string, unknown> }[]
-  contexts: { name: string; context: { cluster: string; user?: string; namespace?: string } }[]
 }
 
 export class AddedClusters {
@@ -100,7 +105,7 @@ export class AddedClusters {
    */
   inspect(text: string, editing?: string): Result<PastedKubeconfig> {
     try {
-      const given = read(text)
+      const given = readKubeconfig(text)
       const stored = this.#stored(editing)
       const raw = stored ? restored(given, stored) : given
       // Taken by what else is read: the one being edited is itself.
@@ -186,7 +191,7 @@ export class AddedClusters {
       // One of Lumovi's own being edited: its placeholders as its secrets (where they were kept for,
       // or agreed to send elsewhere), and what it did before agreed to (where it did it).
       const stored = this.#stored(editing)
-      const given = read(text)
+      const given = readKubeconfig(text)
       const full = stored ? restored(given, stored) : given
       const agreedByPerson = agreed
       if (stored) agreed = [...agreed, ...carriedConsents(stored, full)]
@@ -234,7 +239,7 @@ export class AddedClusters {
       if (
         unagreed(raw, agreed).length > 0 ||
         // What goes somewhere it didn't, agreed to by the person now (not carried over).
-        sends.some((send) => !agreedByPerson.includes(send.consent))
+        sends.some((send) => !agreedTo(agreedByPerson, send.consent))
       ) {
         return { ok: true, data: { server, credentials: { ok: false, notTried: 'agreement' } } }
       }
@@ -269,7 +274,7 @@ export class AddedClusters {
   ): Result<{ path: string; files: Files }> {
     try {
       this.#mayChange()
-      const raw = read(text)
+      const raw = readKubeconfig(text)
       const contexts = options.contexts?.length
         ? options.contexts
         : raw.contexts.map(({ name }) => name)
@@ -292,7 +297,10 @@ export class AddedClusters {
   /** Its text, to edit: its secrets as placeholders, which stay here. */
   read(path: string): Result<string> {
     try {
-      return { ok: true, data: written(hidden(read(readFileSync(this.#own(path), 'utf8')))) }
+      return {
+        ok: true,
+        data: written(hidden(readKubeconfig(readFileSync(this.#own(path), 'utf8')))),
+      }
     } catch (error) {
       return { ok: false, error: toKubeError(error) }
     }
@@ -306,8 +314,8 @@ export class AddedClusters {
     try {
       this.#mayChange()
       const own = this.#own(path)
-      const stored = read(readFileSync(own, 'utf8'))
-      const given = read(text)
+      const stored = readKubeconfig(readFileSync(own, 'utf8'))
+      const given = readKubeconfig(text)
       const raw = restored(given, stored)
       const agreedNow = [...agreed, ...carriedConsents(stored, raw)]
       const kept = this.#checked(
@@ -321,10 +329,10 @@ export class AddedClusters {
         // What goes somewhere it didn't, agreed to by the person now (not carried over).
         [
           ...keptSendsOf(given, raw, stored)
-            .filter((send) => !agreed.includes(send.consent))
+            .filter((send) => !agreedTo(agreed, send.consent))
             .map((send) => `send its kept credentials to ${send.server}`),
           ...movedCommandsOf(raw, stored)
-            .filter((command) => !agreed.includes(command.consent))
+            .filter((command) => !agreedTo(agreed, command.consent))
             .map((command) => `run ${command.line} on this computer, for ${command.server}`),
         ],
       )
@@ -436,63 +444,15 @@ export class AddedClusters {
 
   /** One of Lumovi's own, as kept, if one's named. */
   #stored(editing: string | undefined): Raw | undefined {
-    return editing === undefined ? undefined : read(readFileSync(this.#own(editing), 'utf8'))
+    return editing === undefined
+      ? undefined
+      : readKubeconfig(readFileSync(this.#own(editing), 'utf8'))
   }
 
   #reread(): Files {
     this.deps.store.load()
     return this.deps.files.list()
   }
-}
-
-/** A kubeconfig's entries, if it's one: without its comments, preferences and current context. */
-function read(text: string): Raw {
-  if (text.length > MAX_TEXT) throw tooLarge()
-  let parsed: unknown
-  try {
-    parsed = parse(text)
-  } catch (error) {
-    // Only the reason and where: the parser quotes the lines around it, credentials and all.
-    throw new KubeRequestError(
-      'invalid',
-      `It isn’t YAML: ${(error as Error).message.split('\n')[0]}`,
-    )
-  }
-  const config = (parsed ?? {}) as Record<string, unknown>
-  const list = (key: string, entry: string) => {
-    const value = config[key] ?? []
-    if (
-      !Array.isArray(value) ||
-      !value.every(
-        (item: unknown) =>
-          typeof item === 'object' &&
-          item !== null &&
-          typeof (item as { name?: unknown }).name === 'string' &&
-          typeof ((item as Record<string, unknown>)[entry] ?? {}) === 'object',
-      )
-    ) {
-      throw new KubeRequestError('invalid', `Its ${key} aren’t a kubeconfig’s: each needs a name.`)
-    }
-    return value as { name: string; [entry: string]: unknown }[]
-  }
-  const raw = {
-    clusters: list('clusters', 'cluster').map(({ name, cluster }) => ({
-      name,
-      cluster: (cluster ?? {}) as Record<string, unknown>,
-    })),
-    users: list('users', 'user').map(({ name, user }) => ({
-      name,
-      user: (user ?? {}) as Record<string, unknown>,
-    })),
-    contexts: list('contexts', 'context').map(({ name, context }) => ({
-      name,
-      context: (context ?? {}) as Raw['contexts'][number]['context'],
-    })),
-  }
-  if (raw.contexts.length === 0) {
-    throw new KubeRequestError('invalid', 'It has no contexts: a kubeconfig names at least one.')
-  }
-  return raw
 }
 
 /**
@@ -587,108 +547,6 @@ function written(raw: Raw): string {
   })
 }
 
-function authOf(
-  user: Record<string, unknown> | undefined,
-): PastedKubeconfig['contexts'][number]['auth'] {
-  if (!user) return 'none'
-  if (commandsOf([{ name: '', user }]).length > 0) return 'command'
-  if (user['client-certificate'] || user['client-certificate-data']) return 'certificate'
-  if (user.token || user['token-file'] || user.tokenFile || user['auth-provider']) return 'token'
-  if (user.username) return 'basic'
-  return 'none'
-}
-
-/** The programs these users' credentials run, as they'd run. */
-function commandsOf(users: Raw['users']): CredentialCommand[] {
-  return users.flatMap(({ name, user }) => {
-    const provider = user['auth-provider'] as
-      { name?: unknown; config?: Record<string, unknown> } | undefined
-    // client-node runs an auth provider's exec too, and the user's own over it.
-    const exec = (user.exec ?? provider?.config?.exec) as
-      { command?: unknown; args?: unknown; env?: unknown } | undefined
-    const commands: CredentialCommand[] = []
-    if (exec) {
-      const args = Array.isArray(exec.args) ? exec.args.map(String) : []
-      const env = Array.isArray(exec.env)
-        ? (exec.env as { name?: unknown; value?: unknown }[]).map((variable) => ({
-            name: String(variable.name),
-            value: String(variable.value ?? ''),
-          }))
-        : []
-      const line = [String(exec.command ?? ''), ...args].map(quoted).join(' ')
-      commands.push({ user: name, line, env, consent: consent('run', line, env) })
-    }
-    // GCP's and Azure's run their cmd-path through a shell, with cmd-args as written.
-    const cmdPath = provider?.config?.['cmd-path']
-    if ((provider?.name === 'gcp' || provider?.name === 'azure') && cmdPath) {
-      const args = provider.config?.['cmd-args']
-      const line = `"${String(cmdPath)}"${args ? ` ${String(args)}` : ''}`
-      commands.push({ user: name, line, shell: true, env: [], consent: consent('shell', line) })
-    }
-    return commands
-  })
-}
-
-/**
- * The files on this computer whose text its credentials send, and the server each goes to: one
- * for each (a user's file goes to the server of each context it signs in to).
- */
-function tokenFilesOf(raw: Raw): PastedKubeconfig['tokenFiles'] {
-  const seen = new Set<string>()
-  return raw.contexts.flatMap(({ context }) => {
-    const found = raw.users.find((entry) => entry.name === context.user)
-    const server = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster.server
-    if (!found || typeof server !== 'string') return []
-    const { name, user } = found
-    const provider = user['auth-provider'] as { config?: Record<string, unknown> } | undefined
-    return [user['token-file'], user.tokenFile, provider?.config?.tokenFile]
-      .filter((path): path is string => typeof path === 'string' && !!path)
-      .map((path) => ({ user: name, path, server, consent: consent('send', path, server) }))
-      .filter(({ consent }) => !seen.has(consent) && seen.add(consent))
-  })
-}
-
-/** Consents' key: this run's own, so the page can't test a guess at what one stands for. */
-const CONSENT_KEY = randomBytes(32)
-
-/**
- * What's agreed to, when it is: one thing a credential does here, exactly as it would do it
- * (secrets and all), as a keyed digest: the page gives it back, and learns nothing from it.
- */
-function consent(...what: unknown[]): string {
-  return createHmac('sha256', CONSENT_KEY).update(JSON.stringify(what)).digest('hex')
-}
-
-/**
- * What a cluster's connection is: where its credentials go, and how they're kept from anyone
- * else on the way.
- */
-const CONNECTION = [
-  'server',
-  'proxy-url',
-  'insecure-skip-tls-verify',
-  'certificate-authority',
-  'certificate-authority-data',
-  'tls-server-name',
-]
-/**
- * Where an OIDC user's own secrets go besides: its identity provider (its refresh token and
- * client secret, once its ID token has expired), and how it's verified.
- */
-const ISSUER = ['idp-issuer-url', 'idp-certificate-authority', 'idp-certificate-authority-data']
-
-/** Where a context's credentials go: its cluster's connection, and its user's issuer. */
-function connectionOf(raw: Raw, cluster: string, user?: string): string {
-  const found = raw.clusters.find((entry) => entry.name === cluster)?.cluster ?? {}
-  const config =
-    (dig(raw.users.find((entry) => entry.name === user)?.user, ['auth-provider', 'config']) as
-      Record<string, unknown> | undefined) ?? {}
-  return JSON.stringify([
-    ...CONNECTION.map((key) => found[key] ?? null),
-    ...ISSUER.map((key) => config[key] ?? null),
-  ])
-}
-
 /** The connections each user's contexts have. */
 function connectionsOf(raw: Raw): Map<string, Set<string>> {
   const connections = new Map<string, Set<string>>()
@@ -727,30 +585,6 @@ function carriedConsents(stored: Raw, edited: Raw): string[] {
     ...tokenFilesOf(stored),
     ...unverifiedOf(stored),
   ].map(({ consent }) => consent)
-}
-
-/** A server over plain HTTP: what's sent it isn't encrypted. */
-const plain = (server: string) => /^http:/i.test(server)
-
-/**
- * The servers not verified that its credentials would go to: whatever answers there gets them, so
- * each is agreed to first, for that very server. That's one with `insecure-skip-tls-verify`, or
- * one over plain HTTP, unencrypted, flag or not: Lumovi doesn't connect to it without the flag
- * (serverUrl), but kubectl would, in its terminals or from its line.
- */
-function unverifiedOf(raw: Raw): { context: string; server: string; consent: string }[] {
-  const seen = new Set<string>()
-  return raw.contexts.flatMap(({ name, context }) => {
-    const cluster = raw.clusters.find((entry) => entry.name === context.cluster)?.cluster
-    const user = raw.users.find((entry) => entry.name === context.user)?.user
-    if (!cluster || authOf(user) === 'none') return []
-    const server = String(cluster.server ?? '')
-    if (cluster['insecure-skip-tls-verify'] !== true && !plain(server)) return []
-    const agreement = consent('unverified', server)
-    if (seen.has(agreement)) return []
-    seen.add(agreement)
-    return [{ context: name, server, consent: agreement }]
-  })
 }
 
 /**
@@ -821,23 +655,6 @@ function keptSendsOf(
   })
 }
 
-/** What its credentials do here that isn't agreed to, as said to the person. */
-function unagreed(raw: Raw, agreed: string[]): string[] {
-  return [
-    ...unverifiedOf(raw)
-      .filter(({ consent }) => !agreed.includes(consent))
-      .map(({ server }) =>
-        plain(server) ? `go to ${server} unencrypted` : `go to ${server}, which isn’t verified`,
-      ),
-    ...commandsOf(raw.users)
-      .filter(({ consent }) => !agreed.includes(consent))
-      .map(({ line }) => `run ${line} on this computer`),
-    ...tokenFilesOf(raw)
-      .filter(({ consent }) => !agreed.includes(consent))
-      .map(({ path, server }) => `send ${path} to ${server}`),
-  ]
-}
-
 /** Where a user's secrets are, and what the page gets in their place. */
 const SECRETS = [
   ['token'],
@@ -849,17 +666,6 @@ const SECRETS = [
   ['auth-provider', 'config', 'client-secret'],
 ]
 const KEPT = '(kept by Lumovi)'
-
-/** `at` in `value`, if it's there. */
-function dig(value: unknown, at: string[]): unknown {
-  return at.reduce<unknown>(
-    (inside, key) =>
-      typeof inside === 'object' && inside !== null
-        ? (inside as Record<string, unknown>)[key]
-        : undefined,
-    value,
-  )
-}
 
 /** `at` in `value` set to `to` (where what holds it is there). */
 function put(value: Record<string, unknown>, at: string[], to: unknown): void {
@@ -1072,11 +878,6 @@ function unique(users: Raw['users']): Raw['users'] {
   return users.filter((user, index) => users.findIndex(({ name }) => name === user.name) === index)
 }
 
-/** As a shell would need it to be one word. */
-function quoted(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`
-}
-
 /**
  * For a terminal here: POSIX shells', or PowerShell's on Windows; each path in the home folder
  * from `$HOME`, so it reads as it would be typed. Nothing in a path is read as more than its
@@ -1130,10 +931,6 @@ function slug(name: string): string {
       .replace(/^-|-$/g, '')
       .slice(0, 40) || 'cluster'
   )
-}
-
-function tooLarge(): KubeRequestError {
-  return new KubeRequestError('invalid', 'It’s larger than any kubeconfig (over 1 MB).')
 }
 
 /** The server's version, if it says. */

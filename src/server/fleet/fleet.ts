@@ -12,6 +12,7 @@ import { originKey, type FleetSetting } from '@shared/fleet'
 import type { SessionUser } from '@shared/server'
 import { KubeRequestError } from '@backend/kube/errors'
 import type { ClusterConfigs } from '@backend/kube/kubeconfig'
+import { KubeconfigWatcher } from '@backend/kube/watch'
 import {
   helmCluster,
   helmUser,
@@ -108,6 +109,8 @@ export class HostedFleet implements Hosted {
   /** What was last said about each source's problems, so each is said once. */
   readonly #said = new Map<string, string>()
   readonly #timer: NodeJS.Timeout
+  /** The kubeconfig files (LUMOVI_FLEET_KUBECONFIG_FILE), read again when one changes. */
+  readonly #watcher: KubeconfigWatcher | undefined
   readonly #prefixes: { user: string; groups: string }
 
   private constructor(
@@ -146,6 +149,16 @@ export class HostedFleet implements Hosted {
       ])
     }
     this.#timer = setInterval(() => void this.#refresh(), config.refreshSeconds * 1000).unref()
+    this.#watcher =
+      config.kubeconfigFiles.length > 0
+        ? new KubeconfigWatcher(
+            () => ({ files: config.kubeconfigFiles, folders: [] }),
+            () => {
+              this.#readFiles()
+              this.#merge()
+            },
+          )
+        : undefined
   }
 
   /** A fleet, with every source read once. */
@@ -272,6 +285,7 @@ export class HostedFleet implements Hosted {
 
   close(): void {
     clearInterval(this.#timer)
+    this.#watcher?.close()
     this.agents.close()
   }
 
@@ -330,17 +344,22 @@ export class HostedFleet implements Hosted {
 
   /** Reads the sources that change (files, Secrets) again, then merges. */
   async #refresh(): Promise<void> {
-    for (const file of this.config.kubeconfigFiles) {
-      this.#read(file, () =>
-        fromKubeconfig(readFileSync(file, 'utf8'), file, `the kubeconfig ${file}`, dirname(file)),
-      )
-    }
+    this.#readFiles()
     if (this.config.secrets.length > 0 || this.config.addFromPage) {
       const { lists, problems } = await secretClusters(this.env, this.config, this.#added)
       for (const [list, clusters] of lists) this.#sources.set(list, clusters)
       this.#say('secrets', problems.join('\n'))
     }
     this.#merge()
+  }
+
+  /** The kubeconfig files, each read again (one that can't be keeps what it had). */
+  #readFiles(): void {
+    for (const file of this.config.kubeconfigFiles) {
+      this.#read(file, () =>
+        fromKubeconfig(readFileSync(file, 'utf8'), file, `the kubeconfig ${file}`, dirname(file)),
+      )
+    }
   }
 
   /** Reads a source; one that can't be read keeps what it had, and says why (once). */

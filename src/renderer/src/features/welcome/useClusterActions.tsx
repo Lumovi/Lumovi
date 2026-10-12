@@ -7,13 +7,16 @@ import { LoaderCircle, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { KubeconfigFiles } from '@shared/api'
 import { Button } from '@renderer/components/Button'
+import { useGo } from '@renderer/hooks/go'
 import { useSettings } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
+import { clusterPath } from '@renderer/lib/routes'
 import { toast } from '@renderer/state/toasts'
 import type { ClusterActionHandlers } from './ClusterActions'
 import type { Cluster } from './ClusterPicker'
 import { ClusterSettingsDialog } from './ClusterSettingsDialog'
 import { tilde } from './clusters'
+import { FolderConsentDialog } from './FolderConsentDialog'
 import { PageDialog } from './PageDialog'
 
 export function useClusterActions({
@@ -30,6 +33,8 @@ export function useClusterActions({
   const queryClient = useQueryClient()
   const [settingsFor, setSettingsFor] = useState<string>()
   const [removing, setRemoving] = useState<Cluster>()
+  const [allowing, setAllowing] = useState<string>()
+  const go = useGo()
 
   if (!api.app.setCluster) return { dialogs: null }
 
@@ -64,6 +69,7 @@ export function useClusterActions({
     show: (cluster) => void api.kubeconfigFiles?.show(cluster.context.file!),
     copyForKubectl: (cluster) => void copyForKubectl(cluster),
     remove: (cluster) => setRemoving(cluster),
+    allow: (cluster) => setAllowing(cluster.context.name),
   }
 
   const editing = clusters.find((cluster) => cluster.context.name === settingsFor)
@@ -87,6 +93,16 @@ export function useClusterActions({
             setRemoving(editing)
           }}
           onClose={() => setSettingsFor(undefined)}
+        />
+      )}
+      {allowing && (
+        <FolderConsentDialog
+          context={allowing}
+          onAllowed={() => {
+            setAllowing(undefined)
+            go(clusterPath(allowing))
+          }}
+          onClose={() => setAllowing(undefined)}
         />
       )}
       {removing && (
