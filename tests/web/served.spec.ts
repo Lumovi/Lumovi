@@ -217,14 +217,18 @@ test('read-only for everyone on the server: one turns it on, and another sees wh
   await expect(
     page.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
   ).toBeVisible()
-  expect(audited(served, 'read-only.changed')).toEqual([
-    expect.objectContaining({
-      outcome: 'success',
-      actor: expect.objectContaining({ user: 'alice@example.com' }),
-      cluster: 'demo',
-      summary: 'Made demo read-only for everyone on this server',
-    }),
-  ])
+  // (The history's line is written as the change is made, not before the page shows it: read
+  // until it's there.)
+  await expect
+    .poll(() => audited(served, 'read-only.changed'))
+    .toEqual([
+      expect.objectContaining({
+        outcome: 'success',
+        actor: expect.objectContaining({ user: 'alice@example.com' }),
+        cluster: 'demo',
+        summary: 'Made demo read-only for everyone on this server',
+      }),
+    ])
   // Allowed again, for everyone.
   await page.getByRole('button', { name: 'Cluster', exact: true }).click()
   await page.getByRole('switch', { name: 'Read-only' }).click()
@@ -234,9 +238,11 @@ test('read-only for everyone on the server: one turns it on, and another sees wh
   await expect(
     bob.getByRole('button', { name: 'Cluster', exact: true }).getByLabel('Read-only'),
   ).toHaveCount(0)
-  expect(audited(again, 'read-only.changed')).toEqual([
-    expect.objectContaining({ summary: 'Made demo changeable for everyone on this server' }),
-  ])
+  await expect
+    .poll(() => audited(again, 'read-only.changed'))
+    .toEqual([
+      expect.objectContaining({ summary: 'Made demo changeable for everyone on this server' }),
+    ])
   await elsewhere.close()
 
   // For everyone, when the server says so.
