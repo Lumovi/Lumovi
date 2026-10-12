@@ -87,6 +87,7 @@ test('change container images, then undo', async ({ page, clusters }) => {
     .first()
     .fill('busybox')
   await dialog(page).getByRole('button', { name: 'Update' }).click()
+  await expect(toasts(page)).toContainText('Set kubectl of cleanup to busybox')
   expect(
     writes(clusters.demo, 'PATCH', '/apis/batch/v1/namespaces/batch/cronjobs/cleanup')[0]!.body.spec
       .jobTemplate.spec.template.spec.containers[0].image,
