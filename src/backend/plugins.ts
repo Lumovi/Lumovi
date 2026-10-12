@@ -3,6 +3,7 @@
  * LUMOVI_PLUGINS_DIR). They are read whenever the page asks, so changes show
  * up on the next refresh; the page checks and applies them.
  */
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
@@ -23,11 +24,22 @@ export function pluginsDirectory(
   return { path, shown: path.startsWith(home + sep) ? join('~', relative(home, path)) : path }
 }
 
-export async function readPlugins(
-  { path, shown }: { path: string; shown: string },
+/** A file as it was read: its text for the checker, and the digest of the very bytes read. */
+export type ReadFile = LocalPlugins['files'][number] & {
+  /** `sha256:` and the hex, of the file's bytes: what `shasum -a 256` gives for it. */
+  digest?: string
+}
+
+/** `sha256:` and the hex of some bytes. */
+export const digestOf = (bytes: Uint8Array) =>
+  `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+
+/** The folder's files, and in the tests' build its stand-ins for Lumovi's own, as they were read. */
+export async function readFiles(
+  { path }: { path: string },
   env: NodeJS.ProcessEnv = process.env,
-): Promise<LocalPlugins> {
-  const own = { directory: shown, files: await filesIn(path) }
+): Promise<{ files: ReadFile[]; included?: ReadFile[] }> {
+  const own = { files: await filesIn(path) }
   // (A release build ends here: what follows, and the variable it reads, are left out of it.)
   if (!LUMOVI_TEST_BUILD) return own
   // The tests' stand-in for plugins that came inside the build: Lumovi's own are only ever the
@@ -36,7 +48,25 @@ export async function readPlugins(
   return included ? { ...own, included: await filesIn(included) } : own
 }
 
-async function filesIn(path: string): Promise<LocalPlugins['files']> {
+export async function readPlugins(
+  directory: { path: string; shown: string },
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<LocalPlugins> {
+  // (The page gets what it always has: names, texts, and why one couldn't be read.)
+  const page = (files: ReadFile[]) =>
+    files.map(({ name, text, error }) => ({ name, text, ...(error ? { error } : {}) }))
+  const read = await readFiles(directory, env)
+  return {
+    directory: directory.shown,
+    files: page(read.files),
+    ...(read.included ? { included: page(read.included) } : {}),
+  }
+}
+
+/** Reads text strictly: bytes that aren't UTF-8 are refused, never read with marks in their place. */
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+async function filesIn(path: string): Promise<ReadFile[]> {
   let entries: Dirent[]
   try {
     entries = await readdir(path, { withFileTypes: true })
@@ -61,7 +91,15 @@ async function filesIn(path: string): Promise<LocalPlugins['files']> {
           if (size > MAX_BYTES) {
             return { name, text: '', error: `It’s larger than ${MAX_BYTES / 1024} KB.` }
           }
-          return { name, text: await file.readFile('utf8') }
+          // One read: the text that's checked and the digest are of the same bytes.
+          const bytes = await file.readFile()
+          let text: string
+          try {
+            text = utf8.decode(bytes)
+          } catch {
+            return { name, text: '', error: 'It isn’t UTF-8 text.' }
+          }
+          return { name, text, digest: digestOf(bytes) }
         } finally {
           await file.close()
         }
