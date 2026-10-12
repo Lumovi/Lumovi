@@ -98,6 +98,11 @@ export const time = { kind: 'time' } as const
 export const object = { kind: 'object' } as const
 export const secret = { kind: 'secret' } as const
 export const handler = <const E extends string>(event: E) => ({ kind: 'handler', event }) as const
+/**
+ * A list. (Of objects, an item whose token the page doesn't hold is left out, so the list can
+ * be shorter than it was written: never pair one list's places with another's. Where a place
+ * matters, a record per place keeps it and only loses the field.)
+ */
 export const list = <const K extends Kind>(of: K, max: number) =>
   ({ kind: 'list', of, max }) as const
 export const record = <const F extends Record<string, Kind>>(
@@ -270,6 +275,9 @@ export function wrongWithParts(parts: Readonly<Record<string, Part>>): string | 
  * by the door before it starts a page, and in Lumovi's own tests, so a part that's declared
  * carelessly never reaches a plugin.
  */
+/** The kinds the door puts something else in the place of, which may then be nothing. */
+const SWAPPED = new Set<Kind['kind']>(['object', 'secret'])
+
 export function wrongWithPart(part: Part): string | undefined {
   if (!NAME.test(part.name)) return `${part.name}: isn’t a part’s name`
   const whole = (most: number) => Number.isSafeInteger(most) && most > 0
@@ -297,8 +305,20 @@ export function wrongWithPart(part: Part): string | undefined {
       if (Object.keys(kind.of).length === 0) return `${where}: chooses between nothing`
       for (const [which, fields] of Object.entries(kind.of)) {
         if (Object.hasOwn(fields, kind.by)) return `${where}.${which}: declares ${kind.by} itself`
-        const wrong = fieldsProblem(fields, kind.optional?.[which], `${where}.${which}`, depth + 1)
+        const wrong = fieldsProblem(
+          fields,
+          kind.optional?.[which],
+          `${where}.${which}`,
+          depth + 1,
+          true,
+        )
         if (wrong) return wrong
+        // (In a choice, what isn't optional is required.)
+        const optional = kind.optional?.[which] ?? []
+        const swapped = Object.keys(fields).find(
+          (key) => !optional.includes(key) && SWAPPED.has(fields[key]!.kind),
+        )
+        if (swapped) return `${where}.${which}.${swapped}: an object or a Secret can’t be required`
       }
     }
     return undefined
@@ -308,6 +328,7 @@ export function wrongWithPart(part: Part): string | undefined {
     required: readonly string[] | undefined,
     where: string,
     depth = 0,
+    optional = false,
   ): string | undefined => {
     for (const [key, kind] of Object.entries(fields)) {
       if (!NAME.test(key) || NEVER.has(key)) return `${where}.${key}: isn’t a property’s name`
@@ -315,7 +336,14 @@ export function wrongWithPart(part: Part): string | undefined {
       if (wrong) return wrong
     }
     const missing = (required ?? []).find((key) => !Object.hasOwn(fields, key))
-    return missing ? `${where}.${missing}: is required and not declared` : undefined
+    if (missing) return `${where}.${missing}: is required and not declared`
+    // What the door swaps can turn out to be nothing (a token gone with its read, or made up):
+    // a part is always written to draw without it.
+    // (For a choice the list is of what's optional: it's checked there.)
+    const swapped = optional
+      ? undefined
+      : (required ?? []).find((key) => SWAPPED.has(fields[key]!.kind))
+    return swapped ? `${where}.${swapped}: an object or a Secret can’t be required` : undefined
   }
   for (const [event, carries] of Object.entries(part.events ?? {})) {
     if (!NAME.test(event)) return `${part.name}: ${event} isn’t an event’s name`
