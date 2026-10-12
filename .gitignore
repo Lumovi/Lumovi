@@ -27,3 +27,6 @@ build/helm/
 .kind/
 playwright-report-integration/
 test-results-integration/
+
+# The plugins' release, as downloaded for the build (scripts/plugins-bundle.ts): checked at every build.
+/.cache/plugins/

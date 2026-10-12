@@ -100,6 +100,9 @@ jobs:
             echo "::error::Entries still wait in changelog.d/, so $VERSION's notes would lack them: $(echo $waiting)"
             exit 1
           fi
+          # The plugins it's built with: the release plugins.lock.json pins (scripts/plugins-bundle.ts).
+          PLUGINS=$(node -p "require('./plugins.lock.json').version")
+          PLUGINS_BUNDLE=$(node -p "require('./plugins.lock.json').bundle")
           awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
@@ -126,6 +129,10 @@ jobs:
           **In your cluster** ([documentation](https://docs.lumovi.dev/server/install)):
           \`helm install lumovi oci://ghcr.io/lumovi/charts/lumovi --version $VERSION\`, with the
           image \`ghcr.io/lumovi/lumovi:$VERSION\` for \`linux/amd64\` and \`linux/arm64\`.
+
+          **Its plugins** are [Lumovi-plugins $PLUGINS](https://github.com/Lumovi/Lumovi-plugins/releases/tag/v$PLUGINS):
+          the bundle \`plugins-$PLUGINS.json\`, SHA-256 \`$PLUGINS_BUNDLE\`, checked when this
+          was built against that release's signature and attestation, by its release workflow.
           EOF
       # Kept with the run for the job that makes the draft release, once the release is approved:
       # nothing of a release exists before that.

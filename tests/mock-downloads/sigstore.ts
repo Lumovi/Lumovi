@@ -3,7 +3,9 @@
  * an intermediate) and a certificate transparency log, made as the tests start, and the trust
  * root that names them (as Lumovi ships Sigstore's, in src/main/sigstore-root.json). It gives
  * certificates as Fulcio gives Kubernetes' release one, each with the timestamp its log signed,
- * and what each way of getting one wrong looks like.
+ * and what each way of getting one wrong looks like. And, as Fulcio gives a GitHub workflow one
+ * (named by a URI): a file signed as `cosign sign-blob --bundle` writes it, and an attestation
+ * as GitHub's attest action writes it.
  */
 import {
   createHash,
@@ -68,6 +70,30 @@ export interface MockSigstore {
   certificate(fault?: CertificateFault): Promise<Buffer>
   /** kubectl.sig: `binary` signed with the key of the certificates it gives (base64). */
   sign(binary: Buffer): Buffer
+  /**
+   * A Sigstore bundle of `data`, as `cosign sign-blob --bundle` writes it: signed under a
+   * certificate naming `signer` (a URI, as a workflow's is) and wrong as `fault` says.
+   */
+  blob(data: Buffer, signer: WorkflowSigner, fault?: CertificateFault): Promise<Buffer>
+  /**
+   * An attestation of `statement`, as GitHub's attest action writes it: a Sigstore bundle of a
+   * DSSE envelope, signed likewise.
+   */
+  attestation(statement: object, signer: WorkflowSigner, fault?: CertificateFault): Promise<Buffer>
+}
+
+/** Who a workflow's certificate names: its URI, and how it signed in. */
+export interface WorkflowSigner {
+  identity: string
+  issuer: string
+}
+
+/** DSSE's pre-authentication encoding: what an envelope's signature is over. */
+export function preAuthEncoding(type: string, payload: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from(`DSSEv1 ${Buffer.byteLength(type)} ${type} ${payload.length} `),
+    payload,
+  ])
 }
 
 export async function startMockSigstore(): Promise<MockSigstore> {
@@ -139,28 +165,21 @@ export async function startMockSigstore(): Promise<MockSigstore> {
     return tlv(0x04, Buffer.concat([Buffer.from([list.length >> 8, list.length & 0xff]), list]))
   }
 
-  const certificate = async (fault?: CertificateFault) => {
-    const kept = certificates.get(fault ?? 'none')
-    if (kept) return kept
+  /** A certificate as Fulcio issues one naming `name`, signed in with `issuer`: its DER. */
+  const issue = async (
+    name: { type: 'email' | 'url'; value: string },
+    issuer: string,
+    fault?: CertificateFault,
+  ) => {
     // Valid for ten minutes, as Fulcio's are, a day ago.
     const notBefore = new Date(now - DAY)
     const notAfter = new Date(notBefore.getTime() + 10 * 60_000)
-    const issuer =
-      fault === 'issuer' ? 'https://token.actions.githubusercontent.com' : KUBERNETES_SIGNER.issuer
     const extensions = [
       new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
       new x509.ExtendedKeyUsageExtension([
         fault === 'usage' ? '1.3.6.1.5.5.7.3.1' : '1.3.6.1.5.5.7.3.3',
       ]),
-      new x509.SubjectAlternativeNameExtension(
-        [
-          {
-            type: 'email',
-            value: fault === 'identity' ? 'someone@example.com' : KUBERNETES_SIGNER.identity,
-          },
-        ],
-        true,
-      ),
+      new x509.SubjectAlternativeNameExtension([name], true),
       new x509.Extension('1.3.6.1.4.1.57264.1.1', false, Buffer.from(issuer)),
       new x509.Extension('1.3.6.1.4.1.57264.1.8', false, tlv(0x0c, Buffer.from(issuer))),
     ]
@@ -194,11 +213,38 @@ export async function startMockSigstore(): Promise<MockSigstore> {
       )
       all = [...extensions, new x509.Extension('1.3.6.1.4.1.11129.2.4.2', false, sct)]
     }
-    const cert = await x509.X509CertificateGenerator.create({ ...template, extensions: all })
+    return x509.X509CertificateGenerator.create({ ...template, extensions: all })
+  }
+
+  const certificate = async (fault?: CertificateFault) => {
+    const kept = certificates.get(fault ?? 'none')
+    if (kept) return kept
+    const issuer =
+      fault === 'issuer' ? 'https://token.actions.githubusercontent.com' : KUBERNETES_SIGNER.issuer
+    const name = {
+      type: 'email' as const,
+      value: fault === 'identity' ? 'someone@example.com' : KUBERNETES_SIGNER.identity,
+    }
+    const cert = await issue(name, issuer, fault)
     const encoded = Buffer.from(cert.toString('pem')).toString('base64')
     certificates.set(fault ?? 'none', Buffer.from(encoded))
     return Buffer.from(encoded)
   }
+
+  /** A workflow's certificate: named by its URI (an email, where `fault` is 'identity'). */
+  const workflowCertificate = async (signer: WorkflowSigner, fault?: CertificateFault) => {
+    const name =
+      fault === 'identity'
+        ? { type: 'email' as const, value: 'someone@example.com' }
+        : { type: 'url' as const, value: signer.identity }
+    return der(await issue(name, signer.issuer, fault))
+  }
+  const material = (certificate: Buffer) => ({
+    certificate: { rawBytes: certificate.toString('base64') },
+    tlogEntries: [],
+    timestampVerificationData: {},
+  })
+  const MEDIA_TYPE = 'application/vnd.dev.sigstore.bundle.v0.3+json'
 
   return {
     root: {
@@ -224,5 +270,38 @@ export async function startMockSigstore(): Promise<MockSigstore> {
     },
     certificate,
     sign: (binary) => Buffer.from(sign('sha256', binary, signingKey).toString('base64')),
+    blob: async (data, signer, fault) =>
+      Buffer.from(
+        JSON.stringify({
+          mediaType: MEDIA_TYPE,
+          verificationMaterial: material(await workflowCertificate(signer, fault)),
+          messageSignature: {
+            messageDigest: {
+              algorithm: 'SHA2_256',
+              digest: createHash('sha256').update(data).digest('base64'),
+            },
+            signature: sign('sha256', data, signingKey).toString('base64'),
+          },
+        }),
+      ),
+    attestation: async (statement, signer, fault) => {
+      const type = 'application/vnd.in-toto+json'
+      const payload = Buffer.from(JSON.stringify(statement))
+      return Buffer.from(
+        JSON.stringify({
+          mediaType: MEDIA_TYPE,
+          verificationMaterial: material(await workflowCertificate(signer, fault)),
+          dsseEnvelope: {
+            payload: payload.toString('base64'),
+            payloadType: type,
+            signatures: [
+              {
+                sig: sign('sha256', preAuthEncoding(type, payload), signingKey).toString('base64'),
+              },
+            ],
+          },
+        }),
+      )
+    },
   }
 }

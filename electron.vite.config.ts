@@ -5,6 +5,7 @@ import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 import { coverage } from './scripts/vite-coverage'
 import { licenses } from './scripts/vite-licenses'
+import { lumoviPlugins } from './scripts/vite-plugins'
 
 const withCoverage = process.env.LUMOVI_COVERAGE === 'true'
 
@@ -26,7 +27,7 @@ const alias = { '@shared': resolve('src/shared'), '@backend': resolve('src/backe
 export default defineConfig({
   main: {
     resolve: { alias },
-    plugins: [...coverage('main', withCoverage), licenses()],
+    plugins: [...coverage('main', withCoverage), licenses(), lumoviPlugins()],
     // The chart of Lumovi's metrics stack is built in (src/backend/helm/metrics-stack).
     assetsInclude: ['**/*.tgz'],
     // The tests' stand-ins (backend/sponsor/source.ts) are in test builds only.
@@ -59,6 +60,7 @@ export default defineConfig({
       devContentSecurityPolicy,
       ...coverage('renderer', withCoverage),
       licenses(),
+      lumoviPlugins(),
     ],
     build: {
       minify: true,
