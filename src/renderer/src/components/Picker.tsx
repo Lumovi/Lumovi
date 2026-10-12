@@ -20,6 +20,7 @@ export function Picker({
   collisionPadding,
   onOpenAutoFocus,
   tooltip,
+  sheetHeader,
   children,
 }: {
   open: boolean
@@ -36,6 +37,8 @@ export function Picker({
   onOpenAutoFocus?: (event: Event) => void
   /** What the button says under a pointer. */
   tooltip?: ReactNode
+  /** A phone's sheet's own top bar, in place of its title and Close (it closes itself). */
+  sheetHeader?: ReactNode
   children: ReactNode
 }) {
   const phone = useLayout() === 'phone'
@@ -50,7 +53,7 @@ export function Picker({
       )}
       {phone ? (
         open && (
-          <Sheet title={title} onClose={() => onOpenChange(false)}>
+          <Sheet title={title} header={sheetHeader} onClose={() => onOpenChange(false)}>
             {children}
           </Sheet>
         )

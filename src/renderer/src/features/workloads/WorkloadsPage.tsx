@@ -3,10 +3,11 @@ import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { builtinResource, kindOf } from '@shared/resources'
-import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
+import { EmptyState, ErrorState, StaleNotice, UnreadNotice } from '@renderer/components/States'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useList, useListResponse, useMetrics } from '@renderer/hooks/queries'
 import type { KubeApiError } from '@renderer/lib/api'
+import { namespacesParam, readOf, scopeOf, unreadOf } from '@renderer/lib/namespaces'
 import { HEALTH_NAMES, statusOf } from '@renderer/lib/health'
 import {
   autoscalers,
@@ -38,20 +39,22 @@ function searchText(object: KubeObject): string {
     .toLowerCase()
 }
 
-/** Every workload in the cluster (or the namespace picked), whatever its kind, in one list. */
+/** Every workload in the cluster (or the namespaces picked), whatever its kind, in one list. */
 export function WorkloadsPage() {
-  const { namespace } = useCluster()
+  const { namespace, namespaces } = useCluster()
+  // (Picked rows are the namespaces' that were picked when they were: another pick, other rows.)
+  const where = namespacesParam(namespaces) ?? null
   const [params] = useSearchParams()
   const [state, update] = useListState('status')
   const gridRef = useRef<HTMLDivElement>(null)
   const labelsRef = useRef<LabelSelectorHandle>(null)
   const open = useOpenObject()
-  // Rows picked for bulk actions, for this namespace only.
+  // Rows picked for bulk actions, for these namespaces only.
   const [picked, setPicked] = useState<{ scope: string | null; keys: ReadonlySet<string> }>({
-    scope: namespace,
+    scope: where,
     keys: new Set(),
   })
-  if (picked.scope !== namespace) setPicked({ scope: namespace, keys: new Set() })
+  if (picked.scope !== where) setPicked({ scope: where, keys: new Set() })
 
   const query = { labelSelector: state.labels || undefined }
   const queries = {
@@ -68,7 +71,7 @@ export function WorkloadsPage() {
     all.map(([kind, q]) => [kind, q.data?.items ?? []]),
   ) as unknown as WorkloadLists
   const hpas = useList('HorizontalPodAutoscaler').data ?? []
-  const metrics = useMetrics('pods', namespace)
+  const metrics = useMetrics('pods', namespaces)
   const usage = metrics.data?.available
     ? workloadUsage(metrics.data.items, podWorkloads(lists))
     : undefined
@@ -103,7 +106,10 @@ export function WorkloadsPage() {
   const stale = all.find(([, q]) => q.isError && q.data)?.[1]
   const truncated = all.some(([, q]) => q.data?.truncated)
   const retry = () => all.forEach(([, q]) => void q.refetch())
-  const scope = namespace ? `in ${namespace}` : 'in this cluster'
+  // Picked namespaces any kind's list couldn't read: said, and not counted where nothing was found.
+  const unreadNamespaces = unreadOf(all.map(([, q]) => q.data))
+  const scope = scopeOf(readOf(namespaces, unreadNamespaces))
+  const notice = <UnreadNotice unread={unreadNamespaces} noun="workloads" />
 
   let body
   if (all.some(([, q]) => q.isPending)) {
@@ -142,13 +148,13 @@ export function WorkloadsPage() {
           onPage={(delta) => goToPage(page + delta)}
           followSelection={params.has('open')}
           picked={picked.keys}
-          onPick={(keys) => setPicked({ scope: namespace, keys })}
+          onPick={(keys) => setPicked({ scope: where, keys })}
         />
         <SelectionBar
           noun="workloads"
           // Only what's on screen: rows hidden by a filter since stay out of it.
           objects={rows.filter((o) => picked.keys.has(rowKey(o)))}
-          onClear={() => setPicked({ scope: namespace, keys: new Set() })}
+          onClear={() => setPicked({ scope: where, keys: new Set() })}
         />
         <Pagination
           page={page}
@@ -203,6 +209,7 @@ export function WorkloadsPage() {
       {stale && (
         <StaleNotice error={stale.error as KubeApiError} onRetry={() => void stale.refetch()} />
       )}
+      {notice}
       {truncated && (
         <p
           role="note"

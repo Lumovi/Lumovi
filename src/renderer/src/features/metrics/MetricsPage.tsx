@@ -43,6 +43,7 @@ import { RangePicker } from './ChartCard'
 import { MetricsTabs } from './MetricsTabs'
 import { RankedTable, type Row } from './RankedTable'
 import { HistoryGate, SourceChip } from './source'
+import { scopeOf } from '@renderer/lib/namespaces'
 import { sumValues } from './UsageChart'
 
 export type Group = 'namespace' | 'workload' | 'pod' | 'node'
@@ -283,7 +284,7 @@ function Explorer({
   state: Explore
   onZoom: (from: number, to: number) => void
 }) {
-  const { namespace } = useCluster()
+  const { namespaces } = useCluster()
   const { metric, group, top, selection } = state
   const q = useSettled(state.q.trim())
   const owners = useOwners()
@@ -295,7 +296,11 @@ function Explorer({
     .map((term) => term.trim())
     .filter(Boolean)
   const filters: Matcher[] = [
-    ...(namespace ? [['namespace', '=', namespace] as const] : []),
+    ...(namespaces?.length === 1
+      ? [['namespace', '=', namespaces[0]!] as const]
+      : namespaces?.length
+        ? [['namespace', '=~', namespaces.map(escapeRegex).join('|')] as const]
+        : []),
     ...(terms.length > 0
       ? [[LABEL[group], '=~', `(?i).*(${terms.map(escapeRegex).join('|')}).*`] as const]
       : []),
@@ -311,7 +316,7 @@ function Explorer({
           by,
           metric === 'restarts' ? window.step / 1000 : rateWindow(window.step),
         )
-  const key = [metric, group, namespace, q]
+  const key = [metric, group, namespaces?.join(','), q]
 
   // Every group, ranked over the whole window: averages (totals for restarts), peaks, latest.
   const ranking = useUsageInstant(
@@ -383,8 +388,8 @@ function Explorer({
         {q
           ? `No ${plural} named like “${q}” have ${USAGE_METRICS[metric].noun} in this time.`
           : metric === 'restarts'
-            ? `Nothing restarted ${namespace ? `in ${namespace} ` : ''}in this time.`
-            : `Prometheus has no ${USAGE_METRICS[metric].noun} samples ${namespace ? `in ${namespace} ` : ''}for this time.`}
+            ? `Nothing restarted ${namespaces ? `${scopeOf(namespaces)} ` : ''}in this time.`
+            : `Prometheus has no ${USAGE_METRICS[metric].noun} samples ${namespaces ? `${scopeOf(namespaces)} ` : ''}for this time.`}
       </EmptyState>
     )
   }
@@ -400,7 +405,7 @@ function Explorer({
         )
       : 0
   // Allocatable capacity only compares with everything stacked up, cluster-wide.
-  const wholeCluster = !namespace && terms.length === 0 && allocatable > 0
+  const wholeCluster = !namespaces && terms.length === 0 && allocatable > 0
   const kind = metric === 'restarts' ? 'bars' : state.view
   const shown = bin ? rows.filter((r) => r.avg >= bin.from && r.avg <= bin.to) : rows
   const title = `${USAGE_METRICS[metric].label} by ${group}`

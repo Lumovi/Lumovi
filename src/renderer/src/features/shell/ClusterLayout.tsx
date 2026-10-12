@@ -1,14 +1,22 @@
 import { useActionsUi } from '@renderer/state/actions'
 import { ON_A_PHONE } from '@renderer/web/phone-gate'
 import { WifiOff } from 'lucide-react'
-import { useEffect } from 'react'
-import { Navigate, Outlet, useLocation, useParams } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Navigate, Outlet, useLocation, useParams, useSearchParams } from 'react-router'
 import { Button } from '@renderer/components/Button'
 import { Drawer } from '@renderer/components/Drawer'
 import { useGo } from '@renderer/hooks/go'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
 import { useLayout, useShort } from '@renderer/lib/layout'
+import {
+  isNamespaceName,
+  MOST_NAMESPACES,
+  NAMESPACES_PARAM,
+  namespacesIn,
+  namespacesParam,
+  sameNamespaces,
+} from '@renderer/lib/namespaces'
 import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
 import { useClusterSettings } from '@renderer/hooks/settings'
@@ -38,13 +46,72 @@ export function ClusterLayout() {
   const session = useSession()
   const contextInfo = useContexts().data?.contexts.find((c) => c.name === context)
   const stored = usePrefs((prefs) => prefs.namespaces[context])
-  const setStored = usePrefs((prefs) => prefs.setNamespace)
+  const setStored = usePrefs((prefs) => prefs.setNamespaces)
+  const [search, setSearch] = useSearchParams()
   const touchRecent = usePrefs((prefs) => prefs.touchRecent)
   const opensIn = useClusterSettings(context)?.namespace
   const layout = useLayout()
-  // Until the user picks one, start in the one set for it in Lumovi, or else the kubeconfig's
+  // Until the user picks, start in the one set for it in Lumovi, or else the kubeconfig's
   // (useful with namespaced RBAC).
-  const namespace = stored === undefined ? (opensIn ?? contextInfo?.namespace ?? null) : stored
+  // (A name kept that isn't a namespace's, from before names were held to the rule, is dropped;
+  // a pick that's nothing once they are opens where the cluster opens, as if none were kept.)
+  const names =
+    stored === undefined || stored === null
+      ? stored
+      : (Array.isArray(stored) ? stored : [stored])
+          .filter(isNamespaceName)
+          .slice(0, MOST_NAMESPACES)
+  const kept = names?.length === 0 ? undefined : names
+  const opening = opensIn ?? contextInfo?.namespace ?? null
+  const remembered = kept !== undefined ? kept : opening === null ? null : [opening]
+  // What this view shows: what an address picked (a link), until the picker picks; or what was
+  // last picked in the picker. A link changes the view, never what's remembered, and the view
+  // is the cluster's own: back to the cluster, fresh, is what's remembered.
+  const fromAddress = namespacesIn(search)
+  const [shown, setShown] = useState<{
+    context: string
+    namespaces: readonly string[] | null
+    /** How many a link named, where it named more than are picked. */
+    named?: number
+  }>()
+  if (shown && shown.context !== context) setShown(undefined)
+  // The address is followed when it changes (a link, back and forward), never when it's merely
+  // behind a pick the picker made, which it's about to say.
+  const said = search.get(NAMESPACES_PARAM)
+  const [seen, setSeen] = useState<{ context: string; said: string | null }>()
+  if (seen?.context !== context || seen.said !== said) {
+    setSeen({ context, said })
+    // (An address naming no namespace's name picks nothing: what's remembered shows. One with no
+    // namespaces in it at all, a page's own link, leaves the view as it is.)
+    if (fromAddress === undefined && said !== null) setShown(undefined)
+    else if (
+      fromAddress !== undefined &&
+      !(shown?.context === context && sameNamespaces(shown.namespaces, fromAddress.namespaces))
+    ) {
+      setShown({ context, ...fromAddress })
+    }
+  }
+  const namespaces = shown?.context === context ? shown.namespaces : remembered
+  // The address always says what's shown (a link from it opens there), whatever page it came to by.
+  const meant = namespacesParam(namespaces)
+  useEffect(() => {
+    if (said === (meant ?? null)) return
+    setSearch(
+      (current) => {
+        const next = new URLSearchParams(current)
+        if (meant === undefined) next.delete(NAMESPACES_PARAM)
+        else next.set(NAMESPACES_PARAM, meant)
+        return next
+      },
+      { replace: true },
+    )
+  }, [said, meant, setSearch])
+  // The picker's pick is what's shown, and remembered.
+  const setNamespaces = (value: readonly string[] | null) => {
+    const picked = value?.length ? value.slice(0, MOST_NAMESPACES) : null
+    setStored(context, picked)
+    setShown({ context, namespaces: picked })
+  }
 
   useEffect(() => touchRecent(context), [context, touchRecent])
   // What was opened with room for it doesn't outlive the room (a tablet turned upright, a
@@ -66,7 +133,16 @@ export function ClusterLayout() {
   }
   return (
     <ClusterContext.Provider
-      value={{ context, namespace, setNamespace: (value) => setStored(context, value) }}
+      value={{
+        context,
+        namespaces,
+        namespace: namespaces?.length === 1 ? namespaces[0]! : null,
+        ...(shown?.context === context && shown.named && shown.named > (namespaces?.length ?? 0)
+          ? { linkNamed: shown.named }
+          : {}),
+        setNamespaces,
+        setNamespace: (value) => setNamespaces(value === null ? null : [value]),
+      }}
     >
       <div className="flex h-full">
         <button

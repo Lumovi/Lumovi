@@ -31,6 +31,7 @@ import { useOpenObject } from '@renderer/hooks/open-object'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import { cn } from '@renderer/lib/cn'
+import { scopeOf } from '@renderer/lib/namespaces'
 import type { Health } from '@renderer/lib/health'
 import { matchWords } from '@renderer/lib/match'
 import {
@@ -116,7 +117,7 @@ function someNamespaces(names: string[]): string {
 }
 
 function Rightsizing() {
-  const { namespace } = useCluster()
+  const { namespaces } = useCluster()
   const { advised, capacity, error, failed, progress, retry, vpaError } = useRightsizing()
   const [params] = useSearchParams()
   const update = useUpdateParams()
@@ -147,8 +148,7 @@ function Rightsizing() {
   if (advised.length === 0) {
     return (
       <EmptyState icon={Scale} title="Nothing to right-size">
-        There are no Deployments, StatefulSets or DaemonSets
-        {namespace ? ` in ${namespace}` : ' in this cluster'}.
+        There are no Deployments, StatefulSets or DaemonSets {scopeOf(namespaces)}.
       </EmptyState>
     )
   }

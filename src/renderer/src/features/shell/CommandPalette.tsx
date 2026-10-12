@@ -11,6 +11,7 @@ import {
   CornerDownLeft,
   FilePlus2,
   Keyboard,
+  Check,
   LayoutDashboard,
   LayoutGrid,
   Lock,
@@ -115,7 +116,7 @@ export function CommandPalette() {
 }
 
 function Palette({ onDone }: { onDone: () => void }) {
-  const { context, namespace, setNamespace } = useCluster()
+  const { context, namespace, namespaces: picked, setNamespace } = useCluster()
   const [search, setSearch] = useState('')
   const contexts = useContexts().data?.contexts ?? []
   const clusterName = useClusterName()
@@ -322,9 +323,12 @@ function Palette({ onDone }: { onDone: () => void }) {
           </Command.Group>
         )}
         <Command.Group heading="Namespace">
+          {/* The palette replaces: a namespace's row picks it alone, and All namespaces clears.
+              (Adding one to the picked is the picker's.) The picked carry the check. */}
           <Item
             icon={<LayoutGrid />}
             value="All namespaces"
+            hint={picked ? undefined : <Check className="size-4 text-accent" />}
             onSelect={run(() => setNamespace(null))}
           >
             All namespaces
@@ -334,6 +338,7 @@ function Palette({ onDone }: { onDone: () => void }) {
               key={name}
               icon={<LayoutGrid />}
               value={`${name} namespace`}
+              hint={picked?.includes(name) ? <Check className="size-4 text-accent" /> : undefined}
               onSelect={run(() => setNamespace(name))}
             >
               {name}

@@ -4,11 +4,12 @@ import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { HelmRelease, KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
-import { EmptyState, ErrorState, StaleNotice } from '@renderer/components/States'
+import { EmptyState, ErrorState, StaleNotice, UnreadNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { useHelmReleases } from '@renderer/hooks/helm'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { KubeApiError } from '@renderer/lib/api'
+import { readOf, scopeOf } from '@renderer/lib/namespaces'
 import { age } from '@renderer/lib/format'
 import { HEALTH_RANK, type Health } from '@renderer/lib/health'
 import { releaseStatus } from '@renderer/lib/helm'
@@ -81,9 +82,9 @@ const COLUMNS: Column[] = [
   },
 ]
 
-/** Every Helm release in the cluster (or the namespace picked), read from Helm's own records. */
+/** Every Helm release in the cluster (or the namespaces picked), read from Helm's own records. */
 export function HelmPage() {
-  const { namespace } = useCluster()
+  const { namespaces } = useCluster()
   const [params] = useSearchParams()
   const updateParams = useUpdateParams()
   const releases = useHelmReleases()
@@ -127,12 +128,15 @@ export function HelmPage() {
     )
   } else if (rows.length === 0) {
     body = (
-      <EmptyState
-        icon={ShipWheel}
-        title={`No Helm releases ${namespace ? `in ${namespace}` : 'in this cluster'}`}
-      >
-        Releases installed with Helm show up here, with their values, resources and history.
-      </EmptyState>
+      <>
+        <UnreadNotice unread={releases.data?.unread} noun="Helm releases" />
+        <EmptyState
+          icon={ShipWheel}
+          title={`No Helm releases ${scopeOf(readOf(namespaces, releases.data?.unread))}`}
+        >
+          Releases installed with Helm show up here, with their values, resources and history.
+        </EmptyState>
+      </>
     )
   } else if (shown.length === 0) {
     body = (
@@ -149,6 +153,7 @@ export function HelmPage() {
             onRetry={() => void releases.refetch()}
           />
         )}
+        <UnreadNotice unread={releases.data?.unread} noun="Helm releases" />
         <ResourceTable
           ref={gridRef}
           label="Helm releases"

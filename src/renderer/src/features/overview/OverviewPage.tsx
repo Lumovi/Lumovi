@@ -20,6 +20,7 @@ import { useOpenObject } from '@renderer/hooks/open-object'
 import { useContexts, useList, useMetrics, useVersion } from '@renderer/hooks/queries'
 import { useNodeUsage } from '@renderer/hooks/usage'
 import type { KubeApiError } from '@renderer/lib/api'
+import { namedNamespaces } from '@renderer/lib/namespaces'
 import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, hostOf, percent, pluralize } from '@renderer/lib/format'
 import { rateWindow, usageQuery } from '@renderer/lib/promql'
@@ -51,7 +52,7 @@ const HOUR = 3_600_000
 const useOpen = useOpenObject
 
 export function OverviewPage() {
-  const { context, namespace } = useCluster()
+  const { context, namespaces } = useCluster()
   const nodes = useList('Node', { namespace: null })
   const allPods = useList('Pod', { namespace: null })
   const pods = useList('Pod')
@@ -59,7 +60,7 @@ export function OverviewPage() {
   const statefulSets = useList('StatefulSet')
   const daemonSets = useList('DaemonSet')
   const events = useList('Event')
-  const podMetrics = useMetrics('pods', namespace)
+  const podMetrics = useMetrics('pods', namespaces)
   const usage = useNodeUsage()
   const version = useVersion(context)
   const server = useContexts().data?.contexts.find((c) => c.name === context)?.server
@@ -100,11 +101,11 @@ export function OverviewPage() {
       <p className="text-[13px] text-ink-3">
         <span className="font-mono text-ink-2 selectable">{hostOf(server)}</span>
         {version.data && <> · Kubernetes {version.data.gitVersion}</>}
-        {namespace && (
+        {namespaces && (
           <>
             {' '}
             · Workloads, pods and events in{' '}
-            <span className="font-medium text-ink-2">{namespace}</span>
+            <span className="font-medium text-ink-2">{namedNamespaces(namespaces)}</span>
           </>
         )}
       </p>
