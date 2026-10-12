@@ -60,6 +60,11 @@ export interface Part {
    * a part fail is a fault of Lumovi's, and a plugin must never be able to cause one.
    */
   also?: (props: Readonly<Record<string, unknown>>) => string | undefined
+  /**
+   * How many of it one page may have, made and not yet taken away, where that's fewer than any
+   * part may: one that's heavy to draw, or reads something of its own for each.
+   */
+  most?: number
 }
 
 /**
@@ -209,6 +214,9 @@ export function wrongWithFields(
  */
 export function wrongWithPart(part: Part): string | undefined {
   if (!NAME.test(part.name)) return `${part.name}: isn’t a part’s name`
+  if (part.most !== undefined && !(Number.isSafeInteger(part.most) && part.most > 0)) {
+    return `${part.name}: how many a page may have should be a whole number, 1 or more`
+  }
   const kindProblem = (kind: Kind, where: string, depth = 0): string | undefined => {
     if (depth > DEEPEST) return `${where}: is declared deeper than anything is checked`
     if (kind.kind === 'text' && !(kind.max > 0)) return `${where}: a text needs a greatest length`

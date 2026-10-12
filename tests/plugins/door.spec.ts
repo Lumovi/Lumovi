@@ -35,6 +35,8 @@ const PARTS: Record<string, Part> = {
     required: ['label'],
     events: { press: {} },
   },
+  /** One a page may have only two of. */
+  Badge: { name: 'Badge', holds: 'nothing', props: {}, most: 2 },
 }
 
 /** A page with a fixed clock, and `send` for a commit's steps. */
@@ -121,6 +123,8 @@ test.describe('a part’s declaration', () => {
       { name: 'A', holds: 'nothing', props: { tone: oneOf([]) } },
       { name: 'A', holds: 'nothing', props: { onPress: handler('press') } },
       { name: 'A', holds: 'nothing', props: {}, required: ['label'] },
+      { name: 'A', holds: 'nothing', props: {}, most: 0 },
+      { name: 'A', holds: 'nothing', props: {}, most: 1.5 },
     ]
     for (const part of wrong) expect(wrongWithPart(part), JSON.stringify(part)).toBeTruthy()
   })
@@ -203,6 +207,23 @@ test.describe('a plugin’s page', () => {
     // A commit that stops the page stamps nothing.
     stopped(send(['change', 4, { label: 7 }]))
     expect(page.changedAt(4)).toBe(3)
+  })
+
+  test('has no more of a part than its declaration lets a page have: made and not taken away', () => {
+    const { page, send } = page_()
+    send(['make', 1, 'Stack', {}], ['put', ROOT, 1], ['make', 2, 'Badge', {}], ['put', 1, 2])
+    // One more, even made and never put anywhere, is the last it may have.
+    send(['make', 3, 'Badge', {}])
+    // One taken away makes room for another, wherever it was.
+    send(['take', 1, 2], ['make', 4, 'Badge', {}], ['put', 1, 4])
+    send(['take', null, 3], ['make', 5, 'Badge', {}])
+    // And with the part that held one, that one goes too.
+    send(['take', ROOT, 1], ['make', 6, 'Badge', {}])
+    expect(page.stopped).toBeUndefined()
+    expect(stopped(send(['make', 7, 'Badge', {}]))).toEqual({
+      why: 'too-much',
+      what: 'step 1: a page’s Badge parts: more than 2',
+    })
   })
 
   test('a message that isn’t a commit stops it', () => {
