@@ -3,6 +3,7 @@
  * same handlers the desktop app answers over IPC, as whoever is signed in.
  * Shells and log streams belong to the page, and end with its connection.
  */
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -358,8 +359,14 @@ export class PageConnection {
       end: (id, end) => this.emit(IPC.filesEnd, id, end),
     })
     pageFiles.cancel = (id) => files.cancel(id)
-    /** What a check of this browser is kept by: its session, or (a sign-in proxy's) its person. */
-    const checkKey = session ?? `user:${identity.user.name}`
+    /**
+     * What a check of this browser is kept by: its session, which is one browser's. A sign-in
+     * proxy's page has none, and its person may use more than one browser: there, this page's
+     * own, so each page checks its browser, and its result goes with the page.
+     */
+    const checkKey = session ?? `page:${randomUUID()}`
+    // A check that fails after it was judged ends what this page shows of plugins' code.
+    const unwatch = checks?.watch(checkKey, () => this.emit(IPC.boxCheckFailed))
     const shared = handlers({
       kube,
       helm,
@@ -418,12 +425,14 @@ export class PageConnection {
                 const nonce = checks.start(checkKey)
                 return { nonce, code: checkCode(`${catcher}/${nonce}`, nonce, env) }
               },
-              [IPC.boxCheckEnd]: (nonce: unknown, report: unknown, heard: unknown) => {
+              [IPC.boxCheckEnd]: (nonce: unknown, reports: unknown, heard: unknown) => {
                 if (typeof nonce !== 'string') return undefined
                 const found = Array.isArray(heard)
                   ? heard.filter((way): way is string => typeof way === 'string')
                   : []
-                const judged = checks.end(checkKey, nonce, report, found)
+                const judged = checks.end(checkKey, nonce, reports, found, (late) =>
+                  told(late, recording, browser),
+                )
                 if (judged?.first) told(judged, recording, browser)
                 return judged?.result
               },
@@ -509,6 +518,9 @@ export class PageConnection {
       socket.on('close', () => {
         unlisten()
         unsponsor()
+        unwatch?.()
+        // (A page's own check goes with it; a session's is kept for its other pages.)
+        if (!session) checks?.forget(checkKey)
         auditing.stop()
         accessing.stop()
         assistants.detach()

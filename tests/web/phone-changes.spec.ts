@@ -59,6 +59,8 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   // (A check of the box comes before any code: no phone's either.)
   'kube.boxCheckStart': 'changes',
   'kube.boxCheckEnd': 'changes',
+  // (What a server says when this browser's check fails after all: it ends pages, changes nothing.)
+  'kube.onBoxCheckFailed': 'listens',
   'kube.metrics': 'reads',
   'kube.can': 'reads',
   'kube.history': 'reads',

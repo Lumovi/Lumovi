@@ -104,6 +104,8 @@ export function openPage(options: {
     Object.entries(options.parts).map(([name, part]) => [name, part.declared]),
   )
   const listeners = new Set<() => void>()
+  // (What the page stops hearing once it's closed: set once the box is opened, below.)
+  let stopListening = () => {}
   // Of each part or text being drawn, who hears it. (Only of those drawn: what's taken away is
   // drawn no more, and nothing of it is kept.)
   const drawn = new Map<number, Set<() => void>>()
@@ -128,7 +130,7 @@ export function openPage(options: {
       ended({ why: 'drawing' })
     },
     close() {
-      stopListening?.()
+      stopListening()
       cancelAnimationFrame(telling)
       reading.close()
       box.close()
@@ -183,8 +185,14 @@ export function openPage(options: {
     ended: (end) => ended(boxEnd(end)),
   })
   // The desktop measures a plugin's process, and says when it ended one.
-  const stopListening = api.desktop?.onPluginEnded((plugin, over) => {
+  const stopEnded = api.desktop?.onPluginEnded((plugin, over) => {
     if (plugin === options.plugin) ended({ why: over })
   })
+  // A server says when this browser's check failed after all: no plugin's code runs here then.
+  const stopFailed = api.kube.onBoxCheckFailed?.(() => ended({ why: 'check-failed' }))
+  stopListening = () => {
+    stopEnded?.()
+    stopFailed?.()
+  }
   return page
 }

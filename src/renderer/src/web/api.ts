@@ -147,6 +147,7 @@ export function createWebApi(): LumoviApi {
       pluginHandOver: invoke(IPC.pluginHandOver),
       boxCheckStart: invoke(IPC.boxCheckStart),
       boxCheckEnd: invoke(IPC.boxCheckEnd),
+      onBoxCheckFailed: listen(IPC.boxCheckFailed),
       metrics: invoke(IPC.metrics),
       change: invoke(IPC.change),
       can: invoke(IPC.can),
