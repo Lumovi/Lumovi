@@ -828,9 +828,13 @@ function showsSecretsProblems(shows: unknown, own: ReadonlySet<ResourceKind>): s
       return
     }
     const { path } = item
+    if (path.length > READS_LIMITS.path) {
+      problems.push(`${at}.path: is longer than ${READS_LIMITS.path} characters`)
+      return
+    }
     let steps: Step[]
     try {
-      if (path.length > READS_LIMITS.path || !READ_PATH.test(path) || path !== path.trim()) {
+      if (!READ_PATH.test(path) || path !== path.trim()) {
         throw new Error()
       }
       steps = parse(`.${path}`)

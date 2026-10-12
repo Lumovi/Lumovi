@@ -83,8 +83,8 @@ export const isSecretKey = (key: unknown): key is string =>
   typeof key === 'string' && /^(?!\.$)(?!\.\.)[-._a-zA-Z0-9]{1,253}$/.test(key)
 
 /** Which Secret, and which of its keys, as one text. */
-const secretKey = ({ namespace, name, keys }: SecretRef) =>
-  `${namespace}\u0000${name}\u0000${JSON.stringify(keys)}`
+const secretKey = ({ namespace, name, keys, namedBy }: SecretRef) =>
+  `${namespace}\u0000${name}\u0000${JSON.stringify(keys)}\u0000${JSON.stringify(namedBy ?? null)}`
 
 /**
  * The tokens of one page: one for each object Lumovi handed it, and for each Secret an object
@@ -205,7 +205,11 @@ export class Tokens {
       let token = now.get(key) ?? was.get(key)
       if (token === undefined) {
         token = this.#make()
-        const kept = Object.freeze({ ...ref, keys: Object.freeze([...ref.keys]) })
+        const kept = Object.freeze({
+          ...ref,
+          keys: Object.freeze([...ref.keys]),
+          ...(ref.namedBy ? { namedBy: Object.freeze({ ...ref.namedBy }) } : {}),
+        })
         this.#held.set(token, { sort: 'secret', ref: kept, read })
         this.#secrets++
       }

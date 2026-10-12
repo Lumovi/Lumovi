@@ -35,7 +35,15 @@ import {
 } from '@shared/plugin-reads'
 import { PLUGIN_NAME } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
-import { kindFor, pluralLabel, type ResourceDefinition, type ResourceKind } from '@shared/resources'
+import type { SecretNamedBy } from '@shared/kit/declare'
+import {
+  isResourceKind,
+  kindFor,
+  pluralLabel,
+  type ResourceDefinition,
+  type ResourceKind,
+} from '@shared/resources'
+import { isRefusal } from './audit/describe'
 import type { Recorder } from './audit/recorder'
 import { toKubeError } from './kube/errors'
 import type { KubeService } from './kube/service'
@@ -196,26 +204,43 @@ const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
 
 /** What's said when a plugin's page asks for keys of a Secret its file doesn't say it shows. */
 export const SECRET_KEYS_UNDECLARED = 'This plugin’s file doesn’t say its pages show these keys.'
+/** What's said when the object that named a Secret on a plugin's page doesn't name it. */
+export const SECRET_NOT_NAMED =
+  'The object this plugin’s page showed it for doesn’t name this Secret.'
 
 /** A namespace's or an object's name, as Kubernetes has them. */
 const NAME = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/
 
+/** What named a Secret, as a page says it: Lumovi's name for a kind, an object's name, a path. */
+function namedByOf(value: unknown): SecretNamedBy | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const { kind, name, path, ...more } = value as Record<string, unknown>
+  return Object.keys(more).length === 0 &&
+    isResourceKind(kind) &&
+    typeof name === 'string' &&
+    NAME.test(name) &&
+    typeof path === 'string' &&
+    path.length > 0 &&
+    path.length <= 253
+    ? { kind, name, path }
+    : undefined
+}
+
 /**
  * Of a read of a Secret's keys (`IPC.secretValues`): whose page asked, where a plugin's did
- * (`forPlugin`, which only Lumovi's own page code fills, from what it knows of the page), as
- * the backend knows that plugin; and the read as it's made, without it. A name no plugin could
- * have is no read at all; a plugin not in use whose code Lumovi runs, or a key its file doesn't
- * say its pages show, is refused before anything is read (the second in the history, with the
- * plugin, once the Secret's own name is one a Secret could have).
- *
- * The keys are held to every key any of the plugin's items declares, not to the item that named
- * this Secret: the press carries the Secret, not the object that named it. What holds a press to
- * its item's keys is the token and the part (the Secret's token carries that item's keys, and a
- * part can only narrow them); this is a second net, a little wider than the file.
+ * (`forPlugin`, which only Lumovi's own page code fills), as the backend knows that plugin; and
+ * the read as it's made, without what was said of the plugin. A name no plugin could have is no
+ * read at all; nor is a plugin not in use whose code Lumovi runs. Otherwise the read is held,
+ * before anything of the Secret is read, to the one item of the plugin's file that named it
+ * (`namedBy`: never taken on the page's word, since on a server the page is the browser's): the
+ * item is one its file declares, the keys are that item's, and the object, read as the person,
+ * names this Secret by that item's path. A read that fails that is refused, and in the history
+ * with the plugin.
  */
 export async function secretsAskedFor(
   query: unknown,
   known: () => Promise<readonly Readonly<KnownPlugin>[]>,
+  kube: Pick<KubeService, 'resource' | 'get'>,
 ): Promise<
   | { query: unknown; plugin?: Readonly<KnownPlugin> }
   | { refused: KubeError; recorded?: { query: SecretValuesQuery; plugin: Readonly<KnownPlugin> } }
@@ -223,7 +248,7 @@ export async function secretsAskedFor(
   if (typeof query !== 'object' || query === null || !Object.hasOwn(query, 'forPlugin')) {
     return { query }
   }
-  const { forPlugin: name, ...rest } = query as Record<string, unknown>
+  const { forPlugin: name, namedBy: said, ...rest } = query as Record<string, unknown>
   if (typeof name !== 'string' || !PLUGIN_NAME.test(name)) {
     return { refused: { code: 'invalid', message: 'Expected a plugin’s name' } }
   }
@@ -231,21 +256,53 @@ export async function secretsAskedFor(
   if (!plugin || !mayCarryCode(plugin.origin)) {
     return { refused: { code: 'not-allowed', message: READ_REFUSED['not-in-use'] } }
   }
-  const { keys, namespace, name: secret } = rest
-  // (What isn't a list of keys, the read itself refuses as it would any page's.)
-  if (Array.isArray(keys) && keys.every((key) => typeof key === 'string')) {
-    const declared = new Set((plugin.grant.secrets ?? []).flatMap((item) => item.keys))
-    if (!keys.every((key) => declared.has(key))) {
-      const refused: KubeError = { code: 'not-allowed', message: SECRET_KEYS_UNDECLARED }
-      const named =
-        typeof namespace === 'string' &&
-        NAME.test(namespace) &&
-        typeof secret === 'string' &&
-        NAME.test(secret)
-      return named
-        ? { refused, recorded: { query: rest as unknown as SecretValuesQuery, plugin } }
-        : { refused }
+  const { context, namespace, name: secret, keys } = rest
+  const namedBy = namedByOf(said)
+  if (
+    !namedBy ||
+    typeof context !== 'string' ||
+    typeof namespace !== 'string' ||
+    !NAME.test(namespace) ||
+    typeof secret !== 'string' ||
+    !NAME.test(secret) ||
+    !Array.isArray(keys) ||
+    !keys.every((key) => typeof key === 'string')
+  ) {
+    return {
+      refused: { code: 'invalid', message: 'Expected a Secret, its keys and what named it' },
     }
   }
+  const asked = rest as unknown as SecretValuesQuery
+  const refused = (message: string) => ({
+    refused: { code: 'not-allowed' as const, message },
+    recorded: { query: asked, plugin },
+  })
+  // The item: by the kind as the cluster serves it, and the path as the file wrote it.
+  let resource: ResourceDefinition
+  try {
+    resource = await kube.resource(context, namedBy.kind)
+  } catch {
+    return refused(SECRET_KEYS_UNDECLARED)
+  }
+  const item = (plugin.grant.secrets ?? []).find(
+    (each) => each.kind === `${resource.group}/${resource.apiKind}` && each.path === namedBy.path,
+  )
+  if (!item || !resource.namespaced || !keys.every((key) => item.keys.includes(key))) {
+    return refused(SECRET_KEYS_UNDECLARED)
+  }
+  // The object, as the person reads it, in the Secret's own namespace: it names this Secret
+  // there, or nothing of the Secret is read.
+  const owner = await kube.get({
+    context,
+    kind: resource.kind,
+    namespace,
+    name: namedBy.name,
+  })
+  if (!owner.ok) {
+    return isRefusal(owner.error.code) || owner.error.code === 'not-found'
+      ? refused(SECRET_NOT_NAMED)
+      : { refused: { code: owner.error.code, message: READ_REFUSED[refusalOf(owner.error.code)] } }
+  }
+  if (!secretsNamed(owner.data, item.steps).includes(secret)) return refused(SECRET_NOT_NAMED)
   return { query: rest, plugin }
 }

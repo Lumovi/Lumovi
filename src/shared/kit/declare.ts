@@ -130,6 +130,19 @@ export interface SecretRef {
   namespace: string
   name: string
   keys: readonly string[]
+  /**
+   * What named it: the object (of one of the plugin's own kinds, in the Secret's namespace) and
+   * the path its file declares. A press sends it, and the backend holds the read to it: that
+   * object names this Secret there, and only that item's keys are read.
+   */
+  namedBy?: SecretNamedBy
+}
+
+/** The object that names a Secret, by Lumovi's name for its kind, and the declared path. */
+export interface SecretNamedBy {
+  kind: string
+  name: string
+  path: string
 }
 
 /**
