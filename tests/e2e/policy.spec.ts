@@ -3,6 +3,7 @@
  * that can't be used locks the most it could, and its network is the one Lumovi goes through.
  */
 import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -299,11 +300,22 @@ test('on Windows, IT’s policy is the registry’s: as it was set, and only non
   // A dozen and more PowerShell and reg.exe starts: a busy Windows runner can take seconds
   // over each.
   test.slow()
-  // As IT sets it under HKEY_LOCAL_MACHINE, here where a test may write.
-  const key = `HKEY_CURRENT_USER\\Software\\LumoviTest${process.pid}`
+  // As IT sets it under HKEY_LOCAL_MACHINE, here where a test may write: a key of this attempt's
+  // own, so "no key" is true however an earlier one ended.
+  const key = `HKEY_CURRENT_USER\\Software\\LumoviTest${process.pid}-${test.info().retry}-${randomBytes(4).toString('hex')}`
   const set = (script: string) =>
     execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
   const path = key.replace('HKEY_CURRENT_USER', 'HKCU:')
+  // Started once before they're read with: Lumovi gives each read ten seconds, and a busy
+  // runner's first PowerShell can take longer than that just to start (it's then read as a policy
+  // that can't be used, which is right for Lumovi and isn't what's tested here).
+  set('$null')
+  execFileSync('reg.exe', ['query', 'HKCU\\Software', '/reg:64'], { stdio: 'ignore' })
+  // And there's no such key before the "no key" steps: asked of PowerShell, with no time limit.
+  expect(
+    () => set(`if (Test-Path -LiteralPath '${path}') { exit 1 }`),
+    `${key} is there already`,
+  ).not.toThrow()
   const policy = (value: string) =>
     set(
       `New-ItemProperty -Path '${path}' -Name Policy -PropertyType String -Force -Value @'\n${value}\n'@ | Out-Null`,
