@@ -39,6 +39,7 @@ import type {
   PickedFiles,
 } from './files'
 import type { AppCommand } from './navigation'
+import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginRead, PluginReadQuery } from './plugin-reads'
 import type { ResourceDefinition, ResourceKind } from './resources'
@@ -1145,14 +1146,22 @@ export interface LumoviApi {
      * A server's: a check of this browser's plugin box, with its one-time nonce and the code a
      * box runs for it (none for a session whose code wouldn't be handed over anyway).
      */
-    boxCheckStart?(): Promise<{ nonce: string; code: string } | undefined>
-    /** And how it came out, judged by the server: what the box sent up, and what the page heard. */
+    boxCheckStart?(): Promise<{ nonce: string; code: Record<BoxCheckRole, string> } | undefined>
+    /**
+     * And how it came out, judged by the server: what each box sent up (nothing, where one didn't
+     * answer), and what the page heard.
+     */
     boxCheckEnd?(
       nonce: string,
-      report: string | null,
+      reports: Record<BoxCheckRole, string | null>,
       /** The ways Lumovi's own page found under the check's name, as it never should. */
       heard: string[],
     ): Promise<'passed' | 'failed' | 'unfinished' | undefined>
+    /**
+     * A server's: this browser's check failed after all (something got out after it was judged).
+     * Every plugin's page it shows ends.
+     */
+    onBoxCheckFailed?(listener: () => void): () => void
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
     /** Resolves with the changed object, or null for deletions and evictions. */
     change(request: ChangeRequest): Promise<Result<KubeObject | null>>
@@ -1470,6 +1479,7 @@ export const IPC = {
   pluginHandOver: 'kube:plugin-hand-over',
   boxCheckStart: 'kube:box-check-start',
   boxCheckEnd: 'kube:box-check-end',
+  boxCheckFailed: 'kube:box-check-failed',
   metrics: 'kube:metrics',
   change: 'kube:change',
   can: 'kube:can',

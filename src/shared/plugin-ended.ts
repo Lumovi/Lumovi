@@ -33,6 +33,8 @@ export type PageEnd =
   | { why: 'not-handed'; refused: NotHanded }
   /** Its file or its code changed since the page was handed them. */
   | { why: 'changed' }
+  /** On a server: this browser's check failed after all, once the page was handed its code. */
+  | { why: 'check-failed' }
 
 export interface EndedWords {
   title: string
@@ -54,7 +56,10 @@ const ADVICE =
   'On a very large cluster a page can need more than a plugin is allowed. If it happens again, tell the plugin’s author.'
 
 const WHY: Record<
-  Exclude<PageEnd['why'], 'failed' | 'no-box' | 'drawing' | 'not-handed' | 'changed'>,
+  Exclude<
+    PageEnd['why'],
+    'failed' | 'no-box' | 'drawing' | 'not-handed' | 'changed' | 'check-failed'
+  >,
   string
 > = {
   memory: 'It was using more memory than a plugin may.',
@@ -89,6 +94,14 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
       title: `${name} changed since its page was opened.`,
       still: 'The rest of Lumovi is as it was.',
       again: true,
+    }
+  }
+  if (end.why === 'check-failed') {
+    return {
+      title: `Lumovi stopped ${whose(name)} page.`,
+      why: notHandedWhy('check-failed'),
+      still: 'The rest of Lumovi is as it was.',
+      again: false,
     }
   }
   if (end.why === 'no-box') {

@@ -61,6 +61,15 @@ test('a page that couldn’t start offers no opening again, and says only what�
   })
 })
 
+test('a page whose browser failed Lumovi’s check after its code was handed says so, and isn’t opened again', () => {
+  expect(endedWords('Karpenter', { why: 'check-failed' })).toEqual({
+    title: 'Lumovi stopped Karpenter’s page.',
+    why: 'Lumovi checked this browser and found that a plugin’s code could get out of its box here, so it doesn’t run plugins’ code in this browser. Another browser may pass the check.',
+    still: 'The rest of Lumovi is as it was.',
+    again: false,
+  })
+})
+
 test('a name ending in s takes the apostrophe alone', () => {
   expect(endedWords('Argo Workflows', { why: 'silent' }).title).toBe(
     'Lumovi stopped Argo Workflows’ page.',

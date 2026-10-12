@@ -2,8 +2,10 @@
  * Lumovi's check of a plugin's box in the person's own browser, before that browser is handed
  * any plugin's code: a worker of Lumovi's own, in a box made exactly as a plugin's, tries every
  * way out a plugin's code could, each at a catcher of the server's own. What reached the
- * catcher, the server saw; what the worker saw of each, it reports. It passes only if nothing
- * reached the catcher, the report came in time, and it names every way here, each refused.
+ * catcher, the server saw; what the worker saw of each, it reports. Two such boxes run side by
+ * side, each looking for what the other kept, and a third, once they're closed, for what they
+ * left. It passes only if nothing reached the catcher, no box found another's, every report came
+ * in time, and each names every way here, each refused.
  */
 
 /**
@@ -39,23 +41,49 @@ export type BoxCheckWay = (typeof BOX_CHECK_WAYS)[number]
  */
 export type WaySaw = 'refused' | 'absent' | 'sent' | 'reached'
 
-/** How long the check may take: the worker's answer, and how long a check's nonce lives. */
+/** How long the check may take: the boxes' answers, and how long a check's nonce lives. */
 export const BOX_CHECK_LIMITS = {
   /** Each way's own try, in the worker. */
   aWayMs: 1500,
-  /** The page waits this long for the worker's report: past it, the check didn't finish. */
-  answerWithinMs: 15_000,
-  /** A nonce lives this long from its check's start: the answer's time, and a little. */
-  nonceLiveMs: 20_000,
-  /** What the catcher records for one nonce, at most. */
-  hitsANonce: 50,
+  /** The page waits this long for all the boxes' reports: past it, the check didn't finish. */
+  answerWithinMs: 20_000,
+  /**
+   * A nonce lives this long from its check's start: the answers' time, and a little. What reaches
+   * the catcher after the check is judged, but in this time, still fails it.
+   */
+  nonceLiveMs: 30_000,
 } as const
 
 /**
- * The name a check sends under where it can only send (a broadcast channel, a cache, a database):
- * Lumovi's own page listens and looks under it while the check runs. What it finds there got out.
+ * The boxes a check opens: two side by side (`first`, `second`), each trying every way out and
+ * keeping what it can under its own name, then looking for the other's; and one opened once both
+ * have closed (`later`), looking for what they kept. A box's store that another box, or a later
+ * opening, can see is one a plugin could talk or remember through: that fails the check.
+ */
+export const BOX_CHECK_ROLES = ['first', 'second', 'later'] as const
+export type BoxCheckRole = (typeof BOX_CHECK_ROLES)[number]
+
+/** What a look for another box's things can find there. */
+export const LOOKS = ['broadcast-channel', 'caches', 'indexed-db'] as const
+export type Look = (typeof LOOKS)[number]
+
+/**
+ * The name a check sends under where it can only send (a broadcast channel): Lumovi's own page
+ * listens on it while the check runs, as each box does. What's heard there got out.
  */
 export const boxCheckChannel = (nonce: string) => `lumovi-box-check-${nonce}`
+
+/** Where one of the two side-by-side boxes keeps what it can (a cache, a database). */
+export const boxCheckStore = (nonce: string, role: 'first' | 'second') =>
+  `${boxCheckChannel(nonce)}-${role}`
+
+/**
+ * What a side-by-side box sends up once it has tried every way (and so kept what it could), and
+ * what the page sends both once both have: only then does either look for the other's.
+ */
+export const boxCheckKept = (nonce: string, role: 'first' | 'second') =>
+  JSON.stringify({ check: nonce, role, kept: true })
+export const BOX_CHECK_LOOK = 'look'
 
 /**
  * The ways whose arrival Lumovi's own page, not the server, can see: what the box's worker can
@@ -63,20 +91,52 @@ export const boxCheckChannel = (nonce: string) => `lumovi-box-check-${nonce}`
  */
 export const PAGE_SEES: readonly BoxCheckWay[] = ['broadcast-channel', 'caches', 'indexed-db']
 
+/** The worker's helpers, in both kinds of box: a global's there, and a look under a store's name. */
+const HELPERS = `const has = (name) => typeof self[name] !== 'undefined'
+  const look = async (name) => {
+    const found = []
+    try { if (has('caches') && (await caches.keys()).includes(name)) found.push('caches') } catch {}
+    try {
+      // (Opened, a database that isn't there is made: the making is stopped, so nothing is left.)
+      if (has('indexedDB') && await new Promise((done) => { const r = indexedDB.open(name); r.onupgradeneeded = () => { r.transaction.abort(); done(false) }; r.onsuccess = () => { r.result.close(); done(true) }; r.onerror = () => done(false) })) found.push('indexed-db')
+    } catch {}
+    return found
+  }`
+
 /**
- * The check's code, as a plugin's is run (after the box's first lines): it tries each way at
- * `catcher` (the server's own address for this check, `…/box-check/<nonce>`) and sends up what
- * it saw, as text, in one message.
+ * The code of one of a check's boxes, as a plugin's is run (after the box's first lines). One of
+ * the two side by side tries each way at `catcher` (the server's own address for this check,
+ * `…/box-check/<nonce>`), keeping what it can under its own name and listening for the other box;
+ * says when it has; once the page says both have, looks for what the other kept; and sends up
+ * what it saw. The later one only looks.
  */
-export function boxCheckCode(catcher: string, nonce: string): string {
+export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole): string {
+  const channel = JSON.stringify(boxCheckChannel(nonce))
+  const check = JSON.stringify(nonce)
+  if (role === 'later') {
+    const first = JSON.stringify(boxCheckStore(nonce, 'first'))
+    const second = JSON.stringify(boxCheckStore(nonce, 'second'))
+    return `box.then(async ({ post }) => {
+  ${HELPERS}
+  const found = [...new Set([...(await look(${first})), ...(await look(${second}))])]
+  post(JSON.stringify({ check: ${check}, role: 'later', found }))
+})`
+  }
   const http = JSON.stringify(catcher)
   const ws = JSON.stringify(catcher.replace(/^http/, 'ws'))
-  const channel = JSON.stringify(boxCheckChannel(nonce))
-  return `box.then(async ({ post }) => {
+  const mine = JSON.stringify(boxCheckStore(nonce, role))
+  const other = JSON.stringify(boxCheckStore(nonce, role === 'first' ? 'second' : 'first'))
+  const me = JSON.stringify(role)
+  const kept = JSON.stringify(boxCheckKept(nonce, role))
+  return `box.then(async ({ post, listen }) => {
+  ${HELPERS}
   const at = (way) => ${http} + '/' + way
   const within = (promise) => Promise.race([promise, new Promise((done) => setTimeout(() => done('refused'), ${BOX_CHECK_LIMITS.aWayMs}))])
-  const has = (name) => typeof self[name] !== 'undefined'
   const event = (open) => new Promise((done) => { try { open(() => done('reached'), () => done('refused')) } catch { done('refused') } })
+  // The other box, heard: on the channel every box of this check, and Lumovi's own page, listen on.
+  const found = new Set()
+  let channel
+  try { channel = new BroadcastChannel(${channel}); channel.onmessage = (event) => { if (event.data !== ${me}) found.add('broadcast-channel') } } catch {}
   const tries = {
     fetch: () => has('fetch') ? fetch(at('fetch'), { mode: 'no-cors' }).then(() => 'reached', () => 'refused') : 'absent',
     'fetch-credentials': () => has('fetch') ? fetch(at('fetch-credentials'), { mode: 'no-cors', credentials: 'include' }).then(() => 'reached', () => 'refused') : 'absent',
@@ -92,26 +152,45 @@ export function boxCheckCode(catcher: string, nonce: string): string {
     worker: () => has('Worker') ? event((yes, no) => { const w = new Worker(at('worker') + '.js'); w.onmessage = yes; w.onerror = no }) : 'absent',
     'blob-worker': () => has('Worker') && has('Blob') && typeof URL.createObjectURL === 'function' ? event((yes, no) => { const w = new Worker(URL.createObjectURL(new Blob(['fetch(' + JSON.stringify(at('blob-worker')) + ', { mode: "no-cors" }).then(() => postMessage(1), () => {})']))); w.onmessage = yes; w.onerror = no }) : 'absent',
     'shared-worker': () => has('SharedWorker') ? event((yes, no) => { const w = new SharedWorker(at('shared-worker') + '.js'); w.onerror = no; w.port.onmessage = yes }) : 'absent',
-    caches: () => has('caches') ? caches.open(${channel}).then((c) => c.put(new Request(at('caches')), new Response('out'))).then(() => 'sent', () => 'refused') : 'absent',
-    'indexed-db': () => has('indexedDB') ? new Promise((done) => { try { const r = indexedDB.open(${channel}); r.onsuccess = () => { r.result.close(); done('sent') }; r.onerror = () => done('refused') } catch { done('refused') } }) : 'absent',
-    'broadcast-channel': () => has('BroadcastChannel') ? (() => { try { new BroadcastChannel(${channel}).postMessage('out'); return 'sent' } catch { return 'refused' } })() : 'absent',
+    caches: () => has('caches') ? caches.open(${mine}).then((c) => c.put(new Request(at('caches')), new Response('out'))).then(() => 'sent', () => 'refused') : 'absent',
+    'indexed-db': () => has('indexedDB') ? new Promise((done) => { try { const r = indexedDB.open(${mine}); r.onsuccess = () => { r.result.close(); done('sent') }; r.onerror = () => done('refused') } catch { done('refused') } }) : 'absent',
+    'broadcast-channel': () => channel ? (() => { try { channel.postMessage(${me}); return 'sent' } catch { return 'refused' } })() : 'absent',
   }
   const ways = {}
   for (const [way, attempt] of Object.entries(tries)) {
     try { ways[way] = await within(Promise.resolve().then(attempt)) } catch { ways[way] = 'refused' }
   }
-  post(JSON.stringify({ check: ${JSON.stringify(nonce)}, ways }))
+  // Once both boxes have kept, and said, what they can: what of the other's is seen here?
+  const both = new Promise((done) => listen((data) => { if (data === ${JSON.stringify(BOX_CHECK_LOOK)}) done() }))
+  post(${kept})
+  await both
+  try { channel && channel.postMessage(${me}) } catch {}
+  await new Promise((done) => setTimeout(done, 300))
+  for (const what of await look(${other})) found.add(what)
+  post(JSON.stringify({ check: ${check}, role: ${me}, ways, found: [...found] }))
 })`
 }
 
+/** One box's report, judged: whole, of its role and this check, and what it found of others. */
+export interface Reported {
+  /** What each way did (the side-by-side boxes' only). */
+  ways?: Record<BoxCheckWay, WaySaw>
+  /** The ways the worker saw reach what they aimed at. */
+  reached: BoxCheckWay[]
+  /** What of another box it found: the other's, or (the later one) what the first two kept. */
+  found: Look[]
+}
+
 /**
- * What the worker reported, judged: every way named, each with what it saw, none of them having
- * reached anything. Its ways in the order they're listed; or why it isn't a report at all.
+ * What one of a check's boxes reported, judged: the side-by-side boxes' every way named, each
+ * with what it saw, and what each found of the other; the later one's, what it found. Or
+ * nothing, where it isn't a whole report of this check and this box.
  */
 export function judgeReport(
   text: unknown,
   nonce: string,
-): { ways: Record<BoxCheckWay, WaySaw>; reached: BoxCheckWay[] } | undefined {
+  role: BoxCheckRole,
+): Reported | undefined {
   if (typeof text !== 'string' || text.length > 4096) return undefined
   let read: unknown
   try {
@@ -120,21 +199,34 @@ export function judgeReport(
     return undefined
   }
   if (typeof read !== 'object' || read === null || Array.isArray(read)) return undefined
-  const { check, ways } = read as { check?: unknown; ways?: unknown }
-  if (check !== nonce || typeof ways !== 'object' || ways === null || Array.isArray(ways)) {
+  const said = read as { check?: unknown; role?: unknown; ways?: unknown; found?: unknown }
+  if (said.check !== nonce || said.role !== role) return undefined
+  const { found } = said
+  if (
+    !Array.isArray(found) ||
+    !found.every((look) => (LOOKS as readonly unknown[]).includes(look)) ||
+    new Set(found).size !== found.length
+  ) {
     return undefined
   }
-  const said = ways as Record<string, unknown>
+  if (role === 'later') return { reached: [], found: found as Look[] }
+  const { ways } = said
+  if (typeof ways !== 'object' || ways === null || Array.isArray(ways)) return undefined
+  const all = ways as Record<string, unknown>
   const SAW: readonly unknown[] = ['refused', 'absent', 'sent', 'reached']
   // Every way, each said as one of the four: a report that leaves one out isn't one.
-  if (!BOX_CHECK_WAYS.every((way) => Object.hasOwn(said, way) && SAW.includes(said[way]))) {
+  if (!BOX_CHECK_WAYS.every((way) => Object.hasOwn(all, way) && SAW.includes(all[way]))) {
     return undefined
   }
-  const out = Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, said[way] as WaySaw])) as Record<
+  const out = Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, all[way] as WaySaw])) as Record<
     BoxCheckWay,
     WaySaw
   >
-  return { ways: out, reached: BOX_CHECK_WAYS.filter((way) => out[way] === 'reached') }
+  return {
+    ways: out,
+    reached: BOX_CHECK_WAYS.filter((way) => out[way] === 'reached'),
+    found: found as Look[],
+  }
 }
 
 /** Browsers by what they say of themselves, most particular first. */
