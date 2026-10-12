@@ -176,6 +176,35 @@ test.describe('a plugin’s page', () => {
     expect(page.stopped).toBeUndefined()
   })
 
+  test('says which commit last changed what’s drawn of each part and text, and only ever later', () => {
+    const { page, send } = page_()
+    send(
+      ['make', 1, 'Stack', {}],
+      ['make', 2, 'Label', {}],
+      ['text', 3, 'a'],
+      ['put', 2, 3],
+      ['put', 1, 2],
+      ['make', 4, 'Button', { label: 'b' }],
+      ['put', 1, 4],
+      ['put', ROOT, 1],
+    )
+    // Made and put in this commit: the parts things were put into are changed by it; a part or a
+    // text made in it, and changed by nothing since, by none.
+    expect([ROOT, 1, 2, 3, 4].map((id) => page.changedAt(id))).toEqual([1, 1, 1, 0, 0])
+    // Each later commit stamps what it changed, and only that.
+    send(['text', 3, 'abc'])
+    send(['change', 4, { label: 'bcd' }])
+    expect([ROOT, 1, 2, 3, 4].map((id) => page.changedAt(id))).toEqual([1, 1, 1, 2, 3])
+    send(['put', 1, 2])
+    expect(page.changedAt(1)).toBe(4)
+    // One that's taken away is no more: nothing of it is kept.
+    send(['take', 1, 2])
+    expect([1, 2, 3].map((id) => page.changedAt(id))).toEqual([5, 0, 0])
+    // A commit that stops the page stamps nothing.
+    stopped(send(['change', 4, { label: 7 }]))
+    expect(page.changedAt(4)).toBe(3)
+  })
+
   test('a message that isn’t a commit stops it', () => {
     const messages: unknown[] = [
       '',

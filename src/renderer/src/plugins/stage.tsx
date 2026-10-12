@@ -5,7 +5,14 @@
  *
  * Its parts are the stage's own, as plain as parts can be; Lumovi's real ones come with the kit.
  */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { number, oneOf, text, yesOrNo, type PropsOf } from '@shared/kit/declare'
 import type { PageEnd } from '@shared/plugin-ended'
@@ -34,39 +41,66 @@ const field = {
 /** A part of Lumovi's with a fault in it: it fails as it draws, whatever it's given. */
 const faulty = { name: 'Faulty', holds: 'nothing', props: {} } as const
 
+/**
+ * Says on the element it's given how many times its part has been drawn (`data-drawn`): for the
+ * tests to see that a commit draws again only what it changed.
+ */
+function useDrawn<T extends HTMLElement>() {
+  const element = useRef<T>(null)
+  const times = useRef(0)
+  useLayoutEffect(() => {
+    times.current += 1
+    if (element.current) element.current.dataset.drawn = String(times.current)
+  })
+  return element
+}
+
 const PARTS: Record<string, KitPart> = {
   Stack: {
     declared: stack,
-    draw: ({ props, children }) => (
-      <div
-        data-part="Stack"
-        className="flex flex-col"
-        style={{ gap: ((props as PropsOf<typeof stack>).gap ?? 2) * 4 }}
-      >
-        {children}
-      </div>
-    ),
+    draw: function Stack({ props, children }) {
+      const drawn = useDrawn<HTMLDivElement>()
+      return (
+        <div
+          data-part="Stack"
+          ref={drawn}
+          className="flex flex-col"
+          style={{ gap: ((props as PropsOf<typeof stack>).gap ?? 2) * 4 }}
+        >
+          {children}
+        </div>
+      )
+    },
   },
   Label: {
     declared: label,
-    draw: ({ props, children }) => (
-      <div
-        data-part="Label"
-        className={cn(
-          'overflow-clip',
-          (props as PropsOf<typeof label>).tone === 'quiet' ? 'text-ink-3' : 'text-ink-1',
-        )}
-      >
-        {children}
-      </div>
-    ),
+    draw: function Label({ props, children }) {
+      const drawn = useDrawn<HTMLDivElement>()
+      return (
+        <div
+          data-part="Label"
+          ref={drawn}
+          className={cn(
+            'overflow-clip',
+            (props as PropsOf<typeof label>).tone === 'quiet' ? 'text-ink-3' : 'text-ink-1',
+          )}
+        >
+          {children}
+        </div>
+      )
+    },
   },
   Field: {
     declared: field,
-    draw: ({ props }) => {
+    draw: function Field({ props }) {
       const { name, value, lines } = props as PropsOf<typeof field>
+      const drawn = useDrawn<HTMLDivElement>()
       return (
-        <div data-part="Field" className="flex items-baseline gap-3 border-b border-line py-1.5">
+        <div
+          data-part="Field"
+          ref={drawn}
+          className="flex items-baseline gap-3 border-b border-line py-1.5"
+        >
           <TheirText text={name} className="w-40 shrink-0 text-ink-3" />
           <TheirText text={value} lines={lines} className="min-w-0 flex-1 text-ink-1" />
           {/* Lumovi's own, beside a plugin's text: nothing in that text may turn this round. */}

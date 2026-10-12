@@ -82,6 +82,8 @@ interface Held extends PageNode {
   heights: number[]
   /** The characters it holds: its text, or its properties as text. */
   size: number
+  /** The commit that last changed what's drawn of it (none yet: 0). */
+  changedAt?: number
 }
 
 /** The root of every page: what's put under it is the page. */
@@ -104,6 +106,8 @@ export class DoorPage {
   /** The newest id made: one made after it has a greater one, so none is ever used twice. */
   #newest = 0
   #held = 0
+  /** Commits taken: each one that changed a part or a text stamps it with its count. */
+  #commits = 0
   /** What it may still send: filled as time passes, to `secondsAtOnce` seconds' worth at most. */
   #left: { at: number | undefined; steps: number; commits: number } = {
     at: undefined,
@@ -135,6 +139,14 @@ export class DoorPage {
         children: Object.freeze([...node.children]),
       })
     )
+  }
+
+  /**
+   * Which commit last changed what's drawn of the part or text `id` (0: none since it was made,
+   * or it isn't there). It only goes up: whatever is drawn of it with an older one is out of date.
+   */
+  changedAt(id: number): number {
+    return this.#nodes.get(id)?.changedAt ?? 0
   }
 
   /** How much the page holds: for a test, and for whoever wants to see how near a limit it is. */
@@ -201,7 +213,10 @@ export class DoorPage {
       if (wrong) return { ...wrong, what: `step ${n + 1}: ${wrong.what}` }
     }
     // (What was taken away within the commit isn't there to draw.)
-    return { changed: [...changed].filter((id) => this.#nodes.has(id)) }
+    const commit = ++this.#commits
+    const drawn = [...changed].filter((id) => this.#nodes.has(id))
+    for (const id of drawn) this.#nodes.get(id)!.changedAt = commit
+    return { changed: drawn }
   }
 
   #step(step: unknown, changed: Set<number>): Stopped | undefined {

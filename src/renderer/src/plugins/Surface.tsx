@@ -3,24 +3,31 @@
  * as a text that isn't Lumovi's. Nothing here is the plugin's code: it only said which parts,
  * with which properties, and the door checked every word.
  */
-import { useSyncExternalStore, type ReactNode } from 'react'
+import { memo, useCallback, useSyncExternalStore } from 'react'
 import { handedFields } from '@shared/kit/declare'
-import { ROOT, type DoorPage } from '@shared/plugin-door'
-import type { KitPart, OpenPage } from './page'
+import { ROOT } from '@shared/plugin-door'
+import type { OpenPage } from './page'
 import { TheirText } from './TheirText'
 
-function draw(tree: DoorPage, parts: Readonly<Record<string, KitPart>>, id: number): ReactNode {
-  const node = tree.node(id)
-  if (!node) return null
-  // (A text under a part runs on with the texts beside it; the part that holds it clips it.)
-  if (node.part === undefined) return <TheirText key={id} text={node.text ?? ''} lines inline />
-  const { draw: Part, declared } = parts[node.part]!
-  return (
-    <Part key={id} props={handedOnce(node.props, declared.props)}>
-      {node.children.map((child) => draw(tree, parts, child))}
-    </Part>
+/**
+ * A part or a text of the page, drawn again only when it has something new to draw: what a part
+ * holds is drawn by its own, each of them likewise, so a change deep in the page draws that and
+ * nothing round it.
+ */
+const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) {
+  useSyncExternalStore(
+    useCallback((changed: () => void) => page.subscribeTo(id, changed), [page, id]),
+    () => page.tree.changedAt(id),
   )
-}
+  const node = page.tree.node(id)
+  if (!node) return null
+  const inside = node.children.map((child) => <Drawn key={child} page={page} id={child} />)
+  if (id === ROOT) return inside
+  // (A text under a part runs on with the texts beside it; the part that holds it clips it.)
+  if (node.part === undefined) return <TheirText text={node.text ?? ''} lines inline />
+  const { draw: Part, declared } = page.parts[node.part]!
+  return <Part props={handedOnce(node.props, declared.props)}>{inside}</Part>
+})
 
 /** What a part is handed, made once for the properties the door holds (they're never changed). */
 const made = new WeakMap<object, Readonly<Record<string, unknown>>>()
@@ -33,13 +40,11 @@ function handedOnce(
   return handed
 }
 
-/** The page of `page`, as it is now; drawn again when it changes. */
+/** The page of `page`, as it is now. */
 export function PluginSurface({ page }: { page: OpenPage }) {
-  const { parts } = page
-  useSyncExternalStore(page.subscribe, () => page.version)
   return (
     <div data-testid="plugin-surface" className="flex flex-col gap-4 p-4">
-      {page.tree.node(ROOT)!.children.map((id) => draw(page.tree, parts, id))}
+      <Drawn page={page} id={ROOT} />
     </div>
   )
 }
