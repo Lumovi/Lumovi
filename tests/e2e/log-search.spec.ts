@@ -28,7 +28,7 @@ const searchOf = (detail: Locator) => ({
   field: detail.getByLabel('Search logs'),
   regex: detail.getByRole('button', { name: 'Regular expression' }),
   matchCase: detail.getByRole('button', { name: 'Match case' }),
-  without: detail.getByRole('button', { name: 'Show lines without it' }),
+  without: detail.getByRole('button', { name: 'Show lines without a match' }),
 })
 
 /** The lines drawn, as text (a few: the log draws only those in and near its view). */
@@ -215,28 +215,32 @@ test('a since typed: a duration or a time, read back before it’s used; a long 
         (r) =>
           r.path.endsWith(`/pods/${PODS[1]}/log`) &&
           r.query.sinceSeconds === '5400' &&
-          r.query.tailLines === '20000',
+          // (Three containers share the 20,000 the view keeps.)
+          r.query.tailLines === '6666',
       ),
     )
     .toBe(true)
 
-  // A date and time, and more lines since than the view keeps: the last of them, and a line
-  // saying where the rest went.
+  // One container, a date and time, and more lines since than the view keeps: the last of
+  // them, and a line saying where the rest went.
   clusters.demo.appendLogs(
     'shop',
     PODS[0]!,
     'app',
     Array.from({ length: 20_050 }, (_, i) => `ceiling-check ${i}`),
   )
-  await detail.getByRole('button', { name: 'Show', exact: true }).click()
+  await open(page, 'Pods', PODS[0]!)
+  const pod = panel(page, 'Pod', PODS[0]!)
+  await pod.getByRole('tab', { name: 'Logs' }).click()
+  await pod.getByRole('button', { name: 'Show', exact: true }).click()
   await page.getByRole('option', { name: 'Since…' }).click()
   await page.getByLabel('Since', { exact: true }).fill('2020-01-01 00:00')
   await page.getByRole('button', { name: 'Show', exact: true }).last().click()
-  await expect(detail.getByRole('button', { name: 'Show', exact: true })).toHaveText(
+  await expect(pod.getByRole('button', { name: 'Show', exact: true })).toHaveText(
     'Since 1 Jan 2020 00:00',
   )
-  await expect(detail.getByRole('note')).toHaveText(
-    'Showing the last 20,000 lines since 1 Jan 2020 00:00. Pick a later time to see them from the start.',
+  await expect(pod.getByRole('note')).toHaveText(
+    'Showing the last 20,000 lines since 1 Jan 2020 00:00. Pick a later time to see every line from it.',
   )
   // (From that moment, in the person's own time, and only the last of it.)
   expect(

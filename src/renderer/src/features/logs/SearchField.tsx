@@ -1,6 +1,6 @@
 /**
  * The Logs view's search: the text, and inside the field how many it found, up and down between
- * matches, and three toggles: a regular expression, match case, and the lines without it. Their
+ * matches, and three toggles: a regular expression, match case, and the lines without a match. Their
  * keys work with the focus in the field, where a layout doesn't type a letter with them.
  */
 import {
@@ -28,7 +28,7 @@ const TOGGLES: Record<
   regex: { label: 'Regular expression', icon: Regex, code: 'KeyR', letter: 'R', mac: '®' },
   matchCase: { label: 'Match case', icon: CaseSensitive, code: 'KeyC', letter: 'C', mac: 'ç' },
   exclude: {
-    label: 'Show lines without it',
+    label: 'Show lines without a match',
     icon: CircleMinus,
     code: 'KeyX',
     letter: 'X',

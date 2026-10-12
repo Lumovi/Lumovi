@@ -513,7 +513,7 @@ test('logs searched on a phone: the toggles and steps a row of their own, a sinc
     await expect(field).toHaveValue('GET')
     await expect(detail.getByRole('button', { name: 'Regular expression' })).toBeVisible()
     await expect(detail.getByRole('button', { name: 'Match case' })).toBeVisible()
-    await expect(detail.getByRole('button', { name: 'Show lines without it' })).toBeVisible()
+    await expect(detail.getByRole('button', { name: 'Show lines without a match' })).toBeVisible()
     await expect(detail.getByText(/^(\d[\d,]* match(es)?|No matches)$/)).toBeVisible()
   })
   // An expression that isn't one: said in a line that wraps, the field marked.

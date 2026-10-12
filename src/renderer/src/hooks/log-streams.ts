@@ -40,6 +40,8 @@ export type StreamState =
 export interface LogSnapshot {
   lines: LogLine[]
   states: Record<string, StreamState>
+  /** The streams whose container had more lines than were asked for (`tailLines`): cut there. */
+  full: string[]
 }
 
 /** The most lines kept; older ones go first. */
@@ -65,6 +67,9 @@ interface Stream {
   lastAt: number
   seen: Set<string>
   retry?: ReturnType<typeof setTimeout>
+  /** When it was first asked for, and how many of its lines were written by then. */
+  askedAt?: number
+  before: number
 }
 
 /** The streams of some containers, merged into one list of lines. */
@@ -105,6 +110,7 @@ class LogSession {
         state: { status: 'connecting' },
         lastAt: -Infinity,
         seen: new Set(),
+        before: 0,
       }
       this.#streams.set(source.key, stream)
       void this.#start(stream)
@@ -121,6 +127,7 @@ class LogSession {
   async #start(stream: Stream) {
     const id = crypto.randomUUID()
     stream.id = id
+    stream.askedAt ??= Date.now()
     this.#handlers.set(id, {
       lines: (lines) => this.#received(stream, lines),
       end: (error) => this.#ended(stream, error),
@@ -164,6 +171,8 @@ class LogSession {
       }
       stream.seen.add(raw)
       this.#pending.push(line)
+      // (By the cluster's clock, against this one's: what was there before it was asked for.)
+      if (line.at <= stream.askedAt!) stream.before++
     }
     this.#schedule()
   }
@@ -196,11 +205,18 @@ class LogSession {
     const incoming = this.#pending.sort((a, b) => a.at - b.at)
     this.#pending = []
     this.#lines = mergeLines(this.#lines, incoming).slice(-MAX_LINES)
+    const { tailLines } = this.options
     this.notify({
       lines: this.#lines,
       states: Object.fromEntries(
         [...this.#streams.values()].map((stream) => [stream.source.key, stream.state]),
       ),
+      full:
+        tailLines === undefined
+          ? []
+          : [...this.#streams.values()]
+              .filter((stream) => stream.before >= tailLines)
+              .map((stream) => stream.source.key),
     })
   }
 }
@@ -211,7 +227,7 @@ class LogSession {
  */
 export function useLogStreams(sources: LogSource[], options: LogOptions): LogSnapshot {
   const { context } = useCluster()
-  const [snapshot, setSnapshot] = useState<LogSnapshot>({ lines: [], states: {} })
+  const [snapshot, setSnapshot] = useState<LogSnapshot>({ lines: [], states: {}, full: [] })
   const session = useRef<LogSession>(null)
   const latest = useRef<LogSource[]>([])
   const optionsKey = JSON.stringify(options)
