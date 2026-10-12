@@ -167,8 +167,11 @@ for (const [name, engine] of [
         expect(await codeOf(page)).toBe('check-failed')
         const [failed] = audited(server, 'plugin.box-check')
         expect(failed?.outcome).toBe('failure')
-        // What got out is what reached the server: at least a request, whatever the box said.
-        expect(failed?.details?.ways).toEqual(expect.arrayContaining(['fetch']))
+        // What got out is what reached the server, whatever the box said: each way the wall
+        // held, a socket's upgrade among them.
+        expect(failed?.details?.ways).toEqual(
+          expect.arrayContaining(['fetch', 'xhr', 'event-source', 'web-socket']),
+        )
         expect(failed?.summary).toMatch(
           /^Lumovi’s check found this browser lets a plugin’s code out: /,
         )

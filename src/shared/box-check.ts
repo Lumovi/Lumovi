@@ -20,6 +20,8 @@ export const BOX_CHECK_WAYS = [
   'event-source',
   'web-socket',
   'web-socket-stream',
+  // (The server speaks no HTTP/3, so a WebTransport to it fails whatever the walls: its
+  // `refused` proves nothing of them. It's held by the same `connect-src` fetch is checked against.)
   'web-transport',
   'beacon',
   'import',
@@ -157,8 +159,11 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
     'broadcast-channel': () => channel ? (() => { try { channel.postMessage(${me}); return 'sent' } catch { return 'refused' } })() : 'absent',
   }
   const ways = {}
+  // (What's kept is waited for as long as it takes, never cut short: a box says it has kept what
+  // it can only once it has. The check as a whole is bounded by the page.)
+  const stores = ['caches', 'indexed-db']
   for (const [way, attempt] of Object.entries(tries)) {
-    try { ways[way] = await within(Promise.resolve().then(attempt)) } catch { ways[way] = 'refused' }
+    try { ways[way] = await (stores.includes(way) ? Promise.resolve().then(attempt) : within(Promise.resolve().then(attempt))) } catch { ways[way] = 'refused' }
   }
   // Once both boxes have kept, and said, what they can: what of the other's is seen here?
   const both = new Promise((done) => listen((data) => { if (data === ${JSON.stringify(BOX_CHECK_LOOK)}) done() }))
