@@ -43,6 +43,7 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { matchWords } from '@renderer/lib/match'
 import {
+  pluginPagePath,
   pluginPath,
   apiResourcesPath,
   pluginsPath,
@@ -144,10 +145,15 @@ function PluginItem({ served }: { served: ServedPlugin }) {
   const { context } = useCluster()
   const [page, kind] = useLocation().pathname.split('/').slice(3)
   const { plugin, kinds } = served
+  const first = plugin.added.pages[0]
   return (
     <NavItem
-      to={pluginPath(context, plugin.name)}
-      current={page === 'r' && kinds.some((r) => r.kind === decodeURIComponent(kind!))}
+      // Where it has pages, its entry opens the first; it's current on any of them.
+      to={first ? pluginPagePath(context, plugin.name, first.id) : pluginPath(context, plugin.name)}
+      current={
+        (page === 'r' && kinds.some((r) => r.kind === decodeURIComponent(kind!))) ||
+        (page === 'plugins' && decodeURIComponent(kind ?? '') === plugin.name)
+      }
     >
       <PluginIcon plugin={plugin} className="size-4 shrink-0 text-ink-3" />
       <span className="truncate">{plugin.label}</span>

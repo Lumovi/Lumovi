@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { create } from 'zustand'
 import { settle } from '@shared/plugin-loading'
 import { apiGroupOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
 import { api } from '@renderer/lib/api'
@@ -14,6 +15,14 @@ import {
   type Plugin,
 } from '@renderer/lib/plugins'
 import { useResources } from './resources'
+
+/**
+ * The plugin whose page is open, as it was last shown in use: when it stops being in use, its
+ * page keeps its name for a title (the header's too) until the person goes elsewhere.
+ */
+export const useOpenPluginPage = create<{ open?: { context: string; plugin: ListedPlugin } }>()(
+  () => ({}),
+)
 
 // The plugins Lumovi comes with, bundled with the app; and its own views for Kubernetes'
 // kinds that have no page, which are written as a plugin's are and aren't one.
@@ -124,12 +133,19 @@ export function useServedPlugins(): ServedPlugin[] {
           .filter((r) => r.group === apiGroupOf(kind))
           .sort((a, b) => a.label.localeCompare(b.label))
       : (served.get(kind) ?? [])
-  return listedPlugins()
-    .map((plugin) => ({ plugin, kinds: plugin.kinds.flatMap(kindsOf) }))
-    .filter(({ kinds }) => kinds.length > 0)
-    .sort((a, b) =>
-      a.plugin.label.localeCompare(b.plugin.label, undefined, { sensitivity: 'base' }),
-    )
+  return (
+    listedPlugins()
+      .map((plugin) => ({ plugin, kinds: plugin.kinds.flatMap(kindsOf) }))
+      // (One whose kinds this cluster doesn't serve isn't in use here; one of pages alone, with no
+      // kinds of its own, is in use wherever it is.)
+      .filter(
+        ({ plugin, kinds }) =>
+          kinds.length > 0 || (plugin.kinds.length === 0 && plugin.added.pages.length > 0),
+      )
+      .sort((a, b) =>
+        a.plugin.label.localeCompare(b.plugin.label, undefined, { sensitivity: 'base' }),
+      )
+  )
 }
 
 /** The plugin a kind's list belongs to, if the cluster has it. */

@@ -54,6 +54,9 @@ const HOST = api.host === 'desktop' ? 'yours' : 'server'
 const label = (plugin: Plugin) => plugin.place?.label ?? plugin.name
 const inUse = (row: Row) => row.state === 'in-use' || row.state === 'in-place-of'
 
+/** Set by the build: true only in the build the tests run. */
+declare const LUMOVI_TEST_BUILD: boolean
+
 /** "Pods and Jobs", "Pods, Jobs and Secrets". */
 function listed(names: string[]): string {
   return names.length <= 1
@@ -400,7 +403,13 @@ function Name({
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-2">
         {row.plugin?.place ? (
           <PluginIcon
-            plugin={{ name: row.plugin.name, source: row.plugin.source, ...row.plugin.place }}
+            plugin={{
+              name: row.plugin.name,
+              source: row.plugin.source,
+              version: row.plugin.version,
+              added: row.plugin.added,
+              ...row.plugin.place,
+            }}
             className="size-4"
           />
         ) : (
@@ -556,6 +565,14 @@ function WhatItAsks({ plugin, names }: { plugin: Plugin; names: Names }) {
           <h3 className={heading}>May read</h3>
           <MayRead asked={asked} names={names} />
         </section>
+        {/* (Its pages, tabs and commands are drawn by the door, and taken only in the tests'
+            build until it's in: a release says nothing of them yet.) */}
+        {LUMOVI_TEST_BUILD && (
+          <section aria-label="Adds to Lumovi’s pages">
+            <h3 className={heading}>Adds to Lumovi’s pages</h3>
+            <Adds added={plugin.added} names={names} />
+          </section>
+        )}
       </div>
       <section aria-label="Its actions, and what each sends">
         <h3 className={heading}>Its actions, and what each sends</h3>
@@ -646,6 +663,42 @@ function MayChange({ asked, names }: { asked: Asks; names: Names }) {
           Kubernetes’ own kinds: no Pods, Jobs, Secrets or RoleBindings. No plugin can.
         </span>
       </p>
+    </div>
+  )
+}
+
+/** What a plugin adds to Lumovi's pages: how many of each, then each by the name its file gives. */
+function Adds({ added, names }: { added: Plugin['added']; names: Names }) {
+  const { pages, tabs, commands } = added
+  const counted = (count: number, one: string, many: string) =>
+    count === 0 ? [] : [count === 1 ? one : `${count} ${many}`]
+  const on = (kinds: ResourceKind[]) => listed(kinds.map(names.plural))
+  const parts = [
+    ...counted(pages.length, 'a page', 'pages'),
+    ...counted(tabs.length, `a tab on ${on(tabs[0]?.kinds ?? [])}`, 'tabs'),
+    ...counted(commands.length, 'a command to the palette', 'commands to the palette'),
+  ]
+  if (parts.length === 0) return <p>Adds nothing to Lumovi’s pages.</p>
+  return (
+    <div className="space-y-2">
+      <p>Adds {listed(parts)}.</p>
+      <ul className="space-y-1">
+        {pages.map((page) => (
+          <li key={`page:${page.id}`}>
+            The page <span className="font-medium text-ink-1">{page.title}</span>
+          </li>
+        ))}
+        {tabs.map((tab) => (
+          <li key={`tab:${tab.id}`}>
+            The tab <span className="font-medium text-ink-1">{tab.title}</span>, on {on(tab.kinds)}
+          </li>
+        ))}
+        {commands.map((command) => (
+          <li key={`command:${command.name}`}>
+            The command <span className="font-medium text-ink-1">{command.name}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

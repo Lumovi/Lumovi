@@ -58,6 +58,15 @@ export function pluginPath(context: string, name: string): string {
   return `${clusterPath(context)}/plugins/${encodeURIComponent(name)}`
 }
 
+/**
+ * One of a plugin's own pages: the only way its address is made. A plugin's own address alone
+ * (`pluginPath`) is its first page where it has pages, and its page of its kinds where it hasn't;
+ * a page id it doesn't have is Lumovi's "no such page".
+ */
+export function pluginPagePath(context: string, name: string, page: string): string {
+  return `${pluginPath(context, name)}/${encodeURIComponent(page)}`
+}
+
 /** Every kind the cluster serves, and the views that show them. */
 export function apiResourcesPath(context: string): string {
   return `${clusterPath(context)}/api-resources`

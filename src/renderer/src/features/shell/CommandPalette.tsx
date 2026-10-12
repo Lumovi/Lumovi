@@ -45,6 +45,7 @@ import { useResources } from '@renderer/hooks/resources'
 import { useClusterName, useReadOnly, useSetTheme } from '@renderer/hooks/settings'
 import { matchWords } from '@renderer/lib/match'
 import {
+  pluginPagePath,
   pluginPath,
   apiResourcesPath,
   pluginsPath,
@@ -296,6 +297,30 @@ function Palette({ onDone }: { onDone: () => void }) {
             All plugins
           </Item>
         </Command.Group>
+        {/* A plugin's commands: a group of their own, each only opening one of its pages. The
+            plug stands in the icon's place, never the plugin's own icon, which it chooses. */}
+        {plugins.some(({ plugin }) => plugin.added.commands.length > 0) && (
+          <Command.Group heading="From plugins">
+            {plugins.flatMap(({ plugin }) =>
+              plugin.added.commands.map((command) => (
+                <Item
+                  key={`${plugin.name}/${command.name}`}
+                  icon={<Plug />}
+                  value={`${command.name} ${plugin.label}`}
+                  hint={
+                    <span className="max-w-[200px] min-w-0 truncate text-xs text-ink-3">
+                      {plugin.label}
+                    </span>
+                  }
+                  onSelect={run(() => go(pluginPagePath(context, plugin.name, command.page)))}
+                  whole
+                >
+                  {command.name}
+                </Item>
+              )),
+            )}
+          </Command.Group>
+        )}
         <Command.Group heading="Namespace">
           <Item
             icon={<LayoutGrid />}
@@ -503,6 +528,7 @@ function Item({
   value,
   onSelect,
   disabled,
+  whole = false,
   children,
 }: {
   icon: ReactNode
@@ -510,6 +536,8 @@ function Item({
   value: string
   onSelect: () => void
   disabled?: boolean
+  /** Its name is never cut: what's beside it gives way. */
+  whole?: boolean
   children: ReactNode
 }) {
   return (
@@ -517,10 +545,12 @@ function Item({
       value={value}
       onSelect={onSelect}
       disabled={disabled}
-      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[disabled=true]:opacity-45 data-[selected=true]:bg-surface-3 touch:h-11 touch:active:bg-surface-3 touch:data-[selected=true]:bg-transparent [&_svg]:size-4 [&_svg]:text-ink-3"
+      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[disabled=true]:opacity-45 data-[selected=true]:bg-surface-3 touch:h-11 touch:active:bg-surface-3 touch:data-[selected=true]:bg-transparent [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-ink-3"
     >
       {icon}
-      <span className="flex-1 truncate">{children}</span>
+      <span className={whole ? 'flex-1 shrink-0 whitespace-nowrap' : 'flex-1 truncate'}>
+        {children}
+      </span>
       {hint}
     </Command.Item>
   )

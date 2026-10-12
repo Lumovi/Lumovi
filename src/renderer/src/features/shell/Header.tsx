@@ -22,7 +22,7 @@ import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { barButton } from '@renderer/components/Sheet'
 import { pluginIcon, KindIcon } from '@renderer/components/KindIcon'
 import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
-import { useServedPlugins } from '@renderer/hooks/plugins'
+import { useOpenPluginPage, useServedPlugins } from '@renderer/hooks/plugins'
 import { useResource } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
@@ -98,10 +98,21 @@ export function Header() {
     page === 'plugins'
       ? served.find((s) => s.plugin.name === decodeURIComponent(custom!))
       : undefined
+  // One whose page is open and that's no longer in use keeps its name there until it's left.
+  const open = useOpenPluginPage((state) => state.open)
+  const gone =
+    !plugin &&
+    page === 'plugins' &&
+    open?.context === context &&
+    open.plugin.name === decodeURIComponent(custom ?? '')
+      ? open.plugin
+      : undefined
   // Pages other than a kind's list go by their route (and anything unknown is the overview's).
   const [pageTitle, PageIcon] = plugin
     ? ([plugin.plugin.label, pluginIcon(plugin.plugin)] as const)
-    : (PAGES[page] ?? PAGES['']!)
+    : gone
+      ? ([gone.label, pluginIcon(gone)] as const)
+      : (PAGES[page] ?? PAGES['']!)
   const title = kind ? (resource?.label ?? apiKindOf(kind)) : pageTitle
 
   const clusterName = useClusterName()(context)

@@ -14,6 +14,8 @@ import {
   changeProblem,
   clashes,
   EXPRESSION,
+  LUMOVIS_COMMANDS,
+  LUMOVIS_TABS,
   parsePlugin,
   PLACEHOLDER,
   type Condition,
@@ -55,6 +57,8 @@ for (const folder of [OWN, PLUGINS]) {
     // Lumovi's own views of Kubernetes' kinds are no plugin, and what they show no plugin may.
     const parsed = parsePlugin(readFileSync(join(folder, file), 'utf8'), file, {
       ownViews: folder === OWN,
+      // (Lumovi's own plugins are the ones whose files may carry code.)
+      carriesCode: folder === PLUGINS,
       lumovisOwn: views.flatMap((view) => view.kinds),
     })
     if (parsed.plugin) {
@@ -885,4 +889,364 @@ test('what a plugin asks for is read from its file: its kinds, what it reads, ea
       )
     }
   }
+})
+
+/** A plugin of Lumovi's own with pages, tabs and commands: `spec` lines go after its kinds. */
+const adding = (more: string, place = '  label: Rollouts\n') =>
+  `apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: rollouts }\nspec:\n  version: 1.0.0\n  needs: { lumovi: 1.0.0 }\n  groups: [example.com]\n${place}  kinds: [{ group: example.com, kind: Rollout }, { group: example.com, kind: Experiment }]\n${more}`
+
+const PAGES =
+  '  pages:\n    - { id: overview, title: Overview }\n    - { id: history, title: History }\n'
+const TABS =
+  '  tabs:\n    - { id: rollout, title: Steps, kinds: [{ group: example.com, kind: Rollout }] }\n'
+const COMMANDS = '  commands:\n    - { name: Open the rollouts’ history, page: history }\n'
+
+/** The lines a file is refused with, as `file: where: why`. */
+const refusedWith = (text: string, options = { carriesCode: true }) =>
+  parsePlugin(text, 'rollouts.yaml', options).problems
+
+test('a plugin of Lumovi’s own adds pages, a tab on its own kinds and commands that open them', () => {
+  const { plugin, problems } = parsePlugin(adding(PAGES + TABS + COMMANDS), 'rollouts.yaml', {
+    carriesCode: true,
+  })
+  expect(problems).toEqual([])
+  expect(plugin!.added).toEqual({
+    pages: [
+      { id: 'overview', title: 'Overview' },
+      { id: 'history', title: 'History' },
+    ],
+    tabs: [{ id: 'rollout', title: 'Steps', kinds: ['Rollout.example.com'] }],
+    commands: [{ name: 'Open the rollouts’ history', page: 'history' }],
+  })
+  // A plugin of pages alone has its place in the sidebar with no kinds.
+  const pagesOnly = parsePlugin(
+    `apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: board }\nspec:\n  version: 1.0.0\n  needs: { lumovi: 1.0.0 }\n  groups: [example.com]\n  label: Board\n${PAGES}`,
+    'board.yaml',
+    { carriesCode: true },
+  )
+  expect(pagesOnly.problems).toEqual([])
+  expect(pagesOnly.plugin!.place).toEqual({ label: 'Board', kinds: [] })
+  // And one that adds nothing says so in what it is.
+  expect(parsePlugin(adding(''), 'rollouts.yaml').plugin!.added).toEqual({
+    pages: [],
+    tabs: [],
+    commands: [],
+  })
+})
+
+test('only a plugin that comes with Lumovi adds to Lumovi’s pages: a folder’s file is refused, whatever it says', () => {
+  // Unsaid, a file may not: whoever reads it must say it may.
+  expect(refusedWith(adding(PAGES + TABS + COMMANDS), { carriesCode: false })).toEqual([
+    'rollouts.yaml: spec.pages: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
+    'rollouts.yaml: spec.tabs: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
+    'rollouts.yaml: spec.commands: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
+  ])
+  expect(parsePlugin(adding(PAGES), 'rollouts.yaml').plugin).toBeUndefined()
+  // Where it holds: a folder's file, however it's read and whatever its caller passes.
+  for (const origin of ['yours', 'server'] as const) {
+    const settled = settle([], [{ name: 'rollouts.yaml', text: adding(PAGES) }], origin, {
+      carriesCode: true,
+    })
+    expect(settled.files[0]!.state).toBe('not-in-use')
+    expect(settled.files[0]!.problems).toEqual([
+      'rollouts.yaml: spec.pages: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
+    ])
+  }
+})
+
+test('what a plugin adds is written as the format has it, and held to its numbers', () => {
+  const refusals: [string, string][] = [
+    // Its place: a label, and Lumovi's own sections are Lumovi's.
+    [adding(PAGES, ''), 'rollouts.yaml: spec: pages need a place in the sidebar: give it a label'],
+    [
+      adding(PAGES, '  label: Rollouts\n  category: network\n'),
+      'rollouts.yaml: spec: a plugin with pages of its own stands under Plugins in the sidebar: leave out its category',
+    ],
+    // The items' shapes.
+    [adding('  pages: overview\n'), 'rollouts.yaml: spec.pages: should be a list, not a string'],
+    [adding('  pages: []\n'), 'rollouts.yaml: spec.pages: should not be empty'],
+    [
+      adding('  pages:\n    - { id: overview }\n'),
+      'rollouts.yaml: spec.pages[0].title: is required',
+    ],
+    [
+      adding('  pages:\n    - { id: overview, title: Overview, path: /x }\n'),
+      'rollouts.yaml: spec.pages[0].path: isn’t something a plugin’s page has',
+    ],
+    [
+      adding(`${PAGES}  tabs:\n    - { id: steps, title: Steps }\n`),
+      'rollouts.yaml: spec.tabs[0].kinds: is required',
+    ],
+    [
+      adding(`${PAGES}  commands:\n    - { name: Open it }\n`),
+      'rollouts.yaml: spec.commands[0].page: is required',
+    ],
+    // Ids: a name's rule, once among pages and tabs.
+    [
+      adding('  pages:\n    - { id: Overview, title: Overview }\n'),
+      'rollouts.yaml: spec.pages[0].id: "Overview" should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit',
+    ],
+    [
+      adding(
+        `${PAGES}  tabs:\n    - { id: history, title: Steps, kinds: [{ group: example.com, kind: Rollout }] }\n`,
+      ),
+      'rollouts.yaml: spec.tabs[0].id: history is already the id of spec.pages[1]',
+    ],
+    // A tab's kinds: the plugin's own, one tab a kind.
+    [
+      adding(`${PAGES}  tabs:\n    - { id: pods, title: Steps, kinds: [{ kind: Pod }] }\n`),
+      'rollouts.yaml: spec.tabs[0].kinds[0]: a tab is only on the plugin’s own kinds, and Pod is Kubernetes’',
+    ],
+    [
+      adding(
+        `${PAGES}  tabs:\n    - { id: theirs, title: Steps, kinds: [{ group: other.example.com, kind: Thing }] }\n`,
+      ),
+      'rollouts.yaml: spec.tabs[0].kinds[0]: a tab is only on the plugin’s own kinds, and Thing.other.example.com isn’t one it claims',
+    ],
+    [
+      adding(
+        `${PAGES}  tabs:\n    - { id: one, title: Steps, kinds: [{ group: example.com, kind: Rollout }] }\n    - { id: two, title: Analysis, kinds: [{ group: example.com, kind: Rollout }] }\n`,
+      ),
+      'rollouts.yaml: spec.tabs[1].kinds[0]: Rollout.example.com already has a tab of this plugin’s, spec.tabs[0]',
+    ],
+    // Nor one it only shows: a plugin with views of Endpoints and LimitRanges (Kubernetes' own,
+    // which it may show) can't put a tab on them, whatever the door would let its code read.
+    [
+      adding(
+        `${PAGES}  shows: [{ kind: Endpoints }, { kind: LimitRange }]\n  tabs:\n    - { id: ends, title: Steps, kinds: [{ kind: Endpoints }] }\n  views:\n    - kinds: [{ kind: Endpoints }]\n    - kinds: [{ kind: LimitRange }]\n`,
+      ),
+      'rollouts.yaml: spec.tabs[0].kinds[0]: a tab is only on the plugin’s own kinds, and Endpoints is Kubernetes’',
+    ],
+    // An object's tabs are found by its kind: a tab names each of its kinds.
+    [
+      adding(
+        `${PAGES}  tabs:\n    - { id: every, title: Steps, kinds: [{ group: example.com, kind: '*' }] }\n`,
+      ),
+      'rollouts.yaml: spec.tabs[0].kinds[0]: a tab is on kinds named one by one; it can’t be on every kind of a group',
+    ],
+    // Kubernetes' own names are no plugin's group, so no kind of one is a tab's.
+    [
+      adding(
+        `${PAGES}  tabs:\n    - { id: nodes, title: Steps, kinds: [{ group: x.kubernetes.io, kind: Thing }] }\n`,
+      ).replace('groups: [example.com]', 'groups: [example.com, x.kubernetes.io]'),
+      'rollouts.yaml: spec.groups[1]: x.kubernetes.io is Kubernetes’ own, so a plugin can’t have it',
+    ],
+    // A command opens one of its pages, and needs some.
+    [
+      adding(`${PAGES}  commands:\n    - { name: Open backups, page: backups }\n`),
+      'rollouts.yaml: spec.commands[0].page: "backups" isn’t the id of one of the plugin’s pages',
+    ],
+    [
+      adding('  commands:\n    - { name: Open backups, page: backups }\n'),
+      'rollouts.yaml: spec.commands: a command opens one of the plugin’s pages, and it has none',
+    ],
+  ]
+  for (const [text, line] of refusals) expect(refusedWith(text), line).toContain(line)
+  // A view of every kind of a group claims each of them, a tab's too.
+  expect(
+    refusedWith(
+      `apiVersion: lumovi.dev/v1beta1\nkind: Plugin\nmetadata: { name: rollouts }\nspec:\n  version: 1.0.0\n  needs: { lumovi: 1.0.0 }\n  groups: [example.com]\n  label: Rollouts\n${PAGES}  tabs:\n    - { id: steps, title: Steps, kinds: [{ group: example.com, kind: Rollout }] }\n  views:\n    - kinds: [{ group: example.com, kind: '*' }]\n`,
+    ),
+  ).toEqual([])
+
+  // Its numbers: 8 pages, 4 tabs, 12 commands.
+  const pages = (n: number) =>
+    `  pages:\n${Array.from({ length: n }, (_, i) => `    - { id: p${i}, title: Page ${i} }\n`).join('')}`
+  expect(refusedWith(adding(pages(8)))).toEqual([])
+  expect(refusedWith(adding(pages(9)))).toEqual([
+    'rollouts.yaml: spec.pages: holds 9, and a plugin may add 8 at most',
+  ])
+  const kinds = Array.from({ length: 5 }, (_, i) => `{ group: example.com, kind: K${i} }`)
+  const fiveKinds = adding(
+    `${PAGES}  tabs:\n${kinds.map((kind, i) => `    - { id: t${i}, title: Tab ${i}, kinds: [${kind}] }\n`).join('')}`,
+    `  label: Rollouts\n  kinds: [${kinds.join(', ')}]\n`,
+  ).replace(
+    / {2}kinds: \[\{ group: example\.com, kind: Rollout \}, \{ group: example\.com, kind: Experiment \}\]\n/,
+    '',
+  )
+  expect(refusedWith(fiveKinds)).toEqual([
+    'rollouts.yaml: spec.tabs: holds 5, and a plugin may add 4 at most',
+  ])
+  const commands = (n: number) =>
+    `${PAGES}  commands:\n${Array.from({ length: n }, (_, i) => `    - { name: Open page ${i}, page: overview }\n`).join('')}`
+  expect(refusedWith(adding(commands(12)))).toEqual([])
+  expect(refusedWith(adding(commands(13)))).toEqual([
+    'rollouts.yaml: spec.commands: holds 13, and a plugin may add 12 at most',
+  ])
+})
+
+test('a plugin’s names for its pages, tabs and commands are plain, its own, and never Lumovi’s', () => {
+  const page = (title: string) =>
+    adding(`  pages:\n    - { id: overview, title: ${JSON.stringify(title)} }\n`)
+  const tab = (title: string) =>
+    adding(
+      `${PAGES}  tabs:\n    - { id: steps, title: ${JSON.stringify(title)}, kinds: [{ group: example.com, kind: Rollout }] }\n`,
+    )
+  const command = (name: string) =>
+    adding(`${PAGES}  commands:\n    - { name: ${JSON.stringify(name)}, page: overview }\n`)
+  const cases: [string, string][] = [
+    // At most 40 characters; plain; nothing unseen; nothing round it.
+    [page('A'.repeat(40)), ''],
+    [page('A'.repeat(41)), 'spec.pages[0].title: is longer than 40 characters'],
+    [page('Over‮view'), 'spec.pages[0].title: holds a character that can’t be seen (U+202E)'],
+    [page('Over\nview'), 'spec.pages[0].title: holds a character that isn’t text (U+000A)'],
+    [page(' Overview'), 'spec.pages[0].title: should be a name, with nothing round it'],
+    // Compared as they read: letters that look alike, and the punctuation at a name's ends.
+    [
+      tab('ＹＡＭＬ'),
+      'spec.tabs[0].title: "ＹＡＭＬ" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      tab('Logs.'),
+      'spec.tabs[0].title: "Logs." is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    // Nor letters of another alphabet that look like Latin ones, among them.
+    [
+      tab('Y\u0410ML'),
+      'spec.tabs[0].title: "Y\u0410ML" mixes letters of two alphabets in one word, so it can look like a word it isn’t',
+    ],
+    [
+      page('Lum\u043Evi board'),
+      'spec.pages[0].title: "Lum\u043Evi board" mixes letters of two alphabets in one word, so it can look like a word it isn’t',
+    ],
+    // Any of the alphabets drawn alike, Cherokee's as much as Cyrillic's…
+    [
+      tab('\u13AA\u13E2\u13DEY'),
+      'spec.tabs[0].title: "\u13AA\u13E2\u13DEY" mixes letters of two alphabets in one word, so it can look like a word it isn’t',
+    ],
+    // …but not those with nothing drawn alike: Latin beside Han, kanji beside kana.
+    [page('API\u7F51\u5173'), ''],
+    [page('\u6982\u8981\u3092\u898B\u308B'), ''],
+    // A word wholly in one alphabet is the plugin's to give, beside words in another…
+    [page('Обзор'), ''],
+    [page('Обзор of the toys'), ''],
+    // …but one that reads as Lumovi's own name for it is Lumovi's: "Мар", in Cyrillic, is "Map".
+    [
+      tab('\u041C\u0430\u0440'),
+      'spec.tabs[0].title: "\u041C\u0430\u0440" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      page('ＬＵＭＯＶＩ board'),
+      'spec.pages[0].title: "ＬＵＭＯＶＩ board" starts with Lumovi’s own name',
+    ],
+    // A verb that changes something, in any of its forms, whatever stands after it.
+    [
+      command('Restarts'),
+      'spec.commands[0].name: "Restarts": a command only opens a page: name it after the page',
+    ],
+    [
+      command('Delete\u2011all'),
+      'spec.commands[0].name: "Delete\u2011all": a command only opens a page: name it after the page',
+    ],
+    [
+      command('Rolling back'),
+      'spec.commands[0].name: "Rolling back": a command only opens a page: name it after the page',
+    ],
+    [command('Rollouts by team'), ''],
+    [
+      command('Applies config'),
+      'spec.commands[0].name: "Applies config": a command only opens a page: name it after the page',
+    ],
+    // What's done describes a page: "Stopped pods" is a list, not an action.
+    [command('Stopped pods'), ''],
+    // Never read as an address, and never Lumovi's own name.
+    [
+      page('Rollouts/history'),
+      'spec.pages[0].title: "Rollouts/history" holds a / or a :, which read as an address',
+    ],
+    [
+      page('Note: history'),
+      'spec.pages[0].title: "Note: history" holds a / or a :, which read as an address',
+    ],
+    [page('Lumovi history'), 'spec.pages[0].title: "Lumovi history" starts with Lumovi’s own name'],
+    // Not a name Lumovi has in that place, without case or spaces: a page not one of the
+    // entry's own tabs, a tab not one Lumovi gives an object, a command not the palette's own.
+    [
+      page('all'),
+      'spec.pages[0].title: "all" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      page('Rollouts'),
+      'spec.pages[0].title: "Rollouts" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      tab('Y A M L'),
+      'spec.tabs[0].title: "Y A M L" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      tab('events'),
+      'spec.tabs[0].title: "events" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      command('deployments'),
+      'spec.commands[0].name: "deployments" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    [
+      command('All plugins'),
+      'spec.commands[0].name: "All plugins" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+    ],
+    // A command only opens a page, and its name doesn't say it changes something.
+    [
+      command('Restart the rollout'),
+      'spec.commands[0].name: "Restart the rollout": a command only opens a page: name it after the page',
+    ],
+    [
+      command('Sync'),
+      'spec.commands[0].name: "Sync": a command only opens a page: name it after the page',
+    ],
+    [command('Open the sync history'), ''],
+    // A tab may say what Lumovi's tab says elsewhere in it: "Overview" is a page's name here.
+    [page('Overview'), ''],
+  ]
+  for (const [text, line] of cases) {
+    const problems = refusedWith(text)
+    if (line === '') expect(problems, text).toEqual([])
+    else expect(problems, text).toContain(`rollouts.yaml: ${line}`)
+  }
+  // What can't be seen is said once, where every text of the file is checked.
+  expect(refusedWith(page('Over\u200Dview'))).toEqual([
+    'rollouts.yaml: spec.pages[0].title: holds a character that can’t be seen (U+200D)',
+  ])
+  // No two of its pages, its tabs or its commands with one name.
+  expect(
+    refusedWith(
+      adding('  pages:\n    - { id: a, title: History }\n    - { id: b, title: history }\n'),
+    ),
+  ).toEqual(['rollouts.yaml: spec.pages[1].title: "history" is already the name of spec.pages[0]'])
+  // And names an object answers to are names like any other: an id, a group, a page.
+  expect(
+    refusedWith(
+      adding(
+        `  pages:\n    - { id: __proto__, title: History }\n  commands:\n    - { name: Open it, page: constructor }\n`,
+      ),
+    ),
+  ).toEqual([
+    'rollouts.yaml: spec.pages[0].id: "__proto__" should be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or a digit',
+    'rollouts.yaml: spec.commands[0].page: "constructor" isn’t the id of one of the plugin’s pages',
+  ])
+  expect(
+    refusedWith(
+      adding(
+        `${PAGES}  tabs:\n    - { id: steps, title: Steps, kinds: [{ group: __proto__, kind: Rollout }] }\n`,
+      ),
+    ).length,
+  ).toBeGreaterThan(0)
+})
+
+test('the names Lumovi keeps for itself are the ones its detail and its palette show', () => {
+  // A tab a plugin adds can't take one of the detail's own names, nor a command one of the
+  // palette's: the two lists are read from where they're drawn, so neither can drift from it.
+  const source = (path: string) => readFileSync(join('src/renderer/src/features', path), 'utf8')
+  const detail = source('details/DetailPanel.tsx')
+  const tabs = detail.slice(detail.indexOf('const tabs = ['), detail.indexOf('].filter((tab) =>'))
+  expect(new Set([...tabs.matchAll(/label: [^,}]*?'([^']+)'/g)].map((match) => match[1]))).toEqual(
+    new Set(LUMOVIS_TABS),
+  )
+  // (Each item whose name is written out in it: kinds, plugins, namespaces and clusters are lists.)
+  const palette = source('shell/CommandPalette.tsx')
+  expect(
+    new Set(
+      [...palette.matchAll(/\n\s*([A-Z][^\n<>{}=]*?)\n\s*<\/Item>/g)].map((match) => match[1]),
+    ),
+  ).toEqual(new Set(LUMOVIS_COMMANDS))
 })
