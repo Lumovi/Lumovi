@@ -21,6 +21,7 @@ import type { AuditAction, AuditDetail, AuditOutcome } from '@shared/audit'
 import { helm, kubectl, objectArg } from '@shared/kubectl'
 import { METRICS_STACK, metricsStackChartArgs } from '@shared/metrics-stack'
 import { apiKindOf } from '@shared/resources'
+import { patchSaid, taintsArgs, taintsChange } from '@shared/taints'
 import type { Recorded } from './recorder'
 
 /** Whether an error is the cluster (or Lumovi) not allowing it, rather than it failing. */
@@ -137,6 +138,10 @@ export function describeChange(r: ChangeRequest, result: Result<KubeObject | nul
       const unschedulable = (patch?.spec as { unschedulable?: unknown } | undefined)?.unschedulable
       details.fields = fieldsOf(change.patch)
       details.patchType = change.patchType
+      // A node's taints changed as only the Taints dialog's patch does: said as what it does.
+      const taints =
+        r.kind === 'Node' && change.patchType === 'json' ? taintsChange(change.patch) : undefined
+      const taintsLine = taints && patchSaid(what, taints, result.ok)
       // Scaled through its scale subresource (a custom resource), or its replicas alone.
       const scaling =
         change.subresource === 'scale' ||
@@ -150,6 +155,25 @@ export function describeChange(r: ChangeRequest, result: Result<KubeObject | nul
         action = 'resource.restart'
         summary = `${said('Restarted', 'Restart')} ${what}`
         command = kubectl(r.context, r.namespace, 'rollout', 'restart', arg)
+      } else if (taints && taintsLine) {
+        // Its taints changed, as the page's Taints dialog changes them (each checked first).
+        action = 'resource.patch'
+        summary = taintsLine
+        command =
+          taints.kind === 'change'
+            ? taintsArgs(name, taints)
+                .map((args) => kubectl(r.context, undefined, ...args))
+                .join('\n')
+            : kubectl(
+                r.context,
+                undefined,
+                'patch',
+                'node',
+                name,
+                '--type=json',
+                '-p',
+                JSON.stringify(change.patch),
+              )
       } else if (r.kind === 'Node' && typeof unschedulable === 'boolean') {
         action = 'resource.patch'
         summary = `${unschedulable ? said('Cordoned', 'Cordon') : said('Uncordoned', 'Uncordon')} ${what}`
@@ -189,6 +213,9 @@ export function describeChange(r: ChangeRequest, result: Result<KubeObject | nul
     case 'evict':
       action = 'resource.evict'
       summary = `${said('Evicted', 'Evict')} ${what}`
+      if (change.gracePeriodSeconds !== undefined) {
+        details.gracePeriodSeconds = change.gracePeriodSeconds
+      }
       break
     case 'debug':
       action = 'resource.debug'

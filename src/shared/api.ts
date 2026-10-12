@@ -1004,7 +1004,8 @@ export type Change =
     }
   | { action: 'create'; object: KubeObject }
   /** Evicts a pod through the Eviction API, which respects PodDisruptionBudgets. */
-  | { action: 'evict' }
+  /** Evicted as kubectl drain does; `gracePeriodSeconds`: how long it has to stop (its own unless set). */
+  | { action: 'evict'; gracePeriodSeconds?: number }
   /** Adds an ephemeral debug container to a pod, like `kubectl debug`. */
   | { action: 'debug'; container: string; image: string; target?: string }
   /**
