@@ -4,10 +4,13 @@ import type { KubeObject } from '@shared/api'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { objectKey } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
+import type { TableLayout } from './ColumnsMenu'
 import type { CellContext, Column } from './columns'
 
 /** A row's height: two lines, and a finger's worth around them. */
 export const PHONE_ROW_HEIGHT = 60
+/** A row's, where columns were chosen: its name, and its facts on two lines at most. */
+const CHOSEN_ROW_HEIGHT = 80
 /** How many of a kind's own columns a row's second line says. */
 const FACTS = 2
 /** What a row shows in places of its own: not among its facts. */
@@ -19,6 +22,10 @@ const PLACED = new Set(['name', 'status', 'age', 'lastSeen'])
  * columns as a line of facts, and its age. A name gives way in its middle, and the facts at
  * their end; the status and the age never do. A tap opens it: there's nothing else to do to a
  * row here, and nothing to pick.
+ *
+ * Where the person chose its columns, a row is its name, then the shown columns as its facts, in
+ * their order (the status as its pill), wrapping to a second line and no further; a fact the
+ * object hasn't is left out.
  */
 export function ResourceRows({
   ref,
@@ -29,6 +36,7 @@ export function ResourceRows({
   onOpen,
   resetKey,
   rowKey = objectKey,
+  layout,
 }: {
   ref?: Ref<HTMLDivElement>
   label: string
@@ -39,7 +47,10 @@ export function ResourceRows({
   /** Changes when a different page is shown: scroll starts over. */
   resetKey?: string | number
   rowKey?: (object: KubeObject) => string
+  layout?: TableLayout
 }) {
+  const chosen = layout?.chosen === true
+  const height = chosen ? CHOSEN_ROW_HEIGHT : PHONE_ROW_HEIGHT
   const scrollRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(ref, () => scrollRef.current!, [])
   useEffect(() => {
@@ -50,7 +61,7 @@ export function ResourceRows({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => PHONE_ROW_HEIGHT,
+    estimateSize: () => height,
     overscan: 8,
   })
 
@@ -68,15 +79,24 @@ export function ResourceRows({
       <ul aria-label={label} className="relative" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((item) => {
           const object = rows[item.index]!
-          const line: ReactNode[] = [
-            ...(name?.namespaced && object.metadata.namespace ? [object.metadata.namespace] : []),
-            ...facts.map((column) => factOf(column, object)),
-          ]
+          const line: ReactNode[] = chosen
+            ? columns
+                .filter((column) => column.id !== 'name' && column.fact !== false)
+                .map((column) =>
+                  column.id === 'status' ? column.cell(object, ctx) : factOf(column, object),
+                )
+                .filter((fact) => fact !== undefined && fact !== null && fact !== '')
+            : [
+                ...(name?.namespaced && object.metadata.namespace
+                  ? [object.metadata.namespace]
+                  : []),
+                ...facts.map((column) => factOf(column, object)),
+              ]
           return (
             <li
               key={rowKey(object)}
               className="absolute inset-x-0 top-0"
-              style={{ height: PHONE_ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
+              style={{ height, transform: `translateY(${item.start}px)` }}
             >
               <PhoneRow
                 onOpen={() => onOpen(object)}
@@ -92,9 +112,10 @@ export function ResourceRows({
                     />
                   )
                 }
-                status={status?.cell(object, ctx)}
+                status={chosen ? undefined : status?.cell(object, ctx)}
                 facts={line}
-                when={when?.cell(object, ctx)}
+                when={chosen ? undefined : when?.cell(object, ctx)}
+                wrap={chosen}
               />
             </li>
           )
@@ -115,6 +136,7 @@ export function PhoneRow({
   when,
   onOpen,
   className,
+  wrap = false,
 }: {
   /** Its first line's start: it takes the room, and at least 120 px. */
   name: ReactNode
@@ -123,6 +145,8 @@ export function PhoneRow({
   when?: ReactNode
   onOpen: () => void
   className?: string
+  /** Facts that wrap to a second line, and no further, each whole. */
+  wrap?: boolean
 }) {
   return (
     <button
@@ -138,14 +162,24 @@ export function PhoneRow({
         {status && <span className="flex max-w-[200px] shrink-0">{status}</span>}
       </span>
       <span className="flex w-full gap-3 text-xs text-ink-3">
-        <span className="min-w-0 flex-1 truncate [&_*]:text-xs">
-          {facts.map((fact, i) => (
-            <Fragment key={i}>
-              {i > 0 && ' · '}
-              {fact}
-            </Fragment>
-          ))}
-        </span>
+        {wrap ? (
+          <span className="flex max-h-[42px] min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 overflow-hidden [&_*]:text-xs [&>*]:max-w-full [&>*]:truncate">
+            {facts.map((fact, i) => (
+              <span key={i} className="flex h-5 items-center">
+                {fact}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate [&_*]:text-xs">
+            {facts.map((fact, i) => (
+              <Fragment key={i}>
+                {i > 0 && ' · '}
+                {fact}
+              </Fragment>
+            ))}
+          </span>
+        )}
         {when && <span className="shrink-0 tabular-nums">{when}</span>}
       </span>
     </button>

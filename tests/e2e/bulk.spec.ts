@@ -172,7 +172,13 @@ test('cordon nodes together; deleting them asks to type it', async ({ page, clus
   await pick(page, 'Nodes', DEMO.nodes.worker2)
   await pick(page, 'Nodes', DEMO.nodes.worker3)
   // worker-3 is already cordoned: it can be uncordoned instead.
-  await expect(toolbar(page).getByRole('button')).toHaveText(['Cordon', 'Uncordon', 'Delete', ''])
+  await expect(toolbar(page).getByRole('button')).toHaveText([
+    'Copy',
+    'Cordon',
+    'Uncordon',
+    'Delete',
+    '',
+  ])
   await toolbar(page).getByRole('button', { name: 'Cordon', exact: true }).click()
   const confirm = dialog(page)
   await expect(confirm).toContainText('Cordon 2 nodes?')

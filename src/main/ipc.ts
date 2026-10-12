@@ -9,7 +9,7 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron'
-import { IPC, type AppInfo, type Result } from '@shared/api'
+import { IPC, type AppInfo, type Result, type SavedFile } from '@shared/api'
 import { describePermissions } from '@backend/audit/describe'
 import { auditHandlers } from '@backend/audit/handlers'
 import type { AuditLog } from '@backend/audit/log'
@@ -27,6 +27,7 @@ import type { AddedClusters } from './added-clusters'
 import type { DesktopFiles } from './file-copies'
 import type { KubeconfigFiles } from './kubeconfig-files'
 import { LocalTerminals } from './local-terminal'
+import { SavedFiles } from './saved-files'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
 import type { Updates } from './updates'
@@ -98,6 +99,7 @@ export function registerIpc(deps: Dependencies): void {
   }
 
   const shared = handlers(deps)
+  const saved = new SavedFiles((path) => shell.showItemInFolder(path))
   // What only the desktop app does: its window, the user's files, and updating itself.
   const desktop: Record<string, Handler> = {
     [IPC.appInfo]: (): AppInfo => ({
@@ -128,7 +130,7 @@ export function registerIpc(deps: Dependencies): void {
       if (allowed) await shell.openExternal(url)
       return allowed
     },
-    [IPC.saveFile]: async (name, text): Promise<Result<boolean>> => {
+    [IPC.saveFile]: async (name, text): Promise<Result<SavedFile | null>> => {
       try {
         assertString(name, 'name')
         if (typeof text !== 'string') throw invalid('text must be a string')
@@ -136,13 +138,14 @@ export function registerIpc(deps: Dependencies): void {
         const { canceled, filePath } = await dialog.showSaveDialog({
           defaultPath: join(app.getPath('downloads'), basename(name)),
         })
-        if (canceled) return { ok: true, data: false }
+        if (canceled) return { ok: true, data: null }
         await writeFile(filePath, text)
-        return { ok: true, data: true }
+        return { ok: true, data: { name: basename(filePath), token: saved.record(filePath) } }
       } catch (error) {
         return { ok: false, error: toKubeError(error) }
       }
     },
+    [IPC.showSaved]: (token) => saved.show(token),
     [IPC.setCluster]: (context, clusterSettings) => {
       assertString(context, 'context')
       try {

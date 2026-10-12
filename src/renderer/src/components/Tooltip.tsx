@@ -24,7 +24,8 @@ export function Tooltip({
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className="z-50 max-w-xs animate-fade-in rounded-md bg-ink-1 px-2 py-1 text-xs font-medium text-surface shadow-pop"
+          // (A mark in a text that isn't Lumovi's is drawn in the tooltip's own ink, quieter.)
+          className="z-50 max-w-xs animate-fade-in rounded-md bg-ink-1 px-2 py-1 text-xs font-medium text-surface shadow-pop [&_[data-mark]]:border-surface/35 [&_[data-mark]]:text-surface/70"
         >
           {content}
         </TooltipPrimitive.Content>

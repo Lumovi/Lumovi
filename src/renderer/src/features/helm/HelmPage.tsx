@@ -14,6 +14,7 @@ import { age } from '@renderer/lib/format'
 import { HEALTH_RANK, type Health } from '@renderer/lib/health'
 import { releaseStatus } from '@renderer/lib/helm'
 import { useCluster } from '@renderer/state/cluster'
+import { useListColumns } from '../resources/ColumnsMenu'
 import { nameColumn, sortRows, type CellContext, type Column } from '../resources/columns'
 import { countBy, HealthChips, ListBar } from '../resources/ListToolbar'
 import { ResourceTable } from '../resources/ResourceTable'
@@ -78,6 +79,7 @@ const COLUMNS: Column[] = [
     cell: (o, ctx) => (
       <span className="text-ink-2 tabular-nums">{age(release(o).updated!, ctx.now)}</span>
     ),
+    csv: { value: (o) => release(o).updated },
     sort: (o) => Date.parse(release(o).updated!),
   },
 ]
@@ -104,7 +106,21 @@ export function HelmPage() {
   const open = (o: KubeObject) =>
     updateParams((p) => p.set('release', `${o.metadata.namespace}/${o.metadata.name}`))
   const ctx: CellContext = { now: releases.dataUpdatedAt }
-  const column = COLUMNS.find((c) => c.id === sort.id)!
+  // The columns as the person chose them for Helm releases in this cluster.
+  const chosen = useListColumns({
+    list: 'helm',
+    columns: COLUMNS,
+    listed: rows,
+    ctx,
+    title: 'Helm releases',
+    count: (n) => `${n} ${n === 1 ? 'release' : 'releases'}`,
+    namespaced: true,
+    labelled: false,
+  })
+  // (Sorted by a column hidden since, it's sorted by name.)
+  const column =
+    chosen.columns.find((c) => c.id === sort.id && c.sort) ??
+    chosen.columns.find((c) => c.id === 'name')!
   const shown = sortRows(
     rows
       .filter((r) => health.length === 0 || health.includes(releaseStatus(r.release.status).health))
@@ -121,7 +137,7 @@ export function HelmPage() {
 
   let body
   if (releases.isPending) {
-    body = <TableSkeleton columns={COLUMNS} label="Loading releases" />
+    body = <TableSkeleton columns={chosen.columns} label="Loading releases" />
   } else if (!releases.data) {
     body = (
       <ErrorState error={releases.error as KubeApiError} onRetry={() => void releases.refetch()} />
@@ -157,14 +173,15 @@ export function HelmPage() {
         <ResourceTable
           ref={gridRef}
           label="Helm releases"
-          columns={COLUMNS}
+          columns={chosen.columns}
           rows={shown}
           ctx={ctx}
           selected={params.get('release') ?? undefined}
-          sort={sort}
+          sort={{ id: column.id, desc: sort.desc }}
           onSort={(id) => setSort({ id, desc: sort.id === id ? !sort.desc : false })}
           onOpen={open}
           followSelection={params.has('release')}
+          layout={chosen.layout}
         />
       </>
     )
@@ -198,6 +215,7 @@ export function HelmPage() {
         noun="releases"
         onFilter={setFilter}
         onArrowDown={() => gridRef.current?.focus()}
+        after={chosen.button(shown)}
       />
       {body}
       {installing && <DeployDialog onClose={() => setInstalling(false)} />}

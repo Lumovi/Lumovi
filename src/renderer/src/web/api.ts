@@ -119,7 +119,7 @@ export function createWebApi(): LumoviApi {
       },
       saveFile: async (name, text) => {
         download(name, text)
-        return { ok: true, data: true }
+        return { ok: true, data: { name } }
       },
       plugins: invoke(IPC.plugins),
     },
