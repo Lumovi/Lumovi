@@ -1,7 +1,7 @@
 /**
  * The plugins Lumovi has, as its backend knows them: read as the page reads them, each with its
- * origin and the digest of its file. Plain functions on the real plugins folder: nothing is
- * built or launched.
+ * origin and the digest of its file. Plain functions on Lumovi's own plugins, from the release
+ * its lock pins, as the build takes them: nothing is built or launched.
  */
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -24,24 +24,54 @@ import {
   loadShippedPlugins,
   lumovisOwnKinds,
 } from '../../src/renderer/src/lib/plugins.ts'
+import {
+  cacheEntry,
+  pluginsAndCode,
+  readLock,
+  releaseFiles,
+  takePlugins,
+  trust,
+  type PluginFiles,
+} from '../../scripts/plugins-bundle.ts'
 
-const PLUGINS = 'plugins'
 const OWN = 'src/renderer/src/views'
-const yamlOf = (folder: string) =>
-  readdirSync(folder)
-    .filter((name) => name.endsWith('.yaml'))
-    .sort()
 const texts = (folder: string) =>
   Object.fromEntries(
-    yamlOf(folder).map((name) => [`${folder}/${name}`, readFileSync(join(folder, name), 'utf8')]),
+    readdirSync(folder)
+      .filter((name) => name.endsWith('.yaml'))
+      .sort()
+      .map((name) => [`${folder}/${name}`, readFileSync(join(folder, name), 'utf8')]),
   )
 const sha = (bytes: Uint8Array | string) =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 const LUMOVI = '99.0.0'
 
+/** Lumovi's own plugins, by file name, and their code: what the build serves. */
+let SHIPPED: PluginFiles = {}
+let CODE: PluginFiles = {}
+/** What the release's index says of each plugin's files: their SHA-256, by plugin and path. */
+let INDEXED = new Map<string, Map<string, string>>()
+
+test.beforeAll(async () => {
+  // (The first run downloads the release, and checks it as the build does.)
+  test.setTimeout(120_000)
+  const lock = readLock()
+  ;({ plugins: SHIPPED, code: CODE } = pluginsAndCode(await takePlugins(lock, trust())))
+  // (Checked by then: the cache keeps only a release that passed every check.)
+  const index = JSON.parse(
+    readFileSync(join(cacheEntry(lock), releaseFiles(lock.version).index), 'utf8'),
+  ) as { plugins: { name: string; files: { path: string; sha256: string }[] }[] }
+  INDEXED = new Map(
+    index.plugins.map(({ name, files }) => [
+      name,
+      new Map(files.map(({ path, sha256 }) => [path, sha256])),
+    ]),
+  )
+})
+
 test('Lumovi’s own plugins read for the backend are exactly the ones the page reads', () => {
-  const included = readIncluded(texts(PLUGINS), texts(OWN))
-  const pages = loadShippedPlugins(texts(PLUGINS), texts(OWN))
+  const included = readIncluded(SHIPPED, texts(OWN))
+  const pages = loadShippedPlugins(SHIPPED, texts(OWN))
   expect(included.problems).toEqual(pages)
   expect(included.problems).toEqual([])
   expect(included.ownKinds).toEqual([...lumovisOwnKinds()])
@@ -51,27 +81,34 @@ test('Lumovi’s own plugins read for the backend are exactly the ones the page 
     kinds: plugin.views.flatMap((view) => view.kinds),
   })
   expect(included.plugins.map(({ plugin }) => told(plugin))).toEqual(includedPlugins().map(told))
-  expect(included.plugins).toHaveLength(yamlOf(PLUGINS).length)
+  expect(included.plugins).toHaveLength(Object.keys(SHIPPED).length)
+  // Every one the release holds.
+  expect(Object.keys(SHIPPED).length).toBe(INDEXED.size)
 })
 
-test('a digest is what `shasum -a 256` gives for the file: of its bytes', () => {
-  // Lumovi's own are built in as text: each one's bytes are its text as UTF-8, with nothing a
-  // build would change (no mark at its start, no line end but a plain one), so what a build
-  // carries for it is the digest of the file in the repository.
-  const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-  for (const name of yamlOf(PLUGINS)) {
-    const bytes = readFileSync(join(PLUGINS, name))
-    const text = utf8.decode(bytes)
-    expect(Buffer.from(text, 'utf8').equals(bytes), name).toBe(true)
-    expect(text.startsWith('﻿') || text.includes('\r'), name).toBe(false)
-  }
-  const included = readIncluded(texts(PLUGINS), texts(OWN))
-  const known = knownPlugins(included, [], 'yours', LUMOVI, (text) => sha(text))
-  expect(known).toHaveLength(yamlOf(PLUGINS).length)
+test('the digest of one of Lumovi’s own is the one its release’s index has for its file, and its code’s for its code', async () => {
+  // As the backend takes it: its text as UTF-8, digested.
+  const { digestOf } = await import('../../src/backend/plugins.ts')
+  const utf8 = new TextEncoder()
+  const included = readIncluded(SHIPPED, texts(OWN))
+  const known = knownPlugins(
+    included,
+    [],
+    'yours',
+    LUMOVI,
+    (text) => digestOf(utf8.encode(text)),
+    CODE,
+  )
+  expect(known.map(({ name }) => name).sort()).toEqual([...INDEXED.keys()].sort())
   for (const plugin of known) {
+    const indexed = INDEXED.get(plugin.name)!
     expect(plugin.origin).toBe('lumovi')
-    expect(plugin.digest).toBe(sha(readFileSync(join(PLUGINS, plugin.file))))
-    expect(plugin.digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(plugin.file).toBe(`${plugin.name}.yaml`)
+    expect(plugin.digest, plugin.name).toBe(`sha256:${indexed.get('plugin.yaml')}`)
+    // Code where its release has some, and none where it hasn't.
+    const code = indexed.get('plugin.js')
+    expect(plugin.codeDigest, plugin.name).toBe(code && `sha256:${code}`)
+    expect(plugin.code, plugin.name).toBe(CODE[`${plugin.name}.js`])
   }
   // One a name, in the order of their names.
   const names = known.map(({ name }) => name)
@@ -79,11 +116,8 @@ test('a digest is what `shasum -a 256` gives for the file: of its bytes', () => 
 })
 
 test('a folder’s file in the place of one of Lumovi’s is that plugin: by its own origin and digest', () => {
-  const included = readIncluded(texts(PLUGINS), texts(OWN))
-  const theirs = readFileSync(join(PLUGINS, 'cert-manager.yaml'), 'utf8').replace(
-    /^(\s*version:\s*)\S+/m,
-    '$17.7.7',
-  )
+  const included = readIncluded(SHIPPED, texts(OWN))
+  const theirs = SHIPPED['cert-manager.yaml']!.replace(/^(\s*version:\s*)\S+/m, '$17.7.7')
   const file = (name: string, text: string): PluginFile & { digest: string } => ({
     name,
     text,
@@ -117,13 +151,13 @@ test('a folder’s file in the place of one of Lumovi’s is that plugin: by its
       },
     ])
     expect(mayCarryCode(named[0]!.origin)).toBe(false)
-    expect(known).toHaveLength(yamlOf(PLUGINS).length)
+    expect(known).toHaveLength(Object.keys(SHIPPED).length)
   }
 })
 
 test('an answer can’t be changed by whoever asked: the next asker is told the same', () => {
-  const included = readIncluded(texts(PLUGINS), texts(OWN))
-  const theirs = readFileSync(join(PLUGINS, 'cert-manager.yaml'), 'utf8')
+  const included = readIncluded(SHIPPED, texts(OWN))
+  const theirs = SHIPPED['cert-manager.yaml']!
   const known = knownPlugins(
     included,
     [{ name: 'mine.yaml', text: theirs, digest: sha(theirs) }],
@@ -148,7 +182,7 @@ test('an answer can’t be changed by whoever asked: the next asker is told the 
 })
 
 test('only a plugin in use is one Lumovi has: not a file refused, nor the second of a name', () => {
-  const included = readIncluded(texts(PLUGINS), texts(OWN))
+  const included = readIncluded(SHIPPED, texts(OWN))
   const own = (name: string, group: string) => `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
 metadata:
@@ -191,7 +225,9 @@ spec:
   // Whatever order the files are handed in.
   expect(knownPlugins(included, [...files].reverse(), 'yours', LUMOVI, sha)).toEqual(known)
   // And every one of Lumovi's own is still there.
-  expect(known.filter(({ origin }) => origin === 'lumovi')).toHaveLength(yamlOf(PLUGINS).length)
+  expect(known.filter(({ origin }) => origin === 'lumovi')).toHaveLength(
+    Object.keys(SHIPPED).length,
+  )
 })
 
 test('a folder’s file is read once: its text and its digest are of the same bytes, and what isn’t UTF-8 is refused', async () => {

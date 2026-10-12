@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { pluginsAndCode, readLock, takePlugins, trust } from '../../scripts/plugins-bundle.ts'
 import type { asks } from '../../src/shared/plugin-asks.ts'
 import type { settle } from '../../src/shared/plugin-loading.ts'
 import type { changeProblem, parsePlugin, ParseOptions, Plugin } from '../../src/shared/plugins.ts'
@@ -575,6 +576,7 @@ test('a plugin’s pages show a Secret an object of its own kind names, by a pat
   expect(tooMany).toBe('probe.yaml: spec.showsSecrets: holds 11, and a file says 10 at most')
 })
 
+/** Lumovi's own plugins, among the files read: the release its lock pins, as the build takes it. */
 const PLUGINS = 'plugins'
 /** Lumovi's own views, for Kubernetes' kinds that have no page: written as a plugin's are. */
 const OWN = 'src/renderer/src/views'
@@ -584,13 +586,16 @@ test('what a plugin asks for is read from its file: its kinds, what it reads, ea
   serve,
 }) => {
   await opened(page, serve)
-  // Lumovi's own views and plugins, read as plugins.spec reads them: the files here, and each
-  // parsed in the page in turn, with the views read before it as Lumovi's own.
-  const files = [OWN, PLUGINS].flatMap((folder) =>
-    readdirSync(folder)
+  // Lumovi's own views and plugins, read as plugins.spec reads them: the views' files here and
+  // the plugins its release holds, each parsed in the page in turn, with the views read before it
+  // as Lumovi's own.
+  const shipped = pluginsAndCode(await takePlugins(readLock(), trust())).plugins
+  const files = [
+    ...readdirSync(OWN)
       .filter((f) => f.endsWith('.yaml'))
-      .map((file) => ({ folder, file, text: readFileSync(join(folder, file), 'utf8') })),
-  )
+      .map((file) => ({ folder: OWN, file, text: readFileSync(join(OWN, file), 'utf8') })),
+    ...Object.entries(shipped).map(([file, text]) => ({ folder: PLUGINS, file, text })),
+  ]
   const nullsText = [
     'apiVersion: lumovi.dev/v1beta1',
     'kind: Plugin',

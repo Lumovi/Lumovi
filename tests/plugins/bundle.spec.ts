@@ -18,6 +18,7 @@ import {
   PLUGINS_REPOSITORY,
   PLUGINS_SIGNER,
   PluginsBundleError,
+  pluginsAndCode,
   readLock,
   releaseFiles,
   takePlugins,
@@ -92,6 +93,8 @@ interface Index {
 interface Made {
   /** The plugins' texts, by name. */
   texts?: Record<string, string>
+  /** Code beside a plugin's file, by its name. */
+  code?: Record<string, string>
   /** Who signs the bundle and the index, and the attestation, and how it's wrong. */
   signer?: WorkflowSigner
   fault?: CertificateFault
@@ -105,13 +108,18 @@ interface Made {
 /** A release as Lumovi-plugins' workflow makes one, and the lock that pins it. */
 async function release(made: Made = {}): Promise<{ release: Required<Release>; lock: Lock }> {
   const texts = made.texts ?? PLUGINS
+  // A plugin's files: its own, and its code where it has some.
+  const carried = (name: string, text: string) => [
+    { path: 'plugin.yaml', text },
+    ...(made.code?.[name] === undefined ? [] : [{ path: 'plugin.js', text: made.code[name] }]),
+  ]
   const bundle = json({
     format: 1,
     version: VERSION,
     plugins: Object.entries(texts).map(([name, text]) => ({
       name,
       version: '1.0.0',
-      files: [{ path: 'plugin.yaml', text }],
+      files: carried(name, text).map(({ path, text }) => ({ path, text })),
     })),
   })
   const listed: Index = {
@@ -122,13 +130,11 @@ async function release(made: Made = {}): Promise<{ release: Required<Release>; l
     plugins: Object.entries(texts).map(([name, text]) => ({
       name,
       version: '1.0.0',
-      files: [
-        {
-          path: 'plugin.yaml',
-          size: Buffer.byteLength(text),
-          sha256: sha256(Buffer.from(text)),
-        },
-      ],
+      files: carried(name, text).map(({ path, text }) => ({
+        path,
+        size: Buffer.byteLength(text),
+        sha256: sha256(Buffer.from(text)),
+      })),
     })),
   }
   made.index?.(listed)
@@ -183,6 +189,31 @@ function verdict(release: Release, lock: Lock): Record<string, string> | string 
 test('a release as its workflow makes one: each plugin’s file served, by its file name', async () => {
   const { release: made, lock } = await release()
   expect(verdict(made, lock)).toEqual({ 'alpha.yaml': PLUGINS.alpha, 'beta.yaml': PLUGINS.beta })
+})
+
+test('a plugin’s code is served beside its file, named as it is, and only as its index has it', async () => {
+  const code = 'export default function draw() {}\n'
+  const { release: made, lock } = await release({ code: { alpha: code } })
+  const served = verdict(made, lock) as Record<string, string>
+  expect(served).toEqual({
+    'alpha.yaml': PLUGINS.alpha,
+    'alpha.js': code,
+    'beta.yaml': PLUGINS.beta,
+  })
+  // Apart, as the page takes the plugins' files and the backend their code too.
+  expect(pluginsAndCode(served)).toEqual({
+    plugins: { 'alpha.yaml': PLUGINS.alpha, 'beta.yaml': PLUGINS.beta },
+    code: { 'alpha.js': code },
+  })
+  const changed = await release({
+    code: { alpha: code },
+    index: (index) => {
+      index.plugins[0]!.files[1]!.sha256 = '0'.repeat(64)
+    },
+  })
+  expect(verdict(changed.release, changed.lock)).toBe(
+    `${NAMES.bundle}: alpha/plugin.js isn’t what the index says it is`,
+  )
 })
 
 test('a byte off, in the bundle or its index: refused, with what it is and what’s pinned', async () => {
@@ -618,8 +649,11 @@ test('a download larger than any release’s file is cut off, saying so', async 
   )
 })
 
-test('the build serves the files as one module, or stops saying why', async () => {
-  const served = lumoviPlugins(async () => ({ 'alpha.yaml': PLUGINS.alpha }))
+test('the build serves the files as one module, their code apart, or stops saying why', async () => {
+  const served = lumoviPlugins(async () => ({
+    'alpha.yaml': PLUGINS.alpha,
+    'alpha.js': 'export {}\n',
+  }))
   const context = {
     error: (message: string) => {
       throw new Error(message)
@@ -629,7 +663,10 @@ test('the build serves the files as one module, or stops saying why', async () =
   const id = (served.resolveId as (id: string) => string | undefined)('virtual:lumovi-plugins')
   expect(id).toBe('\0virtual:lumovi-plugins')
   expect((served.load as (id: string) => string | undefined)(id!)).toBe(
-    `export default Object.freeze(${JSON.stringify({ 'alpha.yaml': PLUGINS.alpha })})`,
+    [
+      `export default Object.freeze(${JSON.stringify({ 'alpha.yaml': PLUGINS.alpha })})`,
+      `export const code = Object.freeze(${JSON.stringify({ 'alpha.js': 'export {}\n' })})`,
+    ].join('\n'),
   )
   expect((served.resolveId as (id: string) => string | undefined)('other')).toBeUndefined()
   const refused = lumoviPlugins(async () => {
