@@ -419,10 +419,15 @@ test('a page at the door’s limits, changing as fast as a plugin may, leaves Lu
       new Promise<{ frames: number; worst: number; over100: number; median: number }>((done) => {
         const gaps: number[] = []
         let last = performance.now()
+        // (The page's one Label is the line that says it's done: looked for by its own element,
+        // never in the page's whole text, which a thousand rows make heavy to read each frame,
+        // on the thread this measures.)
+        const said = () =>
+          document.querySelector('[data-testid="plugin-surface"] [data-part="Label"]')
         const tick = (now: number) => {
           gaps.push(now - last)
           last = now
-          if (document.body.innerText.includes('done moving')) {
+          if (said()) {
             const sorted = [...gaps].sort((a, b) => a - b)
             done({
               frames: gaps.length,
@@ -439,8 +444,9 @@ test('a page at the door’s limits, changing as fast as a plugin may, leaves Lu
   // It wasn't stopped (it kept inside every limit, as it sent them: when Lumovi's own page is
   // busy its messages arrive in bunches, which isn't its doing), it's all there, and no single
   // stretch held Lumovi's page for the second the limits are counted in: their claim, through
-  // to the drawing. (Measured: frames 8 ms apart and the worst 33 ms on a laptop; on CI's
-  // machines the worst was 83 to 233 ms.)
+  // to the drawing. (Measured: frames 8 ms apart and the worst 26 ms on a laptop; on CI's
+  // machines 16 to 17 ms apart, and the worst 100 to 320 ms, most of it the browser laying out a
+  // thousand rows that all moved.)
   await expect(ended(page)).toHaveCount(0)
   await expect(surface(page).locator('[data-part="Field"]')).toHaveCount(wide)
   // (The frames were of the moving, not of a page already done.)
