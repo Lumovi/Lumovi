@@ -157,6 +157,10 @@
             "signOutUrl": {
               "type": "string",
               "pattern": "^(https?://\\S+)?$"
+            },
+            "secFetchSite": {
+              "description": "on or off (YAML may read an unquoted on or off as true or false: either is taken).",
+              "enum": ["on", "off", true, false]
             }
           }
         },

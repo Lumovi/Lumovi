@@ -44,6 +44,11 @@ export type AuthConfig =
       userHeader: string
       groupsHeader: string
       signOutUrl?: string
+      /**
+       * Whether the proxy passes the browser's Sec-Fetch-Site through unchanged, as its operator
+       * says (LUMOVI_PROXY_SEC_FETCH_SITE, off unless it's on): then every request is held to it.
+       */
+      passesFetchSite: boolean
     }
 
 /** Secrets that describe clusters: Lumovi's own, Cluster API's, Argo CD's. */
@@ -231,8 +236,8 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     }
     return new URL(setting)
   }
-  const onOrOff = (name: string) => {
-    const setting = value(name) ?? 'on'
+  const onOrOff = (name: string, fallback: 'on' | 'off' = 'on') => {
+    const setting = value(name) ?? fallback
     if (setting !== 'on' && setting !== 'off') {
       throw new ConfigError(`${name} must be on or off, not "${setting}".`)
     }
@@ -296,7 +301,17 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
       userHeader: (value('LUMOVI_PROXY_USER_HEADER') ?? 'X-Forwarded-User').toLowerCase(),
       groupsHeader: (value('LUMOVI_PROXY_GROUPS_HEADER') ?? 'X-Forwarded-Groups').toLowerCase(),
       signOutUrl: signOut && url('LUMOVI_PROXY_SIGN_OUT_URL', signOut).href,
+      passesFetchSite: onOrOff('LUMOVI_PROXY_SEC_FETCH_SITE', 'off') === 'on',
     }
+    if (auth.passesFetchSite && onOrOff('LUMOVI_SEC_FETCH_SITE') === 'off') {
+      throw new ConfigError(
+        'LUMOVI_PROXY_SEC_FETCH_SITE is on but LUMOVI_SEC_FETCH_SITE is off: nothing is checked. Turn one off or both on.',
+      )
+    }
+  } else if (onOrOff('LUMOVI_PROXY_SEC_FETCH_SITE', 'off') === 'on') {
+    throw new ConfigError(
+      `LUMOVI_PROXY_SEC_FETCH_SITE is for auth.mode proxy; with ${mode} the header is always checked.`,
+    )
   }
 
   const basePath = `/${(value('LUMOVI_BASE_PATH') ?? '').replace(/^\/+|\/+$/g, '')}/`.replace(
