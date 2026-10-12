@@ -16,6 +16,7 @@ import {
   RotateCw,
   SlidersHorizontal,
   SquareTerminal,
+  Tag,
   Tags,
   Trash2,
   Upload,
@@ -33,6 +34,7 @@ import { kindOf, target, type ActionProps } from './common'
 import { EvictDialog, RestartDialog, RestartPodDialog, RunNowDialog } from './ConfirmDialogs'
 import { DeleteDialog } from './DeleteDialog'
 import { DrainDialog } from './DrainDialog'
+import { TaintsDialog } from './TaintsDialog'
 import { DownloadDialog, UploadDialog } from './FileDialogs'
 import { LabelsDialog } from './LabelsDialog'
 import { AutoscalerDialog, ExpandVolumeDialog } from './LimitDialogs'
@@ -251,6 +253,14 @@ export const ACTIONS: readonly Action[] = [
         { done: `Uncordoned ${node.metadata.name}`, undone: `Cordoned ${node.metadata.name}` },
         (spec) => [spec.unschedulable ? 'cordon' : 'uncordon', node.metadata.name],
       ),
+  },
+  {
+    id: 'taints',
+    label: 'Taints…',
+    icon: Tag,
+    kinds: ['Node'],
+    access: can('patch'),
+    dialog: TaintsDialog,
   },
   {
     id: 'drain',

@@ -622,12 +622,18 @@ export class KubeService {
         }
         case 'evict': {
           if (r.kind !== 'Pod') throw invalid('Only pods can be evicted')
+          if (change.gracePeriodSeconds !== undefined) {
+            assertIntegerInRange(change.gracePeriodSeconds, 'gracePeriodSeconds', 1, 86_400)
+          }
           await this.#request(r.context, `${path}/eviction${dryRun}`, {
             method: 'POST',
             body: {
               apiVersion: 'policy/v1',
               kind: 'Eviction',
               metadata: { name: r.name, namespace: r.namespace },
+              ...(change.gracePeriodSeconds !== undefined
+                ? { deleteOptions: { gracePeriodSeconds: change.gracePeriodSeconds } }
+                : {}),
             },
           })
           return null

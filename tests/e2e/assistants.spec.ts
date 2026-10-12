@@ -933,6 +933,58 @@ test('Rejected changes tell the assistant why; others wait their turn', async ({
   await client.close()
 })
 
+test('An assistant’s change to a node’s taints is asked as what it does to them', async ({
+  page,
+}) => {
+  await openCluster(page)
+  const client = await connect(await turnOn(page), 'Visual Studio Code')
+  const node = DEMO.nodes.worker1
+  const manifest = [
+    'apiVersion: v1',
+    'kind: Node',
+    'metadata:',
+    `  name: ${node}`,
+    'spec:',
+    '  taints:',
+    '  - key: dedicated',
+    '    value: shop',
+    '    effect: PreferNoSchedule',
+    '  - key: gpu',
+    '    value: "yes"',
+    '    effect: NoSchedule',
+  ].join('\n')
+  const asking = call(client, 'apply_manifest', {
+    cluster: 'demo',
+    manifest,
+    reason: 'Keep this node for GPU work.',
+  })
+  // In the Taints dialog's words, not as any change to a Node.
+  const asked = approval(page, `Taint Node ${node} with gpu=yes:NoSchedule`)
+  await expect(asked).toContainText('VS Code asks')
+  await asked.getByRole('button', { name: 'Reject…' }).click()
+  await asked
+    .getByRole('button', { name: /^Reject/ })
+    .last()
+    .click()
+  expect(await asking).toMatchObject({ error: true })
+
+  // A label changed with it: not said as taints alone (its diff shows both).
+  const both = call(client, 'apply_manifest', {
+    cluster: 'demo',
+    manifest: manifest.replace(`  name: ${node}`, `  name: ${node}\n  labels:\n    team: gpu`),
+    reason: 'Keep this node for GPU work, and say whose.',
+  })
+  const changed = approval(page, `Change Node ${node}`)
+  await expect(changed).toBeVisible()
+  await changed.getByRole('button', { name: 'Reject…' }).click()
+  await changed
+    .getByRole('button', { name: /^Reject/ })
+    .last()
+    .click()
+  expect(await both).toMatchObject({ error: true })
+  await client.close()
+})
+
 test('Manifests are applied as kubectl apply --server-side does', async ({ page, clusters }) => {
   await openCluster(page)
   const client = await connect(await turnOn(page), 'Visual Studio Code')

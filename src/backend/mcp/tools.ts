@@ -39,6 +39,7 @@ import type {
 import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
 import type { AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
 import { kubectl, objectArg } from '@shared/kubectl'
+import { taintsDiff, taintsSaid } from '@shared/taints'
 import {
   isBuiltinKind,
   kindFor,
@@ -277,6 +278,29 @@ const secretsHidden = (namespace: string, access: AiDecision) =>
 function data<T>(result: Result<T>): T {
   if (!result.ok) throw new ClusterError(result.error.message, result.error.code)
   return result.data
+}
+
+/**
+ * Whether a node's manifest sets nothing but what the node has already, its taints aside: each of
+ * its fields (but its identity and spec.taints) as the node has it (maps as far as they go, as an
+ * apply merges them; lists and values whole).
+ */
+function onlyTaints(manifest: Record<string, unknown>, node: KubeObject): boolean {
+  const { apiVersion: _version, kind: _kind, ...rest } = manifest
+  const metadata = { ...(rest.metadata as Record<string, unknown>) }
+  delete metadata.name
+  const spec = { ...(rest.spec as Record<string, unknown>) }
+  delete spec.taints
+  const has = (given: unknown, there: unknown): boolean =>
+    typeof given === 'object' && given !== null && !Array.isArray(given)
+      ? typeof there === 'object' &&
+        there !== null &&
+        !Array.isArray(there) &&
+        Object.entries(given).every(([key, value]) =>
+          has(value, (there as Record<string, unknown>)[key]),
+        )
+      : JSON.stringify(given) === JSON.stringify(there)
+  return has({ ...rest, metadata, spec }, node)
 }
 
 export function registerTools(mcp: McpServer, t: ToolContext): void {
@@ -1602,6 +1626,14 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       )
       const before = await current(cluster, definition.kind, name, namespace)
       const verb = before ? 'Change' : 'Create'
+      // A node's taints changed: said as what it does to them, in the Taints dialog's words.
+      // (Only where its taints are all it changes: else it's said as any change to a Node, and
+      // the diff shows the rest.)
+      const given = (object.spec as { taints?: unknown } | undefined)?.taints
+      const taints =
+        definition.kind === 'Node' && before && Array.isArray(given) && onlyTaints(object, before)
+          ? taintsDiff(before.spec?.taints, given)
+          : undefined
       const request = (force: boolean): ChangeRequest => ({
         context: cluster,
         kind: definition.kind,
@@ -1623,8 +1655,12 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           context: cluster,
           action: 'apply',
           target: { kind: definition.kind, name, namespace },
-          title: `${verb} ${definition.apiKind} ${name}`,
-          done: `${before ? 'Changed' : 'Created'} ${definition.apiKind.toLowerCase()} ${name}`,
+          title:
+            (taints && taintsSaid(`Node ${name}`, taints, false)) ??
+            `${verb} ${definition.apiKind} ${name}`,
+          done:
+            (taints && taintsSaid(`node ${name}`, taints, true)) ??
+            `${before ? 'Changed' : 'Created'} ${definition.apiKind.toLowerCase()} ${name}`,
           reason,
           command: kubectl(
             cluster,

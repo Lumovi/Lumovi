@@ -322,6 +322,23 @@ function prometheusTargets(path: string, params: URLSearchParams): ProxyAnswer {
   })
 }
 
+/** Whether a label selector (matchLabels and matchExpressions) picks these labels. */
+function selectorPicks(selector: Json, labels: Record<string, string> = {}): boolean {
+  if (!selector) return false
+  return (
+    Object.entries((selector.matchLabels ?? {}) as Record<string, string>).every(
+      ([key, value]) => labels[key] === value,
+    ) &&
+    ((selector.matchExpressions ?? []) as Json[]).every(({ key, operator, values = [] }) => {
+      const has = key in labels
+      if (operator === 'In') return has && values.includes(labels[key])
+      if (operator === 'NotIn') return !has || !values.includes(labels[key])
+      if (operator === 'Exists') return has
+      return !has
+    })
+  )
+}
+
 class HttpError extends Error {
   status: number
   body: Json
@@ -1050,6 +1067,28 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
 
     if (method === 'POST' && subresource === 'eviction' && def.kind === 'Pod') {
+      // As the API server does: a budget of its namespace that picks it, and allows no disruption
+      // now, refuses it; one that allows one has it used up.
+      const budgets = store$
+        .all('PodDisruptionBudget.policy', namespace)
+        .filter((pdb) => selectorPicks(pdb.spec?.selector, existing!.metadata.labels))
+      if (budgets.some((pdb) => Number(pdb.status?.disruptionsAllowed ?? 0) < 1)) {
+        throw new HttpError(
+          429,
+          'Cannot evict pod as it would violate the pod’s disruption budget.',
+        )
+      }
+      if (!dryRun) {
+        for (const pdb of budgets) {
+          store$.put({
+            ...pdb,
+            status: {
+              ...pdb.status,
+              disruptionsAllowed: Number(pdb.status.disruptionsAllowed) - 1,
+            },
+          })
+        }
+      }
       if (!dryRun) remove(existing!, 'Background')
       return {
         status: 201,

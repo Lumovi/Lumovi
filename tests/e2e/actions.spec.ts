@@ -292,11 +292,11 @@ test('drain a node', async ({ page, clusters }) => {
   const confirm = drain.getByRole('button', { name: 'Drain', exact: true })
   await expect(confirm).toBeDisabled()
   await drain.getByRole('checkbox', { name: /Evict pods without a controller/ }).check()
-  await drain.getByRole('checkbox', { name: /Delete local data/ }).check()
+  await drain.getByRole('checkbox', { name: /Delete emptyDir data/ }).check()
   await expect(drain).toContainText('--delete-emptydir-data --force')
   await expect(drain).not.toContainText('options before the node can be drained')
 
-  // One eviction fails at first, and can be retried.
+  // One eviction is refused at first (a budget holds it): tried again, and evicted once let go.
   const stuck = DEMO.pods.postgres[0]!
   const clear = clusters.demo.fail(`/api/v1/namespaces/data/pods/${stuck}/eviction`, {
     status: 429,
@@ -306,13 +306,11 @@ test('drain a node', async ({ page, clusters }) => {
     }),
   })
   await confirm.click()
-  await expect(drain.getByRole('button', { name: 'Done' })).toBeVisible()
-  await expect(drain.getByRole('status')).toContainText('1 pod couldn’t be evicted')
   const failed = pods.getByRole('listitem').filter({ hasText: stuck })
+  await expect(failed.getByLabel('Held')).toBeVisible()
   await expect(failed).toContainText('disruption budget')
   clear()
-  await failed.getByRole('button', { name: 'Retry' }).click()
-  await expect(failed.getByLabel('Evicted')).toBeVisible()
+  await expect(failed.getByLabel('Evicted')).toBeVisible({ timeout: 15_000 })
   await expect(drain.getByRole('status')).toContainText(`Drained ${DEMO.nodes.worker1}:`)
   await drain.getByRole('button', { name: 'Done' }).click()
   expect(writes(clusters.demo, 'PATCH', `/api/v1/nodes/${DEMO.nodes.worker1}`)[0]!.body).toEqual({
@@ -342,7 +340,7 @@ test('drain a node', async ({ page, clusters }) => {
     .getByRole('checkbox', { name: /Evict pods without a controller/ })
     .check()
   await dialog(page)
-    .getByRole('checkbox', { name: /Delete local data/ })
+    .getByRole('checkbox', { name: /Delete emptyDir data/ })
     .check()
   clusters.demo.fail(`/api/v1/nodes/${DEMO.nodes.worker2}`, {
     status: 500,
@@ -367,7 +365,7 @@ test('a dialog’s error is in view at the smallest window, by the button just p
     .getByRole('checkbox', { name: /Evict pods without a controller/ })
     .check()
   await dialog(page)
-    .getByRole('checkbox', { name: /Delete local data/ })
+    .getByRole('checkbox', { name: /Delete emptyDir data/ })
     .check()
   // Focused in the page (whether or not its window has the system's focus: a Windows runner's
   // may not).
