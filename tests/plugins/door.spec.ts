@@ -135,6 +135,59 @@ test.describe('a part’s declaration', () => {
       { name: 'A', holds: 'nothing', props: {}, counts: shared('A parts', 0) },
     ]
     for (const part of wrong) expect(wrongWithPart(part), JSON.stringify(part)).toBeTruthy()
+    // Said with where it is: a list, a choice, a property's name, an event, and what it carries.
+    const named: [Part, string][] = [
+      [
+        { name: 'A', holds: 'nothing', props: { rows: list(text(3), 0) } },
+        'A.rows: a list needs a greatest length',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: { cell: choice('two words', { a: {} }) } },
+        'A.cell: two words isn’t a property’s name',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: { cell: choice('kind', {}) } },
+        'A.cell: chooses between nothing',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: { cell: choice('kind', { a: { kind: text(3) } }) } },
+        'A.cell.a: declares kind itself',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: { cell: choice('kind', { a: { value: text(0) } }) } },
+        'A.cell.a.value: a text needs a greatest length',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: { 'two words': text(3) } },
+        'A.two words: isn’t a property’s name',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: {}, events: { 'two words': {} } },
+        'A: two words isn’t an event’s name',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: {}, events: { press: { row: text(0) } } },
+        'A.press.row: a text needs a greatest length',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: {}, events: { press: { then: handler('press') } } },
+        'A.press: a call can’t carry a handler',
+      ],
+    ]
+    for (const [part, said] of named) expect(wrongWithPart(part)).toBe(said)
+    // And one declared deeper than anything is checked; and a choice declared rightly.
+    let deep: Kind = text(5)
+    for (let i = 0; i < 40; i++) deep = list(deep, 1)
+    expect(wrongWithPart({ name: 'A', holds: 'nothing', props: { deep } })).toContain(
+      'declared deeper',
+    )
+    expect(
+      wrongWithPart({
+        name: 'A',
+        holds: 'nothing',
+        props: { cell: choice('kind', { none: {}, text: { value: text(5) } }) },
+      }),
+    ).toBeUndefined()
     // Together: a shared ceiling that says two things.
     const chip = {
       name: 'Chip',

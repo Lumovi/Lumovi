@@ -26,8 +26,9 @@ const TESTS_ONLY = [
   '__lumoviBox',
   // The page the kit's parts are seen and tested on.
   'lumovi-kit-page',
-  // And the stage a test plugin's page is drawn on.
+  // And the stage a test plugin's page is drawn on, with the door's checks it lends the tests.
   '__lumoviDoor',
+  'doorChecks',
 ]
 
 const PLUGIN = `
