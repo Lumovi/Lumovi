@@ -9,7 +9,8 @@ import { knownPlugins, readIncluded, type KnownPlugin } from '@shared/plugins-kn
 // The plugins Lumovi comes with, from the release its lock pins, as the build checked them: the
 // same files the page's bundle has, built into this one, and the code beside them, named as each
 // plugin's file is.
-import SHIPPED, { code as SHIPPED_CODE } from 'virtual:lumovi-plugins'
+import SHIPPED from 'virtual:lumovi-plugins'
+import SHIPPED_CODE from 'virtual:lumovi-plugins/code'
 import { digestOf, filesMark, readFiles } from './plugins'
 
 /** Set by the build: true only in the build the tests run. */

@@ -589,6 +589,8 @@ test('what a plugin asks for is read from its file: its kinds, what it reads, ea
   // Lumovi's own views and plugins, read as plugins.spec reads them: the views' files here and
   // the plugins its release holds, each parsed in the page in turn, with the views read before it
   // as Lumovi's own.
+  // (The build's own copy, from the cache it kept, checked again: a checkout that hasn't built
+  // yet downloads the release once and checks it as the build does.)
   const shipped = pluginsAndCode(await takePlugins(readLock(), trust())).plugins
   const files = [
     ...readdirSync(OWN)

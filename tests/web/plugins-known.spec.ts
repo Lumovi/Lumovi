@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Result, SecretValues, SecretValuesQuery } from '../../src/shared/api.ts'
+import { SECRET_KEYS_UNDECLARED } from '../../src/backend/plugin-reads.ts'
 import { READ_REFUSED } from '../../src/shared/plugin-reads.ts'
 import {
   cacheEntry,
@@ -26,7 +27,8 @@ test('a built server knows every plugin of the release Lumovi is built with, by 
   page,
   serve,
 }) => {
-  // (The first run downloads the release, and checks it as the build does.)
+  // (The build's own copy, from the cache it kept, checked again: a checkout that hasn't built
+  // yet downloads the release once and checks it as the build does.)
   test.setTimeout(120_000)
   const lock = readLock()
   await takePlugins(lock, trust())
@@ -61,8 +63,11 @@ test('a built server knows every plugin of the release Lumovi is built with, by 
       ).lumovi.kube.secretValues({ context: 'demo', ...q })
       return result.ok ? 'read' : result.error.message
     }, asked)
-    expect(answer, plugin.name).not.toBe(READ_REFUSED['not-in-use'])
-    expect(answer, plugin.name).not.toBe('read')
+    // Known, so weighed: against the code its page was handed, where it has code (and then
+    // against what its file says its pages show); and with none, as a page handed none.
+    expect(answer, plugin.name).toBe(
+      digests(plugin).codeDigest ? SECRET_KEYS_UNDECLARED : READ_REFUSED.changed,
+    )
   }
   // Each one, as the server knows it: of Lumovi's own, from that release.
   await expect

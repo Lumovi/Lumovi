@@ -27,7 +27,7 @@ const alias = { '@shared': resolve('src/shared'), '@backend': resolve('src/backe
 export default defineConfig({
   main: {
     resolve: { alias },
-    plugins: [...coverage('main', withCoverage), licenses(), lumoviPlugins()],
+    plugins: [...coverage('main', withCoverage), licenses(), lumoviPlugins({ code: true })],
     // The chart of Lumovi's metrics stack is built in (src/backend/helm/metrics-stack).
     assetsInclude: ['**/*.tgz'],
     // The tests' stand-ins (backend/sponsor/source.ts) are in test builds only.
@@ -60,6 +60,7 @@ export default defineConfig({
       devContentSecurityPolicy,
       ...coverage('renderer', withCoverage),
       licenses(),
+      // (The plugins' files, and never their code: the backend hands a page that.)
       lumoviPlugins(),
     ],
     build: {
