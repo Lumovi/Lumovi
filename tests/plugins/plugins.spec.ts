@@ -25,20 +25,33 @@ import {
 import { asks } from '../../src/shared/plugin-asks.ts'
 import { mayCarryCode, settle, type PluginFile } from '../../src/shared/plugin-loading.ts'
 import type { Crd, Shape } from '../../scripts/crds.ts'
+import { readLock, takePlugins, trust } from '../../scripts/plugins-bundle.ts'
 
 const PLUGINS = 'plugins'
 /** Lumovi's own views, for Kubernetes' kinds that have no page: written as a plugin's are. */
 const OWN = 'src/renderer/src/views'
 const CRDS = 'tests/plugins/crds'
 
-const sources = JSON.parse(readFileSync(join(CRDS, 'sources.json'), 'utf8')) as Record<
-  string,
-  { version: string }
->
+/**
+ * Whose plugins are checked here. Under Lumovi-plugins' check, which says so
+ * (`LUMOVI_PLUGINS_UNDER_CHECK`): the plugins and their CRDs it put in plugins/ and
+ * tests/plugins/crds. In Lumovi's own runs: the release plugins.lock.json pins, as the build takes
+ * it, which is what Lumovi is built with; their CRDs are Lumovi-plugins' to check, by this spec.
+ */
+const UNDER_CHECK = process.env.LUMOVI_PLUGINS_UNDER_CHECK === '1'
+/** Why a check of the plugins against their CRDs isn't made in Lumovi's own runs. */
+const ITS_CRDS =
+  'The plugins’ CRDs are checked by this spec under Lumovi-plugins’ check, and aren’t in Lumovi.'
+
+const sources = (
+  UNDER_CHECK ? JSON.parse(readFileSync(join(CRDS, 'sources.json'), 'utf8')) : {}
+) as Record<string, { version: string }>
 
 /** Every CRD kept here, by the name Lumovi gives its kind, with where it came from. */
 const crds = new Map<string, { crd: Crd; from: string }>()
-for (const file of readdirSync(CRDS).filter((f) => f.endsWith('.json') && f !== 'sources.json')) {
+for (const file of readdirSync(CRDS).filter(
+  (f) => UNDER_CHECK && f.endsWith('.json') && f !== 'sources.json',
+)) {
   const name = basename(file, '.json')
   const { version, crds: list } = JSON.parse(readFileSync(join(CRDS, file), 'utf8')) as {
     version: string
@@ -52,25 +65,46 @@ for (const file of readdirSync(CRDS).filter((f) => f.endsWith('.json') && f !== 
 const views: View[] = []
 const plugins: Plugin[] = []
 const parseProblems: string[] = []
-for (const folder of [OWN, PLUGINS]) {
-  for (const file of readdirSync(folder).filter((f) => f.endsWith('.yaml'))) {
-    // Lumovi's own views of Kubernetes' kinds are no plugin, and what they show no plugin may.
-    const parsed = parsePlugin(readFileSync(join(folder, file), 'utf8'), file, {
-      ownViews: folder === OWN,
-      // (Lumovi's own plugins are the ones whose files may carry code.)
-      carriesCode: folder === PLUGINS,
-      lumovisOwn: views.flatMap((view) => view.kinds),
-    })
-    if (parsed.plugin) {
-      views.push(...parsed.plugin.views)
-      // (Lumovi's own views are no plugin: only their fields are checked.)
-      if (folder === PLUGINS) plugins.push(parsed.plugin)
-    }
-    parseProblems.push(...parsed.problems)
+/** Reads a file of Lumovi's own views (`own`), or of a plugin Lumovi comes with. */
+const read = (text: string, file: string, own: boolean) => {
+  // Lumovi's own views of Kubernetes' kinds are no plugin, and what they show no plugin may.
+  const parsed = parsePlugin(text, file, {
+    ownViews: own,
+    // (Lumovi's own plugins are the ones whose files may carry code.)
+    carriesCode: !own,
+    lumovisOwn: views.flatMap((view) => view.kinds),
+  })
+  if (parsed.plugin) {
+    views.push(...parsed.plugin.views)
+    // (Lumovi's own views are no plugin: only their fields are checked.)
+    if (!own) plugins.push(parsed.plugin)
   }
+  parseProblems.push(...parsed.problems)
 }
-// A kind is one plugin's, though three of these share a group: a clash among Lumovi's own fails here.
-for (const [plugin, problem] of clashes(plugins)) parseProblems.push(`${plugin.source}: ${problem}`)
+for (const file of readdirSync(OWN).filter((f) => f.endsWith('.yaml'))) {
+  read(readFileSync(join(OWN, file), 'utf8'), file, true)
+}
+/** How many plugins were read: every one, whether or not its file passed. */
+let taken = 0
+
+test.beforeAll(async () => {
+  // (The first run downloads the release, and checks it as the build does.)
+  test.setTimeout(120_000)
+  const files: Record<string, string> = UNDER_CHECK
+    ? Object.fromEntries(
+        readdirSync(PLUGINS)
+          .filter((f) => f.endsWith('.yaml'))
+          .map((f) => [f, readFileSync(join(PLUGINS, f), 'utf8')]),
+      )
+    : await takePlugins(readLock(), trust())
+  for (const [file, text] of Object.entries(files)) read(text, file, false)
+  taken = Object.keys(files).length
+  // A kind is one plugin's, though three of these share a group: a clash among Lumovi's own fails
+  // here.
+  for (const [plugin, problem] of clashes(plugins)) {
+    parseProblems.push(`${plugin.source}: ${problem}`)
+  }
+})
 
 // ——— Shapes ———
 
@@ -270,10 +304,30 @@ function checkView(view: View, problems: string[]) {
 // ——— The checks ———
 
 test('Lumovi’s plugins are all valid', () => {
+  // What's wrong first, as it's written: Lumovi-plugins' check reads what it refuses for by it.
   expect(parseProblems).toEqual([])
+  // And every one: in Lumovi's own runs, the plugins it's built with, from the release its lock
+  // pins.
+  expect(taken).toBeGreaterThan(0)
+  expect(plugins).toHaveLength(taken)
+})
+
+test('in Lumovi’s own runs, plugins/ and tests/plugins/crds hold nothing but their READMEs', () => {
+  test.skip(UNDER_CHECK, 'Lumovi-plugins’ check fills them.')
+  const stray = [PLUGINS, CRDS].flatMap((folder) =>
+    readdirSync(folder)
+      // (A file a system keeps for itself, `.DS_Store`, is nobody's plugin.)
+      .filter((f) => f !== 'README.md' && !f.startsWith('.'))
+      .map((f) => `${folder}/${f}`),
+  )
+  expect(
+    stray,
+    'plugins/ is filled only by Lumovi-plugins’ check; Lumovi’s plugins are the release plugins.lock.json pins.',
+  ).toEqual([])
 })
 
 test('every plugin is checked against its operator’s CRDs, and names their kinds', () => {
+  test.skip(!UNDER_CHECK, ITS_CRDS)
   const problems: string[] = []
   for (const plugin of plugins) {
     if (!(plugin.name in sources)) {
@@ -291,6 +345,7 @@ test('every plugin is checked against its operator’s CRDs, and names their kin
 })
 
 test('every kind a view is for has a CRD here, unless it’s one of Kubernetes’ own', () => {
+  test.skip(!UNDER_CHECK, ITS_CRDS)
   const problems = views.flatMap((view) =>
     view.kinds
       .filter(
@@ -302,12 +357,14 @@ test('every kind a view is for has a CRD here, unless it’s one of Kubernetes�
 })
 
 test('every field a view reads or writes is in its kinds’ schemas', () => {
+  test.skip(!UNDER_CHECK, ITS_CRDS)
   const problems: string[] = []
   for (const view of views) checkView(view, problems)
   expect(problems).toEqual([])
 })
 
 test('the CRDs kept here are the ones sources.json names', () => {
+  test.skip(!UNDER_CHECK, ITS_CRDS)
   const kept = readdirSync(CRDS)
     .filter((f) => f.endsWith('.json') && f !== 'sources.json')
     .map((f) => basename(f, '.json'))

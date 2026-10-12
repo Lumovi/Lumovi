@@ -583,6 +583,18 @@ test('a cached copy that’s wrong is downloaded again, once, before anything is
   expect(contents(cache)).toEqual({})
 })
 
+test('a download that doesn’t answer in time is given up, saying so, never waited on', async () => {
+  const { lock } = await release()
+  // A server that's stopped answering: nothing comes until the download is given up.
+  const silent = ((_: string, init?: RequestInit) =>
+    new Promise<Response>((_, refuse) =>
+      init?.signal?.addEventListener('abort', () => refuse(init.signal!.reason)),
+    )) as typeof fetch
+  await expect(downloadRelease(lock, { download: silent, timeLimit: 100 })).rejects.toThrow(
+    `${NAMES.bundle}: couldn’t be downloaded from ${RELEASE_URL}/${NAMES.bundle}: no answer in time (0.1 s)`,
+  )
+})
+
 test('a download larger than any release’s file is cut off, saying so', async () => {
   const { lock } = await release()
   const huge = (async () =>

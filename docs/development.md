@@ -37,12 +37,14 @@ npm run dev:server -- --fleet # a fleet of the demo clusters, signed in to as Al
 | `npm run coverage:check`                | Fail unless every file is loaded, and more than 95% runs      |
 | `npm run test:durations -- <run id>`    | Record each test's time on CI, which splits CI's shards       |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
-| `npm run plugins:check`                 | Check Lumovi's plugins against the CRDs of their tools        |
-| `npm run crds`                          | Fetch those CRDs again, at the versions `sources.json` pins   |
+| `npm run plugins:check`                 | Check the plugins of the release `plugins.lock.json` pins     |
+| `npm run crds`                          | Fetch a tool's CRDs, for Lumovi-plugins' own checks           |
 | `npm run package`                       | Build an unpacked app for this platform in `release/`         |
 | `npm run dist`                          | Build installers for this platform                            |
 | `npm run screenshots`                   | Take the screenshots in `docs/screenshots` again              |
 | `npm run screenshots:stop -- <pid>`     | Stop a run of the screenshots' mock clusters (no pid: all)    |
+
+Lumovi's plugins live in Lumovi-plugins, whose checks run both of these on its own files.
 
 ## How it's built
 
