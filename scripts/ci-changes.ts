@@ -5,10 +5,11 @@
  * - `docs`: it changes only docs (Markdown, docs/, images outside the app): no E2E, packaging or
  *   integration tests, and "CI passed" all the same.
  * - `e2e`: the E2E shards. Linux and Windows always run them all. macOS too, where the change
- *   touches what macOS does differently (the main process, Electron, packaging, the lockfile, CI
- *   and the test harness, or a file that asks which platform it's on), or where someone asks
- *   for it with the label `macos-full`; otherwise a short smoke set (tests/e2e/smoke.txt). An
- *   account has five macOS machines at once, and a full run takes all five.
+ *   touches what macOS does differently (the main process, Electron, packaging, the lockfile, the
+ *   test harness, CI's own jobs that decide or run macOS's share, or code that asks which
+ *   platform it's on), or where someone asks for it with the label `macos-full`; otherwise a
+ *   short smoke set (tests/e2e/smoke.txt). An account has five macOS machines at once, and a full
+ *   run takes all five.
  *
  * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what main's
  *   macOS run reached and its Linux and Windows runs didn't is borrowed from main
@@ -47,18 +48,84 @@ const MACOS = [
   // Electron, or a module built for the machine, may have moved.
   /^package(-lock)?\.json$/,
   /^\.nvmrc$/,
-  /^\.github\/workflows\//,
   /^playwright\.config\.ts$/,
   // What every desktop test stands on, and what decides or feeds this very choice.
   /^tests\/e2e\/(fixtures|global-setup)\.ts$/,
   /^tests\/e2e\/smoke\.txt$/,
   /^scripts\/(ci-changes|e2e-shard|borrow-coverage|vite-coverage)\.ts$/,
 ]
+/** CI's workflow, and its jobs that decide macOS's share, run it, or gather what it reached. */
+const CI_WORKFLOW = '.github/workflows/ci.yml'
+export const MACOS_JOBS = ['changes', 'e2e', 'coverage'] as const
+/** A workflow's part that isn't a job: its name, `on`, `env`, `concurrency` and the like. */
+const TOP = ''
+
+/**
+ * A workflow's parts, each as it's written: its top (everything outside `jobs`) and each job, by
+ * its key. Comments and blank lines are no part of any: they change nothing a run does.
+ */
+export function workflowParts(text: string): Map<string, string> {
+  const parts = new Map<string, string[]>()
+  let part = TOP
+  let inJobs = false
+  for (const line of text.split('\n')) {
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue
+    if (/^\S/.test(line)) {
+      inJobs = /^jobs:\s*$/.test(line)
+      part = TOP
+    } else if (inJobs) {
+      part = /^ {2}([\w-]+):\s*$/.exec(line)?.[1] ?? part
+    }
+    const lines = parts.get(part) ?? []
+    lines.push(line)
+    parts.set(part, lines)
+  }
+  return new Map([...parts].map(([name, lines]) => [name, lines.join('\n')]))
+}
+
+/**
+ * Whether a workflow's change is one macOS runs everything for: CI's own, where its top changed
+ * or a job of macOS's share did (a job added, gone or changed). Another workflow runs no E2E test.
+ */
+function workflowAsksMacos(path: string, [now = '', was = '']: string[]): boolean {
+  if (path !== CI_WORKFLOW) return false
+  const [then, after] = [workflowParts(was), workflowParts(now)]
+  return [TOP, ...MACOS_JOBS].some((part) => then.get(part) !== after.get(part))
+}
+
 /** The label that asks for everything on macOS, whatever changed. */
 export const MACOS_FULL = 'macos-full'
 /** Code that asks which platform it's on, or does differently there (⌘ for Ctrl, a draggable bar). */
 const PLATFORM =
   /\.platform\b|navigator\.userAgent|userAgentData|\bdarwin\b|\bwin32\b|\bisMac\b|metaKey|MOD_KEY|CTRL_KEY|app-region|\bchild_process\b|\btmpdir\b|\bhomedir\b/
+/**
+ * A line without its comment: from a `//` that follows a space or a brace (so `https://` and a
+ * pattern's slashes are code) and that no quote opened before it on the line leaves inside a
+ * string.
+ */
+function withoutLineComment(line: string): string {
+  const comments = /(^|[\s{])\/\//g
+  for (let found = comments.exec(line); found; found = comments.exec(line)) {
+    const at = found.index + found[1]!.length
+    const before = line.slice(0, at).replace(/\\./g, '')
+    if (!["'", '"', '`'].some((quote) => before.split(quote).length % 2 === 0)) {
+      return line.slice(0, at)
+    }
+  }
+  return line
+}
+
+/**
+ * Code without its comments: a word in one asks nothing of the platform. A block comment only
+ * where it starts a line (in JSX, after its brace), so a string holding `/*` hides no code after
+ * it; and each line's own comment.
+ */
+const withoutComments = (text: string) =>
+  text
+    .replace(/(^|\n)([ \t]*\{?)\/\*[\s\S]*?\*\//g, '$1$2')
+    .split('\n')
+    .map(withoutLineComment)
+    .join('\n')
 /** A source file as it is now, and as it was (deleted or moved, it's only what it was). */
 const versionsOf = (path: string): string[] => {
   const was = (() => {
@@ -91,7 +158,9 @@ export function plan({
   const everything = event !== 'pull_request' || branch.startsWith('release-')
   const isMacos = (path: string) =>
     MACOS.some((pattern) => pattern.test(path)) ||
-    (/^src\/.*\.(tsx?|css)$/.test(path) && versions(path).some((text) => PLATFORM.test(text)))
+    (/^\.github\/workflows\//.test(path) && workflowAsksMacos(path, versions(path))) ||
+    (/^src\/.*\.(tsx?|css)$/.test(path) &&
+      versions(path).some((text) => PLATFORM.test(withoutComments(text))))
   const asked = labels.includes(MACOS_FULL)
   const docs = !everything && changed.length > 0 && changed.every(isDocs)
   const macos = everything || asked || changed.some(isMacos)
