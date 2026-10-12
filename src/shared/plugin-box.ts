@@ -45,7 +45,11 @@ export const BOX_LIMITS = {
   pingEveryMs: 2000,
   /** How long a box has to say it's there, once it's asked for. */
   readyWithinMs: 10_000,
-  /** What a worker may send up in a second, and at once: messages, and characters of text. */
+  /**
+   * What a worker may send up in each second counted from its first message (a window that
+   * starts again, not a sliding one: a flood guard, not an exact rate, so at most twice this
+   * across the edge of two seconds), and at once: messages, and characters of text.
+   */
   messagesASecond: 2000,
   textAMessage: 8 * 1024 * 1024,
   textASecond: 16 * 1024 * 1024,
@@ -213,13 +217,17 @@ addEventListener('message', (event) => {
     error.preventDefault()
     end({ box: 'failed', said: String(error.message ?? '').slice(0, 200) })
   }
-  let since = performance.now()
+  // A second is the plugin's: each counted from its first message, not from when this script
+  // began (a worker that's slow to start would otherwise have part of its first second taken
+  // from it, and the ceiling loosened by however slow that was). A window that starts again,
+  // not a sliding one: a flood guard, not an exact rate.
+  let since
   let messages = 0
   let text = 0
   own.port1.onmessage = (message) => {
     if (typeof message.data !== 'string') return end({ box: 'ended', over: 'not-text' })
     const now = performance.now()
-    if (now - since > 1000) {
+    if (since === undefined || now - since > 1000) {
       since = now
       messages = 0
       text = 0

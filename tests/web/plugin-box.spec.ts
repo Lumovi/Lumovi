@@ -370,7 +370,9 @@ for (const [name, browsers] of [
         // own process. The day one puts it apart this says so, and what's said of a server can
         // be made better; nothing is promised on it either way.
         if (name === 'Chromium') expect(apart).toBe('in the page’s own process')
-        // The channel's ceiling: ended at the first message over.
+        // The channel's ceiling: ended at the first message over. Exactly a second's worth gets
+        // through, since the second is counted from the plugin's own first message (and a loop
+        // sends 2,001 well inside one, in every browser, however slowly its worker started).
         await open(
           page,
           'flood',
