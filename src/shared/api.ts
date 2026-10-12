@@ -737,6 +737,12 @@ export interface SecretValuesQuery {
    * the plugin, and reads only keys its file says its pages show.
    */
   forPlugin?: string
+  /**
+   * What named the Secret on that plugin's page, as the door handed it (`SecretRef.namedBy`):
+   * the backend reads that object as the person, holds that it names this Secret by that path,
+   * and reads only the keys that path's item declares.
+   */
+  namedBy?: { kind: ResourceKind; name: string; path: string }
 }
 
 /**

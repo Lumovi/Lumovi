@@ -12,6 +12,7 @@ import { KubeRequestError } from '../../src/backend/kube/errors.ts'
 import {
   pluginReads,
   SECRET_KEYS_UNDECLARED,
+  SECRET_NOT_NAMED,
   secretsAskedFor,
 } from '../../src/backend/plugin-reads.ts'
 import { READ_REFUSED, type Grant } from '../../src/shared/plugin-reads.ts'
@@ -452,52 +453,112 @@ test('the Secrets an object of its own kind names are read from the object as re
   ])
 })
 
-test('a Secret read for a plugin’s page is that plugin’s, as the backend knows it, and of keys its file declares', async () => {
+test('a Secret read for a plugin’s page is that plugin’s, held to the one item, and the object, that named it', async () => {
+  const declared = (path: string, keys: string[]) => ({
+    kind: 'karpenter.sh/Widget',
+    path,
+    steps: parse(`.${path}`),
+    keys,
+  })
   const showing = plugin({
     grant: {
       ...GRANT,
       secrets: [
-        {
-          kind: 'karpenter.sh/Widget',
-          path: 'spec.secretName',
-          steps: parse('.spec.secretName'),
-          keys: ['tls.crt', 'ca.crt'],
-        },
+        declared('spec.secretName', ['tls.crt']),
+        declared('spec.caSecretName', ['ca.crt']),
       ],
     },
   })
   const known = async () => [showing, plugin({ name: 'theirs', origin: 'yours' })]
+  const asked: GetQuery[] = []
+  const kube = {
+    resource: async (_: string, kind: string) => {
+      const found = SERVED.find((r) => r.kind === kind)
+      if (!found) throw new KubeRequestError('not-found', 'no such kind')
+      return found
+    },
+    get: async (q: unknown): Promise<Result<KubeObject>> => {
+      asked.push(q as GetQuery)
+      return (q as GetQuery).name === 'w1'
+        ? {
+            ok: true,
+            data: {
+              apiVersion: 'karpenter.sh/v1',
+              kind: 'Widget',
+              metadata: { name: 'w1', namespace: 'shop' },
+              spec: { secretName: 'shop-tls', caSecretName: 'shop-ca' },
+            } as KubeObject,
+          }
+        : { ok: false, error: { code: 'not-found', message: 'widgets.karpenter.sh "x" not found' } }
+    },
+  }
   const q = { context: 'demo', namespace: 'shop', name: 'shop-tls', keys: ['tls.crt'] }
-  // Not a plugin's page: the read as it was asked.
-  expect(await secretsAskedFor(q, known)).toEqual({ query: q })
-  // A plugin's: the read without the plugin's name, and the plugin as the backend knows it.
-  expect(await secretsAskedFor({ ...q, forPlugin: 'karpenter' }, known)).toEqual({
-    query: q,
-    plugin: showing,
+  const by = { kind: 'Widget.karpenter.sh', name: 'w1', path: 'spec.secretName' }
+  const press = (more: object) =>
+    secretsAskedFor({ ...q, forPlugin: 'karpenter', namedBy: by, ...more }, known, kube)
+  // Not a plugin's page: the read as it was asked, and nothing else looked at.
+  expect(await secretsAskedFor(q, known, kube)).toEqual({ query: q })
+  expect(asked).toEqual([])
+  // A plugin's: its item's keys, of a Secret the object names there; the read without what was
+  // said of the plugin, and the plugin as the backend knows it. The object was read as asked.
+  expect(await press({})).toEqual({ query: q, plugin: showing })
+  expect(asked).toEqual([
+    { context: 'demo', kind: 'Widget.karpenter.sh', namespace: 'shop', name: 'w1' },
+  ])
+  expect(
+    await press({
+      name: 'shop-ca',
+      keys: ['ca.crt'],
+      namedBy: { ...by, path: 'spec.caSecretName' },
+    }),
+  ).toEqual({ query: { ...q, name: 'shop-ca', keys: ['ca.crt'] }, plugin: showing })
+  const refused = (message: string, query: object = q) => ({
+    refused: { code: 'not-allowed', message },
+    recorded: { query: { ...q, ...query }, plugin: showing },
   })
+  // A key another item declares, of the Secret this item named: refused, before it's read.
+  expect(await press({ keys: ['ca.crt'] })).toEqual(
+    refused(SECRET_KEYS_UNDECLARED, { keys: ['ca.crt'] }),
+  )
+  expect(await press({ keys: ['tls.crt', 'ca.crt'] })).toEqual(
+    refused(SECRET_KEYS_UNDECLARED, { keys: ['tls.crt', 'ca.crt'] }),
+  )
+  // A path, or a kind, its file doesn't declare.
+  expect(await press({ namedBy: { ...by, path: 'spec.other' } })).toEqual(
+    refused(SECRET_KEYS_UNDECLARED),
+  )
+  expect(await press({ namedBy: { ...by, kind: 'NodePool.karpenter.sh' } })).toEqual(
+    refused(SECRET_KEYS_UNDECLARED),
+  )
+  // A Secret the object doesn't name there (another item's, or none), or an object not there.
+  for (const [more, query] of [
+    [{ name: 'shop-ca' }, { name: 'shop-ca' }],
+    [{ name: 'someone-else' }, { name: 'someone-else' }],
+    [{ namedBy: { ...by, name: 'gone' } }, {}],
+  ] as const) {
+    expect(await press(more), JSON.stringify(more)).toEqual(refused(SECRET_NOT_NAMED, query))
+  }
+  // What named it isn't said, or isn't what one could be: no read at all.
+  for (const namedBy of [
+    undefined,
+    'w1',
+    { ...by, name: '../w1' },
+    { ...by, kind: '../Widget' },
+    { ...by, more: 1 },
+  ]) {
+    expect(await press({ namedBy }), JSON.stringify(namedBy)).toEqual({
+      refused: { code: 'invalid', message: 'Expected a Secret, its keys and what named it' },
+    })
+  }
   // A name no plugin could have; a plugin not in use, or whose code Lumovi doesn't run.
-  for (const forPlugin of ['Karpenter', 'a‮b', 7, '']) {
-    expect(await secretsAskedFor({ ...q, forPlugin }, known), String(forPlugin)).toEqual({
+  for (const forPlugin of ['Karpenter', 'a\u202Eb', 7, '']) {
+    expect(await press({ forPlugin }), String(forPlugin)).toEqual({
       refused: { code: 'invalid', message: 'Expected a plugin’s name' },
     })
   }
   for (const forPlugin of ['nobody', 'theirs']) {
-    expect(await secretsAskedFor({ ...q, forPlugin }, known), forPlugin).toEqual({
+    expect(await press({ forPlugin }), forPlugin).toEqual({
       refused: { code: 'not-allowed', message: READ_REFUSED['not-in-use'] },
     })
   }
-  // A key its file doesn't say its pages show: refused, and recorded with the plugin...
-  expect(
-    await secretsAskedFor({ ...q, keys: ['tls.crt', 'tls.key'], forPlugin: 'karpenter' }, known),
-  ).toEqual({
-    refused: { code: 'not-allowed', message: SECRET_KEYS_UNDECLARED },
-    recorded: { query: { ...q, keys: ['tls.crt', 'tls.key'] }, plugin: showing },
-  })
-  // ...but only where the Secret's name is one a Secret could have.
-  expect(
-    await secretsAskedFor(
-      { ...q, name: 'shop-tls\nforged line', keys: ['tls.key'], forPlugin: 'karpenter' },
-      known,
-    ),
-  ).toEqual({ refused: { code: 'not-allowed', message: SECRET_KEYS_UNDECLARED } })
 })

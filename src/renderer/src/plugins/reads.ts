@@ -164,8 +164,13 @@ export class PageReading {
       const made = this.tokens.secrets(
         read,
         refs[i]!,
-        named.flatMap(({ keys, names }) =>
-          names.map((name) => ({ namespace: namespace as string, name, keys })),
+        named.flatMap(({ path, keys, names }) =>
+          names.map((name) => ({
+            namespace: namespace as string,
+            name,
+            keys,
+            namedBy: { kind, name: refs[i]!.name, path },
+          })),
         ),
       )
       if (made === 'too-many') return this.#refuse(read, 'too-many')

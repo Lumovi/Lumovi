@@ -746,7 +746,7 @@ function MayRead({ asked, names }: { asked: Asks; names: Names }) {
             <span className="font-mono text-xs text-ink-1 selectable">{listed(shown.keys)}</span> of
             the Secret that {/^[AEIOU]/.test(kind) ? 'an' : 'a'} {kind}’s{' '}
             <span className="font-mono text-xs text-ink-1 selectable">{shown.path}</span> names.
-            Lumovi reads it as you; the plugin never sees it.
+            Lumovi reads it as you, only when you press Reveal or Copy; the plugin never sees it.
           </p>
         )
       })}

@@ -266,7 +266,7 @@ export function handlers({
       [IPC.secretValues]: async (query) => {
         // On a plugin's page: whose page, as the backend knows it, and only keys its file says
         // its pages show (`secretsAskedFor`).
-        const asked = await secretsAskedFor(query, knownPlugins)
+        const asked = await secretsAskedFor(query, knownPlugins, kube)
         if ('refused' in asked) {
           const refused = { ok: false as const, error: asked.refused }
           if (asked.recorded) secretKeysRead(asked.recorded.query, refused, asked.recorded.plugin)

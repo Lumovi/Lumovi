@@ -1159,7 +1159,7 @@ test('a plugin’s pages show a Secret an object of its own kind names, by a pat
     ]),
     [
       `[{ ${CERT}, path: spec.${'x'.repeat(250)}, keys: [tls.crt] }]`,
-      `${at}.path: "spec.${'x'.repeat(34)}…" should be field names, like spec.secretName`,
+      `${at}.path: is longer than 253 characters`,
     ],
     // Secrets' keys, each once, twenty at most.
     [

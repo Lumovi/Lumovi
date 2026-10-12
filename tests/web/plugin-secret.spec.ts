@@ -9,7 +9,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import type { Result, SecretValues, SecretValuesQuery } from '../../src/shared/api.ts'
-import { SECRET_KEYS_UNDECLARED } from '../../src/backend/plugin-reads.ts'
+import { SECRET_KEYS_UNDECLARED, SECRET_NOT_NAMED } from '../../src/backend/plugin-reads.ts'
+import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
+import type { KubeObject } from '../mock-cluster/types.ts'
 import { audited, DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
 
 const TOYS = `apiVersion: lumovi.dev/v1beta1
@@ -24,6 +26,7 @@ spec:
   pages: [{ id: overview, title: Overview }]
   showsSecrets:
     - { group: example.com, kind: Widget, path: spec.secretName, keys: [tls.crt] }
+    - { group: example.com, kind: Widget, path: spec.caSecretName, keys: [ca.crt] }
 `
 
 /** Reads some of a Secret's values, and says only whether any crossed. */
@@ -54,37 +57,47 @@ test('a Secret pressed on a plugin’s page is read for that plugin, of the keys
     data: {
       'tls.crt': Buffer.from('a').toString('base64'),
       'tls.key': Buffer.from('b').toString('base64'),
+      'ca.crt': Buffer.from('c').toString('base64'),
     },
   })
+  // The object of its own kind that names it, by the first item's path.
+  const widget = clusters.demo.object('Widget.example.com', 'default', CUSTOM.widget)!
+  clusters.demo.upsert({
+    ...structuredClone(widget),
+    metadata: { ...widget.metadata, name: 'tls-widget', uid: 'tls-widget-uid' },
+    spec: { ...(widget.spec as object), secretName: 'shop-tls' },
+  } as KubeObject)
   const served = await serve({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included } })
   await signIn(page, `${served.url}cluster/demo`, DEMO_TOKEN)
   const secret = { namespace: 'default', name: 'shop-tls' }
+  const namedBy = { kind: 'Widget.example.com', name: 'tls-widget', path: 'spec.secretName' }
+  const press = (keys: string[], more: Partial<SecretValuesQuery> = {}) =>
+    read(page, { ...secret, keys, forPlugin: 'toys', namedBy, ...more })
 
-  // A key its file says its pages show: read, as the person.
-  expect(await read(page, { ...secret, keys: ['tls.crt'], forPlugin: 'toys' })).toEqual({
-    ok: true,
-    keys: [['tls.crt', true]],
-  })
-  // Any other: refused, and nothing of it read.
-  expect(await read(page, { ...secret, keys: ['tls.key'], forPlugin: 'toys' })).toEqual({
-    ok: false,
-    code: 'not-allowed',
-    message: SECRET_KEYS_UNDECLARED,
-  })
-  expect(
-    await read(page, { ...secret, keys: ['tls.crt', 'tls.key'], forPlugin: 'toys' }),
-  ).toMatchObject({
-    ok: false,
-    code: 'not-allowed',
-  })
+  // A key the item that named it says its pages show: read, as the person.
+  expect(await press(['tls.crt'])).toEqual({ ok: true, keys: [['tls.crt', true]] })
+  // Any other, the plugin's other item's included: refused, and nothing of it read.
+  for (const keys of [['tls.key'], ['tls.crt', 'tls.key'], ['ca.crt']]) {
+    expect(await press(keys), keys.join()).toEqual({
+      ok: false,
+      code: 'not-allowed',
+      message: SECRET_KEYS_UNDECLARED,
+    })
+  }
+  // An object that doesn't name it there, or isn't there: what the page says named it isn't taken.
+  for (const name of [CUSTOM.widget, 'nowhere']) {
+    expect(await press(['tls.crt'], { namedBy: { ...namedBy, name } }), name).toEqual({
+      ok: false,
+      code: 'not-allowed',
+      message: SECRET_NOT_NAMED,
+    })
+  }
   // A plugin not in use, and a name no plugin could have: no read of anyone's, and none recorded.
-  expect(await read(page, { ...secret, keys: ['tls.crt'], forPlugin: 'nobody' })).toMatchObject({
+  expect(await press(['tls.crt'], { forPlugin: 'nobody' })).toMatchObject({
     ok: false,
     code: 'not-allowed',
   })
-  expect(
-    await read(page, { ...secret, keys: ['tls.crt'], forPlugin: 'toys\nforged' }),
-  ).toMatchObject({
+  expect(await press(['tls.crt'], { forPlugin: 'toys\nforged' })).toMatchObject({
     ok: false,
     code: 'invalid',
   })
