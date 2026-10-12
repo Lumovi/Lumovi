@@ -419,7 +419,8 @@ test('logs can be searched and followed', async ({ page, clusters }) => {
   await row(page, 'Pods', pod).first().click()
   const detail = panel(page, 'Pod', pod)
   await detail.getByRole('tab', { name: 'Logs' }).click()
-  await detail.getByLabel('Show', { exact: true }).selectOption('2000')
+  await detail.getByRole('button', { name: 'Show', exact: true }).click()
+  await page.getByRole('option', { name: 'Last 2,000 lines' }).click()
   const log = detail.getByRole('log')
   const search = detail.getByLabel('Search logs')
   // The newest lines show first; searching finds the oldest.
@@ -438,7 +439,7 @@ test('logs can be searched and followed', async ({ page, clusters }) => {
   await search.fill('')
   await search.pressSequentially('cache')
   await expect(log.locator('mark').first()).toHaveText('cache')
-  await expect(detail).toContainText(/\d+\/\d+/)
+  await expect(detail).toContainText(/\d[\d,]* match/)
   await search.fill('no-such-text')
   await expect(log).toContainText('No lines match “no-such-text”.')
   await search.press('Escape')

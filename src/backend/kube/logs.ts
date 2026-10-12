@@ -18,7 +18,8 @@ import { assertIntegerInRange, assertQuery, assertString, invalid } from './vali
 
 /** Lines are sent to the page at most this often, per stream. */
 const BATCH_MS = 100
-const MAX_TAIL = 10_000
+/** As many lines as the Logs view keeps (MAX_LINES): a long since asks for its last ones. */
+const MAX_TAIL = 20_000
 const MAX_SINCE = 30 * 86_400
 
 interface Dependencies {

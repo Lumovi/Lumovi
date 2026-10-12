@@ -184,7 +184,7 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
     'invalid: name must be a non-empty string',
     'invalid: target must be "nodes" or "pods"',
     'invalid: A new stream needs a new id',
-    'invalid: tailLines must be an integer between 1 and 10000',
+    'invalid: tailLines must be an integer between 1 and 20000',
     'invalid: sinceSeconds must be an integer between 1 and 2592000',
     'invalid: sinceTime must be a time',
     'invalid: container must be a non-empty string',

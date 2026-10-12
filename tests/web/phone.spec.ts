@@ -472,23 +472,77 @@ test('logs wrap, and what’s done to them is a finger’s size', async ({ page,
   })
   // Lines wrap: there's no toggle to say otherwise, and the time each was written starts off.
   await expect(detail.getByRole('button', { name: 'Wrap lines' })).toHaveCount(0)
-  await expect(detail.getByRole('button', { name: 'Timestamps' })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
+  await expect(detail.getByRole('button', { name: 'Timestamps' })).toHaveCount(0)
   await expect(detail.getByRole('button', { name: 'Follow' })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
-  // The rest is in a sheet.
+  // The rest is in a sheet, the times among it, a check when they're shown.
   await detail.getByRole('button', { name: 'More' }).click()
   const more = page.getByRole('dialog', { name: 'Logs' })
-  await expect(more.getByRole('button')).toHaveCount(4)
-  for (const name of ['Close', 'Show the previous container', 'Copy logs', 'Download']) {
+  await expect(more.getByRole('button')).toHaveCount(5)
+  for (const name of [
+    'Close',
+    'Show the previous container',
+    'Timestamps',
+    'Copy logs',
+    'Download',
+  ]) {
     await expect(more.getByRole('button', { name, exact: true })).toBeVisible()
   }
   await page.keyboard.press('Escape')
   await expect(more).toHaveCount(0)
+})
+
+test('logs searched on a phone: the toggles and steps a row of their own, a since from a sheet', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  const pod = DEMO.pods.storefront[0]!
+  await signInNarrow(page, `${served.url}cluster/demo/pods?open=Pod/shop/${pod}`, DEMO_TOKEN)
+  const detail = page.getByRole('complementary', { name: `Pod ${pod}` })
+  await detail.getByRole('tab', { name: 'Logs' }).click()
+  await expect(detail.getByRole('log')).toContainText(/\S/)
+  const field = detail.getByLabel('Search logs')
+  // Nothing typed and not in the field: no third row.
+  await expect(detail.getByRole('button', { name: 'Regular expression' })).toHaveCount(0)
+  await field.fill('GET')
+  // (Turned, the logs are drawn again: what was typed is still there, and still searched.)
+  await expectAPhonesPage(page, 'a pod’s logs searched', async () => {
+    await expect(field).toHaveValue('GET')
+    await expect(detail.getByRole('button', { name: 'Regular expression' })).toBeVisible()
+    await expect(detail.getByRole('button', { name: 'Match case' })).toBeVisible()
+    await expect(detail.getByRole('button', { name: 'Show lines without it' })).toBeVisible()
+    await expect(detail.getByText(/^(\d[\d,]* match(es)?|No matches)$/)).toBeVisible()
+  })
+  // An expression that isn't one: said in a line that wraps, the field marked.
+  await detail.getByRole('button', { name: 'Regular expression' }).click()
+  await field.fill('GET (')
+  await expectAPhonesPage(page, 'an expression that isn’t one', async () => {
+    await expect(page.getByRole('alert')).toHaveText(
+      'This isn’t a regular expression: a ( isn’t closed.',
+    )
+  })
+  await field.fill('')
+
+  // A since, from a sheet: a quick one fills the field, and it's read back before it's shown.
+  const sheet = page.getByRole('dialog', { name: 'Show' })
+  await expectAPhonesPage(page, 'a since from a sheet', async () => {
+    // (Turned, the logs are drawn again with it closed: it's opened again. On its side it's a
+    // popover by its button, not a sheet.)
+    if (!(await page.getByLabel('Since', { exact: true }).isVisible())) {
+      await detail.getByRole('button', { name: 'Show', exact: true }).click()
+      await page.getByRole('option', { name: 'Since…' }).click()
+    }
+    await expect(page.getByLabel('Since', { exact: true })).toBeVisible()
+  })
+  await sheet.getByRole('button', { name: '2h' }).click()
+  await expect(sheet.getByText(/^From .*, 2 hours ago, your time \(UTC.*\)\.$/)).toBeVisible()
+  await sheet.getByRole('button', { name: 'Show', exact: true }).click()
+  await expect(detail.getByRole('button', { name: 'Show', exact: true })).toHaveText('Last 2 hours')
+  // No histogram on a phone.
+  await expect(detail.getByRole('group', { name: /^Lines over time/ })).toHaveCount(0)
 })
 
 test('an assistant’s change is approved from a sheet; put aside, it waits', async ({
