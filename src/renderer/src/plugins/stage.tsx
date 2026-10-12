@@ -29,8 +29,8 @@ import {
 import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
 import type { PluginCode } from '@shared/plugin-hand-over'
-import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { codeOf } from './box-check'
 import { openPage, type KitPart, type OpenPage } from './page'
 import { PluginFrame } from './PluginFrame'
 import { PluginSurface } from './Surface'
@@ -190,7 +190,7 @@ function Opened({ shown, onAgain }: { shown: Shown; onAgain: () => void }): Reac
   useEffect(() => {
     if (shown.code !== undefined) return
     let here = true
-    void api.kube.pluginCode(shown.plugin).then((answer) => here && setHanded(answer))
+    void codeOf(shown.plugin).then((answer) => here && setHanded(answer))
     return () => void (here = false)
   }, [shown])
   if (handed === undefined) return null
@@ -269,6 +269,8 @@ export const stage = {
     host?.remove()
     root = host = undefined
   },
+  /** A plugin's code as Lumovi hands it over: a server's check of this browser first, if due. */
+  codeOf,
   /**
    * The door's own checks, for the tests to try door.spec's cases in this built page: what's
    * measured of them is then what ran in a page.

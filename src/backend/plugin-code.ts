@@ -7,8 +7,7 @@
  * What it asks, in order: a plugin Lumovi has in use whose code it runs (only its own: a folder's
  * file is data); one that has code; and on a server, that this session is held to coming from
  * Lumovi's own page (the second wall), and that this browser has passed Lumovi's check that it
- * keeps a plugin's code apart. Until that check exists, no browser has passed it: a server hands
- * code to no one.
+ * keeps a plugin's code apart (`box-check`), for the box's walls as they are now.
  */
 import type { NotHanded, PluginCode } from '@shared/plugin-hand-over'
 import { mayCarryCode } from '@shared/plugin-loading'
@@ -20,7 +19,14 @@ import type { Recorder } from './audit/recorder'
  * Where a page is: a window of the desktop app's; or a browser of a server's, with whether its
  * session is held to Lumovi's own page and whether it passed the box's check.
  */
-export type HandOverTo = { host: 'desktop' } | { host: 'server'; held: boolean; checked: boolean }
+export type HandOverTo =
+  | { host: 'desktop' }
+  | {
+      host: 'server'
+      held: boolean
+      /** How Lumovi's check of this browser's box came out, if it has been checked. */
+      check?: 'passed' | 'failed' | 'unfinished'
+    }
 
 /** Whether a page there may be handed `plugin`'s code: yes, or why not. */
 export function mayHandOver(
@@ -33,7 +39,13 @@ export function mayHandOver(
   // Anywhere else is a server's browser, and held only by exactly these: whatever isn't one of
   // them, or isn't said as a yes, is no.
   if (to.host !== 'server' || to.held !== true) return 'not-held'
-  return to.checked === true ? true : 'not-checked'
+  return to.check === 'passed'
+    ? true
+    : to.check === 'failed'
+      ? 'check-failed'
+      : to.check === 'unfinished'
+        ? 'check-unfinished'
+        : 'not-checked'
 }
 
 export interface CodeHandOver {

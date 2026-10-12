@@ -52,8 +52,10 @@ export function openBox({ plugin, code, heard, ended, into = document.body }: Bo
   // On the desktop a box has an address of its plugin's own, so a process of its own. A server
   // has one address for every plugin's box: which process a frame is in is the browser's to
   // say there, and the box itself is all that keeps plugins apart.
-  const { document: own } = boxAddress(plugin)
-  const address = api.host === 'server' ? new URL(PATHS.box, document.baseURI).href : own
+  // (The desktop's address is asked of the plugin's name alone, where it's used: a server's isn't,
+  // and Lumovi's own check of a box there runs under a name no plugin can have.)
+  const address =
+    api.host === 'server' ? new URL(PATHS.box, document.baseURI).href : boxAddress(plugin).document
   const frame = document.createElement('iframe')
   frame.hidden = true
   frame.setAttribute('sandbox', 'allow-scripts')

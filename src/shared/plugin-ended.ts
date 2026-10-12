@@ -80,7 +80,8 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
       title: `${whose(name)} page couldn’t start.`,
       why: notHandedWhy(end.refused),
       still: 'The rest of Lumovi is as it was.',
-      again: false,
+      // (A check that didn't finish can be run again; nothing else here changes by opening again.)
+      again: end.refused === 'check-unfinished',
     }
   }
   if (end.why === 'changed') {

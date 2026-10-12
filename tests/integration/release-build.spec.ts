@@ -21,6 +21,10 @@ const TESTS_ONLY = [
   // And what its stand-ins are given by, with the constant that keeps them to that build.
   'LUMOVI_TEST_BUILD',
   'LUMOVI_TEST_INCLUDED_PLUGINS_DIR',
+  // The switch that takes a wall of a plugin's box away, for the box check to fail on.
+  'LUMOVI_TEST_BOX_WALL_OFF',
+  // And the one that makes a box's check never answer.
+  'LUMOVI_TEST_BOX_CHECK',
   'LUMOVI_SPONSOR_URL',
   // What the tests reach a plugin's box by.
   '__lumoviBox',

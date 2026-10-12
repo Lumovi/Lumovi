@@ -1141,6 +1141,18 @@ export interface LumoviApi {
     pluginCode(plugin: string): Promise<PluginCode>
     /** What `pluginCode` would answer, without the code: for a page that only says so. */
     pluginHandOver(plugin: string): Promise<true | NotHanded>
+    /**
+     * A server's: a check of this browser's plugin box, with its one-time nonce and the code a
+     * box runs for it (none for a session whose code wouldn't be handed over anyway).
+     */
+    boxCheckStart?(): Promise<{ nonce: string; code: string } | undefined>
+    /** And how it came out, judged by the server: what the box sent up, and what the page heard. */
+    boxCheckEnd?(
+      nonce: string,
+      report: string | null,
+      /** The ways Lumovi's own page found under the check's name, as it never should. */
+      heard: string[],
+    ): Promise<'passed' | 'failed' | 'unfinished' | undefined>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
     /** Resolves with the changed object, or null for deletions and evictions. */
     change(request: ChangeRequest): Promise<Result<KubeObject | null>>
@@ -1456,6 +1468,8 @@ export const IPC = {
   pluginRead: 'kube:plugin-read',
   pluginCode: 'kube:plugin-code',
   pluginHandOver: 'kube:plugin-hand-over',
+  boxCheckStart: 'kube:box-check-start',
+  boxCheckEnd: 'kube:box-check-end',
   metrics: 'kube:metrics',
   change: 'kube:change',
   can: 'kube:can',

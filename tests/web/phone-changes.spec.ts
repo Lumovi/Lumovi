@@ -56,6 +56,9 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'kube.pluginHandOver': 'reads',
   // (Refused on a phone as a change is: a phone is never handed a plugin's code.)
   'kube.pluginCode': 'changes',
+  // (A check of the box comes before any code: no phone's either.)
+  'kube.boxCheckStart': 'changes',
+  'kube.boxCheckEnd': 'changes',
   'kube.metrics': 'reads',
   'kube.can': 'reads',
   'kube.history': 'reads',
