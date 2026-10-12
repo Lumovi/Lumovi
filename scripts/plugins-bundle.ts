@@ -1,8 +1,8 @@
 /**
  * The plugins Lumovi comes with, as its build takes them: the bundle Lumovi-plugins' release
- * workflow built, signed and attested, pinned by plugins.lock.json. Downloaded once into a cache
- * (.cache/plugins), and checked at every build, the cache's copy too, with nothing stored to
- * trust but Sigstore's root as Lumovi ships it (src/main/sigstore-root.json):
+ * workflow built, signed and attested, pinned by plugins.lock.json. Checked at every build, the
+ * cache's copy too, with nothing stored to trust but Sigstore's root as Lumovi ships it
+ * (src/main/sigstore-root.json):
  *
  * - the bundle and its index are byte for byte what the lock pins (their SHA-256);
  * - each is signed by Lumovi-plugins' release workflow on main, as cosign signs (its certificate
@@ -13,6 +13,11 @@
  *   commit the lock pins;
  * - the index says what the bundle holds: its SHA-256, and each plugin's version and each file's
  *   SHA-256, of the text served, as UTF-8 (no byte order mark).
+ *
+ * Downloaded once, when the release's tag is checked too: that it points at the commit the lock
+ * pins, asked of GitHub then and not on a build from the cache, which may be offline. Only a
+ * release that passed every check is kept in the cache (.cache/plugins), one entry for each lock,
+ * whole or not at all.
  *
  * Anything else stops the build, saying why. Then the build serves each plugin's file, by its
  * file name, as `virtual:lumovi-plugins` (vite-plugins.ts).
@@ -26,7 +31,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { whyNotSignedBy, type Signer, type TrustRoot } from '../src/main/kubectl-signature.ts'
 
 /** Where Lumovi's plugins come from, and the workflow that signs their releases. */
@@ -45,7 +50,11 @@ export const PLUGINS_SIGNER: Signer = {
 /** Which release of Lumovi-plugins Lumovi is built with: plugins.lock.json. */
 export interface Lock {
   version: string
-  /** The commit its release was built from. */
+  /**
+   * The commit the release's tag points at, which its attestation names as the one it was built
+   * from. Every build checks the attestation's against it, the cache's copy too; the tag itself is
+   * checked against it once, when the release is first downloaded into the cache (`takePlugins`).
+   */
   commit: string
   /** The SHA-256 of the bundle, and of its index. */
   bundle: string
@@ -385,75 +394,186 @@ async function bodyOf(response: Response, name: string, limit: number): Promise<
   return Buffer.concat(chunks)
 }
 
-/** Where the release's files are kept between builds. */
-export const CACHE = resolve('.cache/plugins')
+/** How the build asks GitHub: a download, and how large its answer may be. */
+export interface Asking {
+  download?: typeof fetch
+  limit?: number
+}
+
+/** `url`'s answer, read: or nothing where it's not found. */
+async function ask(
+  url: string,
+  name: string,
+  { download = fetch, limit = DOWNLOAD_LIMIT }: Asking,
+) {
+  let response: Response
+  try {
+    response = await download(url)
+  } catch (error) {
+    throw new PluginsBundleError(
+      `${name}: couldn’t be downloaded from ${url}: ${(error as Error).message}`,
+    )
+  }
+  if (response.status === 404) return undefined
+  if (!response.ok) {
+    throw new PluginsBundleError(
+      `${name}: couldn’t be downloaded: ${url} answered ${response.status}`,
+    )
+  }
+  try {
+    return await bodyOf(response, name, limit)
+  } catch (error) {
+    if (error instanceof PluginsBundleError) throw error
+    throw new PluginsBundleError(
+      `${name}: couldn’t be downloaded from ${url}: ${(error as Error).message}`,
+    )
+  }
+}
+
+/** The release's files, by what each is in a `Release`. */
+const filesOf = (lock: Lock) =>
+  Object.entries(releaseFiles(lock.version)) as [keyof Release, string][]
 
 /**
- * The release's files: from the cache, or downloaded from Lumovi-plugins' release into it (all
- * downloaded again, where `again`). A file the release doesn't have is left out, for the check to
- * say so. Each is written under a name of its own until it's whole, so two builds at once don't
- * write one file together. `cached` says whether any came from the cache.
+ * The release's files, downloaded. A file the release doesn't have is left out, for the check to
+ * say so.
  */
-export async function fetchRelease(
-  lock: Lock,
-  { cache = CACHE, download = fetch, again = false, limit = DOWNLOAD_LIMIT } = {},
-): Promise<{ release: Release; cached: boolean }> {
+export async function downloadRelease(lock: Lock, asking: Asking = {}): Promise<Release> {
   const release: Release = {}
-  let cached = false
-  const names = releaseFiles(lock.version)
-  for (const [key, name] of Object.entries(names) as [keyof Release, string][]) {
-    const path = join(cache, lock.version, name)
-    if (!again && existsSync(path)) {
-      release[key] = readFileSync(path)
-      cached = true
-      continue
-    }
+  for (const [key, name] of filesOf(lock)) {
     const url = `https://github.com/${PLUGINS_REPOSITORY}/releases/download/v${lock.version}/${name}`
-    let response: Response
-    try {
-      response = await download(url)
-    } catch (error) {
-      throw new PluginsBundleError(
-        `${name}: couldn’t be downloaded from ${url}: ${(error as Error).message}`,
-      )
-    }
-    if (response.status === 404) {
-      rmSync(path, { force: true })
-      continue
-    }
-    if (!response.ok) {
-      throw new PluginsBundleError(
-        `${name}: couldn’t be downloaded: ${url} answered ${response.status}`,
-      )
-    }
-    const bytes = await bodyOf(response, name, limit)
-    mkdirSync(dirname(path), { recursive: true })
-    const part = `${path}.${process.pid}.${randomUUID()}.part`
-    writeFileSync(part, bytes)
-    renameSync(part, path)
-    release[key] = bytes
+    const bytes = await ask(url, name, asking)
+    if (bytes) release[key] = bytes
   }
-  return { release, cached }
+  return release
 }
 
 /**
- * The plugins of the lock's release, as `trust` says who signs it: checked as they're cached, and
- * where the cache's copy is wrong (a download cut short, say), downloaded again, once, and checked
- * again. Only then refused.
+ * git's answer listing a repository's refs (its pkt-lines), read: each ref, and what it names. Or
+ * nothing, where it isn't whole: a line cut short (what's left of its name could be another ref's),
+ * anything but pkt-lines, or an end that isn't a flush (0000), as git's always is.
+ */
+function refsOf(answer: Buffer): Map<string, string> | undefined {
+  const refs = new Map<string, string>()
+  let at = 0
+  let flushed = false
+  while (at < answer.length) {
+    const size = answer.toString('latin1', at, at + 4)
+    if (!/^[0-9a-f]{4}$/.test(size)) return undefined
+    const length = Number.parseInt(size, 16)
+    flushed = length === 0
+    // (0000 ends a part of the answer, and says nothing.)
+    if (length < 4) {
+      at += 4
+      continue
+    }
+    if (at + length > answer.length) return undefined
+    const [line = ''] = answer
+      .toString('utf8', at + 4, at + length)
+      .replace(/\n$/, '')
+      .split('\0')
+    const [, commit, ref] = /^([0-9a-f]{40}) (\S+)$/.exec(line) ?? []
+    if (commit && ref) refs.set(ref, commit)
+    at += length
+  }
+  return flushed ? refs : undefined
+}
+
+/**
+ * The commit Lumovi-plugins' tag of `version` points at (an annotated tag's, peeled), or nothing
+ * where it has no such tag: asked as git asks, not of GitHub's API, which answers few an hour to
+ * a build that doesn't sign in.
+ */
+export async function taggedCommit(
+  version: string,
+  asking: Asking = {},
+): Promise<string | undefined> {
+  const url = `https://github.com/${PLUGINS_REPOSITORY}.git/info/refs?service=git-upload-pack`
+  const answer = await ask(url, `v${version}`, asking)
+  if (!answer) throw new PluginsBundleError(`v${version}: couldn’t be read: ${url} answered 404`)
+  const refs = refsOf(answer)
+  if (!refs) {
+    throw new PluginsBundleError(
+      `v${version}: GitHub’s list of tags was cut short, or isn’t git’s: ${url}`,
+    )
+  }
+  return refs.get(`refs/tags/v${version}^{}`) ?? refs.get(`refs/tags/v${version}`)
+}
+
+/** Where checked releases are kept between builds. */
+export const CACHE = resolve('.cache/plugins')
+
+/** The cache's entry for `lock`: named by its version, and the SHA-256 of all it pins. */
+export function cacheEntry(lock: Lock, cache = CACHE): string {
+  const pinned = JSON.stringify([lock.version, lock.commit, lock.bundle, lock.index])
+  return join(cache, `${lock.version}-${sha256(Buffer.from(pinned))}`)
+}
+
+/** The release as the cache keeps it, or nothing where it has no entry for the lock. */
+function cached(entry: string, lock: Lock): Release | undefined {
+  if (!existsSync(entry)) return undefined
+  const release: Release = {}
+  for (const [key, name] of filesOf(lock)) {
+    const path = join(entry, name)
+    if (existsSync(path)) release[key] = readFileSync(path)
+  }
+  return release
+}
+
+/**
+ * Keeps a release that passed every check: written under a name of its own, and named as the
+ * lock's entry last, so an entry is whole or not there. (Where another build kept it first, that
+ * one stays.)
+ */
+function keep(entry: string, lock: Lock, release: Release) {
+  const part = `${entry}.${process.pid}.${randomUUID()}.part`
+  mkdirSync(part, { recursive: true })
+  for (const [key, name] of filesOf(lock)) {
+    writeFileSync(join(part, name), release[key]!)
+  }
+  try {
+    renameSync(part, entry)
+  } catch (error) {
+    rmSync(part, { recursive: true, force: true })
+    if (!existsSync(entry)) throw error
+  }
+}
+
+/**
+ * The plugins of the lock's release, as `trust` says who signs it: from the cache, checked again,
+ * or downloaded, checked, and kept, once its tag is found to point at the lock's commit too. A
+ * cached copy that's wrong (changed since it was kept, say) is put aside, and the release
+ * downloaded again, once. Only then refused.
  */
 export async function takePlugins(
   lock: Lock,
   trust: Trust,
-  options: Parameters<typeof fetchRelease>[1] = {},
+  { cache = CACHE, ...asking }: Asking & { cache?: string } = {},
 ): Promise<PluginFiles> {
-  const first = await fetchRelease(lock, options)
-  try {
-    return verifyRelease(first.release, lock, trust)
-  } catch (error) {
-    if (!first.cached || !(error instanceof PluginsBundleError)) throw error
-    const again = await fetchRelease(lock, { ...options, again: true })
-    return verifyRelease(again.release, lock, trust)
+  const lockWrong = lockProblems(lock)
+  if (lockWrong.length) throw new PluginsBundleError(lockWrong.join('\n'))
+  const entry = cacheEntry(lock, cache)
+  const kept = cached(entry, lock)
+  if (kept) {
+    try {
+      return verifyRelease(kept, lock, trust)
+    } catch (error) {
+      if (!(error instanceof PluginsBundleError)) throw error
+      rmSync(entry, { recursive: true, force: true })
+    }
   }
+  const tagged = await taggedCommit(lock.version, asking)
+  if (tagged !== lock.commit) {
+    throw new PluginsBundleError(
+      tagged === undefined
+        ? `v${lock.version}: isn’t a tag of ${PLUGINS_REPOSITORY}`
+        : `v${lock.version}: ${PLUGINS_REPOSITORY}’s tag points at ${tagged}, and ${LOCK_FILE} pins ${lock.commit}`,
+    )
+  }
+  const release = await downloadRelease(lock, asking)
+  const files = verifyRelease(release, lock, trust)
+  keep(entry, lock, release)
+  return files
 }
 
 /** The plugins Lumovi is built with: the lock's release, fetched and checked. */
