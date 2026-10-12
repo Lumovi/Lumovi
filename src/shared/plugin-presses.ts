@@ -263,11 +263,16 @@ export const ON_A_LARGER_SCREEN = 'Open Lumovi on a larger screen to do this.'
  * come later. They come through here.)
  */
 export function mayStart(does: Does, layout: unknown): true | { refused: string } {
-  // It says what may start, and refuses the rest: a sort of press nobody has decided about
-  // starts nowhere, and a layout this doesn't know, or a wrong word, is not a larger screen.
+  // It says what may start, and refuses the rest. A sort of press nobody has decided about
+  // starts nowhere, on any screen: that's a gap in Lumovi's own table, and it says so (a larger
+  // screen wouldn't help). A layout this doesn't know, or a wrong word, is not a larger screen.
+  if (!ON_A_LARGER.has(does)) return { refused: UNDECIDED }
   const may = LARGER.has(layout as string) ? ON_A_LARGER : ON_A_PHONE
   return may.has(does) ? true : { refused: ON_A_LARGER_SCREEN }
 }
+
+/** What a person is told of a press Lumovi has no rule for. (And the log is told: it's a gap.) */
+export const UNDECIDED = 'Lumovi doesn’t know what this would do, so it didn’t.'
 
 /** The app's layouts that aren't a phone, by name (`Layout` in the page's `lib/layout`). */
 const LARGER: ReadonlySet<string> = new Set(['wide', 'tablet'])

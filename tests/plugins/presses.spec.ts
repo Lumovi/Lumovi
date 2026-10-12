@@ -375,7 +375,9 @@ test('a press is what it does, not what its button said: on a phone nothing a pl
   // A sort of press nobody has decided about starts nowhere, on any screen.
   for (const does of ['destroys', 'Changes', '', 'toString', '__proto__', null, undefined]) {
     for (const layout of ['wide', 'tablet', 'phone']) {
-      expect(mayStart(does as never, layout), `${String(does)} ${layout}`).toHaveProperty('refused')
+      expect(mayStart(does as never, layout), `${String(does)} ${layout}`).toEqual({
+        refused: 'Lumovi doesn’t know what this would do, so it didn’t.',
+      })
     }
   }
   // The rule takes no word of a plugin's at all: there's nowhere to hand it one.
