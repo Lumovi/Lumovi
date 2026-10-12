@@ -71,12 +71,17 @@ const GRANT: Grant = {
   own: ['karpenter.sh/NodePool', 'karpenter.sh/Widget'],
   reads: {},
 }
+/** The digests a page's code was handed with: its file's, and its code's. */
+const FILE = `sha256:${'a'.repeat(64)}`
+const CODE = `sha256:${'c'.repeat(64)}`
 const plugin = (also: Partial<KnownPlugin> = {}): KnownPlugin => ({
   name: 'karpenter',
   version: '1.0.0',
   origin: 'lumovi',
   file: 'karpenter.yaml',
-  digest: 'sha256:abc',
+  digest: FILE,
+  code: 'box.then(() => {})',
+  codeDigest: CODE,
   grant: GRANT,
   ...also,
 })
@@ -124,7 +129,18 @@ function stage(
       read: (key, input) => void audit.push({ key, input }),
     },
   })
-  return { read, asked, audit }
+  return {
+    // (A page's reads name what its code was handed with; one that names nothing else is tried
+    // as it comes.)
+    read: (query: unknown) =>
+      read(
+        typeof query === 'object' && query !== null && !Object.hasOwn(query, 'digest')
+          ? { digest: FILE, codeDigest: CODE, ...query }
+          : query,
+      ),
+    asked,
+    audit,
+  }
 }
 
 test('a plugin reads its own kind whole: as the cluster serves it, with nothing kept for others', async () => {
@@ -161,7 +177,7 @@ test('a plugin reads its own kind whole: as the cluster serves it, with nothing 
       cluster: 'demo',
       target: { kind: 'NodePool.karpenter.sh' },
       summary: 'Read NodePools for the plugin karpenter',
-      details: { plugin: 'karpenter', pluginVersion: '1.0.0', pluginDigest: 'sha256:abc' },
+      details: { plugin: 'karpenter', pluginVersion: '1.0.0', pluginDigest: FILE },
     },
   ])
   // One object, by its name.
@@ -271,6 +287,42 @@ test('plugins not in use, by however many names, are one entry a while in the hi
   // In another cluster, an entry of its own.
   await read({ context: 'other', plugin: 'p0', kind: 'karpenter.sh/NodePool' })
   expect(new Set(audit.map(({ key }) => key)).size).toBe(2)
+})
+
+test('a read is made only for the code and the file its page was handed: anything since is changed', async () => {
+  const { read, asked, audit } = stage()
+  const ask = { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool' }
+  for (const handed of [
+    { digest: `sha256:${'b'.repeat(64)}`, codeDigest: CODE },
+    { digest: FILE, codeDigest: `sha256:${'d'.repeat(64)}` },
+  ]) {
+    expect(await read({ ...ask, ...handed }), JSON.stringify(handed)).toEqual({
+      ok: false,
+      refused: 'changed',
+    })
+  }
+  expect(asked).toEqual({ list: [], get: [] })
+  expect(audit.map(({ input }) => [input.outcome, input.details?.refused])).toEqual([
+    ['refused', 'changed'],
+    ['refused', 'changed'],
+  ])
+  // A plugin with no code reads nothing, whatever a page says it was handed.
+  const { read: none } = stage([plugin({ code: undefined, codeDigest: undefined })])
+  expect(await none(ask)).toEqual({ ok: false, refused: 'changed' })
+  // And a read that doesn't name both is no read at all.
+  for (const missing of [
+    { digest: FILE },
+    { codeDigest: CODE },
+    { digest: 'sha256:abc', codeDigest: CODE },
+  ]) {
+    expect(
+      await read({ ...ask, ...missing, ...('digest' in missing ? {} : { digest: undefined }) }),
+      JSON.stringify(missing),
+    ).toEqual({
+      ok: false,
+      refused: 'failed',
+    })
+  }
 })
 
 test('a failure is a code: never what the cluster said', async () => {

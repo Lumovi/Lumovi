@@ -13,9 +13,11 @@ import {
   SearchX,
   TriangleAlert,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
+import { notHandedLine } from '@shared/plugin-hand-over'
 import type { Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
 import { apiKindOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
@@ -570,7 +572,7 @@ function WhatItAsks({ plugin, names }: { plugin: Plugin; names: Names }) {
         {LUMOVI_TEST_BUILD && (
           <section aria-label="Adds to Lumovi’s pages">
             <h3 className={heading}>Adds to Lumovi’s pages</h3>
-            <Adds added={plugin.added} names={names} />
+            <Adds name={plugin.name} added={plugin.added} names={names} />
           </section>
         )}
       </div>
@@ -668,8 +670,18 @@ function MayChange({ asked, names }: { asked: Asks; names: Names }) {
 }
 
 /** What a plugin adds to Lumovi's pages: how many of each, then each by the name its file gives. */
-function Adds({ added, names }: { added: Plugin['added']; names: Names }) {
+function Adds({ name, added, names }: { name: string; added: Plugin['added']; names: Names }) {
   const { pages, tabs, commands } = added
+  // Whether its code would be handed to this window or browser: where not, it says why.
+  const handOver = useQuery({
+    queryKey: ['plugin-hand-over', name],
+    queryFn: () => api.kube.pluginHandOver(name),
+    enabled: pages.length + tabs.length > 0,
+  })
+  const notHanded =
+    handOver.data !== undefined && handOver.data !== true && handOver.data !== 'not-in-use'
+      ? handOver.data
+      : undefined
   const counted = (count: number, one: string, many: string) =>
     count === 0 ? [] : [count === 1 ? one : `${count} ${many}`]
   const on = (kinds: ResourceKind[]) => listed(kinds.map(names.plural))
@@ -682,6 +694,7 @@ function Adds({ added, names }: { added: Plugin['added']; names: Names }) {
   return (
     <div className="space-y-2">
       <p>Adds {listed(parts)}.</p>
+      {notHanded && <p data-testid="plugin-not-handed">{notHandedLine(notHanded)}</p>}
       <ul className="space-y-1">
         {pages.map((page) => (
           <li key={`page:${page.id}`}>

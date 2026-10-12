@@ -46,6 +46,9 @@ const READS: readonly string[] = [
   IPC.get,
   IPC.secretValues,
   IPC.pluginRead,
+  // (Whether a plugin's code would be handed: said, never the code. `IPC.pluginCode` is no
+  // phone's: a phone's plugin page says first that it needs a larger screen.)
+  IPC.pluginHandOver,
   IPC.metrics,
   IPC.can,
   IPC.history,

@@ -30,7 +30,17 @@ spec:
     - { group: '', kind: Node, fields: [metadata.name, metadata.labels] }
 `
 
-const read = (page: Page, query: Omit<PluginReadQuery, 'context'>) =>
+/** Its code, beside its file: what a page of it would be handed. */
+const CODE = 'box.then(() => {})\n'
+const sha = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`
+/** What a page's code was handed with, which its reads name. */
+const HANDED = { digest: sha(TOYS), codeDigest: sha(CODE) }
+
+const read = (
+  page: Page,
+  query: Omit<PluginReadQuery, 'context' | 'digest' | 'codeDigest'> &
+    Partial<Pick<PluginReadQuery, 'digest' | 'codeDigest'>>,
+) =>
   page.evaluate(
     (q) =>
       (
@@ -38,7 +48,7 @@ const read = (page: Page, query: Omit<PluginReadQuery, 'context'>) =>
           lumovi: { kube: { pluginRead(q: PluginReadQuery): Promise<PluginRead> } }
         }
       ).lumovi.kube.pluginRead({ context: 'demo', ...q }),
-    query,
+    { ...HANDED, ...query },
   )
 
 test('a server reads for a plugin’s page what its file grants, and nothing it doesn’t', async ({
@@ -47,6 +57,7 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
 }) => {
   const included = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
   writeFileSync(join(included, 'toys.yaml'), TOYS)
+  writeFileSync(join(included, 'toys.js'), CODE)
   // A file of the server's folder can't carry code: it reads nothing, whatever it claims.
   const folder = mkdtempSync(join(tmpdir(), 'lumovi-plugins-'))
   writeFileSync(join(folder, 'board.yaml'), TOYS.replace('name: toys', 'name: board'))
@@ -98,6 +109,8 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
     ],
     [{ plugin: 'board', kind: 'example.com/Widget' }, 'not-in-use'],
     [{ plugin: 'nobody', kind: 'example.com/Widget' }, 'not-in-use'],
+    // Code, or a file, other than its page was handed: changed since.
+    [{ plugin: 'toys', kind: 'example.com/Widget', codeDigest: sha('other code') }, 'changed'],
     // A name no plugin could have: no read at all, and nothing of it in the history.
     [{ plugin: 'toys\u202Eevil', kind: 'example.com/Widget' }, 'failed'],
   ] as const) {
@@ -106,7 +119,7 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
 
   // In the history: who read, as what plugin (as the server read its file, never as the page
   // said), and what came of it.
-  const digest = `sha256:${createHash('sha256').update(TOYS).digest('hex')}`
+  const digest = HANDED.digest
   await expect
     .poll(() =>
       audited(served, 'plugin.read').map((event) => [
@@ -126,6 +139,7 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
       ['Read Widget nowhere for the plugin toys', 'failure', digest],
       // (Plugins not in use: one entry a while, whatever they're called.)
       ['Read Widget.example.com for the plugin board', 'refused', null],
+      ['Read Widget.example.com for the plugin toys', 'refused', digest],
     ])
   expect(audited(served, 'plugin.read')[0]?.details?.pluginVersion).toBe('1.2.0')
 })

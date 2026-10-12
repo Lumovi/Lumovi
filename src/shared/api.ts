@@ -39,6 +39,7 @@ import type {
   PickedFiles,
 } from './files'
 import type { AppCommand } from './navigation'
+import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginRead, PluginReadQuery } from './plugin-reads'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
@@ -1127,6 +1128,13 @@ export interface LumoviApi {
      * the cluster said.
      */
     pluginRead(query: PluginReadQuery): Promise<PluginRead>
+    /**
+     * A plugin's code, for its page's box: the only way any plugin's code reaches a page, and
+     * only where the backend's `mayHandOver` says this page may have it.
+     */
+    pluginCode(plugin: string): Promise<PluginCode>
+    /** What `pluginCode` would answer, without the code: for a page that only says so. */
+    pluginHandOver(plugin: string): Promise<true | NotHanded>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
     /** Resolves with the changed object, or null for deletions and evictions. */
     change(request: ChangeRequest): Promise<Result<KubeObject | null>>
@@ -1440,6 +1448,8 @@ export const IPC = {
   get: 'kube:get',
   secretValues: 'kube:secret-values',
   pluginRead: 'kube:plugin-read',
+  pluginCode: 'kube:plugin-code',
+  pluginHandOver: 'kube:plugin-hand-over',
   metrics: 'kube:metrics',
   change: 'kube:change',
   can: 'kube:can',

@@ -40,11 +40,19 @@ export const digestOf = (bytes: Uint8Array) =>
 export async function readFiles(
   { path }: { path: string },
   env: NodeJS.ProcessEnv = process.env,
-): Promise<{ files: ReadFile[]; included?: ReadFile[] }> {
+): Promise<{ files: ReadFile[]; included?: ReadFile[]; includedCode?: ReadFile[] }> {
   const own = { files: await filesIn(path) }
   const included = includedFolder(env)
-  return included ? { ...own, included: await filesIn(included) } : own
+  // (The stand-ins' code, beside their files: `toys.js` beside `toys.yaml`. A folder's own files
+  // carry no code, so nothing of the kind is read from it.)
+  return included
+    ? { ...own, included: await filesIn(included), includedCode: await filesIn(included, CODE) }
+    : own
 }
+
+/** A plugin's file, and the code that comes beside one of Lumovi's own. */
+const YAML = /\.ya?ml$/i
+const CODE = /\.js$/i
 
 /** The tests' stand-in for plugins that came inside the build, in the tests' build alone. */
 function includedFolder(env: NodeJS.ProcessEnv): string | undefined {
@@ -64,11 +72,15 @@ export async function filesMark(
   { path }: { path: string },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
-  const folders = [path, includedFolder(env)].filter((folder) => folder !== undefined)
+  const included = includedFolder(env)
+  const folders = [
+    { folder: path, names: YAML },
+    ...(included === undefined ? [] : [{ folder: included, names: /\.(?:ya?ml|js)$/i }]),
+  ]
   const marks = await Promise.all(
-    folders.map(async (folder) =>
+    folders.map(async ({ folder, names }) =>
       Promise.all(
-        ((await listed(folder)) ?? []).map(async ({ name }) => {
+        ((await listed(folder, names)) ?? []).map(async ({ name }) => {
           try {
             const s = await stat(join(folder, name), { bigint: true })
             return [name, s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':')
@@ -101,7 +113,10 @@ export async function readPlugins(
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 /** A folder's plugin files, by name, in order; nothing if there's no folder. */
-async function listed(path: string): Promise<{ name: string; link: boolean }[] | undefined> {
+async function listed(
+  path: string,
+  names: RegExp = YAML,
+): Promise<{ name: string; link: boolean }[] | undefined> {
   let entries: Dirent[]
   try {
     entries = await readdir(path, { withFileTypes: true })
@@ -112,16 +127,16 @@ async function listed(path: string): Promise<{ name: string; link: boolean }[] |
     entries
       // Links too: a ConfigMap mounted as a volume (as the Helm chart's plugins are) is links
       // into a folder of its own.
-      .filter((entry) => (entry.isFile() || entry.isSymbolicLink()) && /\.ya?ml$/i.test(entry.name))
+      .filter((entry) => (entry.isFile() || entry.isSymbolicLink()) && names.test(entry.name))
       .map((entry) => ({ name: entry.name, link: entry.isSymbolicLink() }))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       .slice(0, MAX_FILES)
   )
 }
 
-async function filesIn(path: string): Promise<ReadFile[]> {
+async function filesIn(path: string, which: RegExp = YAML): Promise<ReadFile[]> {
   // (No folder: no plugins of one's own.)
-  const names = (await listed(path)) ?? []
+  const names = (await listed(path, which)) ?? []
   return Promise.all(
     names.map(({ name, link }) => within(READ_MS, name, fileRead(join(path, name), name, link))),
   )

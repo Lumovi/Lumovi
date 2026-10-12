@@ -93,6 +93,11 @@ export function openPage(options: {
   plugin: string
   context: string
   code: string
+  /**
+   * What the code was handed with (`PluginCode`), which its reads name: none for code that
+   * wasn't handed over (the tests' stage's own), whose reads are then never made.
+   */
+  handed?: { digest: string; codeDigest: string }
   parts: Readonly<Record<string, KitPart>>
 }): OpenPage {
   const declared = Object.fromEntries(
@@ -158,7 +163,9 @@ export function openPage(options: {
   const reading = new PageReading({
     context: options.context,
     plugin: options.plugin,
+    handed: options.handed ?? { digest: '', codeDigest: '' },
     send: (text) => box.post(text),
+    changed: () => ended({ why: 'changed' }),
   })
   const box = openBox({
     plugin: options.plugin,

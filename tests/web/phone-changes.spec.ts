@@ -53,6 +53,9 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   // (Some of a Secret's values, picked by key where it's read: a read, as a get is.)
   'kube.secretValues': 'reads',
   'kube.pluginRead': 'reads',
+  'kube.pluginHandOver': 'reads',
+  // (Refused on a phone as a change is: a phone is never handed a plugin's code.)
+  'kube.pluginCode': 'changes',
   'kube.metrics': 'reads',
   'kube.can': 'reads',
   'kube.history': 'reads',
