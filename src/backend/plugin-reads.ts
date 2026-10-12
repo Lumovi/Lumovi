@@ -254,7 +254,13 @@ export async function secretsAskedFor(
   if (typeof query !== 'object' || query === null || !Object.hasOwn(query, 'forPlugin')) {
     return { query }
   }
-  const { forPlugin: name, namedBy: said, ...rest } = query as Record<string, unknown>
+  const {
+    forPlugin: name,
+    namedBy: said,
+    digest,
+    codeDigest,
+    ...rest
+  } = query as Record<string, unknown>
   if (typeof name !== 'string' || !PLUGIN_NAME.test(name)) {
     return { refused: { code: 'invalid', message: 'Expected a plugin’s name' } }
   }
@@ -283,6 +289,14 @@ export async function secretsAskedFor(
     refused: { code: 'not-allowed' as const, message },
     recorded: { query: asked, plugin },
   })
+  // Only for the file and the code its page was handed, as any read of a plugin's: a Secret
+  // shown is part of the grant too.
+  if (digest !== plugin.digest || codeDigest !== plugin.codeDigest || !plugin.codeDigest) {
+    return {
+      refused: { code: 'conflict' as const, message: READ_REFUSED.changed },
+      recorded: { query: asked, plugin },
+    }
+  }
   // The item: by the kind as the cluster serves it, and the path as the file wrote it.
   let resource: ResourceDefinition
   try {

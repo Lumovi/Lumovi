@@ -29,11 +29,11 @@ export function mayHandOver(
 ): true | NotHanded {
   if (!plugin || !mayCarryCode(plugin.origin)) return 'not-in-use'
   if (plugin.code === undefined || plugin.codeDigest === undefined) return 'no-code'
-  if (to.host === 'server') {
-    if (!to.held) return 'not-held'
-    if (!to.checked) return 'not-checked'
-  }
-  return true
+  if (to.host === 'desktop') return true
+  // Anywhere else is a server's browser, and held only by exactly these: whatever isn't one of
+  // them, or isn't said as a yes, is no.
+  if (to.host !== 'server' || to.held !== true) return 'not-held'
+  return to.checked === true ? true : 'not-checked'
 }
 
 export interface CodeHandOver {
