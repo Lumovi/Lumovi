@@ -5,6 +5,7 @@
  * wherever else changes show.
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -29,6 +30,21 @@ const go = (page: Page, path: string) => page.goto(`${page.url().split('#')[0]}#
 const list = (page: Page) => page.getByRole('listbox', { name: 'Events' })
 const row = (page: Page, summary: string | RegExp) =>
   list(page).getByRole('option', { name: summary })
+
+/** Ports nothing listens on (for now), each a different one. */
+async function freePorts(count: number): Promise<number[]> {
+  const ports: number[] = []
+  while (ports.length < count) {
+    const port = await new Promise<number>((resolve) => {
+      const server = createServer().listen(0, '127.0.0.1', () => {
+        const { port } = server.address() as { port: number }
+        server.close(() => resolve(port))
+      })
+    })
+    if (!ports.includes(port)) ports.push(port)
+  }
+  return ports
+}
 
 test('what’s done in the desktop app is kept on this computer, and found again', async ({
   page,
@@ -91,8 +107,10 @@ test('what’s done in the desktop app is kept on this computer, and found again
   expect(forwarded.ok).toBe(true)
   expect(failed.ok).toBe(false)
   const local = forwarded.ok ? forwarded.data.localPort : 0
-  // What decides what assistants may do.
-  await page.evaluate(async () => {
+  // What decides what assistants may do. (On ports of the test's own, never their default:
+  // another Lumovi on the same runner may be listening there.)
+  const ports = await freePorts(3)
+  await page.evaluate(async ([first, second, third]) => {
     const api = window.lumovi!
     await api.aiPermissions!.set({
       defaults: { changes: 'never', secrets: 'keys', env: 'sensitive', logs: 'read' },
@@ -100,11 +118,11 @@ test('what’s done in the desktop app is kept on this computer, and found again
         { id: 'shop', name: 'Shop', clusters: [], namespaces: ['shop'], set: { changes: 'ask' } },
       ],
     })
-    await api.assistants!.configure({ enabled: true })
-    await api.assistants!.configure({ port: 39_217 })
-    await api.assistants!.configure({ enabled: false, port: 39_218 })
+    await api.assistants!.configure({ enabled: true, port: first })
+    await api.assistants!.configure({ port: second })
+    await api.assistants!.configure({ enabled: false, port: third })
     await api.assistants!.resetToken()
-  })
+  }, ports)
 
   const recorded = (await events(page)).reverse().slice(2)
   expect(recorded.map((e) => [e.action, e.outcome, e.summary])).toEqual([
@@ -125,12 +143,16 @@ test('what’s done in the desktop app is kept on this computer, and found again
       'success',
       'Changed what AI assistants may do: by default, changes never, Secrets keys, env sensitive, logs read; 1 rule',
     ],
-    ['assistants.changed', 'success', 'Let AI assistants connect'],
-    ['assistants.changed', 'success', 'Moved where AI assistants connect to port 39217'],
     [
       'assistants.changed',
       'success',
-      'Stopped AI assistants connecting; Moved where AI assistants connect to port 39218',
+      `Let AI assistants connect; Moved where AI assistants connect to port ${ports[0]}`,
+    ],
+    ['assistants.changed', 'success', `Moved where AI assistants connect to port ${ports[1]}`],
+    [
+      'assistants.changed',
+      'success',
+      `Stopped AI assistants connecting; Moved where AI assistants connect to port ${ports[2]}`,
     ],
     [
       'assistants.changed',
