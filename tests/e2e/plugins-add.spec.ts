@@ -134,11 +134,14 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   await expect(heading(page)).toHaveText('Plugins')
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins?plugin=lab')
 
-  // The Plugins page says what each adds, by the names its file gives them.
+  // The Plugins page says what each adds, by the names its file gives them; and, once it has
+  // asked, that its pages don't run, since this one has no code.
   await go(page, 'plugins?plugin=toys')
   const adds = page.getByRole('region', { name: 'Adds to Lumovi’s pages' })
+  const notRun = 'Its pages don’t run here: its code isn’t part of this Lumovi.'
+  await expect(adds.getByTestId('plugin-not-handed')).toHaveText(notRun)
   await expect(adds).toContainText(
-    'Adds 2 pages, a tab on Widgets and a command to the palette.The page OverviewThe page CapacityThe tab Parts, on WidgetsThe command Open the toys’ capacity',
+    `Adds 2 pages, a tab on Widgets and a command to the palette.${notRun}The page OverviewThe page CapacityThe tab Parts, on WidgetsThe command Open the toys’ capacity`,
   )
 })
 
