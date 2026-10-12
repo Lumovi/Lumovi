@@ -23,6 +23,7 @@ import type { AuditLog } from '@backend/audit/log'
 import { recorder } from '@backend/audit/recorder'
 import { handlers, type Handler } from '@backend/handlers'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
+import { plugins } from '@backend/plugins-known'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
 import { FileCopies, fileCopyLimits } from '@backend/kube/files'
@@ -169,10 +170,13 @@ export interface ConnectionOptions {
   }
 }
 
-/** Whether an answer is the cluster refusing the credentials (401). */
+/**
+ * Whether an answer is the cluster refusing the credentials (401). (Not every answer that isn't
+ * one is a cluster's error: a plugin's read is refused with a code of its own.)
+ */
 const isRejection = (value: unknown) =>
   (value as Result<unknown> | undefined)?.ok === false &&
-  (value as { error: KubeError }).error.code === 'unauthorized'
+  (value as { error?: KubeError }).error?.code === 'unauthorized'
 
 /** What a message from a page must look like; anything else ends the connection. */
 function isMessage(value: unknown): value is ClientMessage {
@@ -322,6 +326,8 @@ export class PageConnection {
       logs,
       files,
       pluginsDirectory: { path: config.pluginsDir, shown: config.pluginsDir },
+      knownPlugins: () =>
+        plugins({ path: config.pluginsDir, shown: config.pluginsDir }, 'server', version),
       audit: recording,
     })
     const auditing = auditHandlers(

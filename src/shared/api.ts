@@ -39,6 +39,7 @@ import type {
   PickedFiles,
 } from './files'
 import type { AppCommand } from './navigation'
+import type { PluginRead, PluginReadQuery } from './plugin-reads'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
 
@@ -1108,6 +1109,12 @@ export interface LumoviApi {
     get(query: GetQuery): Promise<Result<KubeObject>>
     /** Some of a Secret's values, picked by key where it's read: the rest never reach the page. */
     secretValues(query: SecretValuesQuery): Promise<Result<SecretValues>>
+    /**
+     * A read for a plugin's page: made, checked against the plugin's file and picked where it's
+     * read, so the page holds only what the plugin may have. A refusal is a code, never what
+     * the cluster said.
+     */
+    pluginRead(query: PluginReadQuery): Promise<PluginRead>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
     /** Resolves with the changed object, or null for deletions and evictions. */
     change(request: ChangeRequest): Promise<Result<KubeObject | null>>
@@ -1420,6 +1427,7 @@ export const IPC = {
   list: 'kube:list',
   get: 'kube:get',
   secretValues: 'kube:secret-values',
+  pluginRead: 'kube:plugin-read',
   metrics: 'kube:metrics',
   change: 'kube:change',
   can: 'kube:can',

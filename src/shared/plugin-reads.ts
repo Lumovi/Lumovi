@@ -13,7 +13,7 @@
  */
 import type { Step } from './jsonpath'
 import type { Stopped } from './plugin-door'
-import { isCustomGroup } from './resources'
+import { isCustomGroup, type ResourceKind } from './resources'
 
 /**
  * What reading is held to. First lines, as the door's own: what settles them is a real plugin's
@@ -52,7 +52,7 @@ export interface Granted {
 export interface Grant {
   /** The plugin's own groups (`spec.groups`): an annotation is read only by a key under one. */
   groups: readonly string[]
-  /** The kinds it claims (`group/Kind`): read whole. */
+  /** The kinds it claims (`group/Kind`; `group/*`, every kind of a group): read whole. */
   own: readonly string[]
   /** By kind (`group/Kind`; the core group: `/Kind`). */
   reads: Readonly<Record<string, Granted>>
@@ -194,9 +194,11 @@ export function granted(
 ): Handed | undefined {
   if (never(kind)) return undefined
   const id = idOf(kind)
-  // Its own kinds, whole: everything of them. A tool's kinds only: one of Kubernetes' own is
-  // never whole, whatever claims it.
-  if (isCustomGroup(kind.group) && grant.own.includes(id)) return { whole: true }
+  // Its own kinds, whole: everything of them (`group/*`: every kind of a group it claims). A
+  // tool's kinds only: one of Kubernetes' own is never whole, whatever claims it.
+  if (mayBeOwn(kind.group) && (grant.own.includes(id) || grant.own.includes(`${kind.group}/*`))) {
+    return { whole: true }
+  }
   // One of Kubernetes' own: only a kind Lumovi keeps a list for.
   if (!isCustomGroup(kind.group) && !Object.hasOwn(READABLE, id)) return undefined
   const said = Object.hasOwn(grant.reads, id) ? grant.reads[id] : undefined
@@ -484,6 +486,29 @@ export function picked(
   )
 }
 
+/**
+ * An object of one of the plugin's own kinds, as it's handed over: all of it, but for the
+ * names no object is read by (`__proto__` and its kin), who manages which field, and the
+ * annotations Kubernetes' own tools keep for themselves (the object as it was last applied).
+ * The same whether it was read in a list or alone. A copy.
+ */
+export function handedWhole(object: unknown): Record<string, unknown> {
+  if (typeof object !== 'object' || object === null || Array.isArray(object)) return {}
+  const copy = handedOver(object, false, { fields: 0 }) as Record<string, unknown>
+  const metadata = copy.metadata
+  if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
+    const meta = metadata as Record<string, unknown>
+    delete meta.managedFields
+    const annotations = meta.annotations
+    if (typeof annotations === 'object' && annotations !== null && !Array.isArray(annotations)) {
+      for (const key of Object.keys(annotations)) {
+        if (NEVER_ANNOTATIONS.test(key)) delete (annotations as Record<string, unknown>)[key]
+      }
+    }
+  }
+  return copy
+}
+
 /** The most Secrets one object may name by one declared path: past it, none. */
 export const SECRETS_NAMED_AT_MOST = 20
 
@@ -526,6 +551,116 @@ export function secretsNamed(object: unknown, steps: readonly Step[]): string[] 
   if (names.length === 0 || names.length > SECRETS_NAMED_AT_MOST) return []
   if (!names.every((name): name is string => typeof name === 'string' && NAME.test(name))) return []
   return [...new Set(names)]
+}
+
+/**
+ * A read for a plugin's page, as Lumovi's own page asks the main process or the server to make
+ * it: never a plugin's text passed on, but what `readAsk` took from it, checked again where it's
+ * read.
+ */
+export interface PluginReadQuery {
+  context: string
+  /** The plugin whose page asks, by its name: what else it is, the backend knows. */
+  plugin: string
+  /** As the plugin asked: `group/Kind`. What it names is the backend's to find. */
+  kind: string
+  namespace?: string
+  /** One object; none for a list. */
+  name?: string
+}
+
+/** An object handed to a plugin's page: which, and what the plugin may have of it. */
+export interface HandedObject {
+  namespace?: string
+  name: string
+  object: Record<string, unknown>
+}
+
+/** What a read hands a plugin's page. */
+export interface PluginReadAnswer {
+  /** The kind as Lumovi resolved it (Lumovi's own name for it): what each object's token names. */
+  kind: ResourceKind
+  objects: HandedObject[]
+  /** How many fields of what its file names were held back: said once, to its author. */
+  held: number
+}
+
+/**
+ * Why a read for a plugin wasn't made, or failed: a code, and Lumovi's own sentence for it
+ * (`READ_REFUSED`). Never the cluster's words, which can name the person and the cluster's
+ * address.
+ */
+export type ReadRefusal =
+  /** Its file doesn't say it reads this. */
+  | 'not-granted'
+  /** The plugin isn't one Lumovi has in use (any more): its file was taken away, say. */
+  | 'not-in-use'
+  /** The cluster serves no such kind. */
+  | 'no-such-kind'
+  /** One object of a kind that's in a namespace, asked for without one. */
+  | 'needs-namespace'
+  | 'not-found'
+  /** The person may not read it: the cluster's rules, or Lumovi's. */
+  | 'not-allowed'
+  /** More objects than Lumovi hands a page at once. */
+  | 'too-many'
+  | 'unreachable'
+  | 'failed'
+  /** A read Lumovi doesn't make for a plugin yet: an object's events, or its usage. */
+  | 'not-yet'
+
+/** What a plugin's code is told, with the code, of a read that wasn't made. */
+export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
+  'not-granted': 'This plugin’s file doesn’t ask to read this.',
+  'not-in-use': 'This plugin isn’t in use in Lumovi.',
+  'no-such-kind': 'This cluster doesn’t serve this kind.',
+  'needs-namespace': 'Objects of this kind are in a namespace: name it as well as the object.',
+  'not-found': 'There’s no such object.',
+  'not-allowed': 'Whoever is using Lumovi isn’t allowed to read this.',
+  'too-many':
+    'There are more of these than Lumovi hands a page at once: ask within one namespace, or for one by name.',
+  unreachable: 'The cluster didn’t answer.',
+  failed: 'Lumovi couldn’t read this.',
+  'not-yet': 'Lumovi doesn’t read this for a plugin yet.',
+}
+
+/** What a read for a plugin comes to. */
+export type PluginRead =
+  { ok: true; answer: PluginReadAnswer } | { ok: false; refused: ReadRefusal }
+
+/**
+ * A read as the backend takes it from a page, or nothing: exactly its keys, each of its kind, by
+ * the same rules `readAsk` holds a plugin's ask to.
+ */
+export function readQuery(value: unknown): PluginReadQuery | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const q = value as Record<string, unknown>
+  if (!has(q, 'context', 'plugin', 'kind', 'namespace', 'name')) return undefined
+  const optional = (key: string) => (Object.hasOwn(q, key) ? q[key] : undefined)
+  const { namespace, name } = { namespace: optional('namespace'), name: optional('name') }
+  const fine =
+    typeof q.context === 'string' &&
+    q.context !== '' &&
+    typeof q.plugin === 'string' &&
+    q.plugin !== '' &&
+    typeof q.kind === 'string' &&
+    KIND.test(q.kind) &&
+    (namespace === undefined || (typeof namespace === 'string' && NAME.test(namespace))) &&
+    (name === undefined || (typeof name === 'string' && NAME.test(name)))
+  if (!fine) return undefined
+  return {
+    context: q.context as string,
+    plugin: q.plugin as string,
+    kind: q.kind as string,
+    ...(namespace === undefined ? {} : { namespace: namespace as string }),
+    ...(name === undefined ? {} : { name: name as string }),
+  }
+}
+
+/** `group/Kind` as its two halves. */
+export function kindAsked(kind: string): { group: string; kind: string } {
+  const slash = kind.lastIndexOf('/')
+  return { group: kind.slice(0, slash), kind: kind.slice(slash + 1) }
 }
 
 /** What all of a plugin's pages keep between them: counted in one place. */

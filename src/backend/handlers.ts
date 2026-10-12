@@ -18,6 +18,7 @@ import {
   type Result,
   type Settings,
 } from '@shared/api'
+import type { KnownPlugin } from '@shared/plugins-known'
 import {
   describeChange,
   describeDeploy,
@@ -40,6 +41,7 @@ import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from './settings'
 import { readPlugins } from './plugins'
+import { pluginReads } from './plugin-reads'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
 export type Handler = (...args: unknown[]) => unknown
@@ -55,6 +57,8 @@ export interface Backend {
   files: FileCopies
   /** Where the plugins of one's own are, and how that folder is shown. */
   pluginsDirectory: { path: string; shown: string }
+  /** The plugins in use, as the backend reads them now (`plugins` in `./plugins-known`). */
+  knownPlugins: () => Promise<readonly Readonly<KnownPlugin>[]>
   /** The audit log, as the page's person records to it. */
   audit: Recorder
 }
@@ -76,6 +80,7 @@ export function handlers({
   logs,
   files,
   pluginsDirectory,
+  knownPlugins,
   audit,
 }: Backend): Handlers {
   /** Recorded once it's done, as it came out: but not what was only tried (a dry run). */
@@ -253,6 +258,7 @@ export function handlers({
         }
         return result
       },
+      [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit }),
       [IPC.metrics]: (query) => kube.metrics(query),
       [IPC.change]: recorded(async (request: ChangeRequest) => {
         const result = await kube.change(request)

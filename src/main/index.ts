@@ -19,6 +19,7 @@ import { UsageHistory } from '@backend/kube/usage'
 import { setUpNetwork } from '@backend/network'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { pluginsDirectory } from '@backend/plugins'
+import { plugins } from '@backend/plugins-known'
 import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
@@ -404,6 +405,7 @@ if (stdio) {
       updates,
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
+      knownPlugins: () => plugins(pluginsDirectory(homedir()), 'desktop', app.getVersion()),
       rendererUrl: url,
       audit,
       auditLog,

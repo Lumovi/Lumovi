@@ -1711,6 +1711,24 @@ function readPlugin(
 /** "flux’s", "argo-rollouts’". */
 export const whose = (name: string) => (name.endsWith('s') ? `${name}’` : `${name}’s`)
 
+/**
+ * The kinds a plugin claims as its own, as its code's reads name them (`group/Kind`; `group/*`
+ * for every kind of a group): under its place or in a view, each in a tool's group. Never one
+ * of Kubernetes' own, whatever views it has of one. What its code reads whole.
+ */
+export function ownKinds(plugin: Pick<Plugin, 'place' | 'views'>): string[] {
+  const kinds = [...(plugin.place?.kinds ?? []), ...plugin.views.flatMap((view) => view.kinds)]
+  return [
+    ...new Set(
+      kinds
+        .filter((kind) => !isBuiltinKind(kind))
+        .map((kind) => ({ group: apiGroupOf(kind), kind: apiKindOf(kind) }))
+        .filter(({ group }) => isCustomGroup(group) && !kubernetesOwnName(group))
+        .map(({ group, kind }) => `${group}/${kind}`),
+    ),
+  ]
+}
+
 export function clashes(plugins: Plugin[], held: Plugin[] = []): Map<Plugin, string> {
   const lost = new Map<Plugin, string>()
   const owner = new Map<ResourceKind, string>()

@@ -94,7 +94,26 @@ test('a folder’s file in the place of one of Lumovi’s is that plugin: by its
     const named = known.filter(({ name }) => name === 'cert-manager')
     // Lumovi's own of that name isn't in the list at all: it isn't in use.
     expect(named).toEqual([
-      { name: 'cert-manager', version: '7.7.7', origin, file: 'mine.yaml', digest: sha(theirs) },
+      {
+        name: 'cert-manager',
+        version: '7.7.7',
+        origin,
+        file: 'mine.yaml',
+        digest: sha(theirs),
+        // What its code may read: its own kinds, whole. (Of Kubernetes' own, nothing yet.)
+        grant: {
+          groups: ['cert-manager.io', 'acme.cert-manager.io'],
+          own: [
+            'cert-manager.io/Certificate',
+            'cert-manager.io/CertificateRequest',
+            'cert-manager.io/Issuer',
+            'cert-manager.io/ClusterIssuer',
+            'acme.cert-manager.io/Order',
+            'acme.cert-manager.io/Challenge',
+          ],
+          reads: {},
+        },
+      },
     ])
     expect(mayCarryCode(named[0]!.origin)).toBe(false)
     expect(known).toHaveLength(yamlOf(PLUGINS).length)
@@ -117,6 +136,9 @@ test('an answer can’t be changed by whoever asked: the next asker is told the 
   expect(() => ((mine as { origin: string }).origin = 'lumovi')).toThrow()
   expect(() => (known as KnownPlugin[]).sort(() => -1)).toThrow()
   expect(() => ((known as KnownPlugin[]).length = 0)).toThrow()
+  // Nor what its code may read.
+  expect(() => (mine.grant.own as string[]).push('apps/Deployment')).toThrow()
+  expect(() => ((mine.grant as { reads: object }).reads = { '/Pod': {} })).toThrow()
   expect(mine.origin).toBe('yours')
   // A file in use handed over without its digest isn't left out quietly.
   expect(() =>
@@ -248,5 +270,84 @@ test('a folder’s file is read once: its text and its digest are of the same by
   expect(sized[1]!.text).toHaveLength(256 * 1024)
   expect(sized[1]!.digest).toBe(sha(Buffer.alloc(256 * 1024, 0x61)))
   rmSync(folder, { recursive: true, force: true })
+  delete (globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD
+})
+
+test('one of Lumovi’s own that adds pages is in use for the backend as for the page: it may carry code', () => {
+  const toys = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  pages: [{ id: overview, title: Overview }]
+`
+  const included = readIncluded({ 'plugins/toys.yaml': toys }, texts(OWN))
+  expect(included.problems).toEqual([])
+  expect(included.plugins.map(({ plugin }) => plugin.added.pages)).toEqual([
+    [{ id: 'overview', title: 'Overview' }],
+  ])
+  const [known] = knownPlugins(included, [], 'yours', LUMOVI, sha)
+  expect(known).toMatchObject({ name: 'toys', origin: 'lumovi' })
+  // A folder's file of its name is in its place: data, whatever it came to be. (One with pages
+  // isn't a plugin at all there, and leaves Lumovi's own in use.)
+  const data = toys.replace(/^ {2}pages:.*\n/m, '')
+  for (const [text, origin] of [
+    [data, 'yours'],
+    [toys, 'lumovi'],
+  ] as const) {
+    const theirs = knownPlugins(
+      included,
+      [{ name: 'toys.yaml', text, digest: sha(text) }],
+      'yours',
+      LUMOVI,
+      sha,
+    )
+    expect(theirs.find(({ name }) => name === 'toys')?.origin).toBe(origin)
+  }
+})
+
+test('the folders’ files are marked without being read: a change of any of them changes the mark', async () => {
+  ;(globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD = true
+  const { filesMark } = await import('../../src/backend/plugins.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-mark-'))
+  const included = mkdtempSync(join(tmpdir(), 'lumovi-mark-included-'))
+  const env = { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included }
+  writeFileSync(join(folder, 'a.yaml'), 'name: a\n')
+  writeFileSync(join(included, 'toys.yaml'), 'name: toys\n')
+  const marks = [await filesMark({ path: folder }, env)]
+  // Looked at again with nothing changed: the same.
+  expect(await filesMark({ path: folder }, env)).toBe(marks[0])
+  const changes: (() => void)[] = [
+    // The same size, other bytes.
+    () => writeFileSync(join(folder, 'a.yaml'), 'name: b\n'),
+    () => writeFileSync(join(folder, 'b.yml'), 'name: b\n'),
+    () => rmSync(join(folder, 'b.yml')),
+    // A link where a file was: what it leads to is what's marked.
+    () => {
+      writeFileSync(join(folder, 'target.txt'), 'name: c\n')
+      rmSync(join(folder, 'a.yaml'))
+      symlinkSync(join(folder, 'target.txt'), join(folder, 'a.yaml'))
+    },
+    () => writeFileSync(join(folder, 'target.txt'), 'name: d\n'),
+    // The tests' stand-ins for Lumovi's own count too.
+    () => writeFileSync(join(included, 'toys.yaml'), 'name: tots\n'),
+  ]
+  for (const change of changes) {
+    change()
+    const mark = await filesMark({ path: folder }, env)
+    expect(mark, String(change)).not.toBe(marks.at(-1))
+    marks.push(mark)
+  }
+  // (Taken away again, a file leaves the folder as it was before it came: so does its mark.)
+  expect(marks[3]).toBe(marks[1])
+  // What isn't a plugin's file isn't looked at.
+  writeFileSync(join(folder, 'notes.txt'), 'x')
+  expect(await filesMark({ path: folder }, env)).toBe(marks.at(-1))
+  // And no folder at all is a mark too.
+  expect(await filesMark({ path: join(folder, 'nowhere') })).toBe('[[]]')
   delete (globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD
 })

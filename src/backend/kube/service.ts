@@ -195,6 +195,14 @@ export class KubeService {
     return resources
   }
 
+  /**
+   * What `kind` is on `context`, as the cluster serves it: its group, its kind and whether it's
+   * in a namespace. Throws `not-found` for a kind it doesn't serve.
+   */
+  resource(context: string, kind: ResourceKind): Promise<ResourceDefinition> {
+    return this.#resource(context, kind)
+  }
+
   /** What `kind` is on `context`: built in, or found by discovery (again, if it's new). */
   async #resource(context: string, kind: ResourceKind): Promise<ResourceDefinition> {
     const builtin = builtinResource(kind)

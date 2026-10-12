@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto'
 import { constants, type Dirent } from 'node:fs'
-import { open, readdir } from 'node:fs/promises'
+import { open, readdir, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { LocalPlugins } from '@shared/api'
 
@@ -42,12 +42,44 @@ export async function readFiles(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ files: ReadFile[]; included?: ReadFile[] }> {
   const own = { files: await filesIn(path) }
-  // (A release build ends here: what follows, and the variable it reads, are left out of it.)
-  if (!LUMOVI_TEST_BUILD) return own
-  // The tests' stand-in for plugins that came inside the build: Lumovi's own are only ever the
-  // ones built in, so a bad one can't be shown to the app any other way.
-  const included = env.LUMOVI_TEST_INCLUDED_PLUGINS_DIR
+  const included = includedFolder(env)
   return included ? { ...own, included: await filesIn(included) } : own
+}
+
+/** The tests' stand-in for plugins that came inside the build, in the tests' build alone. */
+function includedFolder(env: NodeJS.ProcessEnv): string | undefined {
+  // (A release build has none: the variable isn't read in it. Lumovi's own are only ever the
+  // ones built in, so a bad one can't be shown to the app any other way.)
+  return LUMOVI_TEST_BUILD ? env.LUMOVI_TEST_INCLUDED_PLUGINS_DIR : undefined
+}
+
+/**
+ * What the folders' files are now, without reading them: each one's name, and of what it is
+ * (through a link, of what that leads to) its device, its number there, its size and the times
+ * it was written and changed, to the nanosecond. Nothing changes a file without changing its
+ * change time, so files with the same mark were read the same, and what was read of them
+ * stands. One that can't be looked at is marked by why.
+ */
+export async function filesMark(
+  { path }: { path: string },
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const folders = [path, includedFolder(env)].filter((folder) => folder !== undefined)
+  const marks = await Promise.all(
+    folders.map(async (folder) =>
+      Promise.all(
+        ((await listed(folder)) ?? []).map(async ({ name }) => {
+          try {
+            const s = await stat(join(folder, name), { bigint: true })
+            return [name, s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':')
+          } catch (error) {
+            return `${name}:${(error as NodeJS.ErrnoException).code ?? 'unreadable'}`
+          }
+        }),
+      ),
+    ),
+  )
+  return JSON.stringify(marks)
 }
 
 export async function readPlugins(
@@ -68,21 +100,28 @@ export async function readPlugins(
 /** Reads text strictly: bytes that aren't UTF-8 are refused, never read with marks in their place. */
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
-async function filesIn(path: string): Promise<ReadFile[]> {
+/** A folder's plugin files, by name, in order; nothing if there's no folder. */
+async function listed(path: string): Promise<{ name: string; link: boolean }[] | undefined> {
   let entries: Dirent[]
   try {
     entries = await readdir(path, { withFileTypes: true })
   } catch {
-    // No folder: no plugins of one's own.
-    return []
+    return undefined
   }
-  const names = entries
-    // Links too: a ConfigMap mounted as a volume (as the Helm chart's plugins are) is links into
-    // a folder of its own.
-    .filter((entry) => (entry.isFile() || entry.isSymbolicLink()) && /\.ya?ml$/i.test(entry.name))
-    .map((entry) => ({ name: entry.name, link: entry.isSymbolicLink() }))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .slice(0, MAX_FILES)
+  return (
+    entries
+      // Links too: a ConfigMap mounted as a volume (as the Helm chart's plugins are) is links
+      // into a folder of its own.
+      .filter((entry) => (entry.isFile() || entry.isSymbolicLink()) && /\.ya?ml$/i.test(entry.name))
+      .map((entry) => ({ name: entry.name, link: entry.isSymbolicLink() }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+      .slice(0, MAX_FILES)
+  )
+}
+
+async function filesIn(path: string): Promise<ReadFile[]> {
+  // (No folder: no plugins of one's own.)
+  const names = (await listed(path)) ?? []
   return Promise.all(
     names.map(({ name, link }) => within(READ_MS, name, fileRead(join(path, name), name, link))),
   )
