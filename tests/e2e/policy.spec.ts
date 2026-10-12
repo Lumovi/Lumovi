@@ -153,6 +153,9 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
   await expect(page.getByText('Lumovi started without something it was given')).toBeVisible()
 })
 
+// (Each of these launches Lumovi once for each policy: a few at a time, so that a slow
+// machine's launches fit a test's time.)
+
 test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be used either', async ({
   launch,
 }) => {
@@ -163,6 +166,16 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
     [twice, 'a key is given twice'],
     // Where it isn't JSON, never what's there.
     [policyFile('{\n  "readOnly": true,\n}'), 'it isn’t JSON (at line 3 column 1).'],
+  ]
+  if (process.platform !== 'win32') cases.push([fifo, `${fifo} must be a file.`])
+  // (Nothing waits on a FIFO: Lumovi starts.)
+  await cantBeUsed(launch, cases)
+})
+
+test('a policy’s kubectl over plain http, or its signatures not required, can’t be used', async ({
+  launch,
+}) => {
+  await cantBeUsed(launch, [
     // A mirror over plain http: what it downloads could be changed on the way.
     ...['ftp://mirror.corp.example.com', 'http://mirror.corp.example.com'].map(
       (kubectl): [string, string] => [
@@ -175,24 +188,33 @@ test('a policy that isn’t JSON, has a key twice, or isn’t a file can’t be 
       policyFile({ kubectlSignatures }),
       'kubectlSignatures must be "required"',
     ]),
-  ]
-  if (process.platform !== 'win32') cases.push([fifo, `${fifo} must be a file.`])
-  // (Nothing waits on a FIFO: Lumovi starts.)
-  await cantBeUsed(launch, cases)
+  ])
 })
 
-test('a policy with a value of the wrong kind can’t be used, and says which', async ({
+test('a policy that isn’t an object, or is cut short, can’t be used, and says which', async ({
   launch,
 }) => {
   await cantBeUsed(launch, [
     [policyFile(['readOnly']), 'can’t be used: it must be a JSON object.'],
     // Cut short, as a copy that didn't finish: there's no place to name.
     [policyFile('{ "readOnly": true'), 'can’t be used: it isn’t JSON'],
+  ])
+})
+
+test('a policy with a value of the wrong kind can’t be used, and says which', async ({
+  launch,
+}) => {
+  await cantBeUsed(launch, [
     [
       policyFile({ readOnly: 'production' }),
       'readOnly must be true, false, or a list of cluster names (with * for any).',
     ],
     [policyFile({ updates: 'never' }), 'updates must be true or false.'],
+  ])
+})
+
+test('a policy’s network of the wrong kind can’t be used, and says which', async ({ launch }) => {
+  await cantBeUsed(launch, [
     [
       policyFile({ network: 'http://proxy.corp.example.com:3128' }),
       'network must be an object: proxy, noProxy and caFiles.',
@@ -274,6 +296,9 @@ test('the network a policy says: its proxy, over the one the environment says', 
 
 test('on Windows, IT’s policy is the registry’s: as it was set, and only none where there’s none', async () => {
   test.skip(process.platform !== 'win32', 'Windows’ registry')
+  // A dozen and more PowerShell and reg.exe starts: a busy Windows runner can take seconds
+  // over each.
+  test.slow()
   // As IT sets it under HKEY_LOCAL_MACHINE, here where a test may write.
   const key = `HKEY_CURRENT_USER\\Software\\LumoviTest${process.pid}`
   const set = (script: string) =>
@@ -316,7 +341,13 @@ test('on Windows, IT’s policy is the registry’s: as it was set, and only non
       'Lumovi can’t read it: neither reg.exe nor PowerShell could.',
     )
   } finally {
-    set(`Remove-Item -Path '${path}' -Recurse -Force -ErrorAction SilentlyContinue`)
+    // Gone, however it went above, and never the test's own failure (nor in place of it): what's
+    // tested is above. (Even silenced, a Remove-Item that fails has PowerShell exit 1.)
+    try {
+      set(`Remove-Item -Path '${path}' -Recurse -Force -ErrorAction SilentlyContinue; exit 0`)
+    } catch {
+      // A key left behind is this test's own, under HKCU, named by its process.
+    }
   }
 })
 
