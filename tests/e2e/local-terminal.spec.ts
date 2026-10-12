@@ -75,22 +75,58 @@ async function inputLine(page: Page) {
 }
 
 /**
- * How long Windows PowerShell's first prompt is waited for: on a busy runner it has come later
- * than 10 s with its console already up (LMV-237), and 30 s still says a terminal never answered.
+ * How long a new terminal's first line (Lumovi's, which the shell prints as it starts) and its
+ * prompt are waited for on Windows: on a busy runner both have come later than 10 s (LMV-237),
+ * and 30 s still says a terminal never answered.
  */
 const PROMPT_MS = 30_000
+/** A wait for what a new terminal shows first: PROMPT_MS on Windows, the usual elsewhere. */
+const FIRST: { timeout?: number } = WINDOWS ? { timeout: PROMPT_MS } : {}
 
-/** Waits for the shell's prompt (after Lumovi's line), and for the terminal to have focus. */
+/**
+ * Waits for the shell's prompt (after Lumovi's line), and for the terminal to have focus. On
+ * Windows, when anything first showed, then Lumovi's line, then the prompt goes into the test's
+ * annotations, came or not: a slow terminal then says where its time went.
+ */
 async function ready(page: Page) {
-  await expect(screen(page)).toContainText(
-    /in this terminal\..*[$#>]/s,
-    WINDOWS ? { timeout: PROMPT_MS } : {},
-  )
+  const from = Date.now()
+  const came: { output?: number; line?: number; prompt?: number } = {}
+  const at = () => Date.now() - from
+  try {
+    await expect
+      .poll(async () => {
+        const text = (await screen(page).textContent()) ?? ''
+        if (text.trim()) came.output ??= at()
+        if (text.includes('in this terminal.')) came.line ??= at()
+        return /in this terminal\..*[$#>]/s.test(text)
+      }, FIRST)
+      .toBe(true)
+    came.prompt = at()
+  } finally {
+    if (WINDOWS) {
+      const said = (what: string, ms?: number) =>
+        ms === undefined ? `no ${what}` : `${what} ${ms}ms`
+      const times = [
+        said('output', came.output),
+        said('line', came.line),
+        said('prompt', came.prompt),
+        `waited ${at()}ms`,
+      ]
+      test.info().annotations.push({
+        type: 'A terminal’s first output, line and prompt',
+        description: times.join(', '),
+      })
+    }
+  }
   await focused(page)
 }
 
 // So a test that starts more than one shell keeps the time each of their prompts may take.
 test.slow(WINDOWS, 'Windows PowerShell can take most of a minute to give a prompt on a busy runner')
+// One of these tests at a time on Windows, in order in one worker: three runners' shells starting
+// at once each came later than 30 s (LMV-237), where each alone takes a few. (Never serial: a
+// test that fails doesn't skip those after it.)
+if (WINDOWS) test.describe.configure({ mode: 'default' })
 
 /**
  * Windows PowerShell, started once before this worker's first terminal as a terminal's shell
@@ -198,8 +234,11 @@ function policyFile(policy: unknown): string {
   return path
 }
 
-/** Waits for the terminal to show `text`, however its lines wrap. */
-async function shows(page: Page, text: string, timeout?: number) {
+/**
+ * Waits for the terminal to show `text`, however its lines wrap: as long as a new terminal's first
+ * line may take (what it shows is most often that line), unless said.
+ */
+async function shows(page: Page, text: string, timeout = FIRST.timeout) {
   const squeezed = (text: string) => text.replace(/\s+/g, '')
   await expect
     .poll(async () => squeezed(await screen(page).innerText()), { timeout })
@@ -292,7 +331,7 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
   await expect(notice).toContainText('The shell exited with code 0.')
   await notice.getByRole('button', { name: 'Restart' }).click()
   await expect(tabs.getByRole('tab')).toHaveText(['demo', 'demoshop'])
-  await expect(screen(page)).toContainText('namespace shop, in this terminal.')
+  await expect(screen(page)).toContainText('namespace shop, in this terminal.', FIRST)
 
   // Closing a tab ends its shell; closing the last hides the dock.
   await dock(page).getByRole('button', { name: 'Close the terminal demo', exact: true }).click()
@@ -1162,7 +1201,7 @@ test('what a cluster says can’t write over a terminal, nor choose an old kubec
   await terminal(page)
   // Said as text, with what makes it act left out: nothing was cleared.
   await shows(page, 'Lumovi can’t tell which kubectl matches x[2J[H]0;pwned Everything')
-  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.')
+  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.', FIRST)
   answers()
 
   // One older than Lumovi's oldest isn't downloaded: kubectl that old lacks years of fixes.
@@ -1200,7 +1239,7 @@ test('kubectl matching each cluster can be turned off, and an organization can',
   })
   await openCluster(page)
   await terminal(page)
-  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.')
+  await expect(screen(page)).toContainText('› kubectl points at demo in this terminal.', FIRST)
   await expect(screen(page)).not.toContainText('It’s')
   expect(downloads.requests).toEqual([])
 
