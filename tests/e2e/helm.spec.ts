@@ -759,6 +759,8 @@ function writeChart(root: string, name: string, files: Record<string, string>): 
 }
 
 test('upgrade and install from a chart on this computer', async ({ launch }) => {
+  // (Six charts on this computer, each read by helm as it's chosen: on Windows, most of a minute.)
+  test.slow()
   // A home of its own, where ~ leads.
   const home = mkdtempSync(join(tmpdir(), 'lumovi-home-'))
   const web = writeChart(home, 'web', {
