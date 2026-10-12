@@ -45,6 +45,7 @@ const api: LumoviApi = {
     list: (query) => invoke(IPC.list, query),
     get: (query) => invoke(IPC.get, query),
     secretValues: (query) => invoke(IPC.secretValues, query),
+    pluginRead: (query) => invoke(IPC.pluginRead, query),
     metrics: (query) => invoke(IPC.metrics, query),
     change: (request) => invoke(IPC.change, request),
     can: (context, checks) => invoke(IPC.can, context, checks),

@@ -45,6 +45,7 @@ const READS: readonly string[] = [
   IPC.list,
   IPC.get,
   IPC.secretValues,
+  IPC.pluginRead,
   IPC.metrics,
   IPC.can,
   IPC.history,

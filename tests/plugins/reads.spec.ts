@@ -7,12 +7,15 @@ import { expect, test } from '@playwright/test'
 import { parse } from '../../src/shared/jsonpath.ts'
 import {
   granted,
+  handedWhole,
+  kindAsked,
   PageReads,
   picked,
   READ_LIMITS,
   READABLE,
   readable,
   readAsk,
+  readQuery,
   resolvedAs,
   secretsNamed,
   type Grant,
@@ -155,6 +158,98 @@ test('what a file doesn’t say is refused: by kind, and by what’s read of it'
   // And a kind of Kubernetes' own is never whole, whatever claims it: "its own" is a tool's kinds.
   expect(granted(loose, CONFIG_MAP, 'objects')).toBeUndefined()
   expect(granted(loose, resolvedAs('apps', 'Deployment'), 'objects')).toBeUndefined()
+  // Nor one in a group under Kubernetes' own names, whatever claims it.
+  const named: Grant = {
+    groups: [],
+    own: ['x.kubernetes.io/Thing', 'kubernetes.io/Thing', 'k8s.io/Thing', 'x.kubernetes.io/*'],
+    reads: {},
+  }
+  for (const group of ['x.kubernetes.io', 'kubernetes.io', 'k8s.io']) {
+    expect(granted(named, resolvedAs(group, 'Thing'), 'objects'), group).toBeUndefined()
+  }
+})
+
+test('a plugin that claims every kind of a group reads each of them whole, and no other group’s', () => {
+  const every: Grant = { groups: ['karpenter.sh'], own: ['karpenter.sh/*'], reads: {} }
+  for (const kind of ['NodePool', 'NodeClaim']) {
+    expect(granted(every, resolvedAs('karpenter.sh', kind), 'objects')).toEqual({ whole: true })
+  }
+  for (const kind of [
+    resolvedAs('karpenter.k8s.aws', 'EC2NodeClass'),
+    resolvedAs('sh', 'NodePool'),
+    resolvedAs('', 'Node'),
+    // (`*` is no kind's name: what claims every kind doesn't make a kind named so another's.)
+    resolvedAs('x.karpenter.sh', 'NodePool'),
+  ]) {
+    expect(granted(every, kind, 'objects'), JSON.stringify(kind)).toBeUndefined()
+  }
+})
+
+test('an object of its own kind is handed over whole: all but who manages it and kubectl’s copy', () => {
+  const pool = JSON.parse(`{
+    "apiVersion": "karpenter.sh/v1",
+    "kind": "NodePool",
+    "metadata": {
+      "name": "default",
+      "managedFields": [{ "manager": "kubectl" }],
+      "annotations": {
+        "kubectl.kubernetes.io/last-applied-configuration": "{}",
+        "control-plane.alpha.kubernetes.io/leader": "x",
+        "karpenter.sh/nodepool-hash": "123"
+      },
+      "__proto__": { "polluted": true }
+    },
+    "spec": { "template": { "spec": { "nodeClassRef": { "name": "default" } } }, "limits": { "cpu": 100 } }
+  }`)
+  const handed = handedWhole(pool)
+  expect(handed).toEqual({
+    apiVersion: 'karpenter.sh/v1',
+    kind: 'NodePool',
+    metadata: { name: 'default', annotations: { 'karpenter.sh/nodepool-hash': '123' } },
+    // Its own kind's template is its own: whole, as everything of it is.
+    spec: { template: { spec: { nodeClassRef: { name: 'default' } } }, limits: { cpu: 100 } },
+  })
+  expect(Object.hasOwn(handed.metadata as object, '__proto__')).toBe(false)
+  // A copy: what was read is as it was.
+  expect(pool.metadata.managedFields).toHaveLength(1)
+  for (const odd of [null, 'text', [pool], 7]) expect(handedWhole(odd)).toEqual({})
+})
+
+test('a read the backend takes from Lumovi’s page has exactly its keys, each of its kind', () => {
+  const fine = [
+    { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool' },
+    { context: 'demo', plugin: 'karpenter', kind: '/Node', name: 'ip-10-0-1-5' },
+    { context: 'demo', plugin: 'karpenter', kind: '/Pod', namespace: 'shop', name: 'cart-7d9f' },
+  ]
+  for (const query of fine) expect(readQuery(query), JSON.stringify(query)).toEqual(query)
+  // (Left out, and said as nothing, are the same.)
+  expect(readQuery({ context: 'demo', plugin: 'k', kind: '/Node', namespace: undefined })).toEqual({
+    context: 'demo',
+    plugin: 'k',
+    kind: '/Node',
+  })
+  const wrong: unknown[] = [
+    null,
+    'demo',
+    [fine[0]],
+    { ...fine[0], also: 1 },
+    { ...fine[0], context: '' },
+    { ...fine[0], plugin: '' },
+    { ...fine[0], plugin: 7 },
+    { ...fine[0], kind: 'Node' },
+    { ...fine[0], kind: 'core/secret' },
+    { ...fine[0], kind: '/Secret/x' },
+    { ...fine[0], namespace: '../kube-system' },
+    { ...fine[0], namespace: 'Shop' },
+    { ...fine[0], name: 'a/b' },
+    { ...fine[0], name: '..' },
+    { ...fine[0], name: 'cart%2F..' },
+    { ...fine[0], name: ['cart'] },
+    JSON.parse('{"context":"demo","plugin":"k","kind":"/Node","__proto__":{"name":"x"}}'),
+  ]
+  for (const query of wrong) expect(readQuery(query), JSON.stringify(query)).toBeUndefined()
+  expect(kindAsked('karpenter.sh/NodePool')).toEqual({ group: 'karpenter.sh', kind: 'NodePool' })
+  expect(kindAsked('/Node')).toEqual({ group: '', kind: 'Node' })
 })
 
 const pod = {

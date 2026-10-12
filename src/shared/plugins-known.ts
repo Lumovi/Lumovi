@@ -10,8 +10,9 @@
  * page's refresh is still the old text to the page, and has its new digest here. Whatever writes
  * a digest beside something a page did has to say which reading it names.
  */
-import { clashes, parsePlugin, type Plugin } from './plugins'
+import { clashes, ownKinds, parsePlugin, type Plugin } from './plugins'
 import { settle, type Origin, type PluginFile } from './plugin-loading'
+import type { Grant } from './plugin-reads'
 import type { ResourceKind } from './resources'
 
 /** A file's name without its folders. */
@@ -46,7 +47,8 @@ export function readIncluded(
   }
   const read: Included['plugins'] = []
   for (const [path, text] of Object.entries(files)) {
-    const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds })
+    // (Lumovi's own may carry code, as the page reads them: `mayCarryCode('lumovi')`.)
+    const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds, carriesCode: true })
     if (parsed.plugin) read.push({ plugin: parsed.plugin, file: fileName(path), text })
     problems.push(...parsed.problems)
   }
@@ -72,6 +74,20 @@ export interface KnownPlugin {
    * sent.
    */
   digest: string
+  /**
+   * What its code may read, from its file: its groups, and the kinds it claims, read whole. (Of
+   * Kubernetes' own kinds, the fields its file names: none until `spec.reads` is read.)
+   */
+  grant: Grant
+}
+
+/** What a plugin's code may read, by its file. */
+function grantOf(plugin: Plugin): Grant {
+  return Object.freeze({
+    groups: Object.freeze([...plugin.groups]),
+    own: Object.freeze(ownKinds(plugin)),
+    reads: Object.freeze({}),
+  })
 }
 
 /**
@@ -114,6 +130,7 @@ export function knownPlugins(
         origin: 'lumovi' as const,
         file,
         digest: digest(text),
+        grant: grantOf(plugin),
       }
     }),
     ...settled.files.flatMap(({ file, plugin, state }) =>
@@ -126,6 +143,7 @@ export function knownPlugins(
               origin,
               file,
               digest: digestOfFile(file),
+              grant: grantOf(plugin),
             },
           ],
     ),
