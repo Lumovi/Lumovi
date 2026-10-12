@@ -3,9 +3,12 @@
  * where it came from and its digest. What asks who a plugin is (the audit history, what a
  * session may be handed) asks this, in the main process and on a server alike: never the page.
  *
- * It can't disagree with what the page shows, because it's made the same way from the same
- * things: Lumovi's own plugins as they're built in, a folder's files as they're read, the same
- * checker and the same `settle`. What the page shows stays the page's.
+ * It's made the same way as what the page shows, from the same things: Lumovi's own plugins as
+ * they're built in, a folder's files as they're read, the same checker and the same `settle`.
+ * So the two can't differ in how they judge a file. They can differ in WHEN they read it: the
+ * page settles at its last refresh and keeps that; this reads now. A file edited since the
+ * page's refresh is still the old text to the page, and has its new digest here. Whatever writes
+ * a digest beside something a page did has to say which reading it names.
  */
 import { clashes, parsePlugin, type Plugin } from './plugins'
 import { settle, type Origin, type PluginFile } from './plugin-loading'
@@ -66,7 +69,7 @@ export interface KnownPlugin {
    * `sha256:` and the hex, of everything Lumovi took for this plugin: today its file's bytes, as
    * they were when the text that was checked was read from them (what `shasum -a 256` gives for
    * the file). It's the backend's own reading, made when it was asked: never anything a page
-   * sent, so what's named and what's in use can't differ.
+   * sent.
    */
   digest: string
 }
@@ -95,6 +98,13 @@ export function knownPlugins(
   )
   const own = new Map(included.plugins.map((entry) => [entry.plugin, entry]))
   const digests = new Map(files.map((file) => [file.name, file.digest]))
+  // A file in use that came without its digest: never left out quietly (in the place of one of
+  // Lumovi's, that name would then be in the list not at all).
+  const digestOfFile = (file: string) => {
+    const digest = digests.get(file)
+    if (!digest) throw new Error(`${file} is in use and was handed over without its digest`)
+    return digest
+  }
   const known: KnownPlugin[] = [
     ...settled.lumovis.map((plugin) => {
       const { file, text } = own.get(plugin)!
@@ -107,7 +117,7 @@ export function knownPlugins(
       }
     }),
     ...settled.files.flatMap(({ file, plugin, state }) =>
-      state === 'not-in-use' || !plugin || !digests.get(file)
+      state === 'not-in-use' || !plugin
         ? []
         : [
             {
@@ -115,10 +125,13 @@ export function knownPlugins(
               version: plugin.version,
               origin,
               file,
-              digest: digests.get(file)!,
+              digest: digestOfFile(file),
             },
           ],
     ),
   ]
-  return known.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  // (What's answered can't be changed by whoever asked: the same answer may be given again, to
+  // whoever asks next.)
+  known.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  return Object.freeze(known.map((plugin) => Object.freeze(plugin))) as KnownPlugin[]
 }

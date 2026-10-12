@@ -4,7 +4,8 @@
  * built or launched.
  */
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -92,6 +93,29 @@ test('a folder’s file in the place of one of Lumovi’s is that plugin: by its
   }
 })
 
+test('an answer can’t be changed by whoever asked: the next asker is told the same', () => {
+  const included = readIncluded(texts(PLUGINS), texts(OWN))
+  const theirs = readFileSync(join(PLUGINS, 'cert-manager.yaml'), 'utf8')
+  const known = knownPlugins(
+    included,
+    [{ name: 'mine.yaml', text: theirs, digest: sha(theirs) }],
+    'yours',
+    LUMOVI,
+    sha,
+  )
+  const mine = known.find(({ name }) => name === 'cert-manager')!
+  expect(Object.isFrozen(known) && known.every((plugin) => Object.isFrozen(plugin))).toBe(true)
+  // The origin is what `mayCarryCode` is asked with.
+  expect(() => ((mine as { origin: string }).origin = 'lumovi')).toThrow()
+  expect(() => known.sort(() => -1)).toThrow()
+  expect(() => (known.length = 0)).toThrow()
+  expect(mine.origin).toBe('yours')
+  // A file in use handed over without its digest isn't left out quietly.
+  expect(() =>
+    knownPlugins(included, [{ name: 'mine.yaml', text: theirs }], 'yours', LUMOVI, sha),
+  ).toThrow('mine.yaml is in use and was handed over without its digest')
+})
+
 test('only a plugin in use is one Lumovi has: not a file refused, nor the second of a name', () => {
   const included = readIncluded(texts(PLUGINS), texts(OWN))
   const own = (name: string, group: string) => `apiVersion: lumovi.dev/v1beta1
@@ -165,5 +189,36 @@ test('a folder’s file is read once: its text and its digest are of the same by
     directory: '~/plugins',
     files: read.files.map(({ name, text, error }) => ({ name, text, ...(error ? { error } : {}) })),
   })
+  // A name in the folder can be a link to anything. What isn't a plain file is refused before a
+  // byte is read: a device that never ends, a folder, a pipe (and the open doesn't wait for a
+  // pipe's other end: this returns).
+  if (process.platform !== 'win32') {
+    symlinkSync('/dev/zero', join(folder, 'd-endless.yaml'))
+    symlinkSync(folder, join(folder, 'e-folder.yaml'))
+    // (A pipe by its own name isn't taken for a file of the folder at all; a link to one is.)
+    execFileSync('mkfifo', [join(folder, 'pipe.yaml')])
+    execFileSync('mkfifo', [join(folder, 'a-pipe')])
+    symlinkSync(join(folder, 'a-pipe'), join(folder, 'f-pipe.yaml'))
+    symlinkSync(join(folder, 'nothing-there'), join(folder, 'g-nowhere.yaml'))
+    const started = Date.now()
+    const odd = (await readFiles({ path: folder })).files.filter(({ name }) => /^[d-g]-/.test(name))
+    expect(Date.now() - started).toBeLessThan(4000)
+    expect(odd.map(({ name, error, digest }) => [name, error?.replace(/:.*/, ''), digest])).toEqual(
+      [
+        ['d-endless.yaml', 'It isn’t a file.', undefined],
+        ['e-folder.yaml', 'It isn’t a file.', undefined],
+        ['f-pipe.yaml', 'It isn’t a file.', undefined],
+        ['g-nowhere.yaml', 'It couldn’t be read', undefined],
+      ],
+    )
+  }
+  // A file over the limit is refused by its size; one of exactly the limit is read whole.
+  writeFileSync(join(folder, 'h-large.yaml'), Buffer.alloc(256 * 1024 + 1, 0x61))
+  writeFileSync(join(folder, 'i-full.yaml'), Buffer.alloc(256 * 1024, 0x61))
+  const sized = (await readFiles({ path: folder })).files.filter(({ name }) => /^[hi]-/.test(name))
+  expect(sized[0]).toEqual({ name: 'h-large.yaml', text: '', error: 'It’s larger than 256 KB.' })
+  expect(sized[1]!.text).toHaveLength(256 * 1024)
+  expect(sized[1]!.digest).toBe(sha(Buffer.alloc(256 * 1024, 0x61)))
   rmSync(folder, { recursive: true, force: true })
+  delete (globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD
 })

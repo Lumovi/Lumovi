@@ -4,7 +4,7 @@
  * up on the next refresh; the page checks and applies them.
  */
 import { createHash } from 'node:crypto'
-import type { Dirent } from 'node:fs'
+import { constants, type Dirent } from 'node:fs'
 import { open, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { LocalPlugins } from '@shared/api'
@@ -14,6 +14,8 @@ declare const LUMOVI_TEST_BUILD: boolean
 
 const MAX_FILES = 200
 const MAX_BYTES = 256 * 1024
+/** How long one file's reading may take: a folder's file is small and near. */
+const READ_MS = 5_000
 
 /** Where the user's plugins are, and how to show that folder: inside the home folder as ~/… */
 export function pluginsDirectory(
@@ -81,32 +83,56 @@ async function filesIn(path: string): Promise<ReadFile[]> {
     .map((entry) => entry.name)
     .sort()
     .slice(0, MAX_FILES)
-  return Promise.all(
-    names.map(async (name) => {
-      try {
-        // Checked and read through one open file, so it can't be swapped in between.
-        const file = await open(join(path, name), 'r')
-        try {
-          const { size } = await file.stat()
-          if (size > MAX_BYTES) {
-            return { name, text: '', error: `It’s larger than ${MAX_BYTES / 1024} KB.` }
-          }
-          // One read: the text that's checked and the digest are of the same bytes.
-          const bytes = await file.readFile()
-          let text: string
-          try {
-            text = utf8.decode(bytes)
-          } catch {
-            return { name, text: '', error: 'It isn’t UTF-8 text.' }
-          }
-          return { name, text, digest: digestOf(bytes) }
-        } finally {
-          await file.close()
-        }
-      } catch (error) {
-        // A link to nothing, or to a folder: the others still load.
-        return { name, text: '', error: `It couldn’t be read: ${(error as Error).message}` }
+  return Promise.all(names.map((name) => within(READ_MS, name, fileRead(join(path, name), name))))
+}
+
+/** `reading`, or after `ms` that it took too long: no file holds the others up. */
+function within(ms: number, name: string, reading: Promise<ReadFile>): Promise<ReadFile> {
+  let timer: ReturnType<typeof setTimeout>
+  const late = new Promise<ReadFile>((done) => {
+    timer = setTimeout(() => done({ name, text: '', error: 'It took too long to read.' }), ms)
+  })
+  return Promise.race([reading, late]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * One file, read: a plain file, of the limit's size at most whatever it says of itself. A name
+ * in a plugins folder can be a link to anything (a pipe, a device that never ends): what isn't
+ * a plain file is refused before a byte is read, the open never waits for a pipe's other end,
+ * and no more than the limit and one byte is ever read.
+ */
+async function fileRead(path: string, name: string): Promise<ReadFile> {
+  try {
+    // Checked and read through one open file, so it can't be swapped in between. (Opened
+    // without waiting: a pipe nobody writes to would otherwise hold the open for ever.)
+    const file = await open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0))
+    try {
+      const stat = await file.stat()
+      if (!stat.isFile()) return { name, text: '', error: 'It isn’t a file.' }
+      const tooLarge = { name, text: '', error: `It’s larger than ${MAX_BYTES / 1024} KB.` }
+      if (stat.size > MAX_BYTES) return tooLarge
+      // One read: the text that's checked and the digest are of the same bytes.
+      const room = Buffer.alloc(MAX_BYTES + 1)
+      let read = 0
+      while (read < room.length) {
+        const { bytesRead } = await file.read(room, read, room.length - read, read)
+        if (bytesRead === 0) break
+        read += bytesRead
       }
-    }),
-  )
+      if (read > MAX_BYTES) return tooLarge
+      const bytes = room.subarray(0, read)
+      let text: string
+      try {
+        text = utf8.decode(bytes)
+      } catch {
+        return { name, text: '', error: 'It isn’t UTF-8 text.' }
+      }
+      return { name, text, digest: digestOf(bytes) }
+    } finally {
+      await file.close()
+    }
+  } catch (error) {
+    // A link to nothing, or to a folder: the others still load.
+    return { name, text: '', error: `It couldn’t be read: ${(error as Error).message}` }
+  }
 }
