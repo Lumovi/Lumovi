@@ -353,7 +353,7 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
   })
   const shown = chosen.columns
   const needle = state.q.trim().toLowerCase()
-  const { column, desc } = sortedBy(shown, state, 'status')
+  const { column, desc } = sortedBy(shown, state, 'status', columns)
   const matching = objects
     .filter(
       (o) => state.health.length === 0 || state.health.includes(statusOf(kindOf(o), o).health),

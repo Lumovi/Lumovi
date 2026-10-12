@@ -1017,16 +1017,26 @@ export function customColumnsFor(options: {
 /**
  * What a list is sorted by: the column its address asks for, if it has one that sorts; else its
  * default, ascending (an address can ask for anything: `?sort=ready`, or a column that's gone).
+ * Where none of the columns shown sorts (an event's reason can be all that's left), its default
+ * still does, hidden: `own` is every column the list has.
  */
 export function sortedBy(
-  columns: Column[],
+  shown: Column[],
   asked: { sort: string; desc: boolean },
   fallback: string,
+  own: Column[] = shown,
 ): { column: Column; desc: boolean } {
-  const sorting = (id: string) => columns.find((c) => c.id === id && c.sort)
+  const sorting = (id: string) => shown.find((c) => c.id === id && c.sort)
   const column = sorting(asked.sort)
   if (column) return { column, desc: asked.desc }
-  return { column: sorting(fallback) ?? columns.find((c) => c.sort)!, desc: false }
+  return {
+    column:
+      sorting(fallback) ??
+      shown.find((c) => c.sort) ??
+      own.find((c) => c.id === fallback && c.sort) ??
+      own.find((c) => c.sort)!,
+    desc: false,
+  }
 }
 
 /** Sorts by `column`, falling back to the name so equal rows keep a stable order. */
