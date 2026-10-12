@@ -533,6 +533,21 @@ test('presses: what a part is handed, and what opens anything', async ({ page, s
     expect(said.later).toEqual({ key: { their: 'a' } })
   })
 
+  await test.step('a token a page doesn’t hold is said to its author once, and a swap needn’t say it', async () => {
+    const said = await page.evaluate(() => {
+      const { Tokens, swapFor } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      const tokens = new Tokens({ objects: 0 })
+      // (With nothing to tell of a stale token, a swap tells nothing.)
+      const swap = swapFor(tokens, () => undefined)
+      return {
+        given: [swap.object('made-up'), swap.secret('made-up')],
+        told: [tokens.staleToSay(), tokens.staleToSay()],
+      }
+    })
+    expect(said.given).toEqual([undefined, undefined])
+    expect(said.told).toEqual([true, false])
+  })
+
   await test.step('nothing the door swaps can be required: a part is always written to draw without it', async () => {
     // (A token can be made up, or gone with its read while a commit was on its way: the property
     // is then absent, and a part that required it would fail as it drew, by a plugin's choice.)

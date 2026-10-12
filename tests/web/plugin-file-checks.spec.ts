@@ -815,6 +815,55 @@ test('only a plugin that comes with Lumovi adds to Lumovi’s pages: a folder’
   }
 })
 
+test('a plugin’s file as it’s less often written: a tab alone, a version that isn’t text', async ({
+  page,
+  serve,
+}) => {
+  await opened(page, serve)
+  const version = (written: string) => adding('').replace('version: 1.0.0', `version: ${written}`)
+  const [tabAlone, number, listed, otherKind, longKey] = await parsedIn(page, [
+    // A tab on its own kind, and no page.
+    { text: adding(TABS), source: 'rollouts.yaml', options: { carriesCode: true } },
+    // A version YAML reads as a number is quoted as it was written; one that's a list, as data.
+    { text: version('1.0'), source: 'rollouts.yaml' },
+    { text: version('[1, 0]'), source: 'rollouts.yaml' },
+    // A document of another kind.
+    {
+      text: 'apiVersion: lumovi.dev/v1beta1\nkind: Dashboard\nmetadata: { name: x }\n',
+      source: 'x.yaml',
+    },
+    // A name the file says, past a line's length: cut there.
+    { text: `${adding('')}  ${'a'.repeat(450)}: 1\n`, source: 'rollouts.yaml' },
+  ])
+  expect(tabAlone!.problems).toEqual([])
+  expect(tabAlone!.plugin!.added.pages).toEqual([])
+  expect(number!.problems).toContain(
+    'rollouts.yaml: spec.version: "1.0" should be three numbers, like 1.0.0',
+  )
+  expect(listed!.problems).toContain(
+    'rollouts.yaml: spec.version: [1,0] should be three numbers, like 1.0.0',
+  )
+  expect(otherKind!.problems).toEqual([
+    'x.yaml: should start with apiVersion: lumovi.dev/v1beta1 and kind: Plugin',
+  ])
+  // (No line about a file is a page long: 400 characters, and then it's cut.)
+  const at = 'rollouts.yaml: spec.'
+  expect(longKey!.problems).toEqual([`${at}${'a'.repeat(400 - at.length)}…`])
+  // A folder's files are settled by their names, in whatever order they came: the first of one
+  // plugin's is the same every time.
+  const [settled, twice] = await page.evaluate((text) => {
+    const { settle } = (window as unknown as Lent).__lumoviDoor.doorChecks
+    const named = (name: string) => ({ name, text })
+    const files = (names: string[]) =>
+      settle([], names.map(named), 'yours').files.map(({ file, state }) => [file, state])
+    // (And a name twice, as a folder can't hold but a list could say: still one in use.)
+    return [files(['b.yaml', 'a.yaml', 'c.yaml']), files(['a.yaml', 'a.yaml'])]
+  }, adding(''))
+  expect(settled.map(([file]) => file)).toEqual(['a.yaml', 'b.yaml', 'c.yaml'])
+  expect(settled.slice(1).map(([, state]) => state)).toEqual(['not-in-use', 'not-in-use'])
+  expect(twice.map(([, state]) => state)).toContain('not-in-use')
+})
+
 test('what a plugin adds is written as the format has it, and held to its numbers', async ({
   page,
   serve,
