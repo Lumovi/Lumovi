@@ -18,6 +18,11 @@ export interface StoredSession {
   id: string
   identity: Identity
   expires: number
+  /**
+   * Whether its browser said where its sign-in came from (Sec-Fetch-Site was there, whatever it
+   * said): noted once, as it signed in, and never changed. Without it, an old browser's.
+   */
+  saysWhereFrom?: true
 }
 
 /** What a session passes on to the cluster, and with single sign-on, what renews it. */
@@ -32,6 +37,7 @@ export interface Credentials {
 interface KeptSession {
   user: SessionUser
   expires: number
+  saysWhereFrom?: true
   /** Its credentials, sealed with its cookie's key. */
   sealed?: string
 }
@@ -69,16 +75,21 @@ export class Sessions {
         id,
         identity: { user: kept.user },
         expires: kept.expires,
+        ...(kept.saysWhereFrom === true ? { saysWhereFrom: true } : {}),
         timer: this.#expiring(id, kept.expires),
         ...(kept.sealed ? { sealed: kept.sealed } : {}),
       })
     }
   }
 
-  /** A new session: its cookie, for its browser, and what the server knows it by. */
+  /**
+   * A new session: its cookie, for its browser, and what the server knows it by. `saysWhereFrom`:
+   * whether its sign-in's request said where it came from.
+   */
   create(
     identity: Identity,
     credentials?: Credentials,
+    saysWhereFrom = false,
   ): { cookie: string; session: StoredSession } {
     const cookie = randomBytes(32).toString('base64url')
     const id = sessionId(cookie)
@@ -87,6 +98,7 @@ export class Sessions {
       id,
       identity: { user: identity.user, ...(identity.token ? { token: identity.token } : {}) },
       expires,
+      ...(saysWhereFrom ? { saysWhereFrom: true } : {}),
       timer: this.#expiring(id, expires),
       key: keyOf(cookie),
     }
@@ -116,7 +128,21 @@ export class Sessions {
     delete live.sealed
     if (credentials.token) live.identity.token = credentials.token
     live.credentials = credentials
-    return { id: live.id, identity: live.identity, expires: live.expires, resumed: true }
+    return {
+      id: live.id,
+      identity: live.identity,
+      expires: live.expires,
+      ...(live.saysWhereFrom ? { saysWhereFrom: true } : {}),
+      resumed: true,
+    }
+  }
+
+  /**
+   * The session a cookie is for, as it's kept, and nothing done to it: not unsealed, not resumed
+   * (what a request is judged by before anything of it is believed).
+   */
+  peek(cookie: string | undefined): StoredSession | undefined {
+    return cookie === undefined ? undefined : this.#sessions.get(sessionId(cookie))
   }
 
   /** A session by its handle (an assistant's, say): dormant ones too. */
@@ -170,6 +196,7 @@ export class Sessions {
     const kept: KeptSession = {
       user: live.identity.user,
       expires: live.expires,
+      ...(live.saysWhereFrom ? { saysWhereFrom: true } : {}),
       ...(has && live.key ? { sealed: seal(JSON.stringify(credentials), live.key, live.id) } : {}),
     }
     this.state?.set('sessions', live.id, kept)
@@ -184,7 +211,8 @@ const isKept = (value: unknown): value is KeptSession => {
     typeof kept.expires === 'number' &&
     typeof kept.user?.name === 'string' &&
     Array.isArray(kept.user.groups) &&
-    (kept.sealed === undefined || typeof kept.sealed === 'string')
+    (kept.sealed === undefined || typeof kept.sealed === 'string') &&
+    (kept.saysWhereFrom === undefined || kept.saysWhereFrom === true)
   )
 }
 

@@ -12,7 +12,7 @@ import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { ServerAccess } from './access'
 import { ServerAssistants } from './assistants/assistants'
 import { PermissionsStore } from './assistants/permissions'
-import { Auth } from './auth'
+import { Auth, UNSAID } from './auth'
 import { auditorsOf, isAuditor, openAudit, personActor, SERVER_ACTOR, sessionActor } from './audit'
 import type { Hosted } from './cluster'
 import type { ServerConfig } from './config'
@@ -219,6 +219,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
     if (answerBox(req, res, path)) return
     const route = `${req.method} ${path}`
+    // The second wall: a signed-in session's request that doesn't say it comes from Lumovi's own
+    // page is refused, said as that, before anything acts on it. (Signing in and out, and who's
+    // signed in, answer for themselves: a person can always sign in again.)
+    if (path.startsWith('api/') && path !== PATHS.session) {
+      const caller = auth.identify(req)
+      if (caller && 'unsaid' in caller) {
+        sendJson(res, 403, { error: UNSAID })
+        return
+      }
+    }
     const signer = () => {
       const caller = auth.identify(req)
       return caller && 'identity' in caller ? caller : undefined
@@ -397,7 +407,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
     const caller =
       address(req).path === PATHS.socket && sameOrigin(req, config.publicUrl)
-        ? auth.identify(req)
+        ? auth.identify(req, { socket: true })
         : undefined
     if (!caller || !('identity' in caller)) {
       // The page then asks for its session to learn why.

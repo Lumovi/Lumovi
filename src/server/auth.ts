@@ -16,7 +16,7 @@ import type { ServerConfig } from './config'
 import { cookie, cookies, readJson, redirect, sameOrigin, secure, sendJson } from './http'
 import { log } from './log'
 import type { OidcClient, PendingSignIn, SignedIn } from './oidc'
-import type { Sessions } from './sessions'
+import type { Sessions, StoredSession } from './sessions'
 
 export const SESSION_COOKIE = 'lumovi-session'
 /**
@@ -46,8 +46,19 @@ const FAILED_WINDOW_MS = Number(process.env.LUMOVI_SIGN_IN_WINDOW_MS) || 60_000
 /** A sign-in started with the provider, as its cookie holds it: and when it expires. */
 type Started = PendingSignIn & { expires: number }
 
-/** Who a request is from: someone, someone the server won't act as, or nobody. */
-export type Caller = { identity: Identity; session?: string } | { refused: true } | undefined
+/**
+ * Who a request is from: someone, someone the server won't act as, a session's request that
+ * didn't say it came from Lumovi's own page (`unsaid`), or nobody.
+ */
+export type Caller =
+  { identity: Identity; session?: string } | { refused: true } | { unsaid: true } | undefined
+
+/** What a request refused by the second wall is told: the header, and nothing else of it. */
+export const UNSAID =
+  'This request didn’t say it came from Lumovi’s own page (Sec-Fetch-Site), so Lumovi didn’t act on it.'
+
+/** Whether a sign-in's request said where it came from: that the header was there, not what it said. */
+const saysWhereFrom = (req: IncomingMessage) => req.headers['sec-fetch-site'] !== undefined
 
 export class Auth {
   /** Failed sign-ins this minute: recorded, and past those, only counted (by where from). */
@@ -56,6 +67,8 @@ export class Auth {
   readonly #window: NodeJS.Timeout
   /** The ways back from the provider already taken (a sign-in's state, until it'd expire). */
   readonly #finished = new Map<string, number>()
+  /** Sessions whose browser stopped saying where requests come from: said once each. */
+  readonly #stopped = new WeakSet<object>()
 
   constructor(
     private readonly config: ServerConfig,
@@ -120,7 +133,25 @@ export class Auth {
     })
   }
 
-  identify(req: IncomingMessage): Caller {
+  /**
+   * The second wall, for a session: `held`, where every request it carries must say it comes
+   * from Lumovi's own page; or `not-held`, an old browser's (it said nothing of where its sign-in
+   * came from), any session's with LUMOVI_SEC_FETCH_SITE off, and anyone's behind a sign-in proxy
+   * (no sign-in here to note). Asked by the rule (`identify`) and by whatever hands a plugin's
+   * code over, the one never without the other: nothing `not-held` is given a plugin's code.
+   */
+  secondWall(session: Pick<StoredSession, 'saysWhereFrom'> | undefined): 'held' | 'not-held' {
+    if (this.config.auth.mode === 'proxy' || this.config.fetchSite === 'off') return 'not-held'
+    return session?.saysWhereFrom ? 'held' : 'not-held'
+  }
+
+  /**
+   * Who a request is from. A session's request where the second wall holds is believed only if
+   * it says it comes from Lumovi's own page (Sec-Fetch-Site: same-origin, exactly); refused, it
+   * is refused and nothing else: its session isn't touched. (`socket`: a live connection's start,
+   * held by its Origin alone, which its caller checks: browsers don't say this there.)
+   */
+  identify(req: IncomingMessage, { socket = false }: { socket?: boolean } = {}): Caller {
     const { auth } = this.config
     if (auth.mode === 'proxy') {
       const name = req.headers[auth.userHeader]
@@ -132,7 +163,24 @@ export class Auth {
       const user = { name, groups }
       return this.hosted.refuses(user) ? { refused: true } : { identity: { user } }
     }
-    const session = this.sessions.get(cookies(req)[SESSION_COOKIE])
+    const cookie = cookies(req)[SESSION_COOKIE]
+    // (As it's kept, nothing done to it. An expired session isn't there: its timer ended it, as
+    // `get` relies on too. One expiring this very moment is judged as it was: a request of it
+    // without the header is refused as unsaid, not answered as signed out.)
+    const seen = this.sessions.peek(cookie)
+    const site = req.headers['sec-fetch-site']
+    if (seen && !socket && this.secondWall(seen) === 'held' && site !== 'same-origin') {
+      // Said once a session: its browser said where its sign-in came from, and now says nothing
+      // (what a gateway that takes the header out looks like).
+      if (site === undefined && !this.#stopped.has(seen)) {
+        this.#stopped.add(seen)
+        log(
+          `A session of ${seen.identity.user.name}’s sent Sec-Fetch-Site as it signed in and has stopped: something between the browser and Lumovi may be removing it. See LUMOVI_SEC_FETCH_SITE.`,
+        )
+      }
+      return { unsaid: true }
+    }
+    const session = this.sessions.get(cookie)
     // Back after a restart: what renews its token (single sign-on) starts again.
     if (session?.resumed) this.#keepFresh(session.id)
     return session && { identity: session.identity, session: session.id }
@@ -148,7 +196,12 @@ export class Auth {
     const signIn: SignIn = {
       auth: this.config.auth.mode,
       provider: this.config.auth.mode === 'oidc' ? this.config.auth.provider : undefined,
-      problem: caller && 'refused' in caller ? 'refused' : undefined,
+      problem:
+        caller && 'refused' in caller
+          ? 'refused'
+          : caller && 'unsaid' in caller
+            ? 'browser'
+            : undefined,
     }
     sendJson(res, 401, signIn)
   }
@@ -176,7 +229,11 @@ export class Auth {
       sendJson(res, 401, { error: said })
       return
     }
-    const { cookie: id, session } = this.sessions.create({ user, token })
+    const { cookie: id, session } = this.sessions.create(
+      { user, token },
+      undefined,
+      saysWhereFrom(req),
+    )
     log(`${user.name} signed in with a token`)
     this.#record(req, 'success', 'Signed in with a token', { user, session: session.id })
     sendJson(res, 200, this.#session(user), { 'Set-Cookie': this.#sessionCookie(req, id) })
@@ -192,6 +249,11 @@ export class Auth {
       return
     }
     const caller = this.identify(req)
+    // (Refused, it ends nothing and clears no cookie: no page elsewhere can sign anyone out.)
+    if (caller && 'unsaid' in caller) {
+      sendJson(res, 403, { error: UNSAID })
+      return
+    }
     if (caller && 'session' in caller) {
       log(`${caller.identity.user.name} signed out`)
       this.#record(req, 'success', 'Signed out', {
@@ -287,6 +349,7 @@ export class Auth {
     const { cookie: id, session } = this.sessions.create(
       { user, token },
       { tokenExpires: signedIn.expires, refreshToken: signedIn.refreshToken },
+      saysWhereFrom(req),
     )
     this.#keepFresh(session.id)
     log(`${user.name} signed in`)

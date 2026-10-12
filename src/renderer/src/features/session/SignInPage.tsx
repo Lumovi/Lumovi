@@ -35,6 +35,10 @@ const NOTICES: Record<Notice, { text: string; problem: boolean }> = {
     text: 'Lumovi won’t act as this account: names starting with system: are Kubernetes’ own.',
     problem: true,
   },
+  browser: {
+    text: 'Lumovi refused a request from this browser because it didn’t say it came from Lumovi’s own page. If something between your browser and Lumovi removes the Sec-Fetch-Site header, signing in again won’t help: ask whoever runs Lumovi.',
+    problem: true,
+  },
 }
 
 /**

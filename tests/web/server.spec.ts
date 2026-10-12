@@ -304,6 +304,8 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   for (const [path, headers] of [
     ['api/socket', { Cookie: cookie }],
     ['api/socket', { Cookie: cookie, Origin: 'https://evil.example' }],
+    // (What a sandboxed frame says of itself, a plugin's box among them.)
+    ['api/socket', { Cookie: cookie, Origin: 'null' }],
     ['api/socket', { Origin: origin }],
     ['api/socket', { Cookie: 'lumovi-session=%', Origin: origin }],
     ['api/elsewhere', { Cookie: cookie, Origin: origin }],
@@ -338,7 +340,7 @@ test('the server says what’s wrong with its configuration, and stops', async (
     [{ LUMOVI_AUTH: 'oidc' }, 'LUMOVI_OIDC_ISSUER must be set for single sign-on.'],
     [
       { LUMOVI_AUTH: 'oidc', LUMOVI_OIDC_ISSUER: 'auth.example.com' },
-      'LUMOVI_OIDC_ISSUER must be an http or https URL, not "auth.example.com".',
+      'LUMOVI_OIDC_ISSUER must be an http or https URL.',
     ],
     [
       { LUMOVI_AUTH: 'oidc', LUMOVI_OIDC_ISSUER: 'https://auth.example.com' },
@@ -352,7 +354,13 @@ test('the server says what’s wrong with its configuration, and stops', async (
       },
       'LUMOVI_OIDC_CLIENT_ID must be set for single sign-on.',
     ],
-    [{ LUMOVI_URL: 'https://' }, 'LUMOVI_URL must be an http or https URL, not "https://".'],
+    [{ LUMOVI_URL: 'https://' }, 'LUMOVI_URL must be an http or https URL.'],
+    // (What isn't an address is never said back: it may hold a password.)
+    [
+      { LUMOVI_URL: 'https://admin:s3cret@lumovi example.com' },
+      'LUMOVI_URL must be an http or https URL.',
+    ],
+    [{ LUMOVI_SEC_FETCH_SITE: 'maybe' }, 'LUMOVI_SEC_FETCH_SITE must be on or off, not "maybe".'],
     [{ LUMOVI_NODE_SHELL: 'maybe' }, 'LUMOVI_NODE_SHELL must be on or off, not "maybe".'],
     [{ LUMOVI_METRICS_STACK: 'yes' }, 'LUMOVI_METRICS_STACK must be on or off, not "yes".'],
     [
@@ -379,7 +387,7 @@ test('the server says what’s wrong with its configuration, and stops', async (
     ],
     [
       { LUMOVI_AUTH: 'proxy', LUMOVI_PROXY_SIGN_OUT_URL: 'javascript:alert(1)' },
-      'LUMOVI_PROXY_SIGN_OUT_URL must be an http or https URL, not "javascript:alert(1)".',
+      'LUMOVI_PROXY_SIGN_OUT_URL must be an http or https URL.',
     ],
     [
       { LUMOVI_BASE_PATH: '/lumovi app' },
