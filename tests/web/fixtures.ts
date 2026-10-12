@@ -383,24 +383,58 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
     const learn = (coverage: Coverage | undefined) => {
       if (coverage) Object.assign(maps, coverage)
     }
-    // (Its files' names first: the maps are large, and are read only for a file not yet known.)
-    const learnNew = (page: Page) =>
-      void page
+    // While a test runs, a page is read on its own thread, so as little as can be: its files'
+    // names, then the maps of those no page has given yet, each file's asked for once. (The
+    // maps are large; read whole each time, they slowed the pages the tests were timing.)
+    const asked = new Set<string>()
+    const learnNew = async (page: Page) => {
+      const files = await page
         .evaluate(() => Object.keys((window as { __coverage__?: Coverage }).__coverage__ ?? {}))
         .catch(() => [])
-        .then((files) => {
-          if (files.some((file) => !(file in maps))) void coverageOf(page).then(learn)
+      const fresh = files.filter((file) => !(file in maps) && !asked.has(file))
+      if (fresh.length === 0) return
+      for (const file of fresh) asked.add(file)
+      learn(
+        await page
+          .evaluate((names) => {
+            const coverage = (window as { __coverage__?: Coverage }).__coverage__ ?? {}
+            return Object.fromEntries(
+              names.filter((name) => name in coverage).map((name) => [name, coverage[name]!]),
+            )
+          }, fresh)
+          .catch(() => undefined),
+      )
+      // What didn't come (the page went first) is asked for again, of whichever page has it.
+      for (const file of fresh) if (!(file in maps)) asked.delete(file)
+    }
+    // One read at a time a page: whatever comes while it waits or runs is read once more after it.
+    const reads = new Map<Page, { again: boolean }>()
+    const readSoon = (page: Page) => {
+      const pending = reads.get(page)
+      if (pending) {
+        pending.again = true
+        return
+      }
+      const read = { again: false }
+      reads.set(page, read)
+      void page
+        .waitForTimeout(100)
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await learnNew(page)
+          } finally {
+            reads.delete(page)
+            if (read.again && !page.isClosed()) readSoon(page)
+          }
         })
+    }
     context.on('page', (page) => {
-      page.on('load', () => learnNew(page))
+      page.on('load', () => readSoon(page))
       // A script that comes later (a route loaded when it's opened) brings its files' maps then:
       // read once it has run, so they're known before the page can leave.
       page.on('requestfinished', (request) => {
-        if (request.resourceType() !== 'script') return
-        void page
-          .waitForTimeout(100)
-          .catch(() => undefined)
-          .then(() => learnNew(page))
+        if (request.resourceType() === 'script') readSoon(page)
       })
     })
     await use(context)
