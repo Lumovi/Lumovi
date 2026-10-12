@@ -95,20 +95,34 @@ function remember({ regex, matchCase, exclude }: LogQuery) {
 /** The furthest back a span of seconds is asked for as one; past it, as a moment. */
 const MOST_SINCE_SECONDS = 30 * 86_400
 
+/** The fewest lines a container of several is asked for, where a span is shared out. */
+const LEAST_SHARE = 2000
+
 /**
- * What the streams are asked for, by what's picked. A span keeps only its last lines, as many as
- * the view does: a long one is cut there, and says so.
+ * The lines each container is asked for over a span: as many as the view keeps, shared out
+ * among several (each keeps its own newest lines), but never fewer than `LEAST_SHARE`.
  */
-function windowOf(picked: Picked): Pick<LogOptions, 'tailLines' | 'sinceSeconds' | 'sinceTime'> {
+export const shareOf = (containers: number) =>
+  containers > 1 ? Math.max(LEAST_SHARE, Math.floor(MAX_LINES / containers)) : MAX_LINES
+
+/**
+ * What the streams are asked for, by what's picked. A span keeps only each container's last
+ * lines (`shareOf`): a long one is cut there, and says so.
+ */
+function windowOf(
+  picked: Picked,
+  containers: number,
+): Pick<LogOptions, 'tailLines' | 'sinceSeconds' | 'sinceTime'> {
+  const tailLines = shareOf(containers)
   if ('range' in picked) {
     const range = RANGES.find((r) => r.value === picked.range)!
     return 'tailLines' in range
       ? { tailLines: range.tailLines }
-      : { sinceSeconds: range.sinceSeconds, tailLines: MAX_LINES }
+      : { sinceSeconds: range.sinceSeconds, tailLines }
   }
   return 'seconds' in picked.since
-    ? { sinceSeconds: picked.since.seconds, tailLines: MAX_LINES }
-    : { sinceTime: new Date(picked.since.at).toISOString(), tailLines: MAX_LINES }
+    ? { sinceSeconds: picked.since.seconds, tailLines }
+    : { sinceTime: new Date(picked.since.at).toISOString(), tailLines }
 }
 
 /** How many seconds back a pick starts, where it's a span (not a count of lines). */
@@ -418,7 +432,7 @@ function Logs({
     `${multiple ? short.get(source.pod) : ''}${container === ALL ? `${multiple ? '/' : ''}${source.container}` : ''}`
   const labels = new Map(streamed.map((source) => [source.key, labelOf(source)]))
   const labelWidth = Math.max(...[...labels.values()].map((label) => label.length))
-  const { tailLines, sinceSeconds, sinceTime } = windowOf(picked)
+  const { tailLines, sinceSeconds, sinceTime } = windowOf(picked, streamed.length)
   /** Where a span starts, to say where a long one was cut (none for a count of lines). */
   const seconds = secondsOf(picked)
   const since =
@@ -427,7 +441,7 @@ function Logs({
       : seconds === undefined
         ? undefined
         : pickedAt - seconds * 1000
-  const { lines, states } = useLogStreams(streamed, {
+  const { lines, states, full } = useLogStreams(streamed, {
     tailLines,
     sinceSeconds,
     sinceTime,
@@ -970,12 +984,26 @@ function Logs({
           open a pod, to see the rest.
         </p>
       )}
-      {lines.length >= MAX_LINES && (
-        <p role="note" className="shrink-0 border-b border-line px-5 py-1.5 text-xs text-ink-3">
-          {since === undefined
-            ? `Showing the latest ${MAX_LINES.toLocaleString()} lines.`
-            : `Showing the last ${MAX_LINES.toLocaleString()} lines since ${momentOf(since, pickedAt)}. Pick a later time to see them from the start.`}
+      {since !== undefined && streamed.length > 1 && full.length > 0 ? (
+        // (A span shared out among several containers, and one of them had more than its share:
+        // which were cut, one a line, where a pointer asks.)
+        <p
+          role="note"
+          title={full.join('\n')}
+          className="shrink-0 border-b border-line px-5 py-1.5 text-xs text-ink-3"
+        >
+          Showing at most {tailLines!.toLocaleString()} lines of each container since{' '}
+          {momentOf(since, pickedAt)}, the newest of each. Pick a later time, or one container, to
+          see every line from it.
         </p>
+      ) : (
+        lines.length >= MAX_LINES && (
+          <p role="note" className="shrink-0 border-b border-line px-5 py-1.5 text-xs text-ink-3">
+            {since === undefined
+              ? `Showing the latest ${MAX_LINES.toLocaleString()} lines.`
+              : `Showing the last ${MAX_LINES.toLocaleString()} lines since ${momentOf(since, pickedAt)}. Pick a later time to see every line from it.`}
+          </p>
+        )
       )}
       {body}
     </div>

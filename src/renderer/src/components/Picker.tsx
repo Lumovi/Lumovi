@@ -69,6 +69,8 @@ export function Picker({
             onOpenAutoFocus={onOpenAutoFocus}
             onEscapeKeyDown={onEscapeKeyDown}
             aria-label={title}
+            // (Over the page: what it half covers there is pressed on it, not under it.)
+            data-over
             className={cn(menuContent, className)}
           >
             {children}

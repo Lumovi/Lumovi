@@ -272,6 +272,25 @@ test('logs of services and empty workloads, and of many pods at once', async ({
     Array.from({ length: 20_001 }, (_, i) => `line ${i}`),
   )
   await expect(many.getByRole('note').last()).toHaveText('Showing the latest 20,000 lines.')
+  // Over a span, each of the 30 is asked for its share of what's kept, never fewer than 2,000;
+  // and where one had more than its share, it says each was cut there.
+  await many.getByRole('button', { name: 'Show', exact: true }).click()
+  await page.getByRole('option', { name: 'Last hour' }).click()
+  await expect
+    .poll(() =>
+      clusters.demo.requests.some(
+        (r) =>
+          r.path.endsWith('/pods/many-07/log') &&
+          r.query.container === 'b' &&
+          r.query.sinceSeconds === '3600' &&
+          r.query.tailLines === '2000',
+      ),
+    )
+    .toBe(true)
+  await expect(many.getByRole('note').last()).toHaveText(
+    /^Showing at most 2,000 lines of each container since \d\d:\d\d( yesterday)?, the newest of each\. Pick a later time, or one container, to see every line from it\.$/,
+  )
+  await expect(many.getByRole('note').last()).toHaveAttribute('title', /many-00\/a/)
 })
 
 test('the pods behind the logs can fail to list', async ({ page, clusters }) => {

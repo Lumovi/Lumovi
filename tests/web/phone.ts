@@ -122,7 +122,8 @@ function missed(page: Page): Promise<string[]> {
         return false
       })()
       if (cut) continue
-      // Nor is what a detail over the list has half covered: the detail is what's pressed there.
+      // Nor is what something over it has half covered (a detail over the list, a popover by its
+      // button): that is what's pressed there.
       const under = (dx: number, dy: number) => {
         const over = document.elementFromPoint(x + dx, y + dy)?.closest('[data-over]')
         return over !== null && over !== undefined && !over.contains(element)

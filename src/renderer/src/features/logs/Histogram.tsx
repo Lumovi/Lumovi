@@ -163,7 +163,7 @@ export function Histogram({
         ref={strip}
         role="group"
         tabIndex={0}
-        aria-label="Lines over time: pick a stretch with the arrow keys and Enter"
+        aria-label="Lines over time: pick a stretch with Shift and the arrow keys, then Enter"
         onKeyDown={keyDown}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
