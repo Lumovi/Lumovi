@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import WebSocket from 'ws'
+import { BOX_CHECK_WAYS } from '../../src/shared/box-check.ts'
 import type { NotHanded, PluginCode } from '../../src/shared/plugin-hand-over.ts'
 import { audited, DEMO_TOKEN, expect, freePort, signIn, test, type Served } from './fixtures.ts'
 
@@ -93,13 +94,44 @@ test('a check’s calls that aren’t a check fail closed: nothing passes, and o
   // the failure it was.
   const second = (await check.start())!
   expect(await check.end(second.nonce, null, [])).toBe('failed')
-  // (And what reaches the catcher under a name that's no way's is kept as one "other".)
-  const third = (await check.start())!
-  expect((await fetch(`${server.url}box-check/${third.nonce}/made-up`)).status).toBe(204)
-  expect(await check.end(third.nonce, null, [])).toBe('failed')
   expect(await check.handOver()).toBe('check-failed')
   expect(audited(server, 'plugin.box-check').map((event) => event.outcome)).toEqual(['failure'])
   expect(audited(server, 'plugin.code')).toEqual([])
+})
+
+/** Every box's report, whole, every way refused and nothing found: what a box that held sends. */
+const held = (nonce: string) => ({
+  first: JSON.stringify({
+    check: nonce,
+    role: 'first',
+    ways: Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, 'refused'])),
+    found: [],
+  }),
+  second: JSON.stringify({
+    check: nonce,
+    role: 'second',
+    ways: Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, 'refused'])),
+    found: [],
+  }),
+  later: JSON.stringify({ check: nonce, role: 'later', found: [] }),
+})
+
+test('what reaches the catcher under a name that’s no way’s is kept, as “other”, and fails the check', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  const check = calls(page)
+  const { nonce } = (await check.start())!
+  expect((await fetch(`${server.url}box-check/${nonce}/made-up`)).status).toBe(204)
+  // Whatever the boxes say, what reached the catcher got out: named "other", not dropped.
+  expect(await check.end(nonce, held(nonce), [])).toBe('failed')
+  const [failed] = audited(server, 'plugin.box-check')
+  expect(failed?.outcome).toBe('failure')
+  expect(failed?.details?.ways).toEqual(['other'])
+  expect(server.log()).toContain('lets a plugin’s code out of its box: other.')
+  expect(await check.handOver()).toBe('check-failed')
 })
 
 test('the catcher’s address with nothing in it, a socket to it, and the box’s files asked for their headers', async ({
