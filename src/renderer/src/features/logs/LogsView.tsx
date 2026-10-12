@@ -1,6 +1,8 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowDown,
+  Check,
+  CircleAlert,
   Clock,
   Copy,
   Download,
@@ -8,8 +10,9 @@ import {
   History,
   Play,
   ScrollText,
-  Search,
+  TriangleAlert,
   WrapText,
+  X,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { KubeObject, PluginVia } from '@shared/api'
@@ -21,6 +24,7 @@ import { Tooltip } from '@renderer/components/Tooltip'
 import {
   MAX_LINES,
   useLogStreams,
+  type LogOptions,
   type LogSource,
   type StreamState,
 } from '@renderer/hooks/log-streams'
@@ -29,21 +33,90 @@ import { api, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { Picker } from '@renderer/components/Picker'
 import { useLayout, useTouch } from '@renderer/lib/layout'
+import {
+  NO_QUERY,
+  search as searchFor,
+  shownParts,
+  type LogQuery,
+  type Runnable,
+  type Search as Searched,
+} from '@renderer/lib/log-search'
 import { shortNames, type Level, type LogLine, type Segment } from '@renderer/lib/logs'
 import { toast } from '@renderer/state/toasts'
 import type { PodQuery } from '../details/PodsTab'
 import { NotAllowed } from '../access/NotAllowed'
 import { useAccessHere } from '../access/use-access'
+import { momentOf } from '@renderer/lib/log-since'
+import { useCluster } from '@renderer/state/cluster'
+import { useLineSearch } from './line-search'
+import { RANGES, RangePicker, type Picked } from './RangePicker'
+import { Histogram, stretchSaid, type Stretch } from './Histogram'
+import { SearchField, SearchSteps, SearchToggles, type Count } from './SearchField'
 
-/** Where the logs start: each container's last lines, or a span of time. */
-const RANGES = [
-  { value: '100', label: 'Last 100 lines', tailLines: 100 },
-  { value: '500', label: 'Last 500 lines', tailLines: 500 },
-  { value: '2000', label: 'Last 2,000 lines', tailLines: 2000 },
-  { value: '5m', label: 'Last 5 minutes', sinceSeconds: 300 },
-  { value: '1h', label: 'Last hour', sinceSeconds: 3600 },
-  { value: '1d', label: 'Last day', sinceSeconds: 86_400 },
-]
+/** A search the lines can be filtered by: anything but an expression that isn't one. */
+type Usable = Exclude<Searched, { kind: 'invalid' }>
+
+/** What the worker is given of a search. */
+const runnableOf = (search: Exclude<Usable, { kind: 'none' }>): Runnable =>
+  search.kind === 'plain'
+    ? { kind: 'plain', needle: search.needle, matchCase: search.matchCase }
+    : { kind: 'regex', source: search.source, flags: search.flags }
+
+/**
+ * What was typed in each Logs view this session, by the view (its cluster, namespace and
+ * name): drawn again (a phone turned, so a page becomes a panel), it's there still. Never kept
+ * beyond the session, nor shared between views.
+ */
+const typedIn = new Map<string, string>()
+
+/** The search's toggles are remembered for the Logs view (not its text). */
+const REMEMBERED = 'lumovi:logs-search'
+function rememberedQuery(): LogQuery {
+  try {
+    const kept = JSON.parse(localStorage.getItem(REMEMBERED) ?? '{}') as Partial<LogQuery>
+    return {
+      ...NO_QUERY,
+      regex: kept.regex === true,
+      matchCase: kept.matchCase === true,
+      exclude: kept.exclude === true,
+    }
+  } catch {
+    return NO_QUERY
+  }
+}
+function remember({ regex, matchCase, exclude }: LogQuery) {
+  try {
+    localStorage.setItem(REMEMBERED, JSON.stringify({ regex, matchCase, exclude }))
+  } catch {
+    // (Nowhere to keep it: a private window, say. It's only a convenience.)
+  }
+}
+
+/** The furthest back a span of seconds is asked for as one; past it, as a moment. */
+const MOST_SINCE_SECONDS = 30 * 86_400
+
+/**
+ * What the streams are asked for, by what's picked. A span keeps only its last lines, as many as
+ * the view does: a long one is cut there, and says so.
+ */
+function windowOf(picked: Picked): Pick<LogOptions, 'tailLines' | 'sinceSeconds' | 'sinceTime'> {
+  if ('range' in picked) {
+    const range = RANGES.find((r) => r.value === picked.range)!
+    return 'tailLines' in range
+      ? { tailLines: range.tailLines }
+      : { sinceSeconds: range.sinceSeconds, tailLines: MAX_LINES }
+  }
+  return 'seconds' in picked.since
+    ? { sinceSeconds: picked.since.seconds, tailLines: MAX_LINES }
+    : { sinceTime: new Date(picked.since.at).toISOString(), tailLines: MAX_LINES }
+}
+
+/** How many seconds back a pick starts, where it's a span (not a count of lines). */
+function secondsOf(picked: Picked): number | undefined {
+  if ('since' in picked) return 'seconds' in picked.since ? picked.since.seconds : undefined
+  const range = RANGES.find((r) => r.value === picked.range)!
+  return 'sinceSeconds' in range ? range.sinceSeconds : undefined
+}
 /** Every container of the pods, together. */
 const ALL = '*'
 /** The most containers streamed at once (a DaemonSet can have hundreds of pods). */
@@ -64,63 +137,85 @@ const LEVEL_CLASS: Record<Level, string> = {
 
 const time = (line: LogLine) => new Date(line.at).toLocaleTimeString(undefined, { hour12: false })
 
-/** Wraps matches of `needle` in <mark>. */
-function highlight(text: string, needle: string): ReactNode {
-  if (!needle) return text
-  const pattern = new RegExp(`(${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-  return text.split(pattern).map((part, i) =>
-    i % 2 === 1 ? (
-      <mark key={i} className="rounded-sm bg-warn/40 text-inherit">
-        {part}
-      </mark>
-    ) : (
-      part
-    ),
-  )
+/** A match in one of the texts a line shows: where, and whether it's the current one. */
+type Mark = readonly [start: number, end: number, current?: boolean]
+/** Where a line's matches are, in each of the texts it shows (`shownParts`). */
+type Marks = (part: number) => readonly Mark[]
+const NO_MARKS: Marks = () => []
+
+/** A text with its matches in <mark>: from where they were found, never by searching here. */
+function marked(text: string, ranges: readonly Mark[]): ReactNode {
+  if (ranges.length === 0) return text
+  const pieces: ReactNode[] = []
+  let at = 0
+  for (const [start, end, current] of ranges) {
+    if (start < at) continue
+    if (start > at) pieces.push(text.slice(at, start))
+    pieces.push(
+      <mark
+        key={start}
+        data-current={current || undefined}
+        className={cn('rounded-sm', current ? 'bg-accent text-white' : 'bg-warn/40 text-inherit')}
+      >
+        {text.slice(start, end)}
+      </mark>,
+    )
+    at = end
+  }
+  if (at < text.length) pieces.push(text.slice(at))
+  return pieces
 }
 
-/** Text in the styles its escape codes set. */
-function Styled({ segments, needle }: { segments: Segment[]; needle: string }) {
-  return segments.map((s, i) => (
-    <span
-      key={i}
-      className={s.background ? 'ansi-bg' : undefined}
-      style={{
-        color: s.color,
-        background: s.background,
-        fontWeight: s.bold ? 600 : undefined,
-        opacity: s.dim ? 0.7 : undefined,
-        fontStyle: s.italic ? 'italic' : undefined,
-        textDecoration: s.underline ? 'underline' : undefined,
-      }}
-    >
-      {highlight(s.text, needle)}
-    </span>
-  ))
+/** Text in the styles its escape codes set (its marks found in the text they make together). */
+function Styled({ segments, marks }: { segments: Segment[]; marks: Marks }) {
+  let offset = 0
+  return segments.map((s, i) => {
+    const from = offset
+    offset += s.text.length
+    const ranges = marks(0)
+      .filter(([start, end]) => end > from && start < offset)
+      .map(
+        ([start, end, current]) =>
+          [Math.max(start, from) - from, Math.min(end, offset) - from, current] as const,
+      )
+    return (
+      <span
+        key={i}
+        className={s.background ? 'ansi-bg' : undefined}
+        style={{
+          color: s.color,
+          background: s.background,
+          fontWeight: s.bold ? 600 : undefined,
+          opacity: s.dim ? 0.7 : undefined,
+          fontStyle: s.italic ? 'italic' : undefined,
+          textDecoration: s.underline ? 'underline' : undefined,
+        }}
+      >
+        {marked(s.text, ranges)}
+      </span>
+    )
+  })
 }
 
 /** JSON lines: level and message first, the other fields dimmed. Others in their colors. */
-function Message({ line, needle }: { line: LogLine; needle: string }) {
+function Message({ line, marks }: { line: LogLine; marks: Marks }) {
   if (!line.fields) {
     return line.segments ? (
-      <Styled segments={line.segments} needle={needle} />
+      <Styled segments={line.segments} marks={marks} />
     ) : (
-      <>{highlight(line.message, needle)}</>
+      <>{marked(line.message, marks(0))}</>
     )
   }
-  const { level, msg, ...rest } = line.fields
-  const extra = Object.entries(rest)
-    .map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
-    .join(' ')
+  const [msg, extra] = shownParts(line)
   return (
     <>
-      {level !== undefined && (
+      {line.fields.level !== undefined && (
         <span className="mr-2 rounded bg-current/10 px-1 text-2xs font-semibold uppercase">
-          {String(level)}
+          {String(line.fields.level)}
         </span>
       )}
-      {msg !== undefined && highlight(String(msg), needle)}
-      <span className="ml-2 text-ink-3">{highlight(extra, needle)}</span>
+      {line.fields.msg !== undefined && marked(msg!, marks(0))}
+      <span className="ml-2 text-ink-3">{marked(extra!, marks(1))}</span>
     </>
   )
 }
@@ -246,7 +341,19 @@ function Logs({
   const [container, setContainer] = useState<string>(
     asked !== undefined && names.includes(asked) ? asked : sorted[0]!.spec.containers[0].name,
   )
-  const [range, setRange] = useState('500')
+  const [picked, setPickedState] = useState<Picked>({ range: '500' })
+  /** When it was picked: where a span's start is counted from, to say it. */
+  const [pickedAt, setPickedAt] = useState(() => Date.now())
+  const setPicked = (next: Picked) => {
+    const now = Date.now()
+    // (A span too long to ask for as one is asked for from its moment.)
+    setPickedState(
+      'since' in next && 'seconds' in next.since && next.since.seconds > MOST_SINCE_SECONDS
+        ? { since: { at: now - next.since.seconds * 1000 } }
+        : next,
+    )
+    setPickedAt(now)
+  }
   const [previous, setPrevious] = useState(false)
   const [follow, setFollow] = useState(true)
   // On a narrow page lines always wrap (nothing scrolls sideways under 1024 px: a panel there is
@@ -259,8 +366,29 @@ function Logs({
   const [wraps, setWrap] = useState(touch)
   const wrap = wraps || narrow
   const [timestamps, setTimestamps] = useState(!phone)
+  /** A stretch of time picked on the histogram: only its lines are shown. */
+  const [stretch, setStretch] = useState<Stretch>()
+  /** The search field has the focus (on a phone, its third row shows). */
+  const [fieldFocus, setFieldFocus] = useState(false)
   const [more, setMore] = useState(false)
-  const [search, setSearch] = useState('')
+  const { context } = useCluster()
+  const view = `${context}/${sorted[0]!.metadata.namespace}/${name}`
+  const [query, setQueryState] = useState<LogQuery>(() => ({
+    ...rememberedQuery(),
+    text: typedIn.get(view) ?? '',
+  }))
+  const searcher = useLineSearch()
+  /** The last search that worked: what the lines show while the one typed doesn't. */
+  const [kept, setKept] = useState<Usable>({ kind: 'none' })
+  /** The match stepped to, of all those shown (none until the person steps). */
+  const [current, setCurrent] = useState<number>()
+  const setQuery = (next: LogQuery) => {
+    setQueryState(next)
+    setCurrent(undefined)
+    remember(next)
+    if (next.text) typedIn.set(view, next.text)
+    else typedIn.delete(view)
+  }
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const [levels, setLevels] = useState<ReadonlySet<Level>>(new Set())
   const [attempt, setAttempt] = useState(0)
@@ -290,10 +418,19 @@ function Logs({
     `${multiple ? short.get(source.pod) : ''}${container === ALL ? `${multiple ? '/' : ''}${source.container}` : ''}`
   const labels = new Map(streamed.map((source) => [source.key, labelOf(source)]))
   const labelWidth = Math.max(...[...labels.values()].map((label) => label.length))
-  const { tailLines, sinceSeconds } = RANGES.find((r) => r.value === range)!
+  const { tailLines, sinceSeconds, sinceTime } = windowOf(picked)
+  /** Where a span starts, to say where a long one was cut (none for a count of lines). */
+  const seconds = secondsOf(picked)
+  const since =
+    'since' in picked && 'at' in picked.since
+      ? picked.since.at
+      : seconds === undefined
+        ? undefined
+        : pickedAt - seconds * 1000
   const { lines, states } = useLogStreams(streamed, {
     tailLines,
     sinceSeconds,
+    sinceTime,
     previous,
     follow,
     attempt,
@@ -302,15 +439,83 @@ function Logs({
   })
 
   const podOf = (line: LogLine) => line.source.slice(0, line.source.indexOf('/'))
-  const needle = search.trim()
   const visible = lines.filter((line) => !hidden.has(podOf(line)))
   const levelCounts = new Map<Level, number>()
   const podCounts = new Map<string, number>()
   for (const line of visible) levelCounts.set(line.level, (levelCounts.get(line.level) ?? 0) + 1)
   for (const line of lines) podCounts.set(podOf(line), (podCounts.get(podOf(line)) ?? 0) + 1)
+
+  // What's searched for, in the worker. An expression that isn't one, or a search that took too
+  // long, leaves the lines as the last one that worked left them, dimmed, and says why.
+  const wanted = searchFor(query)
+  const usable = (it: Searched): it is Usable =>
+    it.kind !== 'invalid' && !(it.kind !== 'none' && searcher.isSlow(runnableOf(it)))
+  const good = usable(wanted)
+  // Shown once it has run on every line: until then, the last one that did (a search still
+  // running may yet turn out too slow, and its answers so far are only some of them).
+  const finished = good && (wanted.kind === 'none' || searcher.done(runnableOf(wanted)))
+  const used = finished ? wanted : kept
+  const wantedKey = JSON.stringify(wanted)
+  useEffect(() => {
+    if (finished) setKept(JSON.parse(wantedKey) as Usable)
+  }, [finished, wantedKey])
+  const trouble = wanted.kind === 'invalid' ? 'bad' : good ? undefined : 'slow'
+  const problem =
+    wanted.kind === 'invalid'
+      ? wanted.why
+      : trouble === 'slow'
+        ? wanted.kind === 'regex'
+          ? `This expression took too long on ${lines.length.toLocaleString()} lines, so Lumovi stopped it. Try a simpler one. The lines are from the last one that worked.`
+          : `This search took too long on ${lines.length.toLocaleString()} lines, so Lumovi stopped it. The lines are from the last one that worked.`
+        : undefined
+  useEffect(() => {
+    // What's typed is run; while it can't be, the last one that worked goes on with new lines.
+    const running = good ? wanted : kept
+    if (running.kind !== 'none') searcher.run(runnableOf(running), lines)
+  })
+  /** What the worker has said of each line, for the search shown. */
+  const knownOf = used.kind === 'none' ? () => undefined : searcher.lookup(runnableOf(used))
   const shown = visible
     .filter((line) => levels.size === 0 || levels.has(line.level))
-    .filter((line) => !needle || line.message.toLowerCase().includes(needle.toLowerCase()))
+    .filter((line) => !stretch || (line.at >= stretch.from && line.at < stretch.to))
+    .filter((line) => {
+      if (used.kind === 'none') return true
+      const match = knownOf(line)?.match
+      return match !== undefined && match !== used.exclude
+    })
+  const searching = used.kind !== 'none'
+  /** What the search shown is for, as typed. */
+  const usedText = used.kind === 'plain' ? used.needle : used.kind === 'regex' ? used.source : ''
+  const marking = searching && !used.exclude
+  // Every match in the lines shown, in order: where each line's first one is counted from.
+  const firstOf: number[] = []
+  let total = 0
+  for (const line of shown) {
+    firstOf.push(total)
+    if (marking) total += knownOf(line)?.ranges.length ?? 0
+  }
+  const at = current === undefined || total === 0 ? undefined : Math.min(current, total - 1)
+  /** The shown line the current match is in. */
+  const currentLine = at === undefined ? undefined : firstOf.findLastIndex((first) => first <= at)
+  const count: Count | undefined = !searching
+    ? undefined
+    : used.exclude
+      ? { lines: shown.length }
+      : { current: at ?? -1, total }
+  const step = (by: 1 | -1) => {
+    if (total === 0) return
+    setCurrent(at === undefined ? (by === 1 ? 0 : total - 1) : (at + by + total) % total)
+  }
+  /** Where a line's matches are marked, the current one among them. */
+  const marksOf = (line: LogLine, index: number): Marks => {
+    if (!marking) return NO_MARKS
+    const ranges = knownOf(line)?.ranges ?? []
+    const mine = at === undefined ? -1 : at - firstOf[index]!
+    return (part) =>
+      ranges.flatMap(([of, start, end], i) =>
+        of === part ? [[start, end, i === mine] as const] : [],
+      )
+  }
 
   // The React Compiler is not used, so the virtualizer's unmemoizable API is fine here.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -324,12 +529,16 @@ function Logs({
   useEffect(() => {
     // Follow new lines only while the reader is at the end; scrolling up pauses it.
     // Anything that changes the height (lines, searching, wrapping) keeps the end in view.
+    // (Not while a match is current: the view would run off from under it.)
     const el = scrollRef.current
-    if (follow && atEnd && el) {
+    if (follow && atEnd && el && at === undefined) {
       el.scrollTop = el.scrollHeight
       lastTop.current = el.scrollTop
     }
   })
+  useEffect(() => {
+    if (currentLine !== undefined) virtualizer.scrollToIndex(currentLine, { align: 'center' })
+  }, [at, currentLine, virtualizer])
 
   /** The lines as plain text: with their pods and containers when there are several. */
   const text = () =>
@@ -343,7 +552,9 @@ function Logs({
       .join('\n')
 
   const download = async () => {
-    const saved = await api.app.saveFile(`${name}.log`, `${text()}\n`)
+    // (A file that isn't the whole log says so in its name.)
+    const narrowed = searching || levels.size > 0 || hidden.size > 0 || stretch !== undefined
+    const saved = await api.app.saveFile(`${name}${narrowed ? '-filtered' : ''}.log`, `${text()}\n`)
     if (!saved.ok)
       toast({ tone: 'error', title: 'Couldn’t save the logs', description: saved.error.message })
     else if (saved.data) toast({ tone: 'success', title: `Saved the logs of ${name}` })
@@ -393,7 +604,10 @@ function Logs({
             if (el.scrollHeight - el.scrollTop - el.clientHeight < STICKY_DISTANCE) setAtEnd(true)
             else if (up) setAtEnd(false)
           }}
-          className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-2 font-mono text-[12px] leading-5 selectable"
+          className={cn(
+            'min-h-0 flex-1 overflow-auto bg-surface-2/60 py-2 font-mono text-[12px] leading-5 selectable',
+            trouble && 'opacity-55',
+          )}
         >
           <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((item) => {
@@ -410,6 +624,7 @@ function Logs({
                     'absolute top-0 left-0 flex min-w-full gap-3 px-5 phone:w-full phone:px-4',
                     !wrap && 'w-max',
                     LEVEL_CLASS[line.level],
+                    item.index === currentLine && 'shadow-[inset_3px_0_0_var(--accent)]',
                   )}
                 >
                   {timestamps && (
@@ -442,7 +657,7 @@ function Logs({
                           : 'whitespace-pre'
                     }
                   >
-                    <Message line={line} needle={needle} />
+                    <Message line={line} marks={marksOf(line, item.index)} />
                   </span>
                 </div>
               )
@@ -450,7 +665,11 @@ function Logs({
           </div>
           {shown.length === 0 && (
             <p className="px-5 py-8 text-center font-sans text-ink-3">
-              {needle ? `No lines match “${needle}”.` : 'No lines to show.'}
+              {searching
+                ? used.exclude
+                  ? `Every line matches “${usedText}”, so none is shown.`
+                  : `No lines match “${usedText}”.`
+                : 'No lines to show.'}
             </p>
           )}
         </div>
@@ -495,43 +714,21 @@ function Logs({
                 </option>
               ))}
             </select>
-            <select
-              aria-label="Show"
-              value={range}
-              onChange={(event) => setRange(event.target.value)}
-              className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-ink-1"
-            >
-              {RANGES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
+            <RangePicker phone picked={picked} onPick={setPicked} />
           </div>
           <div className="flex items-center gap-1">
-            <label className="mr-1 flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 focus-within:border-accent">
-              <Search className="size-4 shrink-0 text-ink-3" />
-              <input
-                aria-label="Search logs"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                spellCheck={false}
-                autoCapitalize="none"
-                autoCorrect="off"
-                className="min-w-0 flex-1 bg-transparent text-ink-1 outline-none placeholder:text-ink-3"
-              />
-              {needle && (
-                <span className="shrink-0 text-xs text-ink-3 tabular-nums">
-                  {shown.length}/{visible.length}
-                </span>
-              )}
-            </label>
+            <SearchField
+              phone
+              query={query}
+              onQuery={setQuery}
+              count={count}
+              stale={trouble !== undefined}
+              trouble={trouble}
+              onStep={step}
+              onFocusChange={setFieldFocus}
+            />
             <Toggle label="Follow" pressed={follow} onChange={setFollow}>
               <Play />
-            </Toggle>
-            <Toggle label="Timestamps" pressed={timestamps} onChange={setTimestamps}>
-              <Clock />
             </Toggle>
             <button
               type="button"
@@ -542,6 +739,17 @@ function Logs({
               <Ellipsis />
             </button>
           </div>
+          {(fieldFocus || query.text !== '') && (
+            // (Pressing here keeps the field's focus, so the row stays while it's used.)
+            <div
+              className="flex items-center gap-1"
+              onPointerDown={(event) => event.preventDefault()}
+            >
+              <SearchToggles big query={query} onQuery={setQuery} />
+              <span className="flex-1" />
+              <SearchSteps big count={count} stale={trouble !== undefined} onStep={step} />
+            </div>
+          )}
           {more && (
             <Sheet title="Logs" onClose={() => setMore(false)}>
               <ul className="px-2 pb-3">
@@ -552,13 +760,16 @@ function Logs({
                       History,
                       () => setPrevious(!previous),
                     ],
+                    // (A setting: its name stays, and a check says it's on.)
+                    ['Timestamps', Clock, () => setTimestamps(!timestamps), timestamps],
                     ['Copy logs', Copy, () => void navigator.clipboard.writeText(text())],
                     ['Download', Download, () => void download()],
                   ] as const
-                ).map(([label, Icon, act]) => (
+                ).map(([label, Icon, act, pressed]) => (
                   <li key={label}>
                     <button
                       type="button"
+                      aria-pressed={pressed}
                       onClick={() => {
                         act()
                         setMore(false)
@@ -566,7 +777,8 @@ function Logs({
                       className="flex h-11 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-ink-1 outline-offset-[-2px] active:bg-surface-3"
                     >
                       <Icon className="size-4 text-ink-3" />
-                      {label}
+                      <span className="flex-1">{label}</span>
+                      {pressed && <Check className="size-4 text-accent" />}
                     </button>
                   </li>
                 ))}
@@ -591,41 +803,15 @@ function Logs({
               </option>
             ))}
           </select>
-          <select
-            aria-label="Show"
-            value={range}
-            onChange={(event) => setRange(event.target.value)}
-            className="h-7 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1 narrow:min-w-16 narrow:shrink touch:h-11"
-          >
-            {RANGES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-          <label className="flex h-7 min-w-24 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 focus-within:border-accent touch:h-11">
-            <Search className="size-3.5 shrink-0 text-ink-3" />
-            <input
-              aria-label="Search logs"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  // Clear the search instead of closing the panel.
-                  event.stopPropagation()
-                  setSearch('')
-                }
-              }}
-              placeholder="Search"
-              spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent text-xs text-ink-1 outline-none placeholder:text-ink-3"
-            />
-            {needle && (
-              <span className="shrink-0 text-ink-3 tabular-nums">
-                {shown.length}/{visible.length}
-              </span>
-            )}
-          </label>
+          <RangePicker phone={false} picked={picked} onPick={setPicked} />
+          <SearchField
+            query={query}
+            onQuery={setQuery}
+            count={count}
+            stale={trouble !== undefined}
+            trouble={trouble}
+            onStep={step}
+          />
           <Toggle label="Follow" pressed={follow} onChange={setFollow}>
             <Play />
           </Toggle>
@@ -694,7 +880,23 @@ function Logs({
           )}
         </div>
       )}
-      {(multiple || levelCounts.size > 1) && (
+      {problem && (
+        <p
+          role="alert"
+          className={cn(
+            'flex shrink-0 items-start gap-2 border-b border-line px-5 py-1.5 text-xs leading-[18px] phone:px-4',
+            trouble === 'bad' ? 'bg-critical/6 text-critical-text' : 'bg-warn/8 text-warn-text',
+          )}
+        >
+          {trouble === 'bad' ? (
+            <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+          ) : (
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          )}
+          <span>{problem}</span>
+        </p>
+      )}
+      {(multiple || levelCounts.size > 1 || stretch) && (
         <div
           role="group"
           aria-label="Show lines from"
@@ -713,6 +915,22 @@ function Logs({
                 onClick={() => setLevels(toggle(levels, level))}
               />
             ))}
+          {stretch && (
+            <span
+              aria-label={`Only lines from ${stretchSaid(stretch).replace('–', ' to ')}`}
+              className="flex h-6 shrink-0 items-center gap-1 rounded-full border border-accent bg-accent-soft pr-0.5 pl-2 text-xs text-ink-1 tabular-nums touch:finger"
+            >
+              {stretchSaid(stretch)}
+              <button
+                type="button"
+                aria-label="Show all times again"
+                onClick={() => setStretch(undefined)}
+                className="grid size-5 place-items-center rounded-full text-ink-2 hover:bg-surface-3 hover:text-ink-1"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )}
           {multiple && <span className="mx-1 h-4 w-px shrink-0 bg-line" />}
           {multiple &&
             sorted.map((pod) => {
@@ -732,6 +950,17 @@ function Logs({
             })}
         </div>
       )}
+      {!phone && (
+        <Histogram
+          lines={visible}
+          stretch={stretch}
+          onStretch={(picked) => {
+            setStretch(picked)
+            // (Picked, the lines stay still: new ones would pass it by.)
+            if (picked) setFollow(false)
+          }}
+        />
+      )}
       {sources.length > MAX_STREAMS && (
         <p
           role="note"
@@ -743,7 +972,9 @@ function Logs({
       )}
       {lines.length >= MAX_LINES && (
         <p role="note" className="shrink-0 border-b border-line px-5 py-1.5 text-xs text-ink-3">
-          Showing the latest {MAX_LINES.toLocaleString()} lines.
+          {since === undefined
+            ? `Showing the latest ${MAX_LINES.toLocaleString()} lines.`
+            : `Showing the last ${MAX_LINES.toLocaleString()} lines since ${momentOf(since, pickedAt)}. Pick a later time to see them from the start.`}
         </p>
       )}
       {body}

@@ -15,6 +15,8 @@ export interface LogSource {
 export interface LogOptions {
   tailLines?: number
   sinceSeconds?: number
+  /** From a moment (a since a person picked): with `tailLines`, the last of it. */
+  sinceTime?: string
   previous: boolean
   follow: boolean
   /** Changes to start over ("Try again"). */
@@ -124,7 +126,7 @@ class LogSession {
       end: (error) => this.#ended(stream, error),
     })
     const { namespace, pod, container } = stream.source
-    const { tailLines, sinceSeconds, previous, follow, via } = this.options
+    const { tailLines, sinceSeconds, sinceTime, previous, follow, via } = this.options
     const result = await api.logs.start(id, {
       context: this.context,
       namespace,
@@ -136,7 +138,7 @@ class LogSession {
       // Carry on from the last line; the API server sends lines written at that time again.
       ...(Number.isFinite(stream.lastAt)
         ? { sinceTime: new Date(stream.lastAt).toISOString() }
-        : { tailLines, sinceSeconds }),
+        : { tailLines, sinceSeconds, sinceTime }),
     })
     // Not wanted any more (or ended already): let it go.
     if (!this.#handlers.has(id)) {

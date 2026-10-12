@@ -120,7 +120,8 @@ test('logs: container, lines, previous, follow, wrap and copy', async ({
   await expect.poll(logRequest((q) => q.previous === 'true')).toBe(true)
   await expect(log).toContainText('panic:')
 
-  await detail.getByRole('combobox', { name: 'Show' }).selectOption('100')
+  await detail.getByRole('button', { name: 'Show', exact: true }).click()
+  await page.getByRole('option', { name: 'Last 100 lines' }).click()
   await expect.poll(logRequest((q) => q.tailLines === '100')).toBe(true)
   await detail.getByRole('button', { name: 'Follow' }).click()
   await expect(detail.getByRole('button', { name: 'Follow' })).toHaveAttribute(

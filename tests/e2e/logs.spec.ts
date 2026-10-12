@@ -154,7 +154,8 @@ test('a workload’s logs: every pod’s, merged in the order they were written'
   await expect(all).toContainText(`${short(PODS[0]!)}/app`)
 
   // From a time instead of a number of lines.
-  await detail.getByRole('combobox', { name: 'Show' }).selectOption('Last hour')
+  await detail.getByRole('button', { name: 'Show', exact: true }).click()
+  await page.getByRole('option', { name: 'Last hour' }).click()
   await expect
     .poll(() =>
       clusters.demo.requests.some(
@@ -368,6 +369,8 @@ test('colors and styles from escape codes', async ({ page, clusters }) => {
   await expect(span('dim')).not.toHaveClass('ansi-bg')
   // Matches are marked within a style.
   await search.fill('redbg')
+  // (The last search's marks stay until this one has run on every line.)
+  await expect(line.locator('mark')).toHaveCount(1)
   await expect(line.locator('mark')).toHaveText('redbg')
   await detail.getByRole('button', { name: 'Copy logs' }).click()
   await expect
@@ -398,6 +401,7 @@ test('logs over plain HTTP, and an API server too slow to answer', async ({ laun
   await expect(detail.getByRole('log')).toContainText('sent over plain http')
 
   clusters.sandbox.fail('/api/v1/namespaces/shop/pods/plain/log', { hang: true })
-  await detail.getByRole('combobox', { name: 'Show' }).selectOption('Last 100 lines')
+  await detail.getByRole('button', { name: 'Show', exact: true }).click()
+  await detail.page().getByRole('option', { name: 'Last 100 lines' }).click()
   await expect(detail.getByRole('alert')).toContainText('The API server didn’t respond within 1s')
 })
