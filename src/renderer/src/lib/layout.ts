@@ -14,6 +14,9 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
 
+// (The door's gate for a plugin's presses names the layouts that aren't a phone, `LARGER` in
+// `@shared/plugin-presses`: one added here that's larger than a phone is added there too, or a
+// plugin's changes are refused on it.)
 export type Layout = 'wide' | 'tablet' | 'phone'
 
 /** Where each layout starts, in CSS pixels: the stylesheet's variants use the same. */
