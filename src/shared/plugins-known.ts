@@ -89,7 +89,7 @@ export function knownPlugins(
   lumovi: string,
   /** The digest of one of Lumovi's own: of its file's bytes, which are its text as UTF-8. */
   digest: (text: string) => string,
-): KnownPlugin[] {
+): readonly Readonly<KnownPlugin>[] {
   const settled = settle(
     included.plugins.map(({ plugin }) => plugin),
     files,
@@ -133,5 +133,5 @@ export function knownPlugins(
   // (What's answered can't be changed by whoever asked: the same answer may be given again, to
   // whoever asks next.)
   known.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  return Object.freeze(known.map((plugin) => Object.freeze(plugin))) as KnownPlugin[]
+  return Object.freeze(known.map((plugin) => Object.freeze(plugin)))
 }
