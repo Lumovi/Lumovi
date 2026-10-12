@@ -12,17 +12,21 @@ import {
   object,
   oneOf,
   record,
+  shared,
   text,
   time,
   handedFields,
   wrongWith,
   wrongWithFields,
   wrongWithPart,
+  wrongWithParts,
   yesOrNo,
   type Kind,
   type Part,
 } from '../../src/shared/kit/declare.ts'
 import { DOOR_LIMITS, DoorPage, ROOT, type Stopped } from '../../src/shared/plugin-door.ts'
+
+const CARDS = shared('Card and Tag parts', 20)
 
 const PARTS: Record<string, Part> = {
   Stack: { name: 'Stack', holds: 'parts', props: { gap: number(0, 8, true) } },
@@ -37,6 +41,9 @@ const PARTS: Record<string, Part> = {
   },
   /** One a page may have only two of. */
   Badge: { name: 'Badge', holds: 'nothing', props: {}, most: 2 },
+  /** Two a page may have twenty of between them (each naming the ceiling for itself). */
+  Card: { name: 'Card', holds: 'nothing', props: {}, counts: CARDS },
+  Tag: { name: 'Tag', holds: 'nothing', props: {}, counts: shared('Card and Tag parts', 20) },
 }
 
 /** A page with a fixed clock, and `send` for a commit's steps. */
@@ -112,7 +119,7 @@ test.describe('a value against its kind', () => {
 
 test.describe('a part’s declaration', () => {
   test('the parts here are declared rightly', () => {
-    for (const part of Object.values(PARTS)) expect(wrongWithPart(part)).toBeUndefined()
+    expect(wrongWithParts(PARTS)).toBeUndefined()
   })
 
   test('a careless one is named', () => {
@@ -125,8 +132,23 @@ test.describe('a part’s declaration', () => {
       { name: 'A', holds: 'nothing', props: {}, required: ['label'] },
       { name: 'A', holds: 'nothing', props: {}, most: 0 },
       { name: 'A', holds: 'nothing', props: {}, most: 1.5 },
+      { name: 'A', holds: 'nothing', props: {}, counts: shared('A parts', 0) },
     ]
     for (const part of wrong) expect(wrongWithPart(part), JSON.stringify(part)).toBeTruthy()
+    // Together: a shared ceiling that says two things.
+    const chip = {
+      name: 'Chip',
+      holds: 'nothing',
+      props: {},
+      counts: shared('Card and Tag parts', 21),
+    }
+    const said =
+      'Chip: Card and Tag parts is 21 here and 20 where Card names it, and a shared ceiling has one number'
+    expect(wrongWithParts({ ...PARTS, Chip: chip } as Record<string, Part>)).toBe(said)
+    // And the door starts no page with them.
+    expect(() => new DoorPage({ ...PARTS, Chip: chip } as Record<string, Part>)).toThrow(
+      `Lumovi’s own parts are declared wrongly: ${said}`,
+    )
   })
 })
 
@@ -224,6 +246,29 @@ test.describe('a plugin’s page', () => {
       why: 'too-much',
       what: 'step 1: a page’s Badge parts: more than 2',
     })
+  })
+
+  test('has no more between them of parts that share a ceiling than it lets a page have', () => {
+    const cards = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => ['make', from + i, i % 2 ? 'Tag' : 'Card', {}])
+    // Twenty of the two, mixed: the twenty-first of either stops the page.
+    for (const last of ['Card', 'Tag']) {
+      const { page, send } = page_()
+      send(...cards(1, 20))
+      expect(page.stopped).toBeUndefined()
+      expect(stopped(send(['make', 21, last, {}]))).toEqual({
+        why: 'too-much',
+        what: 'step 1: a page’s Card and Tag parts: more than 20',
+      })
+    }
+    // One of either taken away makes room for one of either.
+    const { page, send } = page_()
+    send(...cards(1, 20))
+    send(['take', null, 2], ['make', 21, 'Card', {}])
+    expect(page.stopped).toBeUndefined()
+    // A part that doesn't count against it isn't counted.
+    send(['make', 22, 'Badge', {}])
+    expect(page.stopped).toBeUndefined()
   })
 
   test('a message that isn’t a commit stops it', () => {
