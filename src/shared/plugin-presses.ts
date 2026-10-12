@@ -50,19 +50,28 @@ function random(): string {
   return btoa(text).replaceAll('+', '-').replaceAll('/', '_')
 }
 
+/** Which object, as one text: its kind as resolved, its namespace, its name. */
+const which = ({ kind, namespace, name }: ObjectRef) =>
+  `${kind}\u0000${namespace ?? ''}\u0000${name}`
+
 /**
  * The tokens of one page: one for each object Lumovi handed it, and for each Secret an object
  * names by a path its file declares. A token is good on the page it was handed to and on no
  * other, another page of the same plugin included; it goes with the read that brought it, and
  * with the page.
+ *
+ * Within a read an object has one token for as long as it's there, however often it's handed
+ * over again (a list kept up to date hands a pod over every time it changes): counted once, and
+ * the same token, so a plugin can keep a row by it.
  */
 export class Tokens {
   readonly #plugin: PluginHanded
   readonly #make: () => string
   readonly #held = new Map<string, Held & { read: number }>()
-  readonly #byRead = new Map<number, string[]>()
+  /** Of each read: its objects' tokens by which object, and its Secrets' tokens. */
+  readonly #byRead = new Map<number, { objects: Map<string, string>; secrets: string[] }>()
   /** The references this page's door has put in a component's hands: only these open anything. */
-  readonly #given = new WeakSet<object>()
+  readonly #given = new Set<object>()
   #objects = 0
   #staleSaid = false
 
@@ -71,23 +80,48 @@ export class Tokens {
     this.#make = make
   }
 
-  /**
-   * Whether `count` more objects may be handed to this page. Where not, the read that would
-   * bring them is refused with a code ("too many to hand over"): it isn't a reason to stop the
-   * plugin, which didn't choose the size of the cluster.
-   */
-  room(count: number): boolean {
-    return (
-      this.#objects + count <= HANDED_LIMITS.objectsAPage &&
-      this.#plugin.objects + count <= HANDED_LIMITS.objectsAPlugin
-    )
+  #read(read: number) {
+    let of = this.#byRead.get(read)
+    if (!of) this.#byRead.set(read, (of = { objects: new Map(), secrets: [] }))
+    return of
   }
 
-  /** A token for an object handed over by `read`. */
-  object(read: number, ref: ObjectRef): string {
-    this.#objects++
-    this.#plugin.objects++
-    return this.#keep(read, { sort: 'object', ref: Object.freeze({ ...ref }) })
+  /**
+   * Hands `read`'s page these objects: a token for each, in order; the one it has already for
+   * an object this read handed before. Or `'too-many'`, and then none is handed and nothing is
+   * counted: more than a page's or a plugin's share of objects. That refuses the read with a
+   * code; it isn't a reason to stop the plugin, which didn't choose the size of the cluster.
+   */
+  hand(read: number, refs: readonly ObjectRef[]): string[] | 'too-many' {
+    const of = this.#read(read)
+    const fresh = new Set(refs.map(which).filter((key) => !of.objects.has(key))).size
+    if (
+      this.#objects + fresh > HANDED_LIMITS.objectsAPage ||
+      this.#plugin.objects + fresh > HANDED_LIMITS.objectsAPlugin
+    ) {
+      return 'too-many'
+    }
+    return refs.map((ref) => {
+      const key = which(ref)
+      let token = of.objects.get(key)
+      if (token === undefined) {
+        token = this.#make()
+        this.#held.set(token, { sort: 'object', ref: Object.freeze({ ...ref }), read })
+        of.objects.set(key, token)
+        this.#objects++
+        this.#plugin.objects++
+      }
+      return token
+    })
+  }
+
+  /** An object left `read` (deleted, or no longer in its list): its token is no more. */
+  gone(read: number, ref: ObjectRef): void {
+    const of = this.#byRead.get(read)
+    const token = of?.objects.get(which(ref))
+    if (token === undefined) return
+    of!.objects.delete(which(ref))
+    this.#forget(token)
   }
 
   /**
@@ -95,22 +129,30 @@ export class Tokens {
    * namespace, and the keys the file names. Nothing of the Secret is read to make it.
    */
   secret(read: number, ref: SecretRef): string {
-    return this.#keep(read, {
-      sort: 'secret',
-      ref: Object.freeze({ ...ref, keys: Object.freeze([...ref.keys]) }),
-    })
-  }
-
-  #keep(read: number, held: Held): string {
     const token = this.#make()
-    this.#held.set(token, { ...held, read })
-    const tokens = this.#byRead.get(read)
-    if (tokens) tokens.push(token)
-    else this.#byRead.set(read, [token])
+    const kept = Object.freeze({ ...ref, keys: Object.freeze([...ref.keys]) })
+    this.#held.set(token, { sort: 'secret', ref: kept, read })
+    this.#read(read).secrets.push(token)
     return token
   }
 
-  /** The object a token stands for on this page; nothing for a Secret's token, or one not held. */
+  #forget(token: string): void {
+    const held = this.#held.get(token)
+    if (!held) return
+    if (held.sort === 'object') {
+      this.#objects--
+      this.#plugin.objects--
+    }
+    // (What a component was handed for it opens nothing any more.)
+    this.#given.delete(held.ref)
+    this.#held.delete(token)
+  }
+
+  /**
+   * The object a token stands for on this page; nothing for a Secret's token, or one not held.
+   * Called by the door's swap alone: what it gives is the right to open, and anything else that
+   * looked tokens up would be handing that out.
+   */
   objectOf(token: string): ObjectRef | undefined {
     const held = this.#held.get(token)
     if (held?.sort !== 'object') return undefined
@@ -121,7 +163,8 @@ export class Tokens {
   /**
    * Where a press on something that opens `object` goes: a name Lumovi makes from what it
    * handed over, never text. Nothing unless `object` is the very reference this page's door put
-   * in the component's hands: one that merely looks like it opens nothing.
+   * in a component's hands, for a read that's still going: one that merely looks like it, or
+   * whose read has ended, opens nothing.
    */
   destinationOf(object: unknown): Destination | undefined {
     return typeof object === 'object' && object !== null && this.#given.has(object)
@@ -145,15 +188,11 @@ export class Tokens {
     return (this.#staleSaid = true)
   }
 
-  /** A read ended: the tokens it brought are no more. */
+  /** A read ended: the tokens it brought are no more, nor what was handed out for them. */
   ended(read: number): void {
-    for (const token of this.#byRead.get(read) ?? []) {
-      if (this.#held.get(token)?.sort === 'object') {
-        this.#objects--
-        this.#plugin.objects--
-      }
-      this.#held.delete(token)
-    }
+    const of = this.#byRead.get(read)
+    if (!of) return
+    for (const token of [...of.objects.values(), ...of.secrets]) this.#forget(token)
     this.#byRead.delete(read)
   }
 
@@ -223,9 +262,18 @@ export const ON_A_LARGER_SCREEN = 'Open Lumovi on a larger screen to do this.'
  * (Today no press of a plugin's page changes anything on any screen: changes through the door
  * come later. They come through here.)
  */
-export function mayStart(does: Does, layout: string): true | { refused: string } {
-  return does === 'changes' && layout === 'phone' ? { refused: ON_A_LARGER_SCREEN } : true
+export function mayStart(does: Does, layout: unknown): true | { refused: string } {
+  // It says what may start, and refuses the rest: a sort of press nobody has decided about
+  // starts nowhere, and a layout this doesn't know, or a wrong word, is not a larger screen.
+  const may = LARGER.has(layout as string) ? ON_A_LARGER : ON_A_PHONE
+  return may.has(does) ? true : { refused: ON_A_LARGER_SCREEN }
 }
+
+/** The app's layouts that aren't a phone, by name (`Layout` in the page's `lib/layout`). */
+const LARGER: ReadonlySet<string> = new Set(['wide', 'tablet'])
+/** What a press may start on a phone, and on a larger screen. */
+const ON_A_PHONE: ReadonlySet<string> = new Set<Does>(['tells', 'opens'])
+const ON_A_LARGER: ReadonlySet<string> = new Set<Does>(['tells', 'opens', 'changes'])
 
 /** Where a press that opens goes: a name Lumovi makes from what it handed over, never text. */
 export type Destination = { to: 'object'; object: ObjectRef }

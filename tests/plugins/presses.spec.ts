@@ -10,9 +10,11 @@ import {
   list,
   object,
   record,
+  choice,
   secret,
   text,
   wrongWithFields,
+  wrongWithPart,
   type Part,
 } from '../../src/shared/kit/declare.ts'
 import { DoorPage } from '../../src/shared/plugin-door.ts'
@@ -26,17 +28,20 @@ import {
 } from '../../src/shared/plugin-presses.ts'
 
 const POD = { kind: '/Pod', namespace: 'shop', name: 'cart-1' }
+const pods = (count: number, from = 0) =>
+  Array.from({ length: count }, (_, i) => ({ ...POD, name: `pod-${from + i}` }))
 const SECRET = { namespace: 'shop', name: 'shop-tls', keys: ['tls.crt'] }
 
 test('a token is random, good on the page it was handed to and on no other, and of one sort', () => {
   const plugin = { objects: 0 }
   const page = new Tokens(plugin)
   const other = new Tokens(plugin)
-  const pod = page.object(1, POD)
+  const pod = (page.hand(1, [POD]) as string[])[0]!
   const tls = page.secret(1, SECRET)
   // At least 128 random bits, as text the door's grammar takes for a token.
   expect(pod).toMatch(/^[A-Za-z0-9_-]{24}$/)
-  expect(new Set(Array.from({ length: 2000 }, () => page.object(2, POD))).size).toBe(2000)
+  const many = page.hand(2, pods(2000)) as string[]
+  expect(new Set(many).size).toBe(2000)
   expect(page.objectOf(pod)).toEqual(POD)
   expect(page.secretOf(tls)).toEqual(SECRET)
   // The two sorts never stand in for each other.
@@ -66,9 +71,9 @@ test('a token is random, good on the page it was handed to and on no other, and 
 test('a token goes with the read that brought it, and with the page', () => {
   const plugin = { objects: 0 }
   const page = new Tokens(plugin)
-  const first = page.object(1, POD)
+  const first = (page.hand(1, [POD]) as string[])[0]!
   const tls = page.secret(1, SECRET)
-  const second = page.object(2, { ...POD, name: 'cart-2' })
+  const second = (page.hand(2, [{ ...POD, name: 'cart-2' }]) as string[])[0]!
   expect(plugin.objects).toBe(2)
   page.ended(1)
   expect(page.objectOf(first)).toBeUndefined()
@@ -87,23 +92,57 @@ test('a token goes with the read that brought it, and with the page', () => {
 test('how much is handed over is bounded by refusing a read, never by stopping a plugin', () => {
   const plugin = { objects: 0 }
   const page = new Tokens(plugin, counting())
-  expect(page.room(HANDED_LIMITS.objectsAPage)).toBe(true)
-  expect(page.room(HANDED_LIMITS.objectsAPage + 1)).toBe(false)
-  for (let i = 0; i < HANDED_LIMITS.objectsAPage; i++) page.object(1, POD)
-  expect(page.room(1)).toBe(false)
+  // One over a page's share: none is handed and nothing is counted.
+  expect(page.hand(1, pods(HANDED_LIMITS.objectsAPage + 1))).toBe('too-many')
+  expect(plugin.objects).toBe(0)
+  expect(page.hand(1, pods(HANDED_LIMITS.objectsAPage))).toHaveLength(HANDED_LIMITS.objectsAPage)
+  expect(page.hand(2, pods(1, 900_000))).toBe('too-many')
   // A plugin's pages share its bound; a read that ends gives its objects back.
   const second = new Tokens(plugin, counting('b'))
-  expect(second.room(HANDED_LIMITS.objectsAPage)).toBe(true)
-  for (let i = 0; i < HANDED_LIMITS.objectsAPage; i++) second.object(1, POD)
+  expect(second.hand(1, pods(HANDED_LIMITS.objectsAPage))).toHaveLength(HANDED_LIMITS.objectsAPage)
   const third = new Tokens(plugin, counting('c'))
-  expect(third.room(1)).toBe(false)
+  expect(third.hand(1, pods(1))).toBe('too-many')
   page.ended(1)
-  expect(third.room(HANDED_LIMITS.objectsAPage)).toBe(true)
-  expect(third.room(HANDED_LIMITS.objectsAPage + 1)).toBe(false)
+  expect(third.hand(1, pods(1))).toHaveLength(1)
   // A Secret's token isn't an object handed over: it counts nothing.
   const before = plugin.objects
   third.secret(1, SECRET)
   expect(plugin.objects).toBe(before)
+})
+
+test('within a read an object has one token, however often it’s handed over: counted once', () => {
+  const plugin = { objects: 0 }
+  const page = new Tokens(plugin)
+  const [first] = page.hand(1, [POD]) as string[]
+  // A list kept up to date hands a pod over every time it changes.
+  for (let i = 0; i < 1000; i++) expect(page.hand(1, [{ ...POD }])).toEqual([first])
+  expect(plugin.objects).toBe(1)
+  // Twice in one handing over: one token, one counted.
+  const [a, other, again] = page.hand(1, [POD, { ...POD, name: 'cart-2' }, POD]) as string[]
+  expect([a, again]).toEqual([first, first])
+  expect(other).not.toBe(first)
+  expect(plugin.objects).toBe(2)
+  expect(page.hand(1, pods(HANDED_LIMITS.objectsAPage - 2))).not.toBe('too-many')
+  // Another read of the same object is another token: each read's go with it.
+  const [elsewhere] = new Tokens({ objects: 0 }).hand(1, [POD]) as string[]
+  expect(elsewhere).not.toBe(first)
+})
+
+test('an object that leaves a read gives its place back, and its token is no more', () => {
+  const plugin = { objects: 0 }
+  const page = new Tokens(plugin)
+  const [token] = page.hand(1, [POD]) as string[]
+  const given = page.objectOf(token!)
+  page.gone(1, { ...POD })
+  expect(plugin.objects).toBe(0)
+  expect(page.objectOf(token!)).toBeUndefined()
+  expect(page.destinationOf(given)).toBeUndefined()
+  // Gone twice, or never there: nothing to do. Back again: a new token.
+  page.gone(1, POD)
+  page.gone(7, POD)
+  const [again] = page.hand(1, [POD]) as string[]
+  expect(again).not.toBe(token)
+  expect(plugin.objects).toBe(1)
 })
 
 /** Tokens that are quick to make, for counting many. */
@@ -127,9 +166,9 @@ const ROWS: Part = {
 test('a part is handed the object where a plugin named a token, and nothing where the page holds none', () => {
   const page = new Tokens({ objects: 0 })
   const other = new Tokens({ objects: 0 })
-  const pod = page.object(1, POD)
+  const pod = (page.hand(1, [POD]) as string[])[0]!
   const tls = page.secret(1, SECRET)
-  const elsewhere = other.object(1, { ...POD, name: 'not-this-page' })
+  const elsewhere = (other.hand(1, [{ ...POD, name: 'not-this-page' }]) as string[])[0]!
   const calls: unknown[][] = []
   let stale = 0
   const swap = swapFor(
@@ -174,16 +213,58 @@ test('a part is handed the object where a plugin named a token, and nothing wher
   })
 })
 
+test('nothing the door swaps can be required: a part is always written to draw without it', () => {
+  // (A token can be made up, or gone with its read while a commit was on its way: the property
+  // is then absent, and a part that required it would fail as it drew, by a plugin's choice.)
+  const part = (props: Part['props'], required?: string[]): Part => ({
+    name: 'A',
+    holds: 'nothing',
+    props,
+    required,
+  })
+  expect(wrongWithPart(ROWS)).toBeUndefined()
+  expect(wrongWithPart(part({ opens: object }, ['opens']))).toBe(
+    'A.opens: an object or a Secret can’t be required',
+  )
+  expect(wrongWithPart(part({ shows: secret }, ['shows']))).toBe(
+    'A.shows: an object or a Secret can’t be required',
+  )
+  expect(
+    wrongWithPart(part({ row: record({ key: text(8), opens: object }, ['key', 'opens']) })),
+  ).toContain('can’t be required')
+  expect(wrongWithPart(part({ rows: list(record({ opens: object }, ['opens']), 5) }))).toContain(
+    'can’t be required',
+  )
+  // In a choice, what isn't optional is required.
+  expect(wrongWithPart(part({ cell: choice('kind', { link: { opens: object } }) }))).toContain(
+    'can’t be required',
+  )
+  expect(
+    wrongWithPart(
+      part({
+        cell: choice('kind', { link: { opens: object, label: text(8) } }, { link: ['opens'] }),
+      }),
+    ),
+  ).toBeUndefined()
+  // Optional, it's fine anywhere; and a handler may be required (it's always a function).
+  expect(
+    wrongWithPart(part({ opens: object, shows: secret, row: record({ opens: object }) })),
+  ).toBeUndefined()
+  expect(
+    wrongWithPart({ ...part({ onOpen: handler('open') }, ['onOpen']), events: { open: {} } }),
+  ).toBeUndefined()
+})
+
 test('only a reference the door put in a component’s hands opens anything', () => {
   const page = new Tokens({ objects: 0 })
   const other = new Tokens({ objects: 0 })
-  const token = page.object(1, POD)
+  const token = (page.hand(1, [POD]) as string[])[0]!
   const given = page.objectOf(token)!
   expect(page.destinationOf(given)).toEqual({ to: 'object', object: POD })
   // Something that only looks like it; another page's; a path, an address, a token, nothing.
   for (const made of [
     { ...POD },
-    other.objectOf(other.object(1, POD)),
+    other.objectOf((other.hand(1, [POD]) as string[])[0]!),
     '/cluster/demo/secrets/shop/admin',
     'https://example.com',
     token,
@@ -194,6 +275,21 @@ test('only a reference the door put in a component’s hands opens anything', ()
   }
   // A token never minted for this page isn't a destination just because it was looked up.
   expect(page.objectOf('made-up')).toBeUndefined()
+})
+
+test('what a component was handed opens nothing once its read has ended, or its page has gone', () => {
+  const page = new Tokens({ objects: 0 })
+  const [one, two] = page.hand(1, [POD, { ...POD, name: 'cart-2' }]) as string[]
+  const [kept] = page.hand(2, [POD]) as string[]
+  const given = [page.objectOf(one!), page.objectOf(two!), page.objectOf(kept!)]
+  for (const ref of given) expect(page.destinationOf(ref)).toBeTruthy()
+  // A component not yet drawn again still holds the old reference: it opens nothing.
+  page.ended(1)
+  expect(page.destinationOf(given[0])).toBeUndefined()
+  expect(page.destinationOf(given[1])).toBeUndefined()
+  expect(page.destinationOf(given[2])).toBeTruthy()
+  page.close()
+  expect(page.destinationOf(given[2])).toBeUndefined()
 })
 
 test('nothing a plugin’s code can send opens anything, or is a press', () => {
@@ -255,8 +351,33 @@ test('a press is what it does, not what its button said: on a phone nothing a pl
   expect(mayStart('tells', 'phone')).toBe(true)
   expect(mayStart('opens', 'phone')).toBe(true)
   // On a larger screen a change may start (and is then Lumovi's own confirmation's to carry).
-  for (const layout of ['desktop', 'narrow', 'tablet'])
-    expect(mayStart('changes', layout)).toBe(true)
+  for (const layout of ['wide', 'tablet']) expect(mayStart('changes', layout)).toBe(true)
+  // Anything that isn't known to be a larger screen is not one: a new layout, a wrong word,
+  // nothing at all. There only telling and opening may start.
+  for (const layout of [
+    'phone',
+    'Phone',
+    'PHONE',
+    'narrow',
+    'desktop',
+    'watch',
+    '',
+    ' wide',
+    null,
+    undefined,
+    5,
+    {},
+  ]) {
+    expect(mayStart('changes', layout), String(layout)).toEqual({ refused: ON_A_LARGER_SCREEN })
+    expect(mayStart('tells', layout)).toBe(true)
+    expect(mayStart('opens', layout)).toBe(true)
+  }
+  // A sort of press nobody has decided about starts nowhere, on any screen.
+  for (const does of ['destroys', 'Changes', '', 'toString', '__proto__', null, undefined]) {
+    for (const layout of ['wide', 'tablet', 'phone']) {
+      expect(mayStart(does as never, layout), `${String(does)} ${layout}`).toHaveProperty('refused')
+    }
+  }
   // The rule takes no word of a plugin's at all: there's nowhere to hand it one.
   expect(mayStart.length).toBe(2)
 })
