@@ -27,6 +27,7 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { csvName, toCsv, toTabs } from '@renderer/lib/csv'
 import { useLayout } from '@renderer/lib/layout'
+import { MiddleCut } from '@renderer/kit/MiddleCut'
 import { Pieces, TheirText } from '@renderer/plugins/TheirText'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
@@ -509,12 +510,14 @@ function ColumnList({
         const named = id === ALWAYS_SHOWN
         const lifted = drag?.id === id
         const before = drag && !lifted && place++ === drag.to ? line : null
-        const label =
-          row.added || row.column.headerTheirs ? (
-            <TheirText text={row.added?.key ?? row.column.header} inline />
-          ) : (
-            row.column.header
-          )
+        // (An added key is cut in its middle, as its heading is: its end tells keys apart.)
+        const label = row.added ? (
+          <MiddleCut text={{ their: row.added.key }} className="min-w-0" />
+        ) : row.column.headerTheirs ? (
+          <TheirText text={row.column.header} inline />
+        ) : (
+          row.column.header
+        )
         return [
           before,
           <li
@@ -584,8 +587,8 @@ function ColumnList({
               </span>
               <span
                 className={cn(
-                  'min-w-0 flex-1 truncate',
-                  row.added && 'font-mono text-xs',
+                  'min-w-0 flex-1',
+                  row.added ? 'flex font-mono text-xs' : 'truncate',
                   !row.shown && 'text-ink-3',
                 )}
               >

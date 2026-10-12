@@ -24,7 +24,7 @@ test('columns chosen on a phone: a sheet a finger works, and the cards say the c
   // Ready hidden, and a label added: the cards' facts follow.
   await sheet.getByRole('checkbox', { name: /^Ready/ }).click()
   await sheet.getByPlaceholder('Label or annotation key').fill('component')
-  await sheet.getByRole('option', { name: /app\.kubernetes\.io\/component/ }).click()
+  await sheet.getByRole('option', { name: /^app\.kubernetes\.io\/component\b/ }).click()
   await expect(sheet.getByRole('button', { name: 'Reset' })).toBeEnabled()
 
   // Saved by the browser, named for the kind, the namespace and the day.
