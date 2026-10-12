@@ -264,13 +264,22 @@ async function profile({ app, page }: Lumovi, testInfo: TestInfo, i: number) {
  * Writes what a failed CI test left behind: the windows' state and the mock
  * clusters' last requests with their timing, to tell a slow cluster from a stuck app.
  */
-async function diagnose(path: string, clusters: TestClusters, launched: Lumovi[]) {
+async function diagnose(
+  path: string,
+  clusters: TestClusters,
+  launched: Lumovi[],
+  notes: readonly { type: string; description?: string }[] = [],
+) {
   const within = <T>(promise: Promise<T>) =>
     Promise.race([
       promise,
       new Promise<string>((r) => setTimeout(() => r('(no answer in 3s)'), 3_000)),
     ])
-  const lines: string[] = [`at ${new Date().toISOString()}`]
+  // What the test noted of itself first (how long a shell took to start before it, say).
+  const lines: string[] = [
+    `at ${new Date().toISOString()}`,
+    ...notes.map(({ type, description }) => `${type}: ${description ?? ''}`),
+  ]
   for (const [i, { app, page }] of launched.entries()) {
     const started = Date.now()
     const window = await within(
@@ -467,7 +476,12 @@ export const test = base.extend<
     })
     const failed = testInfo.status !== testInfo.expectedStatus
     if (trace && failed) {
-      await diagnose(testInfo.outputPath('diagnostics.txt'), clusters, launched)
+      await diagnose(
+        testInfo.outputPath('diagnostics.txt'),
+        clusters,
+        launched,
+        testInfo.annotations,
+      )
       for (const save of profiles) await save().catch(() => undefined)
     }
     for (const [i, instance] of launched.entries()) {
