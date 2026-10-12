@@ -8,6 +8,7 @@ import type {
   FieldSchema,
   HistoryQuery,
   GetQuery,
+  KubeErrorCode,
   KubeList,
   KubeObject,
   ListQuery,
@@ -17,9 +18,12 @@ import type {
   Result,
   Revision,
   RolloutKind,
+  SecretValues,
+  SecretValuesQuery,
   TableColumn,
   UsageSample,
 } from '@shared/api'
+import { SECRET_KEYS_AT_MOST } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
 import {
   builtinResource,
@@ -113,6 +117,24 @@ interface PodMetric {
  * Access to the clusters Lumovi shows. Every public method resolves to a
  * `Result` and never rejects.
  */
+/** What a read of a Secret by key may say, and nothing more. */
+const SECRET_VALUES_FIELDS = new Set(['context', 'namespace', 'name', 'keys'])
+/** An object's name, as Kubernetes allows one: lowercase letters, digits, hyphens and dots. */
+const KUBERNETES_NAME = /^[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?$/
+/** A Secret's key, as Kubernetes allows one. */
+const SECRET_KEY = /^[-._a-zA-Z0-9]{1,253}$/
+/** Why a Secret couldn't be read, in Lumovi's words: by the failure's kind, never the cluster's text. */
+const SECRET_READ_FAILED: Partial<Record<KubeErrorCode, string>> & { other: string } = {
+  forbidden: 'The cluster doesn’t let you read this Secret.',
+  'not-found': 'There’s no such Secret.',
+  unauthorized: 'The cluster didn’t accept who you are.',
+  auth: 'The cluster didn’t accept who you are.',
+  unreachable: 'Lumovi couldn’t read this Secret: the cluster didn’t answer.',
+  tls: 'Lumovi couldn’t read this Secret: the cluster didn’t answer.',
+  timeout: 'Lumovi couldn’t read this Secret: the cluster didn’t answer.',
+  other: 'Lumovi couldn’t read this Secret.',
+}
+
 export class KubeService {
   /** How long the API server has to answer (LUMOVI_REQUEST_TIMEOUT_MS). */
   readonly timeoutMs: number
@@ -308,6 +330,94 @@ export class KubeService {
       const subresource = q.subresource ? `/${q.subresource}` : ''
       const object = slim(await this.#getJson<KubeObject>(q.context, `${path}${subresource}`))
       return shown === 'values' ? object : withoutValues(object)
+    })
+  }
+
+  /**
+   * Some of a Secret's values, by key. The Secret is read as a get reads it, under the same
+   * guard, and only the asked keys' values are answered: nothing of its other keys, not their
+   * names, and nothing else of the object (its annotations can hold every value). What the cluster says when it fails is
+   * never passed on, since it can quote a value: a failure is its code and Lumovi's own words.
+   */
+  secretValues(query: unknown): Promise<Result<SecretValues>> {
+    return this.#run(async () => {
+      const q = assertQuery<SecretValuesQuery>(query)
+      for (const field of Object.keys(q)) {
+        if (!SECRET_VALUES_FIELDS.has(field)) throw invalid('Expected a Secret and its keys')
+      }
+      assertString(q.context, 'context')
+      assertString(q.namespace, 'namespace')
+      assertString(q.name, 'name')
+      // What isn't a name can't be a Secret's or a namespace's: refused here, so nothing else
+      // (a line break, a page of text) reaches a path or the history's line.
+      if (!KUBERNETES_NAME.test(q.namespace) || !KUBERNETES_NAME.test(q.name)) {
+        throw invalid('Expected a Secret’s name and its namespace')
+      }
+      const asked: unknown = q.keys
+      if (
+        !Array.isArray(asked) ||
+        asked.length < 1 ||
+        asked.length > SECRET_KEYS_AT_MOST ||
+        !asked.every((key) => typeof key === 'string' && SECRET_KEY.test(key)) ||
+        new Set(asked).size !== asked.length
+      ) {
+        throw invalid(
+          `Expected 1 to ${SECRET_KEYS_AT_MOST} of the Secret’s keys, each once and each a key’s name`,
+        )
+      }
+      const keys = asked as string[]
+      // From here on nothing speaks for itself: a failure of the read, an answer that isn't a
+      // Secret, anything unforeseen in making the answer, each comes back as its kind and
+      // Lumovi's own words.
+      try {
+        const shown = this.guard ? await this.#secretsShown(q.context, q.namespace) : 'values'
+        const path = resourcePath(builtinResource('Secret')!, q.namespace, q.name)
+        const object = await this.#getJson<KubeObject>(q.context, path)
+        // The Secret that was asked for, or nothing of what came is used.
+        if (
+          object?.kind !== 'Secret' ||
+          object.metadata?.name !== q.name ||
+          object.metadata.namespace !== q.namespace
+        ) {
+          throw new KubeRequestError('server', SECRET_READ_FAILED.other)
+        }
+        // (Own keys only, and as pairs: a key may be called `__proto__` or `constructor`.)
+        const data = new Map(Object.entries(Object(object.data) as Record<string, unknown>))
+        const withheld = shown !== 'values'
+        return {
+          namespace: object.metadata.namespace,
+          name: object.metadata.name,
+          ...(typeof object.metadata.uid === 'string' ? { uid: object.metadata.uid } : {}),
+          values: withheld
+            ? []
+            : keys.flatMap((key): [string, string][] => {
+                const value = data.get(key)
+                return typeof value === 'string' ? [[key, value]] : []
+              }),
+          // (And one whose value isn't text, which a Secret's never is: there's no value to give.)
+          missing: keys.filter((key) => typeof data.get(key) !== 'string'),
+          withheld,
+        }
+      } catch (error) {
+        // Lumovi's own refusal (the person's access hides Secrets here) is in its own words.
+        if (error instanceof KubeRequestError && error.code === 'not-allowed') throw error
+        // What the cluster refused or didn't answer is said by its kind; anything else (an
+        // answer that made no sense, a fault of Lumovi's own) is only that it couldn't be read.
+        if (error instanceof KubeRequestError) {
+          const said = SECRET_READ_FAILED[error.code] ?? SECRET_READ_FAILED.other
+          throw new KubeRequestError(error.code, said, error.status)
+        }
+        // (An answer that isn't JSON, or a fault in making this one, is a fault and not a
+        // cluster that didn't answer; what's left are failures to reach it.)
+        const fault =
+          error instanceof SyntaxError || error instanceof TypeError || error instanceof RangeError
+        const { code } = toKubeError(error)
+        const known =
+          !fault && (code === 'tls' || code === 'unreachable')
+            ? SECRET_READ_FAILED[code]
+            : undefined
+        throw new KubeRequestError(known ? code : 'server', known ?? SECRET_READ_FAILED.other)
+      }
     })
   }
 

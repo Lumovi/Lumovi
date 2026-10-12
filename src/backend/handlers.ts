@@ -8,6 +8,8 @@ import {
   IPC,
   type ChangeRequest,
   type GetQuery,
+  type SecretValues,
+  type SecretValuesQuery,
   type HelmDeploy,
   type HelmRollback,
   type HelmUninstall,
@@ -110,6 +112,36 @@ export function handlers({
       ...(kept ? { details: { keys: kept } } : {}),
     })
   }
+  /**
+   * Some of a Secret's values that went to the page, picked by key: exactly the keys handed
+   * over (none where the person's access shows only keys), or that it was refused. Counted
+   * apart from a read of the whole Secret, and by which keys, so neither hides the other.
+   */
+  const secretKeysRead = (q: SecretValuesQuery, result: Result<SecretValues>) => {
+    const handed = result.ok ? result.data.values.map(([key]) => key) : []
+    // The Secret as the cluster named it, where it answered; as it was asked for, where refused.
+    const { name, namespace } = result.ok ? result.data : q
+    // Where the person's access shows only a Secret's keys, no value was handed: it's said so.
+    const namesOnly = result.ok && result.data.withheld
+    audit.read(
+      `secret-keys:${q.context}/${namespace}/${name}:${result.ok}:${namesOnly}:${JSON.stringify([...handed].sort())}`,
+      {
+        action: 'secret.read',
+        ...outcomeOf(result),
+        cluster: q.context,
+        target: {
+          kind: 'Secret',
+          name,
+          namespace,
+          ...(result.ok && result.data.uid ? { uid: result.data.uid } : {}),
+        },
+        summary: namesOnly
+          ? `Read the keys’ names of Secret ${name}`
+          : `Read ${handed.length} ${handed.length === 1 ? 'key' : 'keys'} of Secret ${name}`,
+        ...(result.ok ? { details: { keys: handed } } : {}),
+      },
+    )
+  }
   /** Whether the clusters' settings are everyone's (on a server), rather than this person's. */
   const forEveryone = () => settings.get().shared !== undefined
   /**
@@ -211,6 +243,13 @@ export function handlers({
         const q = query as GetQuery
         if (q.kind === 'Secret' && (result.ok || isRefusal(result.error.code))) {
           secretRead(q, result)
+        }
+        return result
+      },
+      [IPC.secretValues]: async (query) => {
+        const result = await kube.secretValues(query)
+        if (result.ok || isRefusal(result.error.code)) {
+          secretKeysRead(query as SecretValuesQuery, result)
         }
         return result
       },

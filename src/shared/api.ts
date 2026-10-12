@@ -717,6 +717,42 @@ export interface GetQuery {
   subresource?: 'scale'
 }
 
+/** How many of a Secret's keys one read may ask for. */
+export const SECRET_KEYS_AT_MOST = 20
+
+/**
+ * A Secret's values, asked for by key. The keys are picked where the Secret is read, in Lumovi's
+ * backend, and never on the page: a value that wasn't asked for doesn't cross to it.
+ */
+export interface SecretValuesQuery {
+  context: string
+  namespace: string
+  name: string
+  /** One to `SECRET_KEYS_AT_MOST` of its keys, none twice. */
+  keys: string[]
+}
+
+/**
+ * What a read of a Secret by key answers: the asked keys' values, and nothing else of it. Not
+ * its other keys' values, and not their names either: nothing that wasn't asked for.
+ */
+export interface SecretValues {
+  /** The Secret, as the cluster has it. */
+  namespace: string
+  name: string
+  uid?: string
+  /**
+   * Each asked key the Secret has, with its value as the cluster keeps it (base64). Pairs, not
+   * a map: a key may have any name Kubernetes allows, `__proto__` among them. None where the
+   * person's access shows only a Secret's keys.
+   */
+  values: [key: string, value: string][]
+  /** The asked keys it doesn't have. */
+  missing: string[]
+  /** The person's access shows only a Secret's keys here: no value was answered. */
+  withheld: boolean
+}
+
 export interface MetricsQuery {
   context: string
   target: 'nodes' | 'pods'
@@ -1063,6 +1099,8 @@ export interface LumoviApi {
     schema(context: string, kind: ResourceKind): Promise<Result<FieldSchema | null>>
     list(query: ListQuery): Promise<Result<KubeList>>
     get(query: GetQuery): Promise<Result<KubeObject>>
+    /** Some of a Secret's values, picked by key where it's read: the rest never reach the page. */
+    secretValues(query: SecretValuesQuery): Promise<Result<SecretValues>>
     metrics(query: MetricsQuery): Promise<Result<MetricsSnapshot>>
     /** Resolves with the changed object, or null for deletions and evictions. */
     change(request: ChangeRequest): Promise<Result<KubeObject | null>>
@@ -1374,6 +1412,7 @@ export const IPC = {
   schema: 'kube:schema',
   list: 'kube:list',
   get: 'kube:get',
+  secretValues: 'kube:secret-values',
   metrics: 'kube:metrics',
   change: 'kube:change',
   can: 'kube:can',
