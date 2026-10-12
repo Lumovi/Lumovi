@@ -11,14 +11,16 @@
  * - preload:  exposed to the page as `window.__lumoviCoverage__()`
  * - renderer: read straight from `window.__coverage__`, and sent to the main
  *             process (or, in a browser, the tests) to be written before the
- *             page reloads
+ *             page reloads; its maps are written by the build too
+ *             (`RENDERER_MAPS`), for counters a browser kept without them
  *
  * The collection hooks are appended after instrumentation, so they are never
  * counted as application code. Files are keyed by repo-relative POSIX paths so
  * the coverage of the Linux, macOS and Windows runs can be merged in CI: a few
  * code paths are OS-specific and only the union reaches 100%.
  */
-import { relative, resolve, sep } from 'node:path'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, relative, resolve, sep } from 'node:path'
 import { createInstrumenter } from 'istanbul-lib-instrument'
 import type { Plugin } from 'vite'
 
@@ -107,8 +109,21 @@ const RENDERER_SAVE = `
 
 const toPosix = (path: string) => path.split(sep).join('/')
 
+/**
+ * Every renderer file's maps, as a coverage build instruments them: beside the pages, never
+ * among them (they're served). The tests read them from here, since a page's are large and
+ * reading them from it takes its thread for seconds while a test is timing it.
+ */
+export const RENDERER_MAPS = 'out/renderer-coverage-maps.json'
+
 export function coverage(target: Target, enabled: boolean): Plugin[] {
-  if (!enabled) return []
+  // (A build made as a release's leaves none behind from an earlier one.)
+  if (!enabled) {
+    return target === 'renderer'
+      ? [{ name: 'lumovi:coverage-none', buildStart: () => rmSync(RENDERER_MAPS, { force: true }) }]
+      : []
+  }
+  const maps: Record<string, unknown> = {}
   // Vite reports module ids with forward slashes on every OS (C:/repo/src/... on Windows).
   const srcDir = `${toPosix(resolve('src'))}/`.toLowerCase()
   const instrumenter = createInstrumenter({
@@ -131,7 +146,13 @@ export function coverage(target: Target, enabled: boolean): Plugin[] {
         // Repo-relative POSIX paths let coverage from Linux, macOS and Windows runs merge.
         const key = toPosix(relative(process.cwd(), file))
         const instrumented = instrumenter.instrumentSync(code, key)
+        if (target === 'renderer') maps[key] = instrumenter.lastFileCoverage()
         return { code: instrumented, map: instrumenter.lastSourceMap() as never }
+      },
+      writeBundle() {
+        if (target !== 'renderer') return
+        mkdirSync(dirname(resolve(RENDERER_MAPS)), { recursive: true })
+        writeFileSync(resolve(RENDERER_MAPS), JSON.stringify(maps))
       },
     },
     {

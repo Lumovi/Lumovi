@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path'
 import { expect, test as base, type Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
 import { startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
+import { rendererMaps, withMaps, type Coverage } from './coverage.ts'
 
 export { expect }
 export { DEMO, DEMO_TOKEN, PEOPLE } from '../mock-cluster/kubeconfig.ts'
@@ -38,14 +39,8 @@ const INSTRUMENTED = (() => {
 export const GRACEFUL = process.platform !== 'win32' || INSTRUMENTED
 const FAKE_HELM = resolve('tests/e2e/helm', process.platform === 'win32' ? 'helm.cmd' : 'helm')
 
-/** Istanbul's coverage: each file's maps and counters (only the counters change). */
-type Coverage = Record<string, Record<string, unknown>>
-/**
- * The renderer's maps, of every page read. Pages don't all have the same: a route that's loaded
- * when it's opened brings its files' maps then, so what one page had is added to, never kept as
- * the whole.
- */
-const maps: Coverage = {}
+/** The renderer's maps, as the coverage build wrote them: read once, never from a page. */
+let maps: Coverage | undefined
 
 function saveCoverage(data: unknown): void {
   if (!data) return
@@ -375,92 +370,19 @@ export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
   },
   context: async ({ context }, use) => {
     // Pages that navigate (signing in reloads them) leave their counters in their
-    // localStorage (see vite-coverage.ts); the maps they belong to are read from the pages.
+    // localStorage (see vite-coverage.ts); the maps they belong to are the coverage build's.
     const coverageOf = (page: Page) =>
       page
         .evaluate(() => (window as { __coverage__?: Coverage }).__coverage__)
         .catch(() => undefined)
-    const learn = (coverage: Coverage | undefined) => {
-      if (coverage) Object.assign(maps, coverage)
-    }
-    // While a test runs, a page is read on its own thread, so as little as can be: its files'
-    // names, then the maps of those no page has given yet, each file's asked for once. (The
-    // maps are large; read whole each time, they slowed the pages the tests were timing.)
-    const asked = new Set<string>()
-    const learnNew = async (page: Page) => {
-      const files = await page
-        .evaluate(() => Object.keys((window as { __coverage__?: Coverage }).__coverage__ ?? {}))
-        .catch(() => [])
-      const fresh = files.filter((file) => !(file in maps) && !asked.has(file))
-      if (fresh.length === 0) return
-      for (const file of fresh) asked.add(file)
-      learn(
-        await page
-          .evaluate((names) => {
-            const coverage = (window as { __coverage__?: Coverage }).__coverage__ ?? {}
-            return Object.fromEntries(
-              names.filter((name) => name in coverage).map((name) => [name, coverage[name]!]),
-            )
-          }, fresh)
-          .catch(() => undefined),
-      )
-      // What didn't come (the page went first) is asked for again, of whichever page has it.
-      for (const file of fresh) if (!(file in maps)) asked.delete(file)
-    }
-    // One read at a time a page: whatever comes while it waits or runs is read once more after it.
-    const reads = new Map<Page, { again: boolean }>()
-    const readSoon = (page: Page) => {
-      const pending = reads.get(page)
-      if (pending) {
-        pending.again = true
-        return
-      }
-      const read = { again: false }
-      reads.set(page, read)
-      void page
-        .waitForTimeout(100)
-        .catch(() => undefined)
-        .then(async () => {
-          try {
-            await learnNew(page)
-          } finally {
-            reads.delete(page)
-            if (read.again && !page.isClosed()) readSoon(page)
-          }
-        })
-    }
-    context.on('page', (page) => {
-      page.on('load', () => readSoon(page))
-      // A script that comes later (a route loaded when it's opened) brings its files' maps then:
-      // read once it has run, so they're known before the page can leave.
-      page.on('requestfinished', (request) => {
-        if (request.resourceType() === 'script') readSoon(page)
-      })
-    })
+    // (Nothing is read from a page while a test runs: its thread is the test's.)
     await use(context)
-    // The pages still open are read whole: their counters, and whatever maps weren't known yet.
-    for (const page of context.pages()) {
-      const coverage = await coverageOf(page)
-      learn(coverage)
-      saveCoverage(coverage)
-    }
+    // The pages still open are read whole, their maps with their counters.
+    for (const page of context.pages()) saveCoverage(await coverageOf(page))
     for (const { localStorage } of (await context.storageState()).origins) {
       const kept = localStorage.find((item) => item.name === 'lumovi:coverage')
       if (!kept) continue
-      const counts = JSON.parse(kept.value) as Coverage
-      // Counters with no map can't be merged, and dropping them would lower the coverage quietly:
-      // said here, by name, as what it is.
-      const unmapped = Object.keys(counts).filter((path) => !(path in maps))
-      if (unmapped.length > 0) {
-        throw new Error(
-          `The tests’ own coverage bookkeeping (tests/web/fixtures.ts), not what this test is about: a page left counters for ${unmapped.join(', ')} and no page that was read had the maps for them.`,
-        )
-      }
-      saveCoverage(
-        Object.fromEntries(
-          Object.entries(counts).map(([path, hits]) => [path, { ...maps[path], ...hits }]),
-        ),
-      )
+      saveCoverage(withMaps(JSON.parse(kept.value) as Coverage, (maps ??= rendererMaps())))
     }
   },
 })
