@@ -56,6 +56,20 @@ export interface Grant {
   own: readonly string[]
   /** By kind (`group/Kind`; the core group: `/Kind`). */
   reads: Readonly<Record<string, Granted>>
+  /**
+   * The Secrets objects of its own kinds name, by a path its file declares, for its pages to show
+   * (`spec.showsSecrets`): never read by its code. None, where none is said.
+   */
+  secrets?: readonly SecretsNamed[]
+}
+
+/** Where an object of one of a plugin's own kinds names a Secret its pages may show, and which keys. */
+export interface SecretsNamed {
+  /** One of the plugin's own kinds (`group/Kind`). */
+  kind: string
+  path: string
+  steps: readonly Step[]
+  keys: readonly string[]
 }
 
 /** What a plugin's code asks. `read` is the ask's own number: new, as a part's is. */
@@ -574,6 +588,12 @@ export interface HandedObject {
   namespace?: string
   name: string
   object: Record<string, unknown>
+  /**
+   * The Secrets it names by each path its plugin's file declares for its kind, read from the
+   * object as Lumovi read it (never from what the plugin is handed): for the page to make a
+   * token for each, in the object's own namespace, with the file's keys.
+   */
+  secrets?: { path: string; keys: string[]; names: string[] }[]
 }
 
 /** What a read hands a plugin's page. */

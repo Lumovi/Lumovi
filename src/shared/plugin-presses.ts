@@ -33,6 +33,8 @@ export const HANDED_LIMITS = {
   /** Objects handed to one page, across all its reads; and to all of a plugin's pages. */
   objectsAPage: 50_000,
   objectsAPlugin: 100_000,
+  /** Secrets named for one page's parts to show, across all its reads. */
+  secretsAPage: 50_000,
 } as const
 
 /** What a token stands for. The two sorts never stand in for each other. */
@@ -73,6 +75,18 @@ const which = ({ kind, namespace, name }: ObjectRef) =>
   `${kind}\u0000${namespace ?? ''}\u0000${name}`
 
 /**
+ * Whether a text is a Secret's key, as Kubernetes has them: letters, digits, `-`, `_` and `.`,
+ * up to 253, and never `.`, nor `..` or anything that starts with it. (Both the file checker and
+ * the door ask this: a part draws a key where a person reads it.)
+ */
+export const isSecretKey = (key: unknown): key is string =>
+  typeof key === 'string' && /^(?!\.$)(?!\.\.)[-._a-zA-Z0-9]{1,253}$/.test(key)
+
+/** Which Secret, and which of its keys, as one text. */
+const secretKey = ({ namespace, name, keys }: SecretRef) =>
+  `${namespace}\u0000${name}\u0000${JSON.stringify(keys)}`
+
+/**
  * The tokens of one page: one for each object Lumovi handed it, and for each Secret an object
  * names by a path its file declares. A token is good on the page it was handed to and on no
  * other, another page of the same plugin included; it goes with the read that brought it, and
@@ -86,11 +100,18 @@ export class Tokens {
   readonly #plugin: PluginHanded
   readonly #make: () => string
   readonly #held = new Map<string, Held & { read: number }>()
-  /** Of each read: its objects' tokens by which object, and its Secrets' tokens. */
-  readonly #byRead = new Map<number, { objects: Map<string, string>; secrets: string[] }>()
+  /**
+   * Of each read: its objects' tokens by which object; and its Secrets' tokens, by which object
+   * names them and then by which Secret.
+   */
+  readonly #byRead = new Map<
+    number,
+    { objects: Map<string, string>; secrets: Map<string, Map<string, string>> }
+  >()
   /** The references this page's door has put in a component's hands: only these open anything. */
   readonly #given = new Set<object>()
   #objects = 0
+  #secrets = 0
   #staleSaid = false
 
   constructor(plugin: PluginHanded, make: () => string = random) {
@@ -100,7 +121,7 @@ export class Tokens {
 
   #read(read: number) {
     let of = this.#byRead.get(read)
-    if (!of) this.#byRead.set(read, (of = { objects: new Map(), secrets: [] }))
+    if (!of) this.#byRead.set(read, (of = { objects: new Map(), secrets: new Map() }))
     return of
   }
 
@@ -135,28 +156,66 @@ export class Tokens {
     })
   }
 
-  /** An object left `read` (deleted, or no longer in its list): its token is no more. */
+  /**
+   * An object left `read` (deleted, or no longer in its list): its token is no more, nor those
+   * of the Secrets it named.
+   */
   gone(read: number, ref: ObjectRef): void {
     const of = this.#byRead.get(read)
     const token = of?.objects.get(which(ref))
     if (token === undefined) return
     of!.objects.delete(which(ref))
     this.#forget(token)
+    for (const secret of of!.secrets.get(which(ref))?.values() ?? []) this.#forget(secret)
+    of!.secrets.delete(which(ref))
   }
 
   /**
-   * A token for a Secret an object names by a declared path: that Secret, in the object's own
-   * namespace, and the keys the file names. Nothing of the Secret is read to make it. None for
-   * a name or a namespace no Secret could have.
+   * The tokens for the Secrets that `owner`, an object `read` handed, names by a declared path:
+   * `refs`, each in the object's own namespace with the keys the file names. A Secret it named
+   * before has the token it had; one it no longer names has its token taken back. Nothing in the
+   * place of a name or a namespace no Secret could have, and nothing at all for an object this
+   * read didn't hand. Or `'too-many'`, and nothing is made or taken back: more than a page's
+   * share, which refuses the read as an object's would. Nothing of a Secret is read to make one.
    */
-  secret(read: number, ref: SecretRef): string | undefined {
-    // (A Secret is always in a namespace.)
-    if (ref.namespace === undefined || !named(ref)) return undefined
-    const token = this.#make()
-    const kept = Object.freeze({ ...ref, keys: Object.freeze([...ref.keys]) })
-    this.#held.set(token, { sort: 'secret', ref: kept, read })
-    this.#read(read).secrets.push(token)
-    return token
+  secrets(
+    read: number,
+    owner: ObjectRef,
+    refs: readonly SecretRef[],
+  ): (string | undefined)[] | 'too-many' {
+    const of = this.#byRead.get(read)
+    const whose = which(owner)
+    if (!of?.objects.has(whose)) return refs.map(() => undefined)
+    const was = of.secrets.get(whose) ?? new Map<string, string>()
+    // (A Secret is always in a namespace; and the keys a part may show are Secrets' keys, each
+    // drawn where a person reads it.)
+    const keys = refs.map((ref) =>
+      ref.namespace !== undefined && named(ref) && ref.keys.every(isSecretKey)
+        ? secretKey(ref)
+        : undefined,
+    )
+    const wanted = new Set(keys.filter((key) => key !== undefined))
+    const fresh = [...wanted].filter((key) => !was.has(key)).length
+    const leaving = [...was.keys()].filter((key) => !wanted.has(key)).length
+    if (this.#secrets + fresh - leaving > HANDED_LIMITS.secretsAPage) return 'too-many'
+    const now = new Map<string, string>()
+    const tokens = refs.map((ref, i) => {
+      const key = keys[i]
+      if (key === undefined) return undefined
+      let token = now.get(key) ?? was.get(key)
+      if (token === undefined) {
+        token = this.#make()
+        const kept = Object.freeze({ ...ref, keys: Object.freeze([...ref.keys]) })
+        this.#held.set(token, { sort: 'secret', ref: kept, read })
+        this.#secrets++
+      }
+      now.set(key, token)
+      return token
+    })
+    for (const [key, token] of was) if (!now.has(key)) this.#forget(token)
+    if (now.size > 0) of.secrets.set(whose, now)
+    else of.secrets.delete(whose)
+    return tokens
   }
 
   #forget(token: string): void {
@@ -165,7 +224,7 @@ export class Tokens {
     if (held.sort === 'object') {
       this.#objects--
       this.#plugin.objects--
-    }
+    } else this.#secrets--
     // (What a component was handed for it opens nothing any more.)
     this.#given.delete(held.ref)
     this.#held.delete(token)
@@ -215,7 +274,8 @@ export class Tokens {
   ended(read: number): void {
     const of = this.#byRead.get(read)
     if (!of) return
-    for (const token of [...of.objects.values(), ...of.secrets]) this.#forget(token)
+    for (const token of of.objects.values()) this.#forget(token)
+    for (const named of of.secrets.values()) for (const token of named.values()) this.#forget(token)
     this.#byRead.delete(read)
   }
 

@@ -1044,6 +1044,161 @@ test('a plugin’s code says what it reads of Kubernetes’ own kinds, by the do
   ).toBe('')
 })
 
+test('a plugin’s pages show a Secret an object of its own kind names, by a path and keys its file declares', () => {
+  /** A plugin of cert-manager's Certificates whose pages show `shows`; one that came inside Lumovi unless said. */
+  const plugin = (shows: string | undefined, carriesCode = true) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [cert-manager.io, acme.cert-manager.io]',
+        '  views:',
+        '    - kinds: [{ group: cert-manager.io, kind: Certificate }]',
+        ...(shows === undefined ? [] : [`  showsSecrets: ${shows}`]),
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [], carriesCode },
+    )
+  const said = (shows: string) => plugin(shows).problems.join('\n')
+  const keys = (path: string) => path.split('.').map((key) => ({ key }))
+
+  // docs' example, and a path that steps into a list (each item's name).
+  const example = plugin(`
+    - group: cert-manager.io
+      kind: Certificate
+      path: spec.secretName
+      keys: [tls.crt, ca.crt]
+    - group: cert-manager.io
+      kind: Certificate
+      path: spec.keystores.passwordSecretRefs.name
+      keys: [password]`)
+  expect(example.problems).toEqual([])
+  expect(example.plugin!.showsSecrets).toEqual([
+    {
+      kind: 'cert-manager.io/Certificate',
+      path: 'spec.secretName',
+      steps: keys('spec.secretName'),
+      keys: ['tls.crt', 'ca.crt'],
+    },
+    {
+      kind: 'cert-manager.io/Certificate',
+      path: 'spec.keystores.passwordSecretRefs.name',
+      steps: keys('spec.keystores.passwordSecretRefs.name'),
+      keys: ['password'],
+    },
+  ])
+  // What the Plugins page says its pages show: each path and its keys as the file writes them.
+  expect(asks(example.plugin!).secrets).toEqual([
+    { kind: 'Certificate.cert-manager.io', path: 'spec.secretName', keys: ['tls.crt', 'ca.crt'] },
+    {
+      kind: 'Certificate.cert-manager.io',
+      path: 'spec.keystores.passwordSecretRefs.name',
+      keys: ['password'],
+    },
+  ])
+  // A file that says none shows none.
+  expect(plugin(undefined).plugin!.showsSecrets).toEqual([])
+  // A folder's file has no pages of its own, so it says nothing of what they show.
+  expect(
+    plugin(
+      '[{ group: cert-manager.io, kind: Certificate, path: spec.secretName, keys: [tls.crt] }]',
+      false,
+    ).problems,
+  ).toEqual([
+    'probe.yaml: spec.showsSecrets: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they show',
+  ])
+
+  const CERT = 'group: cert-manager.io, kind: Certificate'
+  const at = 'probe.yaml: spec.showsSecrets[0]'
+  for (const [shows, problem] of [
+    ['{}', 'probe.yaml: spec.showsSecrets: should be a list, not an object'],
+    ['[]', 'probe.yaml: spec.showsSecrets: should not be empty'],
+    [`[{ ${CERT}, keys: [tls.crt] }]`, `${at}.path: is required`],
+    [`[{ ${CERT}, path: spec.secretName }]`, `${at}.keys: is required`],
+    [`[{ ${CERT}, path: spec.secretName, keys: [] }]`, `${at}.keys: should not be empty`],
+    [
+      "[{ group: cert-manager.io, kind: '*', path: spec.secretName, keys: [tls.crt] }]",
+      `${at}: a Secret is named by an object of one kind, named: never every kind of a group`,
+    ],
+    // Never a kind of Kubernetes', nor one it doesn't claim (of its own group or another).
+    [
+      "[{ group: '', kind: Pod, path: spec.secretName, keys: [tls.crt] }]",
+      `${at}: Pod isn’t one of this plugin’s own kinds: only an object of its own kinds names a Secret its pages show`,
+    ],
+    [
+      '[{ group: acme.cert-manager.io, kind: Order, path: spec.secretName, keys: [tls.crt] }]',
+      `${at}: Order.acme.cert-manager.io isn’t one of this plugin’s own kinds: only an object of its own kinds names a Secret its pages show`,
+    ],
+    [
+      '[{ group: cert-manager.io, kind: Issuer, path: spec.secretName, keys: [tls.crt] }]',
+      `${at}: Issuer.cert-manager.io isn’t one of this plugin’s own kinds: only an object of its own kinds names a Secret its pages show`,
+    ],
+    // A label or an annotation is too easily written by something else to name a Secret.
+    [
+      `[{ ${CERT}, path: 'metadata.annotations["cert-manager.io/secret"]', keys: [tls.crt] }]`,
+      `${at}.path: "metadata.annotations[\\"cert-manager.io/s…" is under metadata: a Secret is named in an object’s spec or its status`,
+    ],
+    [
+      `[{ ${CERT}, path: metadata.name, keys: [tls.crt] }]`,
+      `${at}.path: "metadata.name" is under metadata: a Secret is named in an object’s spec or its status`,
+    ],
+    // Field names only: no index, wildcard or filter, nothing that isn't a field's name.
+    ...[
+      'spec.secrets[0].name',
+      'spec.*',
+      '.spec.secretName',
+      ' spec.secretName',
+      'spec.__proto__',
+    ].map((path) => [
+      `[{ ${CERT}, path: ${JSON.stringify(path)}, keys: [tls.crt] }]`,
+      `${at}.path: ${JSON.stringify(path)} should be field names, like spec.secretName`,
+    ]),
+    [
+      `[{ ${CERT}, path: spec.${'x'.repeat(250)}, keys: [tls.crt] }]`,
+      `${at}.path: "spec.${'x'.repeat(34)}…" should be field names, like spec.secretName`,
+    ],
+    // Secrets' keys, each once, twenty at most.
+    [
+      `[{ ${CERT}, path: spec.secretName, keys: [tls/crt] }]`,
+      `${at}.keys[0]: "tls/crt" should be a Secret’s key, like tls.crt`,
+    ],
+    ...['.', '..', '..data', 'a b', "''"].map((key) => [
+      `[{ ${CERT}, path: spec.secretName, keys: [${key}] }]`,
+      `${at}.keys[0]: ${JSON.stringify(key === "''" ? '' : key)} should be a Secret’s key, like tls.crt`,
+    ]),
+    [
+      `[{ ${CERT}, path: spec.secretName, keys: [tls.crt, tls.crt] }]`,
+      `${at}.keys[1]: "tls.crt" is said twice`,
+    ],
+    [
+      `[{ ${CERT}, path: spec.secretName, keys: [${Array.from({ length: 21 }, (_, i) => `k${i}`).join(', ')}] }]`,
+      `${at}.keys: holds 21, and an item names 20 keys at most`,
+    ],
+  ] as const) {
+    expect(said(shows), shows).toBe(problem)
+  }
+  // The same kind and path twice, however it's spelt.
+  expect(
+    said(
+      `[{ ${CERT}, path: spec.secretName, keys: [tls.crt] }, { ${CERT}, path: 'spec["secretName"]', keys: [ca.crt] }]`,
+    ),
+  ).toBe(
+    'probe.yaml: spec.showsSecrets[1]: Certificate.cert-manager.io’s "spec[\\"secretName\\"]" is said already, in spec.showsSecrets[0]',
+  )
+  // Ten items a file at most.
+  const eleven = Array.from(
+    { length: 11 },
+    (_, i) => `{ ${CERT}, path: spec.s${i}, keys: [tls.crt] }`,
+  ).join(', ')
+  expect(said(`[${eleven}]`)).toBe(
+    'probe.yaml: spec.showsSecrets: holds 11, and a file says 10 at most',
+  )
+})
+
 test('what a plugin asks for is read from its file: its kinds, what it reads, each action and what it sends', () => {
   const flux = asks(plugins.find((plugin) => plugin.name === 'flux')!)
   expect(flux.kinds).toHaveLength(7)

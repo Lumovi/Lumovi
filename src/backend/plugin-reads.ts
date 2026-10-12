@@ -10,7 +10,14 @@
  * not, is in the audit history with the plugin's name, version and digest: once a while for the
  * same read, as a page keeps its lists up to date by reading them again.
  */
-import type { KubeErrorCode, KubeList, KubeObject, Result } from '@shared/api'
+import type {
+  KubeError,
+  KubeErrorCode,
+  KubeList,
+  KubeObject,
+  Result,
+  SecretValuesQuery,
+} from '@shared/api'
 import { mayCarryCode } from '@shared/plugin-loading'
 import {
   granted,
@@ -20,6 +27,7 @@ import {
   READ_REFUSED,
   readQuery,
   resolvedAs,
+  secretsNamed,
   type HandedObject,
   type PluginRead,
   type PluginReadQuery,
@@ -108,12 +116,27 @@ export function pluginReads({ kube, known, audit }: PluginReading) {
     if (list?.truncated) return refuse(where, plugin, 'too-many')
     const items = list ? list.items : [result.data as KubeObject]
     const held = { fields: 0 }
+    // The Secrets an object of its own kind names, where its file says where: of its own kinds
+    // only, and from the object as it was read, before anything of it was picked.
+    const id = `${kind.group}/${kind.kind}`
+    const declared = handed.whole
+      ? (plugin.grant.secrets ?? []).filter((item) => item.kind === id)
+      : []
     const objects = items.map((item): HandedObject => ({
       ...(item.metadata.namespace === undefined ? {} : { namespace: item.metadata.namespace }),
       name: item.metadata.name,
       object: handed.whole
         ? handedWhole(item)
         : picked(item, kind, handed.granted, plugin.grant.groups, held),
+      ...(declared.length === 0
+        ? {}
+        : {
+            secrets: declared.map(({ path, steps, keys }) => ({
+              path,
+              keys: [...keys],
+              names: secretsNamed(item, steps),
+            })),
+          }),
     }))
     record(audit, q, where, plugin)
     return { ok: true, answer: { kind: resource.kind, objects, held: held.fields } }
@@ -170,3 +193,59 @@ const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'not-allowed',
   'too-many',
 ])
+
+/** What's said when a plugin's page asks for keys of a Secret its file doesn't say it shows. */
+export const SECRET_KEYS_UNDECLARED = 'This plugin’s file doesn’t say its pages show these keys.'
+
+/** A namespace's or an object's name, as Kubernetes has them. */
+const NAME = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/
+
+/**
+ * Of a read of a Secret's keys (`IPC.secretValues`): whose page asked, where a plugin's did
+ * (`forPlugin`, which only Lumovi's own page code fills, from what it knows of the page), as
+ * the backend knows that plugin; and the read as it's made, without it. A name no plugin could
+ * have is no read at all; a plugin not in use whose code Lumovi runs, or a key its file doesn't
+ * say its pages show, is refused before anything is read (the second in the history, with the
+ * plugin, once the Secret's own name is one a Secret could have).
+ *
+ * The keys are held to every key any of the plugin's items declares, not to the item that named
+ * this Secret: the press carries the Secret, not the object that named it. What holds a press to
+ * its item's keys is the token and the part (the Secret's token carries that item's keys, and a
+ * part can only narrow them); this is a second net, a little wider than the file.
+ */
+export async function secretsAskedFor(
+  query: unknown,
+  known: () => Promise<readonly Readonly<KnownPlugin>[]>,
+): Promise<
+  | { query: unknown; plugin?: Readonly<KnownPlugin> }
+  | { refused: KubeError; recorded?: { query: SecretValuesQuery; plugin: Readonly<KnownPlugin> } }
+> {
+  if (typeof query !== 'object' || query === null || !Object.hasOwn(query, 'forPlugin')) {
+    return { query }
+  }
+  const { forPlugin: name, ...rest } = query as Record<string, unknown>
+  if (typeof name !== 'string' || !PLUGIN_NAME.test(name)) {
+    return { refused: { code: 'invalid', message: 'Expected a plugin’s name' } }
+  }
+  const plugin = (await known()).find((p) => p.name === name)
+  if (!plugin || !mayCarryCode(plugin.origin)) {
+    return { refused: { code: 'not-allowed', message: READ_REFUSED['not-in-use'] } }
+  }
+  const { keys, namespace, name: secret } = rest
+  // (What isn't a list of keys, the read itself refuses as it would any page's.)
+  if (Array.isArray(keys) && keys.every((key) => typeof key === 'string')) {
+    const declared = new Set((plugin.grant.secrets ?? []).flatMap((item) => item.keys))
+    if (!keys.every((key) => declared.has(key))) {
+      const refused: KubeError = { code: 'not-allowed', message: SECRET_KEYS_UNDECLARED }
+      const named =
+        typeof namespace === 'string' &&
+        NAME.test(namespace) &&
+        typeof secret === 'string' &&
+        NAME.test(secret)
+      return named
+        ? { refused, recorded: { query: rest as unknown as SecretValuesQuery, plugin } }
+        : { refused }
+    }
+  }
+  return { query: rest, plugin }
+}

@@ -171,3 +171,57 @@ test('an ask that isn’t one, or more asks than a second takes, stops the plugi
   await show(page, reading(...many))
   await expect(ended(page)).toHaveAttribute('data-why', 'too-much')
 })
+
+test('a Secret an object of its own kind names comes down as a token of its own, never the Secret', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(
+    join(folder, 'toys.yaml'),
+    `${TOYS}  showsSecrets:\n    - { group: example.com, kind: Widget, path: spec.secretName, keys: [tls.crt] }\n`,
+  )
+  const widget = clusters.demo.object('Widget.example.com', 'default', CUSTOM.widget)!
+  clusters.demo.upsert({
+    ...structuredClone(widget),
+    metadata: { ...widget.metadata, name: 'tls-widget', uid: 'tls-widget-uid' },
+    spec: { ...(widget.spec as object), secretName: 'shop-tls' },
+  } as KubeObject)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  // It shows each object's name, its token, and its Secrets' tokens, every time it's handed them.
+  await show(
+    page,
+    `box.then(({ post, listen }) => {
+      const commit = (steps) => post(JSON.stringify({ commit: steps }))
+      commit([['make', 1, 'Stack', {}], ['put', 0, 1], ['make', 2, 'Field', { name: 'read 1', value: '' }], ['put', 1, 2]])
+      let times = 0
+      listen((text) => {
+        const said = JSON.parse(text)
+        if (!said.objects) return
+        times++
+        const value = said.objects
+          .map((o) => '|' + o.object.metadata.name + '>' + (o.secrets || []).map((s) => s.path + '=' + s.tokens.join(',')).join(';'))
+          .sort()
+          .join('') + '|#' + times + '|'
+        commit([['change', 2, { name: 'read 1', value }]])
+      })
+      post(JSON.stringify({ read: 1, what: 'list', kind: 'example.com/Widget' }))
+    })`,
+  )
+  const value = async () =>
+    (await field(page, 1).textContent())?.match(
+      /\|tls-widget>spec\.secretName=([A-Za-z0-9_-]*)\|/,
+    )?.[1]
+  await expect.poll(value).toMatch(/^[A-Za-z0-9_-]{24}$/)
+  const token = await value()
+  // A Widget that names none: the path, and no token.
+  await expect(field(page, 1)).toContainText(`|${CUSTOM.widget}>spec.secretName=|`)
+  // Read again: the same token. (Nothing of the Secret was read to make it, nor is.)
+  // (The count ends the value; the Field's own words follow it.)
+  await expect(field(page, 1)).toContainText('|#2|', { timeout: 15_000 })
+  expect(await value()).toBe(token)
+  expect(clusters.demo.requests.filter(({ path }) => path.endsWith('/secrets/shop-tls'))).toEqual(
+    [],
+  )
+})

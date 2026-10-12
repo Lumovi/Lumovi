@@ -112,6 +112,7 @@ test('a folder’s file in the place of one of Lumovi’s is that plugin: by its
             'acme.cert-manager.io/Challenge',
           ],
           reads: {},
+          secrets: [],
         },
       },
     ])
@@ -383,6 +384,7 @@ spec:
         usage: false,
       },
     },
+    secrets: [],
   })
   const node = known!.grant.reads['/Node']!
   expect(() => (node.fields as unknown[]).push({ path: 'spec' })).toThrow()
@@ -390,4 +392,36 @@ spec:
   expect(() => ((node as { usage: boolean }).usage = true)).toThrow()
   // And the plugin it was read from is as it was.
   expect(included.plugins[0]!.plugin.reads['/Node']!.fields).toHaveLength(2)
+})
+
+test('the Secrets one of Lumovi’s own may show are its file’s, handed out as a copy no one can change', () => {
+  const toys = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  pages: [{ id: overview, title: Overview }]
+  showsSecrets:
+    - { group: example.com, kind: Widget, path: spec.secretName, keys: [tls.crt, ca.crt] }
+`
+  const included = readIncluded({ 'plugins/toys.yaml': toys }, texts(OWN))
+  expect(included.problems).toEqual([])
+  const [known] = knownPlugins(included, [], 'yours', LUMOVI, sha)
+  expect(known?.grant.secrets).toEqual([
+    {
+      kind: 'example.com/Widget',
+      path: 'spec.secretName',
+      steps: [{ key: 'spec' }, { key: 'secretName' }],
+      keys: ['tls.crt', 'ca.crt'],
+    },
+  ])
+  const [shown] = known!.grant.secrets!
+  expect(() => (known!.grant.secrets as unknown[]).push(shown)).toThrow()
+  expect(() => (shown!.keys as string[]).push('tls.key')).toThrow()
+  expect(() => ((shown!.steps as { key: string }[])[1]!.key = 'other')).toThrow()
+  expect(included.plugins[0]!.plugin.showsSecrets[0]!.keys).toEqual(['tls.crt', 'ca.crt'])
 })

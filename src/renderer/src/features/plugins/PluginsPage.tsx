@@ -18,7 +18,7 @@ import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
 import type { Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
-import type { ResourceDefinition, ResourceKind } from '@shared/resources'
+import { apiKindOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
 import { PluginIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, Loading } from '@renderer/components/States'
@@ -735,6 +735,18 @@ function MayRead({ asked, names }: { asked: Asks; names: Names }) {
             Of {names.plural(read.kind)}, its code is handed only{' '}
             <span className="font-mono text-xs text-ink-1 selectable">{listed(read.fields)}</span>
             {more.length > 0 && `, with their ${listed(more)}`}, as far as you may read them.
+          </p>
+        )
+      })}
+      {asked.secrets.map((shown) => {
+        const kind = apiKindOf(shown.kind)
+        return (
+          <p key={`${shown.kind} ${shown.path}`}>
+            Shows you{' '}
+            <span className="font-mono text-xs text-ink-1 selectable">{listed(shown.keys)}</span> of
+            the Secret that {/^[AEIOU]/.test(kind) ? 'an' : 'a'} {kind}’s{' '}
+            <span className="font-mono text-xs text-ink-1 selectable">{shown.path}</span> names.
+            Lumovi reads it as you; the plugin never sees it.
           </p>
         )
       })}

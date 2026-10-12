@@ -41,7 +41,7 @@ import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from './settings'
 import { readPlugins } from './plugins'
-import { pluginReads } from './plugin-reads'
+import { pluginReads, secretsAskedFor } from './plugin-reads'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
 export type Handler = (...args: unknown[]) => unknown
@@ -122,14 +122,22 @@ export function handlers({
    * over (none where the person's access shows only keys), or that it was refused. Counted
    * apart from a read of the whole Secret, and by which keys, so neither hides the other.
    */
-  const secretKeysRead = (q: SecretValuesQuery, result: Result<SecretValues>) => {
+  const secretKeysRead = (
+    q: SecretValuesQuery,
+    result: Result<SecretValues>,
+    /** The plugin whose page it was read on, as the backend knows it: counted apart. */
+    plugin?: Readonly<KnownPlugin>,
+  ) => {
     const handed = result.ok ? result.data.values.map(([key]) => key) : []
     // The Secret as the cluster named it, where it answered; as it was asked for, where refused.
     const { name, namespace } = result.ok ? result.data : q
     // Where the person's access shows only a Secret's keys, no value was handed: it's said so.
     const namesOnly = result.ok && result.data.withheld
+    const who = plugin
+      ? { plugin: plugin.name, pluginVersion: plugin.version, pluginDigest: plugin.digest }
+      : undefined
     audit.read(
-      `secret-keys:${q.context}/${namespace}/${name}:${result.ok}:${namesOnly}:${JSON.stringify([...handed].sort())}`,
+      `secret-keys:${q.context}/${namespace}/${name}:${result.ok}:${namesOnly}:${JSON.stringify([...handed].sort())}:${JSON.stringify(who ?? null)}`,
       {
         action: 'secret.read',
         ...outcomeOf(result),
@@ -140,10 +148,14 @@ export function handlers({
           namespace,
           ...(result.ok && result.data.uid ? { uid: result.data.uid } : {}),
         },
-        summary: namesOnly
-          ? `Read the keys’ names of Secret ${name}`
-          : `Read ${handed.length} ${handed.length === 1 ? 'key' : 'keys'} of Secret ${name}`,
-        ...(result.ok ? { details: { keys: handed } } : {}),
+        summary: `${
+          namesOnly
+            ? `Read the keys’ names of Secret ${name}`
+            : `Read ${handed.length} ${handed.length === 1 ? 'key' : 'keys'} of Secret ${name}`
+        }${plugin ? ` for the plugin ${plugin.name}` : ''}`,
+        ...(result.ok || who
+          ? { details: { ...(result.ok ? { keys: handed } : {}), ...who } }
+          : {}),
       },
     )
   }
@@ -252,9 +264,17 @@ export function handlers({
         return result
       },
       [IPC.secretValues]: async (query) => {
-        const result = await kube.secretValues(query)
+        // On a plugin's page: whose page, as the backend knows it, and only keys its file says
+        // its pages show (`secretsAskedFor`).
+        const asked = await secretsAskedFor(query, knownPlugins)
+        if ('refused' in asked) {
+          const refused = { ok: false as const, error: asked.refused }
+          if (asked.recorded) secretKeysRead(asked.recorded.query, refused, asked.recorded.plugin)
+          return refused
+        }
+        const result = await kube.secretValues(asked.query)
         if (result.ok || isRefusal(result.error.code)) {
-          secretKeysRead(query as SecretValuesQuery, result)
+          secretKeysRead(asked.query as SecretValuesQuery, result, asked.plugin)
         }
         return result
       },

@@ -9,7 +9,11 @@ import type { GetQuery, KubeList, KubeObject, ListQuery, Result } from '../../sr
 import { parse } from '../../src/shared/jsonpath.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import { KubeRequestError } from '../../src/backend/kube/errors.ts'
-import { pluginReads } from '../../src/backend/plugin-reads.ts'
+import {
+  pluginReads,
+  SECRET_KEYS_UNDECLARED,
+  secretsAskedFor,
+} from '../../src/backend/plugin-reads.ts'
 import { READ_REFUSED, type Grant } from '../../src/shared/plugin-reads.ts'
 import { ownKinds, parsePlugin } from '../../src/shared/plugins.ts'
 import type { KnownPlugin } from '../../src/shared/plugins-known.ts'
@@ -386,4 +390,114 @@ spec:
     'karpenter.sh/NodeClaim',
     'karpenter.k8s.aws/*',
   ])
+})
+
+test('the Secrets an object of its own kind names are read from the object as read, not from what’s handed', async () => {
+  const showing: Grant = {
+    ...GRANT,
+    secrets: [
+      {
+        kind: 'karpenter.sh/Widget',
+        path: 'spec.secretName',
+        steps: parse('.spec.secretName'),
+        keys: ['tls.crt'],
+      },
+      {
+        kind: 'karpenter.sh/NodePool',
+        path: 'spec.secretName',
+        steps: parse('.spec.secretName'),
+        keys: ['x'],
+      },
+    ],
+  }
+  const widget = (name: string, spec: object) =>
+    ({
+      apiVersion: 'karpenter.sh/v1',
+      kind: 'Widget',
+      metadata: { name, namespace: 'shop' },
+      spec,
+    }) as KubeObject
+  const { read } = stage([plugin({ grant: showing })], {
+    list: (q) => ({
+      ok: true,
+      data: {
+        items:
+          q.kind !== 'Widget.karpenter.sh'
+            ? [pool('default')]
+            : [
+                widget('a', { secretName: 'shop-tls' }),
+                widget('b', {}),
+                // Not a Secret's name: none, rather than a name Lumovi would have made up.
+                widget('c', { secretName: '../kube-system/admin' }),
+              ],
+        truncated: false,
+      },
+    }),
+  })
+  const result = await read({
+    context: 'demo',
+    plugin: 'karpenter',
+    kind: 'karpenter.sh/Widget',
+    namespace: 'shop',
+  })
+  expect(result.ok && result.answer.objects.map(({ name, secrets }) => [name, secrets])).toEqual([
+    ['a', [{ path: 'spec.secretName', keys: ['tls.crt'], names: ['shop-tls'] }]],
+    ['b', [{ path: 'spec.secretName', keys: ['tls.crt'], names: [] }]],
+    ['c', [{ path: 'spec.secretName', keys: ['tls.crt'], names: [] }]],
+  ])
+  // Only for the kind the file says it for: none for a NodePool's read here, which has no such field.
+  const pools = await read({ context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool' })
+  expect(pools.ok && pools.answer.objects[0]?.secrets).toEqual([
+    { path: 'spec.secretName', keys: ['x'], names: [] },
+  ])
+})
+
+test('a Secret read for a plugin’s page is that plugin’s, as the backend knows it, and of keys its file declares', async () => {
+  const showing = plugin({
+    grant: {
+      ...GRANT,
+      secrets: [
+        {
+          kind: 'karpenter.sh/Widget',
+          path: 'spec.secretName',
+          steps: parse('.spec.secretName'),
+          keys: ['tls.crt', 'ca.crt'],
+        },
+      ],
+    },
+  })
+  const known = async () => [showing, plugin({ name: 'theirs', origin: 'yours' })]
+  const q = { context: 'demo', namespace: 'shop', name: 'shop-tls', keys: ['tls.crt'] }
+  // Not a plugin's page: the read as it was asked.
+  expect(await secretsAskedFor(q, known)).toEqual({ query: q })
+  // A plugin's: the read without the plugin's name, and the plugin as the backend knows it.
+  expect(await secretsAskedFor({ ...q, forPlugin: 'karpenter' }, known)).toEqual({
+    query: q,
+    plugin: showing,
+  })
+  // A name no plugin could have; a plugin not in use, or whose code Lumovi doesn't run.
+  for (const forPlugin of ['Karpenter', 'a‮b', 7, '']) {
+    expect(await secretsAskedFor({ ...q, forPlugin }, known), String(forPlugin)).toEqual({
+      refused: { code: 'invalid', message: 'Expected a plugin’s name' },
+    })
+  }
+  for (const forPlugin of ['nobody', 'theirs']) {
+    expect(await secretsAskedFor({ ...q, forPlugin }, known), forPlugin).toEqual({
+      refused: { code: 'not-allowed', message: READ_REFUSED['not-in-use'] },
+    })
+  }
+  // A key its file doesn't say its pages show: refused, and recorded with the plugin...
+  expect(
+    await secretsAskedFor({ ...q, keys: ['tls.crt', 'tls.key'], forPlugin: 'karpenter' }, known),
+  ).toEqual({
+    refused: { code: 'not-allowed', message: SECRET_KEYS_UNDECLARED },
+    recorded: { query: { ...q, keys: ['tls.crt', 'tls.key'] }, plugin: showing },
+  })
+  // ...but only where the Secret's name is one a Secret could have.
+  expect(
+    await secretsAskedFor(
+      { ...q, name: 'shop-tls\nforged line', keys: ['tls.key'], forPlugin: 'karpenter' },
+      known,
+    ),
+  ).toEqual({ refused: { code: 'not-allowed', message: SECRET_KEYS_UNDECLARED } })
 })

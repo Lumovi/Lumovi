@@ -731,6 +731,12 @@ export interface SecretValuesQuery {
   name: string
   /** One to `SECRET_KEYS_AT_MOST` of its keys, none twice. */
   keys: string[]
+  /**
+   * The plugin whose page shows it, by its name: filled by Lumovi's own page code alone, from
+   * what it knows of the page, never from anything a plugin sent. The backend knows the rest of
+   * the plugin, and reads only keys its file says its pages show.
+   */
+  forPlugin?: string
 }
 
 /**
