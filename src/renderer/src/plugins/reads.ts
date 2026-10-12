@@ -5,7 +5,9 @@
  * reading it again, as Lumovi's own lists are, while the window shows.
  *
  * What goes down to a plugin's code, as text:
- * - `{ read, objects: [{ token, object }] }`: what a read found, each time it's read again;
+ * - `{ read, objects: [{ token, object, secrets? }] }`: what a read found, each time it's read
+ *   again; and of an object of its own kind, for each path its file declares, a token for each
+ *   Secret the object names there (`secrets: [{ path, tokens }]`), for its page's parts to show;
  * - `{ read, ended, said }`: the read is over (refused, or what it read is gone): a code, and
  *   Lumovi's sentence for it;
  * - `{ read, failing, said }`: reading it again failed this time; it's tried again.
@@ -153,6 +155,27 @@ export class PageReading {
     if (tokens === 'too-many' || tokens === 'not-a-name') {
       return this.#refuse(read, tokens === 'too-many' ? 'too-many' : 'failed')
     }
+    // A token for each Secret an object names by a path its file declares: in the object's own
+    // namespace, with the file's keys. (One that's no Secret's name, or an object in none, has
+    // none.) The names are the backend's, read from the object as it was read.
+    const secrets: { path: string; tokens: string[] }[][] = []
+    for (const [i, { namespace, secrets: named = [] }] of objects.entries()) {
+      const found: { path: string; tokens: string[] }[] = []
+      const made = this.tokens.secrets(
+        read,
+        refs[i]!,
+        named.flatMap(({ keys, names }) =>
+          names.map((name) => ({ namespace: namespace as string, name, keys })),
+        ),
+      )
+      if (made === 'too-many') return this.#refuse(read, 'too-many')
+      let at = 0
+      for (const { path, names } of named) {
+        const tokens = made.slice(at, (at += names.length))
+        found.push({ path, tokens: tokens.filter((token) => token !== undefined) })
+      }
+      secrets.push(found)
+    }
     going.last = refs
     this.#reads.answered(read)
     if (held > 0 && !this.#heldSaid) {
@@ -161,7 +184,14 @@ export class PageReading {
         `Lumovi held back ${held} ${held === 1 ? 'field' : 'fields'} that ${whose(this.#plugin)} file names: a plugin may not read them.`,
       )
     }
-    this.#tell({ read, objects: tokens.map((token, i) => ({ token, object: objects[i]!.object })) })
+    this.#tell({
+      read,
+      objects: tokens.map((token, i) => ({
+        token,
+        object: objects[i]!.object,
+        ...(objects[i]!.secrets ? { secrets: secrets[i] } : {}),
+      })),
+    })
     this.#again(read, going, refs.length)
   }
 

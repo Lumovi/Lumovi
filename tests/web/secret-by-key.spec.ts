@@ -234,7 +234,8 @@ test('a Secret’s values by key: only the asked keys’ cross to the page, unde
         'invalid: Expected 1 to 20 of the Secret’s keys, each once and each a key’s name',
       )
     }
-    for (const more of [{ forPlugin: 'flux' }, { kind: 'ConfigMap' }, { subresource: 'scale' }]) {
+    // (`forPlugin` is a field of its own: tried in plugin-secret.spec.)
+    for (const more of [{ plugin: 'flux' }, { kind: 'ConfigMap' }, { subresource: 'scale' }]) {
       expect(await refused(page, { ...query, keys: ['token'], ...more })).toBe(
         'invalid: Expected a Secret and its keys',
       )

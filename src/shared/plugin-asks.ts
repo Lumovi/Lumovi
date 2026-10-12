@@ -50,6 +50,11 @@ export interface Asks {
     events: boolean
     usage: boolean
   }[]
+  /**
+   * The Secrets its pages show the person (`spec.showsSecrets`): which of its kinds names each,
+   * by which path as the file writes it, and which keys. Its code never reads them.
+   */
+  secrets: { kind: ResourceKind; path: string; keys: string[] }[]
   actions: AskedAction[]
 }
 
@@ -161,6 +166,14 @@ export function asks(plugin: Plugin): Asks {
         status: read.status,
         events: read.events,
         usage: read.usage,
+      }
+    }),
+    secrets: plugin.showsSecrets.map(({ kind, path, keys }) => {
+      const group = kind.slice(0, kind.indexOf('/'))
+      return {
+        kind: kindFor(group ? `${group}/v1` : 'v1', kind.slice(kind.indexOf('/') + 1)),
+        path,
+        keys: [...keys],
       }
     }),
     actions,

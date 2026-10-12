@@ -84,6 +84,16 @@ export interface KnownPlugin {
 /** What a plugin's code may read, by its file. */
 function grantOf(plugin: Plugin): Grant {
   return Object.freeze({
+    secrets: Object.freeze(
+      plugin.showsSecrets.map(({ kind, path, steps, keys }) =>
+        Object.freeze({
+          kind,
+          path,
+          steps: Object.freeze(steps.map((step) => Object.freeze({ ...step }))),
+          keys: Object.freeze([...keys]),
+        }),
+      ),
+    ),
     groups: Object.freeze([...plugin.groups]),
     own: Object.freeze(ownKinds(plugin)),
     // (A copy: what's handed out can't change the plugin, nor the plugin what was handed out.)

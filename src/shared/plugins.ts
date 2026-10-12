@@ -7,7 +7,8 @@
  * out. The format: https://docs.lumovi.dev/reference/plugin-format.
  */
 import { parseAllDocuments } from 'yaml'
-import { checkPath, parse } from './jsonpath'
+import { checkPath, parse, type Step } from './jsonpath'
+import { isSecretKey } from './plugin-presses'
 import { readable, READABLE, resolvedAs, type Granted, type ResolvedKind } from './plugin-reads'
 import {
   apiGroupOf,
@@ -224,6 +225,22 @@ export interface Plugin {
    * and aren't here. Nothing, where its file says none; only a file that may carry code says any.
    */
   reads: Readonly<Record<string, Granted>>
+  /**
+   * The Secrets its pages may show the person (`spec.showsSecrets`): each named by an object of
+   * one of its own kinds, by a path, with the keys that may be shown. Lumovi reads them as the
+   * person, on the person's press; the plugin never does. Nothing, where its file says none.
+   */
+  showsSecrets: ShowsSecret[]
+}
+
+/** A Secret a plugin's page may show: which of its kinds names it, where, and which keys. */
+export interface ShowsSecret {
+  /** One of the plugin's own kinds, as the door names it (`group/Kind`). */
+  kind: string
+  /** The path as the file writes it, and its steps: field names only. */
+  path: string
+  steps: Step[]
+  keys: string[]
 }
 
 /**
@@ -243,6 +260,9 @@ export interface Added {
  * key in it is at most a label's or an annotation's, 253).
  */
 export const READS_LIMITS = { kinds: 20, fields: 30, path: 253 } as const
+
+/** How much a file may say its pages show of Secrets: items, and keys an item. */
+export const SHOWS_SECRETS_LIMITS = { items: 10, keys: 20 } as const
 
 /** How many of each a plugin may add, and how long a title or a command's name may be. */
 export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
@@ -753,6 +773,121 @@ function readsOf(reads: unknown): Record<string, Granted> {
       ]
     }),
   )
+}
+
+/** One kind whose objects name a Secret its pages may show (`spec.showsSecrets`). */
+const SHOWS_SECRET_SHAPE: Shape = {
+  fields: {
+    group: { shape: 'string', required: true },
+    kind: { shape: 'string', required: true },
+    path: { shape: 'string', required: true },
+    keys: { shape: { list: 'string', nonEmpty: true }, required: true },
+  },
+  refine: (item) => {
+    if (item.kind === '*')
+      return 'a Secret is named by an object of one kind, named: never every kind of a group'
+    return groupNameProblem(item.group) ?? kindNameProblem(item.kind)
+  },
+}
+
+interface ShowsSecretItem {
+  group: string
+  kind: string
+  path: string
+  keys: string[]
+}
+
+/**
+ * What's wrong with what a file says its pages show of Secrets, once it may say it. The kind is
+ * one of the plugin's own (whether it's in a namespace is the cluster's to say, and the door's
+ * to hold: an object in none names no Secret); the path is field names, as `reads` has them, and
+ * never under `metadata`; the keys are Secrets' keys, each once.
+ */
+function showsSecretsProblems(shows: unknown, own: ReadonlySet<ResourceKind>): string[] {
+  const shaped = check(
+    shows,
+    { list: SHOWS_SECRET_SHAPE, nonEmpty: true },
+    'spec.showsSecrets',
+    'an item',
+  )
+  if (Array.isArray(shows) && shows.length > SHOWS_SECRETS_LIMITS.items) {
+    shaped.push(
+      `spec.showsSecrets: holds ${shows.length}, and a file says ${SHOWS_SECRETS_LIMITS.items} at most`,
+    )
+  }
+  if (shaped.length) return shaped
+  const problems: string[] = []
+  const said = new Map<string, number>()
+  ;(shows as ShowsSecretItem[]).forEach((item, i) => {
+    const at = `spec.showsSecrets[${i}]`
+    const id = kindId(item)
+    if (!own.has(id) && !own.has(kindId({ group: item.group, kind: '*' }))) {
+      problems.push(
+        `${at}: ${id} isn’t one of this plugin’s own kinds: only an object of its own kinds names a Secret its pages show`,
+      )
+      return
+    }
+    const { path } = item
+    let steps: Step[]
+    try {
+      if (path.length > READS_LIMITS.path || !READ_PATH.test(path) || path !== path.trim()) {
+        throw new Error()
+      }
+      steps = parse(`.${path}`)
+    } catch {
+      problems.push(`${at}.path: ${quoted(path)} should be field names, like spec.secretName`)
+      return
+    }
+    if (!steps.every((step) => 'key' in step && READ_STEP.test(step.key))) {
+      problems.push(`${at}.path: ${quoted(path)} should be field names, like spec.secretName`)
+      return
+    }
+    if ((steps[0] as { key: string }).key === 'metadata') {
+      problems.push(
+        `${at}.path: ${quoted(path)} is under metadata: a Secret is named in an object’s spec or its status`,
+      )
+      return
+    }
+    // (The same field however it's spelt: one item a kind and a path.)
+    const same = `${id}\u0000${JSON.stringify(steps.map((step) => (step as { key: string }).key))}`
+    const first = said.get(same)
+    if (first !== undefined) {
+      problems.push(
+        `${at}: ${id}’s ${quoted(path)} is said already, in spec.showsSecrets[${first}]`,
+      )
+      return
+    }
+    said.set(same, i)
+    if (item.keys.length > SHOWS_SECRETS_LIMITS.keys) {
+      problems.push(
+        `${at}.keys: holds ${item.keys.length}, and an item names ${SHOWS_SECRETS_LIMITS.keys} keys at most`,
+      )
+      return
+    }
+    const keys = new Set<string>()
+    item.keys.forEach((key, k) => {
+      if (!isSecretKey(key)) {
+        problems.push(`${at}.keys[${k}]: ${quoted(key)} should be a Secret’s key, like tls.crt`)
+      } else if (keys.has(key)) {
+        problems.push(`${at}.keys[${k}]: ${quoted(key)} is said twice`)
+      }
+      keys.add(key)
+    })
+  })
+  return problems
+}
+
+/** What a file says its pages show of Secrets: once it's found right. */
+function showsSecretsOf(shows: unknown): ShowsSecret[] {
+  return ((shows ?? []) as ShowsSecretItem[]).map((item) => {
+    const kind = resolvedOf(item)
+    return {
+      kind: `${kind.group}/${kind.kind}`,
+      path: item.path,
+      steps: parse(`.${item.path}`),
+      keys: [...item.keys],
+    }
+  })
 }
 
 const PAGE_SHAPE: Shape = {
@@ -1497,6 +1632,7 @@ function readPlugin(
     tabs,
     commands,
     reads,
+    showsSecrets,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -1601,6 +1737,11 @@ function readPlugin(
       `${source}: spec.reads: only a plugin that comes with Lumovi has code yet, so only its file can say what that code reads`,
     )
   }
+  if (showsSecrets !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.showsSecrets: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they show`,
+    )
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -1621,6 +1762,12 @@ function readPlugin(
         ...readsProblems(reads, (groups ?? []) as string[], own).map(
           (problem) => `${source}: ${problem}`,
         ),
+      )
+    }
+    // What its pages show of Secrets: named by objects of its own kinds.
+    if (showsSecrets !== undefined) {
+      problems.push(
+        ...showsSecretsProblems(showsSecrets, own).map((problem) => `${source}: ${problem}`),
       )
     }
     ;((tabs ?? []) as { kinds: NamedKind[] }[]).forEach((tab, t) => {
@@ -1696,6 +1843,7 @@ function readPlugin(
         })),
       },
       reads: readsOf(reads),
+      showsSecrets: showsSecretsOf(showsSecrets),
     },
     problems: [],
   }

@@ -31,13 +31,15 @@ const POD = { kind: '/Pod', namespace: 'shop', name: 'cart-1' }
 const pods = (count: number, from = 0) =>
   Array.from({ length: count }, (_, i) => ({ ...POD, name: `pod-${from + i}` }))
 const SECRET = { namespace: 'shop', name: 'shop-tls', keys: ['tls.crt'] }
+/** The token for the one Secret `POD`, handed by `read`, names. */
+const secretOf = (page: Tokens, read = 1) => (page.secrets(read, POD, [SECRET]) as string[])[0]!
 
 test('a token is random, good on the page it was handed to and on no other, and of one sort', () => {
   const plugin = { objects: 0 }
   const page = new Tokens(plugin)
   const other = new Tokens(plugin)
   const pod = (page.hand(1, [POD]) as string[])[0]!
-  const tls = page.secret(1, SECRET)!
+  const tls = secretOf(page)
   // At least 128 random bits, as text the door's grammar takes for a token.
   expect(pod).toMatch(/^[A-Za-z0-9_-]{24}$/)
   const many = page.hand(2, pods(2000)) as string[]
@@ -72,7 +74,7 @@ test('a token goes with the read that brought it, and with the page', () => {
   const plugin = { objects: 0 }
   const page = new Tokens(plugin)
   const first = (page.hand(1, [POD]) as string[])[0]!
-  const tls = page.secret(1, SECRET)!
+  const tls = secretOf(page)
   const second = (page.hand(2, [{ ...POD, name: 'cart-2' }]) as string[])[0]!
   expect(plugin.objects).toBe(2)
   page.ended(1)
@@ -104,9 +106,9 @@ test('how much is handed over is bounded by refusing a read, never by stopping a
   expect(third.hand(1, pods(1))).toBe('too-many')
   page.ended(1)
   expect(third.hand(1, pods(1))).toHaveLength(1)
-  // A Secret's token isn't an object handed over: it counts nothing.
+  // A Secret's token isn't an object handed over: it isn't counted among them.
   const before = plugin.objects
-  third.secret(1, SECRET)
+  third.secrets(1, { ...POD, name: 'pod-0' }, [SECRET])
   expect(plugin.objects).toBe(before)
 })
 
@@ -138,12 +140,21 @@ test('no token is made for a name or a namespace no object could have', () => {
   }
   for (const namespace of ['', 'Shop', 'shop.prod', '-shop', 'a'.repeat(64)]) {
     expect(page.hand(2, [{ ...POD, namespace }]), JSON.stringify(namespace)).toBe('not-a-name')
-    expect(page.secret(2, { ...SECRET, namespace }), JSON.stringify(namespace)).toBeUndefined()
+    expect(page.secrets(1, POD, [{ ...SECRET, namespace }]), JSON.stringify(namespace)).toEqual([
+      undefined,
+    ])
   }
-  expect(page.secret(2, { ...SECRET, name: '../shop-tls' })).toBeUndefined()
+  expect(page.secrets(1, POD, [{ ...SECRET, name: '../shop-tls' }])).toEqual([undefined])
   // Nor for what isn't text, nor a Secret outside a namespace.
   const unread = { ...SECRET, namespace: undefined } as unknown as typeof SECRET
-  expect(page.secret(2, unread)).toBeUndefined()
+  expect(page.secrets(1, POD, [unread])).toEqual([undefined])
+  // Nor for keys that aren't Secrets' keys: a part draws each where a person reads it.
+  for (const key of ['tls/crt', '', 'a\u202Eb', 'k'.repeat(254), 'tls crt', '.', '..', '..data']) {
+    expect(
+      page.secrets(1, POD, [{ ...SECRET, keys: ['tls.crt', key] }]),
+      JSON.stringify(key),
+    ).toEqual([undefined])
+  }
   expect(page.hand(2, [{ ...POD, name: undefined } as unknown as typeof POD])).toBe('not-a-name')
   expect(page.hand(2, [{ ...POD, namespace: 7 } as unknown as typeof POD])).toBe('not-a-name')
   // None handed, nothing counted: the read is refused whole.
@@ -186,6 +197,56 @@ test('an object that leaves a read gives its place back, and its token is no mor
   expect(plugin.objects).toBe(1)
 })
 
+test('a Secret an object names keeps its token while the object names it, and goes with the object', () => {
+  const page = new Tokens({ objects: 0 }, counting())
+  page.hand(1, [POD, { ...POD, name: 'cart-2' }])
+  const db = { ...SECRET, name: 'shop-db', keys: ['password'] }
+  const [tls, first] = page.secrets(1, POD, [SECRET, db]) as string[]
+  // Read again: the same tokens, however often.
+  for (let i = 0; i < 100; i++)
+    expect(page.secrets(1, { ...POD }, [SECRET, db])).toEqual([tls, first])
+  // The same Secret named by another object is that object's token, not this one's.
+  const [theirs] = page.secrets(1, { ...POD, name: 'cart-2' }, [SECRET]) as string[]
+  expect(theirs).not.toBe(tls)
+  // Named no more: its token is no more. Named again: a new one.
+  expect(page.secrets(1, POD, [SECRET])).toEqual([tls])
+  expect(page.secretOf(first!)).toBeUndefined()
+  expect(page.secrets(1, POD, [SECRET, db])[1]).not.toBe(first)
+  // The same Secret with other keys is another reference: what it may show is part of what it is.
+  expect(page.secrets(1, POD, [{ ...SECRET, keys: ['ca.crt'] }])[0]).not.toBe(tls)
+  expect(page.secretOf(tls!)).toBeUndefined()
+  // An object that leaves the read takes its Secrets' tokens with it.
+  const [now] = page.secrets(1, POD, [SECRET]) as string[]
+  page.gone(1, POD)
+  expect(page.secretOf(now!)).toBeUndefined()
+  expect(page.secretOf(theirs!)).toEqual(SECRET)
+  // Nothing for an object the read didn't hand (any more), or another read's.
+  expect(page.secrets(1, POD, [SECRET])).toEqual([undefined])
+  expect(page.secrets(2, { ...POD, name: 'cart-2' }, [SECRET])).toEqual([undefined])
+  // And the read's end takes every one.
+  page.ended(1)
+  expect(page.secretOf(theirs!)).toBeUndefined()
+})
+
+test('how many Secrets a page is handed is bounded by refusing, never by taking any back', () => {
+  const page = new Tokens({ objects: 0 }, counting())
+  const owners = pods(HANDED_LIMITS.secretsAPage / 20 + 1)
+  page.hand(1, owners)
+  const twenty = (n: number) =>
+    Array.from({ length: 20 }, (_, i) => ({ ...SECRET, name: `s-${n}-${i}` }))
+  for (let n = 0; n < owners.length - 1; n++) {
+    expect(page.secrets(1, owners[n]!, twenty(n))).not.toBe('too-many')
+  }
+  const last = owners.at(-1)!
+  expect(page.secrets(1, last, twenty(99_999))).toBe('too-many')
+  // Nothing was made, and what was had stands.
+  const [kept] = page.secrets(1, owners[0]!, twenty(0)) as string[]
+  expect(page.secretOf(kept!)).toBeTruthy()
+  // Room again once one names fewer.
+  page.secrets(1, owners[0]!, [])
+  expect(page.secrets(1, last, twenty(99_999))).not.toBe('too-many')
+})
+
 /** Tokens that are quick to make, for counting many. */
 function counting(prefix = 'a') {
   let n = 0
@@ -208,7 +269,7 @@ test('a part is handed the object where a plugin named a token, and nothing wher
   const page = new Tokens({ objects: 0 })
   const other = new Tokens({ objects: 0 })
   const pod = (page.hand(1, [POD]) as string[])[0]!
-  const tls = page.secret(1, SECRET)!
+  const tls = secretOf(page)
   const elsewhere = (other.hand(1, [{ ...POD, name: 'not-this-page' }]) as string[])[0]!
   const calls: unknown[][] = []
   let stale = 0
