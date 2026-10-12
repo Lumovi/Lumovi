@@ -343,6 +343,10 @@ test.describe('a plugin’s page', () => {
       '{"commit": [["make", 1, "Stack"]]}',
       '{"commit": [["make", 1, "Stack", {}, 1]]}',
       '{"commit": [["put", 0]]}',
+      '{"commit": [["text", 1]]}',
+      '{"commit": [["change", 1]]}',
+      '{"commit": [["put", 0, 1, 2, 3]]}',
+      '{"commit": [["take", 1]]}',
       5,
       { commit: [] },
     ]

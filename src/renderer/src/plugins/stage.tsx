@@ -27,6 +27,22 @@ import {
   type PropsOf,
 } from '@shared/kit/declare'
 import { DoorPage } from '@shared/plugin-door'
+import { changeProblem, parsePlugin } from '@shared/plugins'
+import { asks } from '@shared/plugin-asks'
+import { settle } from '@shared/plugin-loading'
+import { callOf, mayStart, swapFor, Tokens } from '@shared/plugin-presses'
+import {
+  granted,
+  handedWhole,
+  kindAsked,
+  PageReads,
+  picked,
+  readable,
+  readAsk,
+  readQuery,
+  resolvedAs,
+  secretsNamed,
+} from '@shared/plugin-reads'
 import type { PageEnd } from '@shared/plugin-ended'
 import type { PluginCode } from '@shared/plugin-hand-over'
 import { cn } from '@renderer/lib/cn'
@@ -272,8 +288,9 @@ export const stage = {
   /** A plugin's code as Lumovi hands it over: a server's check of this browser first, if due. */
   codeOf,
   /**
-   * The door's own checks, for the tests to try door.spec's cases in this built page: what's
-   * measured of them is then what ran in a page.
+   * The door's own checks, and a plugin file's, for the tests to try door.spec's, reads.spec's,
+   * presses.spec's and plugins.spec's cases in this built page: what's measured of them is then
+   * what ran in a page.
    */
   doorChecks: {
     DoorPage,
@@ -282,5 +299,23 @@ export const stage = {
     wrongWithPart,
     wrongWithParts,
     handedFields,
+    granted,
+    handedWhole,
+    kindAsked,
+    PageReads,
+    picked,
+    readable,
+    readAsk,
+    readQuery,
+    resolvedAs,
+    secretsNamed,
+    Tokens,
+    swapFor,
+    callOf,
+    mayStart,
+    parsePlugin,
+    changeProblem,
+    asks,
+    settle,
   },
 }
