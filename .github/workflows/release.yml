@@ -131,7 +131,7 @@ jobs:
       # nothing of a release exists before that.
       - name: Keep the notes
         if: steps.version.outputs.version
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-notes
           path: ${{ runner.temp }}/notes.md
@@ -208,7 +208,7 @@ jobs:
       # the step above is about to start over.
       - name: Say the draft is made
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-draft-made
           path: ${{ runner.temp }}/release-notes/notes.md
@@ -356,7 +356,7 @@ jobs:
           npx electron-builder --win appx --x64 --arm64 --publish never
       - name: Keep the Microsoft Store packages
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: microsoft-store-${{ needs.preflight.outputs.version }}
           path: release/Lumovi-*-store-*.appx
