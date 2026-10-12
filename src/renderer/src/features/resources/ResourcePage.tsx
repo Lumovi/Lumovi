@@ -178,7 +178,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const shown = chosen.columns
 
   const needle = state.q.trim().toLowerCase()
-  const { column, desc } = sortedBy(shown, state, defaultSort)
+  const { column, desc } = sortedBy(shown, state, defaultSort, columns)
   const matching = items
     .filter((o) => state.health.length === 0 || state.health.includes(statusOf(kind, o).health))
     .filter((o) => !needle || searchText(o, shownValues(o)).includes(needle))
