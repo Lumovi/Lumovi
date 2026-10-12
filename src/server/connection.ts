@@ -194,7 +194,7 @@ function told(judged: Judged, audit: Recorder, browser: string): void {
   }
   if (judged.result === 'failed') {
     log(
-      `Lumovi’s check found that ${browser} lets a plugin’s code out of its box: ${judged.out.join(', ')}. It isn’t handed any plugin’s code.`,
+      `Lumovi’s check found that ${browser} lets a plugin’s code out of its box: ${judged.out.join(', ')}. This browser isn’t handed any plugin’s code.`,
     )
   }
   audit.record({

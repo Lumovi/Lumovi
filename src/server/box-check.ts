@@ -201,6 +201,15 @@ export class BoxChecks {
 
   #keep(key: string, { result, out }: Omit<Judged, 'first'>): Judged {
     const before = this.#results.get(key)
+    // A browser that let something out stays failed for its session: no later check, not even
+    // one that started before the failure, makes it pass again.
+    if (
+      before?.policy === this.policy &&
+      before.judged.result === 'failed' &&
+      result !== 'failed'
+    ) {
+      return { ...before.judged, first: false }
+    }
     const first = before?.policy !== this.policy || before.judged.result !== result
     const done = { result, out, first }
     this.#results.delete(key)

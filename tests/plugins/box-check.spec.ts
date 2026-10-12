@@ -136,19 +136,40 @@ test('what arrives after the check is judged, while its nonce lives, still fails
   expect(told).toHaveLength(1)
   expect(pages).toBe(1)
   unwatch()
-  // Past the nonce's life, what reaches the catcher is let go: a later check's pass holds.
-  const again = made.start('s')
-  made.end('s', again, reports(again), [], (late) => told.push(late))
-  expect(made.result('s')).toBe('passed')
+  // Past the nonce's life, what reaches the catcher is let go: the pass holds.
+  const again = made.start('u')
+  made.end('u', again, reports(again), [], (late) => told.push(late))
+  expect(made.result('u')).toBe('passed')
   tick(BOX_CHECK_LIMITS.nonceLiveMs + 1)
   made.caught(again, 'beacon')
-  expect(made.result('s')).toBe('passed')
+  expect(made.result('u')).toBe('passed')
   expect(told).toHaveLength(1)
   // And a check that didn't finish fails, too, on what reaches the catcher after.
   const silent = made.start('t')
   expect(made.end('t', silent, null, [])?.result).toBe('unfinished')
   made.caught(silent, 'fetch')
   expect(made.result('t')).toBe('failed')
+})
+
+test('a browser that let something out stays failed for its session: no later pass undoes it', async () => {
+  const { made } = await checks()
+  // Two tabs of one session: the first's check passes, the second's starts.
+  const first = made.start('s')
+  made.end('s', first, reports(first), [])
+  const second = made.start('s')
+  // A beacon of the first's arrives late: failed. The second, which began before, then passes.
+  made.caught(first, 'beacon')
+  expect(made.result('s')).toBe('failed')
+  expect(made.end('s', second, reports(second), [])).toEqual({
+    result: 'failed',
+    out: ['beacon'],
+    first: false,
+  })
+  expect(made.result('s')).toBe('failed')
+  // And a check after it, too.
+  const third = made.start('s')
+  expect(made.end('s', third, reports(third), [])?.result).toBe('failed')
+  expect(made.result('s')).toBe('failed')
 })
 
 test('a nonce is the session’s, live a while, and nothing else counts or fills anything', async () => {
