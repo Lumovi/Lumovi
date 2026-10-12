@@ -37,7 +37,7 @@ test('a token is random, good on the page it was handed to and on no other, and 
   const page = new Tokens(plugin)
   const other = new Tokens(plugin)
   const pod = (page.hand(1, [POD]) as string[])[0]!
-  const tls = page.secret(1, SECRET)
+  const tls = page.secret(1, SECRET)!
   // At least 128 random bits, as text the door's grammar takes for a token.
   expect(pod).toMatch(/^[A-Za-z0-9_-]{24}$/)
   const many = page.hand(2, pods(2000)) as string[]
@@ -72,7 +72,7 @@ test('a token goes with the read that brought it, and with the page', () => {
   const plugin = { objects: 0 }
   const page = new Tokens(plugin)
   const first = (page.hand(1, [POD]) as string[])[0]!
-  const tls = page.secret(1, SECRET)
+  const tls = page.secret(1, SECRET)!
   const second = (page.hand(2, [{ ...POD, name: 'cart-2' }]) as string[])[0]!
   expect(plugin.objects).toBe(2)
   page.ended(1)
@@ -108,6 +108,47 @@ test('how much is handed over is bounded by refusing a read, never by stopping a
   const before = plugin.objects
   third.secret(1, SECRET)
   expect(plugin.objects).toBe(before)
+})
+
+test('no token is made for a name or a namespace no object could have', () => {
+  const plugin = { objects: 0 }
+  const page = new Tokens(plugin, counting())
+  // Names as kinds have them: a cluster's own, a role's with colons, one without a namespace.
+  for (const ref of [
+    POD,
+    { kind: 'rbac.authorization.k8s.io/ClusterRole', name: 'system:controller:job-controller' },
+    { kind: '/Node', name: 'ip-10-0-1-17.eu-west-1.compute.internal' },
+  ]) {
+    expect(page.hand(1, [ref])).toHaveLength(1)
+  }
+  const handed = plugin.objects
+  // What a path would take for another (or for nothing), what can't be seen, what's too long.
+  for (const name of [
+    '',
+    '.',
+    '..',
+    'a/b',
+    'a%2Fb',
+    'cart 1',
+    'cart​1',
+    'cart\n1',
+    'a'.repeat(254),
+  ]) {
+    expect(page.hand(2, [POD, { ...POD, name }]), JSON.stringify(name)).toBe('not-a-name')
+  }
+  for (const namespace of ['', 'Shop', 'shop.prod', '-shop', 'a'.repeat(64)]) {
+    expect(page.hand(2, [{ ...POD, namespace }]), JSON.stringify(namespace)).toBe('not-a-name')
+    expect(page.secret(2, { ...SECRET, namespace }), JSON.stringify(namespace)).toBeUndefined()
+  }
+  expect(page.secret(2, { ...SECRET, name: '../shop-tls' })).toBeUndefined()
+  // Nor for what isn't text, nor a Secret outside a namespace.
+  const unread = { ...SECRET, namespace: undefined } as unknown as typeof SECRET
+  expect(page.secret(2, unread)).toBeUndefined()
+  expect(page.hand(2, [{ ...POD, name: undefined } as unknown as typeof POD])).toBe('not-a-name')
+  expect(page.hand(2, [{ ...POD, namespace: 7 } as unknown as typeof POD])).toBe('not-a-name')
+  // None handed, nothing counted: the read is refused whole.
+  expect(plugin.objects).toBe(handed)
+  expect(page.hand(2, [POD])).toHaveLength(1)
 })
 
 test('within a read an object has one token, however often it’s handed over: counted once', () => {
@@ -167,7 +208,7 @@ test('a part is handed the object where a plugin named a token, and nothing wher
   const page = new Tokens({ objects: 0 })
   const other = new Tokens({ objects: 0 })
   const pod = (page.hand(1, [POD]) as string[])[0]!
-  const tls = page.secret(1, SECRET)
+  const tls = page.secret(1, SECRET)!
   const elsewhere = (other.hand(1, [{ ...POD, name: 'not-this-page' }]) as string[])[0]!
   const calls: unknown[][] = []
   let stale = 0

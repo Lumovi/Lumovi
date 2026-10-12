@@ -21,6 +21,7 @@ import {
   type SecretRef,
   type Swap,
 } from './kit/declare'
+import { NAMESPACE_NAME } from './node-shell'
 
 /**
  * How much Lumovi hands over. Not a ceiling on a plugin, which doesn't choose how many objects
@@ -49,6 +50,23 @@ function random(): string {
   for (const byte of bytes) text += String.fromCharCode(byte)
   return btoa(text).replaceAll('+', '-').replaceAll('/', '_')
 }
+
+/**
+ * A name an object of any kind can have, as Kubernetes' API takes it in a path: 1 to 253
+ * characters, not `.` or `..`, nothing unseen, no space, `/` or `%`. (Most kinds are stricter; a
+ * role's, `system:controller:…`, isn't.)
+ */
+const OBJECT_NAME = /^(?!\.\.?$)[^/%\s\p{C}]{1,253}$/u
+
+/**
+ * Whether what Lumovi is about to hand over names an object Kubernetes could have: anything else
+ * isn't one Lumovi read, and nothing is made for it (nor could it be told apart from another).
+ */
+const named = ({ name, namespace }: { name: unknown; namespace?: unknown }) =>
+  // (A test of what isn't text tests the text it would be: "undefined" is a name.)
+  typeof name === 'string' &&
+  OBJECT_NAME.test(name) &&
+  (namespace === undefined || (typeof namespace === 'string' && NAMESPACE_NAME.test(namespace)))
 
 /** Which object, as one text: its kind as resolved, its namespace, its name. */
 const which = ({ kind, namespace, name }: ObjectRef) =>
@@ -91,8 +109,10 @@ export class Tokens {
    * an object this read handed before. Or `'too-many'`, and then none is handed and nothing is
    * counted: more than a page's or a plugin's share of objects. That refuses the read with a
    * code; it isn't a reason to stop the plugin, which didn't choose the size of the cluster.
+   * Or `'not-a-name'`, likewise: one of them has a name or a namespace no object could have.
    */
-  hand(read: number, refs: readonly ObjectRef[]): string[] | 'too-many' {
+  hand(read: number, refs: readonly ObjectRef[]): string[] | 'too-many' | 'not-a-name' {
+    if (!refs.every(named)) return 'not-a-name'
     const of = this.#read(read)
     const fresh = new Set(refs.map(which).filter((key) => !of.objects.has(key))).size
     if (
@@ -126,9 +146,12 @@ export class Tokens {
 
   /**
    * A token for a Secret an object names by a declared path: that Secret, in the object's own
-   * namespace, and the keys the file names. Nothing of the Secret is read to make it.
+   * namespace, and the keys the file names. Nothing of the Secret is read to make it. None for
+   * a name or a namespace no Secret could have.
    */
-  secret(read: number, ref: SecretRef): string {
+  secret(read: number, ref: SecretRef): string | undefined {
+    // (A Secret is always in a namespace.)
+    if (ref.namespace === undefined || !named(ref)) return undefined
     const token = this.#make()
     const kept = Object.freeze({ ...ref, keys: Object.freeze([...ref.keys]) })
     this.#held.set(token, { sort: 'secret', ref: kept, read })
