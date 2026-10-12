@@ -410,3 +410,69 @@ test('every plugin on one page: what’s in use on this cluster, and what each a
   await page.getByRole('option', { name: 'All plugins' }).click()
   await expect(heading(page)).toHaveText('Plugins')
 })
+
+test('a plugin’s row opens from the address that names it, and only a name does', async ({
+  page,
+}) => {
+  await openCluster(page)
+  const table = page.getByRole('table', { name: 'Plugins' })
+  const change = page.getByRole('region', { name: 'May change and create' })
+  const go = (query: string) =>
+    page.evaluate((to) => {
+      window.location.hash = `#/cluster/demo/plugins${to}`
+    }, query)
+  // Named in the address, a plugin's row is open and in view, with what it asks for.
+  await go('?plugin=tekton')
+  await expect(heading(page)).toHaveText('Plugins')
+  await expect(change).toContainText('Creates: PipelineRun, one of its own kinds.')
+  await expect(change).toBeInViewport()
+  await expect(table.getByRole('button', { name: /^Tekton/ })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  // Another name, another row: the address is what's followed until a person opens one by hand.
+  await go('?plugin=flux')
+  await expect(change).toContainText('Kustomization, HelmRelease')
+  await table.getByRole('button', { name: /^Tekton/ }).click()
+  await expect(change).toContainText('Creates: PipelineRun')
+  // Then the address names none, so going back to the page doesn't open the old one again.
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#/cluster/demo/plugins')
+  await table.getByRole('button', { name: /^Tekton/ }).click()
+  await expect(change).toHaveCount(0)
+  // After a row was opened and closed by hand, a link that names another plugin still opens its
+  // row and brings it into view, by the plugin's own line and not only what's under it.
+  await go('?plugin=velero')
+  const velero = table.getByRole('button', { name: /^Velero/ })
+  await expect(velero).toHaveAttribute('aria-expanded', 'true')
+  await expect(velero).toBeInViewport()
+  await expect(change).toBeInViewport()
+  // And again from the top of the page, to one far down it.
+  await page
+    .getByRole('table', { name: 'Plugins' })
+    .getByRole('row')
+    .nth(1)
+    .scrollIntoViewIfNeeded()
+  await go('?plugin=flux')
+  await expect(table.getByRole('button', { name: /^Flux/ })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await go('?plugin=velero')
+  await expect(velero).toHaveAttribute('aria-expanded', 'true')
+  await expect(velero).toBeInViewport()
+  // Closed by hand, the address names none again, and nothing is open.
+  await velero.click()
+  await expect(change).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#/cluster/demo/plugins')
+  // A name no plugin has, and what isn't a name at all, open nothing: the page as it is.
+  for (const query of [
+    '?plugin=no-such-plugin',
+    '?plugin=Flux%20',
+    '?plugin=..%2Fflux',
+    '?plugin=',
+  ]) {
+    await go(query)
+    await expect(table.getByRole('row').filter({ hasText: /^Flux/ })).toBeVisible()
+    await expect(change).toHaveCount(0)
+  }
+})

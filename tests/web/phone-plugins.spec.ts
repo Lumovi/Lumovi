@@ -57,5 +57,13 @@ test('every plugin on a phone, as a server has them: cards, and a plugin as a pa
   await expectFingerSized(page, 'a plugin, on a phone')
   await page.getByRole('button', { name: 'All plugins' }).click()
   await expect(cards.first()).toBeVisible()
+  // By its address, a plugin's page of what it asks is where a link lands; back is every plugin.
+  await page.goto(`${served.url}cluster/demo/plugins?plugin=flux`)
+  await expect(page.getByRole('region', { name: 'May change and create' })).toContainText(
+    'Only the kinds it shows:',
+  )
+  await page.getByRole('button', { name: 'All plugins' }).click()
+  await expect(cards.first()).toBeVisible()
+  expect(new URL(page.url()).search).toBe('')
   await expect(page.getByText('This server’s are in', { exact: false })).toBeVisible()
 })
