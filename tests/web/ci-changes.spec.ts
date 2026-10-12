@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
-import { plan } from '../../scripts/ci-changes.ts'
+import { MACOS_JOBS, plan, workflowParts } from '../../scripts/ci-changes.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
 
@@ -53,7 +53,6 @@ test('macOS runs everything for the main process, Electron, packaging, the lockf
     'packaging/after-pack.mjs',
     'package.json',
     'package-lock.json',
-    '.github/workflows/ci.yml',
     'playwright.config.ts',
     'tests/e2e/fixtures.ts',
     'tests/e2e/smoke.txt',
@@ -120,6 +119,97 @@ test('macOS runs everything for code that does differently there, as it is or as
   expect(
     pr([gone], { [gone]: ['', "export const isMac = process.platform === 'darwin'"] }).macos,
   ).toBe(true)
+})
+
+test('a word that asks for the platform in a comment asks nothing; in code, it asks wherever it is', () => {
+  const quiet: Record<string, string> = {
+    'src/shared/api.ts':
+      '/** The operating system the page runs on, as Node.js names it (darwin, win32, linux). */\nplatform: string',
+    'src/renderer/src/kit/Width.ts': 'const width = 280 // ⌘ on macOS (metaKey), Ctrl elsewhere',
+    'src/renderer/src/kit/List.tsx': '{/* The list reads metaKey itself. */}\n<List />',
+    'src/renderer/src/styles/kit.css':
+      '/* Not app-region: the page scrolls. */\n.kit { overflow: auto; }',
+  }
+  for (const [path, text] of Object.entries(quiet)) {
+    expect(pr([path], { [path]: [text, ''] }).macos, path).toBe(false)
+  }
+  const asks: Record<string, string> = {
+    'src/renderer/src/kit/Link.tsx': "open('https://lumovi.dev'); if (event.metaKey) more()",
+    'src/renderer/src/kit/Keys.ts': 'const mod = MOD_KEY /* ⌘ or Ctrl */',
+    'src/renderer/src/kit/Press.ts': '/* What a key does. */ if (event.metaKey) open()',
+    // (A string that holds `//` or `/*` starts no comment: what follows it is still code.)
+    'src/renderer/src/kit/Url.ts':
+      "const shown = 'a // b'; if (process.platform === 'darwin') narrower()",
+    'src/renderer/src/kit/Files.ts':
+      "const glob = 'plugins /*.yaml'\nif (event.metaKey) open()\nconst end = '*/'",
+  }
+  for (const [path, text] of Object.entries(asks)) {
+    expect(pr([path], { [path]: [text, ''] }).macos, path).toBe(true)
+  }
+})
+
+test('a workflow runs macOS in full only where it changes CI’s top, or a job that decides, runs or gathers macOS’s share', () => {
+  const CI = '.github/workflows/ci.yml'
+  const FULL = ['1/4', '2/4', '3/4', '4/4']
+  const was = [
+    'name: CI',
+    'on:',
+    '  pull_request:',
+    'env:',
+    "  CSC_IDENTITY_AUTO_DISCOVERY: 'false'",
+    'jobs:',
+    '  # What the change needs run.',
+    '  changes:',
+    '    runs-on: ubuntu-latest',
+    '  checks:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - run: npm run lint',
+    '  e2e:',
+    '    runs-on: ${{ matrix.os }}',
+    '    steps:',
+    '      - run: npm run build:coverage',
+    '  coverage:',
+    '    runs-on: ubuntu-latest',
+    '  browsers:',
+    '    runs-on: ubuntu-latest',
+  ].join('\n')
+  const changing = (from: string, to: string) => {
+    const now = was.replace(from, to)
+    expect(now).not.toBe(was)
+    return macos(pr([CI], { [CI]: [now, was] }))
+  }
+  // A job that doesn't run macOS's tests, a job added beside them, a comment: the smoke set.
+  expect(changing('npm run lint', 'npm run lint -- --max-warnings 0')).toEqual(['smoke'])
+  expect(
+    changing('  browsers:\n    runs-on: ubuntu-latest', '  browsers:\n    runs-on: ubuntu-24.04'),
+  ).toEqual(['smoke'])
+  expect(changing('  browsers:', '  more:\n    runs-on: ubuntu-latest\n  browsers:')).toEqual([
+    'smoke',
+  ])
+  expect(changing('# What the change needs run.', '# What a change needs run.')).toEqual(['smoke'])
+  // Its top, and the jobs that decide macOS's share, run it and gather its coverage: everything.
+  expect(changing("'false'", "'true'")).toEqual(FULL)
+  expect(
+    changing('  changes:\n    runs-on: ubuntu-latest', '  changes:\n    runs-on: ubuntu-24.04'),
+  ).toEqual(FULL)
+  expect(changing('npm run build:coverage', 'npm run build')).toEqual(FULL)
+  expect(
+    changing('  coverage:\n    runs-on: ubuntu-latest', '  coverage:\n    runs-on: ubuntu-24.04'),
+  ).toEqual(FULL)
+  // The workflow new, or gone: everything.
+  expect(macos(pr([CI], { [CI]: [was, ''] }))).toEqual(FULL)
+  expect(macos(pr([CI], { [CI]: ['', was] }))).toEqual(FULL)
+  // Another workflow runs no E2E test: the smoke set.
+  for (const path of ['.github/workflows/release.yml', '.github/workflows/pull-request.yml']) {
+    const text = 'name: x\njobs:\n  build:\n    runs-on: macos-latest'
+    expect(macos(pr([path], { [path]: [text, ''] })), path).toEqual(['smoke'])
+  }
+  // CI's workflow as it is has those jobs, by those names: renamed, this would stop seeing them.
+  const parts = workflowParts(readFileSync(CI, 'utf8'))
+  for (const job of MACOS_JOBS) expect(parts.has(job), job).toBe(true)
+  expect(parts.get('e2e')).toContain('needs.changes.outputs.e2e')
+  expect(parts.get('coverage')).toContain('needs.changes.outputs.macos')
 })
 
 test('macOS runs the smoke set for the rest; Linux and Windows always run everything', () => {
