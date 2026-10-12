@@ -15,10 +15,12 @@ import {
   object,
   oneOf,
   record,
+  secret,
   shared,
   text,
   time,
   yesOrNo,
+  type handed,
   type handedFields,
   type Kind,
   type Part,
@@ -34,6 +36,10 @@ import {
   type PageNode,
   type Stopped,
 } from '../../src/shared/plugin-door.ts'
+import type { inPieces, shortInPieces, spelled } from '../../src/shared/kit/characters.ts'
+import type { tableProblem } from '../../src/shared/kit/table.ts'
+import type { placed } from '../../src/shared/plugin-box.ts'
+import type { notHandedLine } from '../../src/shared/plugin-hand-over.ts'
 import { DEMO_TOKEN, expect, signIn, test, type ServeOptions, type Served } from './fixtures.ts'
 
 /** What the stage lends the tests of the door. */
@@ -44,6 +50,16 @@ interface DoorChecks {
   wrongWithPart: typeof wrongWithPart
   wrongWithParts: typeof wrongWithParts
   handedFields: typeof handedFields
+  handed: typeof handed
+  number: typeof number
+  record: typeof record
+  choice: typeof choice
+  tableProblem: typeof tableProblem
+  inPieces: typeof inPieces
+  shortInPieces: typeof shortInPieces
+  spelled: typeof spelled
+  placed: typeof placed
+  notHandedLine: typeof notHandedLine
 }
 /** The page's window, as the stage lends it. */
 type Lent = { __lumoviDoor: { doorChecks: DoorChecks; show(shown: object): void } }
@@ -163,6 +179,7 @@ test('a value against its kind', async ({ page, serve }) => {
     ['one of', oneOf(['a', 'b']), ['a'], ['c', 'toString', 1, null]],
     ['time', time, ['2026-10-12T08:30:00Z'], ['yesterday', '2026-13-40T99:00:00Z', 5]],
     ['object', object, ['o_1-A'], ['', 'a b', '../x', 'x'.repeat(65), { kind: 'Pod' }]],
+    ['secret', secret, ['s_1-A'], ['', 'a/b', 5, { name: 'db' }]],
     ['handler', handler('press'), ['h7'], ['() => 1', 7, null]],
     ['list', list(text(3), 2), [[], ['a', 'b']], [['a', 'b', 'c'], ['long'], 'ab', { 0: 'a' }]],
     [
@@ -170,6 +187,13 @@ test('a value against its kind', async ({ page, serve }) => {
       record({ name: text(10), size: number(0, 5) }, ['name']),
       [{ name: 'a' }, { name: 'a', size: 1 }],
       [{}, { size: 1 }, { name: 'a', other: 1 }, [], null, 'a'],
+    ],
+    // (A record declared as data, with nothing said of what's required: none is.)
+    [
+      'record, nothing required',
+      { kind: 'record', fields: { name: text(10) } },
+      [{}, { name: 'a' }],
+      [{ name: 5 }, 'a'],
     ],
     [
       'choice',
@@ -181,6 +205,9 @@ test('a value against its kind', async ({ page, serve }) => {
         { kind: 'text' },
         { kind: 'none', value: 'a' },
         { kind: 'constructor' },
+        'text',
+        null,
+        [{ kind: 'none' }],
       ],
     ],
   ]
@@ -234,10 +261,121 @@ test('a value against its kind', async ({ page, serve }) => {
     )
     expect(said).toContain('nested deeper')
   })
+
+  await test.step('said from the top, a value’s fields are named by themselves', async () => {
+    const said = await page.evaluate((kind) => {
+      const { wrongWithFields } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      return [
+        wrongWithFields({ name: 5 }, { name: kind }, [], ''),
+        wrongWithFields({ other: 1 }, {}, [], ''),
+      ]
+    }, text(3))
+    expect(said).toEqual(['name: should be text', 'it: takes nothing named "other"'])
+  })
+
+  await test.step('handed over with nothing to swap them for, a token and a handle stay as written', async () => {
+    const said = await page.evaluate(
+      (kinds) => {
+        const { handed } = (window as unknown as Lent).__lumoviDoor.doorChecks
+        return kinds.map(([value, kind]) => handed(value, kind))
+      },
+      [
+        ['o1', object],
+        ['s1', secret],
+        ['h1', handler('press')],
+      ] as [string, Kind][],
+    )
+    expect(said).toEqual(['o1', 's1', 'h1'])
+  })
+})
+
+test('a text that isn’t Lumovi’s, in pieces', async ({ page, serve }) => {
+  await opened(page, serve)
+  const said = await page.evaluate(() => {
+    const { inPieces, shortInPieces, spelled } = (window as unknown as Lent).__lumoviDoor.doorChecks
+    return {
+      // A flag made with tags, whole and closed, is text.
+      flag: inPieces('\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}'),
+      // Marks one at a time, apart: twenty drawn, and the rest said once, at the end.
+      apart: inPieces(`${'a\u0001'.repeat(25)}a`),
+      // A line's end past the lines it may have is a space.
+      lines: shortInPieces('a\nb\nc', 100, 2),
+      // Spelled, a run past three says how many more.
+      run: spelled('\u0001'.repeat(5)),
+    }
+  })
+  expect(said.flag).toEqual(['\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}'])
+  expect(said.apart.filter((piece) => typeof piece === 'object' && 'unseen' in piece)).toHaveLength(
+    20,
+  )
+  expect(said.apart.at(-1)).toEqual({ more: 5 })
+  expect(said.lines).toEqual(['a\nb c'])
+  expect(said.run).toBe(' U+0001  U+0001  U+0001  and 2 more ')
+})
+
+test('where boxes are, and why a plugin’s pages don’t run', async ({ page, serve }) => {
+  await opened(page, serve)
+  const said = await page.evaluate(() => {
+    const { placed, notHandedLine } = (window as unknown as Lent).__lumoviDoor.doorChecks
+    // One plugin in the page's own process; two sharing one; one alone in its own.
+    const boxes = [
+      { plugin: 'a', pid: 1 },
+      { plugin: 'b', pid: 2 },
+      { plugin: 'c', pid: 2 },
+      { plugin: 'd', pid: 3 },
+    ]
+    const { endProcesses, takeOff, pluginOf } = placed(boxes, 1)
+    return {
+      ends: [...endProcesses],
+      takeOff,
+      own: [...pluginOf],
+      lines: [notHandedLine('check-unfinished'), notHandedLine('no-code')],
+    }
+  })
+  expect(said.ends).toEqual([[2, ['b', 'c']]])
+  expect(said.takeOff).toEqual(['a'])
+  expect(said.own).toEqual([[3, 'd']])
+  expect(said.lines).toEqual([
+    'Its pages don’t run here yet: Lumovi’s check of this browser didn’t finish in time.',
+    'Its pages don’t run here: its code isn’t part of this Lumovi.',
+  ])
 })
 
 test('a part’s declaration', async ({ page, serve }) => {
   await opened(page, serve)
+
+  await test.step('declared in the page, a kind says what it was given and nothing it wasn’t', async () => {
+    const said = await page.evaluate(() => {
+      const { number, record, choice } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      return [number(0, 1), number(0, 1, true), record({}), choice('kind', { none: {} })]
+    })
+    expect(said).toEqual([
+      { kind: 'number', min: 0, max: 1 },
+      { kind: 'number', min: 0, max: 1, whole: true },
+      { kind: 'record', fields: {}, required: [] },
+      { kind: 'choice', by: 'kind', of: { none: {} }, optional: {} },
+    ])
+  })
+
+  await test.step('the Table’s own check: a row’s rest starts at one of its columns', async () => {
+    const said = await page.evaluate(() => {
+      const { tableProblem } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      return tableProblem({
+        title: 'Pods',
+        columns: [{ name: 'Node', kind: 'text' }],
+        headings: true,
+        rows: [
+          {
+            key: 'a',
+            lead: { name: 'a' },
+            cells: [{ kind: 'text', text: 'node-1' }],
+            rest: { from: 1, text: 'All' },
+          },
+        ],
+      })
+    })
+    expect(said).toBe('Row 1’s rest starts at column 2, and the table has 1 column.')
+  })
 
   await test.step('the parts here are declared rightly', async () => {
     expect(
@@ -358,6 +496,14 @@ test('a part’s declaration', async ({ page, serve }) => {
     expect(together).toBe(said_)
     // And the door starts no page with them.
     expect(thrown).toBe(`Lumovi’s own parts are declared wrongly: ${said_}`)
+    // Nor with one among them declared wrongly by itself.
+    const careless = { ...PARTS, Two: { name: 'two words', holds: 'parts', props: {} } }
+    expect(
+      await page.evaluate(
+        (parts) => (window as unknown as Lent).__lumoviDoor.doorChecks.wrongWithParts(parts),
+        careless as Record<string, Part>,
+      ),
+    ).toBe('two words: isn’t a part’s name')
   })
 })
 
@@ -776,13 +922,16 @@ test('a plugin’s page: what stops it', async ({ page, serve }) => {
       [['put', 1, 9], 'isn’t there'],
       [['put', 9, 1], 'isn’t there'],
       [['put', '0', 1], 'isn’t there'],
+      [['put', 1, 'x'], 'isn’t there'],
       [['put', 1, 3, 6], 'isn’t beside it'],
       [['put', 1, 3, 3], 'isn’t beside it'],
       [['put', 1, 3, 'x'], 'isn’t beside it'],
       [['take', 1, 3], 'isn’t there'],
       [['take', 2, 2], 'isn’t there'],
       [['take', 9, 2], 'isn’t there'],
+      [['take', 'x', 3], 'isn’t there'],
       [['text', 1, 'a'], 'isn’t a text'],
+      [['text', 'x', 'a'], 'isn’t a text'],
       [['text', 4, 5], 'isn’t text'],
       [['change', 4, {}], 'isn’t a part'],
       [['change', ROOT, {}], 'isn’t a part'],
@@ -916,17 +1065,23 @@ test('a plugin’s page: its ceilings', async ({ page, serve }) => {
   })
 
   await test.step('over a ceiling it’s stopped: how many parts, and they’re counted off the page too', async () => {
-    const door = await doorPage(page)
-    let id = 0
-    while (id < DOOR_LIMITS.nodes) {
-      await door.later(1000)
-      const some = Array.from({ length: 1000 }, () => ['make', ++id, 'Stack', {}])
-      expect(await door.send(...some)).toEqual({ changed: [] })
+    // A text past it, and a part: each is refused.
+    for (const past of [
+      (id: number) => ['text', id, ''],
+      (id: number) => ['make', id, 'Label', {}],
+    ]) {
+      const door = await doorPage(page)
+      let id = 0
+      while (id < DOOR_LIMITS.nodes) {
+        await door.later(1000)
+        const some = Array.from({ length: 1000 }, () => ['make', ++id, 'Stack', {}])
+        expect(await door.send(...some)).toEqual({ changed: [] })
+      }
+      expect((await door.holds()).nodes).toBe(DOOR_LIMITS.nodes)
+      expect(stopped(await door.send(past(++id))).what).toBe(
+        'step 1: a page’s parts: more than 5,000',
+      )
     }
-    expect((await door.holds()).nodes).toBe(DOOR_LIMITS.nodes)
-    expect(stopped(await door.send(['text', ++id, ''])).what).toBe(
-      'step 1: a page’s parts: more than 5,000',
-    )
   })
 
   await test.step('over a ceiling it’s stopped: all a page holds, a changed text and property counted', async () => {
@@ -950,6 +1105,16 @@ test('a plugin’s page: its ceilings', async ({ page, serve }) => {
       ),
     ).toEqual({ changed: [id - 1] })
     expect(stopped(await door.send(['text', id - 1, 'a'.repeat(1151)])).what).toBe(
+      'step 1: what a page holds: more than 2,097,152',
+    )
+    // A new text past it too, as well as a text that grows.
+    const fresh = await doorPage(page)
+    let written = 0
+    while (written < texts) {
+      await fresh.later(1000)
+      await fresh.send(...Array.from({ length: 131 }, () => ['text', ++written, full]))
+    }
+    expect(stopped(await fresh.send(['text', ++written, 'a'.repeat(1153)])).what).toBe(
       'step 1: what a page holds: more than 2,097,152',
     )
     const other = await doorPage(page)

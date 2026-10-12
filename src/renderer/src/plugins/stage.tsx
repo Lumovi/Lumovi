@@ -15,9 +15,12 @@ import {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import {
+  choice,
+  handed,
   handedFields,
   number,
   oneOf,
+  record,
   text,
   wrongWith,
   wrongWithFields,
@@ -26,7 +29,11 @@ import {
   yesOrNo,
   type PropsOf,
 } from '@shared/kit/declare'
+import { inPieces, shortInPieces, spelled } from '@shared/kit/characters'
+import { tableProblem } from '@shared/kit/table'
+import { placed } from '@shared/plugin-box'
 import { DoorPage } from '@shared/plugin-door'
+import { notHandedLine, type PluginCode } from '@shared/plugin-hand-over'
 import { changeProblem, parsePlugin } from '@shared/plugins'
 import { asks } from '@shared/plugin-asks'
 import { settle } from '@shared/plugin-loading'
@@ -44,7 +51,6 @@ import {
   secretsNamed,
 } from '@shared/plugin-reads'
 import type { PageEnd } from '@shared/plugin-ended'
-import type { PluginCode } from '@shared/plugin-hand-over'
 import { cn } from '@renderer/lib/cn'
 import { codeOf } from './box-check'
 import { openPage, type KitPart, type OpenPage } from './page'
@@ -288,7 +294,8 @@ export const stage = {
   /** A plugin's code as Lumovi hands it over: a server's check of this browser first, if due. */
   codeOf,
   /**
-   * The door's own checks, and a plugin file's, for the tests to try door.spec's, reads.spec's,
+   * The door's own checks, a plugin file's, and how a text that isn't Lumovi's is drawn in
+   * pieces, for the tests to try door.spec's, reads.spec's,
    * presses.spec's and plugins.spec's cases in this built page: what's measured of them is then
    * what ran in a page.
    */
@@ -299,6 +306,16 @@ export const stage = {
     wrongWithPart,
     wrongWithParts,
     handedFields,
+    handed,
+    number,
+    record,
+    choice,
+    tableProblem,
+    inPieces,
+    shortInPieces,
+    spelled,
+    placed,
+    notHandedLine,
     granted,
     handedWhole,
     kindAsked,

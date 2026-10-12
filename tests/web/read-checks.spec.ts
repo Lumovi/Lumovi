@@ -212,6 +212,7 @@ test('anything else stops the plugin: a word too many, a kind or a name that isn
     { read: 1, what: 'object', kind: '/Node', name: 'a/b' },
     { read: 1, what: 'object', kind: '/Node', name: 'a'.repeat(254) },
     { read: 1, what: 'events', kind: '/Node', name: 'a' },
+    { read: 1, what: 'events' },
     { read: 1, what: 'events', of: { kind: 'Secret', name: 'a' } },
     { read: 1, what: 'events', of: '../o_1' },
     { read: 1, what: 'usage', of: 'o_1', kind: '/Node' },
@@ -379,6 +380,21 @@ test('an object of its own kind is handed over whole: all but who manages it and
   expect(said.managed).toBe(1)
   // (null, 'text', 7, and the object in a list)
   for (const handed of said.odd) expect(handed).toEqual({})
+  // Metadata that isn't named values, or annotations that aren't, is handed as it is: there's
+  // nothing in it to leave out. (Only a stand-in has such metadata: the API server never serves
+  // an object whose metadata isn't one. It's no way round the pick.)
+  const odd = [
+    { metadata: 'x' },
+    { metadata: null },
+    { metadata: [] },
+    { metadata: { annotations: 'x' } },
+  ]
+  expect(
+    await page.evaluate((odd) => {
+      const { handedWhole } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      return odd.map((object) => handedWhole(object))
+    }, odd),
+  ).toEqual(odd)
 })
 
 test('a read the backend takes from Lumovi’s page has exactly its keys, each of its kind', async ({
@@ -904,6 +920,10 @@ test('of Kubernetes’ own kinds, only what’s on Lumovi’s list: nothing else
   expect(await readable(resolvedAs('', 'pod'), parse('.metadata.name'), [])).toBe(false)
   expect(await readable(SECRET, parse('.metadata.name'), [])).toBe(false)
   expect(await readable(THING, parse('.metadata.name'), [])).toBe(false)
+  // One of the plugin's own annotations is read by its key, and nothing inside it is a path.
+  const ownKey = [{ key: 'metadata' }, { key: 'annotations' }, { key: 'toys.example.com/a' }]
+  expect(await readable(POD, ownKey, ['toys.example.com'])).toBe(true)
+  expect(await readable(POD, [...ownKey, { key: 'b' }], ['toys.example.com'])).toBe(false)
 })
 
 /**
@@ -1218,6 +1238,8 @@ test('a page’s reads are counted: lists kept, everything kept, asks in a secon
     }
   }
   await reads.later(1000)
+  // (A read that isn't going, answered: there's nothing to mark.)
+  await reads.answered(slow, 999)
   await reads.answered(slow, 1)
   await reads.refused(slow, 2)
   expect(await reads.take(slow, { read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
