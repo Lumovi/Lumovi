@@ -3,9 +3,8 @@ name: Pull request
 # What a pull request's text and labels change about CI, without a new push and without running
 # CI again from the start:
 #
-# - Its text edited, or the label fixes-main put on or taken off: CI's last job, "CI passed",
-#   reads both as they are (the changelog entry or "Changelog: none: …"; whether it may merge
-#   while main is red). If that job is all that failed in the newest finished run for this
+# - Its text edited: CI's last job, "CI passed", reads it as it is (the changelog entry or
+#   "Changelog: none: …"). If that job is all that failed in the newest finished run for this
 #   commit, it alone is run again. Anything else waits for whoever reads the failure.
 # - The label macos-full put on: everything is wanted on macOS. The newest run for this commit is
 #   ended if it's still going, and run again from the start, which reads the label
@@ -32,7 +31,6 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (github.event.action == 'edited' ||
-       github.event.label.name == 'fixes-main' ||
        (github.event.action == 'labeled' && github.event.label.name == 'macos-full'))
     runs-on: ubuntu-latest
     timeout-minutes: 10

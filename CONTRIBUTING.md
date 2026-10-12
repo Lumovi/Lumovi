@@ -57,9 +57,8 @@ On a pull request CI runs every test on Linux and Windows, and on macOS a short 
 process, packaging, Electron, or code that asks which platform it's on): GitHub gives an account
 five macOS machines at a time, and a full run takes all five. The label `macos-full` asks for
 everything there. `main` runs everything after each merge, and that run is the one that binds:
-while it's red, _CI passed_ fails on every pull request, with main's commit and the job that
-failed, until main is green again (then running that one job again passes it). The pull request
-that mends main carries the label `fixes-main`.
+while it's red, _CI passed_ says so on every pull request as a warning, with main's commit and
+the jobs that failed. A pull request fails only for its own jobs.
 
 Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
