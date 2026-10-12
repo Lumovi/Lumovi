@@ -152,6 +152,34 @@ test('a box that the browser won’t show ends, and says its box never came', as
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
+test('a plugin’s page whose box never came says the page couldn’t start', async ({
+  serve,
+  page,
+}) => {
+  // Reached at another address than its own, as above: the box is refused, and the page's place
+  // says so.
+  test.setTimeout(60_000)
+  const port = await freePort()
+  const { url } = await serve({ port, env: { LUMOVI_URL: `http://localhost:${port}` } })
+  await signIn(page, `${url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  await page.evaluate(() =>
+    (window as unknown as { __lumoviDoor: { show(shown: object): void } }).__lumoviDoor.show({
+      plugin: 'karpenter',
+      name: 'Karpenter',
+      version: '1.0.0',
+      code: '',
+    }),
+  )
+  const ended = page.getByTestId('plugin-ended')
+  await expect(ended).toHaveAttribute('data-why', 'no-box', {
+    timeout: BOX_LIMITS.readyWithinMs + 10_000,
+  })
+  await expect(ended.getByRole('heading')).toHaveText('Karpenter’s page couldn’t start.')
+  await expect(ended).toContainText('Lumovi couldn’t open the place a plugin’s code runs in.')
+  await expect(ended.getByRole('button', { name: 'Open it again' })).toHaveCount(0)
+})
+
 test('a server that isn’t told its own address has no box at all', async ({ serve }) => {
   const { url } = await serve()
   for (const path of ['plugin-box/box.html', 'plugin-box/box.js']) {

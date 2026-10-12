@@ -40,13 +40,20 @@ export interface OpenPage {
   close(): void
 }
 
-/** What a box's end is to a person. */
-const boxEnd = (end: BoxEnd): PageEnd =>
-  end.why === 'failed'
-    ? { why: 'failed', said: end.said }
-    : end.why === 'silent'
-      ? { why: 'silent' }
-      : { why: end.over === 'not-text' ? 'not-allowed' : 'too-much' }
+/** What a box's end is to a person. (A way for a box to end that isn't here fails the build.) */
+function boxEnd(end: BoxEnd): PageEnd {
+  switch (end.why) {
+    case 'failed':
+      return { why: 'failed', said: end.said }
+    case 'silent':
+    case 'no-box':
+      return { why: end.why }
+    case 'over':
+      return { why: end.over === 'not-text' ? 'not-allowed' : 'too-much' }
+    default:
+      return end satisfies never
+  }
+}
 
 /** Opens the page of the plugin named `plugin` (its box's address), from its `code`. */
 export function openPage(options: {
