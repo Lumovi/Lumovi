@@ -5,6 +5,13 @@
 declare module 'virtual:lumovi-plugins' {
   const files: Readonly<Record<string, string>>
   export default files
-  /** The code beside a plugin's file, by its own file name ("karpenter.js"); none where it has none. */
-  export const code: Readonly<Record<string, string>>
+}
+
+/**
+ * The code beside them, by its own file name ("karpenter.js"); none where a plugin has none. In
+ * the backend's builds alone: the page's refuses it.
+ */
+declare module 'virtual:lumovi-plugins/code' {
+  const code: Readonly<Record<string, string>>
+  export default code
 }

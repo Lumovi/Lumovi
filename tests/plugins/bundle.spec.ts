@@ -649,32 +649,46 @@ test('a download larger than any release’s file is cut off, saying so', async 
   )
 })
 
-test('the build serves the files as one module, their code apart, or stops saying why', async () => {
-  const served = lumoviPlugins(async () => ({
-    'alpha.yaml': PLUGINS.alpha,
-    'alpha.js': 'export {}\n',
-  }))
+test('the build serves the files as one module and their code as another, the code to the backend’s builds alone, or stops saying why', async () => {
+  const take = async () => ({ 'alpha.yaml': PLUGINS.alpha, 'alpha.js': 'export {}\n' })
   const context = {
     error: (message: string) => {
       throw new Error(message)
     },
   }
-  await (served.buildStart as (this: unknown) => Promise<void>).call(context)
-  const id = (served.resolveId as (id: string) => string | undefined)('virtual:lumovi-plugins')
-  expect(id).toBe('\0virtual:lumovi-plugins')
-  expect((served.load as (id: string) => string | undefined)(id!)).toBe(
-    [
-      `export default Object.freeze(${JSON.stringify({ 'alpha.yaml': PLUGINS.alpha })})`,
-      `export const code = Object.freeze(${JSON.stringify({ 'alpha.js': 'export {}\n' })})`,
-    ].join('\n'),
+  type Built = ReturnType<typeof lumoviPlugins>
+  type Hook = (this: unknown, id: string) => string | undefined
+  const started = (plugin: Built) =>
+    (plugin.buildStart as (this: unknown) => Promise<void>).call(context)
+  const resolved = (plugin: Built, id: string) => (plugin.resolveId as Hook).call(context, id)
+  const loaded = (plugin: Built, id: string) => (plugin.load as Hook).call(context, id)
+  const backend = lumoviPlugins({ code: true, take })
+  await started(backend)
+  expect(resolved(backend, 'virtual:lumovi-plugins')).toBe('\0virtual:lumovi-plugins')
+  expect(loaded(backend, '\0virtual:lumovi-plugins')).toBe(
+    `export default Object.freeze(${JSON.stringify({ 'alpha.yaml': PLUGINS.alpha })})`,
   )
-  expect((served.resolveId as (id: string) => string | undefined)('other')).toBeUndefined()
-  const refused = lumoviPlugins(async () => {
-    throw new PluginsBundleError(`${NAMES.bundle}: isn’t signed`)
+  expect(resolved(backend, 'virtual:lumovi-plugins/code')).toBe('\0virtual:lumovi-plugins/code')
+  expect(loaded(backend, '\0virtual:lumovi-plugins/code')).toBe(
+    `export default Object.freeze(${JSON.stringify({ 'alpha.js': 'export {}\n' })})`,
+  )
+  expect(resolved(backend, 'other')).toBeUndefined()
+  expect(loaded(backend, 'other')).toBeUndefined()
+  // The page's build: the plugins' files, and never their code, which it stops at.
+  const page = lumoviPlugins({ take })
+  await started(page)
+  expect(resolved(page, 'virtual:lumovi-plugins')).toBe('\0virtual:lumovi-plugins')
+  expect(() => resolved(page, 'virtual:lumovi-plugins/code')).toThrow(
+    'virtual:lumovi-plugins/code: plugins’ code isn’t built into the page; the backend hands it over',
+  )
+  const refused = lumoviPlugins({
+    take: async () => {
+      throw new PluginsBundleError(`${NAMES.bundle}: isn’t signed`)
+    },
   })
-  await expect(
-    (refused.buildStart as (this: unknown) => Promise<void>).call(context),
-  ).rejects.toThrow(`Lumovi’s plugins can’t be built in:\n${NAMES.bundle}: isn’t signed`)
+  await expect(started(refused)).rejects.toThrow(
+    `Lumovi’s plugins can’t be built in:\n${NAMES.bundle}: isn’t signed`,
+  )
 })
 
 test('kubectl’s certificates and their check are as they were: an email, Kubernetes’ issuer', async () => {

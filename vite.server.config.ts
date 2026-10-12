@@ -14,7 +14,7 @@ export default defineConfig({
   resolve: {
     alias: { '@shared': resolve('src/shared'), '@backend': resolve('src/backend') },
   },
-  plugins: [...coverage('server', withCoverage), licenses('server'), lumoviPlugins()],
+  plugins: [...coverage('server', withCoverage), licenses('server'), lumoviPlugins({ code: true })],
   // The chart of Lumovi's metrics stack is built in (src/backend/helm/metrics-stack).
   assetsInclude: ['**/*.tgz'],
   // ws looks for optional native add-ons, which aren't bundled: it does without them.

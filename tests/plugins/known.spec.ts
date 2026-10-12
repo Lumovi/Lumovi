@@ -53,7 +53,8 @@ let CODE: PluginFiles = {}
 let INDEXED = new Map<string, Map<string, string>>()
 
 test.beforeAll(async () => {
-  // (The first run downloads the release, and checks it as the build does.)
+  // (The build's own copy, from the cache it kept, checked again: a checkout that hasn't built
+  // yet downloads the release once and checks it as the build does.)
   test.setTimeout(120_000)
   const lock = readLock()
   ;({ plugins: SHIPPED, code: CODE } = pluginsAndCode(await takePlugins(lock, trust())))
