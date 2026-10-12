@@ -14,6 +14,7 @@ import {
   type ListedPlugin,
   type Plugin,
 } from '@renderer/lib/plugins'
+import SHIPPED from 'virtual:lumovi-plugins'
 import { useResources } from './resources'
 
 /**
@@ -24,13 +25,9 @@ export const useOpenPluginPage = create<{ open?: { context: string; plugin: List
   () => ({}),
 )
 
-// The plugins Lumovi comes with, bundled with the app; and its own views for Kubernetes'
-// kinds that have no page, which are written as a plugin's are and aren't one.
-const SHIPPED = import.meta.glob<string>('../../../../plugins/*.yaml', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-})
+// The plugins Lumovi comes with, from the bundle its build checked (scripts/vite-plugins.ts);
+// and its own views for Kubernetes' kinds that have no page, which are written as a plugin's are
+// and aren't one.
 const OWN = import.meta.glob<string>('../views/*.yaml', {
   query: '?raw',
   import: 'default',

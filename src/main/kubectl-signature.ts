@@ -22,11 +22,10 @@ import {
 import { KUBERNETES_SIGNER } from './kubernetes-signer'
 
 /**
- * Where what this Lumovi knows could be what's out of date (Kubernetes' signer, or Sigstore's
- * authority and logs, can change, and only a newer Lumovi knows the new ones), what may have
- * changed instead of the kubectl.
+ * Where what this Lumovi knows could be what's out of date (the signer, or Sigstore's authority
+ * and logs, can change, and only a newer Lumovi knows the new ones), what may have changed
+ * instead of what was signed. (The signer's own is its `changed`.)
  */
-const KUBERNETES_CHANGED = 'Kubernetes has changed how it signs'
 const AUTHORITY_CHANGED = 'Sigstore has changed its certificate authority'
 const LOGS_CHANGED = 'Sigstore has changed its logs'
 
@@ -42,6 +41,19 @@ interface Validity {
   end?: string
 }
 
+/**
+ * Who a signature is checked for: the identity and the OIDC issuer its certificate must name
+ * (an email or a URI, as Fulcio writes them), and how a refusal says who that is.
+ */
+export interface Signer {
+  identity: string
+  issuer: string
+  /** Who that is, in a refusal's words: "Kubernetes’ release". */
+  name: string
+  /** What may have changed instead, when a certificate names someone else. */
+  changed: string
+}
+
 /** Sigstore's trust root (its trusted_root.json), as far as checking a certificate needs. */
 export interface TrustRoot {
   certificateAuthorities: {
@@ -51,7 +63,7 @@ export interface TrustRoot {
   ctlogs: { publicKey: { rawBytes: string; validFor: Validity }; logId: { keyId: string } }[]
 }
 
-/** Why a kubectl isn't taken as Kubernetes' own: said in a terminal's first line. */
+/** Why something isn't taken as its signer's: said in words, where it's refused. */
 class SignatureError extends Error {
   constructor(
     message: string,
@@ -80,13 +92,48 @@ export function whyNotKubernetes(
   signature: Buffer,
   certificate: Buffer,
   root: TrustRoot,
-  signer = KUBERNETES_SIGNER,
+  signer: Signer = KUBERNETES_SIGNER,
 ): Refused | undefined {
+  return refusal(() => {
+    let leaf: X509Certificate
+    try {
+      leaf = X509Certificate.parse(Buffer.from(certificate.toString(), 'base64').toString())
+    } catch {
+      throw new SignatureError('its certificate isn’t one')
+    }
+    check(binary, Buffer.from(signature.toString().trim(), 'base64'), leaf, root, signer)
+  })
+}
+
+/**
+ * Why `data` isn't `signer`'s (and what else may have changed), or nothing if it is: signed with
+ * `signature` (its bytes) by the key of `certificate` (its DER, as a Sigstore bundle holds it),
+ * checked as kubectl's is.
+ */
+export function whyNotSignedBy(
+  data: Buffer,
+  signature: Buffer,
+  certificate: Buffer,
+  root: TrustRoot,
+  signer: Signer,
+): Refused | undefined {
+  return refusal(() => {
+    let leaf: X509Certificate
+    try {
+      leaf = X509Certificate.parse(Buffer.from(certificate))
+    } catch {
+      throw new SignatureError('its certificate isn’t one')
+    }
+    check(data, signature, leaf, root, signer)
+  })
+}
+
+function refusal(checked: () => void): Refused | undefined {
   try {
-    check(binary, signature, certificate, root, signer)
+    checked()
     return undefined
   } catch (error) {
-    // What can't be read isn't Kubernetes' either.
+    // What can't be read isn't the signer's either.
     return error instanceof SignatureError
       ? { why: error.message, ...(error.changed ? { changed: error.changed } : {}) }
       : { why: `its certificate couldn’t be read (${(error as Error).message})` }
@@ -94,18 +141,12 @@ export function whyNotKubernetes(
 }
 
 function check(
-  binary: Buffer,
+  data: Buffer,
   signature: Buffer,
-  certificate: Buffer,
+  leaf: X509Certificate,
   root: TrustRoot,
-  signer: typeof KUBERNETES_SIGNER,
+  signer: Signer,
 ): void {
-  let leaf: X509Certificate
-  try {
-    leaf = X509Certificate.parse(Buffer.from(certificate.toString(), 'base64').toString())
-  } catch {
-    throw new SignatureError('its certificate isn’t one')
-  }
   // When Fulcio issued it, as a transparency log signed: the time everything else is checked at.
   const issued = loggedAt(leaf, root)
   if (!leaf.validForDate(issued)) {
@@ -129,14 +170,14 @@ function check(
     leaf.extension(OID_ISSUER_V1)?.value.toString('ascii')
   if (leaf.subjectAltName !== signer.identity) {
     throw new SignatureError(
-      `it’s signed by ${leaf.subjectAltName ?? 'someone unnamed'}, not Kubernetes’ release as this Lumovi knows it`,
-      KUBERNETES_CHANGED,
+      `it’s signed by ${leaf.subjectAltName ?? 'someone unnamed'}, not ${signer.name} as this Lumovi knows it`,
+      signer.changed,
     )
   }
   if (issuer !== signer.issuer) {
     throw new SignatureError(
-      `its signer signed in with ${issuer ?? 'nobody'}, not as this Lumovi knows Kubernetes’ release does`,
-      KUBERNETES_CHANGED,
+      `its signer signed in with ${issuer ?? 'nobody'}, not as this Lumovi knows ${signer.name} does`,
+      signer.changed,
     )
   }
   let key: KeyObject
@@ -145,8 +186,7 @@ function check(
   } catch {
     throw new SignatureError('its certificate’s key isn’t one')
   }
-  const signed = Buffer.from(signature.toString().trim(), 'base64')
-  if (!verify('sha256', binary, key, signed)) {
+  if (!verify('sha256', data, key, signature)) {
     throw new SignatureError('its signature isn’t for what was downloaded')
   }
 }

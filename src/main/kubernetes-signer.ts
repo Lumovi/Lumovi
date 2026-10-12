@@ -10,4 +10,8 @@
 export const KUBERNETES_SIGNER = {
   identity: 'krel-staging@k8s-releng-prod.iam.gserviceaccount.com',
   issuer: 'https://accounts.google.com',
+  /** Who that is, in a refusal's words. */
+  name: 'Kubernetes’ release',
+  /** What may have changed instead, when a certificate names someone else. */
+  changed: 'Kubernetes has changed how it signs',
 }
