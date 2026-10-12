@@ -12,8 +12,12 @@ export type NotHanded =
   | 'no-code'
   /** On a server: this session isn't held to coming from Lumovi's own page (the second wall). */
   | 'not-held'
-  /** On a server: this browser hasn't passed Lumovi's check that it keeps a plugin's code apart. */
+  /** On a server: this browser hasn't been through Lumovi's check that it keeps a plugin's code apart. */
   | 'not-checked'
+  /** On a server: it was, and something got out of the box. */
+  | 'check-failed'
+  /** On a server: the check didn't finish in time. */
+  | 'check-unfinished'
 
 /** What `pluginCode` answers: the code and what it's known by, or why not. */
 export type PluginCode =
@@ -32,6 +36,10 @@ const WHY: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
   'not-checked':
     'Lumovi hasn’t checked that this browser keeps a plugin’s code apart from Lumovi’s own page, so it doesn’t run it here.',
   'no-code': 'Its code isn’t part of this Lumovi.',
+  'check-failed':
+    'Lumovi checked this browser and found that a plugin’s code could get out of its box here, so it doesn’t run plugins’ code in this browser. Another browser may pass the check.',
+  'check-unfinished':
+    'Lumovi’s check of this browser didn’t finish in time, so it doesn’t run plugins’ code here yet. Open the page again to check again.',
 }
 
 /** Why not, as one sentence of Lumovi's: what a page's place says after its title. */
@@ -43,6 +51,9 @@ const LINE: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
   'not-checked':
     'Lumovi hasn’t checked that this browser keeps a plugin’s code apart from Lumovi’s own page, so it doesn’t run it here.',
   'no-code': 'its code isn’t part of this Lumovi.',
+  'check-failed':
+    'Lumovi checked this browser and found that a plugin’s code could get out of its box here.',
+  'check-unfinished': 'Lumovi’s check of this browser didn’t finish in time.',
 }
 
 /**
@@ -50,4 +61,4 @@ const LINE: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
  * server doesn’t offer plugins that run code to this browser."
  */
 export const notHandedLine = (refused: Exclude<NotHanded, 'not-in-use'>): string =>
-  `Its pages don’t run here: ${LINE[refused]}`
+  `Its pages don’t run here${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}`

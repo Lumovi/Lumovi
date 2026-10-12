@@ -16,11 +16,12 @@ import {
   type Result,
   type Settings,
 } from '@shared/api'
-import type { ClientMessage, ServerMessage, SessionUser } from '@shared/server'
+import { browserOf } from '@shared/box-check'
+import { PATHS, type ClientMessage, type ServerMessage, type SessionUser } from '@shared/server'
 import type { AuditActor } from '@shared/audit'
 import { auditHandlers } from '@backend/audit/handlers'
 import type { AuditLog } from '@backend/audit/log'
-import { recorder } from '@backend/audit/recorder'
+import { recorder, type Recorder } from '@backend/audit/recorder'
 import { handlers, type Handler } from '@backend/handlers'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { plugins } from '@backend/plugins-known'
@@ -36,6 +37,7 @@ import { UsageHistory } from '@backend/kube/usage'
 import type { SettingsAccess } from '@backend/settings'
 import type { SponsorSource } from '@backend/sponsor/source'
 import { accessHandlers, type ServerAccess } from './access'
+import { checkCode, type BoxChecks, type Judged } from './box-check'
 import { readerFor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import { fingerprint, type ServerConfig } from './config'
@@ -45,6 +47,7 @@ import type { Joins } from './fleet/joins'
 import type { FleetSettings } from './fleet/settings'
 import type { AddedClusters } from './fleet/added'
 import { checkChartUrl } from './network'
+import { log } from './log'
 
 /**
  * A page's preferences: the server's, the same for everyone on it (its clusters' settings, which
@@ -137,6 +140,12 @@ export interface ConnectionOptions {
   identity: Identity
   /** Whether the second wall holds for this page's session: what a plugin's hand-over asks. */
   held: boolean
+  /** Its session, where it has one (a sign-in proxy's has none). */
+  session?: string
+  /** Lumovi's checks of the box in people's browsers: none where the server has no box. */
+  checks?: BoxChecks
+  /** The browser, as it says of itself: what a check's line and record name it by. */
+  userAgent?: string
   version: string
   env: NodeJS.ProcessEnv
   /** The audit log; who the page's person is to it (and where from); whether they read everyone's. */
@@ -173,6 +182,33 @@ export interface ConnectionOptions {
 }
 
 /**
+ * A check of a browser's box, said once a session: on the server's log (a failure, with the
+ * browser and the ways that got out; one that didn't finish), and in the history (a failure, and
+ * a pass, which every later hand-over rests on). Never its nonce.
+ */
+function told(judged: Judged, audit: Recorder, browser: string): void {
+  if (judged.result === 'unfinished') {
+    log(`Lumovi’s check of a plugin’s box in ${browser} didn’t finish in time.`)
+    return
+  }
+  if (judged.result === 'failed') {
+    log(
+      `Lumovi’s check found that ${browser} lets a plugin’s code out of its box: ${judged.out.join(', ')}. It isn’t handed any plugin’s code.`,
+    )
+  }
+  audit.record({
+    action: 'plugin.box-check',
+    outcome: judged.result === 'passed' ? 'success' : 'failure',
+    target: { kind: 'Browser', name: browser },
+    summary:
+      judged.result === 'passed'
+        ? 'Lumovi checked this browser: a plugin’s code stays in its box'
+        : `Lumovi’s check found this browser lets a plugin’s code out: ${judged.out.join(', ')}`,
+    details: { browser, ...(judged.result === 'failed' ? { ways: judged.out } : {}) },
+  })
+}
+
+/**
  * Whether an answer is the cluster refusing the credentials (401). (Not every answer that isn't
  * one is a cluster's error: a plugin's read is refused with a code of its own.)
  */
@@ -206,6 +242,9 @@ export class PageConnection {
       config,
       identity,
       held,
+      session,
+      checks,
+      userAgent,
       version,
       env,
       rejected,
@@ -319,6 +358,8 @@ export class PageConnection {
       end: (id, end) => this.emit(IPC.filesEnd, id, end),
     })
     pageFiles.cancel = (id) => files.cancel(id)
+    /** What a check of this browser is kept by: its session, or (a sign-in proxy's) its person. */
+    const checkKey = session ?? `user:${identity.user.name}`
     const shared = handlers({
       kube,
       helm,
@@ -331,9 +372,9 @@ export class PageConnection {
       pluginsDirectory: { path: config.pluginsDir, shown: config.pluginsDir },
       knownPlugins: () =>
         plugins({ path: config.pluginsDir, shown: config.pluginsDir }, 'server', version),
-      // (No browser has passed the box's check yet: there is none. So a server hands no one a
-      // plugin's code, whatever else holds.)
-      handOverTo: () => ({ host: 'server', held, checked: false }),
+      // (Read each time it's asked: how this browser's box check came out, for the box's walls as
+      // they are. A server without a box has no check, and hands code to no one.)
+      handOverTo: () => ({ host: 'server', held, check: checks?.result(checkKey) }),
       audit: recording,
     })
     const auditing = auditHandlers(
@@ -365,6 +406,30 @@ export class PageConnection {
       ...auditing.invoke,
       ...accessing.invoke,
       ...assistants.invoke,
+      ...(checks && config.publicUrl
+        ? (() => {
+            const catcher = new URL(`${config.basePath}${PATHS.boxCheck}`, config.publicUrl).href
+            const browser = browserOf(userAgent)
+            return {
+              // A check of this browser's box: its nonce, and its code with the nonce in its aim.
+              // Only for a session the second wall holds: no code is handed to any other.
+              [IPC.boxCheckStart]: () => {
+                if (!held) return undefined
+                const nonce = checks.start(checkKey)
+                return { nonce, code: checkCode(`${catcher}/${nonce}`, nonce, env) }
+              },
+              [IPC.boxCheckEnd]: (nonce: unknown, report: unknown, heard: unknown) => {
+                if (typeof nonce !== 'string') return undefined
+                const found = Array.isArray(heard)
+                  ? heard.filter((way): way is string => typeof way === 'string')
+                  : []
+                const judged = checks.end(checkKey, nonce, report, found)
+                if (judged?.first) told(judged, recording, browser)
+                return judged?.result
+              },
+            }
+          })()
+        : {}),
       [IPC.appInfo]: () => info,
       [IPC.sponsorCard]: () => sponsor.card(),
       // What's uploaded was picked in the browser: the page says what it will send, and that's

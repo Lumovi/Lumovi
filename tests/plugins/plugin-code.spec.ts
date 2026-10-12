@@ -22,7 +22,11 @@ const plugin = (also: Partial<KnownPlugin> = {}): KnownPlugin => ({
   ...also,
 })
 const DESKTOP: HandOverTo = { host: 'desktop' }
-const server = (held: boolean, checked: boolean): HandOverTo => ({ host: 'server', held, checked })
+const server = (held: boolean, check?: 'passed' | 'failed' | 'unfinished'): HandOverTo => ({
+  host: 'server',
+  held,
+  ...(check ? { check } : {}),
+})
 
 test('code is handed only where every wall holds, and the first that doesn’t says why', () => {
   // The desktop: one of Lumovi's own, in use, with code.
@@ -36,14 +40,17 @@ test('code is handed only where every wall holds, and the first that doesn’t s
   expect(mayHandOver(plugin({ code: undefined, codeDigest: undefined }), DESKTOP)).toBe('no-code')
   // A server: the second wall, then the browser's check. Until there's a check, no browser has
   // passed it, so a server hands code to no one.
-  expect(mayHandOver(plugin(), server(false, false))).toBe('not-held')
-  expect(mayHandOver(plugin(), server(false, true))).toBe('not-held')
-  expect(mayHandOver(plugin(), server(true, false))).toBe('not-checked')
-  expect(mayHandOver(plugin(), server(true, true))).toBe(true)
+  expect(mayHandOver(plugin(), server(false))).toBe('not-held')
+  expect(mayHandOver(plugin(), server(false, 'passed'))).toBe('not-held')
+  expect(mayHandOver(plugin(), server(true))).toBe('not-checked')
+  expect(mayHandOver(plugin(), server(true, 'failed'))).toBe('check-failed')
+  expect(mayHandOver(plugin(), server(true, 'unfinished'))).toBe('check-unfinished')
+  expect(mayHandOver(plugin(), server(true, 'passed'))).toBe(true)
   // Only those words, as a yes: anything else, or a place it doesn't know, is no.
   for (const to of [
-    { host: 'server', held: 'yes', checked: 1 },
-    { host: 'server', held: true, checked: 'true' },
+    { host: 'server', held: 'yes', check: 'passed' },
+    { host: 'server', held: true, check: true },
+    { host: 'server', held: true, checked: true },
     { host: 'other' },
     { host: 'server' },
     {},
@@ -51,7 +58,7 @@ test('code is handed only where every wall holds, and the first that doesn’t s
     expect(mayHandOver(plugin(), to as unknown as HandOverTo), JSON.stringify(to)).not.toBe(true)
   }
   // (What a plugin is comes before where it's asked for: a server says not-in-use first too.)
-  expect(mayHandOver(plugin({ origin: 'server' }), server(false, false))).toBe('not-in-use')
+  expect(mayHandOver(plugin({ origin: 'server' }), server(false))).toBe('not-in-use')
 })
 
 test('the one call that hands code over: the code and its digests, recorded once; or why not', async () => {
@@ -94,14 +101,14 @@ test('the one call that hands code over: the code and its digests, recorded once
     expect(await codes.code(name), String(name)).toEqual({ ok: false, refused: 'not-in-use' })
   }
   // A server's browser that isn't checked: not handed, and the same said without the code.
-  to = server(true, false)
+  to = server(true)
   expect(await codes.code('karpenter')).toEqual({ ok: false, refused: 'not-checked' })
   expect(await codes.whether('karpenter')).toBe('not-checked')
   expect(records).toHaveLength(1)
   // A server's browser that is (once there's a check): handed, and said as a browser's.
   const browser = pluginCodes({
     known: async () => [plugin()],
-    to: () => server(true, true),
+    to: () => server(true, 'passed'),
     audit: { user: 'me', record: (input) => void records.push(input), read: () => undefined },
   })
   expect(await browser.code('karpenter')).toMatchObject({ ok: true })
@@ -120,5 +127,11 @@ test('what a person is told where code isn’t handed', () => {
   )
   expect(notHandedLine('no-code')).toBe(
     'Its pages don’t run here: its code isn’t part of this Lumovi.',
+  )
+  expect(notHandedLine('check-failed')).toBe(
+    'Its pages don’t run here: Lumovi checked this browser and found that a plugin’s code could get out of its box here.',
+  )
+  expect(notHandedLine('check-unfinished')).toBe(
+    'Its pages don’t run here yet: Lumovi’s check of this browser didn’t finish in time.',
   )
 })

@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { BOX_SCRIPT, BOX_SCRIPT_HEADERS, boxDocument, boxHeaders } from '@shared/plugin-box'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
+import { digestOf } from '@backend/plugins'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { ServerAccess } from './access'
 import { ServerAssistants } from './assistants/assistants'
@@ -20,6 +21,7 @@ import { PageConnection } from './connection'
 import { Transfers } from './file-transfers'
 import { cookies, redirect, sameOrigin, SECURITY_HEADERS, sendJson } from './http'
 import { log } from './log'
+import { BoxChecks, boxWalls } from './box-check'
 import { OidcClient } from './oidc'
 import { acceptedEncoding, contentSecurityPolicy, Pages } from './pages'
 import { Sessions } from './sessions'
@@ -85,6 +87,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         page: config.publicUrl.origin,
       }
     : undefined
+  /** The box's headers as it's served: its walls. */
+  const walls = box && boxWalls(boxHeaders(box.script, box.page), options.env)
+  /**
+   * Lumovi's checks of the box in people's browsers: a result holds for these walls alone (their
+   * digest), and a server whose walls change checks every browser again.
+   */
+  const checks = walls && new BoxChecks(digestOf(new TextEncoder().encode(JSON.stringify(walls))))
   /** Each page's socket, with its session, so its pages can be told when it ends. */
   const sockets = new Map<WebSocket, { session?: string; alive: boolean }>()
   /** The pages' connections, until what they started is cleaned up. */
@@ -218,6 +227,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return
     }
     if (answerBox(req, res, path)) return
+    // The box check's catcher: whatever reaches it of a live check is counted, and that's all.
+    // It acts for no one, reads no cookie, and answers the same to anyone (before the second
+    // wall, which a box's request, from no origin, never passes).
+    if (path.startsWith(`${PATHS.boxCheck}/`)) {
+      const [nonce = '', way = ''] = path.slice(PATHS.boxCheck.length + 1).split('/')
+      checks?.caught(nonce, way)
+      res.writeHead(204, { 'Cache-Control': 'no-store' })
+      res.end()
+      return
+    }
     const route = `${req.method} ${path}`
     // The second wall: a signed-in session's request that doesn't say it comes from Lumovi's own
     // page is refused, said as that, before anything acts on it. (Signing in and out, and who's
@@ -285,7 +304,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     } else if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendJson(res, 405, { error: 'Only GET' }, { Allow: 'GET, HEAD' })
     } else if (file === 'document') {
-      res.writeHead(200, boxHeaders(box.script, box.page))
+      res.writeHead(200, walls!)
       res.end(req.method === 'HEAD' ? undefined : boxDocument(box.script))
     } else {
       res.writeHead(200, BOX_SCRIPT_HEADERS)
@@ -398,6 +417,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
       return
     }
+    // (A socket a box's check opens: counted for a live check, and closed.)
+    const upgraded = address(req).path
+    if (upgraded?.startsWith(`${PATHS.boxCheck}/`)) {
+      const [nonce = '', way = ''] = upgraded.slice(PATHS.boxCheck.length + 1).split('/')
+      checks?.caught(nonce, way)
+      socket.destroy()
+      return
+    }
     if (address(req).path === PATHS.agent && hosted.agents) {
       agentUpgrade(req, socket, head).catch((error: unknown) => {
         log(`An agent couldn’t be let in: ${(error as Error).message}`)
@@ -426,6 +453,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         ...options,
         identity: caller.identity,
         held: caller.held,
+        ...(caller.session ? { session: caller.session } : {}),
+        ...(checks ? { checks } : {}),
+        ...(typeof req.headers['user-agent'] === 'string'
+          ? { userAgent: req.headers['user-agent'] }
+          : {}),
         audit,
         actor,
         auditor: () =>

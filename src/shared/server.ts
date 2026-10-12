@@ -68,6 +68,8 @@ export const PATHS = {
    */
   box: 'plugin-box/box.html',
   boxScript: 'plugin-box/box.js',
+  /** What a box's check aims at, to see whether anything gets out (`box-check/<nonce>/<way>`). */
+  boxCheck: 'box-check',
 } as const
 
 /** The WebSocket close code that means the session ended; its reason says how. */
