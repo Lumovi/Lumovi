@@ -1144,6 +1144,9 @@ test('kubectl matching each cluster can be turned off, and an organization can',
   launch,
   downloads,
 }) => {
+  // (Four Lumovis, each with a terminal open, are closed in one teardown: on a Windows runner
+  // that's most of a minute.)
+  test.slow()
   const { page, app, userDataDir } = await launch({ env: SHELL })
   const item = () =>
     app.evaluate(({ Menu }) => {
