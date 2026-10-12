@@ -398,18 +398,32 @@ async function bodyOf(response: Response, name: string, limit: number): Promise<
 export interface Asking {
   download?: typeof fetch
   limit?: number
+  /** How long, in milliseconds, one answer may take, whole. */
+  timeLimit?: number
 }
+
+/**
+ * How long one file of a release may take to come, whole: far longer than one does, and then
+ * the build stops saying so, rather than waiting for a server that's stopped answering.
+ */
+export const DOWNLOAD_TIME_LIMIT = 60_000
 
 /** `url`'s answer, read: or nothing where it's not found. */
 async function ask(
   url: string,
   name: string,
-  { download = fetch, limit = DOWNLOAD_LIMIT }: Asking,
+  { download = fetch, limit = DOWNLOAD_LIMIT, timeLimit = DOWNLOAD_TIME_LIMIT }: Asking,
 ) {
+  const signal = AbortSignal.timeout(timeLimit)
+  const late = () =>
+    new PluginsBundleError(
+      `${name}: couldn’t be downloaded from ${url}: no answer in time (${timeLimit / 1000} s)`,
+    )
   let response: Response
   try {
-    response = await download(url)
+    response = await download(url, { signal })
   } catch (error) {
+    if (signal.aborted) throw late()
     throw new PluginsBundleError(
       `${name}: couldn’t be downloaded from ${url}: ${(error as Error).message}`,
     )
@@ -424,6 +438,7 @@ async function ask(
     return await bodyOf(response, name, limit)
   } catch (error) {
     if (error instanceof PluginsBundleError) throw error
+    if (signal.aborted) throw late()
     throw new PluginsBundleError(
       `${name}: couldn’t be downloaded from ${url}: ${(error as Error).message}`,
     )

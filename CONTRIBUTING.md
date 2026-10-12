@@ -76,16 +76,18 @@ issue.
 
 The plugins Lumovi comes with live in their own repository,
 [Lumovi-plugins](https://github.com/Lumovi/Lumovi-plugins): a tool is added there, checked by
-Lumovi's own checker against its operator's pinned CRDs, and released as one signed bundle.
-Its README says how. Lumovi's build takes the release that `plugins.lock.json` names (its
-version, the commit its tag points at, and the SHA-256 of its bundle and its index) and checks
-all of it again before a plugin is built in (`scripts/plugins-bundle.ts`). Moving Lumovi to a
-newer release is a change to that file, and nothing else.
+Lumovi’s own checker against its operator’s pinned CRDs, and released as one signed bundle. Its
+README says how. Lumovi’s build takes the release that `plugins.lock.json` names (its version,
+the commit its tag points at, and the SHA-256 of its bundle and its index), and checks all of it
+again before any plugin is built in (`scripts/plugins-bundle.ts`). Moving Lumovi to a newer
+release is a change to that file and nothing else, and the release notes of the Lumovi release
+that carries it name the plugins’ release and its digest.
 
-To look at a plugin while you write it, put its file in `~/.lumovi/plugins` (or the folder
-`LUMOVI_PLUGINS_DIR` names) while running `npm run dev` against a cluster with the tool
-installed. A file there with the name of a plugin Lumovi comes with is used in its place.
-Plugins are read again on refresh (⌘R / Ctrl+R).
+To try a plugin while you write it, put its file in `~/.lumovi/plugins` (or the folder
+`LUMOVI_PLUGINS_DIR` names), and run `npm run dev` against a cluster with the tool installed.
+Lumovi reads it as one of yours, held to the same checks, and the Plugins page shows what’s wrong
+with it, if anything. A plugin of yours carries no code, and replaces one of Lumovi’s only under
+that plugin’s name, whole. Plugins are read again on refresh (⌘R / Ctrl+R).
 
 ## Coverage
 

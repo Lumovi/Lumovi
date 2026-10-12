@@ -7,6 +7,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { readLock, takePlugins, trust } from '../../scripts/plugins-bundle.ts'
 import { RENDERER_MAPS } from '../../scripts/vite-coverage.ts'
 import { openCluster } from '../e2e/fixtures.ts'
 import { CONTEXT, expect, test } from './fixtures.ts'
@@ -59,8 +60,9 @@ test('Lumovi’s own plugins are the ones built in: nothing read while it runs i
     .getByRole('navigation', { name: 'Resources' })
     .getByRole('link', { name: 'API resources' })
     .click()
-  // The plugins it was built with, and nothing more: the folder's file is nobody's.
-  const built = readdirSync('plugins').filter((name) => name.endsWith('.yaml')).length
+  // The plugins it was built with, and nothing more: the release its lock pins, as the build took
+  // it (the folder's file is nobody's).
+  const built = Object.keys(await takePlugins(readLock(), trust())).length
   await expect(page.getByText(new RegExp(`^${built} plugins from Lumovi\\.`))).toBeVisible()
   await expect(page.getByRole('list', { name: 'Plugin problems' })).toHaveCount(0)
 })
