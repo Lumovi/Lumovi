@@ -24,12 +24,16 @@ export interface OpenPage {
   readonly end: PageEnd | undefined
   /** The parts its plugin may name: what the door checked against, and what draws them. */
   readonly parts: Readonly<Record<string, KitPart>>
+  /** Hears when the page ends. */
+  subscribe(ended: () => void): () => void
   /**
-   * Counts up when there's something new to draw: once a frame at most, however many commits
-   * came in it, and at once when the page ends.
+   * Hears when the part or text `id` has something new to draw: its properties, its text, or
+   * what's under it, in which order (what's inside what's under it is theirs to hear). Once a
+   * frame at most, however many commits came in it: so a commit that changes one row draws that
+   * row again, and nothing else. What it's drawn from is the tree's `changedAt(id)`: one drawn
+   * before it listened, and changed meanwhile, is drawn again as it starts to.
    */
-  readonly version: number
-  subscribe(changed: () => void): () => void
+  subscribeTo(id: number, changed: () => void): () => void
   /**
    * A part of Lumovi's failed as it drew this page: the page ends, said as Lumovi's own fault.
    * Called by the boundary round the page's surface and by nothing else: nothing a plugin sends
@@ -65,14 +69,25 @@ export function openPage(options: {
     Object.entries(options.parts).map(([name, part]) => [name, part.declared]),
   )
   const listeners = new Set<() => void>()
+  // Of each part or text being drawn, who hears it. (Only of those drawn: what's taken away is
+  // drawn no more, and nothing of it is kept.)
+  const drawn = new Map<number, Set<() => void>>()
   const page = {
     tree: new DoorPage(declared),
     parts: options.parts,
     end: undefined as PageEnd | undefined,
-    version: 0,
-    subscribe(changed: () => void) {
-      listeners.add(changed)
-      return () => void listeners.delete(changed)
+    subscribe(ended: () => void) {
+      listeners.add(ended)
+      return () => void listeners.delete(ended)
+    },
+    subscribeTo(id: number, changed: () => void) {
+      let heard = drawn.get(id)
+      if (!heard) drawn.set(id, (heard = new Set()))
+      heard.add(changed)
+      return () => {
+        heard.delete(changed)
+        if (heard.size === 0) drawn.delete(id)
+      }
     },
     fault() {
       ended({ why: 'drawing' })
@@ -83,17 +98,21 @@ export function openPage(options: {
       box.close()
     },
   }
-  const changed = () => {
-    page.version++
-    listeners.forEach((listener) => listener())
-  }
-  // What a plugin sends is drawn once a frame, however many commits a frame brings.
+  // What a plugin sends is drawn once a frame, however many commits a frame brings: what each
+  // changed is kept until then, and only that is drawn again. (Only what's drawn is kept: what
+  // isn't yet is drawn with what holds it, and a hidden window, which has no frames, keeps no
+  // more than it shows.)
+  const toTell = new Set<number>()
   let telling = 0
-  const toDraw = () => {
+  const toDraw = (changed: readonly number[]) => {
+    for (const id of changed) if (drawn.has(id)) toTell.add(id)
     if (telling) return
     telling = requestAnimationFrame(() => {
       telling = 0
-      if (!page.end) changed()
+      if (page.end) return
+      const told = [...toTell].flatMap((id) => [...(drawn.get(id) ?? [])])
+      toTell.clear()
+      told.forEach((changed) => changed())
     })
   }
   const ended = (end: PageEnd) => {
@@ -101,7 +120,8 @@ export function openPage(options: {
     page.end = end
     page.close()
     telling = 0
-    changed()
+    toTell.clear()
+    listeners.forEach((listener) => listener())
   }
   const box = openBox({
     plugin: options.plugin,
@@ -113,7 +133,7 @@ export function openPage(options: {
         // (For whoever writes the plugin: the line quotes nothing as it was written.)
         console.warn(`Lumovi stopped the plugin ${options.plugin}: ${taken.what}`)
         ended({ why: taken.why })
-      } else toDraw()
+      } else toDraw(taken.changed)
     },
     ended: (end) => ended(boxEnd(end)),
   })

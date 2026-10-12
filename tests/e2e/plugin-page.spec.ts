@@ -83,6 +83,51 @@ test('what a plugin describes is drawn with Lumovi’s parts, under a strip that
   await expect(ended(page)).toHaveCount(0)
 })
 
+test('a commit draws again only what it changed: not the row beside it, nor the part round a text', async ({
+  lumovi: { page },
+}) => {
+  const first = [
+    ['make', 1, 'Stack', {}],
+    ['make', 2, 'Label', {}],
+    ['text', 3, 'Nodes'],
+    ['put', 2, 3],
+    ['put', 1, 2],
+    ['make', 4, 'Field', { name: 'Capacity', value: '24 of 64 cores' }],
+    ['put', 1, 4],
+    ['make', 5, 'Field', { name: 'Zone', value: 'eu-west-1a' }],
+    ['put', 1, 5],
+    ['put', 0, 1],
+  ]
+  // Then, six times half a second apart, one row's value and the label's text. (However
+  // the commits fall into frames on a slow machine, what never changes is drawn once.)
+  const then = (n: number) =>
+    JSON.stringify({
+      commit: [
+        ['change', 4, { name: 'Capacity', value: `${24 + n} of 64 cores` }],
+        ['text', 3, `Nodes ${n}`],
+      ],
+    })
+  await show(page, {
+    code: `box.then(({ post }) => {
+      post(${JSON.stringify(JSON.stringify({ commit: first }))})
+      const then = ${JSON.stringify([1, 2, 3, 4, 5, 6].map(then))}
+      const tick = setInterval(() => { post(then.shift()); if (!then.length) clearInterval(tick) }, 500)
+    })`,
+  })
+  const parts = (name: string) => surface(page).locator(`[data-part="${name}"]`)
+  await expect(parts('Field')).toHaveText([/^Capacity\s*30 of 64 cores/, /^Zone\s*eu-west-1a/])
+  await expect(parts('Label')).toHaveText('Nodes 6')
+  // Drawn again: only the row that changed. Once: the row beside it, the stack round them, and
+  // the label (its text is drawn again by itself, not the part round it).
+  const drawn = (name: string) =>
+    parts(name).evaluateAll((all) => all.map((part) => Number((part as HTMLElement).dataset.drawn)))
+  const [changed, beside] = await drawn('Field')
+  expect(changed).toBeGreaterThan(1)
+  expect(beside).toBe(1)
+  expect(await drawn('Label')).toEqual([1])
+  expect(await drawn('Stack')).toEqual([1])
+})
+
 test('a text is drawn whatever its characters: what would turn it round or isn’t text is a mark of Lumovi’s', async ({
   lumovi: { page },
 }) => {
