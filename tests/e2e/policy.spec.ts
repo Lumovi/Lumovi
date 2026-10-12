@@ -325,28 +325,48 @@ test('on Windows, IT’s policy is the registry’s: as it was set, and only non
     reg: 'C:\\Windows\\System32\\no-reg.exe',
     powershell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
   }
+  /**
+   * Lumovi's reading, as it is once PowerShell has answered it. Lumovi gives a read ten seconds,
+   * and a busy runner's PowerShell can take longer than that even when started before: that read
+   * is "neither could", a policy that can't be used, which is right for Lumovi and isn't what's
+   * tested here. So it's read again while it says that, for a minute at most; any other answer is
+   * the one tested, at once.
+   */
+  const read = (programs?: typeof blocked) => {
+    const until = Date.now() + 60_000
+    for (;;) {
+      const found = inRegistry(process.env, key, programs)
+      let unread = false
+      try {
+        found?.text()
+      } catch (error) {
+        unread = (error as Error).message.startsWith('Lumovi can’t read it')
+      }
+      if (!unread || Date.now() > until) return found
+    }
+  }
   try {
     // No key: no policy, whichever reads it.
-    expect(inRegistry(process.env, key)).toBeUndefined()
-    expect(inRegistry(process.env, key, blocked)).toBeUndefined()
+    expect(read()).toBeUndefined()
+    expect(read(blocked)).toBeUndefined()
     // A key without the value: one that can't be used.
     set(`New-Item -Path '${path}' -Force | Out-Null`)
-    expect(() => inRegistry(process.env, key)!.text()).toThrow('it must be text (REG_SZ)')
+    expect(() => read()!.text()).toThrow('it must be text (REG_SZ)')
     // Over lines, as IT would write it, with JSON's escapes.
     policy('{\n  "readOnly": ["prod-*", "caf\\u00e9"],\n  "updates": false\n}')
-    const found = inRegistry(process.env, key)!
+    const found = read()!
     expect(found.source).toBe(`${key}\\Policy`)
     expect(JSON.parse(found.text())).toEqual({ readOnly: ['prod-*', 'café'], updates: false })
     // What isn't ASCII, as it is (which reg.exe garbles: PowerShell reads it).
     policy('{ "readOnly": ["café-prod"] }')
-    expect(JSON.parse(inRegistry(process.env, key)!.text())).toEqual({ readOnly: ['café-prod'] })
-    expect(JSON.parse(inRegistry(process.env, key, blocked)!.text())).toEqual({
+    expect(JSON.parse(read()!.text())).toEqual({ readOnly: ['café-prod'] })
+    expect(JSON.parse(read(blocked)!.text())).toEqual({
       readOnly: ['café-prod'],
     })
     // A number isn't a policy.
     set(`Set-ItemProperty -Path '${path}' -Name Policy -Type DWord -Value 1`)
-    expect(() => inRegistry(process.env, key)!.text()).toThrow('it must be text (REG_SZ)')
-    expect(() => inRegistry(process.env, key, blocked)!.text()).toThrow('it must be text (REG_SZ)')
+    expect(() => read()!.text()).toThrow('it must be text (REG_SZ)')
+    expect(() => read(blocked)!.text()).toThrow('it must be text (REG_SZ)')
     // Neither can read it: not none, but one that can't be used.
     const neither = { reg: blocked.reg, powershell: 'C:\\Windows\\System32\\no-powershell.exe' }
     expect(() => inRegistry(process.env, key, neither)!.text()).toThrow(
