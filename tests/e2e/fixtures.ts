@@ -85,16 +85,21 @@ async function within(what: string, ms: number, step: () => Promise<unknown>): P
 async function collectCoverage(app: ElectronApplication): Promise<void> {
   for (const window of app.windows()) {
     try {
+      // (As JSON, made in the page: one text crosses to here, rather than the whole object, a
+      // field at a time, which took two seconds of every test.)
       const coverage = await window.evaluate(() => {
         const w = window as unknown as {
           __coverage__?: object
           __lumoviCoverage__?: () => object | undefined
         }
-        return [w.__coverage__, w.__lumoviCoverage__?.()]
+        return [w.__coverage__, w.__lumoviCoverage__?.()].map((data) =>
+          data ? JSON.stringify(data) : undefined,
+        )
       })
-      for (const data of coverage.filter(Boolean)) {
+      for (const text of coverage) {
+        if (!text) continue
         mkdirSync(COVERAGE_DIR, { recursive: true })
-        writeFileSync(join(COVERAGE_DIR, `${randomUUID()}.json`), JSON.stringify(data))
+        writeFileSync(join(COVERAGE_DIR, `${randomUUID()}.json`), text)
       }
     } catch {
       // The window may already be gone (e.g. a test closed it).
