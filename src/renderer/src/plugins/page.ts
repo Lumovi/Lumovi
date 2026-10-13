@@ -191,6 +191,11 @@ export function openPage(options: {
    */
   kinds?: readonly string[]
   /**
+   * Of those, the ones its file says its pages open (`spec.opens`): what its parts may open a
+   * list of at one object, by its name. None, and a part opens no list at one object.
+   */
+  opens?: readonly string[]
+  /**
    * What its code is told first, once it's there: which of its pages it describes, or which tab,
    * with the object the tab is on (read for it as its own kind is, and handed with a token).
    */
@@ -204,6 +209,7 @@ export function openPage(options: {
   propose?: (proposal: PageProposal) => Promise<ProposalOutcome>
 }): OpenPage {
   const kinds: ReadonlySet<string> = new Set(options.kinds)
+  const opens: ReadonlySet<string> = new Set(options.opens)
   const declared = Object.fromEntries(
     Object.entries(options.parts).map(([name, part]) => [name, part.declared]),
   )
@@ -328,12 +334,13 @@ export function openPage(options: {
           }
         },
         kinds,
-        (kind) => {
+        (kind, by) => {
           // (Likewise once a page: a tile that opens nothing is quiet.)
           if (reading.tokens.unnamedToSay()) {
-            console.warn(unnamedLine(kind, `the plugin ${whose(options.plugin)}`))
+            console.warn(unnamedLine(kind, `the plugin ${whose(options.plugin)}`, by))
           }
         },
+        opens,
       )
       swaps.set(part, swap)
     }

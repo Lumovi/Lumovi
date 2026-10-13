@@ -16,6 +16,7 @@ import {
   EXPRESSION,
   LUMOVIS_COMMANDS,
   LUMOVIS_TABS,
+  namedKinds,
   parsePlugin,
   PLACEHOLDER,
   type Condition,
@@ -1334,6 +1335,70 @@ test('a plugin’s pages propose changes only to its own kinds, and only as its 
   expect(
     said(`[${Array.from({ length: 21 }, () => `{ ${APP}, actions: [patch] }`).join(', ')}]`),
   ).toContain('spec.changes: holds 21, and a file says 20 at most')
+})
+
+test('a plugin’s pages open Lumovi’s lists of Kubernetes’ own kinds only as its file says', () => {
+  /** A plugin of Argo CD's Applications whose pages open `opens`; one that came inside Lumovi unless said. */
+  const plugin = (opens: string | undefined, carriesCode = true) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [argoproj.io]',
+        '  views:',
+        '    - kinds: [{ group: argoproj.io, kind: Application }]',
+        ...(opens === undefined ? [] : [`  opens: ${opens}`]),
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [], carriesCode },
+    )
+  const said = (opens: string) => plugin(opens).problems.join('\n')
+  const example = plugin(
+    '[{ group: apps, kind: Deployment }, { group: "", kind: Service }, { kind: ConfigMap }]',
+  )
+  expect(example.problems).toEqual([])
+  expect(example.plugin!.opens).toEqual(['Deployment', 'Service', 'ConfigMap'])
+  // What its pages may open a list of: its own kinds, and these.
+  expect(namedKinds(example.plugin!)).toEqual([
+    'Application.argoproj.io',
+    'Deployment',
+    'Service',
+    'ConfigMap',
+  ])
+  // A file that says none opens none; a folder's file has no pages, so it opens nothing.
+  expect(plugin(undefined).plugin!.opens).toEqual([])
+  expect(plugin('[{ group: apps, kind: Deployment }]', false).problems).toEqual([
+    'probe.yaml: spec.opens: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they open',
+  ])
+  const at = 'probe.yaml: spec.opens[0]'
+  const none = (id: string) =>
+    `${at}: ${id} isn’t a kind Lumovi has a list of: a page opens Lumovi’s lists of Kubernetes’ own kinds`
+  for (const [opens, problem] of [
+    ['{}', 'probe.yaml: spec.opens: should be a list, not an object'],
+    ['[]', 'probe.yaml: spec.opens: should not be empty'],
+    ['[{ group: apps }]', `${at}.kind: is required`],
+    // Its own kinds' lists it opens already; another tool's kinds, or every kind of a group, never.
+    ['[{ group: argoproj.io, kind: Application }]', none('argoproj.io/Application')],
+    ['[{ group: cert-manager.io, kind: Certificate }]', none('cert-manager.io/Certificate')],
+    ['[{ group: apps, kind: "*" }]', ''],
+    // A kind of Kubernetes' own, as its group has it.
+    ['[{ kind: Deployment }]', none('/Deployment')],
+    ['[{ group: batch, kind: Deployment }]', none('batch/Deployment')],
+    [
+      '[{ group: apps, kind: Deployment }, { group: apps, kind: Deployment }]',
+      'probe.yaml: spec.opens[1]: apps/Deployment is said once',
+    ],
+  ] as const) {
+    if (problem === '') expect(said(opens), opens).not.toBe('')
+    else expect(said(opens), opens).toBe(problem)
+  }
+  expect(
+    said(`[${Array.from({ length: 21 }, () => '{ group: apps, kind: Deployment }').join(', ')}]`),
+  ).toContain('spec.opens: holds 21, and a file says 20 at most')
 })
 
 test('a plugin’s pages show a Secret an object of its own kind names, by a path and keys its file declares', () => {

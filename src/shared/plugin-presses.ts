@@ -15,6 +15,7 @@
  *   press that would change is refused here, whatever was drawn.
  */
 import {
+  OBJECT_NAME,
   wrongWithFields,
   type CutRef,
   type ListDestination,
@@ -27,7 +28,7 @@ import {
 import type { Health } from './health'
 import { CHANGE_LIMITS } from './plugin-changes'
 import { NAMESPACE_NAME } from './node-shell'
-import { kindFor } from './resources'
+import { builtinResource, kindFor } from './resources'
 
 /**
  * How much Lumovi hands over. Not a ceiling on a plugin, which doesn't choose how many objects
@@ -63,13 +64,6 @@ function random(): string {
   for (const byte of bytes) text += String.fromCharCode(byte)
   return btoa(text).replaceAll('+', '-').replaceAll('/', '_')
 }
-
-/**
- * A name an object of any kind can have, as Kubernetes' API takes it in a path: 1 to 253
- * characters, not `.` or `..`, nothing unseen, no space, `/` or `%`. (Most kinds are stricter; a
- * role's, `system:controller:…`, isn't.)
- */
-const OBJECT_NAME = /^(?!\.\.?$)[^/%\s\p{C}]{1,253}$/u
 
 /**
  * Whether what Lumovi is about to hand over names an object Kubernetes could have: anything else
@@ -311,12 +305,15 @@ export class Tokens {
    * the kinds its plugin's file names), frozen, the same one each time it's said the same way
    * (its levels in any order), and one this page's door made, so `destinationOf` opens it.
    * Nothing past a page's share; nor for another kind, which `unnamed` is told of, as the plugin
-   * wrote it.
+   * wrote it; nor at one object's name for a kind not among `opens` (those its file says its
+   * pages open), or without its namespace where its kind has them (or with one where it hasn't),
+   * which `unnamed` is told of too.
    */
   listOf(
     said: WrittenDestination,
     kinds: ReadonlySet<string>,
-    unnamed: (kind: string) => void = () => undefined,
+    unnamed: (kind: string, by?: Unopened) => void = () => undefined,
+    opens: ReadonlySet<string> = new Set(),
   ): ListDestination | undefined {
     const slash = said.list.lastIndexOf('/')
     const group = said.list.slice(0, slash)
@@ -325,8 +322,23 @@ export class Tokens {
       unnamed(said.list)
       return undefined
     }
+    if (said.name !== undefined && !opens.has(kind)) {
+      unnamed(said.list, 'opens')
+      return undefined
+    }
+    // (One object of a kind with namespaces is in one, and the page knows which: it says it.)
+    if (said.name !== undefined && (said.namespace !== undefined) !== isNamespaced(kind)) {
+      unnamed(said.list, 'namespace')
+      return undefined
+    }
     const levels = said.health ? [...said.health].sort() : null
-    const key = JSON.stringify([kind, levels, said.labels ?? null])
+    const key = JSON.stringify([
+      kind,
+      levels,
+      said.labels ?? null,
+      said.name ?? null,
+      said.namespace ?? null,
+    ])
     const made = this.#listsBy.get(key)
     if (made) return made
     if (this.#listsBy.size >= HANDED_LIMITS.destinationsAPage) return undefined
@@ -335,6 +347,8 @@ export class Tokens {
       kind,
       ...(said.health ? { health: Object.freeze([...said.health] as Health[]) } : {}),
       ...(said.labels ? { labels: Object.freeze([...said.labels]) } : {}),
+      ...(said.name !== undefined ? { name: said.name } : {}),
+      ...(said.namespace !== undefined ? { namespace: said.namespace } : {}),
     })
     this.#listsBy.set(key, list)
     this.#lists.add(list)
@@ -422,8 +436,18 @@ export class Tokens {
  * What the log says, for a plugin's author, of a list its page named of a kind its file doesn't:
  * the kind as the plugin wrote it (as its file would), and whose page, as `whose` says it.
  */
-export const unnamedLine = (kind: string, whose: string): string =>
-  `Lumovi opens no list of ${kind} for ${whose} page: its file doesn’t name that kind.`
+/** Why a list at one object, of a kind its file names, isn't opened. */
+export type Unopened = 'opens' | 'namespace'
+
+/** Whether a kind's objects are each in a namespace: those Lumovi doesn't know are taken to be. */
+const isNamespaced = (kind: string) => builtinResource(kind)?.namespaced ?? true
+
+export const unnamedLine = (kind: string, whose: string, by?: Unopened): string =>
+  by === 'opens'
+    ? `Lumovi opens no list of ${kind} at one name for ${whose} page: its file doesn’t name that kind under spec.opens.`
+    : by === 'namespace'
+      ? `Lumovi opens no list of ${kind} at one name for ${whose} page: a name of that kind goes with its namespace where the kind has them, and with none where it hasn’t.`
+      : `Lumovi opens no list of ${kind} for ${whose} page: its file doesn’t name that kind.`
 
 /** A press a part reports: which handle the plugin named for it, the event, what it carries. */
 export type Call = (handle: string, event: string, carries: unknown) => void
@@ -431,17 +455,18 @@ export type Call = (handle: string, event: string, carries: unknown) => void
 /**
  * What the door puts in the place of what a plugin named, for one page: the object or the
  * Secret a token stands for there, a function for a handler, a list it made for a list to open
- * (of a kind among `kinds`, Lumovi's names for those its plugin's file names). A token this page
- * doesn't hold gives nothing, and so does a list of another kind (`unnamed` is told which): the
- * component shows what it would for a row that opens nothing, never anything the plugin wrote in
- * its place.
+ * (of a kind among `kinds`, Lumovi's names for those its plugin's file names; at one object only
+ * of one among `opens`). A token this page doesn't hold gives nothing, and so does a list of
+ * another kind (`unnamed` is told which): the component shows what it would for a row that opens
+ * nothing, never anything the plugin wrote in its place.
  */
 export function swapFor(
   tokens: Tokens,
   call: Call,
   stale: () => void = () => undefined,
   kinds: ReadonlySet<string> = new Set(),
-  unnamed: (kind: string) => void = () => undefined,
+  unnamed: (kind: string, by?: Unopened) => void = () => undefined,
+  opens: ReadonlySet<string> = new Set(),
 ): Swap {
   const held = <T>(found: T | undefined): T | undefined => {
     if (found === undefined) stale()
@@ -452,7 +477,7 @@ export function swapFor(
     secret: (token) => held(tokens.secretOf(token)),
     // (Lumovi's numbers for a read's latest cut answer; a token no longer held says nothing.)
     cut: (token) => held(tokens.cutOf(token)),
-    destination: (said) => tokens.listOf(said, kinds, unnamed),
+    destination: (said) => tokens.listOf(said, kinds, unnamed, opens),
     handler: (handle, event) => (carries) => call(handle, event, carries),
   }
 }

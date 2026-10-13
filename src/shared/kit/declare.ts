@@ -10,6 +10,7 @@
  */
 
 import { HEALTH_RANK, type Health } from '../health'
+import { NAMESPACE_NAME } from '../node-shell'
 import { quotedBack } from './characters'
 
 /** A kind of value a property (or what a call carries) can be. */
@@ -217,6 +218,12 @@ export interface ListDestination {
   health?: readonly Health[]
   /** Label selector terms: a key (objects that have it), or `key=value`. */
   labels?: readonly string[]
+  /**
+   * One object of it, by its exact name, and its namespace where the plugin says one: a list of
+   * that one alone, for a kind its plugin's file says its pages open (`spec.opens`).
+   */
+  name?: string
+  namespace?: string
 }
 
 /** A list to open, as a plugin writes it. */
@@ -224,7 +231,16 @@ export interface WrittenDestination {
   list: string
   health?: readonly string[]
   labels?: readonly string[]
+  name?: string
+  namespace?: string
 }
+
+/**
+ * A name an object of any kind can have, as Kubernetes' API takes it in a path: 1 to 253
+ * characters, not `.` or `..`, nothing unseen, no space, `/` or `%`. (Most kinds are stricter; a
+ * role's, `system:controller:…`, isn't.)
+ */
+export const OBJECT_NAME = /^(?!\.\.?$)[^/%\s\p{C}]{1,253}$/u
 
 /** The levels a list can be filtered by, worst first: Lumovi's own, one list of them. */
 const HEALTHS: readonly string[] = Object.keys(HEALTH_RANK)
@@ -248,7 +264,7 @@ function destinationProblem(value: unknown, where: string): string | undefined {
   }
   const said = value as Record<string, unknown>
   for (const key of Object.keys(said)) {
-    if (key !== 'list' && key !== 'health' && key !== 'labels') {
+    if (!['list', 'health', 'labels', 'name', 'namespace'].includes(key)) {
       return `${where}: takes nothing named ${quotedBack(key)}`
     }
   }
@@ -276,6 +292,23 @@ function destinationProblem(value: unknown, where: string): string | undefined {
       (term) => typeof term !== 'string' || !LABEL_TERM.test(term),
     )
     if (wrong >= 0) return `${where}.labels[${wrong}]: isn’t a label, as key or key=value`
+  }
+  // At one object: its exact name, and its namespace beside it; no other filter.
+  if (Object.hasOwn(said, 'name')) {
+    if (typeof said.name !== 'string' || !OBJECT_NAME.test(said.name)) {
+      return `${where}.name: should be an object’s name, as Kubernetes has one`
+    }
+    if (Object.hasOwn(said, 'health') || Object.hasOwn(said, 'labels')) {
+      return `${where}: a list opened at one name takes no health or labels`
+    }
+  }
+  if (Object.hasOwn(said, 'namespace')) {
+    if (!Object.hasOwn(said, 'name')) {
+      return `${where}.namespace: goes with a name: a list opens in one namespace only at one object`
+    }
+    if (typeof said.namespace !== 'string' || !NAMESPACE_NAME.test(said.namespace)) {
+      return `${where}.namespace: should be a namespace’s name`
+    }
   }
   return undefined
 }
