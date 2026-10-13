@@ -31,7 +31,8 @@
  *     "plugins": "no-code",              plugins as data, with none of their code; "bundled": only
  *                                        those that come with Lumovi; "off": none at all; or a list
  *                                        of the last two (["bundled", "no-code"])
- *     "pluginsAllowed": ["karpenter"],   only these plugins, by name: any other isn't there
+ *     "pluginsAllowed": ["karpenter"],   only these plugins, by name: any other isn't there; or by
+ *                                        name and version ("argo-cd@1.2.0"), only that one
  *     "pluginProposals": "off",          no plugin's page may propose a change
  *     "pluginSecrets": "off",            no plugin's page may show what's in a Secret
  *     "pluginLogs": "off",               no plugin's page may show or read containers' logs
@@ -445,10 +446,15 @@ function checked(given: unknown, path: string): Policy {
     pluginsAllowed !== undefined &&
     !(
       Array.isArray(pluginsAllowed) &&
-      pluginsAllowed.every((name) => typeof name === 'string' && PLUGIN_NAME.test(name))
+      pluginsAllowed.every(
+        (entry) =>
+          typeof entry === 'string' && PLUGIN_NAME.test(entry.replace(/@\d+\.\d+\.\d+$/, '')),
+      )
     )
   ) {
-    throw new Error('pluginsAllowed must be a list of plugins’ names.')
+    throw new Error(
+      'pluginsAllowed must be a list of plugins’ names, each with a version if it says one (argo-cd@1.2.0).',
+    )
   }
   for (const [key, value] of [
     ['pluginProposals', pluginProposals],

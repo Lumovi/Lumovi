@@ -310,7 +310,7 @@ test('every plugin on one page: what’s in use on this cluster, and what each a
   await sidebar(page).getByRole('link', { name: 'All plugins' }).click()
   await expect(heading(page)).toHaveText('Plugins')
   await expect(page.getByText('A plugin teaches Lumovi a tool’s kinds')).toBeVisible()
-  await expect(page.getByText('32 from Lumovi')).toBeVisible()
+  await expect(page.getByText('32 come with Lumovi')).toBeVisible()
   const table = page.getByRole('table', { name: 'Plugins' })
   // Each once: its name and version, the kinds it shows (three at most, then how many more),
   // whether this cluster has it, and where it came from.

@@ -19,6 +19,7 @@ import {
   type Settings,
 } from '@shared/api'
 import { marksProblem, type Marks } from '@shared/marks'
+import type { Installed } from '@shared/plugin-store'
 import type { KnownPlugin } from '@shared/plugins-known'
 import {
   describeChange,
@@ -81,6 +82,8 @@ export interface Backend {
   audit: Recorder
   /** A server's: where the page's person's pins and saved views are kept. */
   marks?: MarksAccess
+  /** The desktop app's: the plugins installed from Lumovi-plugins, as they're read now. */
+  installedPlugins?: () => Promise<Installed>
 }
 
 export interface Handlers {
@@ -104,6 +107,7 @@ export function handlers({
   handOverTo,
   audit,
   marks,
+  installedPlugins,
 }: Backend): Handlers {
   /** Recorded once it's done, as it came out: but not what was only tried (a dry run). */
   const recorded =
@@ -314,9 +318,15 @@ export function handlers({
       },
       [IPC.plugins]: async () => {
         const read = await readPlugins(pluginsDirectory)
-        // (Lumovi's own only, or none, by the organization's policy: a person's folder isn't read.)
+        // (Lumovi's own only, or none, by the organization's policy: a person's folder isn't read,
+        // and none installed from Lumovi-plugins is used.)
         const managed = settings.get().managed
-        return managed?.pluginsOff || managed?.pluginsBundledOnly ? { ...read, files: [] } : read
+        if (managed?.pluginsOff || managed?.pluginsBundledOnly) return { ...read, files: [] }
+        // (Only what the page reads of them: not their code, which is handed over as Lumovi's own.)
+        const installed = await installedPlugins?.()
+        return installed
+          ? { ...read, installed: { plugins: installed.plugins, notUsed: installed.notUsed } }
+          : read
       },
 
       [IPC.contexts]: () => kube.contexts(),

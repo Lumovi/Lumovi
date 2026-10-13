@@ -226,7 +226,7 @@ test('a policy with a value of the wrong kind can’t be used, and says which', 
     ],
     [
       policyFile({ pluginsAllowed: ['Not A Name'] }),
-      'pluginsAllowed must be a list of plugins’ names.',
+      'pluginsAllowed must be a list of plugins’ names, each with a version if it says one (argo-cd@1.2.0).',
     ],
     [policyFile({ pluginSecrets: 'hidden' }), 'pluginSecrets must be "off".'],
     [policyFile({ pluginLogs: 'shown' }), 'pluginLogs must be "off".'],

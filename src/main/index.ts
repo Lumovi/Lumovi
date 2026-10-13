@@ -3,6 +3,7 @@ import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, Menu, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC, type ShellExit } from '@shared/api'
+import { parsePlugin } from '@shared/plugins'
 import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
 import icon from '../../build/icon.png?asset'
 import { AuditLog } from '@backend/audit/log'
@@ -18,7 +19,7 @@ import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
 import { setUpNetwork } from '@backend/network'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
-import { pluginsDirectory } from '@backend/plugins'
+import { pluginsDirectory, readFiles } from '@backend/plugins'
 import { plugins, pluginsAllowedBy } from '@backend/plugins-known'
 import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
@@ -39,8 +40,10 @@ import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
 import { filterRequests, registerBoxScheme, serveBoxes, watchBoxes } from './plugin-box'
 import { PluginStore } from './plugin-store'
+import { InstalledPlugins } from './plugins-installed'
 import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
+import SHIPPED from 'virtual:lumovi-plugins'
 import { createMainWindow, rendererUrl } from './window'
 
 // Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
@@ -204,6 +207,9 @@ if (stdio) {
       if (!win.isDestroyed()) win.webContents.send(channel, ...args)
     }
     // The plugins this Lumovi has, as its backend reads them: read each time they're asked.
+    /** What's installed from Lumovi-plugins: there once the store is set up, below. */
+    // eslint-disable-next-line prefer-const -- set once, below, after knownPlugins (which reads it) is made
+    let installedPlugins: InstalledPlugins | undefined
     const knownPlugins = () =>
       plugins(
         pluginsDirectory(homedir()),
@@ -211,6 +217,17 @@ if (stdio) {
         app.getVersion(),
         process.env,
         pluginsAllowedBy(policy.managed),
+        async () => {
+          const read = await installedPlugins?.read()
+          return {
+            files: Object.fromEntries(
+              (read?.plugins ?? []).map(({ name, file }) => [`${name}.yaml`, file]),
+            ),
+            codes: Object.fromEntries(
+              Object.entries(read?.codes ?? {}).map(([name, code]) => [`${name}.js`, code]),
+            ),
+          }
+        },
       )
     const deps = {
       store,
@@ -333,6 +350,31 @@ if (stdio) {
       accept: (serial) => settings.acceptPluginStoreSerial(serial),
       warn: console.warn,
     })
+    // What's installed from it, on the person's press: written to the app's folder, each copy
+    // checked against what was agreed to every time it's read.
+    const installed = new InstalledPlugins({
+      dir: join(app.getPath('userData'), 'plugins', 'installed'),
+      records: () => settings.pluginsInstalled(),
+      keep: (records) => settings.setPluginsInstalled(records),
+      store: pluginStore,
+      lumovi: app.getVersion(),
+      managed: () => policy.managed,
+      // Lumovi's own (and in the tests' build, their stand-ins): what an installed one goes back to.
+      builtIn: async () =>
+        new Map(
+          [
+            ...Object.entries(SHIPPED),
+            ...((await readFiles(pluginsDirectory(homedir()))).included ?? []).map(
+              ({ name, text }) => [name, text] as const,
+            ),
+          ].flatMap(([file, text]) => {
+            const { plugin } = parsePlugin(text, file, { carriesCode: true })
+            return plugin ? [[plugin.name, plugin.version] as const] : []
+          }),
+        ),
+      audit,
+    })
+    installedPlugins = installed
     // The sidebar's sponsor card, from Lumovi/main-sponsor: what was read last time at once, read
     // again soon after starting (once the network is set up, as the updater does) and every hour.
     const { base, everyMs } = sponsorSource(process.env)
@@ -448,6 +490,8 @@ if (stdio) {
       localFiles,
       updates,
       pluginStore,
+      installed,
+      installedPlugins: () => installed.read(),
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
       knownPlugins,

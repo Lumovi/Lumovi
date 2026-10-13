@@ -5,6 +5,7 @@
  * `@shared/plugins-known`.
  */
 import type { Host } from '@shared/api'
+import { allowedBy } from '@shared/plugin-store'
 import { knownPlugins, readIncluded, type KnownPlugin } from '@shared/plugins-known'
 // The plugins Lumovi comes with, from the release its lock pins, as the build checked them: the
 // same files the page's bundle has, built into this one, and the code beside them, named as each
@@ -51,6 +52,15 @@ const utf8 = new TextEncoder()
 let last: { mark: string; from: string; known: readonly Readonly<KnownPlugin>[] } | undefined
 
 /**
+ * Plugins installed from Lumovi-plugins (the desktop app's), each checked against what was
+ * agreed as it's read: their files by name ("argo-cd.yaml"), and their code ("argo-cd.js").
+ */
+export interface InstalledFiles {
+  files: Readonly<Record<string, string>>
+  codes: Readonly<Record<string, string>>
+}
+
+/**
  * The plugins in use here, by the backend's own reading, now. The folders' files are looked at
  * each time (`filesMark`: names, sizes and times, nothing read), and read again, digested and
  * checked only when that changed: a file that changed has its new digest and never an old one,
@@ -65,11 +75,15 @@ export async function plugins(
   lumovi: string,
   env: NodeJS.ProcessEnv = process.env,
   allowed: PluginsAllowed = {},
+  /** Those installed from the store, in place of Lumovi's own of their names. */
+  installed?: () => Promise<InstalledFiles>,
 ): Promise<readonly Readonly<KnownPlugin>[]> {
   // (None at all: not one of Lumovi's own, nor of a folder's.)
   if (allowed.off) return Object.freeze([])
   const origin = host === 'desktop' ? 'yours' : 'server'
-  const mark = JSON.stringify([origin, lumovi, allowed, await filesMark(directory, env)])
+  // (Lumovi's own only: none installed is used either.)
+  const fromStore = installed && !allowed.bundledOnly ? await installed() : undefined
+  const mark = JSON.stringify([origin, lumovi, allowed, fromStore, await filesMark(directory, env)])
   if (last?.mark === mark) return last.known
   const read = await readFiles(directory, env)
   // (Lumovi's own only: a person's folder isn't read as plugins.)
@@ -78,6 +92,7 @@ export async function plugins(
     origin,
     lumovi,
     allowed,
+    fromStore,
     ...[read.files, read.included ?? [], read.includedCode ?? []].map((files) =>
       files.map(({ name, digest, error }) => [name, digest ?? error]),
     ),
@@ -92,13 +107,20 @@ export async function plugins(
     LUMOVI_TEST_BUILD && read.included
       ? Object.fromEntries(read.included.map((file) => [file.name, file.text]))
       : {}
-  const included = readIncluded({ ...SHIPPED, ...standIns }, OWN)
+  // (An installed one is in place of Lumovi's own of its name, its code too: or of none.)
+  const installedNames = new Set(
+    Object.keys(fromStore?.files ?? {}).map((file) => file.replace(/\.yaml$/, '')),
+  )
+  const included = readIncluded({ ...SHIPPED, ...standIns, ...fromStore?.files }, OWN)
   // Their code, by its file's name; the tests' stand-ins' beside theirs.
   const codes = Object.fromEntries([
-    ...Object.entries(SHIPPED_CODE),
+    ...Object.entries(SHIPPED_CODE).filter(
+      ([file]) => !installedNames.has(file.replace(/\.js$/, '')),
+    ),
     ...(LUMOVI_TEST_BUILD && read.includedCode
       ? read.includedCode.filter((file) => !file.error).map((file) => [file.name, file.text])
       : []),
+    ...Object.entries(fromStore?.codes ?? {}),
   ])
   // One of Lumovi's own: the bytes of its file are its text as UTF-8, which the release's index
   // pins and the build checked (a test holds it of every one of them, and of their code).
@@ -109,10 +131,11 @@ export async function plugins(
     lumovi,
     (text) => digestOf(utf8.encode(text)),
     codes,
+    installedNames,
   )
   // (Only those the policy names: any other isn't there.)
   const known = allowed.names
-    ? Object.freeze(all.filter((plugin) => allowed.names!.includes(plugin.name)))
+    ? Object.freeze(all.filter((plugin) => allowedBy(allowed.names, plugin.name, plugin.version)))
     : all
   last = { mark, from, known }
   return known

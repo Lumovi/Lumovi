@@ -106,6 +106,14 @@ export async function readPlugins(
     directory: directory.shown,
     files: page(read.files),
     ...(read.included ? { included: page(read.included) } : {}),
+    // (Which of them have code beside them: never the code itself, which is handed over.)
+    ...(read.includedCode
+      ? {
+          includedCoded: read.includedCode
+            .filter((file) => !file.error)
+            .map((file) => file.name.replace(CODE, '')),
+        }
+      : {}),
   }
 }
 

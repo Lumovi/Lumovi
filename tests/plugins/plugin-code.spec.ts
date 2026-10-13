@@ -29,10 +29,12 @@ const server = (held: boolean, check?: 'passed' | 'failed' | 'unfinished'): Hand
 })
 
 test('code is handed only where every wall holds, and the first that doesn’t says why', () => {
-  // The desktop: one of Lumovi's own, in use, with code.
+  // The desktop: one of Lumovi's own, in use, with code; or one installed from Lumovi-plugins,
+  // checked as Lumovi's own are.
   expect(mayHandOver(plugin(), DESKTOP)).toBe(true)
+  expect(mayHandOver(plugin({ origin: 'installed' }), DESKTOP)).toBe(true)
   // Not one Lumovi has, or one whose code it doesn't run (a folder's file is data).
-  for (const origin of ['yours', 'server', 'installed'] as const) {
+  for (const origin of ['yours', 'server'] as const) {
     expect(mayHandOver(plugin({ origin }), DESKTOP), origin).toBe('not-in-use')
   }
   expect(mayHandOver(undefined, DESKTOP)).toBe('not-in-use')

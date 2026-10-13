@@ -22,6 +22,7 @@ import {
   type SettingsAccess,
 } from '@backend/settings'
 import { checkedClusterSettings, type ClusterSettings } from '@shared/cluster-settings'
+import type { InstalledCopy, InstalledRecord } from '@shared/plugin-store'
 import { PLUGIN_NAME } from '@shared/plugins'
 import { NO_POLICY, type Policy } from './policy'
 
@@ -147,6 +148,16 @@ export class SettingsStore implements SettingsAccess {
     return this.#settings.pluginStoreSerial ?? 0
   }
 
+  /** The plugins installed from Lumovi-plugins, as they were agreed to. */
+  pluginsInstalled(): Readonly<Record<string, InstalledRecord>> {
+    return this.#settings.pluginsInstalled ?? {}
+  }
+
+  /** Keeps them, as the installer leaves them. */
+  setPluginsInstalled(records: Record<string, InstalledRecord>): void {
+    this.update({ pluginsInstalled: records })
+  }
+
   /** Keeps a release's serial, where it's higher than any taken before. */
   acceptPluginStoreSerial(serial: number): void {
     if (serial > this.pluginStoreSerial()) this.update({ pluginStoreSerial: serial })
@@ -244,6 +255,9 @@ export class SettingsStore implements SettingsAccess {
         aiPermissions,
         // Each plugin's, as it was chosen: one that doesn't make sense is as if never chosen.
         ...pluginCodeOf(stored.pluginCode),
+        // Each installed plugin's record, as it was kept: one that doesn't make sense is as if
+        // never installed (Lumovi's own, or none, is used).
+        ...installedOf(stored.pluginsInstalled),
         // (One that isn't a whole number is as if none was taken: the built-in release's holds.)
         ...(Number.isSafeInteger(stored.pluginStoreSerial) && stored.pluginStoreSerial! > 0
           ? { pluginStoreSerial: stored.pluginStoreSerial }
@@ -280,6 +294,56 @@ function pluginCodeOf(value: unknown): { pluginCode?: Record<string, boolean> } 
     ),
   ) as Record<string, boolean>
   return Object.keys(chosen).length > 0 ? { pluginCode: chosen } : {}
+}
+
+const HEX64 = /^[0-9a-f]{64}$/
+const THREE_NUMBERS = /^\d+\.\d+\.\d+$/
+
+/** A copy of an installed plugin as it was kept, if it makes sense. */
+function copyOf(value: unknown): InstalledCopy | undefined {
+  const copy = value as Partial<InstalledCopy> | undefined
+  if (typeof copy !== 'object' || copy === null) return undefined
+  const files = copy.files as Record<string, unknown> | undefined
+  const sound =
+    typeof copy.version === 'string' &&
+    THREE_NUMBERS.test(copy.version) &&
+    typeof copy.release === 'string' &&
+    THREE_NUMBERS.test(copy.release) &&
+    typeof copy.asks === 'string' &&
+    HEX64.test(copy.asks) &&
+    typeof copy.at === 'string' &&
+    typeof files === 'object' &&
+    files !== null &&
+    typeof files['plugin.yaml'] === 'string' &&
+    Object.entries(files).every(
+      ([path, sha]) =>
+        (path === 'plugin.yaml' || path === 'plugin.js') &&
+        typeof sha === 'string' &&
+        HEX64.test(sha),
+    )
+  return sound
+    ? {
+        version: copy.version!,
+        release: copy.release!,
+        files: { ...(files as Record<string, string>) },
+        asks: copy.asks!,
+        at: copy.at!,
+      }
+    : undefined
+}
+
+/** The installed plugins' records that make sense, as kept (none: left out). */
+function installedOf(value: unknown): { pluginsInstalled?: Record<string, InstalledRecord> } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const records = Object.fromEntries(
+    Object.entries(value).flatMap(([name, record]) => {
+      const current = copyOf((record as Partial<InstalledRecord> | null)?.current)
+      if (!PLUGIN_NAME.test(name) || !current) return []
+      const kept = copyOf((record as Partial<InstalledRecord>).kept)
+      return [[name, { current, ...(kept && kept.version !== current.version ? { kept } : {}) }]]
+    }),
+  )
+  return Object.keys(records).length > 0 ? { pluginsInstalled: records } : {}
 }
 
 /** Whether a setting is a list of files, each where it is. */

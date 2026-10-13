@@ -59,7 +59,7 @@ function byKind(views: View[]): Map<ResourceKind, View> {
 export function loadShippedPlugins(
   files: Record<string, string>,
   own: Record<string, string> = {},
-  allowed: (name: string) => boolean = () => true,
+  allowed: (name: string, version: string) => boolean = () => true,
 ): string[] {
   shipped.clear()
   shippedPlugins.clear()
@@ -79,7 +79,9 @@ export function loadShippedPlugins(
   for (const [path, text] of Object.entries(files)) {
     // (Lumovi's own: the ones whose files may carry code.)
     const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds, carriesCode: true })
-    if (parsed.plugin && allowed(parsed.plugin.name)) read.push(parsed.plugin)
+    if (parsed.plugin && allowed(parsed.plugin.name, parsed.plugin.version)) {
+      read.push(parsed.plugin)
+    }
     problems.push(...parsed.problems)
   }
   const lost = clashes(read)
