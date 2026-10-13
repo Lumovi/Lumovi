@@ -24,6 +24,7 @@ export const PLUGIN_SINCE = {
     showsSecrets: 'next',
     /** A view's `manages`: how an object of its kind says it manages another. */
     manages: 'next',
+    changes: 'next',
   },
   /** What a read can ask beyond a kind's list or one object of it. */
   read: {

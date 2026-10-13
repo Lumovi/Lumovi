@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
+import type { ChangeAction } from '@shared/plugin-changes'
 import { notHandedLine } from '@shared/plugin-hand-over'
 import type { Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
@@ -630,10 +631,32 @@ function WhatItAsks({ plugin, names }: { plugin: Plugin; names: Names }) {
   )
 }
 
+/** How a plugin's page may propose a change, as the Plugins page says it. */
+const PROPOSES: Record<ChangeAction, string> = {
+  patch: 'change',
+  create: 'create',
+  delete: 'delete',
+  scale: 'scale',
+}
+
 function MayChange({ asked, names }: { asked: Asks; names: Names }) {
-  if (asked.actions.length === 0) return <p>Nothing. It has no actions.</p>
+  // (Its pages run in the tests' build alone so far: a release says nothing of what they propose.)
+  const proposes = LUMOVI_TEST_BUILD && asked.changes.length > 0 && (
+    <p data-plugin-proposes="">
+      Its pages may propose to{' '}
+      {listed(
+        asked.changes.map(
+          ({ kind, actions }) =>
+            `${listed(actions.map((action) => PROPOSES[action]))} ${names.plural(kind)}`,
+        ),
+      )}
+      , each change one you confirm in Lumovi.
+    </p>
+  )
+  if (asked.actions.length === 0) return proposes || <p>Nothing. It has no actions.</p>
   return (
     <div className="space-y-2">
+      {proposes}
       <p>Only the kinds it shows:</p>
       <p className="font-mono text-xs leading-5 text-ink-1">
         {asked.kinds.map(names.bare).join(', ')}

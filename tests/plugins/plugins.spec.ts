@@ -1267,6 +1267,75 @@ test('a plugin’s code says what it reads of Kubernetes’ own kinds, by the do
   ).toBe('')
 })
 
+test('a plugin’s pages propose changes only to its own kinds, and only as its file says', () => {
+  /** A plugin of Argo CD's Applications whose pages propose `changes`; one that came inside Lumovi unless said. */
+  const plugin = (changes: string | undefined, carriesCode = true) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [argoproj.io]',
+        '  views:',
+        '    - kinds: [{ group: argoproj.io, kind: Application }, { group: argoproj.io, kind: AppProject }]',
+        ...(changes === undefined ? [] : [`  changes: ${changes}`]),
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [], carriesCode },
+    )
+  const said = (changes: string) => plugin(changes).problems.join('\n')
+  const APP = 'group: argoproj.io, kind: Application'
+  const example = plugin(`[{ ${APP}, actions: [patch, delete] }]`)
+  expect(example.problems).toEqual([])
+  expect(example.plugin!.changes).toEqual([
+    { kind: 'argoproj.io/Application', actions: ['patch', 'delete'] },
+  ])
+  // What the Plugins page says its pages may propose: each kind as Lumovi names it.
+  expect(asks(example.plugin!).changes).toEqual([
+    { kind: 'Application.argoproj.io', actions: ['patch', 'delete'] },
+  ])
+  // A file that says none proposes none; a folder's file has no pages, so it proposes nothing.
+  expect(plugin(undefined).plugin!.changes).toEqual([])
+  expect(plugin(`[{ ${APP}, actions: [patch] }]`, false).problems).toEqual([
+    'probe.yaml: spec.changes: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they propose',
+  ])
+  const at = 'probe.yaml: spec.changes[0]'
+  for (const [changes, problem] of [
+    ['{}', 'probe.yaml: spec.changes: should be a list, not an object'],
+    ['[]', 'probe.yaml: spec.changes: should not be empty'],
+    [`[{ ${APP} }]`, `${at}.actions: is required`],
+    [`[{ ${APP}, actions: [] }]`, `${at}.actions: should not be empty`],
+    [
+      `[{ ${APP}, actions: [restart] }]`,
+      `${at}.actions: "restart" should be one of patch, create, delete, scale`,
+    ],
+    [`[{ ${APP}, actions: [patch, patch] }]`, `${at}.actions: each once`],
+    [
+      '[{ group: argoproj.io, kind: "*", actions: [patch] }]',
+      `${at}: a change is proposed to kinds named one by one: never every kind of a group`,
+    ],
+    // Never a kind it doesn't claim: Kubernetes' own, or another tool's.
+    [
+      '[{ group: apps, kind: Deployment, actions: [patch] }]',
+      `${at}: Deployment isn’t one of this plugin’s own kinds: a plugin proposes changes only to its own`,
+    ],
+    ['[{ kind: Secret, group: "", actions: [patch] }]', ''],
+    [
+      `[{ ${APP}, actions: [patch] }, { ${APP}, actions: [delete] }]`,
+      'probe.yaml: spec.changes[1]: Application.argoproj.io is said once',
+    ],
+  ] as const) {
+    if (problem === '') expect(said(changes), changes).not.toBe('')
+    else expect(said(changes), changes).toBe(problem)
+  }
+  expect(
+    said(`[${Array.from({ length: 21 }, () => `{ ${APP}, actions: [patch] }`).join(', ')}]`),
+  ).toContain('spec.changes: holds 21, and a file says 20 at most')
+})
+
 test('a plugin’s pages show a Secret an object of its own kind names, by a path and keys its file declares', () => {
   /** A plugin of cert-manager's Certificates whose pages show `shows`; one that came inside Lumovi unless said. */
   const plugin = (shows: string | undefined, carriesCode = true) =>

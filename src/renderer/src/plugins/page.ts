@@ -12,6 +12,12 @@ import {
   type Part,
   type Swap,
 } from '@shared/kit/declare'
+import {
+  PROPOSE_AT_MOST,
+  proposalProblem,
+  type PageProposal,
+  type ProposalOutcome,
+} from '@shared/plugin-changes'
 import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
 import { callOf, swapFor, unnamedLine, type Destination } from '@shared/plugin-presses'
@@ -146,6 +152,26 @@ function askIn(text: string): object | undefined {
 const ASK_AT_MOST = 4096
 
 /**
+ * Of what a plugin sent, a proposal of a change: an object that says it's one. (Looked for before
+ * an ask: a proposal can be longer than any ask, and isn't one.)
+ */
+function proposalIn(text: string): object | undefined {
+  if (text.length > PROPOSE_AT_MOST || !text.includes('"propose"')) return undefined
+  let read: unknown
+  try {
+    read = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  return typeof read === 'object' &&
+    read !== null &&
+    !Array.isArray(read) &&
+    Object.hasOwn(read, 'propose')
+    ? read
+    : undefined
+}
+
+/**
  * Opens the page of the plugin named `plugin` (its box's address), from its `code`. What it
  * reads, it reads in `context`.
  */
@@ -171,6 +197,11 @@ export function openPage(options: {
   opening?: { page: string } | { tab: string; object: ObjectRef }
   /** Lumovi's own open of what a press named: where its door says, and nowhere else. */
   open?: (to: Destination) => void
+  /**
+   * Lumovi's own dialog for a change the page proposes, right after a press: what became of it.
+   * None, and every proposal is refused.
+   */
+  propose?: (proposal: PageProposal) => Promise<ProposalOutcome>
 }): OpenPage {
   const kinds: ReadonlySet<string> = new Set(options.kinds)
   const declared = Object.fromEntries(
@@ -272,7 +303,12 @@ export function openPage(options: {
     drawn?: Readonly<Record<string, unknown>>,
   ) => {
     if (page.end) return
-    const call = callOf(options.parts[part]!.declared, event, handle, written(carries), drawn)
+    // (Each press has its token, made only for a press that's sent: a change the page proposes
+    // right after carries it.)
+    const call = callOf(options.parts[part]!.declared, event, handle, written(carries), {
+      ...(drawn && { drawn }),
+      press: () => reading.tokens.pressed(Date.now()),
+    })
     if (call !== undefined) box.post(call)
   }
   const swapOf = (part: string): Swap => {
@@ -315,6 +351,8 @@ export function openPage(options: {
     code: options.code,
     heard(text) {
       if (page.end) return
+      const proposal = proposalIn(text)
+      if (proposal !== undefined) return void propose(proposal)
       const ask = askIn(text)
       const taken = ask === undefined ? page.tree.take(text) : reading.ask(ask)
       if (taken && 'why' in taken) {
@@ -325,6 +363,55 @@ export function openPage(options: {
     },
     ended: (end) => ended(boxEnd(end)),
   })
+  // A change the page proposes: checked by the door, then the person's to confirm in Lumovi's own
+  // dialog. The page is told only what became of it.
+  let refusalSaid = false
+  const propose = async (said: object) => {
+    const answer = (id: number, outcome: ProposalOutcome) => {
+      if (!page.end) box.post(JSON.stringify({ proposed: id, outcome }))
+    }
+    const refuse = (id: number | undefined, why: string) => {
+      // (For whoever writes the plugin, once a page; the line quotes nothing it wrote.)
+      if (!refusalSaid) {
+        refusalSaid = true
+        console.warn(
+          `Lumovi refused a change the page of the plugin ${options.plugin} proposed: ${why}`,
+        )
+      }
+      if (id !== undefined) answer(id, 'refused')
+    }
+    const proposed = proposalProblem(said)
+    if (typeof proposed === 'string') {
+      const { propose: id } = said as { propose?: unknown }
+      return refuse(
+        typeof id === 'number' && Number.isSafeInteger(id) && id >= 1 ? id : undefined,
+        proposed,
+      )
+    }
+    if (!reading.tokens.spendPress(proposed.press, Date.now())) {
+      return refuse(
+        proposed.id,
+        'it follows no press of the person’s, or one already spent or gone (a press is good once, for a moment)',
+      )
+    }
+    const target =
+      proposed.target === undefined ? undefined : reading.tokens.objectOf(proposed.target)
+    const within = proposed.in === undefined ? undefined : reading.tokens.objectOf(proposed.in)
+    if ((proposed.target !== undefined && !target) || (proposed.in !== undefined && !within)) {
+      return refuse(proposed.id, 'it names an object this page doesn’t hold')
+    }
+    if (!options.propose) return refuse(proposed.id, 'nothing here asks the person')
+    answer(
+      proposed.id,
+      await options.propose({ proposed, ...(target && { target }), ...(within && { within }) }),
+    )
+  }
+  // A press is let go of once the page is hidden: nothing proposed after can follow it.
+  const hidden = () => {
+    if (document.visibilityState === 'hidden') reading.tokens.letPressGo()
+  }
+  document.addEventListener('visibilitychange', hidden)
+
   // What its code is told first: which page, or which tab and its object (read first, as its own
   // kind is). (Sent before the box is there, it waits in the box's channel for its code.)
   if (options.opening && 'page' in options.opening) {
@@ -341,6 +428,7 @@ export function openPage(options: {
   stopListening = () => {
     stopEnded?.()
     stopFailed?.()
+    document.removeEventListener('visibilitychange', hidden)
   }
   return page
 }

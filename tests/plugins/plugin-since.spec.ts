@@ -22,7 +22,7 @@ const older = (a: string, b: string) => {
 test('every part a page may name, and everything a file can add, has the release that first carried it', () => {
   expect(Object.keys(PLUGIN_SINCE.parts).sort()).toEqual(Object.keys(DECLARED).sort())
   const added: Record<keyof Added, true> = { pages: true, tabs: true, commands: true }
-  for (const key of [...Object.keys(added), 'reads', 'showsSecrets', 'manages']) {
+  for (const key of [...Object.keys(added), 'reads', 'showsSecrets', 'manages', 'changes']) {
     expect(Object.hasOwn(PLUGIN_SINCE.file, key), key).toBe(true)
   }
   const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }

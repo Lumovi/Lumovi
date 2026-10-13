@@ -34,6 +34,7 @@ import { Button } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { MOD_KEY } from '@renderer/components/Kbd'
+import { APPROVE_MOMENT_MS } from '@renderer/lib/confirm-moment'
 import { sheetBody, sheetFrame, SheetGrabber, sheetHeader } from '@renderer/components/Sheet'
 import { WithinLines } from '@renderer/components/WithinLines'
 import { refreshAfterChange } from '@renderer/hooks/change'
@@ -213,7 +214,7 @@ function said(lead: string, what: string, name: string, context: string): Said {
 const all = (sentence: Said) => ({ approval: sentence, action: sentence, other: sentence })
 
 /** The object as the diff shows it: what's set, not what the server keeps (Lumovi hid Secrets' values). */
-function forDiff(object: KubeObject | null): string {
+export function forDiff(object: KubeObject | null): string {
   if (!object) return ''
   const { status: _status, ...rest } = object
   const {
@@ -527,12 +528,6 @@ function ApprovalDialog({
   )
 }
 
-/**
- * How long Approve can't be pressed after a request's sheet opens, or changes to the next one
- * in the queue: a tap meant for what was there a moment ago (the pill, the request before)
- * answers nothing. A tap in that time is dropped, not kept for after.
- */
-const APPROVE_MOMENT_MS = 600
 /**
  * Where the moment applies, besides wherever the page is used by touch (a finger is what taps
  * astray, whatever the screen's width): add 'tablet' and 'wide' for it everywhere.

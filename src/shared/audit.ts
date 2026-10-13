@@ -58,6 +58,8 @@ export const AUDIT_ACTIONS = {
   'plugin.code': 'access',
   // Lumovi's check of a plugin's box in a browser: what every hand-over there rests on.
   'plugin.box-check': 'access',
+  // A change a plugin's page proposed, made (or not) once the person confirmed it in Lumovi.
+  'plugin.change': 'change',
   // Signing in to a server, and out.
   'session.sign-in': 'sign-in',
   'session.sign-out': 'sign-in',
