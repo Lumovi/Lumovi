@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { CONTEXTS, expect, openCluster, panel, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const TOYS = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
@@ -124,6 +125,14 @@ const AT_ONE = `box.then(({ post, listen }) => {
         tile('widget', 'One widget', { list: 'example.com/Widget', name: '${CUSTOM.widget}' }),
       ] }],
       ['put', 0, 1],
+      // A table's rows, as a plugin's own list of what it manages: one goes to its Deployment,
+      // and one that's missing goes nowhere.
+      ['make', 2, 'Table', { title: 'Resources', headings: true, columns: [{ name: 'Health', kind: 'text' }], rows: [
+        { key: 'cart', lead: { name: 'cart', under: 'Deployment · shop' }, cells: [{ kind: 'text', text: 'Healthy' }],
+          goes: { list: 'apps/Deployment', name: 'cart', namespace: 'shop' } },
+        { key: 'lost', lead: { name: 'lost', under: 'Deployment · shop' }, cells: [{ kind: 'text', text: 'Missing' }] },
+      ] }],
+      ['put', 0, 2],
     ] }))
   })
 })
@@ -243,6 +252,23 @@ test('a tile opens Lumovi’s list at one object, of a kind its file says its pa
     .toBe(`#/cluster/${CONTEXTS.demo}/deployments`)
   await expect(note).toHaveCount(0)
   await expect(grid.getByRole('row').filter({ hasText: 'checkout' })).toHaveCount(1)
+
+  // A table's row that goes to one: the same list, at its object; one that goes nowhere is quiet.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  const resources = body(page).getByRole('grid', { name: 'Resources' })
+  await resources.getByRole('row', { name: /^lost/ }).click()
+  await holds(
+    async () =>
+      (await page.evaluate(() => window.location.hash)) ===
+      `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`,
+    300,
+    'a row that goes nowhere stays where it is',
+  )
+  await resources.getByRole('row', { name: /^cart/ }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toBe(`#/cluster/${CONTEXTS.demo}/deployments?name=cart&ns=shop&plugin=toys`)
+  await expect.poll(() => read(note)).toContain('name cart · namespace shop')
 
   // One that isn't there, or that the person can't see: said so.
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)

@@ -17,6 +17,7 @@ import type { Health } from '../health'
 import {
   choice,
   cut,
+  destination,
   handler,
   list,
   number,
@@ -129,6 +130,12 @@ const ROW = {
   note: line,
   /** The object it opens. A row with one is pressed whole. */
   opens: object,
+  /**
+   * Or a list of Lumovi's own it goes to, as a tile does: one object of a kind its plugin's file
+   * says its pages open, say, where the plugin read no object to open. Pressed whole, as one that
+   * opens.
+   */
+  goes: destination,
 } as const
 
 /** A row inside a row: everything a row has, but rows of its own. */
@@ -260,6 +267,8 @@ interface WrittenRow {
   key: string
   cells: { kind: string }[]
   rest?: { from: number }
+  opens?: unknown
+  goes?: unknown
 }
 
 /**
@@ -290,6 +299,9 @@ export function tableProblem(written: Readonly<Record<string, unknown>>): string
       }
       const wrong = cellsProblem(each, columns, here)
       if (wrong) return wrong
+      if (each.opens !== undefined && each.goes !== undefined) {
+        return `${here} opens an object and goes to a list: a row is pressed for one of them.`
+      }
     }
   }
   return undefined

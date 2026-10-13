@@ -27,7 +27,7 @@ import {
 } from 'react'
 import type { Health } from '@shared/health'
 import { inPieces, spelled, type Piece } from '@shared/kit/characters'
-import type { ObjectRef, Their } from '@shared/kit/declare'
+import type { ListDestination, ObjectRef, Their } from '@shared/kit/declare'
 import { GRAPH_LIMITS, type GraphProps } from '@shared/kit/graph'
 import type { ResourceKind } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
@@ -80,7 +80,7 @@ export function Graph({
   onRetry,
 }: GraphProps & {
   /** Opens the object a card names: Lumovi's own to do, never the plugin's (and not declared). */
-  go?: (object: ObjectRef) => void
+  go?: (to: ObjectRef | ListDestination) => void
 }) {
   const phone = useLayout() === 'phone'
   // Inside a card, which says the title: no frame or heading of its own.

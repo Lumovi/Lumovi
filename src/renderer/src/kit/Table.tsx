@@ -43,7 +43,7 @@ import {
 } from 'react'
 import type { Health } from '@shared/health'
 import { inPieces, spelled, type Piece } from '@shared/kit/characters'
-import type { Their } from '@shared/kit/declare'
+import type { ListDestination, Their } from '@shared/kit/declare'
 import {
   COLUMN_KINDS,
   type ObjectRef,
@@ -422,8 +422,11 @@ export function Table({
 }: Omit<TableProps, 'rows'> & {
   /** A plugin's rows (`TableProps['rows']`), or a graph's, which nest deeper. */
   rows: readonly DrawnRow[]
-  /** Opens the object a row names: Lumovi's own to do, never the plugin's (and not declared). */
-  go?: (object: ObjectRef) => void
+  /**
+   * Opens the object a row names, or the list it goes to: Lumovi's own to do, never the plugin's
+   * (and not declared).
+   */
+  go?: (to: ObjectRef | ListDestination) => void
   /** Its rows alone, inside a part that's its own card and says its title and count (Graph). */
   bare?: boolean
   /** Rows that hold rows start open: where a filter has kept what's inside them (Graph). */
@@ -642,8 +645,9 @@ export function Table({
   }, [going, lines, windowed, virtualizer, id])
   const open = (line: Extract<Line, { is: 'row' }>) => {
     if (line.row.again) return goFirst(line.row.again.first)
-    if (!line.row.opens) return
-    go?.(line.row.opens)
+    const to = line.row.opens ?? line.row.goes
+    if (!to) return
+    go?.(to)
     onOpen?.({ row: line.row.key })
   }
   /**
@@ -1036,7 +1040,7 @@ export function Table({
                   className={cn(
                     'grid items-center gap-x-4 rounded-lg px-2 py-2',
                     row.note?.their && 'content-start items-start gap-y-0.5',
-                    row.opens && 'cursor-default hover:bg-surface-3/60',
+                    (row.opens || row.goes) && 'cursor-default hover:bg-surface-3/60',
                     // The ring of the keyboard, when the table has the focus.
                     active === index &&
                       'group-focus-visible/table:ring-2 group-focus-visible/table:ring-accent',
@@ -1464,7 +1468,7 @@ function Card({
       style={{ paddingLeft: Math.min(line.depth, PHONE_DEEPEST) * PHONE_INDENT }}
     >
       <Deeper depth={line.depth} deepest={PHONE_DEEPEST} step={PHONE_INDENT} />
-      {row.opens && tapped ? (
+      {(row.opens || row.goes) && tapped ? (
         // A row that opens is the whole card: under its facts, where one is tapped on its own.
         <div className="relative min-w-0 flex-1">
           <button
@@ -1479,7 +1483,7 @@ function Card({
             {body}
           </div>
         </div>
-      ) : row.opens ? (
+      ) : row.opens || row.goes ? (
         // A row that opens is the whole card.
         <button
           type="button"
