@@ -165,7 +165,13 @@ export function PortForwardDialog({ object, onClose }: ActionProps) {
   const kind = object.kind as ForwardKind
   const { name, namespace } = object.metadata
   const ports = portsOf(object)
-  const [port, setPort] = useState(ports[0]?.port ?? 8080)
+  // (A plugin's link may name the port to fill in: one of the object's, or it starts as it would.)
+  const asked = useActionsUi((state) => state.active)
+  const [port, setPort] = useState(
+    asked?.port !== undefined && ports.some((each) => each.port === asked.port)
+      ? asked.port
+      : (ports[0]?.port ?? 8080),
+  )
   const [local, setLocal] = useState(localFor(port))
   const [browser, setBrowser] = useState(false)
   const { pending, error, submit } = useSubmit(onClose)
@@ -202,6 +208,7 @@ export function PortForwardDialog({ object, onClose }: ActionProps) {
             name,
             port,
             localPort: local,
+            ...(asked?.via ? { via: asked.via } : {}),
           })
           if (result.ok) {
             const url = `http://localhost:${result.data.localPort}`

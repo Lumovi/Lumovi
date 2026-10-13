@@ -13,15 +13,18 @@ import {
   useContext,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
 import { spelled } from '@shared/kit/characters'
+import type { ListDestination, ReachDestination } from '@shared/kit/declare'
 import { BUTTONS_SHOWN, type HeaderButton, type HeaderProps } from '@shared/kit/page'
 import { Button } from '@renderer/components/Button'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
+import { offered, REACH_ICONS, reachTip } from '@renderer/plugins/reach'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { menuContent, menuItem } from '../features/shell/menu-styles'
 import { fitKey, fromFitKey } from './fit-key'
@@ -38,12 +41,23 @@ const called = (button: HeaderButton) => `${spelled(button.name.their)}${button.
  * A button's name as it's drawn, the plugin's in pieces: one that asks first ends in "…", right
  * against it (one text, so a button's gap never comes between them).
  */
-const drawn = (button: HeaderButton) => (
-  <span>
-    <TheirText text={button.name} inline />
-    {button.asks && '…'}
-  </span>
-)
+const drawn = (button: HeaderButton) => {
+  // (One that goes to a place of Lumovi's has Lumovi's icon for it before the plugin's word.)
+  const Icon = button.goes?.to === 'reach' ? REACH_ICONS[button.goes.at] : undefined
+  return (
+    <>
+      {Icon && <Icon aria-hidden />}
+      <span>
+        <TheirText text={button.name} inline />
+        {button.asks && '…'}
+      </span>
+    </>
+  )
+}
+
+/** Where a button that goes somewhere goes, in Lumovi's words: its tooltip. */
+const goesTip = (button: HeaderButton) =>
+  button.goes?.to === 'reach' ? reachTip(button.goes) : undefined
 
 /** How many names the phone's line says before "and N more". */
 const NAMED_AT_MOST = 5
@@ -138,6 +152,28 @@ function Action({
   onPress: () => void
 }) {
   const reason = useId()
+  const tip = goesTip(button)
+  if (tip) {
+    // (A link: never the filled one, and where it goes is Lumovi's to say.)
+    return (
+      <>
+        <Tooltip content={tip}>
+          <Button
+            variant="secondary"
+            className={className}
+            aria-label={called(button)}
+            aria-describedby={reason}
+            onClick={onPress}
+          >
+            {drawn(button)}
+          </Button>
+        </Tooltip>
+        <span id={reason} hidden>
+          {tip}
+        </span>
+      </>
+    )
+  }
   if (!button.off) {
     return (
       <Button variant={variant} className={className} aria-label={called(button)} onClick={onPress}>
@@ -175,7 +211,12 @@ function Folded({ button, onPress }: { button: HeaderButton; onPress: () => void
   const reason = useId()
   if (!button.off) {
     return (
-      <DropdownMenu.Item className={menuItem} aria-label={called(button)} onSelect={onPress}>
+      <DropdownMenu.Item
+        className={menuItem}
+        aria-label={called(button)}
+        {...(goesTip(button) ? { title: goesTip(button) } : {})}
+        onSelect={onPress}
+      >
         {drawn(button)}
       </DropdownMenu.Item>
     )
@@ -271,14 +312,32 @@ function OnALargerScreen({ buttons }: { buttons: readonly HeaderButton[] }) {
 export function PageHeader({
   header,
   onPress,
+  go,
 }: {
   header: HeaderProps
   onPress?: HeaderProps['onPress']
+  /** Lumovi's own open of where a button goes: never told to the plugin. */
+  go?: (to: ListDestination | ReachDestination) => void
 }) {
-  const phone = useLayout() === 'phone'
+  const layout = useLayout()
+  const phone = layout === 'phone'
   const namedAbove = useContext(NamedAbove)
-  const buttons = header.buttons ?? NO_BUTTONS
-  const press = (button: HeaderButton) => onPress?.({ button: button.key })
+  const all = header.buttons ?? NO_BUTTONS
+  // (One that goes to a place Lumovi doesn't have here isn't drawn: a forward on a server; on a
+  // phone, a shell's joins the line that says where the changes are.)
+  const elsewhereHere = (button: HeaderButton) =>
+    button.goes?.to === 'reach' && button.goes.at === 'shell' && phone
+  const buttons = useMemo(
+    () =>
+      all.filter(
+        (button) =>
+          button.goes?.to !== 'reach' || offered(button.goes.at, layout) || elsewhereHere(button),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- (`elsewhereHere` is of `phone`.)
+    [all, layout, phone],
+  )
+  const press = (button: HeaderButton) =>
+    button.goes ? go?.(button.goes) : onPress?.({ button: button.key })
   // How many buttons the desktop's row has room for, measured as it's laid out and whenever its
   // width changes.
   const groupRef = useRef<HTMLDivElement>(null)
@@ -323,8 +382,8 @@ export function PageHeader({
   )
 
   if (phone) {
-    const offered = buttons.filter((button) => !button.changes)
-    const elsewhere = buttons.filter((button) => button.changes)
+    const here = buttons.filter((button) => !button.changes && !elsewhereHere(button))
+    const elsewhere = buttons.filter((button) => button.changes || elsewhereHere(button))
     return (
       <div role="group" aria-label={named} className="flex flex-col items-start gap-3">
         {!namedAbove && (
@@ -336,9 +395,9 @@ export function PageHeader({
         {detail}
         {elsewhere.length > 0 && <OnALargerScreen buttons={elsewhere} />}
         <Notes buttons={buttons} named />
-        {offered.length > 0 && (
+        {here.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {offered.map((button) => (
+            {here.map((button) => (
               <Action
                 key={keyOf(button)}
                 button={button}

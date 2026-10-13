@@ -987,6 +987,18 @@ export interface Revision {
   current: boolean
 }
 
+/**
+ * Which plugin's page brought the person to one of Lumovi's own places (a link, `spec.links`):
+ * how they got there, which the audit says. The person does there what they do; the plugin does
+ * nothing.
+ */
+export interface PluginVia {
+  plugin: string
+  version: string
+  /** Its name as a person reads it: what the history says. */
+  label: string
+}
+
 /** A shell in one of a pod's containers (`kubectl exec -it`). */
 export interface ContainerShellRequest {
   target: 'container'
@@ -994,6 +1006,8 @@ export interface ContainerShellRequest {
   namespace: string
   pod: string
   container: string
+  /** Started on the Shell tab a plugin's link opened. */
+  via?: PluginVia
 }
 
 /**
@@ -1053,6 +1067,8 @@ export interface PortForwardRequest {
   port: number
   /** Where to listen on this machine; a free port is picked when omitted. */
   localPort?: number
+  /** Started from the Port forward dialog a plugin's link opened. */
+  via?: PluginVia
 }
 
 export interface PortForward {

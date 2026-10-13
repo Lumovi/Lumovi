@@ -1401,6 +1401,51 @@ test('a plugin’s pages open Lumovi’s lists of Kubernetes’ own kinds only a
   ).toContain('spec.opens: holds 21, and a file says 20 at most')
 })
 
+test('a plugin’s pages link to Lumovi’s own places only as its file says', () => {
+  /** A plugin of Argo CD's Applications whose pages link to `links`; one that came inside Lumovi unless said. */
+  const plugin = (links: string | undefined, carriesCode = true) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [argoproj.io]',
+        '  views:',
+        '    - kinds: [{ group: argoproj.io, kind: Application }]',
+        ...(links === undefined ? [] : [`  links: ${links}`]),
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [], carriesCode },
+    )
+  const said = (links: string) => plugin(links).problems.join('\n')
+  expect(plugin('[logs, shell, port-forward]').problems).toEqual([])
+  expect(plugin('[logs, shell, port-forward]').plugin!.links).toEqual([
+    'logs',
+    'shell',
+    'port-forward',
+  ])
+  // A file that says none links to none; a folder's file has no pages, so it links nowhere.
+  expect(plugin(undefined).plugin!.links).toEqual([])
+  expect(plugin('[logs]', false).problems).toEqual([
+    'probe.yaml: spec.links: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say where they link',
+  ])
+  for (const [links, problem] of [
+    ['[]', 'probe.yaml: spec.links: should not be empty'],
+    ['logs', 'probe.yaml: spec.links: should be a list of logs, shell, port-forward, not a string'],
+    // Never a place a plugin could start something in, nor an address.
+    [
+      '[exec]',
+      'probe.yaml: spec.links[0]: should be one of logs, shell, port-forward, not a string',
+    ],
+    ['[logs, logs]', 'probe.yaml: spec.links[1]: logs is said once'],
+  ] as const) {
+    expect(said(links), links).toBe(problem)
+  }
+})
+
 test('a plugin’s pages show a Secret an object of its own kind names, by a path and keys its file declares', () => {
   /** A plugin of cert-manager's Certificates whose pages show `shows`; one that came inside Lumovi unless said. */
   const plugin = (shows: string | undefined, carriesCode = true) =>

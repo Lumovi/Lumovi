@@ -4,7 +4,7 @@
  * Lumovi's own pages of a plugin (`PluginBody`) open one here, and so does the tests' stage.
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { ObjectRef } from '@shared/kit/declare'
+import type { ObjectRef, Reach } from '@shared/kit/declare'
 import type { PageProposal, ProposalOutcome } from '@shared/plugin-changes'
 import type { PluginCode } from '@shared/plugin-hand-over'
 import type { Destination } from '@shared/plugin-presses'
@@ -37,6 +37,8 @@ export interface Opening {
   kinds?: readonly string[]
   /** Those its file says its pages open (`spec.opens`): what its parts may open at one object. */
   opens?: readonly string[]
+  /** Lumovi's own places its file says its pages link to (`spec.links`). */
+  links?: readonly Reach[]
   /** Lumovi's own open of what a press named: an object, or a list the door made. */
   open?: (to: Destination) => void
   /**
@@ -116,6 +118,7 @@ function Running({
       parts: shown.parts,
       ...(shown.kinds ? { kinds: shown.kinds } : {}),
       ...(shown.opens ? { opens: shown.opens } : {}),
+      ...(shown.links ? { links: shown.links } : {}),
       ...(shown.opening ? { opening: shown.opening } : {}),
       ...(shown.open ? { open: shown.open } : {}),
       ...(shown.propose && handed

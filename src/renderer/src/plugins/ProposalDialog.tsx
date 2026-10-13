@@ -36,7 +36,7 @@ import { refreshAfterChange } from '@renderer/hooks/change'
 import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { APPROVE_MOMENT_MS } from '@renderer/lib/confirm-moment'
+import { useMoment } from '@renderer/lib/confirm-moment'
 import { requestBase, useProposals, type ShownProposal } from './proposals'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { TheirText } from './TheirText'
@@ -52,36 +52,6 @@ const LUMOVIS_WORD = {
 export function ProposalDialog(): ReactNode {
   const shown = useProposals((state) => state.shown)
   return shown ? <Proposal shown={shown} /> : null
-}
-
-/**
- * Whether the moment has passed since `on` was shown (a new answer starts it again, and so does
- * Lumovi's window getting the focus back): counted from the frame that paints it, only while the
- * window is in front. A press before then is dropped, not kept.
- */
-function useMoment(on: string | undefined): boolean {
-  // (Live for what was shown when its moment ran out: anything shown since, or a focus got back
-  // since, is a new moment.)
-  const [liveFor, setLiveFor] = useState<string>()
-  const [back, setBack] = useState(0)
-  useEffect(() => {
-    const focused = () => setBack((n) => n + 1)
-    window.addEventListener('focus', focused)
-    return () => window.removeEventListener('focus', focused)
-  }, [])
-  const now = on === undefined ? undefined : `${on}\u0000${back}`
-  useEffect(() => {
-    if (now === undefined) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const frame = requestAnimationFrame(() => {
-      timer = setTimeout(() => document.hasFocus() && setLiveFor(now), APPROVE_MOMENT_MS)
-    })
-    return () => {
-      cancelAnimationFrame(frame)
-      clearTimeout(timer)
-    }
-  }, [now])
-  return now !== undefined && liveFor === now
 }
 
 /** The cluster's or Lumovi's verdict on a refused try, in Lumovi's words. */

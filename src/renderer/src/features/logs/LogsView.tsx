@@ -205,16 +205,27 @@ function containerNames(pod: KubeObject): string[] {
  * they're written and merged in that order, each line marked with its pod.
  */
 /** Pods' logs, where the person's access lets them read them. */
-export function LogsView({ pods, name }: { pods: KubeObject[]; name: string }) {
+export function LogsView({
+  pods,
+  name,
+  container: asked,
+}: {
+  pods: KubeObject[]
+  name: string
+  /** The container to show first, where one asked for it is among the pods'. */
+  container?: string
+}) {
   const notAllowed = useAccessHere().whyNot('logs', 'on', pods[0]!.metadata.namespace)
   if (notAllowed) return <NotAllowed title="You can’t read logs here" reason={notAllowed} />
-  return <Logs pods={pods} name={name} />
+  return <Logs pods={pods} name={name} {...(asked !== undefined ? { asked } : {})} />
 }
 
-function Logs({ pods, name }: { pods: KubeObject[]; name: string }) {
+function Logs({ pods, name, asked }: { pods: KubeObject[]; name: string; asked?: string }) {
   const sorted = [...pods].sort((a, b) => a.metadata.name.localeCompare(b.metadata.name))
   const names = [...new Set(sorted.flatMap(containerNames))]
-  const [container, setContainer] = useState<string>(sorted[0]!.spec.containers[0].name)
+  const [container, setContainer] = useState<string>(
+    asked !== undefined && names.includes(asked) ? asked : sorted[0]!.spec.containers[0].name,
+  )
   const [range, setRange] = useState('500')
   const [previous, setPrevious] = useState(false)
   const [follow, setFollow] = useState(true)

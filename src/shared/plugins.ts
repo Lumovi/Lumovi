@@ -23,6 +23,7 @@ import {
   type ResourceKind,
 } from './resources'
 import type { Health } from './health'
+import { REACHES, type Reach } from './kit/declare'
 
 export const VIEW_API_VERSION = 'lumovi.dev/v1beta1'
 
@@ -257,6 +258,12 @@ export interface Plugin {
    * says none.
    */
   opens: ResourceKind[]
+  /**
+   * Lumovi's own places its pages may link to, for an object they were handed (`spec.links`): a
+   * pod's Logs or Shell tab, a pod's or a service's Port forward dialog. The person opens and
+   * does there what they do, as always; a link starts nothing. None, where its file says none.
+   */
+  links: Reach[]
 }
 
 /** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
@@ -306,7 +313,10 @@ export const OPENS_LIMITS = { kinds: 20 } as const
 export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
 
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
-export type ListedPlugin = Pick<Plugin, 'name' | 'source' | 'version' | 'added' | 'opens'> &
+export type ListedPlugin = Pick<
+  Plugin,
+  'name' | 'source' | 'version' | 'added' | 'opens' | 'links'
+> &
   PluginPlace & {
     /** Every kind its file names (`namedKinds`): what its pages may open a list of. */
     named: ResourceKind[]
@@ -1019,6 +1029,25 @@ function changesProblems(changes: unknown, own: ReadonlySet<ResourceKind>): stri
     } else if (new Set(item.actions).size !== item.actions.length) {
       problems.push(`${at}.actions: each once`)
     }
+  })
+  return problems
+}
+
+/** What's wrong with what a file says its pages link to: Lumovi's own places, each once. */
+function linksProblems(links: unknown): string[] {
+  if (!Array.isArray(links)) {
+    return [`spec.links: should be a list of ${REACHES.join(', ')}, not ${describe(links)}`]
+  }
+  if (links.length === 0) return ['spec.links: should not be empty']
+  const problems: string[] = []
+  const said = new Set<unknown>()
+  links.forEach((place, i) => {
+    if (!REACHES.includes(place as Reach)) {
+      problems.push(
+        `spec.links[${i}]: should be one of ${REACHES.join(', ')}, not ${describe(place)}`,
+      )
+    } else if (said.has(place)) problems.push(`spec.links[${i}]: ${place as string} is said once`)
+    said.add(place)
   })
   return problems
 }
@@ -1880,6 +1909,7 @@ function readPlugin(
     showsSecrets,
     changes,
     opens,
+    links,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -2001,6 +2031,13 @@ function readPlugin(
   } else if (opens !== undefined) {
     problems.push(...opensProblems(opens).map((problem) => `${source}: ${problem}`))
   }
+  if (links !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.links: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say where they link`,
+    )
+  } else if (links !== undefined) {
+    problems.push(...linksProblems(links).map((problem) => `${source}: ${problem}`))
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -2109,6 +2146,7 @@ function readPlugin(
       showsSecrets: showsSecretsOf(showsSecrets),
       changes: changesOf(changes),
       opens: ((opens ?? []) as NamedKind[]).map(kindId),
+      links: [...((links ?? []) as Reach[])],
     },
     problems: [],
   }

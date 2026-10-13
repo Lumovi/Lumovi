@@ -8,6 +8,8 @@ import type { ComponentType, ReactNode } from 'react'
 import {
   handedFields,
   type ListDestination,
+  type Reach,
+  type ReachDestination,
   type ObjectRef,
   type Part,
   type Swap,
@@ -37,7 +39,7 @@ export interface KitPart {
   draw: ComponentType<{
     props: Readonly<Record<string, unknown>>
     children?: ReactNode
-    go?: (to: ObjectRef | ListDestination) => void
+    go?: (to: ObjectRef | ListDestination | ReachDestination) => void
   }>
 }
 
@@ -196,6 +198,11 @@ export function openPage(options: {
    */
   opens?: readonly string[]
   /**
+   * Lumovi's own places its file says its pages link to (`spec.links`), for an object the page
+   * was handed: its Logs or Shell tab, its Port forward dialog. None, and a part links to none.
+   */
+  links?: readonly Reach[]
+  /**
    * What its code is told first, once it's there: which of its pages it describes, or which tab,
    * with the object the tab is on (read for it as its own kind is, and handed with a token).
    */
@@ -210,6 +217,7 @@ export function openPage(options: {
 }): OpenPage {
   const kinds: ReadonlySet<string> = new Set(options.kinds)
   const opens: ReadonlySet<string> = new Set(options.opens)
+  const links: ReadonlySet<Reach> = new Set(options.links)
   const declared = Object.fromEntries(
     Object.entries(options.parts).map(([name, part]) => [name, part.declared]),
   )
@@ -341,6 +349,15 @@ export function openPage(options: {
           }
         },
         opens,
+        links,
+        (at) => {
+          // (Likewise once a page: a link that goes nowhere is quiet.)
+          if (reading.tokens.unnamedToSay()) {
+            console.warn(
+              `Lumovi links to no ${at} for the plugin ${whose(options.plugin)} page: its file doesn’t name ${at} under spec.links, or the object isn’t one ${at} is for.`,
+            )
+          }
+        },
       )
       swaps.set(part, swap)
     }

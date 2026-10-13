@@ -32,9 +32,15 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
     const { tiles, onOpen } = props as TilesProps
     return <Tiles tiles={tiles} {...(go ? { go } : {})} {...(onOpen ? { onOpen } : {})} />
   },
-  Header: ({ props }) => {
+  Header: ({ props, go }) => {
     const header = props as HeaderProps
-    return <PageHeader header={header} {...(header.onPress ? { onPress: header.onPress } : {})} />
+    return (
+      <PageHeader
+        header={header}
+        {...(header.onPress ? { onPress: header.onPress } : {})}
+        {...(go ? { go } : {})}
+      />
+    )
   },
   Split: ({ props, children }) => {
     const { list, onPick } = props as SplitProps

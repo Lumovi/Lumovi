@@ -200,7 +200,23 @@ if (stdio) {
     const send = (channel: string, ...args: unknown[]) => {
       if (!win.isDestroyed()) win.webContents.send(channel, ...args)
     }
-    const deps = { store, envReady, isReadOnly, audit }
+    // The plugins this Lumovi has, as its backend reads them: read each time they're asked.
+    const knownPlugins = () =>
+      plugins(
+        pluginsDirectory(homedir()),
+        'desktop',
+        app.getVersion(),
+        process.env,
+        pluginsAllowedBy(policy.managed),
+      )
+    const deps = {
+      store,
+      envReady,
+      isReadOnly,
+      audit,
+      // (Which plugin a link that brought the person came from, for the history: the backend's own.)
+      plugin: async (name: string) => (await knownPlugins()).find((each) => each.name === name),
+    }
     const shellEvents = {
       data: (id: string, data: string) => send(IPC.terminalData, id, data),
       exit: (id: string, exit: ShellExit) => send(IPC.terminalExit, id, exit),
@@ -405,14 +421,7 @@ if (stdio) {
       updates,
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
-      knownPlugins: () =>
-        plugins(
-          pluginsDirectory(homedir()),
-          'desktop',
-          app.getVersion(),
-          process.env,
-          pluginsAllowedBy(policy.managed),
-        ),
+      knownPlugins,
       // (A window of the desktop app's: its box is a process of its own, kept apart by Electron.)
       // What turns code off: the organization's policy, and the person's own switch, read each time.
       handOverTo: () => ({

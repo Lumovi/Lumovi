@@ -8,6 +8,8 @@ import {
   type CutRef,
   type ListDestination,
   type Part,
+  type Reach,
+  type ReachDestination,
   type PropsOf,
   type Swap,
   type WrittenProps,
@@ -38,22 +40,51 @@ export const KIT_CUTS: Readonly<Record<string, CutRef>> = {
   'cut-pods': { at: 5000 },
 }
 
+/** A place for one of the kit page's objects, as a door would make it: frozen, once for each. */
+const kitReaches = new Map<string, ReachDestination>()
+function kitReach(
+  made: string,
+  at: Reach,
+  container: string | undefined,
+  port: number | undefined,
+): ReachDestination | undefined {
+  const object = OBJECTS.get(made)
+  if (!object) return undefined
+  const key = JSON.stringify([made, at, container ?? null, port ?? null])
+  const reach =
+    kitReaches.get(key) ??
+    Object.freeze({
+      to: 'reach' as const,
+      at,
+      object,
+      ...(container !== undefined ? { container } : {}),
+      ...(port !== undefined ? { port } : {}),
+    })
+  kitReaches.set(key, reach)
+  return reach
+}
+
 export const KIT_SWAP: Swap = {
   object: (made) => OBJECTS.get(made),
   secret: () => undefined,
   // (A token it doesn't hold, made up, says nothing.)
   cut: (made) => (Object.hasOwn(KIT_CUTS, made) ? KIT_CUTS[made] : undefined),
-  // A list a part here opens, as a door would make it (of any kind: this page names them all).
+  // A list a part here opens, as a door would make it (of any kind: this page names them all);
+  // or a place for one of its objects (every place: this page links to them all).
   destination: (said) =>
-    Object.freeze({
-      to: 'list',
-      kind: kindFor(
-        said.list.startsWith('/') ? 'v1' : `${said.list.slice(0, said.list.lastIndexOf('/'))}/v1`,
-        said.list.slice(said.list.lastIndexOf('/') + 1),
-      ),
-      ...(said.health ? { health: said.health as ListDestination['health'] } : {}),
-      ...(said.labels ? { labels: said.labels } : {}),
-    }),
+    'object' in said
+      ? kitReach(said.object, said.at as Reach, said.container, said.port)
+      : Object.freeze({
+          to: 'list',
+          kind: kindFor(
+            said.list.startsWith('/')
+              ? 'v1'
+              : `${said.list.slice(0, said.list.lastIndexOf('/'))}/v1`,
+            said.list.slice(said.list.lastIndexOf('/') + 1),
+          ),
+          ...(said.health ? { health: said.health as ListDestination['health'] } : {}),
+          ...(said.labels ? { labels: said.labels } : {}),
+        }),
   handler: () => undefined,
 }
 
