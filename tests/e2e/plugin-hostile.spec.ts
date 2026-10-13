@@ -386,6 +386,102 @@ test('a plugin’s pages ask its server four at a time between them: the rest wa
 })
 
 /**
+ * Its code: buttons that only read, whose presses it tries to propose a change with; and one that
+ * says it changes something, whose press it keeps. What became of each proposal is the header's
+ * name.
+ */
+const PRESSES = `box.then(({ post, listen }) => {
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  let widget
+  let kept
+  let n = 0
+  const buttons = (looking) => [
+    { key: 'look', name: 'Look', ...(looking ? { changes: true } : {}) },
+    { key: 'forge', name: 'Forge' },
+    { key: 'again', name: 'Again' },
+    { key: 'resize', name: 'Resize', changes: true },
+  ]
+  const say = (name, looking) => commit([['change', 1, { name, buttons: buttons(looking), onPress: 'press' }]])
+  const propose = (press) => post(JSON.stringify({ propose: ++n, press, change: { action: 'patch', target: widget, patch: { spec: { size: 9 } } } }))
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) {
+      post(JSON.stringify({ read: 1, what: 'list', kind: 'example.com/Widget' }))
+      commit([['make', 1, 'Header', { name: 'ready', buttons: buttons(false), onPress: 'press' }], ['put', 0, 1]])
+    }
+    if (said.read === 1 && said.objects) widget = said.objects[0] && said.objects[0].token
+    if (said.proposed) say('outcome ' + said.proposed + ' ' + said.outcome, false)
+    if (said.call === 'press') {
+      const { button } = said.carries
+      // Said to change something only once it's pressed: the press was of a button that reads.
+      if (button === 'look') {
+        say('looking', true)
+        propose(said.press)
+      }
+      // A token of its own making.
+      if (button === 'forge') propose('made-up-token')
+      // A real one, kept...
+      if (button === 'resize') {
+        kept = said.press
+        propose(said.press)
+      }
+      // ...and spent again, from a button that only reads.
+      if (button === 'again') propose(kept)
+    }
+  })
+})
+`
+
+test('a press of a button that only reads proposes nothing, whatever its code does with it: redeclared, forged, or a spent one again', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'tinker.yaml'), TINKER)
+  writeFileSync(join(folder, 'tinker.js'), PRESSES)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/tinker/overview`)
+  /** Presses one of the header's buttons: in its place, or in its More menu. */
+  const press = async (name: string) => {
+    const button = body(page).getByRole('button', { name, exact: true })
+    if (await button.isVisible()) return button.click()
+    await body(page)
+      .getByRole('button', { name: /^More for / })
+      .click()
+    await page.getByRole('menuitem', { name, exact: true }).click()
+  }
+  const said = body(page).locator('h2').first()
+  await expect(said).toContainText('ready', { timeout: 20_000 })
+  const before = clusters.demo.requests.length
+  // A button that only reads, said to change something as soon as it's pressed.
+  await press('Look')
+  await expect(said).toContainText('outcome 1 refused')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // A token the code made up.
+  await press('Forge')
+  await expect(said).toContainText('outcome 2 refused')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // A button that says it changes something proposes, in Lumovi's dialog; the person says no.
+  await press('Resize')
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 })
+  await page.keyboard.press('Escape')
+  await expect(said).toContainText('outcome 3 cancelled')
+  // Its press, spent, used again from a button that only reads.
+  await press('Again')
+  await expect(said).toContainText('outcome 4 refused')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // Asked of the cluster: the one trial behind Lumovi's dialog, which changes nothing; the
+  // three refused asked nothing, and nothing was written.
+  expect(
+    clusters.demo.requests
+      .slice(before)
+      .filter((r) => r.method !== 'GET' && r.path.includes('widgets'))
+      .map((r) => `${r.method} ${r.path}?${r.search}`),
+  ).toEqual([`PATCH /apis/example.com/v1/namespaces/default/widgets/${CUSTOM.widget}?dryRun=All`])
+})
+
+/**
  * Its code: what reads like an address, or a class, wherever a page's parts take a plugin's words
  * (but a Graph's and a Split's, which hold the same names and notes).
  */
