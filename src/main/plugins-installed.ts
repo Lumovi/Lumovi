@@ -79,7 +79,15 @@ export class InstalledPlugins {
     return join(this.#options.dir, name, version)
   }
 
-  /** A copy's files, each checked against its record: or nothing where one isn't. */
+  /**
+   * A copy's files, each checked against its record: or nothing where one isn't.
+   *
+   * It's held to its files' digests, and not also to the record's `asks`: a file's digest pins
+   * every word of what it asks, a key a newer Lumovi gives meaning to can't be in an older file
+   * (one it doesn't know is refused as it's read), and whoever could rewrite the digests kept
+   * with the person's settings could rewrite `asks` beside them. A compare of `asks` here would
+   * add nothing to it.
+   */
   async #read(name: string, copy: InstalledCopy): Promise<Read | undefined> {
     const at = this.#at(name, copy.version)
     const read: Partial<Record<string, string>> = {}
