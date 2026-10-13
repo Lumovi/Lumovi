@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
+import { DEMO } from '../mock-cluster/fixtures/demo.ts'
 import { STAND_IN } from '../mock-cluster/server.ts'
 import { CONTEXTS, expect, openCluster, test } from './fixtures.ts'
 
@@ -267,4 +268,71 @@ test('a server asked about an object of a kind that’s in no namespace is refus
   expect(
     clusters.demo.requests.filter((r) => r.path.includes('/proxy') && !r.path.startsWith(usage)),
   ).toEqual([])
+})
+
+const POD = DEMO.pods.storefront[0]!
+/** A line a container writes while a plugin's page shows its logs. */
+const MARK = 'only-lumovi-reads-this-line'
+
+/** Toys, whose pages show logs: Lumovi reads and draws them, and its code never sees them. */
+const SHOWS = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  reads: [{ group: '', kind: Pod, fields: [metadata.name] }]
+  pages: [{ id: overview, title: Overview }]
+  logs: shown
+`
+/** Its code: the envoy's logs in a Logs part, and every word it hears counted, a line of them looked for. */
+const LISTENS = `box.then(({ post, listen }) => {
+  let heard = 0
+  let saw = false
+  let drawn = false
+  listen((text) => {
+    heard++
+    if (text.includes(${JSON.stringify(MARK)})) saw = true
+    const said = JSON.parse(text)
+    if (said.open) post(JSON.stringify({ read: 1, what: 'list', kind: '/Pod', namespace: 'shop' }))
+    if (said.read === 1 && said.objects && !drawn) {
+      drawn = true
+      const pod = said.objects.find((o) => o.object.metadata.name === ${JSON.stringify(POD)})
+      post(JSON.stringify({ commit: [
+        ['make', 1, 'Stack', {}], ['put', 0, 1],
+        ['make', 2, 'Header', { name: 'heard', buttons: [{ key: 'ask', name: 'What did you hear?' }], onPress: 'press' }], ['put', 1, 2],
+        ['make', 3, 'Logs', { title: 'Its proxy', pod: pod.token, container: 'envoy' }], ['put', 1, 3],
+      ] }))
+    }
+    if (said.call === 'press') {
+      post(JSON.stringify({ commit: [['change', 2, { name: 'heard ' + heard + (saw ? ', a line of its logs' : ', none of its logs'), buttons: [{ key: 'ask', name: 'What did you hear?' }], onPress: 'press' }]] }))
+    }
+  })
+})
+`
+
+test('logs shown on a plugin’s page never reach its code, and stop being read when the page goes', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), SHOWS)
+  writeFileSync(join(folder, 'toys.js'), LISTENS)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  const log = body(page).getByRole('log', { name: 'Logs for envoy' })
+  await expect(log).toBeVisible({ timeout: 20_000 })
+  clusters.demo.appendLogs('shop', POD, 'envoy', [MARK])
+  await expect(log).toContainText(MARK)
+  // Its code heard Lumovi, and never a line of what Lumovi showed.
+  await body(page).getByRole('button', { name: 'What did you hear?' }).click()
+  await expect(body(page).getByRole('heading', { level: 2 })).toContainText(', none of its logs')
+  expect(clusters.demo.logFollowers()).toBeGreaterThan(0)
+  // The page goes: what Lumovi followed for it is followed no more.
+  await go(page, `#/cluster/${CONTEXTS.demo}/pods`)
+  await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
 })
