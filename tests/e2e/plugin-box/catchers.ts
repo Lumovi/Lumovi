@@ -17,9 +17,20 @@ export interface Caught {
   packets: number
 }
 
+/**
+ * The other host under a name that's one try's own, for a run whose browser keeps its own log of
+ * its network (net-log.ts): a look-up of that name is then that try's, and in the log. A
+ * browser resolves every name under `localhost` to this computer by itself, so no name server is
+ * asked either way.
+ */
+export const nameFor = (id: string) => `${id.toLowerCase()}.tried.localhost`
+
 export interface Catchers {
-  /** What a try is told of where things are (`ways-out.js`'s context, for the try `id`). */
-  context(id: string, role?: 'first' | 'second'): Record<string, unknown>
+  /**
+   * What a try is told of where things are (`ways-out.js`'s context, for the try `id`); `named`,
+   * the other host goes by the try's own name (`nameFor`), not `localhost`.
+   */
+  context(id: string, role?: 'first' | 'second', named?: boolean): Record<string, unknown>
   /** What was caught since the last reset. */
   caught(): Caught
   reset(): void
@@ -59,20 +70,24 @@ export async function startCatchers(): Promise<Catchers> {
   ])
   const otherPort = (other.address() as AddressInfo).port
   const sameUrl = `http://127.0.0.1:${(same.address() as AddressInfo).port}`
-  const otherUrl = `http://localhost:${otherPort}`
   return {
-    context: (id, role) => ({
-      id,
-      role,
-      same: sameUrl,
-      other: otherUrl,
-      otherName: 'localhost',
-      otherPort,
-      udpName: '127.0.0.1',
-      udpPort: udp.address().port,
-      leak: `${otherUrl}/catch/${id}?d=SECRET`,
-      api: `${sameUrl}/api/session/${id}?d=SECRET`,
-    }),
+    context: (id, role, named = false) => {
+      const otherName = named ? nameFor(id) : 'localhost'
+      const otherUrl = `http://${otherName}:${otherPort}`
+      return {
+        id,
+        role,
+        same: sameUrl,
+        other: otherUrl,
+        otherName,
+        otherPort,
+        // (An address, named or not: a packet is what its catcher sees.)
+        udpName: '127.0.0.1',
+        udpPort: udp.address().port,
+        leak: `${otherUrl}/catch/${id}?d=SECRET`,
+        api: `${sameUrl}/api/session/${id}?d=SECRET`,
+      }
+    },
     caught: () => caught,
     reset: () => {
       caught = { http: [], connections: 0, packets: 0 }

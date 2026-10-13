@@ -16,6 +16,8 @@ import {
 } from '../../scripts/plugins-bundle.ts'
 import { RENDERER_MAPS } from '../../scripts/vite-coverage.ts'
 import { openCluster } from '../e2e/fixtures.ts'
+import { nameFor } from '../e2e/plugin-box/catchers.ts'
+import { namedIn } from '../e2e/plugin-box/net-log.ts'
 import { CONTEXT, expect, test } from './fixtures.ts'
 
 /** What scripts/vite-coverage.ts puts in a build, by the names only it uses. */
@@ -97,6 +99,34 @@ test('a build made as a release’s carries nothing the tests’ build adds for 
   expect(found).toEqual([])
   // Nor the maps a coverage build writes beside its pages, from an earlier build.
   expect(existsSync(resolve(RENDERER_MAPS)), RENDERER_MAPS).toBe(false)
+})
+
+test('a release looks no name up ahead of a request: a link that asks for one is asked for by nobody', async ({
+  launch,
+}) => {
+  // The tests' build shows it of a plugin's box, every way out tried, by Chromium's own log of
+  // its network (plugin-box-ways-out). A release opens no box for a test, so here the link is on
+  // a page of Lumovi's own: the setting is the whole app's, and an Electron that stopped heeding
+  // it would look this name up.
+  const file = join(mkdtempSync(join(tmpdir(), 'lumovi-net-log-')), 'net-log.json')
+  const lumovi = await launch({ args: [`--log-net-log=${file}`] })
+  await lumovi.page.evaluate(
+    (href) =>
+      document.head.append(
+        Object.assign(document.createElement('link'), { rel: 'dns-prefetch', href }),
+      ),
+    `http://${nameFor('link-dns-prefetch')}`,
+  )
+  // What a link asks for is asked for at once: without the setting, its name is in the log
+  // well inside this second (tried: the check fails then), and that run is what vouches for
+  // the wait. Then a name of the test's own, which a log that was kept holds: the only one in it.
+  await new Promise((done) => setTimeout(done, 1_000))
+  await lumovi.app.evaluate(
+    ({ session }, name) => session.defaultSession.resolveHost(name).catch(() => undefined),
+    nameFor('asked-by-the-test'),
+  )
+  await lumovi.close()
+  expect(namedIn(file).lookedUp).toEqual(['asked-by-the-test'])
 })
 
 test('a release’s pages open a plugin’s box only where they take its code through the hand-over', () => {

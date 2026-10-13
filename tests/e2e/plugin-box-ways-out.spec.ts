@@ -6,13 +6,15 @@
  * time, to show each is a wall by itself. On the box's own page, where no plugin's code ever
  * runs: as shipped, to know what the walls hold there without the worker's.
  */
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { BOX_SCRIPT } from '../../src/shared/plugin-box.ts'
-import { expect, test } from './fixtures.ts'
-import { gotOut, startCatchers, type Catchers } from './plugin-box/catchers.ts'
+import { expect, test, type LaunchOptions, type Lumovi } from './fixtures.ts'
+import { gotOut, nameFor, startCatchers, type Catchers } from './plugin-box/catchers.ts'
+import { namedIn } from './plugin-box/net-log.ts'
 import { JUDGED, notRefused } from './plugin-box/worked.ts'
 
 const WAYS = readFileSync(resolve('tests/e2e/plugin-box/ways-out.js'), 'utf8')
@@ -167,14 +169,16 @@ async function tryGroup(
   page: Page,
   app: ElectronApplication,
   catchers: Catchers,
+  /** The other host goes by each try's own name: for a run whose log of the network is read. */
+  named = false,
 ): Promise<{ tried: number; out: Record<string, string>; saw: Record<string, string> }> {
   const ways = ALL.filter((way) => way.group === group && (where === 'page' || !way.needsDom))
   const out: Record<string, string> = {}
   const saw: Record<string, string> = {}
   const tryIt = (as: string, id: string, role?: 'first' | 'second') =>
     where === 'worker'
-      ? inWorker(page, as, id, catchers.context(id, role))
-      : onPage(page, app, as, id, catchers.context(id, role))
+      ? inWorker(page, as, id, catchers.context(id, role, named))
+      : onPage(page, app, as, id, catchers.context(id, role, named))
   for (const [n, { id }] of ways.entries()) {
     catchers.reset()
     if (group === 'pair') {
@@ -231,6 +235,34 @@ async function without(app: ElectronApplication, wall: 'the box’s policy' | 't
   )
 }
 
+/** The name the test itself asks for, which a log that's whole holds. */
+const ASKED = 'asked-by-the-test'
+
+/**
+ * Lumovi keeping Chromium's own log of its network. `named()` has the app ask for a name of the
+ * test's own, closes it, and reads which names the log holds: the test's (a log without it
+ * wasn't kept), and those of the tries that were looked up.
+ */
+async function logged(launch: (options?: LaunchOptions) => Promise<Lumovi>) {
+  const file = join(mkdtempSync(join(tmpdir(), 'lumovi-net-log-')), 'net-log.json')
+  const lumovi = await launch({ args: [`--log-net-log=${file}`] })
+  return {
+    ...lumovi,
+    async named() {
+      await lumovi.app.evaluate(
+        ({ session }, name) => session.defaultSession.resolveHost(name).catch(() => undefined),
+        nameFor(ASKED),
+      )
+      await lumovi.close()
+      const { events, lookedUp, anywhere } = namedIn(file)
+      expect(events).toBeGreaterThan(0)
+      expect(lookedUp).toContain(ASKED)
+      const tries = (names: string[]) => names.filter((id) => id !== ASKED)
+      return { lookedUp: tries(lookedUp), anywhere: tries(anywhere) }
+    },
+  }
+}
+
 let catchers: Catchers
 test.beforeAll(async () => {
   catchers = await startCatchers()
@@ -249,28 +281,40 @@ test('the list holds every way that was ever tried', () => {
   expect(Object.keys(JUDGED).sort()).toEqual(ALL.map((way) => way.id).sort())
 })
 
-test('with both walls taken away the catchers see what leaves: the tests can tell', async ({
-  lumovi: { page, app },
+test('with both walls taken away the catchers see what leaves, and Chromium’s log names the hosts looked up: the tests can tell', async ({
+  launch,
 }) => {
+  const { page, app, named } = await logged(launch)
   await without(app, 'the box’s policy')
   await without(app, 'the request filter')
-  const { out, saw } = await tryGroup('worker', 'request', page, app, catchers)
+  const { out, saw } = await tryGroup('worker', 'request', page, app, catchers, true)
   await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
   expect(out['fetch-other']).toContain('a request to another host')
   expect(out['fetch-same-api']).toContain('a request to Lumovi’s own API')
   expect(Object.keys(out).length).toBeGreaterThan(3)
+  // What got out to the other host asked for its name first, and the log says so by name.
+  const { lookedUp } = await named()
+  await test.info().attach('looked up', { body: JSON.stringify(lookedUp) })
+  expect(lookedUp).toContain('fetch-other')
+  expect(lookedUp.length).toBeGreaterThan(3)
 })
 
 for (const group of GROUPS) {
   if (ALL.some((way) => way.group === group && !way.needsDom)) {
-    test(`from the worker, nothing gets out: ${group}`, async ({ lumovi: { page, app } }) => {
-      const { tried, out, saw } = await tryGroup('worker', group, page, app, catchers)
+    test(`from the worker, nothing gets out, and no name is looked up: ${group}`, async ({
+      launch,
+    }) => {
+      const { page, app, named } = await logged(launch)
+      const { tried, out, saw } = await tryGroup('worker', group, page, app, catchers, true)
       await test.info().attach('saw', { body: JSON.stringify(saw, null, 2) })
       expect(tried).toBeGreaterThan(0)
       expect(out).toEqual({})
       // And each way judged by what it saw was refused: none worked, whatever reached a catcher,
       // and none said something that's neither.
       expect(notRefused(saw)).toEqual([])
+      // What's refused is refused before its host's name is asked for: Chromium's own log of
+      // its network holds no try's name, in a resolver's event or any other.
+      expect(await named()).toEqual({ lookedUp: [], anywhere: [] })
     })
 
     for (const wall of ['the box’s policy', 'the request filter'] as const) {
@@ -285,12 +329,16 @@ for (const group of GROUPS) {
     }
   }
 
-  test(`on the box’s own page, only what’s named gets out: ${group}`, async ({
-    lumovi: { page, app },
+  test(`on the box’s own page, only what’s named gets out or is looked up: ${group}`, async ({
+    launch,
   }) => {
-    const { out, saw } = await tryGroup('page', group, page, app, catchers)
+    const { page, app, named } = await logged(launch)
+    const { out, saw } = await tryGroup('page', group, page, app, catchers, true)
     await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
     expect(Object.keys(out).filter((id) => !NOT_HELD_ON_THE_PAGE.includes(id))).toEqual([])
+    const { lookedUp, anywhere } = await named()
+    await test.info().attach('looked up', { body: JSON.stringify({ lookedUp, anywhere }) })
+    expect(lookedUp.filter((id) => !NOT_HELD_ON_THE_PAGE.includes(id))).toEqual([])
   })
 }
 

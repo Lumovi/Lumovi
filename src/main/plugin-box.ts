@@ -7,6 +7,8 @@
  *   request it is, and so is a request that can't be tied to a frame at all;
  * - a frame's navigation anywhere but to a box's own document is cancelled;
  * - nothing in the window reaches the network by WebRTC's own UDP;
+ * - no page of the app looks a name up ahead of a request, which a link on a page may ask for
+ *   and neither the policy nor the filter has a say in;
  * - a plugin's process is measured, and ended when it's over its memory or its processor time.
  *
  * One thing isn't held here, from a box's own page only (never from its worker): WebRTC with a
@@ -37,6 +39,23 @@ import {
  */
 export function registerBoxScheme(): void {
   protocol.registerSchemesAsPrivileged([{ scheme: BOX_SCHEME, privileges: { standard: true } }])
+}
+
+/**
+ * Before the app is ready: no page looks a name up ahead of a request. A link that asks for it
+ * (`<link rel="dns-prefetch">`) on a box's own page would be looked up whatever the box says:
+ * its policy has no word for it, the request filter never sees it, and Chromium heeds the box's
+ * `X-DNS-Prefetch-Control: off` only for the links it guesses at, never for one that asks. No
+ * plugin's code runs on that page; a name doesn't leave it all the same.
+ *
+ * It's for every page of the app, Lumovi's own too: none of them asks for a name ahead, and
+ * nothing of Lumovi's is slower or different without it.
+ *
+ * This is the one place `blink-settings` is set. A second `appendSwitch` of it anywhere would
+ * replace this value, not add to it: another setting goes into this string, after a comma.
+ */
+export function noNamesAhead(): void {
+  app.commandLine.appendSwitch('blink-settings', 'dnsPrefetchingEnabled=false')
 }
 
 /**
