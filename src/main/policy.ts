@@ -34,6 +34,7 @@
  *     "pluginsAllowed": ["karpenter"],   only these plugins, by name: any other isn't there
  *     "pluginProposals": "off",          no plugin's page may propose a change
  *     "pluginSecrets": "off",            no plugin's page may show what's in a Secret
+ *     "pluginStore": "off",              Lumovi doesn't check Lumovi-plugins for newer plugins
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -106,6 +107,7 @@ const KEYS = [
   'pluginsAllowed',
   'pluginProposals',
   'pluginSecrets',
+  'pluginStore',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -148,6 +150,7 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
         pluginCodeOff: true,
         pluginProposalsOff: true,
         pluginSecretsOff: true,
+        pluginStoreOff: true,
         problem,
       },
       assistantRules: [],
@@ -373,6 +376,7 @@ function checked(given: unknown, path: string): Policy {
     pluginsAllowed,
     pluginProposals,
     pluginSecrets,
+    pluginStore,
     network = {},
   } = policy
   if (
@@ -445,6 +449,7 @@ function checked(given: unknown, path: string): Policy {
   for (const [key, value] of [
     ['pluginProposals', pluginProposals],
     ['pluginSecrets', pluginSecrets],
+    ['pluginStore', pluginStore],
   ] as const) {
     if (value !== undefined && value !== 'off') throw new Error(`${key} must be "off".`)
   }
@@ -489,6 +494,7 @@ function checked(given: unknown, path: string): Policy {
     ...(Array.isArray(pluginsAllowed) ? { pluginsAllowed: pluginsAllowed as string[] } : {}),
     ...(pluginProposals === 'off' ? { pluginProposalsOff: true as const } : {}),
     ...(pluginSecrets === 'off' ? { pluginSecretsOff: true as const } : {}),
+    ...(pluginStore === 'off' ? { pluginStoreOff: true as const } : {}),
   }
   return {
     managed,

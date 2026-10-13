@@ -11,16 +11,13 @@
  * code: what the page needs to offer their pages, only where their code is part of this Lumovi.
  */
 import type { Plugin } from 'vite'
-import {
-  codedPlugins,
-  pluginsAndCode,
-  verifiedPlugins,
-  type PluginFiles,
-} from './plugins-bundle.ts'
+import { codedPlugins, pluginsAndCode, verifiedPlugins, type Taken } from './plugins-bundle.ts'
 
 const ID = 'virtual:lumovi-plugins'
 const CODE_ID = `${ID}/code`
 const CODED_ID = `${ID}/coded`
+const RELEASE_ID = `${ID}/release`
+const IDS = [ID, CODE_ID, CODED_ID, RELEASE_ID]
 
 /**
  * The plugin. `code`: whether this build may hold the plugins' code (the backend's do; the
@@ -29,13 +26,13 @@ const CODED_ID = `${ID}/coded`
 export function lumoviPlugins({
   code: holdsCode = false,
   take = verifiedPlugins,
-}: { code?: boolean; take?: () => Promise<PluginFiles> } = {}): Plugin {
-  let files: PluginFiles | undefined
+}: { code?: boolean; take?: () => Promise<Taken> } = {}): Plugin {
+  let taken: Taken | undefined
   return {
     name: 'lumovi:plugins',
     async buildStart() {
       try {
-        files = await take()
+        taken = await take()
       } catch (error) {
         this.error(`Lumovi’s plugins can’t be built in:\n${(error as Error).message}`)
       }
@@ -44,11 +41,14 @@ export function lumoviPlugins({
       if (id === CODE_ID && !holdsCode) {
         this.error(`${CODE_ID}: plugins’ code isn’t built into the page; the backend hands it over`)
       }
-      return id === ID || id === CODE_ID || id === CODED_ID ? `\0${id}` : undefined
+      return IDS.includes(id) ? `\0${id}` : undefined
     },
     load(id) {
-      if (id !== `\0${ID}` && id !== `\0${CODE_ID}` && id !== `\0${CODED_ID}`) return undefined
-      const { plugins, code } = pluginsAndCode(files ?? {})
+      if (!IDS.some((one) => id === `\0${one}`)) return undefined
+      if (id === `\0${RELEASE_ID}`) {
+        return `export default Object.freeze(${JSON.stringify(taken?.release ?? null)})`
+      }
+      const { plugins, code } = pluginsAndCode(taken?.files ?? {})
       if (id === `\0${CODED_ID}`) {
         return `export default Object.freeze(${JSON.stringify(codedPlugins(code))})`
       }

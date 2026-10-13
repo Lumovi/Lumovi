@@ -468,6 +468,8 @@ export const test = base.extend<
           LUMOVI_KUBECTL_MIRROR: downloads.url,
           LUMOVI_KUBECTL_OFFICIAL: downloads.url,
           LUMOVI_SIGSTORE_ROOT: downloads.sigstoreRoot,
+          // Nor GitHub, for Lumovi-plugins' latest release: its stand-in.
+          LUMOVI_PLUGIN_STORE: downloads.url,
           ...options.env,
         },
       })
