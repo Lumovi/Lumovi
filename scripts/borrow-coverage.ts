@@ -1,19 +1,19 @@
 /**
  * What macOS alone reaches, for a run where macOS ran only its smoke set (scripts/ci-changes.ts:
- * a change that touches nothing macOS does differently). Such a run reaches less than one where
- * everything runs, though the change lost nothing: what only macOS reaches. So the coverage job
- * (CI's "Coverage (all platforms)") borrows exactly that from the newest green run of CI on
- * main: each statement, function and branch that main's macOS shards reached and main's Linux
- * and Windows shards did not. Everything else is measured by this run's own Linux and Windows,
+ * for now, every pull request and every merge of main, unless asked otherwise). Such a run
+ * reaches less than one where everything runs, though the change lost nothing: what only macOS
+ * reaches. So the coverage job (CI's "Coverage (all platforms)") borrows exactly that from the
+ * newest green run of CI on main whose macOS ran in full (its nightly run, or one by hand): each
+ * statement, function and branch that its macOS shards reached and its Linux and Windows shards
+ * did not. Everything else is measured by this run's own Linux and Windows,
  * so a test taken away or weakened here shows here, as lost coverage, unless what it reached was
  * reached on macOS alone.
  *
  * Coverage of a file that differs from main's is left out: its lines aren't main's, and this
  * run's Linux and Windows speak for it. What this still can't see: something only macOS reaches,
- * in a file the change didn't touch, that the change stops being reached. Main's own run shows
- * that, after the merge, and it is the run whose gate binds. If main has nothing to borrow (a
- * quiet month, a run with a shard's coverage missing), it says so, and what ran is judged as
- * it is.
+ * in a file the change didn't touch, that the change stops being reached. Main's nightly run
+ * shows that, and a red one is a red main. If main has nothing to borrow (no full run kept, a
+ * run with a shard's coverage missing), it says so, and what ran is judged as it is.
  *
  *   node scripts/borrow-coverage.ts        (GH_TOKEN, GITHUB_REPOSITORY; into .nyc_output/)
  *
@@ -22,7 +22,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { SHARDS } from './ci-changes.ts'
+import { ranMacosInFull, SHARDS } from './ci-changes.ts'
 
 /** A file's coverage as istanbul keeps it: its counters, beside the maps that say what each is. */
 interface FileCoverage {
@@ -141,19 +141,28 @@ if (import.meta.main) {
     console.log(`Nothing borrowed from main: ${why}. What ran here is judged as it is.`)
     process.exit(0)
   }
+  // Main's newest green run whose macOS ran in full, whatever started it (for now, its
+  // nightly one or one by hand; a merge's runs macOS's smoke set), and whose coverage is kept.
   let run: { databaseId: number; headSha: string } | undefined
   try {
-    ;[run] = JSON.parse(
+    const runs = JSON.parse(
       gh(
         ...['run', 'list', '--repo', repo, '--workflow', 'ci.yml', '--branch', 'main'],
-        ...['--event', 'push', '--status', 'success', '--limit', '1'],
-        ...['--json', 'databaseId,headSha'],
+        ...['--status', 'success', '--limit', '30', '--json', 'databaseId,headSha'],
       ),
     ) as { databaseId: number; headSha: string }[]
+    run = runs.find(({ databaseId }) =>
+      ranMacosInFull(
+        gh(
+          ...['api', `repos/${repo}/actions/runs/${databaseId}/artifacts?per_page=100`],
+          ...['--jq', '.artifacts[] | select(.expired | not) | .name'],
+        ).split('\n'),
+      ),
+    )
   } catch (error) {
     nothing(`its runs couldn’t be asked for (${(error as Error).message.split('\n')[0]})`)
   }
-  if (!run) nothing('no green run of CI there')
+  if (!run) nothing('no green run of CI there whose macOS ran in full, and whose coverage is kept')
   const borrowed = 'borrowed-coverage'
   rmSync(borrowed, { recursive: true, force: true })
   try {

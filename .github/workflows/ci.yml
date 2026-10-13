@@ -5,11 +5,19 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # For now, macOS's full suite runs here: nightly, on main's head. A pull request and a
+  # merge run only macOS's smoke set, whatever they change (scripts/ci-changes.ts), since an
+  # account has five macOS machines at once and a full run takes all five. A release's pull
+  # request, a run by hand and the label macos-full still run everything; and a red nightly is
+  # a red main (scripts/main-is-green.ts).
+  schedule:
+    - cron: '17 2 * * *'
 
 # A new push to a pull request ends the run of the push before it. Never on main: each merge's
-# run there is the one whose tests and coverage gate bind, and must finish.
+# run there, and each nightly one, is a run whose tests and coverage gate bind, and must finish
+# (a nightly and a merge of the same commit are two runs, not one waiting on the other).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || format('{0}-{1}', github.event_name, github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -20,9 +28,9 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
-  # What the change needs run (scripts/ci-changes.ts): nothing but the checks for docs, and on
-  # macOS, the full E2E suite only where it touches what macOS does differently, or its label
-  # (macos-full) asks.
+  # What the run needs (scripts/ci-changes.ts): nothing but the checks for a pull request of docs;
+  # and on macOS, for now, its smoke set, except for the nightly run, a run by hand, a
+  # release's pull request, or a pull request whose label (macos-full) asks.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -31,6 +39,8 @@ jobs:
       contents: read
       # Its labels, as they are now.
       pull-requests: read
+      # A nightly run's: whether its commit has run macOS in full already.
+      actions: read
     outputs:
       docs: ${{ steps.what.outputs.docs }}
       macos: ${{ steps.what.outputs.macos }}
@@ -380,9 +390,9 @@ jobs:
           pattern: coverage-*
           path: .nyc_output
           merge-multiple: true
-      # A change that touches nothing macOS does differently ran only the smoke set there, and so
-      # reached less than main does, having lost nothing. What only macOS reaches is taken from
-      # main's newest green run, so that the gate judges like with like.
+      # A run whose macOS ran only its smoke set reached less than a full one does, having lost
+      # nothing. What only macOS reaches is taken from main's newest green run whose macOS ran in
+      # full (its nightly one, or one by hand), so that the gate judges like with like.
       - name: What macOS alone reaches, from main
         if: needs.changes.outputs.macos == 'smoke'
         env:

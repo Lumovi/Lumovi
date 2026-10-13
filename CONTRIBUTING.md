@@ -53,12 +53,13 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    one able to bypass it.
 
 On a pull request CI runs every test on Linux and Windows, and on macOS a short set
-(`tests/e2e/smoke.txt`), unless the change touches what macOS does differently (the app's own
-process, packaging, Electron, or code that asks which platform it's on): GitHub gives an account
-five macOS machines at a time, and a full run takes all five. The label `macos-full` asks for
-everything there. `main` runs everything after each merge, and that run is the one that binds:
-while it's red, _CI passed_ says so on every pull request as a warning, with main's commit and
-the jobs that failed. A pull request fails only for its own jobs.
+(`tests/e2e/smoke.txt`), whatever the change touches: GitHub gives an account five macOS machines
+at a time, and a full run takes all five. So for now, macOS's full suite runs nightly on
+`main`, on a release's pull request, on a run by hand, and where the label `macos-full` asks for
+it. `main` runs every test on Linux and Windows after each merge, and macOS's short set. Main's
+merges and its nightly run are the ones that count: while either is red, _CI passed_ says so on
+every pull request as a warning, with main's commit and the jobs that failed. A pull request
+fails only for its own jobs.
 
 Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the
