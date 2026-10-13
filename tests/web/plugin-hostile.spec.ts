@@ -4,14 +4,15 @@
  * each by name, writing nothing. And a box's code that gets past the box's own wall still asks
  * Lumovi's API as nobody.
  */
-import { mkdtempSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readdirSync, statSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import WebSocket from 'ws'
 import { IPC } from '../../src/shared/api.ts'
-import { DEMO_TOKEN, expect, freePort, signIn, test } from './fixtures.ts'
+import type { PluginCode } from '../../src/shared/plugin-hand-over.ts'
+import { DEMO_TOKEN, expect, freePort, FROM_LUMOVI, signIn, test } from './fixtures.ts'
 
 /** Every call of the desktop's store: what a server must not answer. */
 const STORE = [IPC.pluginStore, IPC.pluginInstall, IPC.pluginGoBack, IPC.pluginRemove]
@@ -266,4 +267,80 @@ test('with its own wall taken away, a box’s code asks Lumovi’s API as nobody
   } finally {
     await front.close()
   }
+})
+
+test('a plugin’s code is served at no address, only handed to Lumovi’s own page; and nothing the server serves but the box’s script is another site’s to load', async ({
+  serve,
+  page,
+}) => {
+  test.slow()
+  const port = await freePort()
+  const served = await serve({ port, env: { LUMOVI_URL: `http://127.0.0.1:${port}` } })
+  await signIn(page, `${served.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  // A plugin of Lumovi's own, as it's handed to the page once this browser's box is checked.
+  const handed = await page.evaluate(() =>
+    (
+      window as unknown as { __lumoviDoor: { codeOf(plugin: string): Promise<PluginCode> } }
+    ).__lumoviDoor.codeOf('karpenter'),
+  )
+  if (!handed.ok) throw new Error(`Karpenter’s code wasn’t handed over: ${handed.refused}`)
+  // A stretch of it that's nothing else's.
+  const stretch = handed.code.slice(handed.code.length >> 1, (handed.code.length >> 1) + 120)
+  expect(stretch).toHaveLength(120)
+  const cookie = (await page.context().cookies())
+    .filter((each) => each.name === 'lumovi-session')
+    .map((each) => `${each.name}=${each.value}`)[0]!
+  const ask = (path: string, as: 'nobody' | 'the person') =>
+    fetch(`${served.url}${path}`, {
+      redirect: 'manual',
+      headers: as === 'nobody' ? {} : { Cookie: cookie, ...FROM_LUMOVI },
+    })
+  const odd: string[] = []
+  // Every file the server's pages are made of: none is another site's to load, and none holds it.
+  const pages = resolve('out', 'renderer')
+  const files = readdirSync(pages, { recursive: true, encoding: 'utf8' }).filter((file) =>
+    statSync(join(pages, file)).isFile(),
+  )
+  expect(files.length).toBeGreaterThan(5)
+  for (const file of files) {
+    const answer = await ask(file.split(sep).join('/'), 'nobody')
+    const text = await answer.text()
+    if (answer.headers.get('cross-origin-resource-policy') === 'cross-origin')
+      odd.push(`${file}: cross-origin`)
+    if (answer.headers.get('x-content-type-options') !== 'nosniff')
+      odd.push(`${file}: may be sniffed`)
+    if (text.includes(stretch)) odd.push(`${file}: holds a plugin’s code`)
+  }
+  // And every address that might name a plugin's file, asked as nobody and as the person: never
+  // a script, never its code.
+  for (const path of [
+    'karpenter.js',
+    'plugin.js',
+    'plugins/karpenter.js',
+    'plugins/karpenter/plugin.js',
+    'plugins/karpenter/plugin.yaml',
+    'plugin-box/karpenter.js',
+    'plugin-box/plugin.js',
+    'assets/karpenter.js',
+    'api/plugins/karpenter',
+    'api/plugins/karpenter/code',
+    'api/plugin-code/karpenter',
+    'plugin-code/karpenter',
+  ]) {
+    for (const as of ['nobody', 'the person'] as const) {
+      const answer = await ask(path, as)
+      const type = answer.headers.get('content-type') ?? ''
+      const text = await answer.text()
+      if (/javascript|ecmascript|yaml/.test(type)) odd.push(`${path} as ${as}: ${type}`)
+      if (answer.headers.get('cross-origin-resource-policy') === 'cross-origin')
+        odd.push(`${path} as ${as}: cross-origin`)
+      if (text.includes(stretch)) odd.push(`${path} as ${as}: its code`)
+    }
+  }
+  expect(odd).toEqual([])
+  // The one thing served for another site to load is the box's own script, which is Lumovi's.
+  const script = await ask('plugin-box/box.js', 'nobody')
+  expect(script.headers.get('cross-origin-resource-policy')).toBe('cross-origin')
+  expect(await script.text()).not.toContain(stretch)
 })
