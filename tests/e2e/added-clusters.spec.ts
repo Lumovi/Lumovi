@@ -28,7 +28,7 @@ import { delimiter, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { parse, stringify } from 'yaml'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
-import { DEMO, expect, test } from './fixtures.ts'
+import { DEMO, expect, openCluster, test } from './fixtures.ts'
 
 /** A file's text and when it last changed, from the one file opened. */
 function snapshot(path: string) {
@@ -1169,6 +1169,10 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
   }
   const userDataDir = mkdtempSync(join(tmpdir(), 'lumovi-user-'))
   const { page } = await launch({ userDataDir })
+  // On a cluster’s page, not the start screen: the start screen checks every context it lists,
+  // and would run the program for the two added (agreed to, where they are on disk) whenever it
+  // picks them up, a run that couldn’t be told from one for the moved context.
+  await openCluster(page)
   const pasted = stringify(config)
   const run = (
     (await page.evaluate((text) => window.lumovi!.addedClusters!.inspect(text), pasted)) as {
