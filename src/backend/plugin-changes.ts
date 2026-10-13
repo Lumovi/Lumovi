@@ -12,7 +12,11 @@
 import type { Change, ChangeRequest, KubeError, KubeObject, Result } from '@shared/api'
 import { kubectl, objectArg } from '@shared/kubectl'
 import {
+  CHANGE_LIMITS,
+  FIELD_KEY,
   mayPropose,
+  REPLICAS_MOST,
+  sentProblem,
   type ChangeAction,
   type ChangeRefusal,
   type PluginChangeAnswer,
@@ -21,13 +25,14 @@ import {
 import { PLUGIN_NAME } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
 import { kindFor, type ResourceDefinition } from '@shared/resources'
+import { fieldsOf } from './audit/describe'
 import type { Recorder } from './audit/recorder'
 import type { KubeService } from './kube/service'
 import { toKubeError } from './kube/errors'
 import { mayHandOver, type HandOverTo } from './plugin-code'
 
 export interface PluginChanging {
-  kube: Pick<KubeService, 'resource' | 'get' | 'change'>
+  kube: Pick<KubeService, 'resource' | 'get' | 'change' | 'isReadOnly'>
   known: () => Promise<readonly Readonly<KnownPlugin>[]>
   to: () => HandOverTo
   audit: Recorder
@@ -108,6 +113,22 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
   return async function change(said: unknown): Promise<PluginChangeAnswer> {
     const r = requestOf(said)
     if (!r) return { ok: false, refused: 'failed' }
+    // What's to be sent, asked again here, by the door's own rule: never what no plugin may
+    // write, whatever filled it in; and of the fields the person changed, only their keys.
+    const sends =
+      (r.step === 'try' || r.step === 'make') && (r.action === 'patch' || r.action === 'create')
+    if (r.body !== undefined || sends) {
+      const wrong = sentProblem(r.body, r.action)
+      if (wrong) return { ok: false, refused: 'not-granted', said: wrong }
+    }
+    if (
+      r.fields !== undefined &&
+      (!Array.isArray(r.fields) ||
+        r.fields.length > CHANGE_LIMITS.fields ||
+        !r.fields.every((key) => typeof key === 'string' && FIELD_KEY.test(key)))
+    ) {
+      return { ok: false, refused: 'failed' }
+    }
     const plugin = (await known()).find((p) => p.name === r.plugin)
     const may = mayHandOver(plugin, to())
     if (!plugin || may === 'not-in-use' || may === 'no-code')
@@ -141,6 +162,9 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
         ? r.namespace
         : r.target!.namespace
       : undefined
+    // A create in a namespace is made in the one the page named, or the one in view: never a default.
+    if (resource.namespaced && namespace === undefined)
+      return { ok: false, refused: 'no-namespace' }
     const name = r.action === 'create' ? undefined : r.target!.name
     const where = { context: r.context, kind: resource.kind, ...(namespace && { namespace }) }
     const target = {
@@ -168,7 +192,8 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
           outcome === 'success'
             ? `${DONE[r.action]} ${what}, as ${by} proposed`
             : `Didn’t ${r.action === 'patch' ? 'change' : r.action} ${what} that ${by} proposed: ${why}`,
-        command,
+        // (A patch's command would carry what the person typed: its fields' paths instead.)
+        ...(r.action === 'patch' ? {} : { command }),
         details: {
           plugin: plugin.name,
           pluginVersion: plugin.version,
@@ -176,6 +201,7 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
           codeDigest: plugin.codeDigest!,
           action: r.action,
           fields: r.fields ?? [],
+          ...(r.action === 'patch' && { paths: fieldsOf(r.body) }),
         },
         ...(error && { error }),
       })
@@ -185,7 +211,26 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
       recorded('cancelled', 'cancelled')
       return { ok: true }
     }
-    if (r.step === 'check') return { ok: true }
+    // Asked before anything's shown, as Lumovi's own actions ask: a cluster that's read-only in
+    // Lumovi, or where the person may not make this change (their access, the cluster's RBAC for
+    // this very action), opens no dialog. The action itself is tried, changing nothing: a delete
+    // is a delete, a scale an empty patch of its scale, a patch an empty patch. (A create has no
+    // object to ask of yet: its first try asks.)
+    if (r.step === 'check') {
+      if (kube.isReadOnly(r.context)) return { ok: false, refused: 'read-only' }
+      if (r.action === 'create') return { ok: true }
+      const change: Change =
+        r.action === 'delete'
+          ? { action: 'delete', propagation: 'Background' }
+          : {
+              action: 'patch',
+              patchType: 'merge',
+              ...(r.action === 'scale' && { subresource: 'scale' as const }),
+              patch: {},
+            }
+      const asked = await kube.change({ ...where, name, dryRun: true, change })
+      return asked.ok ? { ok: true } : refusalOf(asked.error)
+    }
 
     // The object as it is, for all but a create: what a patch, a scale or a deletion is made to.
     let before: KubeObject | null = null
@@ -310,7 +355,9 @@ function changeOf(
       break
     }
     case 'scale':
-      if (typeof r.replicas !== 'number') return 'A scale needs its count'
+      if (!Number.isInteger(r.replicas) || r.replicas! < 0 || r.replicas! > REPLICAS_MOST) {
+        return `A scale’s count is a whole number from 0 to ${REPLICAS_MOST}`
+      }
       change = {
         action: 'patch',
         patchType: 'merge',

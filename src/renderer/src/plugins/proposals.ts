@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 import type { PageProposal, PluginChangeRequest, ProposalOutcome } from '@shared/plugin-changes'
 import { mayStart } from '@shared/plugin-presses'
+import { whose } from '@shared/plugins'
 import { api } from '@renderer/lib/api'
 import type { Layout } from '@renderer/lib/layout'
 import { useActionsUi } from '@renderer/state/actions'
@@ -87,7 +88,23 @@ export async function proposeChange(
   if (asking() || !document.hasFocus()) return 'refused'
   // Asked first: one its plugin may not propose, or on a read-only cluster, opens nothing.
   const checked = await api.kube.pluginChange({ step: 'check', ...requestBase(by, proposal) })
-  if (!checked.ok || asking() || !document.hasFocus()) return 'refused'
+  if (!checked.ok) {
+    // (What the person can do something about is said; what only its author can isn't.)
+    const kind = (proposal.target?.kind ?? proposal.proposed.kind ?? '')
+      .replace(/^.*\//, '')
+      .replace(/\..*$/, '')
+    const said =
+      checked.refused === 'read-only'
+        ? `This cluster is read-only in Lumovi: ${whose(by.label)} change isn’t made here.`
+        : checked.refused === 'no-namespace'
+          ? `Pick one namespace to make the new ${kind} in, then try again.`
+          : checked.refused === 'not-allowed'
+            ? `You may not make ${whose(by.label)} change here.`
+            : undefined
+    if (said) toast({ tone: 'info', title: said })
+    return 'refused'
+  }
+  if (asking() || !document.hasFocus()) return 'refused'
   return new Promise((resolve) => {
     let settled = false
     useProposals.setState({

@@ -303,11 +303,12 @@ export function openPage(options: {
     drawn?: Readonly<Record<string, unknown>>,
   ) => {
     if (page.end) return
-    // (Each press has its token, made only for a press that's sent: a change the page proposes
-    // right after carries it.)
+    // (Each press of a button has its token, made only for a press that's sent: a change the page
+    // proposes right after carries it. A pick, an open or a retry is no press.)
+    const press = event === 'press' ? () => reading.tokens.pressed(Date.now()) : undefined
     const call = callOf(options.parts[part]!.declared, event, handle, written(carries), {
       ...(drawn && { drawn }),
-      press: () => reading.tokens.pressed(Date.now()),
+      ...(press && { press }),
     })
     if (call !== undefined) box.post(call)
   }

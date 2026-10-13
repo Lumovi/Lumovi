@@ -12,6 +12,7 @@ import {
   filled,
   mayPropose,
   proposalProblem,
+  sentProblem,
   startingValues,
   type Field,
   type Proposed,
@@ -100,8 +101,21 @@ test('what the door refuses of a proposal, in its own words, quoting nothing the
     /^propose\.change\.action: should be one of patch, create, delete, scale/,
   )
   // The button: one line, short, never the way out, and never for a deletion.
-  expect(refused(proposal({ verb: 'Cancel' }))).toMatch(/would read as the way out/)
-  expect(refused(proposal({ verb: '  don’t ' }))).toMatch(/would read as the way out/)
+  for (const verb of [
+    'Cancel',
+    '  don’t ',
+    'Cancel…',
+    'Not now!',
+    'Dismiss',
+    'Never mind',
+    'Skip',
+    'Got it',
+    'EXIT',
+    'Ｃａｎｃｅｌ',
+  ]) {
+    expect(refused(proposal({ verb })), verb).toMatch(/would read as the way out/)
+  }
+  expect(typeof refused(proposal({ verb: 'Sync' }))).toBe('object')
   expect(refused(proposal({ verb: 'a'.repeat(CHANGE_LIMITS.verb + 1) }))).toMatch(/longer than 24/)
   expect(refused(proposal({ verb: 'Two\nlines' }))).toMatch(/one line/)
   expect(refused(proposal({ verb: 'Delete it' }, { action: 'delete', patch: undefined }))).toBe(
@@ -159,10 +173,52 @@ test('what the door refuses of a proposal, in its own words, quoting nothing the
       }),
     ),
   ).toMatch(/options\[0\]\.value: is required/)
-  // Never who owns an object or who managed its fields; never deeper than 20, nor a key longer than 253.
+  // A patch's metadata holds its labels and annotations, and nothing else; and never a status.
+  for (const meta of [
+    { ownerReferences: [] },
+    { managedFields: [] },
+    { finalizers: ['x'] },
+    { resourceVersion: '1' },
+    { name: 'other' },
+  ]) {
+    expect(
+      refused(proposal({ fields: [] }, { patch: { metadata: meta } })),
+      JSON.stringify(meta),
+    ).toMatch(/metadata: holds only labels, annotations/)
+  }
+  expect(refused(proposal({ fields: [] }, { patch: { status: { phase: 'Done' } } }))).toMatch(
+    /status: isn’t a plugin’s to write/,
+  )
+  // A field never stands for the whole of it, or for its metadata whole: what a value brings in
+  // there could be anything (the two shapes that once let owners and managers back in).
+  const choiceOf = (value: unknown) => [
+    {
+      kind: 'choice',
+      key: 'm',
+      label: 'M',
+      options: [
+        { label: 'a', value },
+        { label: 'b', value: {} },
+      ],
+    },
+  ]
   expect(
-    refused(proposal({ fields: [] }, { patch: { metadata: { ownerReferences: [] } } })),
-  ).toMatch(/isn’t a plugin’s to write/)
+    refused(
+      proposal(
+        { fields: choiceOf({ ownerReferences: [{}] }) },
+        { patch: { metadata: { field: 'm' } } },
+      ),
+    ),
+  ).toBe('propose.change.patch.metadata: a field can’t stand for the whole of it')
+  expect(
+    refused(
+      proposal(
+        { fields: choiceOf({ metadata: { managedFields: [] } }) },
+        { patch: { field: 'm' } },
+      ),
+    ),
+  ).toBe('propose.change.patch: a field can’t stand for the whole of it')
+  // Never deeper than 20, nor a key longer than 253.
   let deep: unknown = 1
   for (let i = 0; i < 25; i++) deep = { a: deep }
   expect(refused(proposal({ fields: [] }, { patch: deep }))).toMatch(/nested deeper than 20/)
@@ -174,8 +230,17 @@ test('what the door refuses of a proposal, in its own words, quoting nothing the
     refused({ propose: 1, press: 'p1', change: { action: 'create', kind, object } })
   expect(create({ metadata: { name: 'w' } }, '/Secret')).toMatch(/should be a kind of its own/)
   expect(create({ metadata: {} })).toMatch(/a name or a generateName/)
-  expect(create({ metadata: { name: 'w', namespace: 'kube-system' } })).toMatch(
-    /is Lumovi’s to say/,
+  for (const meta of [
+    { name: 'w', namespace: 'kube-system' },
+    { name: 'w', uid: 'u' },
+    { name: 'w', finalizers: [] },
+  ]) {
+    expect(create({ metadata: meta }), JSON.stringify(meta)).toMatch(
+      /metadata: holds only name, generateName, labels, annotations/,
+    )
+  }
+  expect(create({ metadata: { name: 'w' }, status: {} })).toMatch(
+    /status: isn’t a plugin’s to write/,
   )
 })
 
@@ -210,6 +275,58 @@ test('the person’s values go in only where the page marked them, each a value 
   expect(filled(big, { size: 'y' })).toBe('too-big')
   // The fields the person changed: what the history keeps, never the values.
   expect(changedFields(proposed.fields, { note: 'hi', prune: false })).toEqual(['note'])
+})
+
+test('what the person’s values make of a change is held to the door’s rule too, and the backend asks it again', () => {
+  // (Made by hand, past the door: what a value brings in is asked of the change as it's sent.)
+  const placed = (body: unknown, value: unknown): Proposed => ({
+    id: 1,
+    press: 'p',
+    action: 'patch',
+    target: 'o',
+    body,
+    fields: [
+      {
+        kind: 'choice',
+        key: 'm',
+        label: 'M',
+        options: [
+          { label: 'a', value },
+          { label: 'b', value: 1 },
+        ],
+        value: 0,
+      },
+    ],
+  })
+  expect(filled(placed({ metadata: { field: 'm' } }, { ownerReferences: [{}] }), { m: 0 })).toBe(
+    'not-allowed',
+  )
+  expect(filled(placed({ field: 'm' }, { metadata: { managedFields: [] } }), { m: 0 })).toBe(
+    'not-allowed',
+  )
+  let deep: unknown = 1
+  for (let i = 0; i < 19; i++) deep = { a: deep }
+  expect(filled(placed({ spec: { here: { field: 'm' } } }, deep), { m: 0 })).toBe('not-allowed')
+  expect(filled(placed({ spec: { here: { field: 'm' } } }, 'fine'), { m: 0 })).toEqual({
+    body: { spec: { here: 'fine' } },
+  })
+  // As the backend asks it of what it's sent: the same rule, and no place left, no key too long,
+  // nothing past what a proposal may send.
+  expect(sentProblem({ metadata: { ownerReferences: [] } }, 'patch')).toMatch(
+    /holds only labels, annotations/,
+  )
+  expect(sentProblem({ spec: { size: { field: 'size' } } }, 'patch')).toBe(
+    'change: a field’s place is left in it',
+  )
+  expect(sentProblem({ ['k'.repeat(254)]: 1 }, 'patch')).toMatch(/key is longer than 253/)
+  expect(sentProblem({ spec: { pad: 'x'.repeat(CHANGE_LIMITS.bytes) } }, 'patch')).toMatch(
+    /more than a plugin may send/,
+  )
+  expect(sentProblem({ metadata: { generateName: 'nightly-' } }, 'create')).toBeUndefined()
+  expect(sentProblem(undefined, 'patch')).toMatch(/should be named values/)
+  expect(sentProblem(JSON.parse('{"spec":{"__proto__":{"a":1}}}'), 'patch')).toMatch(
+    /a key no object may have/,
+  )
 })
 
 test('each field says what’s wrong with it in Lumovi’s words, by its kind', () => {
