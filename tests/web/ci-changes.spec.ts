@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
+import { borrowedOf, onlyMac, othersIn, withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { isRelease, plan, ranMacosInFull } from '../../scripts/ci-changes.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
@@ -19,6 +19,9 @@ const pr = (changed: string[], branch = 'lmv-1-x', labels: string[] = []) =>
 const macos = (result: ReturnType<typeof plan>) =>
   result.e2e.filter((shard) => shard.os === 'macos-latest').map((shard) => shard.shard)
 const FULL = ['1/4', '2/4', '3/4', '4/4']
+/** Each system's shards, as the plan names them. */
+const shards = (result: ReturnType<typeof plan>, os: string) =>
+  result.e2e.filter((shard) => shard.os === os).map((shard) => shard.shard)
 /** The tests' projects each system runs, as one text each. */
 const projects = (result: ReturnType<typeof plan>) =>
   Object.fromEntries(result.e2e.map((shard) => [shard.os, shard.projects]))
@@ -60,9 +63,9 @@ test('for now, a pull request runs macOS’s smoke set, whatever it changes; Lin
     const result = pr(changed)
     expect(result, changed.join(' ')).toMatchObject({ docs: false, macos: false })
     expect(macos(result)).toEqual(['smoke'])
-    for (const os of ['ubuntu-latest', 'windows-latest']) {
-      expect(result.e2e.filter((shard) => shard.os === os)).toHaveLength(4)
-    }
+    // Linux runs the browser's tests too, and the desktop tests alike everywhere: over six.
+    expect(shards(result, 'ubuntu-latest')).toEqual(['1/6', '2/6', '3/6', '4/6', '5/6', '6/6'])
+    expect(shards(result, 'windows-latest')).toEqual(FULL)
     expect(result.said).toContain('macOS runs its smoke set (its full suite runs nightly')
   }
 })
@@ -83,7 +86,7 @@ test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its
     const result = plan({ event: 'push', changed })
     expect(result).toMatchObject({ docs: false, macos: false })
     expect(macos(result)).toEqual(['smoke'])
-    expect(result.e2e).toHaveLength(9)
+    expect(result.e2e).toHaveLength(11)
     expect(result.said).toContain('Main’s merge')
     // The browser's tests on Linux alone, where the server Lumovi ships runs; and Windows leaves
     // to Linux the desktop tests alike on every system (macOS runs its smoke set by name).
@@ -123,7 +126,7 @@ test('main’s nightly run, a run by hand and a release’s pull request run eve
     [pr(['README.md'], 'release-1.16.0'), 'A release’s pull request'],
   ] as const) {
     expect(result).toMatchObject({ docs: false, macos: true })
-    expect(result.e2e).toHaveLength(12)
+    expect(result.e2e).toHaveLength(14)
     expect(result.said).toContain(said)
     // Every system runs every test: a break in the browser's on one system shows here.
     expect(new Set(result.e2e.map((shard) => shard.projects))).toEqual(new Set(['desktop web']))
@@ -286,27 +289,49 @@ test('what’s borrowed is every shard’s or nothing, and never a file that isn
   })
   const none = JSON.stringify({ 'src/main/menu.ts': { s: { 0: 0 }, f: {}, b: {} } })
   const mac = [shard, shard, shard, shard]
-  const others = Array.from({ length: 8 }, () => none)
-  expect(borrowedOf({ mac, others }, ['src/a.ts'])).toEqual({
-    kept: { 'src/main/menu.ts': { s: { 0: 8 }, f: {}, b: {} } },
-  })
+  // (A run of main from before Linux's six shards keeps eight of Linux's and Windows'; after, ten.)
+  for (const count of [8, 10]) {
+    const others = Array.from({ length: count }, () => none)
+    expect(borrowedOf({ mac, others }, ['src/a.ts'], count)).toEqual({
+      kept: { 'src/main/menu.ts': { s: { 0: 8 }, f: {}, b: {} } },
+    })
+  }
+  const others = Array.from({ length: 10 }, () => none)
   // Three of four would be most of what macOS reaches, and read as all of it; and with one of
   // the others' missing, what it reached would be taken for macOS's alone.
-  expect(borrowedOf({ mac: mac.slice(1), others }, [])).toEqual({
+  expect(borrowedOf({ mac: mac.slice(1), others }, [], 10)).toEqual({
     nothing: '3 of macOS’s 4 coverage files are there, not all of them',
   })
-  expect(borrowedOf({ mac: [], others }, [])).toEqual({
+  expect(borrowedOf({ mac: [], others }, [], 10)).toEqual({
     nothing: '0 of macOS’s 4 coverage files are there, not all of them',
   })
-  expect(borrowedOf({ mac, others: others.slice(1) }, [])).toEqual({
-    nothing: '7 of Linux’s and Windows’ 8 coverage files are there, not all of them',
+  expect(borrowedOf({ mac, others: others.slice(1) }, [], 10)).toEqual({
+    nothing: '9 of Linux’s and Windows’ 10 coverage files are there, not all of them',
   })
-  expect(borrowedOf({ mac: [shard, shard, shard, 'cut sh'], others }, [])).toEqual({
+  expect(borrowedOf({ mac: [shard, shard, shard, 'cut sh'], others }, [], 10)).toEqual({
     nothing: 'one of its files isn’t JSON',
   })
-  expect(borrowedOf({ mac, others: [...others.slice(1), '[]'] }, [])).toEqual({
+  expect(borrowedOf({ mac, others: [...others.slice(1), '[]'] }, [], 10)).toEqual({
     nothing: 'one of its files isn’t coverage',
   })
+})
+
+test('how many of Linux’s and Windows’ coverage files a run of main has: as its E2E jobs say each was split', () => {
+  const jobs = (linux: number, windows: number) => [
+    'What changed',
+    'E2E (macos-latest, smoke)',
+    ...Array.from({ length: linux }, (_, i) => `E2E (ubuntu-latest, ${i + 1}/${linux})`),
+    ...Array.from({ length: windows }, (_, i) => `E2E (windows-latest, ${i + 1}/${windows})`),
+    'Coverage (all platforms)',
+  ]
+  // (A run from before Linux's six shards, and one after.)
+  expect(othersIn(jobs(4, 4))).toBe(8)
+  expect(othersIn(jobs(6, 4))).toBe(10)
+  // However many of a platform's jobs are listed, its count is what their names say it was split into.
+  expect(othersIn(jobs(6, 4).filter((name) => name !== 'E2E (ubuntu-latest, 6/6)'))).toBe(10)
+  // A platform with no such job: nothing to count.
+  expect(othersIn(jobs(0, 4))).toBeUndefined()
+  expect(othersIn(jobs(6, 0))).toBeUndefined()
 })
 
 test('main is red unless its newest finished run passed: only a run somebody cancelled says nothing', () => {
