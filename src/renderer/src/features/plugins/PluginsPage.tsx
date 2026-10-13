@@ -666,23 +666,43 @@ function DeveloperModeLine() {
 function Opening() {
   // (Where the organization's policy names the plugins allowed, the others aren't here: said so,
   // without naming them.)
-  const allowedOnly = useSettings().data?.managed?.pluginsAllowed !== undefined
+  const settings = useSettings().data
+  const allowedOnly = settings?.managed?.pluginsAllowed !== undefined
+  // The desktop app's: whose code runs, as Developer mode says of the person's own.
+  const yours = developerModeLocked(settings?.managed)
+    ? 'but none of yours: your organization’s policy keeps Developer mode off'
+    : settings?.pluginDeveloperMode === true
+      ? 'and yours, each once you’ve agreed to what it may do'
+      : 'and yours only while Developer mode is on'
   return (
     <p className="m-5 flex gap-2.5 rounded-xl bg-surface-2 px-4 py-3 text-[13px] leading-relaxed text-ink-2 phone:m-4">
       <Info className="mt-0.5 size-4 shrink-0 text-ink-3" />
       <span data-plugins-opening>
-        {CODE_PAGES ? (
+        {CODE_PAGES && HOST === 'yours' ? (
+          // (Whose code runs: Lumovi-plugins', Lumovi's own and installed; and the person's own,
+          // as Developer mode says.)
+          <>
+            A plugin teaches Lumovi a tool’s kinds: their columns, status, details and actions. Its
+            actions change objects only with the patches and the objects they spell out, each shown
+            here. Some plugins also add pages drawn by their own code, in a sealed box: it reads
+            only what its file says it may, and any change it proposes waits for you in Lumovi’s own
+            dialog. Those are the plugins from Lumovi-plugins, the ones Lumovi comes with and the
+            ones you install, <span data-plugins-opening-yours>{yours}</span>. A plugin has no
+            access of its own: what it reads and changes, it does as you, and the cluster refuses
+            what you may not do. Lumovi’s come inside Lumovi, and the ones you install from
+            Lumovi-plugins’ signed releases; yours are your own files.
+          </>
+        ) : CODE_PAGES ? (
           // (Where Lumovi offers pages drawn by plugins' code, said so, and of whose.)
           <>
             A plugin teaches Lumovi a tool’s kinds: their columns, status, details and actions. Its
             actions change objects only with the patches and the objects they spell out, each shown
-            here.{' '}
-            {HOST === 'yours' ? 'A plugin of yours' : 'A plugin this server’s administrator added'}{' '}
-            is data, and runs no code. The ones Lumovi comes with may also add pages drawn by their
-            own code, in a sealed box: it reads only what its file says it may, and any change it
-            proposes waits for you in Lumovi’s own dialog. A plugin has no access of its own: what
-            it reads and changes, it does as you, and the cluster refuses what you may not do.
-            Lumovi’s come inside Lumovi;{' '}
+            here. A plugin this server’s administrator added is data, and runs no code. The ones
+            Lumovi comes with may also add pages drawn by their own code, in a sealed box: it reads
+            only what its file says it may, and any change it proposes waits for you in Lumovi’s own
+            dialog. A plugin has no access of its own: what it reads and changes, it does as you,
+            and the cluster refuses what you may not do. Lumovi’s come inside Lumovi; this server’s
+            are files its administrator put there.
           </>
         ) : (
           <>
@@ -691,11 +711,11 @@ function Opening() {
             the objects they spell out, each shown here. A plugin has no access of its own: what it
             reads and changes, it does as you, and the cluster refuses what you may not do. Lumovi’s
             come inside Lumovi;{' '}
+            {HOST === 'yours'
+              ? 'yours are your own files.'
+              : 'this server’s are files its administrator put there.'}
           </>
         )}
-        {HOST === 'yours'
-          ? 'yours are your own files.'
-          : 'this server’s are files its administrator put there.'}
         {allowedOnly && (
           <span data-plugins-allowed-only className="mt-1.5 block">
             Your organization’s policy allows only some plugins here: the others aren’t shown.
