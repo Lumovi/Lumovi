@@ -1,17 +1,28 @@
 /**
- * How a plugin's page places its parts: a stack, a row of tiles, a split, and nothing else. No
- * width, gap or position is a plugin's to give: these are Lumovi's.
+ * How a plugin's page places its parts: a stack, a pair, a split, and nothing else; and a row of
+ * tiles. No width, gap or position is a plugin's to give: these are Lumovi's. Each takes what its
+ * declaration (`@shared/kit/page`) says, as the door hands it: a plugin's texts as `Their`.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import type { FrameCarries, PickList as PickListSaid, Tile as TileSaid } from '@shared/kit/page'
+import { spelled } from '@shared/kit/characters'
+import type { Their } from '@shared/kit/declare'
+import type {
+  PairProps,
+  PickList as PickListSaid,
+  SplitProps,
+  Tile as TileSaid,
+  TilesProps,
+} from '@shared/kit/page'
 import type { ObjectRef } from '@shared/kit/table'
 import { VIEW_ICONS } from '@renderer/components/KindIcon'
 import { Tile } from '@renderer/components/Tile'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
+import { TheirText } from '@renderer/plugins/TheirText'
 import { useUi } from '@renderer/state/ui'
 import { NamedAbove } from './PageHeader'
 import { PickList, standing } from './PickList'
+import { counted, keyOf, NOTHING_WRITTEN } from './Table'
 
 /** One under another, 16 px apart: what a page is when nothing else is said. */
 export function Stack({ children }: { children: ReactNode }) {
@@ -19,6 +30,24 @@ export function Stack({ children }: { children: ReactNode }) {
 }
 
 const ACROSS = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' } as const
+
+/**
+ * A tile's value: the plugin's figure or words; with a cut read under it, the figure and a "+"
+ * (said "4,980 or more"); with none, its space kept (no dash: it's still reading, or there's
+ * nothing to count), so a row of tiles doesn't jump when it comes.
+ */
+function valueOf(tile: TileSaid): ReactNode | Their {
+  if (!tile.value) return '\u00a0'
+  if (!tile.cut) return tile.value.text
+  return (
+    <>
+      <span aria-hidden>
+        <TheirText text={tile.value.text} inline />+
+      </span>
+      <span className="sr-only">{spelled(tile.value.text.their)} or more</span>
+    </>
+  )
+}
 
 /**
  * A row of tiles: two to four, of equal width and the same height. On a phone they're two
@@ -29,10 +58,10 @@ export function Tiles({
   go,
   onOpen,
 }: {
-  tiles: TileSaid[]
+  tiles: readonly TileSaid[]
   /** Opens the object a tile names: Lumovi's own to do. */
   go?: (object: ObjectRef) => void
-  onOpen?: (carries: FrameCarries['openTile']) => void
+  onOpen?: TilesProps['onOpen']
 }) {
   const across = Math.max(2, Math.min(4, tiles.length)) as 2 | 3 | 4
   return (
@@ -40,7 +69,7 @@ export function Tiles({
       {tiles.map((tile, index) => (
         <div
           // (By its place too: whatever keys it was given, a row draws.)
-          key={`${index}:${tile.key}`}
+          key={`${index}:${keyOf(tile)}`}
           className={cn(
             'min-w-0',
             tiles.length % 2 === 1 && index === tiles.length - 1 && 'phone:col-span-2',
@@ -49,10 +78,19 @@ export function Tiles({
           <Tile
             icon={tile.icon && VIEW_ICONS[tile.icon]}
             label={tile.label}
-            value={tile.value.text}
-            words={tile.value.kind === 'words'}
-            detail={tile.detail}
-            status={tile.level}
+            value={valueOf(tile)}
+            words={tile.value?.kind === 'words' && !tile.cut}
+            detail={
+              // (Counted from a cut read, the line under is Lumovi's, never the plugin's.)
+              tile.cut ? (
+                `Counted from the first ${counted(tile.cut.at)} Lumovi read.`
+              ) : tile.detail?.their ? (
+                <TheirText text={tile.detail} inline />
+              ) : undefined
+            }
+            // (A cut's line is Lumovi's saying where the count stops, not a level: no dot.)
+            status={tile.cut ? undefined : tile.level}
+            wraps={tile.cut !== undefined}
             cut
             onOpen={
               tile.opens
@@ -70,6 +108,29 @@ export function Tiles({
 }
 
 /**
+ * Two cards side by side, the first seven parts of twelve (`wider`) or half: Lumovi's widths.
+ * Below 960 px of page, or on a phone, they stand one under the other, the first on top. It
+ * holds exactly two cards: the door refuses a page that leaves it with fewer or puts in more.
+ */
+export function Pair({ first, children }: PairProps & { children: ReactNode }) {
+  // (Measured by its own width: the page's, as a pair stands in a stack or at the top.)
+  return (
+    <div className="@container min-w-0">
+      <div
+        className={cn(
+          'grid min-w-0 items-start gap-4',
+          first === 'wider'
+            ? '@[960px]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]'
+            : '@[960px]:grid-cols-2',
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/**
  * A split: a pick list at its side, 300 px wide, then the rest, which follows what's picked.
  * One row is always picked: the one the list says, or its first. On a phone it's two pages:
  * the list, then what a tap opens, with Back and the picked thing's name in the top bar.
@@ -80,7 +141,7 @@ export function Split({
   children,
 }: {
   list: PickListSaid
-  onPick?: (carries: FrameCarries['pick']) => void
+  onPick?: SplitProps['onPick']
   /** The rest of the page, for what's picked. */
   children: ReactNode
 }) {
@@ -89,21 +150,26 @@ export function Split({
   // What a person picked; until then, or when it's no longer a row, the list's own or its first.
   const [chosen, setChosen] = useState<string>()
   const [opened, setOpened] = useState(false)
-  const has = (key: string | undefined) => list.rows.some((row) => row.key === key)
-  const picked = has(chosen) ? chosen : has(list.picked) ? list.picked : standing(list)[0]?.key
-  const row = list.rows.find((each) => each.key === picked)
+  const rows = list.rows
+  const has = (key: string | undefined) =>
+    key !== undefined && rows.some((row) => keyOf(row) === key)
+  const said = list.picked?.their
+  const first = standing(list)[0]
+  const picked = has(chosen) ? chosen : has(said) ? said : first && keyOf(first)
+  const row = rows.find((each) => keyOf(each) === picked)
   const pick = (key: string) => {
     setChosen(key)
     setOpened(true)
-    if (key !== picked) onPick?.({ row: key })
+    const pressed = rows.find((each) => keyOf(each) === key)
+    if (key !== picked) onPick?.({ row: pressed?.key ?? NOTHING_WRITTEN })
   }
 
   // On a phone, what's picked is a page of its own: named in the top bar, with Back to the list.
   const inside = phone && opened && row !== undefined
-  const name = row?.lead.name
+  const name = row?.lead.name.their
   useEffect(() => {
     if (!inside || name === undefined) return
-    setInside({ title: name, back: () => setOpened(false) })
+    setInside({ title: spelled(name), back: () => setOpened(false) })
     return () => setInside(undefined)
   }, [inside, name, setInside])
 

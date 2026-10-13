@@ -5,12 +5,12 @@
  * ellipsis, and the cut takes more letters to make room for them. Where the marks alone don't
  * fit, the name ends in an ellipsis after the last of them that does.
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { inPieces, spelled, type Piece } from '@shared/kit/characters'
 import type { Their } from '@shared/kit/declare'
 import { KEPT_END } from '@renderer/components/MiddleTruncate'
 import { cn } from '@renderer/lib/cn'
-import { TheirText } from '@renderer/plugins/TheirText'
+import { Pieces, TheirText } from '@renderer/plugins/TheirText'
 
 /** As much of a plugin's text as a tooltip shows: what Lumovi quotes back of one (`quotedBack`). */
 const TIP = 40
@@ -138,6 +138,49 @@ export function middleCutPieces(
 }
 
 /**
+ * Pieces as TheirText draws them on one line, but with what was sought in bold: in every run of
+ * letters it stands whole in (one the cut split stays as it's drawn).
+ */
+function Bolded({ pieces, bold }: { pieces: readonly Piece[]; bold: string }) {
+  const want = bold.trim().toLowerCase()
+  const parts = (text: string) => {
+    const line = text.replace(/[\n\t]/g, ' ')
+    const lower = line.toLowerCase()
+    // (Where lowering changes how long it is, "İ" among its letters, places in one aren't places in
+    // the other: it's drawn as it is, with nothing bold.)
+    if (lower.length !== line.length) return line
+    const out: (string | { b: string })[] = []
+    let from = 0
+    for (let at = want ? lower.indexOf(want) : -1; at !== -1; at = lower.indexOf(want, from)) {
+      if (at > from) out.push(line.slice(from, at))
+      out.push({ b: line.slice(at, at + want.length) })
+      from = at + want.length
+    }
+    if (from < line.length) out.push(line.slice(from))
+    return out.map((part, i) =>
+      typeof part === 'string' ? (
+        part
+      ) : (
+        <b key={i} className="font-bold">
+          {part.b}
+        </b>
+      ),
+    )
+  }
+  return (
+    <bdi dir="auto" data-their-text="" className="text-left [overflow-wrap:anywhere]">
+      {pieces.map((piece, i) =>
+        typeof piece === 'string' ? (
+          <Fragment key={i}>{parts(piece)}</Fragment>
+        ) : (
+          <Pieces key={i} pieces={[piece]} oneLine />
+        ),
+      )}
+    </bdi>
+  )
+}
+
+/**
  * A name of a plugin's, cut by measuring as it's laid out and whenever its room changes. All of
  * it is there for a screen reader, spelled, and in its tooltip (as much as a tooltip shows) once
  * it's cut: but for `tip={false}`, where what it's in has a tooltip of its own that says all of it.
@@ -146,12 +189,15 @@ export function MiddleCut({
   text,
   end = KEPT_END,
   tip = true,
+  bold,
   className,
 }: {
   text?: Their
   /** How many of its last letters it keeps; none cuts it at its end. */
   end?: number
   tip?: boolean
+  /** What a filter found in it, set in bold wherever it's drawn whole (any case). */
+  bold?: string
   className?: string
 }) {
   const written = text?.their ?? ''
@@ -195,7 +241,11 @@ export function MiddleCut({
       {/* All of it for a screen reader, its marks spelled. */}
       <span className="sr-only">{spelled(written)}</span>
       <span aria-hidden className="absolute inset-0 select-none">
-        <TheirText pieces={cut ?? all} inline />
+        {bold ? (
+          <Bolded pieces={cut ?? all} bold={bold} />
+        ) : (
+          <TheirText pieces={cut ?? all} inline />
+        )}
       </span>
     </span>
   )

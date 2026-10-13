@@ -41,6 +41,9 @@ const PARTS: Record<string, Part> = {
   },
   /** One a page may have only two of. */
   Badge: { name: 'Badge', holds: 'nothing', props: {}, most: 2 },
+  /** One that holds one thing at most; one that holds two texts, and on the page no fewer. */
+  Frame: { name: 'Frame', holds: ['Label', 'Row'], holdsMost: 1, props: {} },
+  Pair: { name: 'Pair', holds: 'text', holdsMost: 2, holdsLeast: 2, props: {} },
   /** Two a page may have twenty of between them (each naming the ceiling for itself). */
   Card: { name: 'Card', holds: 'nothing', props: {}, counts: CARDS },
   Tag: { name: 'Tag', holds: 'nothing', props: {}, counts: shared('Card and Tag parts', 20) },
@@ -133,6 +136,10 @@ test.describe('a part’s declaration', () => {
       { name: 'A', holds: 'nothing', props: {}, most: 0 },
       { name: 'A', holds: 'nothing', props: {}, most: 1.5 },
       { name: 'A', holds: 'nothing', props: {}, counts: shared('A parts', 0) },
+      { name: 'A', holds: 'parts', props: {}, holdsMost: 0 },
+      { name: 'A', holds: 'text', props: {}, holdsMost: 1.5 },
+      { name: 'A', holds: 'parts', props: {}, holdsLeast: 0 },
+      { name: 'A', holds: 'nothing', props: {}, holdsLeast: 1 },
     ]
     for (const part of wrong) expect(wrongWithPart(part), JSON.stringify(part)).toBeTruthy()
     // Said with where it is: a list, a choice, a property's name, an event, and what it carries.
@@ -140,6 +147,18 @@ test.describe('a part’s declaration', () => {
       [
         { name: 'A', holds: 'nothing', props: { rows: list(text(3), 0) } },
         'A.rows: a list needs a greatest length',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: {}, holdsMost: 1 },
+        'A: holds nothing, so it can’t say how many it holds',
+      ],
+      [
+        { name: 'A', holds: ['Label'], props: {}, holdsMost: 0 },
+        'A: how many it holds should be a whole number, 1 or more',
+      ],
+      [
+        { name: 'A', holds: 'parts', props: {}, holdsLeast: 3, holdsMost: 2 },
+        'A: holds 3 at least and 2 at most',
       ],
       [
         { name: 'A', holds: 'nothing', props: { cell: choice('two words', { a: {} }) } },
@@ -608,6 +627,75 @@ test.describe('a plugin’s page', () => {
     )
     // What a Row holds by name, it holds.
     expect(page_().send(...base, ['put', 5, 3])).toEqual({ changed: [1, 5] })
+  })
+
+  test('a part that holds so many holds no more: one more is refused, not left undrawn', () => {
+    const base: unknown[][] = [
+      ['make', 1, 'Frame', {}],
+      ['make', 2, 'Label', {}],
+      ['make', 3, 'Row', {}],
+      ['make', 4, 'Pair', {}],
+      ['text', 5, 'a'],
+      ['text', 6, 'b'],
+      ['text', 7, 'c'],
+      ['put', 1, 2],
+      ['put', 4, 5],
+      ['put', 4, 6],
+    ]
+    expect(page_().send(...base)).toEqual({ changed: [1, 4] })
+    expect(stopped(page_().send(...base, ['put', 1, 3]))).toEqual({
+      why: 'not-allowed',
+      what: 'step 11: puts a Row into a Frame, which holds one at most',
+    })
+    expect(stopped(page_().send(...base, ['put', 4, 7])).what).toBe(
+      'step 11: puts a text into a Pair, which holds 2 at most',
+    )
+    // What it holds already moves within it; and with one taken away, another goes in.
+    expect(page_().send(...base, ['put', 4, 6, 5])).toEqual({ changed: [1, 4] })
+    expect(page_().send(...base, ['take', 1, 2], ['put', 1, 3])).toEqual({ changed: [1, 4] })
+  })
+
+  test('a part that holds so many at least holds them on the page once a commit is whole', () => {
+    const short = (holds: number) =>
+      `leaves a Pair on the page that holds ${holds}, and a Pair holds 2 at least`
+    const pair: unknown[][] = [
+      ['make', 1, 'Pair', {}],
+      ['text', 2, 'a'],
+      ['text', 3, 'b'],
+    ]
+    // Put together in one commit, one text at a time: whole, it holds two.
+    const { send } = page_()
+    expect(send(...pair, ['put', ROOT, 1], ['put', 1, 2], ['put', 1, 3])).toEqual({
+      changed: [ROOT, 1],
+    })
+    // On the page with one, it's refused, and said as the commit's (no one step is wrong).
+    expect(stopped(page_().send(...pair, ['put', 1, 2], ['put', ROOT, 1]))).toEqual({
+      why: 'not-allowed',
+      what: short(1),
+    })
+    // One taken away from it on the page, and none put back: refused. One put back: taken.
+    expect(stopped(send(['take', 1, 2])).what).toBe(short(1))
+    const again = page_()
+    again.send(...pair, ['put', 1, 2], ['put', 1, 3], ['put', ROOT, 1])
+    expect(again.send(['take', 1, 2], ['text', 4, 'c'], ['put', 1, 4])).toEqual({ changed: [1] })
+    // Off the page it's still being put together, over as many commits as it takes, however
+    // deep: under a Stack that isn't on the page either. Put on whole, it's taken.
+    const inStack: unknown[][] = [
+      ['make', 1, 'Stack', {}],
+      ['make', 2, 'Pair', {}],
+      ['put', 1, 2],
+    ]
+    const off = page_()
+    expect(off.send(...inStack)).toEqual({ changed: [1] })
+    expect(off.send(['text', 3, 'a'], ['put', 2, 3])).toEqual({ changed: [2] })
+    expect(stopped(page_().send(...inStack, ['put', ROOT, 1])).what).toBe(short(0))
+    expect(off.send(['text', 4, 'b'], ['put', 2, 4], ['put', ROOT, 1])).toEqual({
+      changed: [2, ROOT],
+    })
+    // And taken away whole, with what's short in it, nothing short is left on the page.
+    expect(
+      off.send(['take', 2, 4], ['take', ROOT, 1], ['make', 5, 'Label', {}], ['put', ROOT, 5]),
+    ).toEqual({ changed: [ROOT] })
   })
 
   test('over a ceiling it’s stopped: a message, a commit’s steps, a text', () => {

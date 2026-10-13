@@ -26,6 +26,11 @@ export type Kind =
   | { kind: 'object' }
   /** A Secret Lumovi shows by reference: on the wire a token of its own sort, never an object's. */
   | { kind: 'secret' }
+  /**
+   * A read Lumovi cut at its limit, as the door named it in the read's answer: its token, never
+   * numbers a plugin wrote. Lumovi says what was cut, from the door's own.
+   */
+  | { kind: 'cut' }
   /** A handler: when it's called, the plugin is told, with what the part's event says. */
   | { kind: 'handler'; event: string }
   /** A list of one kind, at most `max` long. */
@@ -50,6 +55,18 @@ export interface Part {
   name: string
   /** What may be inside it: nothing, text, or parts (any, or only those named). */
   holds: 'nothing' | 'text' | 'parts' | readonly string[]
+  /**
+   * How many it may hold at once, where that's fewer than any part may: a card holds one thing.
+   * One more is refused, as anything a page can't say is: a part never draws some of what it
+   * holds and leaves the rest.
+   */
+  holdsMost?: number
+  /**
+   * How many it holds at the least, on the page: a pair is two. Asked of a commit when it's
+   * whole (what it holds is put in one step at a time), and of what's on the page: one that's
+   * still being put together, off it, holds what it holds so far.
+   */
+  holdsLeast?: number
   /** Its properties: each a kind; one not in `required` may be left out. */
   props: Readonly<Record<string, Kind>>
   required?: readonly string[]
@@ -97,6 +114,7 @@ export const oneOf = <const V extends readonly string[]>(values: V) =>
 export const time = { kind: 'time' } as const
 export const object = { kind: 'object' } as const
 export const secret = { kind: 'secret' } as const
+export const cut = { kind: 'cut' } as const
 export const handler = <const E extends string>(event: E) => ({ kind: 'handler', event }) as const
 /**
  * A list. (Of objects, an item whose token the page doesn't hold is left out, so the list can
@@ -105,17 +123,25 @@ export const handler = <const E extends string>(event: E) => ({ kind: 'handler',
  */
 export const list = <const K extends Kind>(of: K, max: number) =>
   ({ kind: 'list', of, max }) as const
-export const record = <const F extends Record<string, Kind>>(
+/** (Which are required is kept in its type: a part is handed them as always there.) */
+export const record = <
+  const F extends Record<string, Kind>,
+  const R extends readonly (keyof F & string)[] = readonly [],
+>(
   fields: F,
-  required: readonly (keyof F & string)[] = [],
+  required: R = [] as unknown as R,
 ) => ({ kind: 'record', fields, required }) as const
 export const choice = <
   const By extends string,
   const Of extends Record<string, Record<string, Kind>>,
+  const O extends { readonly [W in keyof Of]?: readonly (keyof Of[W] & string)[] } = Record<
+    never,
+    never
+  >,
 >(
   by: By,
   of: Of,
-  optional: Readonly<Record<string, readonly string[]>> = {},
+  optional: O = {} as O,
 ) => ({ kind: 'choice', by, of, optional }) as const
 
 /** An object in the cluster as a part of Lumovi's is handed it: never what a plugin wrote. */
@@ -138,6 +164,12 @@ export interface SecretRef {
   namedBy?: SecretNamedBy
 }
 
+/** A read cut at Lumovi's limit, as the door made it: how many were read, of how many there are. */
+export interface CutRef {
+  readonly at: number
+  readonly of?: number
+}
+
 /** The object that names a Secret, by Lumovi's name for its kind, and the declared path. */
 export interface SecretNamedBy {
   kind: string
@@ -154,6 +186,7 @@ export interface SecretNamedBy {
 export interface Swap {
   object(token: string): ObjectRef | undefined
   secret(token: string): SecretRef | undefined
+  cut(token: string): CutRef | undefined
   handler(handle: string, event: string): ((carries: unknown) => void) | undefined
 }
 
@@ -202,6 +235,10 @@ export function wrongWith(
       return typeof value === 'string' && MOMENT.test(value) && !Number.isNaN(Date.parse(value))
         ? undefined
         : `${where}: should be a moment, as 2026-10-12T08:30:00Z`
+    case 'cut':
+      return typeof value === 'string' && TOKEN.test(value)
+        ? undefined
+        : `${where}: isn’t a cut Lumovi handed this page`
     case 'object':
     case 'secret':
     case 'handler':
@@ -289,13 +326,23 @@ export function wrongWithParts(parts: Readonly<Record<string, Part>>): string | 
  * carelessly never reaches a plugin.
  */
 /** The kinds the door puts something else in the place of, which may then be nothing. */
-const SWAPPED = new Set<Kind['kind']>(['object', 'secret'])
+const SWAPPED = new Set<Kind['kind']>(['object', 'secret', 'cut'])
 
 export function wrongWithPart(part: Part): string | undefined {
   if (!NAME.test(part.name)) return `${part.name}: isn’t a part’s name`
   const whole = (most: number) => Number.isSafeInteger(most) && most > 0
   if (part.most !== undefined && !whole(part.most)) {
     return `${part.name}: how many a page may have should be a whole number, 1 or more`
+  }
+  for (const holds of [part.holdsMost, part.holdsLeast]) {
+    if (holds === undefined) continue
+    if (part.holds === 'nothing') {
+      return `${part.name}: holds nothing, so it can’t say how many it holds`
+    }
+    if (!whole(holds)) return `${part.name}: how many it holds should be a whole number, 1 or more`
+  }
+  if (part.holdsLeast !== undefined && part.holdsLeast > (part.holdsMost ?? Infinity)) {
+    return `${part.name}: holds ${part.holdsLeast} at least and ${part.holdsMost} at most`
   }
   if (part.counts && !whole(part.counts.most)) {
     return `${part.name}: how many of ${part.counts.name} a page may have should be a whole number, 1 or more`
@@ -392,6 +439,8 @@ export function handed(value: unknown, kind: Kind, swap?: Swap): unknown {
       return swap ? swap.object(value as string) : value
     case 'secret':
       return swap ? swap.secret(value as string) : value
+    case 'cut':
+      return swap ? swap.cut(value as string) : value
     case 'handler':
       return swap ? swap.handler(value as string, kind.event) : value
     case 'list':
@@ -443,25 +492,47 @@ export type ValueOf<K, P extends Part = Part> = K extends { kind: 'text' }
       ? ObjectRef
       : K extends { kind: 'secret' }
         ? SecretRef
-        : K extends { kind: 'handler'; event: infer E }
-          ? (carries: CarriedBy<P, E>) => void
-          : K extends { kind: 'number' }
-            ? number
-            : K extends { kind: 'yes-or-no' }
-              ? boolean
-              : K extends { kind: 'one-of'; values: readonly (infer V)[] }
-                ? V
-                : K extends { kind: 'list'; of: infer Of }
-                  ? ValueOf<Of, P>[]
-                  : K extends { kind: 'record'; fields: infer F }
-                    ? { [N in keyof F]?: ValueOf<F[N], P> }
-                    : K extends { kind: 'choice'; by: infer By extends string; of: infer Of }
-                      ? {
-                          [W in keyof Of]: { [B in By]: W } & {
-                            [N in keyof Of[W]]?: ValueOf<Of[W][N], P>
-                          }
-                        }[keyof Of]
-                      : never
+        : K extends { kind: 'cut' }
+          ? CutRef
+          : K extends { kind: 'handler'; event: infer E }
+            ? (carries: CarriedBy<P, E>) => void
+            : K extends { kind: 'number' }
+              ? number
+              : K extends { kind: 'yes-or-no' }
+                ? boolean
+                : K extends { kind: 'one-of'; values: readonly (infer V)[] }
+                  ? V
+                  : K extends { kind: 'list'; of: infer Of }
+                    ? ValueOf<Of, P>[]
+                    : K extends { kind: 'record'; fields: infer F }
+                      ? HandedFields<F, K extends { required: readonly (infer R)[] } ? R : never, P>
+                      : K extends { kind: 'choice'; by: infer By extends string; of: infer Of }
+                        ? {
+                            [W in keyof Of]: { [B in By]: W } & HandedFields<
+                              Of[W],
+                              Exclude<keyof Of[W], OptionalIn<K, W>>,
+                              P
+                            >
+                          }[keyof Of]
+                        : never
+
+/**
+ * Named values as a part is handed them: the ones its declaration requires always there (the
+ * door refuses a description without one, and none of them is a token it could leave out), the
+ * rest maybe.
+ */
+type HandedFields<F, R, P extends Part> = {
+  [N in keyof F as N extends R ? N : never]: ValueOf<F[N], P>
+} & { [N in keyof F as N extends R ? never : N]?: ValueOf<F[N], P> }
+
+/** What a choice's `optional` names for one of its choices. */
+type OptionalIn<K, W> = K extends { optional: infer O }
+  ? W extends keyof O
+    ? O[W] extends readonly (infer N)[]
+      ? N
+      : never
+    : never
+  : never
 
 /** What a handler of a part is called with, for one of its events. */
 type CarriedBy<P extends Part, E> = E extends keyof NonNullable<P['events']>
@@ -469,4 +540,46 @@ type CarriedBy<P extends Part, E> = E extends keyof NonNullable<P['events']>
   : never
 
 /** A part's properties as a component of Lumovi's takes them, worked out from its declaration. */
-export type PropsOf<P extends Part> = { [K in keyof P['props']]?: ValueOf<P['props'][K], P> }
+export type PropsOf<P extends Part> = HandedFields<
+  P['props'],
+  P extends { required: readonly (infer R)[] } ? R : never,
+  P
+>
+
+/**
+ * The TypeScript type of a value of a kind as a plugin writes it, before the door: a text, a
+ * moment, an object's token, a Secret's and a handler's handle are each text. (The mirror of
+ * `ValueOf`, kind for kind, so a kind added to `Kind` fails to compile in both.)
+ */
+export type WrittenOf<K> = K extends { kind: 'text' }
+  ? string
+  : K extends { kind: 'time' }
+    ? string
+    : K extends { kind: 'object' }
+      ? string
+      : K extends { kind: 'secret' }
+        ? string
+        : K extends { kind: 'cut' }
+          ? string
+          : K extends { kind: 'handler' }
+            ? string
+            : K extends { kind: 'number' }
+              ? number
+              : K extends { kind: 'yes-or-no' }
+                ? boolean
+                : K extends { kind: 'one-of'; values: readonly (infer V)[] }
+                  ? V
+                  : K extends { kind: 'list'; of: infer Of }
+                    ? WrittenOf<Of>[]
+                    : K extends { kind: 'record'; fields: infer F }
+                      ? { [N in keyof F]?: WrittenOf<F[N]> }
+                      : K extends { kind: 'choice'; by: infer By extends string; of: infer Of }
+                        ? {
+                            [W in keyof Of]: { [B in By]: W } & {
+                              [N in keyof Of[W]]?: WrittenOf<Of[W][N]>
+                            }
+                          }[keyof Of]
+                        : never
+
+/** A part's properties as a plugin writes them: worked out from its declaration. */
+export type WrittenProps<P extends Part> = { [K in keyof P['props']]?: WrittenOf<P['props'][K]> }

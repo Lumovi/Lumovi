@@ -7,14 +7,15 @@
 import { SearchX } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { Health } from '@shared/health'
+import { spelled } from '@shared/kit/characters'
 import { PICKS_BEFORE_FILTER, type Pick, type PickList as PickListSaid } from '@shared/kit/page'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState } from '@renderer/components/States'
-import { StatusPill } from '@renderer/components/Status'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
+import { TheirText } from '@renderer/plugins/TheirText'
 import { CARD, Lead } from './Lead'
-import { Nothing } from './Table'
+import { keyOf, Nothing, Pill } from './Table'
 
 /** How bad a level is, worst first: how the rows stand unless they're to stand as given. */
 const WORST_FIRST: Health[] = ['critical', 'warning', 'progressing', 'neutral', 'healthy']
@@ -24,12 +25,13 @@ const GAP = 2
 
 /** The rows as they stand: the worst first (and otherwise as given), unless said. */
 export function standing(list: PickListSaid): Pick[] {
-  if (list.asGiven) return list.rows
+  const given = list.rows
+  if (list.asGiven) return given
   const rank = (row: Pick) => {
-    const at = row.status ? WORST_FIRST.indexOf(row.status.level) : -1
+    const at = row.status?.level ? WORST_FIRST.indexOf(row.status.level) : -1
     return at < 0 ? WORST_FIRST.length : at
   }
-  return list.rows
+  return given
     .map((row, index) => ({ row, index }))
     .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
     .map(({ row }) => row)
@@ -56,7 +58,9 @@ export function PickList({
     () =>
       needle
         ? rows.filter((row) =>
-            `${row.lead.name} ${row.lead.beside ?? ''} ${row.lead.under ?? ''}`
+            [row.lead?.name, row.lead?.beside, row.lead?.under]
+              .map((text) => text?.their ?? '')
+              .join(' ')
               .toLowerCase()
               .includes(needle),
           )
@@ -64,7 +68,9 @@ export function PickList({
     [rows, needle],
   )
   const filtered = rows.length > PICKS_BEFORE_FILTER
-  const noun = list.title.toLowerCase()
+  // The plugin's title, as a screen reader and a field's placeholder say it: spelled.
+  const named = spelled(list.title.their)
+  const noun = named.toLowerCase()
 
   // The picked row is kept in view, as rows come and go around it.
   useEffect(() => {
@@ -96,7 +102,7 @@ export function PickList({
 
   if (phone) {
     return (
-      <section aria-label={list.title} className="min-w-0">
+      <section aria-label={named} className="min-w-0">
         {/* How many, in a line of its own: the top bar has the page's name. */}
         <p className="pb-2.5 text-[13px] text-ink-2 tabular-nums">
           {rows.length.toLocaleString('en-US')} {noun}
@@ -105,18 +111,15 @@ export function PickList({
         {nothing ?? (
           <ul className="-mx-4 border-t border-line">
             {shown.map((row) => (
-              <li key={row.key} className="border-b border-line">
+              <li key={keyOf(row)} className="border-b border-line">
                 <button
                   type="button"
-                  onClick={() => onPick(row.key)}
+                  onClick={() => onPick(keyOf(row))}
                   className="flex h-[60px] w-full items-center gap-3 px-4 text-left active:bg-surface-3"
                 >
                   <Lead lead={row.lead} />
-                  {row.status && (
-                    <StatusPill
-                      status={{ health: row.status.level, label: row.status.word }}
-                      className="shrink-0"
-                    />
+                  {row.status?.level && (
+                    <Pill level={row.status.level} word={row.status.word} className="shrink-0" />
                   )}
                 </button>
               </li>
@@ -127,11 +130,11 @@ export function PickList({
     )
   }
 
-  const active = shown.findIndex((row) => row.key === (activeKey ?? picked))
+  const active = shown.findIndex((row) => keyOf(row) === (activeKey ?? picked))
   const move = (to: number) => {
     const next = shown[Math.max(0, Math.min(shown.length - 1, to))]
     if (!next) return
-    setActiveKey(next.key)
+    setActiveKey(keyOf(next))
     // (By its place: a key is the plugin's text, and may be nothing an id can be.)
     document.getElementById(`${id}-${shown.indexOf(next)}`)?.scrollIntoView({ block: 'nearest' })
   }
@@ -140,8 +143,8 @@ export function PickList({
     ArrowUp: () => move(active - 1),
     Home: () => move(0),
     End: () => move(shown.length - 1),
-    Enter: () => shown[active] && onPick(shown[active].key),
-    ' ': () => shown[active] && onPick(shown[active].key),
+    Enter: () => shown[active] && onPick(keyOf(shown[active])),
+    ' ': () => shown[active] && onPick(keyOf(shown[active])),
   }
   const onKeyDown = (event: KeyboardEvent) => {
     const action = keys[event.key]
@@ -150,9 +153,9 @@ export function PickList({
     action()
   }
   return (
-    <section aria-label={`${list.title} list`} className={CARD}>
+    <section aria-label={`${named} list`} className={CARD}>
       <h3 className="flex items-center px-4 pt-3.5 pb-2 text-[13px] font-semibold text-ink-1">
-        {list.title}
+        <TheirText text={list.title} />
         {rows.length > 0 && (
           <small className="ml-auto text-xs font-normal text-ink-3 tabular-nums">
             {rows.length.toLocaleString('en-US')}
@@ -165,7 +168,7 @@ export function PickList({
           ref={scroll}
           role="listbox"
           tabIndex={0}
-          aria-label={list.title}
+          aria-label={named}
           aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
           onKeyDown={onKeyDown}
           style={{ maxHeight: PICKS_BEFORE_FILTER * (ROW + GAP) }}
@@ -173,13 +176,13 @@ export function PickList({
         >
           {shown.map((row, index) => (
             <div
-              key={row.key}
+              key={keyOf(row)}
               id={`${id}-${index}`}
               role="option"
-              aria-selected={row.key === picked}
+              aria-selected={keyOf(row) === picked}
               onClick={() => {
-                setActiveKey(row.key)
-                onPick(row.key)
+                setActiveKey(keyOf(row))
+                onPick(keyOf(row))
               }}
               style={{ height: ROW, marginBottom: GAP }}
               className={cn(
@@ -192,11 +195,8 @@ export function PickList({
             >
               <Lead lead={row.lead} />
               {/* The status is never cut: the name gives way. */}
-              {row.status && (
-                <StatusPill
-                  status={{ health: row.status.level, label: row.status.word }}
-                  className="shrink-0"
-                />
+              {row.status?.level && (
+                <Pill level={row.status.level} word={row.status.word} className="shrink-0" />
               )}
             </div>
           ))}

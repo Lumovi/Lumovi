@@ -306,6 +306,8 @@ export function swapFor(tokens: Tokens, call: Call, stale: () => void = () => un
   return {
     object: (token) => held(tokens.objectOf(token)),
     secret: (token) => held(tokens.secretOf(token)),
+    // (No read is answered cut yet: app's door gives each its token, and this its numbers.)
+    cut: () => undefined,
     handler: (handle, event) => (carries) => call(handle, event, carries),
   }
 }

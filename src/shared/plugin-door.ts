@@ -82,6 +82,8 @@ interface Held extends PageNode {
   heights: number[]
   /** The characters it holds: its text, or its properties as text. */
   size: number
+  /** How many parts in its tree, itself counted, hold fewer than they must (`holdsLeast`). */
+  short?: number
   /** The commit that last changed what's drawn of it (none yet: 0). */
   changedAt?: number
 }
@@ -112,6 +114,8 @@ export class DoorPage {
   readonly #made = new Map<string, number>()
   /** And how many of the parts that count against each ceiling they share, by its name. */
   readonly #sharing = new Map<string, number>()
+  /** The parts that hold fewer than their declaration's least (`holdsLeast`), on the page or not. */
+  readonly #short = new Set<number>()
   /** What it may still send: filled as time passes, to `secondsAtOnce` seconds' worth at most. */
   #left: { at: number | undefined; steps: number; commits: number } = {
     at: undefined,
@@ -219,6 +223,16 @@ export class DoorPage {
       const wrong = this.#step(step, changed)
       if (wrong) return { ...wrong, what: `step ${n + 1}: ${wrong.what}` }
     }
+    // Whole, the commit leaves nothing on the page holding fewer than it must. (Off the page, a
+    // part is still being put together: what it holds goes in one step at a time.)
+    const short = this.#shortOnPage()
+    if (short !== undefined) {
+      const { part, children } = this.#nodes.get(short)!
+      const least = this.#parts[part!]!.holdsLeast!
+      return notAllowed(
+        `leaves a ${part} on the page that holds ${children.length}, and a ${part} holds ${least} at least`,
+      )
+    }
     // (What was taken away within the commit isn't there to draw.)
     const commit = ++this.#commits
     const drawn = [...changed].filter((id) => this.#nodes.has(id))
@@ -310,6 +324,7 @@ export class DoorPage {
     if (!wrong) {
       this.#made.set(name, made + 1)
       if (counts) this.#sharing.set(counts.name, sharing + 1)
+      this.#counted(id as number)
     }
     return wrong
   }
@@ -354,6 +369,42 @@ export class DoorPage {
     })
     changed.add(id as number)
     return undefined
+  }
+
+  /**
+   * Whether the part `id` now holds fewer than its declaration's least: kept in `#short`, and in
+   * the count of its tree and of each above it (so a commit's end never looks at them one by one).
+   */
+  #counted(id: number): void {
+    const node = this.#nodes.get(id)!
+    const least = node.part === undefined ? undefined : this.#parts[node.part]!.holdsLeast
+    const short = least !== undefined && node.children.length < least
+    if (short === this.#short.has(id)) return
+    if (short) this.#short.add(id)
+    else this.#short.delete(id)
+    this.#shortUp(id, short ? 1 : -1)
+  }
+
+  /** `id`'s tree has `by` more parts that hold fewer than they must: and so has each above it. */
+  #shortUp(id: number, by: number): void {
+    for (let at: number | undefined = id; at !== undefined;) {
+      const node: Held = this.#nodes.get(at)!
+      node.short = (node.short ?? 0) + by
+      at = node.parent
+    }
+  }
+
+  /**
+   * A part on the page that holds fewer than it must, if there's one. (Followed down from the
+   * root by the counts, and only when there's one to find: a commit that fails doesn't come again.)
+   */
+  #shortOnPage(): number | undefined {
+    if (!this.#nodes.get(ROOT)!.short) return undefined
+    let at = ROOT
+    while (at === ROOT || !this.#short.has(at)) {
+      at = this.#nodes.get(at)!.children.find((child) => this.#nodes.get(child)!.short)!
+    }
+    return at
   }
 
   /** How many parts deep `id` is in its tree, itself counted (the root is no part: 0). */
@@ -419,6 +470,14 @@ export class DoorPage {
               : `only ${holds.join(', ')}`
       return notAllowed(`puts ${inside} into ${into}, which holds ${only}`)
     }
+    // And as many as its declaration says, where it says: one more is refused, never left undrawn.
+    const most = where === ROOT ? undefined : this.#parts[parent.part!]!.holdsMost
+    if (most !== undefined && child.parent === undefined && parent.children.length >= most) {
+      const inside = child.part === undefined ? 'a text' : `a ${child.part}`
+      return notAllowed(
+        `puts ${inside} into a ${parent.part}, which holds ${most === 1 ? 'one' : most} at most`,
+      )
+    }
     // No loop: a part is never put under itself, or under what's under it.
     for (let at: number | undefined = where; at !== undefined; at = this.#nodes.get(at)?.parent) {
       if (at === id) return notAllowed('puts a part under itself')
@@ -446,7 +505,12 @@ export class DoorPage {
     }
     parent.children.splice(at, 0, id as number)
     child.parent = where
-    if (was < 0) this.#childHeight(where, undefined, child.height)
+    if (was < 0) {
+      this.#childHeight(where, undefined, child.height)
+      // (What's short in its tree is under `where` now, and under what's above it.)
+      if (child.short) this.#shortUp(where, child.short)
+      if (where !== ROOT) this.#counted(where)
+    }
     changed.add(where)
     return undefined
   }
@@ -467,8 +531,11 @@ export class DoorPage {
     const at = parent && isId(id) ? parent.children.indexOf(id) : -1
     if (!parent || at < 0) return notAllowed('takes away what isn’t there')
     parent.children.splice(at, 1)
-    this.#childHeight(from as number, this.#nodes.get(id as number)!.height, undefined)
+    const child = this.#nodes.get(id as number)!
+    this.#childHeight(from as number, child.height, undefined)
+    if (child.short) this.#shortUp(from as number, -child.short)
     this.#forget(id as number)
+    if (from !== ROOT) this.#counted(from as number)
     changed.add(from as number)
     return undefined
   }
@@ -484,6 +551,7 @@ export class DoorPage {
         const { counts } = this.#parts[node.part]!
         if (counts) this.#sharing.set(counts.name, this.#sharing.get(counts.name)! - 1)
       }
+      this.#short.delete(next)
       this.#nodes.delete(next)
     }
   }
