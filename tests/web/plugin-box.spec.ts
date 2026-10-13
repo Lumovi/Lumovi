@@ -9,7 +9,14 @@ import { createServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { chromium, firefox, webkit, type Frame, type Page } from '@playwright/test'
+import {
+  chromium,
+  firefox,
+  webkit,
+  type BrowserContext,
+  type Frame,
+  type Page,
+} from '@playwright/test'
 import { BOX_LIMITS, workerText } from '../../src/shared/plugin-box.ts'
 import { gotOut, nameFor, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
 import { namedIn } from '../e2e/plugin-box/net-log.ts'
@@ -464,8 +471,10 @@ async function tryAll(
  * What Chromium, as a person has it, doesn't hold from a box's own page on a server: each way,
  * what a catcher sees of it, and what Chromium's own log of its network has of the way's name
  * (looked up by its resolver; named by a connection alone; or nothing, as with WebRTC, whose
- * look-ups aren't in that log). The whole of it, and exactly: a way more fails the tests, and
- * so does one of these that no longer gets out (it's taken off this list then).
+ * look-ups aren't in that log). A name the log has by a connection alone is looked up all the
+ * same: the log holds no event of its resolver's for it, and a name server is still asked. The
+ * whole of it, and exactly: a way more fails the tests, and so does one of these that no longer
+ * gets out (it's taken off this list then).
  *
  * Nothing a server sends holds these. The box's policy has no word for what a browser does
  * ahead of a request, and `X-DNS-Prefetch-Control: off` is heeded only for the links a browser
@@ -496,6 +505,31 @@ const ON_THE_PAGE_IN_CHROMIUM: Record<
 }
 
 /**
+ * And Firefox, as a person has it: each way, and what a catcher sees of it. Exactly, as
+ * Chromium's: a way more fails the tests, and so does one of these that no longer gets out.
+ * (Firefox keeps no log of its network that a test can read: which names it asks for isn't
+ * judged here.)
+ */
+const ON_THE_PAGE_IN_FIREFOX: Record<string, { out: string }> = {
+  'webrtc-turn-tcp': { out: 'a connection to another host' },
+  // A link that asks for a connection to be made ready: made, and nothing sent on it.
+  'link-preconnect': { out: 'a connection to another host' },
+}
+
+/** The engines whose list is exact, and what a catcher sees of each way in it. */
+const EXACTLY_ON_THE_PAGE: Record<string, Record<string, { out: string }> | undefined> = {
+  Chromium: ON_THE_PAGE_IN_CHROMIUM,
+  Firefox: ON_THE_PAGE_IN_FIREFOX,
+}
+
+/**
+ * What Playwright's Firefox has off that a person's has on: connections made ahead of a
+ * request, here back at Firefox's own default. (Its other acts ahead, looking a name up for a
+ * link and fetching one, Playwright leaves as Firefox has them.)
+ */
+const FIREFOX_AS_A_PERSON = { 'network.http.speculative-parallel-limit': 20 }
+
+/**
  * What a browser doesn't hold from a box's own page (never from its worker), by engine. No
  * plugin's code ever runs on a box's page, only in its worker, so none can be reached. A server
  * has no request filter behind the policy; WebRTC is the browser's own to send, and so is what
@@ -503,7 +537,7 @@ const ON_THE_PAGE_IN_CHROMIUM: Record<
  */
 const NOT_HELD_ON_THE_PAGE: Record<string, string[]> = {
   Chromium: Object.keys(ON_THE_PAGE_IN_CHROMIUM),
-  Firefox: ['webrtc-stun', 'webrtc-turn-tcp'],
+  Firefox: Object.keys(ON_THE_PAGE_IN_FIREFOX),
   // (WebKit's two more: for a link that asks for a connection to be made ready, and for a link
   // to a new window that's clicked, it opens a connection to the other host and sends nothing
   // on it. No request is made and no window opens; what leaves is that a connection was made.)
@@ -537,10 +571,13 @@ for (const [name, browsers] of [
      * Chromium is started as a person has it, the full build with a profile of its own. The
      * tests' usual build, and any window without a profile, has nothing that acts ahead of a
      * request: no name looked up for a link that asks to, no connection made ready, no page
-     * fetched ahead. Tried there, those ways say nothing of a person's browser. And it keeps its own log
-     * of its network (net-log.ts): `named()` asks for a name of the test's own from a free
-     * page, closes the browser, and reads which names the log holds: the test's (a log without
-     * it wasn't kept), and those of the tries that were looked up.
+     * fetched ahead. Tried there, those ways say nothing of a person's browser. And it keeps
+     * its own log of its network (net-log.ts): `named()` asks for a name of the test's own from
+     * a free page, closes the browser, and reads which names the log holds: the test's (a log
+     * without it wasn't kept), and those of the tries that were looked up.
+     *
+     * Firefox is started as a person has it too: a profile of its own, and the connections
+     * ahead of a request that Playwright's build turns off (FIREFOX_AS_A_PERSON).
      */
     async function pageIn(
       serve: (options?: { env?: Record<string, string>; port?: number }) => Promise<Served>,
@@ -556,20 +593,32 @@ for (const [name, browsers] of [
         name === 'Chromium'
           ? join(mkdtempSync(join(tmpdir(), 'lumovi-net-log-')), 'net-log.json')
           : undefined
+      const profile = () => mkdtempSync(join(tmpdir(), 'lumovi-profile-'))
+      const own = (context: BrowserContext) => ({
+        newPage: () => context.newPage(),
+        close: () => context.close(),
+      })
+      const missing = (error: unknown) => {
+        if (must) throw error
+        return undefined
+      }
       const browser = log
         ? await chromium
-            .launchPersistentContext(mkdtempSync(join(tmpdir(), 'lumovi-profile-')), {
+            .launchPersistentContext(profile(), {
               channel: 'chromium',
               args: [`--log-net-log=${log}`],
             })
-            .then((own) => ({ newPage: () => own.newPage(), close: () => own.close() }))
-        : await browsers.launch().then(
-            (whole) => ({ newPage: () => whole.newPage(), close: () => whole.close() }),
-            (error: unknown) => {
-              if (must) throw error
-              return undefined
-            },
-          )
+            .then(own)
+        : name === 'Firefox'
+          ? await firefox
+              .launchPersistentContext(profile(), { firefoxUserPrefs: FIREFOX_AS_A_PERSON })
+              .then(own, missing)
+          : await browsers
+              .launch()
+              .then(
+                (whole) => ({ newPage: () => whole.newPage(), close: () => whole.close() }),
+                missing,
+              )
       test.skip(!browser, `${name} doesn’t start on this computer`)
       const page = await browser!.newPage()
       await signIn(page, `${url}cluster/demo/pods`, DEMO_TOKEN)
@@ -834,6 +883,25 @@ for (const [name, browsers] of [
             'free-preconnect',
           ])
         }
+        if (name === 'Firefox') {
+          // And this Firefox acts ahead of a request, as a person's does: from a page that's
+          // free to, a link that asks for a connection to another host gets one. (One that
+          // didn't would have nothing for a box's page to hold, and its list would say nothing.)
+          catchers.reset()
+          await page.evaluate(
+            (href) =>
+              document.head.append(
+                Object.assign(document.createElement('link'), { rel: 'preconnect', href }),
+              ),
+            `http://127.0.0.1:${context.otherPort}`,
+          )
+          await expect
+            .poll(() => catchers.caught().connections, { timeout: 10_000 })
+            .toBeGreaterThan(0)
+          // (A connection made ready, and nothing else: nothing is asked on it. A request of
+          // the page's own would be one, and would say nothing of acting ahead.)
+          expect(catchers.caught().http).toEqual([])
+        }
         await page.close().catch(() => undefined)
       } finally {
         await done()
@@ -844,14 +912,12 @@ for (const [name, browsers] of [
       test(`on the box’s own page, only what’s named gets out: ${group}`, async ({ serve }) => {
         const { page, done, named } = await pageIn(serve)
         try {
+          // (Where an engine's list is exact, what's known to get out is waited for.)
+          const exactly = Object.entries(EXACTLY_ON_THE_PAGE[name] ?? {})
           const { out, saw } = await tryAll('page', page, catchers, {
             only: group,
             named: !!named,
-            awaited: named
-              ? Object.fromEntries(
-                  Object.entries(ON_THE_PAGE_IN_CHROMIUM).map(([id, { out }]) => [id, out]),
-                )
-              : {},
+            awaited: Object.fromEntries(exactly.map(([id, { out }]) => [id, out])),
           })
           const log = named ? await named() : undefined
           await test.info().attach('saw', { body: JSON.stringify({ out, log, saw }, null, 2) })
@@ -883,6 +949,15 @@ for (const [name, browsers] of [
               ),
             )
             expect(seen).toEqual(known)
+          } else if (EXACTLY_ON_THE_PAGE[name]) {
+            // In Firefox, at what a catcher sees: exactly what's known of this group's ways.
+            expect(out).toEqual(
+              Object.fromEntries(
+                exactly
+                  .filter(([id]) => ALL.find((way) => way.id === id)?.group === group)
+                  .map(([id, { out }]) => [id, out]),
+              ),
+            )
           }
         } finally {
           await done()
