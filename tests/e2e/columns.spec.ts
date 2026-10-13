@@ -736,6 +736,9 @@ test('a column is dragged to its place in the menu: never above the name, and le
       .getByRole('listitem')
       .filter({ has: page.getByRole('checkbox', { name: new RegExp(`^${escaped(name)}`) }) })
   const middle = async (name: string) => {
+    // (Measured once the menu is where it's drawn: it opens out of view until it's placed, and a
+    // slow machine would measure it there.)
+    await expect(item(name)).toBeInViewport()
     const at = (await item(name).boundingBox())!
     return { x: at.x + at.width / 2, y: at.y + at.height / 2, top: at.y, bottom: at.y + at.height }
   }
