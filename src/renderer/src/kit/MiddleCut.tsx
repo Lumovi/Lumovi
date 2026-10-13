@@ -209,6 +209,13 @@ export function MiddleCut({
     const span = element.current!
     const unseen = whole.current!
     const fit = () => {
+      // Whole where it's laid out whole: told by what draws it, not by measuring its letters,
+      // which can come out a pixel wider than they're drawn (Windows, zoomed out). Where it
+      // fits, its room is its own width, and any such pixel would cut it.
+      if (unseen.getBoundingClientRect().width <= span.getBoundingClientRect().width + 0.5) {
+        setCut(undefined)
+        return
+      }
       // How wide each mark is, from the whole name as it's drawn unseen: in its order, in its face.
       const marks = Array.from(unseen.querySelectorAll<HTMLElement>('[data-mark]'), (mark) => {
         const style = getComputedStyle(mark)
