@@ -12,7 +12,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Info, TriangleAlert } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
 import {
   changedFields,
@@ -37,6 +37,7 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { APPROVE_MOMENT_MS } from '@renderer/lib/confirm-moment'
 import { requestBase, useProposals, type ShownProposal } from './proposals'
+import { CopyButton } from '@renderer/components/CopyButton'
 import { TheirText } from './TheirText'
 
 /** Lumovi's word for an action, where the plugin's isn't the button's. */
@@ -220,7 +221,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
               dialog.querySelector<HTMLElement>('[data-cancel]')
             first?.focus()
           }}
-          className="fixed top-6 left-1/2 z-50 flex max-h-[min(640px,calc(100vh-48px))] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
+          className="fixed top-12 left-1/2 z-50 flex max-h-[calc(100vh-96px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
         >
           <header className="shrink-0 px-5 pt-4 pb-3">
             <p className="flex items-center gap-1.5 text-xs text-ink-3">
@@ -244,95 +245,83 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             </p>
           </header>
 
-          {/* What's asked and what's sent scroll together: the buttons stay in reach, however tall
-              the object sent or the command that reads it. */}
-          <div className="min-h-0 flex-1 overflow-y-auto" data-proposal-body>
-            {proposed.fields.length > 0 && (
-              <section
-                aria-label={`Options, in ${whose(by.label)} words`}
-                className="border-t border-line px-5 py-3"
-              >
-                <p className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-                  Options, in {whose(by.label)} words
-                </p>
-                <div className="space-y-3">
-                  {proposed.fields.map((field) => (
-                    <FieldInput
-                      key={field.key}
-                      field={field}
-                      value={values[field.key]}
-                      typed={typing[field.key]}
-                      wrong={
-                        fieldWrong(field, values[field.key]) ??
-                        (refusedField === field.key && answer && !answer.ok
-                          ? refusedWords(answer)
-                          : undefined)
-                      }
-                      onChange={(value, raw) => {
-                        setValues((all) => ({ ...all, [field.key]: value }))
-                        if (raw !== undefined) setTyping((all) => ({ ...all, [field.key]: raw }))
-                        setRefused(undefined)
-                      }}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            <section className="space-y-2.5 border-t border-line px-5 py-3">
-              {moved && (
-                <p className="bg-warning/10 text-warning-text flex items-start gap-1.5 rounded-lg px-2.5 py-2 text-xs">
-                  <TriangleAlert className="mt-px size-3.5 shrink-0" />
-                  {apiKind} {target?.name} changed since this was shown. Here is the change again,
-                  as it stands now.
-                </p>
-              )}
-              <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
-                {danger ? 'What Lumovi will do' : 'What Lumovi will send'}
+          {/* When it doesn't all fit: the options scroll first, then the object inside its box. What
+              Lumovi will send's caption and command, the verdict, the cautions and the buttons stay
+              in view, however tall the object. */}
+          {proposed.fields.length > 0 && (
+            <section
+              aria-label={`Options, in ${whose(by.label)} words`}
+              data-proposal-options
+              className="min-h-0 shrink-[1000] overflow-y-auto border-t border-line px-5 py-3"
+            >
+              <p className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                Options, in {whose(by.label)} words
               </p>
-              {change === 'fields' ? (
-                <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
-                  The change shows here once the options above are filled in.
-                </p>
-              ) : change === 'too-big' ? (
-                <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
-                  The change comes to more than a plugin may send.
-                </p>
-              ) : change === 'not-allowed' ? (
-                <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
-                  With these options, the change would write what no plugin may.
-                </p>
-              ) : (
-                !danger &&
-                answer?.ok && (
-                  <div className="max-h-56 overflow-auto rounded-lg">
-                    {proposed.action === 'create' ? (
-                      <DiffView
-                        diff={unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))}
-                        label="The whole object Lumovi will create"
-                      />
-                    ) : (
-                      <DiffView
-                        diff={unifiedDiff(
-                          forDiff(answer.before as KubeObject),
-                          forDiff(answer.after as KubeObject),
-                        )}
-                        label="Changes"
-                      />
-                    )}
-                  </div>
-                )
-              )}
-              {answer?.ok && answer.command && (
-                <div className="rounded-lg bg-surface-3/70 px-3 py-2.5">
-                  <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-                    Equivalent command
-                  </p>
-                  <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
-                    {answer.command}
-                  </code>
+              <div className="space-y-3">
+                {proposed.fields.map((field) => (
+                  <FieldInput
+                    key={field.key}
+                    field={field}
+                    value={values[field.key]}
+                    typed={typing[field.key]}
+                    wrong={
+                      fieldWrong(field, values[field.key]) ??
+                      (refusedField === field.key && answer && !answer.ok
+                        ? refusedWords(answer)
+                        : undefined)
+                    }
+                    onChange={(value, raw) => {
+                      setValues((all) => ({ ...all, [field.key]: value }))
+                      if (raw !== undefined) setTyping((all) => ({ ...all, [field.key]: raw }))
+                      setRefused(undefined)
+                    }}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="flex min-h-0 shrink flex-col gap-2.5 border-t border-line px-5 py-3">
+            <p className="shrink-0 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+              {danger ? 'What Lumovi will do' : 'What Lumovi will send'}
+            </p>
+            {change === 'fields' ? (
+              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                The change shows here once the options above are filled in.
+              </p>
+            ) : change === 'too-big' ? (
+              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                The change comes to more than a plugin may send.
+              </p>
+            ) : change === 'not-allowed' ? (
+              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                With these options, the change would write what no plugin may.
+              </p>
+            ) : (
+              !danger &&
+              answer?.ok && (
+                <div data-proposal-object className="min-h-16 shrink overflow-auto rounded-lg">
+                  {proposed.action === 'create' ? (
+                    <DiffView
+                      diff={unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))}
+                      label="The whole object Lumovi will create"
+                    />
+                  ) : (
+                    <DiffView
+                      diff={unifiedDiff(
+                        forDiff(answer.before as KubeObject),
+                        forDiff(answer.after as KubeObject),
+                      )}
+                      label="Changes"
+                    />
+                  )}
                 </div>
-              )}
+              )
+            )}
+            {answer?.ok && answer.command && (
+              <Command command={answer.command} create={proposed.action === 'create'} />
+            )}
+            <div className="shrink-0">
               <Verdict
                 asking={key !== undefined && !answer}
                 answer={answer}
@@ -340,70 +329,81 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
                 under={refusedField !== undefined}
                 options={proposed.fields.length > 0}
               />
-              {answer?.ok &&
-                answer.takesOver?.map(({ manager }, i, all) =>
-                  all.findIndex((other) => other.manager === manager) === i ? (
-                    <p key={manager} className="flex items-start gap-1.5 text-xs text-ink-2">
-                      <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
-                      <span>
-                        It takes over{' '}
-                        {all
-                          .filter((other) => other.manager === manager)
-                          .map((other) => other.field)
-                          .join(', ')}{' '}
-                        from <span className="font-medium">{manager}</span>.
+            </div>
+          </section>
+
+          {/* What's at stake, by the buttons: never scrolled away from the press. */}
+          <div data-proposal-cautions className="shrink-0 space-y-2.5 px-5 pb-3 empty:hidden">
+            {moved && (
+              <p className="bg-warning/10 text-warning-text flex items-start gap-1.5 rounded-lg px-2.5 py-2 text-xs">
+                <TriangleAlert className="mt-px size-3.5 shrink-0" />
+                {apiKind} {target?.name} changed since this was shown. Here is the change again, as
+                it stands now.
+              </p>
+            )}
+            {answer?.ok &&
+              answer.takesOver?.map(({ manager }, i, all) =>
+                all.findIndex((other) => other.manager === manager) === i ? (
+                  <p key={manager} className="flex items-start gap-1.5 text-xs text-ink-2">
+                    <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
+                    <span>
+                      It takes over{' '}
+                      {all
+                        .filter((other) => other.manager === manager)
+                        .map((other) => other.field)
+                        .join(', ')}{' '}
+                      from <span className="font-medium">{manager}</span>.
+                    </span>
+                  </p>
+                ) : null,
+              )}
+            {danger && answer?.ok && answer.finalizers && (
+              <p className="flex items-start gap-1.5 text-xs text-ink-2">
+                <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
+                {/* Each named, as the cluster's text: what's true of any finalizer, never more. */}
+                <span>
+                  It has the {answer.finalizers.length === 1 ? 'finalizer' : 'finalizers'}{' '}
+                  {/* (The first five, then how many more: a long list can't push the button off.) */}
+                  {answer.finalizers.slice(0, 5).map((name, i, shown) => {
+                    const more = answer.finalizers!.length - shown.length
+                    const last = i === shown.length - 1 && more === 0
+                    return (
+                      <span key={i}>
+                        {i > 0 && (last ? ' and ' : ', ')}
+                        <TheirText text={name} inline className="font-mono" />
+                        {i === shown.length - 1 && more > 0 && ` and ${more} more`}
                       </span>
-                    </p>
-                  ) : null,
-                )}
-              {danger && answer?.ok && answer.finalizers && (
-                <p className="flex items-start gap-1.5 text-xs text-ink-2">
-                  <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
-                  {/* Each named, as the cluster's text: what's true of any finalizer, never more. */}
-                  <span>
-                    It has the {answer.finalizers.length === 1 ? 'finalizer' : 'finalizers'}{' '}
-                    {/* (The first five, then how many more: a long list can't push the button off.) */}
-                    {answer.finalizers.slice(0, 5).map((name, i, shown) => {
-                      const more = answer.finalizers!.length - shown.length
-                      const last = i === shown.length - 1 && more === 0
-                      return (
-                        <span key={i}>
-                          {i > 0 && (last ? ' and ' : ', ')}
-                          <TheirText text={name} inline className="font-mono" />
-                          {i === shown.length - 1 && more > 0 && ` and ${more} more`}
-                        </span>
-                      )
-                    })}
-                    : what {answer.finalizers.length === 1 ? 'that does' : 'they do'} runs first,
-                    and the cluster deletes it once that’s done.
-                  </span>
-                </p>
-              )}
-              {typeToConfirm !== undefined && (
-                <label className="block">
-                  <span className="mb-1.5 block text-xs text-ink-2">
-                    {production && (
-                      <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
-                    )}
-                    Type{' '}
-                    <span className="font-mono font-medium wrap-anywhere text-ink-1 select-all">
-                      {typeToConfirm}
-                    </span>{' '}
-                    to confirm
-                  </span>
-                  <input
-                    data-type-to-confirm
-                    aria-label={`Type ${typeToConfirm} to confirm`}
-                    value={typed}
-                    onChange={(event) => setTyped(event.target.value)}
-                    onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
-                  />
-                </label>
-              )}
-            </section>
+                    )
+                  })}
+                  : what {answer.finalizers.length === 1 ? 'that does' : 'they do'} runs first, and
+                  the cluster deletes it once that’s done.
+                </span>
+              </p>
+            )}
+            {typeToConfirm !== undefined && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs text-ink-2">
+                  {production && (
+                    <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
+                  )}
+                  Type{' '}
+                  <span className="font-mono font-medium wrap-anywhere text-ink-1 select-all">
+                    {typeToConfirm}
+                  </span>{' '}
+                  to confirm
+                </span>
+                <input
+                  data-type-to-confirm
+                  aria-label={`Type ${typeToConfirm} to confirm`}
+                  value={typed}
+                  onChange={(event) => setTyped(event.target.value)}
+                  onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
+                />
+              </label>
+            )}
           </div>
 
           <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-3">
@@ -423,6 +423,75 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  )
+}
+
+/**
+ * The command a person could run instead, as Lumovi would. A create's reads its object from what
+ * follows it (a heredoc): that's the object shown above, so it's said in a line, not printed again.
+ * Copy copies the whole of it.
+ */
+function Command({ command, create }: { command: string; create: boolean }) {
+  const lines = command.split('\n')
+  // (Its end, as the first line names it: LUMOVI_EOF, or LUMOVI_EOF_2 where the object has that line.)
+  const end = /<<'(LUMOVI_EOF(?:_\d+)?)'$/.exec(lines[0] ?? '')?.[1]
+  const heredoc = create && end !== undefined && lines.length > 2 && lines.at(-1) === end
+  const objectLines = lines
+    .slice(1, -1)
+    .filter((line, i, all) => i < all.length - 1 || line !== '').length
+  // A long change's command scrolls in its own box: while there's more of it below, its last
+  // lines fade out.
+  const box = useRef<HTMLElement>(null)
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    const element = box.current
+    if (!element) return
+    const measure = () =>
+      setMore(element.scrollTop + element.clientHeight < element.scrollHeight - 1)
+    measure()
+    const resized = new ResizeObserver(measure)
+    resized.observe(element)
+    element.addEventListener('scroll', measure, { passive: true })
+    return () => {
+      resized.disconnect()
+      element.removeEventListener('scroll', measure)
+    }
+  }, [command])
+  return (
+    <div className="shrink-0 rounded-lg bg-surface-3/70 px-3 py-2.5">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
+          Equivalent command
+        </p>
+        <CopyButton text={command} label="Copy the command" />
+      </div>
+      {/* (It never pushes the buttons off. A region the keyboard can scroll.) */}
+      <code
+        ref={box}
+        data-proposal-command
+        role="region"
+        aria-label="Equivalent command"
+        tabIndex={0}
+        className={cn(
+          'block max-h-24 overflow-y-auto rounded-sm font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 outline-none selectable focus-visible:ring-2 focus-visible:ring-accent',
+          more && '[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]',
+        )}
+      >
+        {heredoc ? (
+          <>
+            {lines[0]}
+            {'\n'}
+            <span className="font-sans text-ink-3 select-none">
+              the object above, {objectLines} {objectLines === 1 ? 'line' : 'lines'}
+            </span>
+            {'\n'}
+            {end}
+          </>
+        ) : (
+          command
+        )}
+      </code>
+    </div>
   )
 }
 
