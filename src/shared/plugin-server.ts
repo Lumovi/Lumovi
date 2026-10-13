@@ -63,6 +63,16 @@ const FILL = /^\{([a-z][A-Za-z0-9]{0,30})\}$/
 /** An object's name, as Kubernetes has them: never `/`, `.` or `..`. */
 const NAME = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/
 
+/**
+ * A character a path can't hold, as a problem says it: quoted where it can be seen; else (a space,
+ * one nobody sees, one that turns a line round, any beyond plain ASCII) as its code point, so the
+ * line reads as written.
+ */
+const said = (character: string) =>
+  /^[\x21-\x7e]$/.test(character)
+    ? `“${character}”`
+    : `U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`
+
 /** The segments of a listed path Lumovi fills, by their names, in order. */
 export function fillsOf(path: string): string[] {
   return path.split('/').flatMap((segment) => FILL.exec(segment)?.[1] ?? [])
@@ -89,7 +99,7 @@ export function pathProblem(path: string): string | undefined {
     } else if (/[{}]/.test(segment)) {
       return 'fills only a whole segment, as /a/{name}/b'
     } else if (!SEGMENT.test(segment)) {
-      return `has “${segment.replace(/[A-Za-z0-9._~!$&'()*+,;=:@-]/g, '')[0]}”, which a path can’t hold as it is`
+      return `has ${said([...segment.replace(/[A-Za-z0-9._~!$&'()*+,;=:@-]/g, '')][0]!)}, which a path can’t hold as it is`
     }
   }
   if (fills.length > SERVER_LIMITS.fills) {

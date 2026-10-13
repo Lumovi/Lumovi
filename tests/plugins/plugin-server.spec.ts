@@ -42,8 +42,13 @@ test('a listed path is asked for as it reads: whole segments, filled ones whole,
     ['/a/{X}', 'fills only a whole segment, as /a/{name}/b'],
     ['/a/{x}/b/{x}', 'fills {x} once'],
     ['/{a}/{b}/{c}/{d}/{e}', 'fills more than 4 segments'],
-    ['/a b', 'has “ ”, which a path can’t hold as it is'],
     ['/a\\b', 'has “\\”, which a path can’t hold as it is'],
+    // (One nobody sees, or that turns a line round, as its code point: the line reads as written.)
+    ['/a b', 'has U+0020, which a path can’t hold as it is'],
+    ['/a\u202eb', 'has U+202E, which a path can’t hold as it is'],
+    ['/a\u200bb', 'has U+200B, which a path can’t hold as it is'],
+    ['/caf\u00e9', 'has U+00E9, which a path can’t hold as it is'],
+    ['/a\u{1f600}', 'has U+1F600, which a path can’t hold as it is'],
   ] as const) {
     expect(pathProblem(path), path).toBe(problem)
   }
