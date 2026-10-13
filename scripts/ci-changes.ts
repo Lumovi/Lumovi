@@ -12,8 +12,10 @@
  *   request, since the server Lumovi ships runs on Linux. macOS, for now, runs only its smoke set
  *   (tests/e2e/smoke.txt) for a pull request and for main's merges, whatever they change: an
  *   account has five macOS machines at once, and a full run takes all five. Its full suite runs
- *   nightly on main's head (CI's schedule), for a release's pull request (`release-*`), for a run
- *   by hand, and for a pull request whose label (`macos-full`) asks.
+ *   nightly on main's head (CI's schedule), for a release's pull request (`release-<version>`),
+ *   for a run by hand, and for a pull request whose label (`macos-full`) asks.
+ * - `release`: whether this is a release's own pull request, whose branch is named for its version
+ *   (`release-1.22.0`): any other branch whose name starts the same is an ordinary one.
  * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what main's
  *   newest full macOS run reached and its Linux and Windows didn't is borrowed from it
  *   (scripts/borrow-coverage.ts), and nothing else: the rest is this run's own to reach.
@@ -37,6 +39,10 @@ export const SHARDS = 4
 const isDocs = (path: string) =>
   (path.endsWith('.md') && !/^(src|tests)\//.test(path)) ||
   (/\.(png|jpe?g|gif|webp|svg)$/i.test(path) && !/^(src|build|packaging|charts|tests)\//.test(path))
+
+/** A release's own branch: `release-` and its version (`release-1.22.0`, `release-2.0.0-rc.1`). */
+export const isRelease = (branch: string) =>
+  /^release-\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(branch)
 
 /** The label that asks for everything on macOS, whatever changed. */
 export const MACOS_FULL = 'macos-full'
@@ -67,7 +73,7 @@ export function plan({
   ranAlready?: boolean
 }) {
   const pullRequest = event === 'pull_request'
-  const release = pullRequest && branch.startsWith('release-')
+  const release = pullRequest && isRelease(branch)
   const asked = pullRequest && labels.includes(MACOS_FULL)
   // A nightly run on a head that's run in full already has nothing new to run.
   const again = event === 'schedule' && ranAlready
@@ -121,7 +127,7 @@ export function plan({
   ]
     .filter(Boolean)
     .join(' ')
-  return { docs, macos, e2e, said }
+  return { docs, release, macos, e2e, said }
 }
 
 /**
@@ -187,7 +193,7 @@ if (import.meta.main) {
           .split('\n')
           .filter(Boolean)
   const event = process.env.GITHUB_EVENT_NAME
-  const { docs, macos, e2e, said } = plan({
+  const { docs, release, macos, e2e, said } = plan({
     event,
     branch: process.env.GITHUB_HEAD_REF,
     changed,
@@ -199,7 +205,7 @@ if (import.meta.main) {
   if (output) {
     appendFileSync(
       output,
-      `docs=${docs}\nmacos=${macos ? 'full' : 'smoke'}\ne2e=${JSON.stringify({ include: e2e })}\n`,
+      `docs=${docs}\nrelease=${release}\nmacos=${macos ? 'full' : 'smoke'}\ne2e=${JSON.stringify({ include: e2e })}\n`,
     )
   }
   if (process.env.GITHUB_STEP_SUMMARY) {

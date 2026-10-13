@@ -43,6 +43,7 @@ jobs:
       actions: read
     outputs:
       docs: ${{ steps.what.outputs.docs }}
+      release: ${{ steps.what.outputs.release }}
       macos: ${{ steps.what.outputs.macos }}
       e2e: ${{ steps.what.outputs.e2e }}
     steps:
@@ -684,7 +685,7 @@ jobs:
         run: scripts/judge.sh main-is-green.ts
       # (Not a release's own pull request: it gathers the entries, and writes their section.)
       - name: Its changelog entry
-        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-')
+        if: github.event_name == 'pull_request' && needs.changes.outputs.release != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

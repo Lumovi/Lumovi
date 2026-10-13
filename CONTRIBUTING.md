@@ -164,7 +164,9 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
    are deleted.
 2. In `CHANGELOG.md`, write the section's opening paragraph by hand, above its entries: what
    the release is, in a sentence or two.
-3. Commit, on a branch named `release-1.1.0`, and open a pull request for it.
+3. Commit, on a branch named `release-1.1.0` (exactly `release-` and the version: CI runs
+   everything for that branch alone, and any other `release-…` branch is an ordinary pull
+   request), and open a pull request for it.
 4. Once CI is green on it, fast-forward `main` to that very commit, without merging:
    `git push origin <commit>:main`. `main` takes a commit pushed this way only once its checks
    have passed, and a merge would make another commit, not the one CI tested.
