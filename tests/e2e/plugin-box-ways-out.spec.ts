@@ -13,6 +13,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { BOX_SCRIPT } from '../../src/shared/plugin-box.ts'
 import { expect, test } from './fixtures.ts'
 import { gotOut, startCatchers, type Catchers } from './plugin-box/catchers.ts'
+import { JUDGED, notRefused } from './plugin-box/worked.ts'
 
 const WAYS = readFileSync(resolve('tests/e2e/plugin-box/ways-out.js'), 'utf8')
 
@@ -243,6 +244,9 @@ test.setTimeout(240_000)
 test('the list holds every way that was ever tried', () => {
   expect(ALL).toHaveLength(165)
   expect(new Set(ALL.map((way) => way.id)).size).toBe(165)
+  // Each of them judged: by the catchers alone, or by what it saw too (worked.ts). A way added
+  // here fails until someone says how it's judged.
+  expect(Object.keys(JUDGED).sort()).toEqual(ALL.map((way) => way.id).sort())
 })
 
 test('with both walls taken away the catchers see what leaves: the tests can tell', async ({
@@ -264,6 +268,9 @@ for (const group of GROUPS) {
       await test.info().attach('saw', { body: JSON.stringify(saw, null, 2) })
       expect(tried).toBeGreaterThan(0)
       expect(out).toEqual({})
+      // And each way judged by what it saw was refused: none worked, whatever reached a catcher,
+      // and none said something that's neither.
+      expect(notRefused(saw)).toEqual([])
     })
 
     for (const wall of ['the box’s policy', 'the request filter'] as const) {
