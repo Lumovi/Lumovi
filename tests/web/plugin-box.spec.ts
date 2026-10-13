@@ -11,6 +11,7 @@ import { runInNewContext } from 'node:vm'
 import { chromium, firefox, webkit, type Frame, type Page } from '@playwright/test'
 import { BOX_LIMITS, workerText } from '../../src/shared/plugin-box.ts'
 import { gotOut, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
+import { featuresOf, unsealed } from '../e2e/plugin-box/sealed.ts'
 import { notRefused } from '../e2e/plugin-box/worked.ts'
 import { DEMO_TOKEN, expect, refusedConfig, signIn, test, type Served } from './fixtures.ts'
 
@@ -55,15 +56,10 @@ test('the box’s two files are the same for whoever asks, never redirect, and a
   const page = await ask('plugin-box/box.html')
   expect(page.status).toBe(200)
   const policy = page.headers.get('content-security-policy')!
-  // Sealed by its own answer, wherever it's opened; shown by Lumovi's own page and no other.
-  expect(policy).toContain('sandbox allow-scripts')
-  expect(policy).toContain("default-src 'none'")
+  // Sealed by its own answer, wherever it's opened; shown by Lumovi's own page and no other;
+  // never kept by a browser, so a changed policy reaches every one at once; and no cookie.
+  expect(unsealed(page.headers, `${url}plugin-box/box.js`, origin)).toEqual([])
   expect(policy).toContain("connect-src 'none'")
-  expect(policy).toContain(`script-src ${url}plugin-box/box.js;`)
-  expect(policy).toContain(`frame-ancestors ${origin}`)
-  // Never kept by a browser, so a changed policy reaches every one at once; and no cookie.
-  expect(page.headers.get('cache-control')).toBe('no-store')
-  expect(page.headers.get('set-cookie')).toBeNull()
   const body = await page.text()
   expect(body).toContain(`<script src="${url}plugin-box/box.js"></script>`)
 
@@ -478,6 +474,11 @@ for (const [name, browsers] of [
         // phone or a computer short of memory): it's said, as far as it can be seen. Chromium
         // can be asked; the other two can't from here.
         const frame = lastBox(page)!
+        // Sealed by Lumovi's page too; and in Chromium, which can say, its page is given nothing.
+        expect(await (await frame.frameElement()).getAttribute('sandbox')).toBe('allow-scripts')
+        if (name === 'Chromium') {
+          expect(await featuresOf(frame)).toEqual({ given: [], unnamed: [] })
+        }
         const apart =
           name === 'Chromium'
             ? await page
