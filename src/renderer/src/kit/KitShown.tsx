@@ -83,6 +83,23 @@ export function KitShown() {
         />
         {/* What a plugin pointed at is gone by the time the page is drawn. */}
         <LogsShown by={BY} shown={{ title: 'Logs of nothing' }} />
+        {/* Waiting for a place: its page's, and its plugin's (on all its pages and tabs). */}
+        <LogsShown
+          by={BY}
+          shown={{
+            title: 'Logs waiting on its page',
+            pod: { kind: 'Pod', name: pod, namespace: 'shop' },
+          }}
+          waiting="page"
+        />
+        <LogsShown
+          by={BY}
+          shown={{
+            title: 'Logs waiting on its plugin',
+            pod: { kind: 'Pod', name: pod, namespace: 'shop' },
+          }}
+          waiting="plugin"
+        />
         <EventsShown by={BY} shown={{ title: 'Events of nothing' }} />
         {/* Logs and events stand below the fold: nothing of them is read until they're in view. */}
         <LogsShown

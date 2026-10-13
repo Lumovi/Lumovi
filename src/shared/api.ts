@@ -191,6 +191,8 @@ export interface ManagedSettings {
   pluginProposalsOff?: true
   /** No plugin's page may show what's in a Secret. */
   pluginSecretsOff?: true
+  /** No plugin's page may show or read containers' logs. */
+  pluginLogsOff?: true
   /** Lumovi doesn't check Lumovi-plugins for newer plugins: nothing is asked of GitHub. */
   pluginStoreOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
@@ -909,6 +911,8 @@ export interface LogStreamRequest {
   previous: boolean
   /** Keep the stream open for new lines (`-f`). */
   follow: boolean
+  /** Shown on a plugin's page (its Logs part): which plugin's page asked Lumovi to show them. */
+  via?: PluginVia
 }
 
 export type PatchType = 'merge' | 'strategic' | 'json'

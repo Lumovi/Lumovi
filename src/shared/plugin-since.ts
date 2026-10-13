@@ -28,6 +28,8 @@ export const PLUGIN_SINCE = {
     opens: 'next',
     /** Where its pages link to Lumovi's own places; a destination's `{ object, at }` with it. */
     links: 'next',
+    /** Whether its pages show containers' logs (`shown`: Lumovi reads and draws them). */
+    logs: 'next',
   },
   /** What a read can ask beyond a kind's list or one object of it. */
   read: {
@@ -46,6 +48,7 @@ export const PLUGIN_SINCE = {
     Pair: 'next',
     Counts: 'next',
     Stack: 'next',
+    Logs: 'next',
   } satisfies Record<keyof typeof DECLARED, Since>,
   /** The kinds a part's description can hold that a door hands over as something else. */
   kinds: {

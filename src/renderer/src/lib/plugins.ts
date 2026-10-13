@@ -168,7 +168,7 @@ const NOTHING: Added = { pages: [], tabs: [], commands: [] }
 export function listedPlugins(): ListedPlugin[] {
   const listed = (plugins: Iterable<Plugin>) =>
     [...plugins].flatMap((plugin) => {
-      const { name, source, version, place, added, opens, links } = plugin
+      const { name, source, version, place, added, opens, links, logs } = plugin
       return place
         ? [
             {
@@ -179,6 +179,7 @@ export function listedPlugins(): ListedPlugin[] {
               named: namedKinds(plugin),
               opens,
               links,
+              ...(logs ? { logs } : {}),
               // (Its pages, tabs and commands are drawn by the door, and offered where Lumovi offers
               // code pages: only for a plugin whose code is part of this Lumovi, never a page that
               // couldn't start.)

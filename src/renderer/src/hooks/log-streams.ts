@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KubeError, KubeErrorCode } from '@shared/api'
+import type { KubeError, KubeErrorCode, PluginVia } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { mergeLines, parseLine, type LogLine } from '@renderer/lib/logs'
 import { useCluster } from '@renderer/state/cluster'
@@ -24,6 +24,8 @@ export interface LogOptions {
    * lines go; a pod that leaves keeps its lines.
    */
   container: string
+  /** Shown on a plugin's page: which plugin's page asked Lumovi to show them. */
+  via?: PluginVia
 }
 
 /** Where a container's stream is at. */
@@ -121,7 +123,7 @@ class LogSession {
       end: (error) => this.#ended(stream, error),
     })
     const { namespace, pod, container } = stream.source
-    const { tailLines, sinceSeconds, previous, follow } = this.options
+    const { tailLines, sinceSeconds, previous, follow, via } = this.options
     const result = await api.logs.start(id, {
       context: this.context,
       namespace,
@@ -129,6 +131,7 @@ class LogSession {
       container,
       previous,
       follow,
+      ...(via ? { via } : {}),
       // Carry on from the last line; the API server sends lines written at that time again.
       ...(Number.isFinite(stream.lastAt)
         ? { sinceTime: new Date(stream.lastAt).toISOString() }

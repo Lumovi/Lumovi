@@ -7,7 +7,7 @@
  */
 import type { Part } from './declare'
 import { graph } from './graph'
-import { card, counts, header, pair, split, stack, tiles } from './page'
+import { card, counts, header, logs, pair, split, stack, tiles } from './page'
 import { table } from './table'
 
 export const DECLARED = {
@@ -20,4 +20,5 @@ export const DECLARED = {
   Pair: pair,
   Counts: counts,
   Stack: stack,
+  Logs: logs,
 } as const satisfies Readonly<Record<string, Part>>

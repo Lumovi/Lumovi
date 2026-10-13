@@ -38,6 +38,13 @@ export const DOOR_LIMITS = {
   secondsAtOnce: 2,
   /** The parts and texts a page holds at once, attached or not. */
   nodes: 5000,
+  /**
+   * Pods' logs a plugin's page shows at once, each a stream Lumovi keeps open as the person; and
+   * a plugin, on all its pages and tabs open. Past either, a Logs part waits, and starts when
+   * another closes: the plugin isn't stopped.
+   */
+  logStreamsPage: 4,
+  logStreamsPlugin: 8,
   /** How deep a page goes: any tree of a plugin's, on the page or not yet. */
   depth: 32,
   /** What one part holds directly. (With the steps in a second, it bounds what a second of a

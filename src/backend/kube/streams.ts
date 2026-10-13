@@ -15,8 +15,9 @@ import type {
   ShellExit,
   ShellRequest,
 } from '@shared/api'
-import { PLUGIN_NAME, whose } from '@shared/plugins'
+import { whose } from '@shared/plugins'
 import { outcomeOf } from '../audit/describe'
+import { knownVia, type PluginLookup, type Via } from './plugin-via'
 import type { Recorder } from '../audit/recorder'
 import { kubectl } from '@shared/kubectl'
 import type { AccessGuard } from '@shared/access'
@@ -43,7 +44,7 @@ interface Dependencies {
    * A plugin Lumovi has in use, by its name, as the backend knows it: what the history names
    * when a plugin's link brought the person to a shell or a forward, never what a page says.
    */
-  plugin?: (name: string) => Promise<{ label?: string; version: string } | undefined>
+  plugin?: PluginLookup
 }
 
 const DURATION = new Intl.DurationFormat('en', { style: 'narrow', secondsDisplay: 'always' })
@@ -59,28 +60,8 @@ export function took(ms: number): string {
 }
 
 /** A shell, as the audit log has it: where, and what does the same. */
-/** Which plugin's page brought the person to a shell or a forward, for the history. */
-interface Via {
-  details: { plugin: string; pluginVersion: string }
-  from: string
-}
-
-/**
- * Which plugin's page brought the person to a shell or a forward they started (a link), as the
- * backend knows that plugin: its own label and version, found by the name the page gave. A name
- * of no plugin Lumovi has in use says nothing. It grants and changes nothing; it says how the
- * person got there.
- */
-async function knownVia(deps: Dependencies, said: unknown): Promise<Via | undefined> {
-  const name = (said as { plugin?: unknown } | null | undefined)?.plugin
-  if (typeof name !== 'string' || !PLUGIN_NAME.test(name)) return undefined
-  const known = await deps.plugin?.(name).catch(() => undefined)
-  if (!known) return undefined
-  return {
-    details: { plugin: name, pluginVersion: known.version },
-    from: `, from the plugin ${whose(known.label ?? name)} page`,
-  }
-}
+/** How a shell or a forward a plugin's link brought the person to is said, after what it is. */
+const fromPage = (via: Via) => `, from the plugin ${whose(via.label)} page`
 
 function shellRecord(r: ContainerShellRequest | NodeShellRequest) {
   return r.target === 'node'
@@ -211,7 +192,7 @@ export class Terminals {
       } else {
         throw invalid('A shell here is in a container or on a node')
       }
-      const via = r.target === 'container' ? await knownVia(this.deps, r.via) : undefined
+      const via = r.target === 'container' ? await knownVia(this.deps.plugin, r.via) : undefined
       this.#audited.set(id, { request: r, ...(via ? { via } : {}) })
       if (r.target === 'node') {
         await this.deps.guard?.require(r.context, 'nodeShells', 'on', undefined, 'open node shells')
@@ -283,7 +264,7 @@ export class Terminals {
       ...where,
       summary:
         stage === 'open'
-          ? `${outcome.outcome === 'success' ? 'Opened' : 'Open'} ${what}${via?.from ?? ''}`
+          ? `${outcome.outcome === 'success' ? 'Opened' : 'Open'} ${what}${via ? fromPage(via) : ''}`
           : `Closed ${what}${ran}${exit?.code !== undefined ? `: it exited with ${exit.code}` : ''}`,
       details: {
         ...(request.target === 'node' ? { mode: request.mode } : { container: request.container }),
@@ -539,12 +520,12 @@ export class Forwards {
       this.#forwards.set(forward.id, forward)
       this.#notify()
       const { what, ...where } = forwardRecord(r, forward.localPort)
-      const via = await knownVia(this.deps, r.via)
+      const via = await knownVia(this.deps.plugin, r.via)
       this.deps.audit.record({
         action: 'port-forward.open',
         outcome: 'success',
         ...where,
-        summary: `Forwarded ${what}${via?.from ?? ''}`,
+        summary: `Forwarded ${what}${via ? fromPage(via) : ''}`,
         details: {
           pod,
           podPort,
@@ -557,12 +538,12 @@ export class Forwards {
       const failure = { ok: false as const, error: toKubeError(error) }
       if (asked) {
         const { what, ...where } = forwardRecord(asked)
-        const via = await knownVia(this.deps, asked.via)
+        const via = await knownVia(this.deps.plugin, asked.via)
         this.deps.audit.record({
           action: 'port-forward.open',
           ...outcomeOf(failure),
           ...where,
-          summary: `Forward ${what}${via?.from ?? ''}`,
+          summary: `Forward ${what}${via ? fromPage(via) : ''}`,
           ...(via ? { details: via.details } : {}),
         })
       }

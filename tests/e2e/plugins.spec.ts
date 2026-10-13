@@ -335,7 +335,9 @@ test('every plugin on one page: what’s in use on this cluster, and what each a
   await expect(change).toContainText('Never Kubernetes’ own kinds')
   const read = page.getByRole('region', { name: 'May read' })
   await expect(read).toContainText('Its own kinds’ objects')
-  await expect(read).toContainText('It reads no logs and no Secret’s value')
+  await expect(read).toContainText(
+    'It reads no logs. It reads no Secret’s value. It sends nothing anywhere but to this cluster.',
+  )
   const actions = page.getByRole('region', { name: 'Its actions, and what each sends' })
   const reconcile = actions.getByRole('listitem').filter({ hasText: 'Reconcile' }).first()
   await expect(reconcile).toContainText('on all 7 kinds')

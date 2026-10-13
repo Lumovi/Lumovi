@@ -1446,6 +1446,36 @@ test('a plugin’s pages link to Lumovi’s own places only as its file says', (
   }
 })
 
+test('a plugin’s pages show containers’ logs only as its file says, and only as Lumovi reads them', () => {
+  const plugin = (logs: string | undefined, carriesCode = true) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [argoproj.io]',
+        '  views:',
+        '    - kinds: [{ group: argoproj.io, kind: Application }]',
+        ...(logs === undefined ? [] : [`  logs: ${logs}`]),
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [], carriesCode },
+    )
+  expect(plugin('shown').problems).toEqual([])
+  expect(plugin('shown').plugin!.logs).toBe('shown')
+  // A file that says nothing shows none; a folder's file has no pages, so it shows none.
+  expect(plugin(undefined).plugin!.logs).toBeUndefined()
+  expect(plugin('shown', false).problems).toEqual([
+    'probe.yaml: spec.logs: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they show logs',
+  ])
+  // Its code never reads them here: Lumovi shows them, and that's all.
+  expect(plugin('read').problems).toEqual(['probe.yaml: spec.logs: should be shown, not a string'])
+  expect(plugin('[shown]').problems).toEqual(['probe.yaml: spec.logs: should be shown, not a list'])
+})
+
 test('a plugin’s pages show a Secret an object of its own kind names, by a path and keys its file declares', () => {
   /** A plugin of cert-manager's Certificates whose pages show `shows`; one that came inside Lumovi unless said. */
   const plugin = (shows: string | undefined, carriesCode = true) =>
