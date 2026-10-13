@@ -243,7 +243,7 @@ test('a plugin’s code says what it reads of Kubernetes’ own kinds, by the do
 
   // A folder's file carries no code, so it says nothing of what code reads.
   expect(folders!.problems).toEqual([
-    'probe.yaml: spec.reads: only a plugin that comes with Lumovi has code yet, so only its file can say what that code reads',
+    'probe.yaml: spec.reads: a plugin of yours draws pages only from a folder of its own, for Developer mode: probe/plugin.yaml, with its plugin.js',
   ])
 
   const POD = "group: '', kind: Pod"
@@ -476,7 +476,7 @@ test('a plugin’s pages show a Secret an object of its own kind names, by a pat
   expect(none!.plugin!.showsSecrets).toEqual([])
   // A folder's file has no pages of its own, so it says nothing of what they show.
   expect(folders!.problems).toEqual([
-    'probe.yaml: spec.showsSecrets: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they show',
+    'probe.yaml: spec.showsSecrets: a plugin of yours draws pages only from a folder of its own, for Developer mode: probe/plugin.yaml, with its plugin.js',
   ])
 
   const CERT = 'group: cert-manager.io, kind: Certificate'
@@ -787,7 +787,7 @@ test('a plugin of Lumovi’s own adds pages, a tab on its own kinds and commands
   })
 })
 
-test('only a plugin that comes with Lumovi adds to Lumovi’s pages: a folder’s file is refused, whatever it says', async ({
+test('only a plugin that may carry code adds to Lumovi’s pages: a person’s file and a server’s are refused, each saying where pages come from', async ({
   page,
   serve,
 }) => {
@@ -797,13 +797,20 @@ test('only a plugin that comes with Lumovi adds to Lumovi’s pages: a folder’
     carriesCode: false,
   })
   expect(refused).toEqual([
-    'rollouts.yaml: spec.pages: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
-    'rollouts.yaml: spec.tabs: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
-    'rollouts.yaml: spec.commands: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
+    'rollouts.yaml: spec.pages: a plugin of yours draws pages only from a folder of its own, for Developer mode: rollouts/plugin.yaml, with its plugin.js',
+    'rollouts.yaml: spec.tabs: a plugin of yours draws pages only from a folder of its own, for Developer mode: rollouts/plugin.yaml, with its plugin.js',
+    'rollouts.yaml: spec.commands: a plugin of yours draws pages only from a folder of its own, for Developer mode: rollouts/plugin.yaml, with its plugin.js',
   ])
   const [unsaid] = await parsedIn(page, [{ text: adding(PAGES), source: 'rollouts.yaml' }])
   expect(unsaid!.plugin).toBeUndefined()
-  // Where it holds: a folder's file, however it's read and whatever its caller passes.
+  // Where it holds: a folder's file, however it's read and whatever its caller passes; a
+  // person's says where theirs draw pages from, a server's that its plugins are data.
+  const says = {
+    yours:
+      'rollouts.yaml: spec.pages: a plugin of yours draws pages only from a folder of its own, for Developer mode: rollouts/plugin.yaml, with its plugin.js',
+    server:
+      'rollouts.yaml: spec.pages: this server’s plugins are data: only the plugins that come with Lumovi draw pages here',
+  }
   const settled = await page.evaluate((text) => {
     const { settle } = (window as unknown as Lent).__lumoviDoor.doorChecks
     return (['yours', 'server'] as const).map((origin) => {
@@ -816,9 +823,7 @@ test('only a plugin that comes with Lumovi adds to Lumovi’s pages: a folder’
   expect(settled.map(({ origin }) => origin)).toEqual(['yours', 'server'])
   for (const { origin, state, problems } of settled) {
     expect(state, origin).toBe('not-in-use')
-    expect(problems, origin).toEqual([
-      'rollouts.yaml: spec.pages: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet',
-    ])
+    expect(problems, origin).toEqual([says[origin]])
   }
 })
 

@@ -1385,17 +1385,13 @@ function changing(name: string): boolean {
 function addedProblems(
   added: { pages: unknown; tabs: unknown; commands: unknown },
   place: Record<string, unknown>,
-  carriesCode: boolean,
+  /** Where it may carry code; where it may not, why not, of a field. */
+  uncoded: ((field: string) => string) | undefined,
 ): string[] {
   const given = (['pages', 'tabs', 'commands'] as const).filter((key) => added[key] !== undefined)
   if (given.length === 0) return []
-  // (Only a plugin that came inside Lumovi may: its pages are drawn from its own code.)
-  if (!carriesCode) {
-    return given.map(
-      (key) =>
-        `spec.${key}: adds pages, tabs or commands, and only the plugins that come with Lumovi can do that yet`,
-    )
-  }
+  // (Only a plugin that may carry code may: its pages are drawn from its own code.)
+  if (uncoded) return given.map((key) => uncoded(`spec.${key}`))
   const problems: string[] = []
   const lists = { pages: PAGE_SHAPE, tabs: TAB_SHAPE, commands: COMMAND_SHAPE } as const
   for (const key of given) {
@@ -1809,7 +1805,24 @@ export interface ParseOptions {
    * adds to Lumovi's pages is refused.
    */
   carriesCode?: boolean
+  /**
+   * Whose a file that may not carry code is (unsaid: a person's): a person's own file, beside the
+   * folders their Developer mode reads, or a server's. What only code uses is refused in its
+   * words.
+   */
+  from?: 'yours' | 'server'
 }
+
+/**
+ * Why a file that may not carry code can't say what only code uses (`field`): a person's draws
+ * pages only from a folder of its own, in Developer mode; a server's plugins are data. `name` is
+ * the file's own, said back as its folder: only ever a name a plugin may have (a file whose
+ * name isn't one is refused for that, before anything of its spec is read).
+ */
+const onlyCode = (field: string, from: 'yours' | 'server', name: string) =>
+  from === 'server'
+    ? `${field}: this server’s plugins are data: only the plugins that come with Lumovi draw pages here`
+    : `${field}: a plugin of yours draws pages only from a folder of its own, for Developer mode: ${name}/plugin.yaml, with its plugin.js`
 
 /** A kind as a file names it. */
 interface NamedKind {
@@ -1988,7 +2001,7 @@ export function parsePlugin(
 function readPlugin(
   text: string,
   source: string,
-  { lumovi, lumovisOwn = [], ownViews = false, carriesCode = false }: ParseOptions,
+  { lumovi, lumovisOwn = [], ownViews = false, carriesCode = false, from = 'yours' }: ParseOptions,
 ): { plugin?: Plugin; name?: string; problems: string[] } {
   const refused = (problem: string) => ({ problems: [`${source}: ${problem}`] })
   const documents = parseAllDocuments(text)
@@ -2130,52 +2143,30 @@ function readPlugin(
   if (problems.length === 0 && lumovi && older(lumovi, needed!)) {
     problems.push(`${source}: needs Lumovi ${needed} or newer; this is ${lumovi}`)
   }
+  // Where it may not carry code, why not, of a field: in the words of whose file it is.
+  const uncoded = carriesCode ? undefined : (field: string) => onlyCode(field, from, name)
   problems.push(
-    ...addedProblems({ pages, tabs, commands }, place, carriesCode).map(
+    ...addedProblems({ pages, tabs, commands }, place, uncoded).map(
       (problem) => `${source}: ${problem}`,
     ),
   )
-  // (Only a plugin that came inside Lumovi carries code, so only its file says what that reads.)
-  if (reads !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.reads: only a plugin that comes with Lumovi has code yet, so only its file can say what that code reads`,
-    )
-  }
-  if (showsSecrets !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.showsSecrets: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they show`,
-    )
-  }
-  if (changes !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.changes: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they propose`,
-    )
-  }
-  if (opens !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.opens: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they open`,
-    )
-  } else if (opens !== undefined) {
-    problems.push(...opensProblems(opens).map((problem) => `${source}: ${problem}`))
-  }
-  if (links !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.links: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say where they link`,
-    )
-  } else if (links !== undefined) {
-    problems.push(...linksProblems(links).map((problem) => `${source}: ${problem}`))
-  }
-  if (logs !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.logs: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they show logs`,
-    )
-  } else if (logs !== undefined && logs !== 'shown' && logs !== 'read') {
-    problems.push(`${source}: spec.logs: should be shown or read, not ${describe(logs)}`)
-  }
-  if (server !== undefined && !carriesCode) {
-    problems.push(
-      `${source}: spec.server: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they ask its server`,
-    )
+  // (Only a plugin that may carry code says what its code reads, what its pages show, propose,
+  // open and link to, whose logs they show and whether they ask its server.)
+  if (uncoded) {
+    const coded = { reads, showsSecrets, changes, opens, links, logs, server }
+    for (const [key, value] of Object.entries(coded)) {
+      if (value !== undefined) problems.push(`${source}: ${uncoded(`spec.${key}`)}`)
+    }
+  } else {
+    if (opens !== undefined) {
+      problems.push(...opensProblems(opens).map((problem) => `${source}: ${problem}`))
+    }
+    if (links !== undefined) {
+      problems.push(...linksProblems(links).map((problem) => `${source}: ${problem}`))
+    }
+    if (logs !== undefined && logs !== 'shown' && logs !== 'read') {
+      problems.push(`${source}: spec.logs: should be shown or read, not ${describe(logs)}`)
+    }
   }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
