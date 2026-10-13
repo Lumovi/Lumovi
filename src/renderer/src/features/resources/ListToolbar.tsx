@@ -228,23 +228,25 @@ export function LabelSelector({
 /** Under these widths of bar (inside its padding) it gives way: see `ListBar`. */
 const BAR = { narrow: 480, compact: 720 }
 const GAP = 8
-/** The least the label selector's field, its button and the filter take. */
-const LEAST = { selector: 160, button: 32, filter: 128, squeezed: 80 }
+/** The least the label selector's field, its button, the filter and the views' button take. */
+const LEAST = { selector: 160, button: 32, filter: 128, squeezed: 80, views: 96 }
 
 /**
- * The bar over a list: how many there are, a chip per health level, then to the right what the
- * page adds (`before`, which never gives way), a note, the label selector, the filter and what
- * ends it (`after`: the Columns button, which never gives way either). Its fields keep to one
- * row. As it narrows they give way first, from 240 px each; under 480 px (720 where there are
- * chips) the label selector is a button; and the chips, which never shrink, take a row of their
- * own under the first whenever it can't hold them beside everything else at its least, and wrap
- * there.
+ * The bar over a list: how many there are, the saved views' button, a chip per health level,
+ * then to the right what the page adds (`before`, which never gives way), a note, the label
+ * selector, the filter and what ends it (`after`: the Columns button, which never gives way
+ * either). Its fields keep to one row. As it narrows they give way first, from 240 px each, and
+ * the views' button with them, its name cut, to 96 px; under 480 px (720 where there are chips)
+ * the label selector is a button; and the views' button and the chips, which never shrink, take
+ * a row of their own under the first whenever it can't hold them beside everything else at its
+ * least, and wrap there: the views first, cut to what the row leaves beside the first chip.
  *
  * (That is measured: wrapping alone would send the fields under the chips, not the chips under
  * the fields.)
  */
 export function ListBar({
   count,
+  views,
   chips,
   before,
   note,
@@ -258,6 +260,8 @@ export function ListBar({
   after,
 }: {
   count: string
+  /** The saved views' button, after the count. */
+  views?: ReactNode
   /** The health chips, when the list has any. */
   chips?: ReactNode
   before?: ReactNode
@@ -279,8 +283,13 @@ export function ListBar({
   const counted = useRef<HTMLSpanElement>(null)
   const chipRow = useRef<HTMLDivElement>(null)
   const extras = useRef<HTMLSpanElement>(null)
+  const viewsBox = useRef<HTMLSpanElement>(null)
   const [width, setWidth] = useState(Infinity)
   const [stacked, setStacked] = useState(false)
+  // The least the views' button takes (cut to 96 px, or its whole name where that's shorter),
+  // and on the second row the most: what the row leaves beside the first chip.
+  const [viewsLeast, setViewsLeast] = useState(0)
+  const [viewsMost, setViewsMost] = useState<number>()
   const compact = onLabels !== undefined && width < (chips ? BAR.compact : BAR.narrow)
   // On a narrow page whose chips have their own row, the two fields take the first row's width
   // from the count, rather than stand at its end with a gap before them.
@@ -298,26 +307,52 @@ export function ListBar({
     observer.observe(bar.current!)
     return () => observer.disconnect()
   }, [])
-  // Whether the first row holds the chips whole, beside everything else at its least.
+  // Whether the first row holds the chips whole, and the views' button at its least, beside
+  // everything else at its least.
   useLayoutEffect(() => {
-    if (!chipRow.current) return setStacked(false)
-    const each = [...chipRow.current.children].map((chip) => (chip as HTMLElement).offsetWidth)
+    if (!chipRow.current && !views) return setStacked(false)
+    const each = [...(chipRow.current?.children ?? [])].map(
+      (chip) => (chip as HTMLElement).offsetWidth,
+    )
+    // The views' button uncut, wherever it is and however it's cut: its name's whole width and
+    // the rest of the button.
+    const button = viewsBox.current?.querySelector('button')
+    const name = button?.querySelector('span')
+    const whole = button && name ? button.offsetWidth - name.clientWidth + name.scrollWidth : 0
+    const least = Math.min(LEAST.views, whole)
+    setViewsLeast(least)
+    setViewsMost(Math.max(least, width - (each.length > 0 ? each[0]! + GAP : 0)))
     const parts = [
       counted.current!.offsetWidth + 4,
-      each.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, each.length - 1),
+      ...(views ? [least] : []),
+      ...(each.length > 0
+        ? [each.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, each.length - 1)]
+        : []),
       ...(extras.current ? [extras.current.offsetWidth] : []),
       ...(onLabels ? [compact ? LEAST.button : LEAST.selector] : []),
       after && width < BAR.compact ? LEAST.squeezed : LEAST.filter,
       ...(after ? [LEAST.button] : []),
     ]
-    const least = parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1)
-    setStacked(least > width)
-  }, [width, compact, chips, count, before, note, onLabels, after])
+    setStacked(parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1) > width)
+  }, [width, compact, chips, count, views, before, note, onLabels, after])
 
+  // (On the second row its chips are that row's own, wrapping after the views' button.)
   const chipped = chips ? (
-    <div ref={chipRow} className={cn('flex gap-2', stacked ? 'flex-wrap' : 'shrink-0')}>
+    <div ref={chipRow} className={cn('flex gap-2', stacked ? 'contents' : 'shrink-0')}>
       {chips}
     </div>
+  ) : null
+  const viewed = views ? (
+    <span
+      ref={viewsBox}
+      className="flex shrink"
+      style={{
+        minWidth: viewsLeast,
+        ...(stacked && viewsMost !== undefined ? { maxWidth: viewsMost } : {}),
+      }}
+    >
+      {views}
+    </span>
   ) : null
   return (
     <div
@@ -333,6 +368,7 @@ export function ListBar({
         >
           {count}
         </span>
+        {!stacked && viewed}
         {!stacked && chipped}
         {!roomy && <div className="flex-1" />}
         {(before || note) && (
@@ -381,7 +417,12 @@ export function ListBar({
         />
         {after}
       </div>
-      {stacked && chipped}
+      {stacked && (
+        <div className="flex flex-wrap gap-2">
+          {viewed}
+          {chipped}
+        </div>
+      )}
     </div>
   )
 }

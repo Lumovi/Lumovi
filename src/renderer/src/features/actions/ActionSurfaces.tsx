@@ -1,6 +1,6 @@
 import { Ellipsis, Lock, LockOpen } from 'lucide-react'
 import { ContextMenu, DropdownMenu, Popover } from 'radix-ui'
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
@@ -24,15 +24,16 @@ export function ActionHost() {
   return <Dialog key={active.object.metadata.uid} object={active.object} onClose={close} />
 }
 
-const isEditable = (target: EventTarget | null) =>
+/** Whether a key pressed there types into it. */
+export const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 
 /**
  * The detail panel's actions: the most common ones as buttons, everything in
- * a menu. `.` opens the menu and ⌘⌫ starts a delete.
+ * a menu. `.` opens the menu and ⌘⌫ starts a delete. `children` go before the menu (Pin).
  */
-export function ActionBar({ object }: { object: KubeObject }) {
+export function ActionBar({ object, children }: { object: KubeObject; children?: ReactNode }) {
   const available = useObjectActions(object)
   const run = useRunAction()
   const { readOnly } = useReadOnly()
@@ -97,6 +98,7 @@ export function ActionBar({ object }: { object: KubeObject }) {
           button
         )
       })}
+      {children}
       {/* On a phone the few actions offered are all buttons: there's no more to open. */}
       {!phone && (
         <DropdownMenu.Root open={open} onOpenChange={setOpen}>

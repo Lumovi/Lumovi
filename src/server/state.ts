@@ -47,6 +47,8 @@ export const SECTIONS = [
   'agents',
   'joins',
   'added',
+  // Each person's pins and saved views in a cluster (server/marks.ts): never let go to make room.
+  'marks',
   // Since when each entry that doesn't open with the key has been there (see #track).
   'unopened',
 ] as const
@@ -58,7 +60,7 @@ interface Document {
 }
 
 const KEPT: Kept<Document> = {
-  what: 'who’s signed in and the AI assistants they allowed',
+  what: 'who’s signed in, the AI assistants they allowed, and people’s pins and saved views',
   key: 'state.json',
   empty: { entries: {} },
   write: (document) => JSON.stringify(document),

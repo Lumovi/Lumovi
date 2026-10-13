@@ -271,7 +271,7 @@ test('narrow tables drop the least important columns', async ({ launch }) => {
   const headers = page.getByRole('grid', { name: 'Pods' }).getByRole('columnheader')
   await expect(headers).not.toContainText(['Node'])
   await row(page, 'Pods', DEMO.pods.debugShell).click()
-  // The first column holds the row checkboxes.
+  // The first column holds the row checkboxes. (The pins' column, which gives way first, is gone.)
   await expect(headers).toHaveText(['', 'Name', 'Status'])
 })
 
@@ -441,6 +441,13 @@ test.describe('a list’s bar keeps to one row as it narrows', () => {
     expect(await chips.evaluateAll((all) => all.every((c) => c.scrollWidth <= c.clientWidth))).toBe(
       true,
     )
+    // The saved views' button goes with them: first on their row, before the first chip.
+    const [views, chip] = [
+      (await bar.getByRole('button', { name: 'Views', exact: true }).boundingBox())!,
+      (await chips.first().boundingBox())!,
+    ]
+    expect(Math.abs(views.y + views.height / 2 - (chip.y + chip.height / 2))).toBeLessThan(4)
+    expect(views.x + views.width).toBeLessThanOrEqual(chip.x)
     expect(await bar.evaluate((b) => b.scrollWidth <= b.clientWidth)).toBe(true)
   })
 })

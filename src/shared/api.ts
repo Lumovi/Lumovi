@@ -38,6 +38,7 @@ import type {
   FileUploadRequest,
   PickedFiles,
 } from './files'
+import type { Marks } from './marks'
 import type { AppCommand } from './navigation'
 import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
@@ -1129,6 +1130,16 @@ export interface LumoviApi {
     plugins(): Promise<LocalPlugins>
   }
   /** Usage history from the cluster's Prometheus or VictoriaMetrics. */
+  /**
+   * A server's: the signed-in person's pins and saved views in a cluster, kept for them by the
+   * server (sealed, with who's signed in) and never in the browser. None on the desktop, which keeps
+   * them with its own settings.
+   */
+  marks?: {
+    get(context: string): Promise<Result<Marks>>
+    /** Keeps them as given; refused, in Lumovi's words, past a cap or the server's budget. */
+    set(context: string, marks: Marks): Promise<Result<Marks>>
+  }
   usage: {
     /** Detects the source once per session; `refresh` looks again. */
     source(context: string, refresh?: boolean): Promise<Result<HistorySource>>
@@ -1483,6 +1494,8 @@ export const IPC = {
   saveFile: 'app:save-file',
   showSaved: 'app:show-saved',
   plugins: 'app:plugins',
+  marks: 'marks:get',
+  setMarks: 'marks:set',
   contexts: 'kube:contexts',
   kubeconfigFiles: 'kubeconfig:files',
   kubeconfigChoose: 'kubeconfig:choose',

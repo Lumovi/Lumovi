@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { RangeId } from '@renderer/lib/promql'
+import type { Marks } from '@shared/marks'
 import type { ColumnChoices } from '@renderer/features/resources/column-choices'
 
 const MAX_RECENT = 5
@@ -50,6 +51,12 @@ interface Prefs {
   columns: Record<string, ColumnChoices>
   /** Keeps what was chosen for a list's columns; nothing, to go back to Lumovi's. */
   setColumns: (list: string, choices: ColumnChoices | undefined) => void
+  /**
+   * On the desktop: what's pinned and saved in each cluster, by context. (A server keeps each
+   * person's for them: see hooks/marks.ts.)
+   */
+  marks: Record<string, Marks>
+  setMarks: (context: string, marks: Marks) => void
   /** The side of Create used last, which opens first: its form, or its YAML. */
   createSide: 'form' | 'yaml'
   setCreateSide: (side: Prefs['createSide']) => void
@@ -109,6 +116,14 @@ export const usePrefs = create<Prefs>()(
       setShowHidden: (showHidden) => set({ showHidden }),
       createSide: 'form',
       setCreateSide: (createSide) => set({ createSide }),
+      marks: {},
+      setMarks: (context, marks) =>
+        set((prefs) => {
+          const { [context]: _old, ...others } = prefs.marks
+          // (Nothing pinned or saved is nothing kept.)
+          const any = marks.pins.length > 0 || marks.views.length > 0
+          return { marks: any ? { ...others, [context]: marks } : others }
+        }),
     }),
     { name: 'lumovi:prefs' },
   ),

@@ -1,13 +1,16 @@
 import { Dialog } from 'radix-ui'
 import { X } from 'lucide-react'
 import { GO_KEYS, navLabel, QUICK_NAV } from '@shared/navigation'
-import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
+import { ALT_KEY, Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useUi } from '@renderer/state/ui'
 import { TERMINAL_KEYS } from '../terminal/keys'
+import { PINS_NUMBERED } from './PinnedObjects'
 
 const SECTIONS: {
   title: string
   shortcuts: { keys: string[]; label: string; alt?: string[] }[]
+  /** Said under its shortcuts. */
+  note?: string
 }[] = [
   {
     title: 'General',
@@ -26,8 +29,15 @@ const SECTIONS: {
         : []),
       { keys: [MOD_KEY, '['], label: 'Back' },
       { keys: [MOD_KEY, ']'], label: 'Forward' },
+      ...(PINS_NUMBERED
+        ? [{ keys: [ALT_KEY, '1–9'], label: 'Open a pinned object (the first nine)' }]
+        : []),
       { keys: ['?'], label: 'Keyboard shortcuts' },
     ],
+    // (Where they'd switch the browser's tabs, pins have none.)
+    note: PINS_NUMBERED
+      ? undefined
+      : 'In a browser on Linux, Alt+1 to 8 switch the browser’s tabs, so pinned objects have no number keys here: open them from the sidebar or the command palette.',
   },
   {
     title: 'Lists',
@@ -47,6 +57,7 @@ const SECTIONS: {
       { keys: ['.'], label: 'Actions: scale, restart, edit…' },
       { keys: [MOD_KEY, '⌫'], label: 'Delete' },
       { keys: [MOD_KEY, 'S'], label: 'Review a YAML edit' },
+      { keys: [ALT_KEY, 'P'], label: 'Pin or unpin the open object' },
     ],
   },
   // On this computer, in the desktop app.
@@ -153,6 +164,9 @@ export function ShortcutsDialog() {
                     </div>
                   ))}
                 </dl>
+                {section.note && (
+                  <p className="mt-2.5 text-xs leading-snug text-ink-3">{section.note}</p>
+                )}
               </section>
             ))}
           </div>

@@ -47,6 +47,7 @@ import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
 import type { Joins } from './fleet/joins'
 import type { FleetSettings } from './fleet/settings'
 import type { AddedClusters } from './fleet/added'
+import type { PeopleMarks } from './marks'
 import { checkChartUrl } from './network'
 import { log } from './log'
 
@@ -158,6 +159,8 @@ export interface ConnectionOptions {
   access: ServerAccess
   /** The clusters' settings, everyone's on this server. */
   clusters: ClusterSettings
+  /** Everyone's pins and saved views: the page's person's are theirs alone. */
+  marks?: PeopleMarks
   /** A fleet's: the clusters its admins connect from the Fleet page. */
   joins?: Joins
   /** A fleet's: its clusters' names, labels and groups, as its admins set them on its page. */
@@ -300,6 +303,7 @@ export class PageConnection {
       auditor,
       access,
       clusters,
+      marks,
       joins,
       fleetSettings,
       added,
@@ -433,6 +437,15 @@ export class PageConnection {
         unlooked: checks?.unlooked(checkKey) ?? false,
       }),
       audit: recording,
+      // (Only of a cluster the server shows this person: another's name is no key of theirs.)
+      marks: marks?.of(identity.user, (context) => {
+        if (!configs.load().contexts.some((c) => c.name === context)) {
+          throw new KubeRequestError(
+            'not-found',
+            `This server has no cluster called “${context}” that you can see.`,
+          )
+        }
+      }),
     })
     const auditing = auditHandlers(
       audit,

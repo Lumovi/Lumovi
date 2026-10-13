@@ -34,6 +34,7 @@ import { ReleasePanel } from '../helm/ReleasePanel'
 import { CommandPalette } from './CommandPalette'
 import { Commands } from './Commands'
 import { ContextRow, Header, usePage } from './Header'
+import { PinKeys } from './PinnedObjects'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { Sidebar } from './Sidebar'
 import { UsageSampler } from './UsageSampler'
@@ -177,6 +178,7 @@ export function ClusterLayout() {
       </div>
       <CommandPalette />
       <Commands />
+      <PinKeys />
       <ShortcutsDialog />
       <ActionHost />
       {/* Nothing is written on a phone: not from the header, the palette, or its key. */}

@@ -5,24 +5,11 @@
  * choices.
  */
 import type { KubeObject } from '@shared/api'
+import type { AddedColumn, ColumnChoices } from '@shared/marks'
 import type { Column } from './columns'
 
-/** A label or an annotation, made a column. */
-export interface AddedColumn {
-  from: 'label' | 'annotation'
-  key: string
-}
-
-export interface ColumnChoices {
-  /** Columns by id, in the order chosen; any not named keep their places after them. */
-  order?: string[]
-  /** Columns hidden, by id. */
-  hidden?: string[]
-  /** Widths dragged to, in pixels, by id. */
-  widths?: Record<string, number>
-  /** Labels and annotations made columns, in the order added. */
-  added?: AddedColumn[]
-}
+// (Kept as it's written, by the desktop and in a server's saved views: `@shared/marks`.)
+export type { AddedColumn, ColumnChoices } from '@shared/marks'
 
 /** The column that can't be hidden or moved: a row is its object's name. */
 export const ALWAYS_SHOWN = 'name'

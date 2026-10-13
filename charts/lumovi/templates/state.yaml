@@ -1,8 +1,9 @@
 {{- if and (include "lumovi.dashboard" .) .Values.auth.keepSessions }}
-# What a restart (an upgrade, say) mustn't lose: who's signed in, and the AI assistants they
-# allowed, each entry sealed with the key below. No credential is in it: cookies and tokens by
-# their hash, and a person's own token sealed again with a key only their cookie gives. Lumovi
-# reads and writes this Secret (and nothing else here); upgrades leave what's in it.
+# What a restart (an upgrade, say) mustn't lose: who's signed in, the AI assistants they
+# allowed, and people's pins and saved views, each entry sealed with the key below. No
+# credential is in it: cookies and tokens by their hash, and a person's own token sealed again
+# with a key only their cookie gives. Lumovi reads and writes this Secret (and nothing else
+# here); upgrades leave what's in it.
 apiVersion: v1
 kind: Secret
 type: Opaque

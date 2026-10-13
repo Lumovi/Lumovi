@@ -20,6 +20,7 @@ import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { age } from '@renderer/lib/format'
+import { pinnable } from '@renderer/lib/marks'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
@@ -38,6 +39,7 @@ import { PodsTab, podQuery } from './PodsTab'
 import { RelatedTab, relatedOf } from './RelatedTab'
 import { hasMetrics, MetricsTab } from '../metrics/MetricsTab'
 import { NodeShellTab } from './NodeShellTab'
+import { PinButton } from './PinButton'
 import { ShellTab } from './ShellTab'
 import { SidePanel, type PanelFrame } from './SidePanel'
 import { YamlTab } from './YamlTab'
@@ -111,6 +113,16 @@ function Detail({
   const title = involved
     ? `${object.data!.reason as string} · ${involved.kind}/${involved.name}`
     : target.name
+  // What can be done to it, its pin last before "…".
+  const pin = object.data && !gone && pinnable(target.kind) && (
+    <PinButton
+      pin={{
+        kind: target.kind,
+        name: target.name,
+        ...(target.namespace ? { namespace: target.namespace } : {}),
+      }}
+    />
+  )
   const body = object.isPending ? (
     <Loading label="Loading…" />
   ) : gone || !object.data ? (
@@ -171,9 +183,9 @@ function Detail({
                 <StatusPill status={status} />
               </div>
             )}
-            {acts && (
+            {pin && (
               <div className="mt-3">
-                <ActionBar object={object.data!} />
+                {acts ? <ActionBar object={object.data!}>{pin}</ActionBar> : pin}
               </div>
             )}
           </div>
@@ -205,16 +217,19 @@ function Detail({
             <CopyButton text={target.name} label="Copy name" />
           </div>
           {/* Its status, then what can be done: under the name, which has the line to itself. */}
-          {(status || (object.data && !gone && actionsFor(object.data).length > 0)) && (
+          {(status || pin) && (
             <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
               {status && (
                 <div className="max-w-full min-w-0">
                   <StatusPill status={status} />
                 </div>
               )}
-              {object.data && !gone && actionsFor(object.data).length > 0 && (
-                <ActionBar object={object.data} />
-              )}
+              {pin &&
+                (actionsFor(object.data!).length > 0 ? (
+                  <ActionBar object={object.data!}>{pin}</ActionBar>
+                ) : (
+                  pin
+                ))}
             </div>
           )}
         </div>

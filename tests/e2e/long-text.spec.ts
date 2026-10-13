@@ -193,8 +193,10 @@ for (const size of ['wide', 'narrow'] as const) {
           all.map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim() ?? ''),
         )
       ).filter(
+        // (Not what's done at once, with no dialog: Pin, for one.)
         (name) =>
-          name && !/^(More actions|Copy name|Expand panel|Restore panel|Close|Shell)/.test(name),
+          name &&
+          !/^(More actions|Copy name|Expand panel|Restore panel|Close|Shell|Pin)/.test(name),
       )
       for (const name of names) {
         await bar.getByRole('button', { name, exact: true }).first().click()

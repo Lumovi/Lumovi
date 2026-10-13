@@ -1,5 +1,15 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDown, ArrowUp, Columns3, Copy, EyeOff, PanelRightOpen, Terminal } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Columns3,
+  Copy,
+  EyeOff,
+  PanelRightOpen,
+  Pin,
+  PinOff,
+  Terminal,
+} from 'lucide-react'
 import { ContextMenu } from 'radix-ui'
 import {
   useEffect,
@@ -16,7 +26,9 @@ import { spelled } from '@shared/kit/characters'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { MiddleCut } from '@renderer/kit/MiddleCut'
-import { kindOf } from '@shared/resources'
+import type { Pin as PinOf } from '@shared/marks'
+import { apiKindOf, kindOf } from '@shared/resources'
+import { usePinning } from '@renderer/hooks/marks'
 import { objectKey } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
@@ -34,6 +46,8 @@ import { ResourceRows } from './ResourceRows'
 const ROW_HEIGHT = 46
 /** The checkbox column of tables that can pick rows. */
 const PICK_WIDTH = 40
+/** The pin's column, last, of tables of the cluster's objects: its 16 px pin, 6 px each side. */
+const PIN_WIDTH = 28
 /** Each row's padding (px-3 on either side), which its columns' room doesn't include. */
 const ROW_PADDING = 24
 /** Rows skipped by PageUp/PageDown. */
@@ -93,6 +107,8 @@ export interface ResourceTableProps {
   layout?: TableLayout
   /** Copies the picked rows: ⌘C, while rows are picked. */
   onCopy?: () => void
+  /** Whether its objects can be pinned: a pin in each row's last cell, and in its menu. */
+  pins?: boolean
 }
 
 /**
@@ -126,8 +142,10 @@ function ResourceGrid({
   rowKey = objectKey,
   layout,
   onCopy,
+  pins = false,
 }: ResourceTableProps) {
   const id = useId()
+  const pinning = usePinning()
   const scrollRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(ref, () => scrollRef.current!, [])
   const [active, setActive] = useState(-1)
@@ -161,15 +179,26 @@ function ResourceGrid({
       )
     : columns
   // As chosen, the columns give way in the person's order; otherwise by their priorities.
-  const fitted = layout?.chosen
-    ? fitInOrder(sized, width - frame)
-    : (() => {
-        const visible = fitColumns(sized, width - frame)
-        return {
-          visible,
-          unfit: sized.filter((column) => !visible.includes(column)).map((column) => column.id),
-        }
-      })()
+  const fit = (room: number) =>
+    layout?.chosen
+      ? fitInOrder(sized, room)
+      : (() => {
+          const visible = fitColumns(sized, room)
+          return {
+            visible,
+            unfit: sized.filter((column) => !visible.includes(column)).map((column) => column.id),
+          }
+        })()
+  // The pins' column gives way first, before any of the columns: it's there only when every
+  // column fits beside it. (Pinning is in a row's menu, a detail and the palette all the same.)
+  const withPin = pins ? fit(width - frame - PIN_WIDTH) : undefined
+  const pinShown =
+    withPin !== undefined &&
+    withPin.unfit.length === 0 &&
+    // (Nor where the columns that never give way are wider than the list already: it scrolls,
+    // and the pin goes first there too.)
+    minWidth(withPin.visible) <= width - frame - PIN_WIDTH
+  const fitted = pinShown ? withPin : fit(width - frame)
   const visible = fitted.visible
   const unfit = fitted.unfit.join('\n')
   const report = layout?.unfit
@@ -270,8 +299,9 @@ function ResourceGrid({
     gridTemplateColumns: [
       ...(selectable ? [`${PICK_WIDTH}px`] : []),
       ...visible.map((c) => c.width),
+      ...(pinShown ? [`${PIN_WIDTH}px`] : []),
     ].join(' '),
-    minWidth: minWidth(visible) + frame,
+    minWidth: minWidth(visible) + frame + (pinShown ? PIN_WIDTH : 0),
   }
   const keyOf = (index: number) => rowKey(rows[index]!)
   const pickedOnPage = rows.filter((object) => picked?.has(rowKey(object))).length
@@ -484,6 +514,8 @@ function ResourceGrid({
                   </div>
                 )
               })}
+              {/* (Named, not written: it says nothing a heading would.) */}
+              {pinShown && <div role="columnheader" aria-label="Pinned" />}
             </div>
           </ContextMenu.Trigger>
           <ContextMenu.Portal>
@@ -534,7 +566,7 @@ function ResourceGrid({
                     setActive(item.index)
                     onOpen(object)
                   }}
-                  className="absolute inset-x-0 top-0 grid cursor-default items-center border-b border-line px-3 transition-colors duration-75 hover:bg-surface-3/50 aria-selected:bg-accent-soft group-focus/grid:data-[active=true]:bg-surface-3/70 group-focus/grid:data-[active=true]:shadow-[inset_2px_0_0_var(--accent)] data-[picked=true]:bg-accent-soft/60"
+                  className="group/row absolute inset-x-0 top-0 grid cursor-default items-center border-b border-line px-3 transition-colors duration-75 hover:bg-surface-3/50 aria-selected:bg-accent-soft group-focus/grid:data-[active=true]:bg-surface-3/70 group-focus/grid:data-[active=true]:shadow-[inset_2px_0_0_var(--accent)] data-[picked=true]:bg-accent-soft/60"
                   style={{ ...grid, height: ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
                 >
                   {selectable && (
@@ -566,6 +598,7 @@ function ResourceGrid({
                       {column.cell(object, ctx)}
                     </div>
                   ))}
+                  {pinShown && <PinCell object={object} pinning={pinning} />}
                 </div>
               )
             })}
@@ -573,7 +606,7 @@ function ResourceGrid({
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content className={menuContent} onCloseAutoFocus={keepFocusInActionDialog}>
-            <RowMenu object={menuRow!} onOpen={onOpen} />
+            <RowMenu object={menuRow!} onOpen={onOpen} pinning={pins ? pinning : undefined} />
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
@@ -581,17 +614,83 @@ function ResourceGrid({
   )
 }
 
+type Pinning = ReturnType<typeof usePinning>
+
+/** A row's object as a pin, and how it's named ("Deployment cart"). */
+function pinOf(object: KubeObject): { pin: PinOf; called: string } {
+  const { name, namespace } = object.metadata
+  const kind = kindOf(object)
+  return {
+    pin: { kind, name, ...(namespace ? { namespace } : {}) },
+    called: `${apiKindOf(kind)} ${spelled(name)}`,
+  }
+}
+
+/**
+ * A row's last cell: its pin, shown while the row is under the pointer or the active row, and
+ * always, in the accent, where it's pinned. (Not a stop of its own: ⌥P and the row's menu pin from
+ * the keyboard. Nothing hovers under a finger, so there only a pin that's pinned shows.)
+ */
+function PinCell({ object, pinning }: { object: KubeObject; pinning: Pinning }) {
+  const { pin, called } = pinOf(object)
+  const on = pinning.pinned(pin)
+  const said = on ? `Unpin ${called} from the sidebar` : `Pin ${called} to the sidebar`
+  return (
+    <div role="gridcell" className="flex h-full items-center justify-center">
+      <Tooltip content={said}>
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={said}
+          aria-pressed={on}
+          onClick={(event) => {
+            event.stopPropagation()
+            void pinning.toggle(pin, called)
+          }}
+          // (Pressed anywhere in the row's height; drawn as the 16 px pin, 6 px each side.)
+          className={cn(
+            'group/pin grid h-full w-7 place-items-center',
+            on
+              ? 'text-accent-strong'
+              : 'text-ink-3 opacity-0 group-hover/row:opacity-100 group-focus/grid:group-data-[active=true]/row:opacity-100 hover:text-ink-1 focus-visible:opacity-100 touch:hidden',
+          )}
+        >
+          <span className="grid size-7 place-items-center rounded-md transition-colors group-hover/pin:bg-surface-3 [&_svg]:size-4">
+            <Pin className={cn(on && 'fill-current')} />
+          </span>
+        </button>
+      </Tooltip>
+    </div>
+  )
+}
+
 /** Right-click actions for a row. */
-function RowMenu({ object, onOpen }: { object: KubeObject; onOpen: (object: KubeObject) => void }) {
+function RowMenu({
+  object,
+  onOpen,
+  pinning,
+}: {
+  object: KubeObject
+  onOpen: (object: KubeObject) => void
+  pinning?: Pinning
+}) {
   const { context } = useCluster()
   const { name, namespace } = object.metadata
   const kind = kindOf(object)
   const copy = (text: string) => () => void navigator.clipboard.writeText(text)
+  const { pin, called } = pinOf(object)
+  const on = pinning?.pinned(pin)
   return (
     <>
       <ContextMenu.Item className={menuItem} onSelect={() => onOpen(object)}>
         <PanelRightOpen className="size-4 text-ink-3" /> Open
       </ContextMenu.Item>
+      {pinning && (
+        <ContextMenu.Item className={menuItem} onSelect={() => void pinning.toggle(pin, called)}>
+          {on ? <PinOff className="size-4 text-ink-3" /> : <Pin className="size-4 text-ink-3" />}
+          {on ? 'Unpin' : 'Pin'}
+        </ContextMenu.Item>
+      )}
       <ContextMenu.Separator className="my-1 h-px bg-line" />
       <ContextMenu.Item className={menuItem} onSelect={copy(name)}>
         <Copy className="size-4 text-ink-3" /> Copy name

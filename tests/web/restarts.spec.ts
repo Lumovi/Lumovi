@@ -387,7 +387,7 @@ test('in the cluster Lumovi runs in: kept in its Secret, sealed with a key apart
   // One that isn't there, or isn't a name, or outside a cluster, or without its key, or with
   // one too short: it doesn't start, and says why.
   expect(await refusedConfig(clusters, { ...env, LUMOVI_STATE_SECRET: 'lumovi-gone' })).toContain(
-    'Lumovi can’t read Secret lumovi/lumovi-gone, where it keeps who’s signed in and the AI assistants they allowed',
+    'Lumovi can’t read Secret lumovi/lumovi-gone, where it keeps who’s signed in, the AI assistants they allowed, and people’s pins and saved views',
   )
   expect(await refusedConfig(clusters, { LUMOVI_STATE_SECRET: 'Not_Valid' })).toContain(
     'LUMOVI_STATE_SECRET must name a Secret, like lumovi-state, not "Not_Valid".',

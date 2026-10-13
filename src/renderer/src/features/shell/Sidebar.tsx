@@ -34,6 +34,7 @@ import { StatusDot } from '@renderer/components/Status'
 import { Switch } from '@renderer/components/Switch'
 import { useServedPlugins, type ServedPlugin } from '@renderer/hooks/plugins'
 import { useGo } from '@renderer/hooks/go'
+import { useMarks } from '@renderer/hooks/marks'
 import { useContexts, useVersion } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
 import { usePlugins } from '@renderer/hooks/plugins'
@@ -41,6 +42,8 @@ import { useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { navItem } from './nav-style'
+import { PinnedObjects, useUnpinned } from './PinnedObjects'
 import { matchWords } from '@renderer/lib/match'
 import {
   pluginPagePath,
@@ -77,15 +80,6 @@ export const CATEGORY_LABELS: Record<ResourceCategory, string> = {
 }
 
 const SIDEBAR_CATEGORIES: ResourceCategory[] = ['cluster', 'network', 'config', 'storage', 'access']
-
-const navItem = (isActive: boolean) =>
-  cn(
-    // (A finger's height in the drawer.)
-    'group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-100 no-drag narrow:h-11 touch:h-11',
-    isActive
-      ? 'bg-surface-3 font-medium text-ink-1 shadow-[inset_0_0_0_1px_var(--line)]'
-      : 'text-ink-2 hover:bg-surface-3/60 hover:text-ink-1',
-  )
 
 /** The lists Workloads leads to: its tabs, and the kinds that run them. */
 const WORKLOAD_PAGES = RESOURCES.filter((r) => r.category === 'workloads' && r.kind !== 'Pod').map(
@@ -479,6 +473,9 @@ function CustomResources({ plugins }: { plugins: ServedPlugin[] }) {
   // Views pick the kinds' icons.
   usePlugins()
   const pinnedKinds = usePrefs((prefs) => prefs.pinned)
+  const pinnedObjects = useMarks().marks.pins.length
+  // (And while one just unpinned in the drawer is there with its Undo.)
+  const unpinned = useUnpinned((state) => state.list.length)
   const recentKinds = usePrefs((prefs) => prefs.recentKinds[context])
   const served = new Map((resources ?? []).map((r) => [r.kind as string, r]))
   const pinned = pinnedKinds.flatMap((kind) => served.get(kind) ?? [])
@@ -501,12 +498,14 @@ function CustomResources({ plugins }: { plugins: ServedPlugin[] }) {
   }
   return (
     <>
-      {pinned.length > 0 && (
+      {(pinned.length > 0 || pinnedObjects > 0 || unpinned > 0) && (
         <div className="mt-4">
           <h3 className="mb-1 px-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
             Pinned
           </h3>
+          {/* Kinds first (every cluster's), then this cluster's own objects. */}
           {pinned.map(item)}
+          <PinnedObjects served={served} />
         </div>
       )}
       <div className="mt-4">

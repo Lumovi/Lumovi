@@ -30,6 +30,7 @@ async function openRow(page: Page, label: string, name: string) {
   await row(page, label, name).first().getByRole('gridcell').nth(1).click()
 }
 
+/** A list's headings: the rows' checkboxes first, their pins last, both without words. */
 const headers = (page: Page, label: string) =>
   page.getByRole('grid', { name: label }).getByRole('columnheader')
 
@@ -68,6 +69,7 @@ test.describe('custom resources', () => {
       'Secret',
       'Expires',
       'Age',
+      '',
     ])
     const ready = row(page, 'Certificates', CUSTOM.certificates.ready)
     await expect(ready).toContainText('Ready')
@@ -149,6 +151,7 @@ test.describe('custom resources', () => {
       'HA',
       'Backed up',
       'Age',
+      '',
     ])
     const status = (name: string) => row(page, 'Databases', name).getByRole('gridcell').nth(2)
     await expect(status('orders')).toHaveText('Ready')
@@ -217,7 +220,7 @@ test.describe('custom resources', () => {
     await expect(detail.getByRole('tree', { name: 'Spec' })).toContainText('mysql')
     // A widget's schema has no status; it has no status tree, or status.
     await openKind(page, 'example.com', 'Widgets')
-    await expect(headers(page, 'Widgets')).toHaveText(['', 'Name', 'Age'])
+    await expect(headers(page, 'Widgets')).toHaveText(['', 'Name', 'Age', ''])
     await openRow(page, 'Widgets', CUSTOM.widget)
     const widget = panel(page, 'Widget', CUSTOM.widget)
     await expect(widget.getByRole('tree', { name: 'Spec' })).toContainText('blue')
@@ -277,7 +280,7 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(sidebar(page).getByRole('link', { name: 'Endpoints' })).toHaveCount(0)
 
   // Kubernetes' other kinds come with the server's columns, and core schemas explain them.
-  await expect(headers(page, 'Endpoints')).toHaveText(['', 'Name', 'Age'])
+  await expect(headers(page, 'Endpoints')).toHaveText(['', 'Name', 'Age', ''])
   await openRow(page, 'Endpoints', 'storefront')
   const endpoints = panel(page, 'Endpoints', 'storefront')
   await hoverForTooltip(
