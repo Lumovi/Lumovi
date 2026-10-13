@@ -22,12 +22,13 @@ import { Card } from '@renderer/kit/Card'
 import { Counts } from '@renderer/kit/Counts'
 import { Graph } from '@renderer/kit/Graph'
 import { PageHeader } from '@renderer/kit/PageHeader'
-import { LogsShown } from '@renderer/kit/Shown'
+import { LogsShown, SecretShown } from '@renderer/kit/Shown'
 import { useSettings } from '@renderer/hooks/settings'
 import { useLogSlot, toldOnce } from './log-slots'
 import { PageKey } from './Surface'
 import { Table } from '@renderer/kit/Table'
-import type { KitPart, PageBy } from './page'
+import type { HandedWith, KitPart, PageBy } from './page'
+import { secretPart } from './secret-part'
 
 /**
  * A Logs part on a plugin's page: Lumovi's own log view of the pod, where the organization's
@@ -69,6 +70,37 @@ function PluginLogs({ props, by }: { props: Readonly<Record<string, unknown>>; b
   )
 }
 
+/**
+ * A Secret's part on a plugin's page: Lumovi's own card for it, hidden until the person presses.
+ * Which plugin's page it is, the digests its code was handed with and what named the Secret are
+ * Lumovi's own knowledge of the page (the hand-over, and the door's swap of the Secret's token),
+ * never anything the plugin said: a press reads with them, and the backend holds the read to
+ * them (`secretPart`, which draws no Secret where Lumovi doesn't know them). A token the page
+ * doesn't hold leaves no Secret either, and the card says there's none.
+ */
+function PluginSecret({
+  props,
+  by,
+  code,
+}: {
+  props: Readonly<Record<string, unknown>>
+  by?: PageBy
+  code?: HandedWith
+}) {
+  // (Until Lumovi knows its policy, nothing can be pressed: the policy may say no Secrets.)
+  const settings = useSettings().data
+  if (settings === undefined) return null
+  const { shown, via } = secretPart(props, by, code)
+  return (
+    <SecretShown
+      shown={shown}
+      by={by ? { name: by.name, version: by.version } : { name: '', version: '' }}
+      {...(via ? { via } : {})}
+      {...(settings.managed?.pluginSecretsOff === true ? { off: true } : {})}
+    />
+  )
+}
+
 /** What draws each declared part: one for every part, or this doesn't compile. */
 const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
   // (Opening what a row, a card or a tile names is Lumovi's own: `go`, never a property the
@@ -91,6 +123,10 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
   },
   // A pod's logs, read and drawn by Lumovi: the plugin's code never holds a line.
   Logs: ({ props, by }) => <PluginLogs props={props} {...(by ? { by } : {})} />,
+  // A Secret's values, read and drawn by Lumovi on the person's press: the code never holds one.
+  Secret: ({ props, by, code }) => (
+    <PluginSecret props={props} {...(by ? { by } : {})} {...(code ? { code } : {})} />
+  ),
   Split: ({ props, children }) => {
     const { list, onPick } = props as SplitProps
     return (

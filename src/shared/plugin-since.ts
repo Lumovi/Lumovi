@@ -58,6 +58,7 @@ export const PLUGIN_SINCE = {
     Counts: 'next',
     Stack: 'next',
     Logs: 'next',
+    Secret: 'next',
   } satisfies Record<keyof typeof DECLARED, Since>,
   /** The kinds a part's description can hold that a door hands over as something else. */
   kinds: {

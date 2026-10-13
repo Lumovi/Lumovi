@@ -194,7 +194,9 @@ test('a Secret that can’t be shown: what a press comes back with, and what’s
 
   // Known without a read, so said as the page opens, with no boxes.
   const off = page.getByRole('region', { name: 'Not on this server' })
-  await expect(off).toContainText('This server doesn’t show Secrets’ values on a plugin’s page.')
+  await expect(off).toContainText(
+    'Your organization’s policy doesn’t let plugins show what’s in Secrets.',
+  )
   await expect(off).toContainText('Secret storefront-tls in shop')
   await expect(off.getByRole('group')).toHaveCount(0)
   // A description that asks only for keys the file doesn't allow leaves none: said, not blank.

@@ -25,6 +25,7 @@ import {
   number,
   oneOf,
   record,
+  secret,
   text,
   time,
   yesOrNo,
@@ -32,6 +33,7 @@ import {
   type PropsOf,
   type WrittenProps,
 } from './declare'
+import { SHOWN_LIMITS } from './shown'
 import { HEALTHS, lead, state, TABLE_LIMITS } from './table'
 
 /** How much may be said: counted where a description is taken in. */
@@ -251,6 +253,27 @@ export const logs = {
   required: ['title'],
 } as const satisfies Part
 
+/**
+ * A Secret's value, shown and not held, where its file says its pages show it
+ * (`spec.showsSecrets`): Lumovi's own card, with a box for each key, hidden. The Secret is one a
+ * read named (its token, handed with the object that names it at the path the file declares);
+ * `keys` picks among the keys that path's item lets its pages show, and can only narrow them.
+ * Lumovi reads a value as the person, when they press Reveal or Copy and never before, and draws
+ * it. It holds nothing and has no handler: nothing of the Secret goes back to the plugin's code,
+ * not a value, not its length, not that it was revealed, copied or refused.
+ */
+export const secretShown = {
+  name: 'Secret',
+  holds: 'nothing',
+  props: { title: name, secret, keys: list(text(SHOWN_LIMITS.text), SHOWN_LIMITS.keys) },
+  required: ['title'],
+  most: SHOWN_LIMITS.parts,
+  also: ({ keys }) =>
+    Array.isArray(keys) && new Set(keys).size !== keys.length
+      ? 'keys: names a key twice'
+      : undefined,
+} as const satisfies Part
+
 export const card = {
   name: 'Card',
   holds: ['Table', 'Graph', 'Counts'],
@@ -312,7 +335,7 @@ export const counts = {
 export const stack = {
   name: 'Stack',
   // (Every part but a split, which nothing holds.)
-  holds: ['Tiles', 'Header', 'Card', 'Pair', 'Table', 'Graph', 'Counts', 'Logs'],
+  holds: ['Tiles', 'Header', 'Card', 'Pair', 'Table', 'Graph', 'Counts', 'Logs', 'Secret'],
   props: {},
 } as const satisfies Part
 

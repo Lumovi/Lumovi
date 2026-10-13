@@ -634,11 +634,13 @@ jobs:
         env:
           # Here, a browser that isn't installed or doesn't start fails its test.
           LUMOVI_E2E_BROWSERS: all
-        # What's drawn differently, and a plugin's sealed box, which each engine seals itself.
+        # What's drawn differently, a plugin's sealed box, which each engine seals itself, and
+        # what a Secret shown on a plugin's page sends back to its code (nothing).
         run: >-
           npx playwright test --project=web
           tests/web/create.spec.ts tests/web/plugin-box.spec.ts
-          --grep "typed while hidden|a plugin’s box in"
+          tests/web/plugin-secret-page.spec.ts
+          --grep "typed while hidden|a plugin’s box in|a Secret on a plugin’s page in"
 
   # One check for the main branch's ruleset to require: whether every job above passed (theirs
   # are many, and change with the matrix).

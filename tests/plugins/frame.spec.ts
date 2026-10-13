@@ -6,7 +6,17 @@
 import { expect, test } from '@playwright/test'
 import { wrongWithPart, wrongWithParts, type Part } from '../../src/shared/kit/declare.ts'
 import { graph } from '../../src/shared/kit/graph.ts'
-import { card, counts, header, logs, pair, split, stack, tiles } from '../../src/shared/kit/page.ts'
+import {
+  card,
+  counts,
+  header,
+  logs,
+  pair,
+  secretShown,
+  split,
+  stack,
+  tiles,
+} from '../../src/shared/kit/page.ts'
 import { DECLARED as LUMOVIS } from '../../src/shared/kit/parts.ts'
 import { table } from '../../src/shared/kit/table.ts'
 import { DoorPage, ROOT } from '../../src/shared/plugin-door.ts'
@@ -23,6 +33,7 @@ const DECLARED: Record<string, Part> = {
   Counts: counts,
   Stack: stack,
   Logs: logs,
+  Secret: secretShown,
 }
 
 test('the parts Lumovi gives the door are these, each by its own name', () => {
