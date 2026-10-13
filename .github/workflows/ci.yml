@@ -329,6 +329,8 @@ jobs:
           # Windows (on macOS, transparent ones are the faster).
           LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
           SHARD: ${{ matrix.shard }}
+          # Its tests' projects: the browser's on Linux alone, but nightly and for a release.
+          E2E_PROJECTS: ${{ matrix.projects }}
         run: |
           if [ "$SHARD" = smoke ]; then
             list=tests/e2e/smoke.txt

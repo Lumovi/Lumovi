@@ -1,6 +1,6 @@
-# What macOS runs on a pull request that changes nothing macOS does differently (see
-# scripts/ci-changes.ts): the app starts, and its window, menus, terminals and updates work.
-# Main, and every release, run everything on macOS too.
+# What macOS runs, for now, on a pull request and on main's merges (see scripts/ci-changes.ts):
+# the app starts, and its window, menus, terminals and updates work. Its full suite runs nightly,
+# for a release's pull request, for a run by hand, and where the label macos-full asks.
 [desktop] › tests/e2e/welcome.spec.ts
 [desktop] › tests/e2e/app.spec.ts
 [desktop] › tests/e2e/terminal.spec.ts

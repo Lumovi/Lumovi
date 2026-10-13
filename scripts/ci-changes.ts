@@ -5,11 +5,14 @@
  * - `docs`: a pull request that changes only docs (Markdown, docs/, images outside the app): no
  *   E2E, packaging or integration tests, and "CI passed" all the same. Likewise a nightly run on
  *   a head that's run macOS in full, green, already: there's nothing new for it to run.
- * - `e2e`: the E2E shards. Linux and Windows always run them all. macOS, for now, runs only
- *   its smoke set (tests/e2e/smoke.txt) for a pull request and for main's merges, whatever they
- *   change: an account has five macOS machines at once, and a full run takes all five. Its full
- *   suite runs nightly on main's head (CI's schedule), for a release's pull request (`release-*`),
- *   for a run by hand, and for a pull request whose label (`macos-full`) asks.
+ * - `e2e`: the E2E shards, each with the tests' projects it runs. Linux runs every test, the
+ *   desktop app's (tests/e2e) and the browser's (tests/web). macOS and Windows run the desktop
+ *   app's: the browser's run there only nightly, for a run by hand and for a release's pull
+ *   request, since the server Lumovi ships runs on Linux. macOS, for now, runs only its smoke set
+ *   (tests/e2e/smoke.txt) for a pull request and for main's merges, whatever they change: an
+ *   account has five macOS machines at once, and a full run takes all five. Its full suite runs
+ *   nightly on main's head (CI's schedule), for a release's pull request (`release-*`), for a run
+ *   by hand, and for a pull request whose label (`macos-full`) asks.
  * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what main's
  *   newest full macOS run reached and its Linux and Windows didn't is borrowed from it
  *   (scripts/borrow-coverage.ts), and nothing else: the rest is this run's own to reach.
@@ -73,32 +76,41 @@ export function plan({
     !again && (event === 'schedule' || event === 'workflow_dispatch' || release || asked)
   // Docs alone run no tests on a pull request; main runs its tests for every merge.
   const docs = again || (pullRequest && !release && changed.length > 0 && changed.every(isDocs))
+  // The browser's tests on every system: the nightly run, a run by hand, a release's pull request.
+  // Otherwise on Linux alone, where the server Lumovi ships runs.
+  const everySystem = !again && (event === 'schedule' || event === 'workflow_dispatch' || release)
+  const projectsOn = (os: (typeof OSES)[number]) =>
+    os === 'ubuntu-latest' || everySystem ? 'desktop web' : 'desktop'
   const e2e = OSES.flatMap((os) =>
     os === 'macos-latest' && !macos
-      ? [{ os, shard: 'smoke', part: 'smoke' }]
+      ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop' }]
       : Array.from({ length: SHARDS }, (_, i) => ({
           os,
           shard: `${i + 1}/${SHARDS}`,
           part: String(i + 1),
+          projects: projectsOn(os),
         })),
   )
   const said = [
     again
       ? 'Main’s nightly run: its head has run macOS in full already, so nothing more runs.'
       : event === 'schedule'
-        ? 'Main’s nightly run: everything, macOS in full.'
+        ? 'Main’s nightly run: everything, on every system, macOS in full.'
         : event === 'workflow_dispatch'
-          ? 'A run by hand: everything, macOS in full.'
+          ? 'A run by hand: everything, on every system, macOS in full.'
           : release
-            ? 'A release’s pull request: everything, macOS in full.'
+            ? 'A release’s pull request: everything, on every system, macOS in full.'
             : !pullRequest
-              ? 'Main’s merge: Linux and Windows in full, and macOS its smoke set (macOS’s full suite runs nightly).'
+              ? 'Main’s merge: every test on Linux, the desktop app’s on Windows, and macOS its smoke set (everything runs on every system nightly).'
               : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
     docs && !again ? 'Docs only: no E2E, packaging or integration tests.' : '',
     pullRequest && !release && !docs
       ? asked
-        ? `Everything on macOS, as its label asks (${MACOS_FULL}).`
+        ? `The desktop app’s tests in full on macOS, as its label asks (${MACOS_FULL}).`
         : `macOS runs its smoke set (its full suite runs nightly; the label ${MACOS_FULL} asks for it here).`
+      : '',
+    pullRequest && !release && !docs
+      ? 'The browser’s tests run on Linux (on every system nightly).'
       : '',
   ]
     .filter(Boolean)
