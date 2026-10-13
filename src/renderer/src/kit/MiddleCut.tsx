@@ -186,6 +186,20 @@ function Bolded({ pieces, bold }: { pieces: readonly Piece[]; bold: string }) {
 }
 
 /**
+ * Whether a name is laid out whole: told by what draws it (`unseen`, all of it, in the room
+ * `span` has), not by measuring its letters, which can come out a pixel wider than they're drawn
+ * (Windows, zoomed out). Where it fits, its room is its own width, and any such pixel would cut it.
+ */
+const laidOutWhole = (unseen: Element, span: Element) =>
+  unseen.getBoundingClientRect().width <= span.getBoundingClientRect().width + 0.5
+
+/** Whether the first name a `MiddleCut` draws inside `within` is cut, as it's laid out now. */
+export function middleIsCut(within: Element | null): boolean {
+  const unseen = within?.querySelector('[data-whole]')
+  return Boolean(unseen?.parentElement) && !laidOutWhole(unseen!, unseen!.parentElement!)
+}
+
+/**
  * A name of a plugin's, cut by measuring as it's laid out and whenever its room changes. All of
  * it is there for a screen reader, spelled, and in its tooltip (as much as a tooltip shows) once
  * it's cut: but for `tip={false}`, where what it's in has a tooltip of its own that says all of it.
@@ -214,10 +228,7 @@ export function MiddleCut({
     const span = element.current!
     const unseen = whole.current!
     const fit = () => {
-      // Whole where it's laid out whole: told by what draws it, not by measuring its letters,
-      // which can come out a pixel wider than they're drawn (Windows, zoomed out). Where it
-      // fits, its room is its own width, and any such pixel would cut it.
-      if (unseen.getBoundingClientRect().width <= span.getBoundingClientRect().width + 0.5) {
+      if (laidOutWhole(unseen, span)) {
         setCut(undefined)
         return
       }

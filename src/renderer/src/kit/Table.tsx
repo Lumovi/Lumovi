@@ -31,6 +31,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import {
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -67,7 +68,7 @@ import { useLayout } from '@renderer/lib/layout'
 import { offered, reachTip } from '@renderer/plugins/reach'
 import { MARK_CLASS, Pieces, TheirText } from '@renderer/plugins/TheirText'
 import { InCard } from './Card'
-import { CARD, HEADING, Lead, said } from './Lead'
+import { CARD, HEADING, Lead, leadIsCut, said } from './Lead'
 import { tooltip } from './MiddleCut'
 
 /** A row of one line, one with a line under its name, and each line of a note. */
@@ -653,23 +654,27 @@ export function Table({
     [lines, activeKey],
   )
   const setActive = (index: number) => setActiveKey(lines[index]?.key)
-  // The keyboard's row's cells that are cut by their columns' width: its tooltip says them whole,
-  // beside the columns that gave way. (Measured once it's drawn: what's cut is the width's to say.)
-  const [cutHere, setCutHere] = useState<{ index: number; columns: number[] }>()
+  // The keyboard's row's cells that are cut by their columns' width, and whether its lead is cut:
+  // its tooltip says them whole, beside the columns that gave way. (Measured once it's drawn:
+  // what's cut is the width's to say.)
+  const [cutHere, setCutHere] = useState<{ index: number; columns: number[]; lead: boolean }>()
   useLayoutEffect(() => {
     const row = keyed && active >= 0 ? document.getElementById(`${id}-${active}`) : null
     const columns = [...(row?.querySelectorAll<HTMLElement>('[data-column]') ?? [])]
       .filter((cell) => isCut(cell.querySelector('[data-cuts]')))
       .map((cell) => Number(cell.dataset.column))
+    // (Its lead is in its first cell.)
+    const lead = leadIsCut(row?.firstElementChild ?? null)
     setCutHere((was) =>
-      was?.index === active && was.columns.join() === columns.join()
+      was?.index === active && was.columns.join() === columns.join() && was.lead === lead
         ? was
         : row
-          ? { index: active, columns }
+          ? { index: active, columns, lead }
           : undefined,
     )
-    // (Again as its rows change: a refresh may lengthen a value, or shorten it.)
-  }, [keyed, active, id, template, lines])
+    // (Again as its rows change, a refresh may lengthen a value, or shorten it; and as the table's
+    // width does.)
+  }, [keyed, active, id, template, lines, laidOut])
   /** Rows, as a screen reader counts them: a group's heading isn't one. */
   const rowNumbers = useMemo(() => {
     let rows = 0
@@ -1090,7 +1095,18 @@ export function Table({
               const said = away.length > 0 || restAway
               const read = goneHere.length > 0 || restAway
               const awayId = `${id}-${index}-away`
-              const describedBy = [...wholes, ...(read ? [awayId] : [])]
+              // Where it goes, if it links to a place of Lumovi's: first in its tooltip, and the
+              // first thing read after it. (Never the browser's own title: a row has one tooltip.)
+              const goesTip =
+                row.goes?.to === 'reach' && offered(row.goes.at, layout)
+                  ? reachTip(row.goes)
+                  : undefined
+              const goesId = `${id}-${index}-goes`
+              const describedBy = [
+                ...(goesTip ? [goesId] : []),
+                ...wholes,
+                ...(read ? [awayId] : []),
+              ]
               const drawnRow = (
                 <div
                   key={line.key}
@@ -1113,9 +1129,6 @@ export function Table({
                     marginBottom: GAP,
                     ...place,
                   }}
-                  {...(row.goes?.to === 'reach' && offered(row.goes.at, layout)
-                    ? { title: reachTip(row.goes) }
-                    : {})}
                   className={cn(
                     'grid items-center gap-x-4 rounded-lg px-2 py-2',
                     row.note?.their && 'content-start items-start gap-y-0.5',
@@ -1153,6 +1166,7 @@ export function Table({
                       lead={row.lead}
                       top={Boolean(row.note?.their)}
                       quiet={Boolean(row.again)}
+                      tip={false}
                     />
                   </span>
                   {row.again ? (
@@ -1193,6 +1207,11 @@ export function Table({
                       <TheirText text={row.note} inline />
                     </span>
                   )}
+                  {goesTip && (
+                    <span id={goesId} hidden>
+                      {goesTip}
+                    </span>
+                  )}
                   {read && (
                     <span id={awayId} className="sr-only">
                       <Away columns={columns} row={row} away={goneHere} rest={restAway} />
@@ -1200,16 +1219,20 @@ export function Table({
                   )}
                 </div>
               )
-              return said ? (
-                <Tooltip
+              return (
+                <RowTip
                   key={line.key}
-                  content={<Away columns={columns} row={row} away={away} rest={restAway} />}
+                  row={`${id}-${index}`}
+                  lead={row.lead}
                   shown={keyed && active === index}
+                  cut={keyed && cutHere?.index === index && cutHere.lead}
+                  {...(goesTip ? { goes: goesTip } : {})}
+                  {...(said
+                    ? { away: <Away columns={columns} row={row} away={away} rest={restAway} /> }
+                    : {})}
                 >
                   {drawnRow}
-                </Tooltip>
-              ) : (
-                drawnRow
+                </RowTip>
               )
             })}
           </div>
@@ -1220,14 +1243,89 @@ export function Table({
   )
 }
 
-/**
- * What a row's columns that gave way say, where the table's too narrow for them: each one's name
- * and its value, and the row's rest where every column it would take gave way. In the row's
- * tooltip, and read after the row.
- */
 /** Whether what an element holds runs past it, cut at its end. */
 const isCut = (element: Element | null) =>
   element !== null && element.scrollWidth > element.clientWidth
+
+/**
+ * A row's one tooltip, Lumovi's own, under the pointer and while the keyboard's on the row: where
+ * the row goes, if it links; then its lead whole (its name, the words beside it, and the line
+ * under on a line of its own), if any of the three is cut; then what its columns cut or what
+ * gave way. A hairline between the parts that are there, and with none of the three, no tooltip.
+ */
+function RowTip({
+  row,
+  goes,
+  lead,
+  away,
+  shown,
+  cut,
+  children,
+}: {
+  /** The row's own id: its lead is in its first cell. */
+  row: string
+  goes?: string
+  lead: DrawnRow['lead']
+  away?: ReactNode
+  /** The keyboard's on it, */
+  shown: boolean
+  /** and its lead is cut, as the table measured it then. */
+  cut: boolean
+  children: ReactNode
+}) {
+  // Under the pointer, whether its lead is cut is asked as the tooltip would open: what's cut is
+  // the width's to say. (And not again while it's open: a window resized under a resting pointer
+  // keeps what it said until the pointer comes back. The keyboard's row, which can stay open for
+  // long, is measured again as the table's width changes.)
+  const [pointedCut, setPointedCut] = useState(false)
+  const leadCut = shown ? cut : pointedCut
+  const parts = [
+    goes !== undefined && <span className="block">{goes}</span>,
+    leadCut && (
+      <span className="block font-normal [overflow-wrap:anywhere]">
+        <span className="font-medium">
+          <TheirText text={lead.name} inline />
+        </span>
+        {lead.beside?.their && (
+          <>
+            {' '}
+            <span className="opacity-[0.68]">
+              <TheirText text={lead.beside} inline />
+            </span>
+          </>
+        )}
+        {lead.under?.their && (
+          <span className="block opacity-[0.68]">
+            <TheirText text={lead.under} inline />
+          </span>
+        )}
+      </span>
+    ),
+    away,
+  ].filter(Boolean)
+  return (
+    <Tooltip
+      content={
+        <span data-row-tip className="block text-left">
+          {parts.map((part, at) => (
+            <Fragment key={at}>
+              {at > 0 && <span aria-hidden className="my-1.5 block h-px bg-surface/22" />}
+              {part}
+            </Fragment>
+          ))}
+        </span>
+      }
+      shown={shown && parts.length > 0}
+      when={() => {
+        const now = leadIsCut(document.getElementById(row)?.firstElementChild ?? null)
+        setPointedCut(now)
+        return goes !== undefined || away !== undefined || now
+      }}
+    >
+      {children}
+    </Tooltip>
+  )
+}
 
 /**
  * A heading's words, cut at their end in a narrow column: whole in Lumovi's own tooltip while
@@ -1305,6 +1403,11 @@ function CutText({ cell }: { cell: Extract<TableCell, { kind: 'text' }> }) {
   )
 }
 
+/**
+ * What a row's columns that gave way say, where the table's too narrow for them: each one's name
+ * and its value, and the row's rest where every column it would take gave way. In the row's
+ * tooltip, and read after the row.
+ */
 function Away({
   columns,
   row,

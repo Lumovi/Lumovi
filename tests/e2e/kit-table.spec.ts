@@ -2,8 +2,9 @@
  * The kit's Table, on the page the tests' build has for the kit's parts: the cases that break a
  * table first, as design drew them.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { expect, openCluster, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 import { placed } from '../placed.ts'
 
 async function kit(page: Page) {
@@ -12,6 +13,24 @@ async function kit(page: Page) {
     window.location.hash = '#/cluster/demo/kit'
   })
   await expect(page.getByRole('grid', { name: 'Certificates' })).toBeVisible()
+}
+
+/**
+ * The pointer on something, as a hand moves it: twice. (One move is all Playwright makes, and
+ * Radix opens no tooltip on the move that ends the pointer's way from another.)
+ */
+async function point(at: Locator) {
+  await at.hover({ position: { x: 6, y: 6 } })
+  await at.hover({ position: { x: 10, y: 8 } })
+}
+
+/**
+ * The pointer away from every tooltip, and none left: along the window's top, since a move that
+ * could be on its way to the tooltip keeps it open, as Radix sees it.
+ */
+async function away(page: Page) {
+  for (const x of [0, 60, 120]) await page.mouse.move(x, 0)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
 }
 
 /** The rows' names, whole (a cut name is all there for a screen reader), top to bottom. */
@@ -55,13 +74,13 @@ test('a table’s rows: what each is called, columns from one scale, and a name 
     )
   expect(new Set(lefts.map((row) => row.join(','))).size).toBe(1)
 
-  // The longest name loses its middle and keeps its end; whole in its title.
+  // The longest name loses its middle and keeps its end; whole for a screen reader, and in its
+  // row's tooltip (below), never in a title of the browser's.
   const long = 'worker-eu-west-1a-m6i-2xlarge-on-demand-7f3a9c2d-b1e4-1c9aa7'
   const nodes = page.getByRole('grid', { name: 'Nodes' })
-  // (Its tooltip is as much of it as Lumovi quotes back.)
-  await expect(nodes.getByTitle(`${long.slice(0, 40)}…`).locator('[aria-hidden]')).toHaveText(
-    /^worker-eu-\S+…1c9aa7$/,
-  )
+  const longest = nodes.getByRole('row').filter({ hasText: long }).getByRole('gridcell').first()
+  await expect(longest.locator('[aria-hidden].absolute')).toHaveText(/^worker-eu-\S+…1c9aa7$/)
+  await expect(longest.locator('[title]')).toHaveCount(0)
   // A row's last cell may take the rest of the row.
   await expect(nodes.getByRole('row').filter({ hasText: 'worker-2' })).toContainText(
     'Ready · 4 cores',
@@ -395,11 +414,17 @@ test('a plugin’s texts are drawn in pieces: marks where they are, in a cut nam
   ).toHaveCount(1)
   await expect(app('invoice').getByRole('gridcell').last()).toContainText('ghcr.io/acme/')
   // A long name cut in its middle: the cut takes letters, and the marks of the part cut away
-  // stand after the ellipsis; its tooltip spells it, as much of it as Lumovi quotes back.
+  // stand after the ellipsis. Whole in its row's tooltip, Lumovi's own, where a mark is drawn as
+  // a mark: never in a title of the browser's, which could only spell it.
   await expect(drawn('platform-observability')).toHaveText(/^platform-\S*…U\+3164U\+180Eu-west$/)
-  await expect(
-    app('platform-observability').getByTitle('platform-observability-shared-infrastruc…'),
-  ).toHaveCount(1)
+  const cut = app('platform-observability').getByRole('gridcell').first()
+  await expect(cut.locator('[title]')).toHaveCount(0)
+  await point(cut)
+  const whole = page.getByRole('tooltip')
+  await expect(whole).toContainText('platform-observability-shared-infrastructure-')
+  await expect(whole).toContainText('monitoring')
+  await expect(whole.locator('[data-mark]')).toHaveText(['U+3164', 'U+180E'])
+  await away(page)
   // A run of marks: three, then how many more.
   await expect(drawn('spam').locator('[data-mark]')).toHaveText([
     'U+3164',
@@ -552,6 +577,134 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
   await expect(page.getByRole('tooltip').filter({ hasText: 'Target revision' })).not.toContainText(
     'Repository and path',
   )
+})
+
+test('where it doesn’t all fit, a row has one tooltip, Lumovi’s own: where it goes, then what gave way; and a row with nothing to say has none', async ({
+  page,
+}) => {
+  await kit(page)
+  const fits = (name: string) => page.locator(`[data-fits="${name}"]`)
+  const instances = fits('instances').getByRole('grid', { name: 'Instances' })
+  await instances.scrollIntoViewIfNeeded()
+  // Too narrow for its last two columns: they gave way whole.
+  await expect(instances.getByRole('columnheader')).toHaveText(['Name', 'Role', 'Status', 'Node'])
+  const row = instances.getByRole('row', { name: /orders-db-3/ })
+  const tip = page.getByRole('tooltip')
+  // Never the browser's: the row has no title, and nor has its name.
+  await expect(row).not.toHaveAttribute('title')
+  await expect(row.getByRole('gridcell').first().locator('[title]')).toHaveCount(0)
+  // Under the pointer: where it goes first, in the words a header's link has, then what gave
+  // way, a hairline between the two. Its lead isn't cut, so it isn't said again.
+  await point(row.getByRole('gridcell').first())
+  await expect(tip).toHaveText(
+    /^Opens Pod shop\/orders-db-3 at its Logs tab\s*Restarts\s*2\s*Age\s*3d3h$/,
+  )
+  await expect(tip.locator('[data-row-tip] > [aria-hidden]')).toHaveCount(1)
+  // Read after the row, in the same order.
+  await expect(row).toHaveAccessibleDescription(
+    /^Opens Pod shop\/orders-db-3 at its Logs tab\s+Restarts\s*2\s*Age\s*3d3h$/,
+  )
+  // A row whose name is cut too has all three: where it goes, its lead whole, what gave way,
+  // with a hairline before each of the last two.
+  await away(page)
+  const long = 'orders-db-analytics-replica-eu-central-1a'
+  const cut = instances.getByRole('row').filter({ hasText: long }).getByRole('gridcell').first()
+  await expect(cut.locator('[aria-hidden].absolute')).toHaveText(/^orders-db-\S*…ral-1a$/)
+  await point(cut)
+  await expect(tip).toHaveText(
+    new RegExp(
+      `^Opens Pod shop/${long} at its Logs tab\\s*${long}\\s*Restarts\\s*0\\s*Age\\s*12d$`,
+    ),
+  )
+  await expect(tip.locator('[data-row-tip] > [aria-hidden]')).toHaveCount(2)
+  // On the keyboard's row too, and it follows the keyboard.
+  await away(page)
+  await instances.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(tip).toHaveText(
+    /^Opens Pod shop\/orders-db-2 at its Logs tab\s*Restarts\s*0\s*Age\s*41d$/,
+  )
+  await page.keyboard.press('ArrowDown')
+  await expect(tip).toContainText('Opens Pod shop/orders-db-3 at its Logs tab')
+  // Pressed, it goes there: Lumovi's own to open, as the door made it.
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('list', { name: 'What was pressed' })).toContainText(
+    'Instances: go {"to":"reach","at":"logs","object":{"kind":"Pod","name":"orders-db-3","namespace":"shop"}}',
+  )
+  // A row that goes nowhere, with its lead whole and every column in view, has nothing to say:
+  // no tooltip, however long the pointer stays.
+  await page.keyboard.press('Tab')
+  await away(page)
+  const whole = fits('room').getByRole('gridcell').first()
+  await point(whole)
+  await holds(
+    async () => (await tip.count()) === 0,
+    900,
+    'a row with nothing to say has no tooltip',
+  )
+})
+
+test('the words beside a name take the room it leaves: whole where both fit, cut first where they don’t, and the name only once they’re at their least; a cut line under it is whole in the tooltip too', async ({
+  page,
+}) => {
+  await kit(page)
+  const fits = (name: string) => page.locator(`[data-fits="${name}"]`)
+  await fits('room').scrollIntoViewIfNeeded()
+  /** How a lead stands: its name whole or cut in its middle, the words beside whole or cut. */
+  const lead = (name: string) =>
+    fits(name).evaluate((box) => {
+      const whole = box.querySelector('[data-whole]')!
+      const beside = box.querySelector<HTMLElement>('[data-beside]')!
+      return {
+        name: box.querySelector('[data-whole] ~ [aria-hidden]')!.textContent,
+        nameCut:
+          whole.getBoundingClientRect().width >
+          whole.parentElement!.getBoundingClientRect().width + 0.5,
+        besideCut: beside.scrollWidth > beside.clientWidth,
+        // In characters of its own type: how much of it is left to read.
+        besideCh: beside.clientWidth / Number.parseFloat(getComputedStyle(beside).fontSize),
+        share: beside.clientWidth / beside.parentElement!.clientWidth,
+      }
+    })
+  const tip = page.getByRole('tooltip')
+  const BESIDE = 'storefront · ServiceMonitor · shop · Prometheus k8s'
+  // Room for both: the words beside are whole, though they're well over 40% of the lead (no
+  // share of it is kept back from them).
+  const room = await lead('room')
+  expect(room).toMatchObject({ name: '10.0.3.7:8080', nameCut: false, besideCut: false })
+  expect(room.share).toBeGreaterThan(0.4)
+  // Less room: they're cut at their end, and the name hasn't given a pixel.
+  const less = await lead('less')
+  expect(less).toMatchObject({ name: '10.0.3.7:8080', nameCut: false, besideCut: true })
+  // What's cut is whole in the row's tooltip: the name, then the words beside it.
+  await point(fits('less').getByRole('gridcell').first())
+  await expect(tip).toHaveText(`10.0.3.7:8080 ${BESIDE}`)
+  await away(page)
+  // Not enough for the name either: the words are at their least, about five characters, and
+  // then the name loses its middle and keeps its end.
+  const least = await lead('least')
+  expect(least).toMatchObject({ nameCut: true, besideCut: true })
+  expect(least.name).toMatch(/^storefront-metrics-\S*…c:8080$/)
+  expect(least.besideCh).toBeGreaterThan(2)
+  expect(least.besideCh).toBeLessThan(4)
+  await point(fits('least').getByRole('gridcell').first())
+  await expect(tip).toHaveText(
+    `storefront-metrics-exporter-7d9f6c5b8-x2kqp.shop.svc:8080 ${BESIDE}`,
+  )
+  // In the tooltip's own ink, the words beside quieter; and no title of the browser's on either.
+  await expect(tip.getByText(BESIDE).locator('xpath=..')).toHaveCSS('opacity', '0.68')
+  await expect(fits('least').getByRole('gridcell').first().locator('[title]')).toHaveCount(0)
+  // The line under a name is the lead's too: cut at its end, it's whole in the row's tooltip, on
+  // a line of its own under the name, as quiet as the words beside.
+  await away(page)
+  const UNDER = 'Get "http://10.0.3.7:8080/metrics": context deadline exceeded'
+  const under = fits('under').locator('[data-under]')
+  expect(await under.evaluate((line) => line.scrollWidth > line.clientWidth)).toBe(true)
+  await point(fits('under').getByRole('gridcell').first())
+  await expect(tip).toHaveText(`10.0.3.7:8080${UNDER}`)
+  const line = tip.getByText(UNDER).locator('xpath=..')
+  await expect(line).toHaveCSS('opacity', '0.68')
+  await expect(line).toHaveCSS('display', 'block')
 })
 
 test('beside a panel at 1024, a row of tiles too narrow for two stands one across, each line on one line', async ({

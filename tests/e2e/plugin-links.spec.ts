@@ -207,9 +207,16 @@ test('a link opens a pod’s logs at the container it names, and its Port forwar
 }) => {
   const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included() } })
   await opened(page)
-  // A row that links to its logs says where, in Lumovi's words; pressed, it's there.
+  // A row that links to its logs says where, in Lumovi's words: read after it, and first in its
+  // tooltip, Lumovi's own (never a title of the browser's). Pressed, it's there.
   const row = body(page).getByRole('row', { name: `${POD} shop` })
-  await expect(row).toHaveAttribute('title', `Opens Pod shop/${POD} at its Logs tab`)
+  await expect(row).toHaveAccessibleDescription(
+    new RegExp(`^Opens Pod shop/${POD} at its Logs tab`),
+  )
+  await expect(row).not.toHaveAttribute('title')
+  await row.hover({ position: { x: 6, y: 6 } })
+  await row.hover({ position: { x: 10, y: 8 } })
+  await expect(page.getByRole('tooltip')).toContainText(`Opens Pod shop/${POD} at its Logs tab`)
   await row.click()
   const detail = panel(page, 'Pod', POD)
   await expect(detail.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
