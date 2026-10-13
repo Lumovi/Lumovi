@@ -215,10 +215,21 @@ const REASONS: Record<number, string> = {
 export const STAND_IN = 'mock.lumovi.dev/stand-in'
 
 /**
+ * What a Service's server answers through the proxy: its status, body and media type, and any
+ * other headers.
+ */
+type ProxyAnswer = {
+  status: number
+  body: string
+  contentType: string
+  headers?: http.OutgoingHttpHeaders
+}
+
+/**
  * What the tests' Toys' own server answers: JSON for its status and a widget's history, a web
  * page, and more JSON than Lumovi takes. Anything else, a JSON 404.
  */
-function toysApi(path: string): { status: number; body: string; contentType: string } {
+function toysApi(path: string): ProxyAnswer {
   const json = (body: Json, status = 200) => ({
     status,
     body: JSON.stringify(body),
@@ -232,6 +243,19 @@ function toysApi(path: string): { status: number; body: string; contentType: str
   if (path === '/page') {
     return { status: 200, body: '<!doctype html><title>Toys</title>', contentType: 'text/html' }
   }
+  // A server that sends the asker elsewhere, sets a cookie, or answers what turns a line round.
+  if (path === '/moved') {
+    return {
+      status: 302,
+      body: '',
+      contentType: 'text/html',
+      headers: { Location: '/api/v1/secret-place' },
+    }
+  }
+  if (path === '/cookie') {
+    return { ...json({ healthy: true }), headers: { 'Set-Cookie': 'session=SECRET; Path=/' } }
+  }
+  if (path === '/bidi') return json({ name: 'invoice\u202Etxt.exe' })
   if (path === '/everything') {
     return json({
       items: Array.from({ length: 40_000 }, (_, i) => `widget-${i}-${'x'.repeat(24)}`),
@@ -1216,10 +1240,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
    * fixture marks as Prometheus answer PromQL; Grafana serves its web page;
    * anything else has no pods behind it.
    */
-  function serviceProxy(
-    pathname: string,
-    params: URLSearchParams,
-  ): { status: number; body: string; contentType: string } | undefined {
+  function serviceProxy(pathname: string, params: URLSearchParams): ProxyAnswer | undefined {
     const match = /^\/api\/v1\/namespaces\/([^/]+)\/services\/([^/]+)\/proxy(\/.*)?$/.exec(pathname)
     if (!match) return undefined
     const namespace = decodeURIComponent(match[1]!)
@@ -1338,12 +1359,14 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     status: number,
     body: string,
     contentType: string,
+    also: http.OutgoingHttpHeaders = {},
   ) {
     let payload: Buffer = Buffer.from(body, 'utf8')
     const headers: http.OutgoingHttpHeaders = {
       'Content-Type': contentType,
       'Cache-Control': 'no-cache, private',
       'Audit-Id': crypto.randomUUID(),
+      ...also,
     }
     if (
       /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? '')) &&
@@ -1474,7 +1497,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       const proxied =
         req.method === 'GET' ? serviceProxy(url.pathname, url.searchParams) : undefined
       if (proxied) {
-        send(req, res, proxied.status, proxied.body, proxied.contentType)
+        send(req, res, proxied.status, proxied.body, proxied.contentType, proxied.headers)
         return
       }
       if (req.method !== 'GET') {
