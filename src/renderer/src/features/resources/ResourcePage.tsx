@@ -28,6 +28,7 @@ import { namespacesParam, readOf, scopeOf } from '@renderer/lib/namespaces'
 import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
 import { fieldValue, viewFor } from '@renderer/lib/plugins'
 import { isWorkloadType } from '@renderer/lib/workloads'
+import { useManagers } from '@renderer/hooks/managers'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { countOf, SelectionBar } from '../actions/BulkActions'
@@ -39,6 +40,7 @@ import {
   metricsKey,
   sortedBy,
   sortRows,
+  withManagedBy,
   type CellContext,
 } from './columns'
 import { SearchInput } from '@renderer/components/SearchInput'
@@ -134,8 +136,11 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const withHealth = builtin
     ? hasHealth(kind)
     : items.some((object) => statusFor(kind, object) !== null)
-  const { columns, defaultSort } =
+  const { columns: ownColumns, defaultSort } =
     builtinColumns ?? customColumnsFor({ kind, showNamespace, hasHealth: withHealth, view, table })
+  // What manages each workload, where a plugin says what can and the cluster serves it.
+  const managers = useManagers(isWorkloadType(kind))
+  const columns = managers ? withManagedBy(ownColumns, () => kind) : ownColumns
   const cells = table
     ? new Map(items.map((item, i) => [item, table.cells[i]!] as const))
     : undefined
@@ -157,6 +162,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     now: list.dataUpdatedAt,
     open,
     cells,
+    managers,
     metrics: metrics.data?.available
       ? new Map(
           metrics.data.items.map((sample) => [metricsKey(sample.namespace, sample.name), sample]),

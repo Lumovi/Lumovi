@@ -8,6 +8,7 @@ import { useAccessHere } from '../access/use-access'
 import { AccountBindings, RulesSection, SubjectsSection } from './access'
 import { factsFor } from './facts'
 import { FieldTree } from './FieldTree'
+import { ManagedNotice } from './ManagedBy'
 import { ObjectLink } from './ObjectLink'
 import { LAST_APPLIED } from './YamlTab'
 import {
@@ -174,6 +175,7 @@ export function OverviewTab({ object }: { object: KubeObject }) {
   const annotations = Object.entries(object.metadata.annotations ?? {})
   return (
     <div className="divide-y divide-line pb-6">
+      <ManagedNotice object={object} />
       <Section title="Details">
         <KeyValueGrid entries={factsFor(object)} />
       </Section>

@@ -271,6 +271,12 @@ function checkView(view: View, problems: string[]) {
       problems.push(`${where}: relates ${related.kind}, which no CRD here defines`)
     }
   }
+  // (The managed object's own, `{{ object.name }}`, is no path of the manager's.)
+  for (const entry of view.manages ?? []) {
+    ;[...Object.values(entry.labels ?? {}), ...Object.values(entry.annotations ?? {})].forEach(
+      template,
+    )
+  }
   for (const action of view.actions ?? []) {
     const at = `action ${action.name}`
     conditionPaths(action.when).forEach((p) => path(p, `${at}: ${p}`))
@@ -754,6 +760,7 @@ test('a key nobody knows is refused wherever a file has keys, the names every ob
       `  views:\n    - kinds: [{ group: example.com, kind: Widget }]\n${extra('view', '      ')}` +
       `      columns:\n        - name: A\n          path: .a\n${extra('column', '          ')}` +
       `      status:\n        - health: healthy\n          label: Fine\n          when:\n            path: .a\n${extra('condition', '            ')}` +
+      `      manages:\n        - labels: { example.com/name: '{{ .metadata.name }}' }\n${extra('manages', '          ')}` +
       `      actions:\n        - name: Poke\n          confirm: Sure?\n          patch: { spec: { a: 1 } }\n${extra('action', '          ')}` +
       `          inputs:\n            - name: n\n              label: N\n${extra('input', '              ')}`
     )
@@ -769,6 +776,7 @@ test('a key nobody knows is refused wherever a file has keys, the names every ob
     'view',
     'column',
     'condition',
+    'manages',
     'action',
     'input',
   ]) {
@@ -777,6 +785,164 @@ test('a key nobody knows is refused wherever a file has keys, the names every ob
       expect(plugin, `${key} at ${at}`).toBeUndefined()
       expect(problems.join(' | '), `${key} at ${at}`).toContain(`${key}: isn’t something`)
     }
+  }
+})
+
+test('a view can say what its objects manage: labels and annotations of the managed, each a template of the manager’s', () => {
+  const NAME = "example.com/name: '{{ .metadata.name }}'"
+  const plugin = (
+    manages: string,
+    kind = '{ group: example.com, kind: Widget }',
+    extra = '',
+    groups = '[example.com]',
+  ) =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        `  groups: ${groups}`,
+        '  views:',
+        `    - kinds: [${kind}]`,
+        ...(extra ? [extra] : []),
+        `      manages: ${manages}`,
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [] },
+    )
+  const ID =
+    '{{ .metadata.name }}:{{ object.group }}/{{ object.kind }}:{{ object.namespace }}/{{ object.name }}'
+  const fine = plugin(
+    `[{ labels: { ${NAME}, example.com/namespace: '{{ .metadata.namespace ?? "default" }}' } }, { annotations: { example.com/id: '${ID}' } }]`,
+  )
+  expect(fine.problems).toEqual([])
+  expect(fine.plugin!.views[0]!.manages).toEqual([
+    {
+      labels: {
+        'example.com/name': '{{ .metadata.name }}',
+        'example.com/namespace': '{{ .metadata.namespace ?? "default" }}',
+      },
+    },
+    { annotations: { 'example.com/id': ID } },
+  ])
+  // What the Plugins page says it reads.
+  expect(asks(fine.plugin!).manages).toEqual(['Widget.example.com'])
+
+  const said = (...args: Parameters<typeof plugin>) => plugin(...args).problems.join('\n')
+  const at = 'probe.yaml: spec.views[0].manages'
+  for (const [manages, problem] of [
+    ['[]', `${at}: should not be empty`],
+    ['[{}]', `${at}[0]: needs the labels or annotations that say so`],
+    ['[{ labels: {} }]', `${at}[0]: needs the labels or annotations that say so`],
+    [`[{ labels: { ${NAME} }, selector: x }]`, `${at}[0].selector: isn’t something`],
+    ['[{ labels: { example.com/name: 3 } }]', `${at}[0].labels.example.com/name: should be text`],
+    [
+      "[{ annotations: { example.com/id: '{{ .metadata.name }}/{{ object.uid }}' } }]",
+      '{{ object.uid }} should be object.group, object.kind, object.namespace or object.name',
+    ],
+    [
+      `[{ labels: { ${NAME}, example.com/at: '{{ now }}' } }]`,
+      '{{ now }} isn’t something a manager is known by',
+    ],
+    [
+      `[{ labels: { ${NAME}, example.com/as: '{{ input.who }}' } }]`,
+      '{{ input.who }} isn’t something a manager is known by',
+    ],
+    // Every manager would come to the same: it would say each one manages it.
+    [
+      "[{ labels: { example.com/name: '{{ object.name }}' } }]",
+      `${at}[0]: should name its manager: a template of one of the manager’s fields`,
+    ],
+    ["[{ labels: { example.com/managed: 'yes' } }]", `${at}[0]: should name its manager`],
+    [
+      "[{ labels: { 'not a key': '{{ .metadata.name }}' } }]",
+      `${at}[0]: "not a key" should be a label’s or an annotation’s key`,
+    ],
+    [
+      `[${Array(5).fill(`{ labels: { ${NAME} } }`).join(', ')}]`,
+      `${at}: holds 5, and 4 is the most`,
+    ],
+    [
+      `[{ labels: { ${Array.from({ length: 9 }, (_, i) => `example.com/k${i}: '{{ .metadata.name }}'`).join(', ')} } }]`,
+      `${at}[0]: says so with 9 labels and annotations, and 8 is the most`,
+    ],
+  ]) {
+    expect(said(manages!), manages).toContain(problem)
+  }
+  // A manager is a tool's object, of a kind named.
+  expect(said(`[{ labels: { ${NAME} } }]`, '{ kind: ConfigMap }')).toContain(
+    `${at}: a view of Kubernetes’ own kind only shows it, so it can’t say what its objects manage`,
+  )
+  expect(said(`[{ labels: { ${NAME} } }]`, "{ group: example.com, kind: '*' }")).toContain(
+    `${at}: its managers’ kinds should be named, not every kind of a group`,
+  )
+  // The object managed is named in manages, and nowhere else.
+  expect(
+    said(
+      `[{ labels: { ${NAME} } }]`,
+      undefined,
+      "      status: [{ health: healthy, label: '{{ object.name }}' }]",
+    ),
+  ).toContain('{{ object.name }} is an object a manager manages, which only manages names')
+  // Nor can a file write the mark Lumovi finds it by (U+E000, made from its number here).
+  expect(
+    said(
+      `[{ labels: { example.com/name: '{{ .metadata.name }}${String.fromCharCode(0xe000)}' } }]`,
+    ),
+  ).toContain(
+    `${at}[0].labels.example.com/name: holds U+E000, which Lumovi keeps for itself in manages`,
+  )
+
+  // What manages an object is said by its tool's own keys: under the plugin's groups (or a name
+  // under one), never Kubernetes' own, and never a key without a prefix.
+  const under = (key: string) =>
+    said(`[{ labels: { ${JSON.stringify(key)}: '{{ .metadata.name }}' } }]`)
+  for (const key of ['example.com/name', 'sub.example.com/name', 'a.b.example.com/x']) {
+    expect(under(key), key).toBe('')
+  }
+  for (const key of [
+    'name',
+    'kubernetes.io/name',
+    'app.kubernetes.io/name',
+    'x.k8s.io/name',
+    'example.com.attacker.io/name',
+    'evil.example.com.example.org/name',
+    'notexample.com/name',
+  ]) {
+    expect(under(key), key).toBe(
+      `${at}: the key "${key}" isn’t under the group of this view’s kinds ("example.com")`,
+    )
+  }
+  // The group of the managers' own kind, not any the plugin names: one with no kinds in it, or
+  // no dot (which no custom resource's group has), lets no key in.
+  const NAMED = (key: string) => `[{ labels: { ${key}: '{{ .metadata.name }}' } }]`
+  const WIDGET = '{ group: mytool.example.com, kind: Widget }'
+  for (const [groups, key] of [
+    ['[mytool.example.com, acme.com]', 'acme.com/owner'],
+    ['[mytool.example.com, other.example.com]', 'other.example.com/x'],
+  ]) {
+    expect(said(NAMED(key!), WIDGET, '', groups), key).toBe(
+      `${at}: the key "${key}" isn’t under the group of this view’s kinds ("mytool.example.com")`,
+    )
+  }
+  for (const [groups, key] of [
+    ['[com, mytool.example.com]', 'acme.com/owner'],
+    ['[io, mytool.example.com]', 'helm.io/x'],
+  ]) {
+    expect(said(NAMED(key!), WIDGET, '', groups), key).toContain(
+      `probe.yaml: spec.groups[0]: ${groups!.slice(1, groups!.indexOf(','))} has no dot, and no custom resource’s group can be one`,
+    )
+    expect(said(NAMED(key!), WIDGET, '', groups), key).toContain(
+      `${at}: the key "${key}" isn’t under the group of this view’s kinds ("mytool.example.com")`,
+    )
+  }
+  expect(said(NAMED('mytool.example.com/owner'), WIDGET, '', '[mytool.example.com]')).toBe('')
+  // Nor is a key that's no key at all.
+  for (const key of ['EXAMPLE.com/name', 'example.com./name', '/name', 'example.com/']) {
+    expect(under(key), key).toContain('should be a label’s or an annotation’s key')
   }
 })
 

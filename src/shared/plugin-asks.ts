@@ -55,6 +55,8 @@ export interface Asks {
    * by which path as the file writes it, and which keys. Its code never reads them.
    */
   secrets: { kind: ResourceKind; path: string; keys: string[] }[]
+  /** The kinds whose objects it says manage workloads: lists Lumovi reads, in the whole cluster. */
+  manages: ResourceKind[]
   actions: AskedAction[]
 }
 
@@ -176,6 +178,7 @@ export function asks(plugin: Plugin): Asks {
         keys: [...keys],
       }
     }),
+    manages: unique(plugin.views.flatMap((view) => (view.manages ? view.kinds : []))),
     actions,
   }
 }

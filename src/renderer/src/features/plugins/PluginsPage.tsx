@@ -565,7 +565,7 @@ function WhatItAsks({ plugin, names }: { plugin: Plugin; names: Names }) {
         </section>
         <section aria-label="May read">
           <h3 className={heading}>May read</h3>
-          <MayRead asked={asked} names={names} />
+          <MayRead asked={asked} names={names} tool={plugin.place?.label ?? plugin.name} />
         </section>
         {/* (Its pages, tabs and commands are drawn by the door, and taken only in the tests'
             build until it's in: a release says nothing of them yet.) */}
@@ -716,7 +716,7 @@ function Adds({ name, added, names }: { name: string; added: Plugin['added']; na
   )
 }
 
-function MayRead({ asked, names }: { asked: Asks; names: Names }) {
+function MayRead({ asked, names, tool }: { asked: Asks; names: Names; tool: string }) {
   const kinds = ({ kinds, templated }: Asks['related']) =>
     kinds.length > 0 ? listed(kinds.map(names.plural)) : templated ? 'kinds its objects name' : ''
   return (
@@ -763,6 +763,13 @@ function MayRead({ asked, names }: { asked: Asks; names: Names }) {
           </p>
         )
       })}
+      {asked.manages.length > 0 && (
+        <p>
+          Every {listed(asked.manages.map(names.bare))} in the cluster you may list (or, where you
+          can’t, in the namespaces you’re looking at), to say which of them manages each workload,
+          by labels and annotations the workload carries under {tool}’s own groups.
+        </p>
+      )}
       <p>It reads no logs and no Secret’s value, and sends nothing anywhere but to this cluster.</p>
     </div>
   )

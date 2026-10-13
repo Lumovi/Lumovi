@@ -124,6 +124,17 @@ export interface ViewRelated {
   namespace?: string
 }
 
+/**
+ * How an object of the view's kind says it manages another (a workload it applied, say): labels
+ * and annotations the managed one carries, each a template of the manager's. One may name the
+ * managed object itself, as `{{ object.group }}`, `{{ object.kind }}`, `{{ object.namespace }}`
+ * and `{{ object.name }}`. An object is managed by a manager whose values its own equal, exactly.
+ */
+export interface ViewManages {
+  labels?: Record<string, string>
+  annotations?: Record<string, string>
+}
+
 /** What an action's inputs were given: numbers for number inputs, and text ('' when left empty). */
 export type InputValues = Record<string, string | number>
 
@@ -179,6 +190,7 @@ export interface View {
   details?: ViewField[]
   links?: ViewLink[]
   related?: ViewRelated[]
+  manages?: ViewManages[]
   actions?: ViewAction[]
 }
 
@@ -279,10 +291,13 @@ type Shape =
   | 'scalar'
   | 'path'
   | 'template'
+  /** A template of a manager's, which may name the object it manages (`{{ object.name }}`). */
+  | 'managing'
   | 'regex'
   | 'patch'
   | { oneOf: readonly string[] }
-  | { list: Shape; nonEmpty?: boolean }
+  /** `most`: how many it can hold. */
+  | { list: Shape; nonEmpty?: boolean; most?: number }
   /** Any keys, each value a `Shape`. */
   | { map: Shape }
   | {
@@ -509,6 +524,38 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
   return asks && a.runs !== undefined ? 'asks first, so it can’t say runs: at-once' : undefined
 }
 
+/** A label's or an annotation's key, as Kubernetes has them: a name, after a DNS prefix and a / where it has one. */
+const QUALIFIED_KEY =
+  /^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
+/** How many ways a view's managers can say so, and how many labels and annotations each is. */
+const MANAGES_MOST = 4
+const MANAGES_KEYS = 8
+
+/** What's wrong with one of a view's `manages`, once its labels and annotations are templates. */
+function managesProblem(entry: Record<string, unknown>): string | undefined {
+  const maps = [entry.labels, entry.annotations].filter(Boolean) as Record<string, string>[]
+  const keys = maps.flatMap((map) => Object.keys(map))
+  if (keys.length === 0) return 'needs the labels or annotations that say so'
+  if (keys.length > MANAGES_KEYS) {
+    return `says so with ${keys.length} labels and annotations, and ${MANAGES_KEYS} is the most`
+  }
+  const wrong = keys.find((key) => !QUALIFIED_KEY.test(key))
+  if (wrong) {
+    return `${quoted(wrong)} should be a label’s or an annotation’s key, like kustomize.toolkit.fluxcd.io/name`
+  }
+  // (What every manager would come to alike says nothing of which one it is.)
+  const ownField = maps
+    .flatMap((map) => Object.values(map))
+    .some((template) =>
+      [...template.matchAll(PLACEHOLDER)].some(([, expression]) =>
+        EXPRESSION.exec(expression!)?.[1]?.startsWith('.'),
+      ),
+    )
+  return ownField
+    ? undefined
+    : 'should name its manager: a template of one of the manager’s fields, like {{ .metadata.name }}'
+}
+
 const VIEW_SHAPE: Shape = {
   fields: {
     kinds: { shape: kindsShape, required: true },
@@ -548,6 +595,14 @@ const VIEW_SHAPE: Shape = {
         refine: (r) =>
           r.labels || r.fieldSelector ? undefined : 'needs labels or a fieldSelector to find them',
       },
+    },
+    manages: {
+      list: {
+        fields: { labels: { map: 'managing' }, annotations: { map: 'managing' } },
+        refine: managesProblem,
+      },
+      nonEmpty: true,
+      most: MANAGES_MOST,
     },
     actions: {
       list: {
@@ -1342,13 +1397,37 @@ const INPUT_PLACEHOLDER = /\{\{\s*input\.(\w+)/g
 export const ONLY_PLACEHOLDER = /^\{\{\s*([^{}]*?)\s*\}\}$/
 /** An input's value as a path in a template. */
 export const INPUT_PATH = /^input\.\w+$/
+/** The object a manager manages, in a view's `manages` (and nowhere else): `{{ object.name }}`. */
+export const OBJECT_PATH = /^object\.(group|kind|namespace|name)$/
+/**
+ * What marks where the managed object's own name and the rest go, in a manager's values as Lumovi
+ * finds managers by them: never in a plugin's `manages`, nor a manager's text it reads.
+ */
+export const MANAGING_MARK = '\uE000'
 
-function templateProblem(template: string): string | undefined {
+/** What's wrong with a template; `managing`, for one of a view's `manages`. */
+function templateProblem(template: string, managing = false): string | undefined {
+  if (managing && template.includes(MANAGING_MARK)) {
+    return `holds ${codePoint(MANAGING_MARK)}, which Lumovi keeps for itself in manages`
+  }
   for (const [, expression] of template.matchAll(PLACEHOLDER)) {
     const [, path, , fallback] = EXPRESSION.exec(expression!) ?? []
     if (!path) return `{{ ${expression} }} should be a path, maybe with ?? "a fallback"`
+    for (const p of [path, fallback]) {
+      if (!p) continue
+      if (p.startsWith('object.')) {
+        if (!managing) return `{{ ${p} }} is an object a manager manages, which only manages names`
+        if (!OBJECT_PATH.test(p)) {
+          return `{{ ${p} }} should be object.group, object.kind, object.namespace or object.name`
+        }
+      } else if (managing && (p === 'now' || INPUT_PATH.test(p))) {
+        return `{{ ${p} }} isn’t something a manager is known by: name its fields, or the object’s`
+      }
+    }
     try {
-      for (const p of [path, fallback]) if (p && p !== 'now' && !INPUT_PATH.test(p)) checkPath(p)
+      for (const p of [path, fallback]) {
+        if (p && p !== 'now' && !INPUT_PATH.test(p) && !OBJECT_PATH.test(p)) checkPath(p)
+      }
     } catch (error) {
       return (error as Error).message
     }
@@ -1390,7 +1469,10 @@ function check(value: unknown, shape: Shape, where: string, noun: string): strin
         } catch (error) {
           return fail((error as Error).message)
         }
-        const problem = shape === 'template' ? templateProblem(value) : undefined
+        const problem =
+          shape === 'template' || shape === 'managing'
+            ? templateProblem(value, shape === 'managing')
+            : undefined
         return problem ? fail(problem) : []
       }
     }
@@ -1403,6 +1485,9 @@ function check(value: unknown, shape: Shape, where: string, noun: string): strin
   if ('list' in shape) {
     if (!Array.isArray(value)) return fail(`should be a list, not ${describe(value)}`)
     if (shape.nonEmpty && value.length === 0) return fail('should not be empty')
+    if (shape.most !== undefined && value.length > shape.most) {
+      return fail(`holds ${value.length}, and ${shape.most} is the most`)
+    }
     return value.flatMap((item, i) => check(item, shape.list, `${where}[${i}]`, noun))
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -1481,17 +1566,23 @@ function fenceProblems(
   groups: string[],
   shows: NamedKind[],
   placed: NamedKind[] | undefined,
-  views: { kinds: NamedKind[]; actions?: { create?: Record<string, unknown> }[] }[],
+  views: {
+    kinds: NamedKind[]
+    actions?: { create?: Record<string, unknown> }[]
+    manages?: ViewManages[]
+  }[],
   lumovisOwn: readonly ResourceKind[],
 ): string[] {
   const problems = groups.flatMap((group, g) =>
     group === 'lumovi.dev' || group.endsWith('.lumovi.dev')
       ? [`spec.groups[${g}]: lumovi.dev is Lumovi’s own, so a plugin can’t have it`]
-      : isCustomGroup(group) && !kubernetesOwnName(group)
-        ? []
-        : [
-            `spec.groups[${g}]: ${group || 'the core group'} is Kubernetes’ own, so a plugin can’t have it`,
-          ],
+      : group !== '' && !group.includes('.')
+        ? [`spec.groups[${g}]: ${group} has no dot, and no custom resource’s group can be one`]
+        : isCustomGroup(group) && !kubernetesOwnName(group)
+          ? []
+          : [
+              `spec.groups[${g}]: ${group || 'the core group'} is Kubernetes’ own, so a plugin can’t have it`,
+            ],
   )
   /** Why a kind of Kubernetes' own can't be shown by a plugin at all, if it can't. */
   const never = (id: ResourceKind) =>
@@ -1554,6 +1645,35 @@ function fenceProblems(
       problems.push(
         `spec.views[${i}].actions: a view of Kubernetes’ own kind only shows it, so it can’t have actions`,
       )
+    }
+    // A manager is a tool's object, of a kind named: Lumovi lists that kind to find them.
+    if (view.manages && view.kinds.some((kind) => !resolved(kind).tools)) {
+      problems.push(
+        `spec.views[${i}].manages: a view of Kubernetes’ own kind only shows it, so it can’t say what its objects manage`,
+      )
+    } else if (view.manages && view.kinds.some((kind) => kind.kind === '*')) {
+      problems.push(
+        `spec.views[${i}].manages: its managers’ kinds should be named, not every kind of a group`,
+      )
+    }
+    // What Lumovi says manages an object is said by its tool's own labels and annotations: a
+    // key under the group of the managers' own kind (or a name under it), never Kubernetes'.
+    const own = [...new Set(view.kinds.map((kind) => resolved(kind).group))]
+    const keys = (view.manages ?? []).flatMap((entry) => [
+      ...Object.keys(entry.labels ?? {}),
+      ...Object.keys(entry.annotations ?? {}),
+    ])
+    for (const key of new Set(keys)) {
+      const prefix = key.includes('/') ? key.slice(0, key.indexOf('/')) : ''
+      const kubernetes = /(^|\.)(kubernetes\.io|k8s\.io)$/.test(prefix)
+      const under = own.some(
+        (group) => group !== '' && (prefix === group || prefix.endsWith(`.${group}`)),
+      )
+      if (!prefix || kubernetes || !under) {
+        problems.push(
+          `spec.views[${i}].manages: the key ${quoted(key)} isn’t under the group of this view’s kinds (${own.map((group) => quoted(group)).join(', ')})`,
+        )
+      }
     }
   })
   const claimed = new Set(
