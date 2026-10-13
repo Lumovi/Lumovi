@@ -14,9 +14,9 @@ import {
   type LogsShown as LogsShownSaid,
   type SecretShown as SecretShownSaid,
 } from '@shared/kit/shown'
-import type { PluginVia } from '@shared/api'
+import type { PluginVia, SecretValuesQuery } from '@shared/api'
 import { DOOR_LIMITS } from '@shared/plugin-door'
-import { READ_REFUSED } from '@shared/plugin-reads'
+import { READ_REFUSED, SECRETS_OFF } from '@shared/plugin-reads'
 import { whose } from '@shared/plugins'
 import type { ObjectRef } from '@shared/kit/table'
 import { apiKindOf } from '@shared/resources'
@@ -146,12 +146,19 @@ function SecretCard({
   by,
   from,
   off = false,
+  via,
 }: {
   shown: SecretShownSaid
   by: By
+  /**
+   * On a plugin's page: the plugin, and the digests its code was handed with. A press's read
+   * names them and what named the Secret, and the backend holds the read to them; without them
+   * (Lumovi's own page of the kit), it's a read of the person's and no plugin's.
+   */
+  via?: { plugin: string; digest: string; codeDigest: string }
   /** The kind whose object named the Secret, as it's said where it names none ("Certificate"). */
   from?: string
-  /** This server doesn't show Secrets' values on a plugin's page. */
+  /** The organization's policy lets no plugin's page show what's in a Secret: nothing is asked. */
   off?: boolean
 }) {
   const { context } = useCluster()
@@ -203,6 +210,16 @@ function SecretCard({
         namespace: secret.namespace,
         name: secret.name,
         keys: pressed,
+        ...(via
+          ? {
+              forPlugin: via.plugin,
+              digest: via.digest,
+              codeDigest: via.codeDigest,
+              ...(secret.namedBy
+                ? { namedBy: secret.namedBy as NonNullable<SecretValuesQuery['namedBy']> }
+                : {}),
+            }
+          : {}),
       })
       // (The card has gone, or been pointed at another Secret, since: nothing of it is used.)
       if (!here.current) return
@@ -282,7 +299,7 @@ function SecretCard({
       <ShownCard title={shown.title} by={by}>
         {named}
         {off ? (
-          <Said>This server doesn’t show Secrets’ values on a plugin’s page.</Said>
+          <Said refused>{SECRETS_OFF}</Said>
         ) : card === 'not-allowed' ? (
           <Said refused again={() => setCard(undefined)}>
             Your account isn’t allowed to read this Secret. <bdi>{by.name}</bdi>’s page asks Lumovi

@@ -31,6 +31,7 @@ import {
   READ_REFUSED,
   readQuery,
   resolvedAs,
+  SECRETS_OFF,
   secretsNamed,
   selectors,
   type HandedObject,
@@ -334,9 +335,6 @@ function namedByOf(value: unknown): SecretNamedBy | undefined {
  * names this Secret by that item's path. A read that fails that is refused, and in the history
  * with the plugin.
  */
-/** What a person is told where the organization's policy lets no plugin show what's in a Secret. */
-export const SECRETS_OFF = 'Your organization’s policy doesn’t let plugins show what’s in Secrets.'
-
 export async function secretsAskedFor(
   query: unknown,
   known: () => Promise<readonly Readonly<KnownPlugin>[]>,

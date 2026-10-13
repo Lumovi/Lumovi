@@ -43,7 +43,18 @@ export interface KitPart {
     go?: (to: ObjectRef | ListDestination | ReachDestination) => void
     /** Whose page it is, as Lumovi knows it: for what Lumovi shows on it in its own words. */
     by?: PageBy
+    /**
+     * What the page's code was handed with (`PluginCode`): what a read Lumovi makes for something
+     * on the page names, as the code's own reads do. None on the tests' stage.
+     */
+    code?: HandedWith
   }>
+}
+
+/** A plugin's file's digest and its code's, as a page's code was handed over with them. */
+export interface HandedWith {
+  digest: string
+  codeDigest: string
 }
 
 export interface OpenPage {
@@ -55,6 +66,8 @@ export interface OpenPage {
   readonly parts: Readonly<Record<string, KitPart>>
   /** Whose page it is, as Lumovi lists the plugin: none on the tests' stage. */
   readonly by: PageBy | undefined
+  /** What its code was handed with: none on the tests' stage. */
+  readonly code: HandedWith | undefined
   /** Hears when the page ends. */
   subscribe(ended: () => void): () => void
   /**
@@ -245,6 +258,7 @@ export function openPage(options: {
     tree: new DoorPage(declared),
     parts: options.parts,
     by: options.by,
+    code: options.handed,
     end: undefined as PageEnd | undefined,
     subscribe(ended: () => void) {
       listeners.add(ended)
@@ -405,7 +419,26 @@ export function openPage(options: {
         // (For whoever writes the plugin: the line quotes nothing as it was written.)
         console.warn(`Lumovi stopped the plugin ${options.plugin}: ${taken.what}`)
         ended({ why: taken.why })
-      } else if (taken) toDraw(taken.changed)
+      } else if (taken) {
+        // A Secret's part may narrow the keys its file lets its pages show, never name another:
+        // one that does is an ask its file doesn't grant, and stops the page as any such ask does.
+        // (Asked of each part the commit made or changed: what it was taken as is the tree's.)
+        const steps = (JSON.parse(text) as { commit?: unknown }).commit
+        const ungranted = (Array.isArray(steps) ? steps : []).some((step: unknown) => {
+          if (!Array.isArray(step) || (step[0] !== 'make' && step[0] !== 'change')) return false
+          const node = typeof step[1] === 'number' ? page.tree.node(step[1]) : undefined
+          if (node?.part !== 'Secret') return false
+          const { secret, keys } = node.props as { secret?: string; keys?: readonly string[] }
+          const allowed = secret === undefined ? undefined : reading.tokens.secretOf(secret)?.keys
+          return allowed !== undefined && (keys ?? []).some((key) => !allowed.includes(key))
+        })
+        if (ungranted) {
+          console.warn(
+            `Lumovi stopped the plugin ${options.plugin}: Secret.keys: names a key its file doesn’t say its pages show`,
+          )
+          ended({ why: 'not-allowed' })
+        } else toDraw(taken.changed)
+      }
     },
     ended: (end) => ended(boxEnd(end)),
   })

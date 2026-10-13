@@ -32,7 +32,12 @@ export const SHOWN_LIMITS = {
 export interface SecretRef {
   namespace: string
   name: string
-  keys: string[]
+  keys: readonly string[]
+  /**
+   * What named it, as the door handed it (the object, and the path its plugin's file declares):
+   * a press on a plugin's page sends it, and the backend holds the read to it.
+   */
+  namedBy?: { kind: string; name: string; path: string }
 }
 
 /** Some of a Secret's values. Nothing of it is read until the person presses. */

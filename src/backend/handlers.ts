@@ -161,8 +161,15 @@ export function handlers({
     const { name, namespace } = result.ok ? result.data : q
     // Where the person's access shows only a Secret's keys, no value was handed: it's said so.
     const namesOnly = result.ok && result.data.withheld
+    // (With the code its page runs, as its hand-over has it: a Secret shown is part of what that
+    // code was granted.)
     const who = plugin
-      ? { plugin: plugin.name, pluginVersion: plugin.version, pluginDigest: plugin.digest }
+      ? {
+          plugin: plugin.name,
+          pluginVersion: plugin.version,
+          pluginDigest: plugin.digest,
+          ...(plugin.codeDigest ? { codeDigest: plugin.codeDigest } : {}),
+        }
       : undefined
     audit.read(
       `secret-keys:${q.context}/${namespace}/${name}:${result.ok}:${namesOnly}:${JSON.stringify([...handed].sort())}:${JSON.stringify(who ?? null)}`,

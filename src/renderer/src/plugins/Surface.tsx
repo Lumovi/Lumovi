@@ -33,6 +33,7 @@ const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) 
       props={page.handed(node.part, node.props)}
       go={page.go}
       {...(page.by ? { by: page.by } : {})}
+      {...(page.code ? { code: page.code } : {})}
     >
       {inside}
     </Part>

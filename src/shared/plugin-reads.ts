@@ -997,6 +997,9 @@ export function logsQuery(value: unknown): PluginLogsQuery | undefined {
 }
 
 /** What a read for a plugin comes to. */
+/** What a person is told where the organization's policy lets no plugin show what's in a Secret. */
+export const SECRETS_OFF = 'Your organization’s policy doesn’t let plugins show what’s in Secrets.'
+
 export type PluginRead =
   { ok: true; answer: PluginReadAnswer } | { ok: false; refused: ReadRefusal }
 
