@@ -1,0 +1,749 @@
+{
+  "parts": {
+    "Table": {
+      "holds": "nothing",
+      "props": [
+        "columns",
+        "cut",
+        "headings",
+        "leadHeading",
+        "nameSorts",
+        "onOpen",
+        "onRetry",
+        "rows",
+        "shows",
+        "state",
+        "title"
+      ],
+      "required": ["columns", "headings", "rows", "title"],
+      "events": ["open", "retry"]
+    },
+    "Graph": {
+      "holds": "nothing",
+      "props": ["columns", "edges", "legend", "nodes", "onOpen", "onRetry", "state", "title"],
+      "required": ["columns", "edges", "nodes", "title"],
+      "events": ["open", "retry"]
+    },
+    "Tiles": {
+      "holds": "nothing",
+      "props": ["onOpen", "tiles"],
+      "required": ["tiles"],
+      "events": ["open"]
+    },
+    "Header": {
+      "holds": "nothing",
+      "props": ["buttons", "name", "onPress", "status"],
+      "required": ["name"],
+      "events": ["press"]
+    },
+    "Split": {
+      "holds": ["Stack"],
+      "props": ["list", "onPick"],
+      "required": ["list"],
+      "events": ["pick"],
+      "holdsMost": 1,
+      "most": 1
+    },
+    "Card": {
+      "holds": ["Table", "Graph", "Counts"],
+      "props": ["about", "note", "title"],
+      "required": ["title"],
+      "events": [],
+      "holdsMost": 1
+    },
+    "Pair": {
+      "holds": ["Card"],
+      "props": ["first"],
+      "required": [],
+      "events": [],
+      "holdsMost": 2,
+      "holdsLeast": 2
+    },
+    "Counts": { "holds": "nothing", "props": ["groups"], "required": ["groups"], "events": [] },
+    "Stack": {
+      "holds": ["Tiles", "Header", "Card", "Pair", "Table", "Graph", "Counts", "Logs", "Secret"],
+      "props": [],
+      "required": [],
+      "events": []
+    },
+    "Logs": {
+      "holds": "nothing",
+      "props": ["container", "pod", "title"],
+      "required": ["title"],
+      "events": []
+    },
+    "Secret": {
+      "holds": "nothing",
+      "props": ["keys", "secret", "title"],
+      "required": ["title"],
+      "events": [],
+      "most": 20
+    }
+  },
+  "kinds": {
+    "Table": {
+      "props": {
+        "title": { "kind": "text", "max": 253 },
+        "columns": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "name": { "kind": "text", "max": 253 },
+              "kind": { "kind": "one-of", "values": ["text", "number", "age", "status", "meter"] },
+              "width": { "kind": "one-of", "values": ["narrow", "normal", "wide", "text"] },
+              "sorts": { "kind": "yes-or-no" }
+            },
+            "required": ["name", "kind"]
+          },
+          "max": 8
+        },
+        "headings": { "kind": "yes-or-no" },
+        "leadHeading": { "kind": "text", "max": 40 },
+        "nameSorts": { "kind": "yes-or-no" },
+        "rows": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "key": { "kind": "text", "max": 253 },
+              "lead": {
+                "kind": "record",
+                "fields": {
+                  "level": {
+                    "kind": "one-of",
+                    "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                  },
+                  "name": { "kind": "text", "max": 253 },
+                  "beside": { "kind": "text", "max": 253 },
+                  "under": { "kind": "text", "max": 500 }
+                },
+                "required": ["name"]
+              },
+              "cells": {
+                "kind": "list",
+                "of": {
+                  "kind": "choice",
+                  "by": "kind",
+                  "of": {
+                    "text": {
+                      "text": { "kind": "text", "max": 253 },
+                      "mono": { "kind": "yes-or-no" },
+                      "full": { "kind": "text", "max": 253 }
+                    },
+                    "number": {
+                      "value": {
+                        "kind": "number",
+                        "min": -9007199254740991,
+                        "max": 9007199254740991
+                      },
+                      "text": { "kind": "text", "max": 253 }
+                    },
+                    "age": { "time": { "kind": "time" } },
+                    "status": {
+                      "level": {
+                        "kind": "one-of",
+                        "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                      },
+                      "word": { "kind": "text", "max": 253 }
+                    },
+                    "meter": {
+                      "label": { "kind": "text", "max": 253 },
+                      "used": { "kind": "number", "min": 0, "max": 9007199254740991 },
+                      "of": { "kind": "number", "min": 0, "max": 9007199254740991 },
+                      "text": { "kind": "text", "max": 253 }
+                    },
+                    "none": {}
+                  },
+                  "optional": { "text": ["mono", "full"], "number": ["text"], "meter": ["of"] }
+                },
+                "max": 8
+              },
+              "rest": {
+                "kind": "record",
+                "fields": {
+                  "from": { "kind": "number", "min": 0, "max": 7, "whole": true },
+                  "text": { "kind": "text", "max": 500 },
+                  "time": { "kind": "time" }
+                },
+                "required": ["from", "text"]
+              },
+              "note": { "kind": "text", "max": 500 },
+              "opens": { "kind": "object" },
+              "goes": { "kind": "destination" },
+              "group": { "kind": "text", "max": 253 },
+              "rows": {
+                "kind": "list",
+                "of": {
+                  "kind": "record",
+                  "fields": {
+                    "key": { "kind": "text", "max": 253 },
+                    "lead": {
+                      "kind": "record",
+                      "fields": {
+                        "level": {
+                          "kind": "one-of",
+                          "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                        },
+                        "name": { "kind": "text", "max": 253 },
+                        "beside": { "kind": "text", "max": 253 },
+                        "under": { "kind": "text", "max": 500 }
+                      },
+                      "required": ["name"]
+                    },
+                    "cells": {
+                      "kind": "list",
+                      "of": {
+                        "kind": "choice",
+                        "by": "kind",
+                        "of": {
+                          "text": {
+                            "text": { "kind": "text", "max": 253 },
+                            "mono": { "kind": "yes-or-no" },
+                            "full": { "kind": "text", "max": 253 }
+                          },
+                          "number": {
+                            "value": {
+                              "kind": "number",
+                              "min": -9007199254740991,
+                              "max": 9007199254740991
+                            },
+                            "text": { "kind": "text", "max": 253 }
+                          },
+                          "age": { "time": { "kind": "time" } },
+                          "status": {
+                            "level": {
+                              "kind": "one-of",
+                              "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                            },
+                            "word": { "kind": "text", "max": 253 }
+                          },
+                          "meter": {
+                            "label": { "kind": "text", "max": 253 },
+                            "used": { "kind": "number", "min": 0, "max": 9007199254740991 },
+                            "of": { "kind": "number", "min": 0, "max": 9007199254740991 },
+                            "text": { "kind": "text", "max": 253 }
+                          },
+                          "none": {}
+                        },
+                        "optional": {
+                          "text": ["mono", "full"],
+                          "number": ["text"],
+                          "meter": ["of"]
+                        }
+                      },
+                      "max": 8
+                    },
+                    "rest": {
+                      "kind": "record",
+                      "fields": {
+                        "from": { "kind": "number", "min": 0, "max": 7, "whole": true },
+                        "text": { "kind": "text", "max": 500 },
+                        "time": { "kind": "time" }
+                      },
+                      "required": ["from", "text"]
+                    },
+                    "note": { "kind": "text", "max": 500 },
+                    "opens": { "kind": "object" },
+                    "goes": { "kind": "destination" }
+                  },
+                  "required": ["key", "lead", "cells"]
+                },
+                "max": 200
+              }
+            },
+            "required": ["key", "lead", "cells"]
+          },
+          "max": 5000
+        },
+        "shows": { "kind": "number", "min": 1, "max": 5000, "whole": true },
+        "cut": { "kind": "cut" },
+        "state": {
+          "kind": "choice",
+          "by": "is",
+          "of": {
+            "busy": {},
+            "failed": {
+              "title": { "kind": "text", "max": 253 },
+              "said": { "kind": "text", "max": 500 }
+            },
+            "empty": {
+              "title": { "kind": "text", "max": 253 },
+              "line": { "kind": "text", "max": 500 }
+            },
+            "quiet": { "line": { "kind": "text", "max": 500 }, "good": { "kind": "yes-or-no" } }
+          },
+          "optional": { "empty": ["line"], "quiet": ["good"] }
+        },
+        "onOpen": { "kind": "handler", "event": "open" },
+        "onRetry": { "kind": "handler", "event": "retry" }
+      },
+      "events": { "open": { "row": { "kind": "text", "max": 253 } }, "retry": {} }
+    },
+    "Graph": {
+      "props": {
+        "title": { "kind": "text", "max": 253 },
+        "legend": {
+          "kind": "record",
+          "fields": {
+            "solid": { "kind": "text", "max": 253 },
+            "dashed": { "kind": "text", "max": 253 }
+          },
+          "required": []
+        },
+        "columns": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "name": { "kind": "text", "max": 253 },
+              "kind": { "kind": "one-of", "values": ["text", "number", "age", "status", "meter"] },
+              "width": { "kind": "one-of", "values": ["narrow", "normal", "wide", "text"] },
+              "sorts": { "kind": "yes-or-no" }
+            },
+            "required": ["name", "kind"]
+          },
+          "max": 8
+        },
+        "nodes": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "key": { "kind": "text", "max": 253 },
+              "name": { "kind": "text", "max": 253 },
+              "kind": { "kind": "text", "max": 253 },
+              "beside": { "kind": "text", "max": 253 },
+              "icon": {
+                "kind": "one-of",
+                "values": [
+                  "activity",
+                  "archive",
+                  "bell",
+                  "box",
+                  "boxes",
+                  "bug",
+                  "camera",
+                  "cloud",
+                  "database",
+                  "file-check",
+                  "flame",
+                  "gauge",
+                  "git-branch",
+                  "git-merge",
+                  "globe",
+                  "hexagon",
+                  "key-round",
+                  "layers",
+                  "lock",
+                  "network",
+                  "package",
+                  "play",
+                  "puzzle",
+                  "radar",
+                  "refresh-cw",
+                  "rocket",
+                  "route",
+                  "scaling",
+                  "server",
+                  "server-cog",
+                  "shield-check",
+                  "signpost",
+                  "timer",
+                  "waves",
+                  "waypoints",
+                  "workflow"
+                ]
+              },
+              "status": {
+                "kind": "record",
+                "fields": {
+                  "level": {
+                    "kind": "one-of",
+                    "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                  },
+                  "word": { "kind": "text", "max": 253 }
+                },
+                "required": ["level", "word"]
+              },
+              "cells": {
+                "kind": "list",
+                "of": {
+                  "kind": "choice",
+                  "by": "kind",
+                  "of": {
+                    "text": {
+                      "text": { "kind": "text", "max": 253 },
+                      "mono": { "kind": "yes-or-no" },
+                      "full": { "kind": "text", "max": 253 }
+                    },
+                    "number": {
+                      "value": {
+                        "kind": "number",
+                        "min": -9007199254740991,
+                        "max": 9007199254740991
+                      },
+                      "text": { "kind": "text", "max": 253 }
+                    },
+                    "age": { "time": { "kind": "time" } },
+                    "status": {
+                      "level": {
+                        "kind": "one-of",
+                        "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                      },
+                      "word": { "kind": "text", "max": 253 }
+                    },
+                    "meter": {
+                      "label": { "kind": "text", "max": 253 },
+                      "used": { "kind": "number", "min": 0, "max": 9007199254740991 },
+                      "of": { "kind": "number", "min": 0, "max": 9007199254740991 },
+                      "text": { "kind": "text", "max": 253 }
+                    },
+                    "none": {}
+                  },
+                  "optional": { "text": ["mono", "full"], "number": ["text"], "meter": ["of"] }
+                },
+                "max": 8
+              },
+              "opens": { "kind": "object" }
+            },
+            "required": ["key", "name", "cells"]
+          },
+          "max": 5000
+        },
+        "edges": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "from": { "kind": "text", "max": 253 },
+              "to": { "kind": "text", "max": 253 },
+              "style": { "kind": "one-of", "values": ["solid", "dashed"] },
+              "label": { "kind": "text", "max": 253 }
+            },
+            "required": ["from", "to"]
+          },
+          "max": 10000
+        },
+        "state": {
+          "kind": "choice",
+          "by": "is",
+          "of": {
+            "busy": {},
+            "failed": {
+              "title": { "kind": "text", "max": 253 },
+              "said": { "kind": "text", "max": 500 }
+            },
+            "empty": {
+              "title": { "kind": "text", "max": 253 },
+              "line": { "kind": "text", "max": 500 }
+            },
+            "quiet": { "line": { "kind": "text", "max": 500 }, "good": { "kind": "yes-or-no" } }
+          },
+          "optional": { "empty": ["line"], "quiet": ["good"] }
+        },
+        "onOpen": { "kind": "handler", "event": "open" },
+        "onRetry": { "kind": "handler", "event": "retry" }
+      },
+      "events": { "open": { "node": { "kind": "text", "max": 253 } }, "retry": {} }
+    },
+    "Tiles": {
+      "props": {
+        "tiles": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "key": { "kind": "text", "max": 253 },
+              "icon": {
+                "kind": "one-of",
+                "values": [
+                  "activity",
+                  "archive",
+                  "bell",
+                  "box",
+                  "boxes",
+                  "bug",
+                  "camera",
+                  "cloud",
+                  "database",
+                  "file-check",
+                  "flame",
+                  "gauge",
+                  "git-branch",
+                  "git-merge",
+                  "globe",
+                  "hexagon",
+                  "key-round",
+                  "layers",
+                  "lock",
+                  "network",
+                  "package",
+                  "play",
+                  "puzzle",
+                  "radar",
+                  "refresh-cw",
+                  "rocket",
+                  "route",
+                  "scaling",
+                  "server",
+                  "server-cog",
+                  "shield-check",
+                  "signpost",
+                  "timer",
+                  "waves",
+                  "waypoints",
+                  "workflow"
+                ]
+              },
+              "label": { "kind": "text", "max": 253 },
+              "value": {
+                "kind": "choice",
+                "by": "kind",
+                "of": {
+                  "figure": { "text": { "kind": "text", "max": 253 } },
+                  "words": { "text": { "kind": "text", "max": 253 } },
+                  "time": { "time": { "kind": "time" } }
+                },
+                "optional": {}
+              },
+              "cut": { "kind": "cut" },
+              "detail": { "kind": "text", "max": 500 },
+              "level": {
+                "kind": "one-of",
+                "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+              },
+              "opens": { "kind": "destination" }
+            },
+            "required": ["key", "label"]
+          },
+          "max": 4
+        },
+        "onOpen": { "kind": "handler", "event": "open" }
+      },
+      "events": { "open": { "tile": { "kind": "text", "max": 253 } } }
+    },
+    "Header": {
+      "props": {
+        "name": { "kind": "text", "max": 253 },
+        "status": {
+          "kind": "record",
+          "fields": {
+            "level": {
+              "kind": "one-of",
+              "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+            },
+            "word": { "kind": "text", "max": 253 },
+            "detail": { "kind": "text", "max": 500 }
+          },
+          "required": ["level", "word"]
+        },
+        "buttons": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "key": { "kind": "text", "max": 253 },
+              "name": { "kind": "text", "max": 253 },
+              "changes": { "kind": "yes-or-no" },
+              "asks": { "kind": "yes-or-no" },
+              "note": { "kind": "text", "max": 120 },
+              "off": { "kind": "text", "max": 80 },
+              "goes": { "kind": "destination" }
+            },
+            "required": ["key", "name"]
+          },
+          "max": 8
+        },
+        "onPress": { "kind": "handler", "event": "press" }
+      },
+      "events": { "press": { "button": { "kind": "text", "max": 253 } } }
+    },
+    "Split": {
+      "props": {
+        "list": {
+          "kind": "record",
+          "fields": {
+            "title": { "kind": "text", "max": 253 },
+            "rows": {
+              "kind": "list",
+              "of": {
+                "kind": "record",
+                "fields": {
+                  "key": { "kind": "text", "max": 253 },
+                  "lead": {
+                    "kind": "record",
+                    "fields": {
+                      "level": {
+                        "kind": "one-of",
+                        "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                      },
+                      "name": { "kind": "text", "max": 253 },
+                      "beside": { "kind": "text", "max": 253 },
+                      "under": { "kind": "text", "max": 500 }
+                    },
+                    "required": ["name"]
+                  },
+                  "status": {
+                    "kind": "record",
+                    "fields": {
+                      "level": {
+                        "kind": "one-of",
+                        "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                      },
+                      "word": { "kind": "text", "max": 253 }
+                    },
+                    "required": ["level", "word"]
+                  }
+                },
+                "required": ["key", "lead"]
+              },
+              "max": 1000
+            },
+            "picked": { "kind": "text", "max": 253 },
+            "asGiven": { "kind": "yes-or-no" },
+            "state": {
+              "kind": "choice",
+              "by": "is",
+              "of": {
+                "busy": {},
+                "failed": {
+                  "title": { "kind": "text", "max": 253 },
+                  "said": { "kind": "text", "max": 500 }
+                },
+                "empty": {
+                  "title": { "kind": "text", "max": 253 },
+                  "line": { "kind": "text", "max": 500 }
+                },
+                "quiet": { "line": { "kind": "text", "max": 500 }, "good": { "kind": "yes-or-no" } }
+              },
+              "optional": { "empty": ["line"], "quiet": ["good"] }
+            }
+          },
+          "required": ["title", "rows"]
+        },
+        "onPick": { "kind": "handler", "event": "pick" }
+      },
+      "events": { "pick": { "row": { "kind": "text", "max": 253 } } }
+    },
+    "Card": {
+      "props": {
+        "title": { "kind": "text", "max": 253 },
+        "note": { "kind": "text", "max": 253 },
+        "about": { "kind": "text", "max": 240 }
+      }
+    },
+    "Pair": { "props": { "first": { "kind": "one-of", "values": ["wider", "even"] } } },
+    "Counts": {
+      "props": {
+        "groups": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "title": { "kind": "text", "max": 253 },
+              "code": { "kind": "yes-or-no" },
+              "rows": {
+                "kind": "list",
+                "of": {
+                  "kind": "record",
+                  "fields": {
+                    "value": { "kind": "text", "max": 253 },
+                    "count": { "kind": "number", "min": 0, "max": 9007199254740991, "whole": true }
+                  },
+                  "required": ["value", "count"]
+                },
+                "max": 50
+              }
+            },
+            "required": ["title", "rows"]
+          },
+          "max": 6
+        }
+      }
+    },
+    "Stack": { "props": {} },
+    "Logs": {
+      "props": {
+        "title": { "kind": "text", "max": 253 },
+        "pod": { "kind": "object" },
+        "container": { "kind": "text", "max": 253 }
+      }
+    },
+    "Secret": {
+      "props": {
+        "title": { "kind": "text", "max": 253 },
+        "secret": { "kind": "secret" },
+        "keys": { "kind": "list", "of": { "kind": "text", "max": 253 }, "max": 20 }
+      }
+    }
+  },
+  "limits": {
+    "door": {
+      "message": 1048576,
+      "stepsACommit": 2000,
+      "stepsASecond": 20000,
+      "commitsASecond": 60,
+      "secondsAtOnce": 2,
+      "nodes": 5000,
+      "logStreamsPage": 4,
+      "logStreamsPlugin": 8,
+      "depth": 32,
+      "inOnePart": 1000,
+      "text": 4000,
+      "held": 2097152
+    },
+    "reads": {
+      "listsAPage": 8,
+      "listsAPlugin": 16,
+      "keptAPage": 50,
+      "keptAPlugin": 100,
+      "asksASecond": 10,
+      "waiting": 20,
+      "refreshEveryMs": 10000,
+      "logLines": 500,
+      "logSeconds": 3600,
+      "logBytes": 65536
+    },
+    "frame": {
+      "tiles": { "least": 2, "most": 4 },
+      "buttons": 8,
+      "picks": 1000,
+      "key": 253,
+      "text": 253,
+      "line": 500,
+      "note": 120,
+      "off": 80,
+      "about": 240,
+      "counts": { "groups": 6, "rows": 50 }
+    },
+    "table": {
+      "rows": 5000,
+      "nested": 200,
+      "columns": 8,
+      "text": 253,
+      "line": 500,
+      "depth": 1,
+      "leadHeading": 40
+    },
+    "graph": {
+      "drawn": { "cards": 300, "lines": 600 },
+      "cards": 5000,
+      "lines": 10000,
+      "text": 253,
+      "label": 16
+    },
+    "server": {
+      "paths": 20,
+      "pathLength": 200,
+      "labels": 8,
+      "fills": 4,
+      "timeoutMs": 5000,
+      "bytes": 1048576,
+      "depth": 64,
+      "waitingAPage": 2,
+      "waitingAPlugin": 4
+    },
+    "shown": { "keys": 20, "parts": 20, "text": 253 }
+  }
+}
