@@ -667,6 +667,58 @@ test('logs shown on a plugin’s page never reach its code, and stop being read 
   await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
 })
 
+/** Its code: the same part, a button that takes it off its page, and one that sends what no plugin may. */
+const TAKES = `box.then(({ post, listen }) => {
+  let drawn = false
+  const buttons = [{ key: 'take', name: 'Take it off' }, { key: 'break', name: 'Break' }]
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) post(JSON.stringify({ read: 1, what: 'list', kind: '/Pod', namespace: 'shop' }))
+    if (said.read === 1 && said.objects && !drawn) {
+      drawn = true
+      const pod = said.objects.find((o) => o.object.metadata.name === ${JSON.stringify(POD)})
+      post(JSON.stringify({ commit: [
+        ['make', 1, 'Stack', {}], ['put', 0, 1],
+        ['make', 2, 'Header', { name: 'Its proxy', buttons, onPress: 'press' }], ['put', 1, 2],
+        ['make', 3, 'Logs', { title: 'Its proxy', pod: pod.token, container: 'envoy' }], ['put', 1, 3],
+      ] }))
+    }
+    if (said.call === 'press' && said.carries.button === 'take') post(JSON.stringify({ commit: [['take', 1, 3]] }))
+    if (said.call === 'press' && said.carries.button === 'break') post(JSON.stringify({ commit: [['make', 9, 'Canvas', {}]] }))
+  })
+})
+`
+
+test('a follow never outlives its part: taken off the page by its code, or with a page Lumovi stops, it’s followed no more', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), SHOWS)
+  writeFileSync(join(folder, 'toys.js'), TAKES)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  const toys = `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`
+  const log = body(page).getByRole('log', { name: 'Logs for envoy' })
+  await go(page, toys)
+  await expect(log).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => clusters.demo.logFollowers()).toBeGreaterThan(0)
+  // Its code takes the part off its page: nothing is followed for it any more.
+  await body(page).getByRole('button', { name: 'Take it off' }).click()
+  await expect(log).toHaveCount(0)
+  await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
+  // The page opened again, the part with it; then its code sends what no plugin may, and
+  // Lumovi stops the page: what was followed for it ends with it.
+  await go(page, `#/cluster/${CONTEXTS.demo}/pods`)
+  await go(page, toys)
+  await expect(log).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => clusters.demo.logFollowers()).toBeGreaterThan(0)
+  await body(page).getByRole('button', { name: 'Break' }).click()
+  await expect(page.getByTestId('plugin-ended')).toBeVisible()
+  await expect(log).toHaveCount(0)
+  await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
+})
+
 /** Toys, whose page links to a pod's Shell tab and its Port forward dialog. */
 const LINKS = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
