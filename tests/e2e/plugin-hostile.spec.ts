@@ -182,3 +182,89 @@ test('a tool’s server that redirects, sets a cookie or answers what turns a li
     expect(r.headers.accept).toBe('application/json')
   }
 })
+
+/** Toys again, whose server's `in` is a kind of its own that's in no namespace. */
+const CLUSTER_WIDE = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }, { group: example.com, kind: Gizmo }]
+  pages: [{ id: overview, title: Overview }]
+  server:
+    service: { name: toys-api }
+    in: { group: example.com, kind: Gizmo }
+    port: http
+    paths: [/api/v1/status]
+`
+/** Its code: the Gizmos, and its server asked about the first. */
+const ABOUT_A_GIZMO = `box.then(({ post, listen }) => {
+  listen((text) => {
+    const heard = JSON.parse(text)
+    if (heard.open) post(JSON.stringify({ read: 1, what: 'list', kind: 'example.com/Gizmo' }))
+    if (heard.read === 1 && heard.objects && heard.objects[0]) {
+      post(JSON.stringify({ read: 2, what: 'server', in: heard.objects[0].token, path: '/api/v1/status' }))
+    }
+    if (heard.read === 2) {
+      const came = 'json' in heard ? 'json' : heard.ended + ': ' + heard.said
+      post(JSON.stringify({ commit: [['make', 1, 'Header', { name: came }], ['put', 0, 1]] }))
+    }
+  })
+})
+`
+
+test('a server asked about an object of a kind that’s in no namespace is refused, and nothing is asked of the cluster', async ({
+  launch,
+  clusters,
+}) => {
+  const now = new Date().toISOString()
+  clusters.demo.upsert({
+    apiVersion: 'apiextensions.k8s.io/v1',
+    kind: 'CustomResourceDefinition',
+    metadata: { name: 'gizmos.example.com', creationTimestamp: now },
+    spec: {
+      group: 'example.com',
+      scope: 'Cluster',
+      names: { kind: 'Gizmo', plural: 'gizmos', singular: 'gizmo', listKind: 'GizmoList' },
+      versions: [
+        {
+          name: 'v1',
+          served: true,
+          storage: true,
+          schema: {
+            openAPIV3Schema: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
+          },
+        },
+      ],
+    },
+    status: { conditions: [{ type: 'Established', status: 'True' }] },
+  })
+  clusters.demo.upsert({
+    apiVersion: 'example.com/v1',
+    kind: 'Gizmo',
+    metadata: { name: 'big-gizmo', creationTimestamp: now },
+  })
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), CLUSTER_WIDE)
+  writeFileSync(join(folder, 'toys.js'), ABOUT_A_GIZMO)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  // (Lumovi's own file check can't know a kind's scope without its CRD: Lumovi-plugins' check
+  // does. At run time it fails closed.)
+  await expect(body(page)).toContainText(
+    'not-granted: This plugin’s file doesn’t ask to read this.',
+    {
+      timeout: 20_000,
+    },
+  )
+  // Nothing asked of any Service: every ask through the API server's proxy is Lumovi's own, of
+  // the cluster's usage.
+  const usage = '/api/v1/namespaces/monitoring/services/prometheus:web/proxy/api/v1/'
+  expect(
+    clusters.demo.requests.filter((r) => r.path.includes('/proxy') && !r.path.startsWith(usage)),
+  ).toEqual([])
+})
