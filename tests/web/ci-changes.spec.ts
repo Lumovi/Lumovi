@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
-import { plan, ranMacosInFull } from '../../scripts/ci-changes.ts'
+import { isRelease, plan, ranMacosInFull } from '../../scripts/ci-changes.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
 
@@ -129,6 +129,27 @@ test('main’s nightly run, a run by hand and a release’s pull request run eve
     expect(new Set(result.e2e.map((shard) => shard.projects))).toEqual(new Set(['desktop web']))
     expect(new Set(result.e2e.map((shard) => shard.only))).toEqual(new Set(['']))
   }
+})
+
+test('a release’s pull request is its version’s branch alone: another whose name starts the same is an ordinary one', () => {
+  for (const branch of ['release-1.22.0', 'release-2.0.0-rc.1']) {
+    expect(isRelease(branch), branch).toBe(true)
+    expect(pr(['x.ts'], branch)).toMatchObject({ release: true, macos: true })
+  }
+  for (const branch of [
+    'release-guard',
+    'release-waits-for-approval',
+    'release-1.22',
+    'release-v1.22.0',
+  ]) {
+    expect(isRelease(branch), branch).toBe(false)
+    const result = pr(['x.ts'], branch)
+    expect(result).toMatchObject({ release: false, macos: false })
+    expect(result.said).not.toContain('A release’s pull request')
+  }
+  // Nor is a branch of that name pushed to main, or main's own runs.
+  expect(plan({ event: 'push', branch: 'release-1.22.0', changed: ['x.ts'] }).release).toBe(false)
+  expect(plan({ event: 'schedule', changed: [] }).release).toBe(false)
 })
 
 test('a shard of a system’s tests is of the projects CI names: the browser’s left out where it says', () => {
