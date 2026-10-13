@@ -54,5 +54,7 @@ export const PLUGIN_SINCE = {
   props: {
     'Tiles.tiles[].value.kind=time': 'next',
     'Header.status.detail': 'next',
+    'Header.buttons[].note': 'next',
+    'Header.buttons[].off': 'next',
   },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>

@@ -424,17 +424,22 @@ export function swapFor(
  * The one message a press sends a plugin: the handle it named, and what the part's declaration
  * says the event carries, checked against it even though a component of Lumovi's made it. An
  * event the part doesn't declare, or carrying what it doesn't declare, sends nothing: never
- * Lumovi's own reference to anything, nor a field of an object the plugin wasn't granted.
+ * Lumovi's own reference to anything, nor a field of an object the plugin wasn't granted. Nor
+ * does a press of what `drawn` (the part's description, as it was drawn) has no press for now:
+ * a header's button that's off, or gone (the part's `heeds`). A part that heeds what it drew,
+ * pressed with nothing said of what it drew, sends nothing: no press of it skips the asking.
  */
 export function callOf(
   part: Part,
   event: string,
   handle: string,
   carries: unknown,
+  drawn?: Readonly<Record<string, unknown>>,
 ): string | undefined {
   const declared = Object.hasOwn(part.events ?? {}, event) ? part.events![event]! : undefined
   if (!declared) return undefined
   if (wrongWithFields(carries, declared, Object.keys(declared), part.name)) return undefined
+  if (part.heeds && (!drawn || !part.heeds(drawn, event, carries))) return undefined
   return JSON.stringify({ call: handle, carries })
 }
 

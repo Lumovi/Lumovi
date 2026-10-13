@@ -20,6 +20,7 @@ import {
   wrongWithPart,
   type Part,
 } from '../../src/shared/kit/declare.ts'
+import { header } from '../../src/shared/kit/page.ts'
 import { DoorPage } from '../../src/shared/plugin-door.ts'
 import {
   callOf,
@@ -531,6 +532,26 @@ test('a press sends a plugin its handle and what the part’s declaration says i
     ).toBeUndefined()
   }
   expect(callOf({ ...ROWS, events: undefined }, 'open', 'h1', { row: 'a' })).toBeUndefined()
+})
+
+test('a press of a header’s button goes to the plugin only where that button was drawn, and isn’t off', () => {
+  const drawn = {
+    name: 'payments',
+    buttons: [
+      { key: 'logs', name: 'Show logs' },
+      { key: 'sync', name: 'Sync', asks: true, off: 'A sync is running.' },
+    ],
+  }
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, drawn)).toBe(
+    '{"call":"h1","carries":{"button":"logs"}}',
+  )
+  // One that's off, one it doesn't have (gone since, or never), and one where it has none.
+  expect(callOf(header, 'press', 'h1', { button: 'sync' }, drawn)).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'delete' }, drawn)).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, { name: 'payments' })).toBeUndefined()
+  // Pressed with nothing said of what was drawn: nothing, never a press past the asking.
+  expect(callOf(header, 'press', 'h1', { button: 'logs' })).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, undefined)).toBeUndefined()
 })
 
 test('a press is what it does, not what its button said: on a phone nothing a plugin’s page starts is a change', () => {

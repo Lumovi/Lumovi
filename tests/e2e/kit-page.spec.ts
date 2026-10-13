@@ -17,6 +17,12 @@ async function frame(page: Page) {
 
 const pressed = (page: Page) => page.getByRole('list', { name: 'What was pressed' })
 
+/** What two of orders-db's buttons do, as the frame says. */
+const SWITCH_NOTE =
+  'Promotes the most up-to-date replica to primary: writes pause for a few seconds.'
+const BACKUP_NOTE =
+  'Writes a base backup of every database to the object store now, besides those its schedule takes, kept like the rest.'
+
 test('a pick list: one row is always picked, the worst first, and the keys pick', async ({
   page,
 }) => {
@@ -153,6 +159,78 @@ test('the header: a name that gives way, and at most three buttons with the rest
   ])
 })
 
+test('a button’s note under the buttons; a button that’s off stays in its place, is found by the keys, says why, and presses nothing', async ({
+  page,
+}) => {
+  await frame(page)
+  await page
+    .getByRole('listbox', { name: 'Clusters' })
+    .getByRole('option')
+    .filter({ hasText: 'orders-db' })
+    .click()
+  const orders = page.getByRole('group', { name: 'orders-db' })
+  // What two of them do, in their order, under the buttons at the right: an icon each, two lines
+  // at most, whole in its tooltip.
+  const notes = orders.getByRole('paragraph')
+  // (Two: each says whose it is, in Lumovi's words, the button's name before the plugin's.)
+  await expect(notes).toHaveText([`Switch over: ${SWITCH_NOTE}`, `Back up now: ${BACKUP_NOTE}`])
+  await expect(notes.nth(1)).toHaveAttribute('title', `Back up now: ${BACKUP_NOTE}`)
+  await expect(notes.first().locator('svg')).toHaveCount(1)
+  const backUp = orders.getByRole('button', { name: 'Back up now…' })
+  const [button, note] = [(await backUp.boundingBox())!, (await notes.nth(1).boundingBox())!]
+  expect(Math.abs(button.x + button.width - (note.x + note.width))).toBeLessThan(2)
+  expect(note.y).toBeGreaterThan(button.y + button.height)
+  // (At most 480 px and half the header: past two lines, cut.)
+  expect(note.width).toBeLessThanOrEqual(480)
+  await expect(notes.nth(1).locator(':scope > span')).toHaveCSS('-webkit-line-clamp', '2')
+  // Off: still the last and the filled one, said off, with why.
+  await expect(orders.getByRole('button')).toHaveText(['Restart…', 'Switch over…', 'Back up now…'])
+  await expect(backUp).toHaveAttribute('aria-disabled', 'true')
+  await expect(backUp).toHaveAccessibleDescription('A backup is running.')
+  await backUp.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('A backup is running.')
+  // Pressed, by the pointer or the keys: nothing goes out.
+  const presses = await pressed(page).getByRole('listitem').count()
+  await backUp.click({ force: true })
+  await page.mouse.move(0, 0)
+  // Found by the keys, after the one before it: its tooltip on its focus.
+  await orders.getByRole('button', { name: 'Switch over…' }).focus()
+  await page.keyboard.press('Tab')
+  await expect(backUp).toBeFocused()
+  await expect(page.getByRole('tooltip')).toHaveText('A backup is running.')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Space')
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(presses)
+  // One that isn't off still presses.
+  await orders.getByRole('button', { name: 'Switch over…' }).click()
+  await expect(pressed(page)).toContainText('press {"button":"switch"}')
+  // Off in "…": in the keys' order, dimmed, its why a line under its name; chosen, nothing.
+  await page
+    .getByRole('listbox', { name: 'Clusters' })
+    .getByRole('option')
+    .filter({ hasText: 'sessions-db' })
+    .click()
+  // (Opened from the keys: its first item has the focus.)
+  await page.getByRole('button', { name: 'More for sessions-db' }).focus()
+  await page.keyboard.press('Enter')
+  const scale = page.getByRole('menuitem', { name: 'Scale' })
+  await expect(scale).toHaveAttribute('aria-disabled', 'true')
+  await expect(scale).toHaveAccessibleDescription('Scaling waits for the switchover to finish.')
+  await expect(scale).toContainText('Scaling waits for the switchover to finish.')
+  // (Not the menu's own disabled, which its keys pass over: one of its items to them.)
+  await expect(scale).not.toHaveAttribute('data-disabled')
+  const before = await pressed(page).getByRole('listitem').count()
+  // Reached by the keys, one item to the next (the menu moves its focus a moment after each).
+  await expect(page.getByRole('menuitem', { name: 'Hibernate…' })).toBeFocused()
+  for (const next of ['Restart…', 'Switch over…', 'Back up now…', 'Scale']) {
+    await page.keyboard.press('ArrowDown')
+    await expect(page.getByRole('menuitem', { name: next })).toBeFocused()
+  }
+  await page.keyboard.press('Enter')
+  await expect(scale).toBeVisible()
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(before)
+})
+
 test('tiles: equal in a row, a value in figures or in words, and one that opens', async ({
   page,
 }) => {
@@ -272,6 +350,8 @@ test('what a part of a page is refused for: its kinds first, then what they can�
     'Nothing: it can be drawn.',
     'Nothing: it can be drawn.',
     'Header buttons 1 and 2 have the same key.',
+    'Header.buttons[0].note: is longer than 120 characters',
+    'Header.buttons[0].off: is longer than 80 characters',
     'Nothing: it can be drawn.',
     'Pick list rows 1 and 2 have the same key.',
     // (A picked row that isn't one of the rows is the cluster changing, not a fault.)

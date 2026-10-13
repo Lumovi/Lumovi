@@ -47,6 +47,10 @@ export const FRAME_LIMITS = {
   text: 253,
   /** Characters of the line under a tile's value. */
   line: 500,
+  /** Characters of what a header's button does, said under the buttons. */
+  note: 120,
+  /** Characters of why a header's button can't be pressed now. */
+  off: 80,
   /** Groups of counts, and the values in one. */
   counts: { groups: 6, rows: 50 },
 } as const
@@ -134,6 +138,16 @@ const button = record(
     changes: yesOrNo,
     /** It asks before it does anything: its name is drawn ending in "…". */
     asks: yesOrNo,
+    /**
+     * What it does, in the plugin's words: under the buttons at the right, quiet, two lines at
+     * most and whole in its tooltip (on a phone, under Lumovi's line).
+     */
+    note: text(FRAME_LIMITS.note),
+    /**
+     * Why it can't be pressed now, in the plugin's words: it's drawn off, and this is its tooltip
+     * and what a screen reader says of it. A press of it goes nowhere.
+     */
+    off: text(FRAME_LIMITS.off),
   },
   ['key', 'name'],
 )
@@ -159,6 +173,7 @@ export const header = {
   required: ['name'],
   events: { press: { button: key } },
   also: (props) => headerProblem((props.buttons ?? []) as Keyed[]),
+  heeds: (props, event, carries) => event !== 'press' || pressable(props.buttons, carries),
 } as const satisfies Part
 
 /** A row of a pick list: a Table's lead with a status at its right. */
@@ -330,6 +345,20 @@ export function tilesProblem(tiles: readonly Keyed[]): string | undefined {
   }
   const same = clash(tiles.map((each) => each.key))
   return same && `Tiles ${same[0]} and ${same[1]} of a row have the same key.`
+}
+
+/**
+ * Whether a header's press names one of the buttons it was drawn with, and not one that's off: a
+ * press of any other tells the plugin nothing, however it came about.
+ */
+export function pressable(buttons: unknown, carries: unknown): boolean {
+  const pressed = (carries as { button?: unknown } | null)?.button
+  return (
+    Array.isArray(buttons) &&
+    buttons.some((button: { key?: unknown; off?: unknown }) => {
+      return button.key === pressed && button.off === undefined
+    })
+  )
 }
 
 export function headerProblem(buttons: readonly Keyed[]): string | undefined {

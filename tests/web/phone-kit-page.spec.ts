@@ -89,6 +89,17 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
     'Open Lumovi on a larger screen to use Back up now.',
   )
   await page.getByRole('button', { name: 'Back' }).tap()
+  // What its buttons do, under Lumovi's line where they give way: none of them is here to be off.
+  await list.getByRole('listitem').filter({ hasText: 'orders-db' }).getByRole('button').tap()
+  const orders = page.getByRole('group', { name: 'orders-db' })
+  await expect(orders.getByRole('paragraph')).toHaveText([
+    'Open Lumovi on a larger screen to use Restart, Switch over and Back up now.',
+    // (On a phone, whose each is, in Lumovi's words: there are no buttons for them to be under.)
+    'Switch over: Promotes the most up-to-date replica to primary: writes pause for a few seconds.',
+    'Back up now: Writes a base backup of every database to the object store now, besides those its schedule takes, kept like the rest.',
+  ])
+  await expect(orders.getByRole('button', { name: /^Back up now/ })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Back' }).tap()
   await list.getByRole('listitem').filter({ hasText: 'payments-db' }).getByRole('button').tap()
   await expect(page.getByRole('group', { name: 'payments-db' }).getByRole('paragraph')).toHaveText(
     'Open Lumovi on a larger screen to use Switch over and Back up now.',

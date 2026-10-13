@@ -205,10 +205,12 @@ export function openPage(options: {
     handed(part: string, props: Readonly<Record<string, unknown>>) {
       let handed = made.get(props)
       if (!handed) {
-        made.set(
-          props,
-          (handed = handedFields(props, options.parts[part]!.declared.props, swapOf(part))),
-        )
+        // (Its presses checked against what this description drew: a button off sends nothing.)
+        const swap: Swap = {
+          ...swapOf(part),
+          handler: (handle, event) => (carries) => send(part, handle, event, carries, props),
+        }
+        made.set(props, (handed = handedFields(props, options.parts[part]!.declared.props, swap)))
       }
       return handed
     },
@@ -261,17 +263,24 @@ export function openPage(options: {
   // that part's declaration before anything is sent.
   const made = new WeakMap<object, Readonly<Record<string, unknown>>>()
   const swaps = new Map<string, Swap>()
+  /** A press, sent where its part's declaration, and what it was drawn with, say it may be. */
+  const send = (
+    part: string,
+    handle: string,
+    event: string,
+    carries: unknown,
+    drawn?: Readonly<Record<string, unknown>>,
+  ) => {
+    if (page.end) return
+    const call = callOf(options.parts[part]!.declared, event, handle, written(carries), drawn)
+    if (call !== undefined) box.post(call)
+  }
   const swapOf = (part: string): Swap => {
     let swap = swaps.get(part)
     if (!swap) {
-      const { declared: said } = options.parts[part]!
       swap = swapFor(
         reading.tokens,
-        (handle, event, carries) => {
-          if (page.end) return
-          const call = callOf(said, event, handle, written(carries))
-          if (call !== undefined) box.post(call)
-        },
+        (handle, event, carries) => send(part, handle, event, carries),
         () => {
           // (For whoever writes the plugin, once a page: to the person, a row that doesn't
           // open is quiet.)

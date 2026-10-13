@@ -78,10 +78,32 @@ const BUTTONS: WrittenButton[] = [
   { key: 'switch', name: 'Switch over', changes: true, asks: true },
   { key: 'backup', name: 'Back up now', changes: true, asks: true },
 ]
+/**
+ * Orders-db's: what two of them do said under them (one at length, cut at two lines), and the
+ * filled one off while a backup runs.
+ */
+const NOTED: WrittenButton[] = [
+  BUTTONS[2]!,
+  {
+    ...BUTTONS[3]!,
+    note: 'Promotes the most up-to-date replica to primary: writes pause for a few seconds.',
+  },
+  {
+    ...BUTTONS[4]!,
+    note: 'Writes a base backup of every database to the object store now, besides those its schedule takes, kept like the rest.',
+    off: 'A backup is running.',
+  },
+]
 /** More that change than a phone's line names, and one that only reads, last of them all. */
 const EVERY_BUTTON: WrittenButton[] = [
   ...BUTTONS.slice(1),
-  { key: 'scale', name: 'Scale', changes: true },
+  // (One the "…" holds that's off.)
+  {
+    key: 'scale',
+    name: 'Scale',
+    changes: true,
+    off: 'Scaling waits for the switchover to finish.',
+  },
   { key: 'failover', name: 'Fail over', changes: true, asks: true },
   { key: 'metrics', name: 'Show metrics' },
 ]
@@ -104,7 +126,8 @@ function described(pick: WrittenPick): {
         name === LONGEST
           ? { ...pick.status!, detail: 'No instance can be promoted: all three lost their storage' }
           : pick.status,
-      buttons: name === 'sessions-db' ? EVERY_BUTTON : BUTTONS.slice(-few),
+      buttons:
+        name === 'sessions-db' ? EVERY_BUTTON : name === 'orders-db' ? NOTED : BUTTONS.slice(-few),
     },
     tiles: [
       {
@@ -342,6 +365,8 @@ const REFUSED: (string | undefined)[] = [
   refusal(headerPart, { name: 'a', buttons: BUTTONS }),
   refusal(headerPart, { name: 'a' }),
   refusal(headerPart, { name: 'a', buttons: [BUTTONS[0]!, BUTTONS[0]!] }),
+  refusal(headerPart, { name: 'a', buttons: [{ ...BUTTONS[0]!, note: 'x'.repeat(121) }] }),
+  refusal(headerPart, { name: 'a', buttons: [{ ...BUTTONS[0]!, off: 'x'.repeat(81) }] }),
   refusal(splitPart, { list: LISTS['38 clusters']! }),
   refusal(splitPart, { list: { title: 'Clusters', rows: [FEW[0]!, FEW[0]!] } }),
   // (Not refused: what was picked may be gone from the cluster, and the list takes its first.)
