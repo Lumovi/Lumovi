@@ -66,7 +66,16 @@ export function cloudNativePg(b: Builder, now: number): void {
             spec: {
               ...o.spec,
               containers: [
-                { name: 'postgres', image: 'ghcr.io/cloudnative-pg/postgresql:16.4-bookworm' },
+                {
+                  name: 'postgres',
+                  image: 'ghcr.io/cloudnative-pg/postgresql:16.4-bookworm',
+                  // (As the operator declares them on every instance.)
+                  ports: [
+                    { name: 'postgresql', containerPort: 5432, protocol: 'TCP' },
+                    { name: 'metrics', containerPort: 9187, protocol: 'TCP' },
+                    { name: 'status', containerPort: 8000, protocol: 'TCP' },
+                  ],
+                },
               ],
             },
             status: { phase: 'Running', ...o.status },
