@@ -15,6 +15,8 @@ export function SearchInput({
   className,
   autoFocus,
   hint = true,
+  hotkey = true,
+  name,
 }: {
   value: string
   onChange: (value: string) => void
@@ -25,6 +27,10 @@ export function SearchInput({
   autoFocus?: boolean
   /** Whether it shows its key, `/`: not where it has little room. */
   hint?: boolean
+  /** Whether `/` reaches it: not a field inside a part, which has no key of its own. */
+  hotkey?: boolean
+  /** What a screen reader calls it, where that's more than its placeholder says. */
+  name?: string
 }) {
   // The field shows what was typed right away, even if `value` catches up a
   // moment later (e.g. through the URL); changes made elsewhere replace it.
@@ -48,7 +54,8 @@ export function SearchInput({
     >
       <Search className="size-3.5 shrink-0" />
       <input
-        data-hotkey-target="filter"
+        data-hotkey-target={hotkey ? 'filter' : undefined}
+        aria-label={name}
         autoFocus={autoFocus}
         value={draft}
         onChange={(event) => change(event.target.value)}

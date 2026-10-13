@@ -13,15 +13,14 @@ import { inPieces, type Piece } from '@shared/kit/characters'
 import type { Their } from '@shared/kit/declare'
 import { cn } from '@renderer/lib/cn'
 
+/** A mark's look: what a part that measures one (a column's width) draws it with too. */
+export const MARK_CLASS =
+  'mx-px inline-block rounded border border-line px-0.5 font-mono text-[0.92em] leading-[1.25] text-ink-3'
+
 /** The mark for a character that can't be seen or would act: its code point, in a hairline box. */
 function Mark({ label, children }: { label: string; children: string }) {
   return (
-    <span
-      role="img"
-      aria-label={label}
-      data-mark=""
-      className="mx-px inline-block rounded border border-line px-0.5 font-mono text-[0.92em] leading-[1.25] text-ink-3"
-    >
+    <span role="img" aria-label={label} data-mark="" className={MARK_CLASS}>
       <span aria-hidden>{children}</span>
     </span>
   )

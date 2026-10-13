@@ -60,7 +60,10 @@ test('a table’s rows: what each is called, columns from one scale, and a name 
   // The longest name loses its middle and keeps its end; whole in its title.
   const long = 'worker-eu-west-1a-m6i-2xlarge-on-demand-7f3a9c2d-b1e4-1c9aa7'
   const nodes = page.getByRole('grid', { name: 'Nodes' })
-  await expect(nodes.getByTitle(long).locator('[aria-hidden]')).toHaveText(/^worker-eu-\S+…1c9aa7$/)
+  // (Its tooltip is as much of it as Lumovi quotes back.)
+  await expect(nodes.getByTitle(`${long.slice(0, 40)}…`).locator('[aria-hidden]')).toHaveText(
+    /^worker-eu-\S+…1c9aa7$/,
+  )
   // A row's last cell may take the rest of the row.
   await expect(nodes.getByRole('row').filter({ hasText: 'worker-2' })).toContainText(
     'Ready · 4 cores',
@@ -69,9 +72,11 @@ test('a table’s rows: what each is called, columns from one scale, and a name 
   const note = page
     .getByRole('grid', { name: 'Waiting for a node' })
     .getByText(/^0\/9 nodes are available: 3 Insufficient memory/)
-  const lines = await note.evaluate(
-    (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
-  )
+  // (Measured on the block that holds it to two lines: the text inside lays out all of its own.)
+  const lines = await note.evaluate((el) => {
+    const block = el.closest<HTMLElement>('[class*="line-clamp"]')!
+    return block.getBoundingClientRect().height / parseFloat(getComputedStyle(block).lineHeight)
+  })
   expect(Math.round(lines)).toBe(2)
   // A row with a cell more than there are columns is drawn by its columns: the rest isn't shown.
   const waiting = page.getByRole('grid', { name: 'Waiting for a node' })
@@ -80,7 +85,10 @@ test('a table’s rows: what each is called, columns from one scale, and a name 
   )
   await expect(page.getByText('one cell too many')).toHaveCount(0)
   // A screen reader is told of the rows it can reach: a group's heading isn't counted as one.
-  await expect(page.getByRole('grid', { name: 'Resources' })).toHaveAttribute('aria-rowcount', '6')
+  await expect(page.getByRole('treegrid', { name: 'Resources' })).toHaveAttribute(
+    'aria-rowcount',
+    '9',
+  )
 })
 
 test('a table’s keys are those of Lumovi’s own lists; a status sorts worst first', async ({
@@ -181,13 +189,14 @@ test('a table’s keys are those of Lumovi’s own lists; a status sorts worst f
 
 test('groups, rows that hold rows, and the rows that wait behind “Show all”', async ({ page }) => {
   await kit(page)
-  const resources = page.getByRole('grid', { name: 'Resources' })
+  const resources = page.getByRole('treegrid', { name: 'Resources' })
   const section = page.getByRole('region', { name: 'Resources table' })
-  // How many show, of how many: counted in rows at the top level.
-  await expect(section).toContainText('5 of 23')
+  // How many show, of how many: counted in rows at the top level. Each group shows five at most
+  // (Workloads its three, Network five of its twenty), and has its own "Show all".
+  await expect(section).toContainText('8 of 23')
   await expect(resources.getByRole('heading', { name: /^Workloads/ })).toContainText('3')
   await expect(resources.getByRole('heading', { name: /^Network/ })).toContainText('20')
-  await expect(resources.getByRole('row')).toHaveCount(6)
+  await expect(resources.getByRole('row')).toHaveCount(9)
   // A group's heading is not a stop: down from the last workload goes to the first of Network.
   const active = () =>
     resources.evaluate(
@@ -218,11 +227,106 @@ test('groups, rows that hold rows, and the rows that wait behind “Show all”'
   await expect(
     resources.getByRole('row').filter({ hasText: 'storefront-7d9f8c6b5-2xk4p' }),
   ).toBeVisible()
-  // "Show all" opens the rest in place, and is a button after the rows.
-  await section.getByRole('button', { name: 'Show all 23' }).click()
-  await expect(section).not.toContainText('5 of 23')
+  // A group showing all it has has no "Show all"; Network's opens its rest in place, under it.
+  await expect(section.getByRole('button', { name: /^Show all/ })).toHaveText(['Show all 20'])
+  await section.getByRole('button', { name: 'Show all 20' }).click()
+  await expect(section).not.toContainText('8 of 23')
+  await expect(section).toContainText('23')
   await expect(resources.getByRole('row').filter({ hasText: 'route-18' })).toBeVisible()
   await expect(section.getByRole('button', { name: /^Show all/ })).toHaveCount(0)
+})
+
+test('a row’s rest says how long ago after its words, and a table from a cut read says so in Lumovi’s words', async ({
+  page,
+}) => {
+  await kit(page)
+  // The age is Lumovi's to say, from the plugin's time: after the words, in tabular figures.
+  const launching = page.getByRole('grid', { name: 'Nodes' }).getByRole('row').filter({
+    hasText: 'worker-3',
+  })
+  // (Joined by no-break spaces: any space matches.)
+  await expect(launching).toContainText(/Launching\s·\s3m/)
+  await expect(launching.getByText(/·\s3m/)).toHaveClass(/tabular-nums/)
+  // A plugin's rest is one text in one direction box, a number kept with its unit inside it: one
+  // written right to left reads as written.
+  const rtl = page
+    .getByRole('grid', { name: 'Nodes' })
+    .getByRole('row')
+    .filter({ hasText: 'worker-4' })
+    .locator('[data-their-text]')
+    .filter({ hasText: 'ליבות' })
+  await expect(rtl).toHaveCount(1)
+  await expect(rtl).toHaveAttribute('dir', 'auto')
+  expect(await rtl.evaluate((el) => el.textContent)).toBe('מוכן · 4 ליבות')
+  await expect(rtl.locator('.whitespace-nowrap')).toHaveText('4 ליבות')
+  // A read cut at Lumovi's limit: its rows are drawn, and a line above them says what they're
+  // from; with the cluster's count, that too. Never as a failure.
+  const waiting = page.getByRole('region', { name: 'Waiting for a node table' })
+  await expect(waiting).toContainText('These are from the first 5,000 Lumovi read. There are more.')
+  await expect(waiting.getByRole('row').filter({ hasText: 'reports-nightly-28931' })).toBeVisible()
+  await expect(waiting.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Not yet scheduled table' })).toContainText(
+    'These are from the first 5,000 of 12,345 Lumovi read.',
+  )
+  // The numbers are the door's, by its token: one it didn't make says nothing.
+  await expect(page.getByRole('region', { name: 'Not cut table' })).not.toContainText('Lumovi read')
+})
+
+test('a number, a meter and a text sort by what they hold, both ways, a cell with nothing last; a row that opens nothing is just a row', async ({
+  page,
+}) => {
+  await kit(page)
+  const spares = page.getByRole('grid', { name: 'Spare parts' })
+  const press = async (name: string, then: string[]) => {
+    await spares.getByRole('button', { name, exact: true }).click()
+    await expect.poll(() => names(page, 'Spare parts')).toEqual(then)
+  }
+  await press('Count', ['nut', 'axle', 'bolt', 'gear'])
+  await press('Count', ['bolt', 'axle', 'nut', 'gear'])
+  await expect(spares.getByRole('columnheader', { name: 'Count' })).toHaveAttribute(
+    'aria-sort',
+    'descending',
+  )
+  // A meter by how full it is; one with no limit has nothing to compare, and is last.
+  await press('Used', ['bolt', 'axle', 'nut', 'gear'])
+  await press('Used', ['nut', 'axle', 'bolt', 'gear'])
+  await press('Shelf', ['nut', 'bolt', 'axle', 'gear'])
+  await press('Shelf', ['axle', 'bolt', 'nut', 'gear'])
+  await press('Name', ['axle', 'bolt', 'gear', 'nut'])
+  await press('Name', ['nut', 'gear', 'bolt', 'axle'])
+  await expect(spares.getByRole('columnheader', { name: 'Name' })).toHaveAttribute(
+    'aria-sort',
+    'descending',
+  )
+  // Past the last row the last stays; Enter on a row that opens nothing tells the plugin nothing.
+  await spares.focus()
+  await page.keyboard.press('End')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('list', { name: 'What was pressed' })).not.toContainText(
+    'Spare parts',
+  )
+})
+
+test('a list with no groups has one “Show all”; thousands in groups are drawn as they’re scrolled to, each group its own', async ({
+  page,
+}) => {
+  await kit(page)
+  const claims = page.getByRole('region', { name: 'Node claims table' })
+  await expect.poll(() => names(page, 'Node claims')).toEqual(['claim-a', 'claim-b'])
+  await claims.getByRole('button', { name: 'Show all 4' }).click()
+  await expect.poll(() => names(page, 'Node claims')).toHaveLength(4)
+  await expect(claims.getByRole('button', { name: /^Show all/ })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'With 2,500 rows in groups' }).click()
+  const teams = page.getByRole('region', { name: 'Pods by team table' })
+  // Five teams of 500, each showing 150: drawn as they're scrolled to, not all at once.
+  await expect(teams).toContainText('750 of 2,500')
+  expect(await teams.getByRole('row').count()).toBeLessThan(200)
+  await teams.getByRole('grid').evaluate((grid) => grid.scrollTo({ top: grid.scrollHeight }))
+  await expect(teams.getByRole('button', { name: 'Show all 500' }).last()).toBeVisible()
+  await teams.getByRole('button', { name: 'Show all 500' }).last().click()
+  await expect(teams).toContainText('1,100 of 2,500')
 })
 
 test('nothing to list: busy, failed, empty and quiet, each in its own words', async ({ page }) => {
@@ -253,7 +357,7 @@ test('thousands of rows: only the ones in view are drawn, and every row is a key
   page,
 }) => {
   await kit(page)
-  await page.getByRole('button', { name: 'With 2,500 rows' }).click()
+  await page.getByRole('button', { name: 'With 2,500 rows', exact: true }).click()
   const pods = page.getByRole('grid', { name: 'Pods' })
   await expect(pods).toHaveAttribute('aria-rowcount', '2501')
   expect(await pods.getByRole('row').count()).toBeLessThan(80)
@@ -276,10 +380,52 @@ test('thousands of rows: only the ones in view are drawn, and every row is a key
   await expect(pods.getByRole('row').filter({ hasText: 'storefront-0000' })).toBeVisible()
 })
 
+test('a plugin’s texts are drawn in pieces: marks where they are, in a cut name and in a heading', async ({
+  page,
+}) => {
+  await kit(page)
+  const apps = page.getByRole('grid', { name: 'Applications' })
+  const app = (name: string) => apps.getByRole('row').filter({ hasText: name })
+  /** What a name draws: its letters, and each mark as its code point. */
+  const drawn = (name: string) => app(name).locator('.font-medium [aria-hidden].absolute')
+  // A letter that draws as nothing, and a mark that turns text round: each a mark where it was,
+  // in a name and in a cell, and nothing after it turned.
+  await expect(drawn('cart')).toHaveText('cartU+3164-api')
+  await expect(drawn('invoice')).toHaveText('invoice-U+202Efdp.exe')
+  await expect(
+    app('invoice').getByRole('gridcell').getByRole('img', { name: 'invisible character U+202E' }),
+  ).toHaveCount(1)
+  await expect(app('invoice').getByRole('gridcell').last()).toContainText('ghcr.io/acme/')
+  // A long name cut in its middle: the cut takes letters, and the marks of the part cut away
+  // stand after the ellipsis; its tooltip spells it, as much of it as Lumovi quotes back.
+  await expect(drawn('platform-observability')).toHaveText(/^platform-\S*…U\+3164U\+180Eu-west$/)
+  await expect(
+    app('platform-observability').getByTitle('platform-observability-shared-infrastruc…'),
+  ).toHaveCount(1)
+  // A run of marks: three, then how many more.
+  await expect(drawn('spam').locator('[data-mark]')).toHaveText([
+    'U+3164',
+    'U+3164',
+    'U+3164',
+    'and 117 more',
+  ])
+  // Right to left inside its own text, starting where every text of a row starts.
+  const arabic = app('الدفع').locator('[data-their-text]').first()
+  await expect(arabic).toHaveAttribute('dir', 'auto')
+  await expect(arabic).toHaveCSS('text-align', 'left')
+  // A heading is in capitals; its mark isn't.
+  const stage = apps.getByRole('columnheader', { name: /^Sta.*U\+180E.*ge/ })
+  await expect(stage).toBeVisible()
+  await expect(stage.locator('[data-mark]')).toHaveCSS('text-transform', 'none')
+  await expect(stage.locator('[data-their-text]')).toHaveCSS('text-transform', 'uppercase')
+})
+
 test('what a table is refused for, where its kinds can’t say it', async ({ page }) => {
   await kit(page)
   // For whoever wrote it: where, counted from 1, then what, then what it should be; in Lumovi's
-  // words, quoting nothing of the table's own. A table that can be drawn has none.
+  // words, quoting nothing of the table's own. A table that can be drawn has none. (A rest that
+  // starts at no column, and a cell of a kind there isn't, are their kinds' to refuse, as the door
+  // says it.)
   await expect(
     page.getByRole('list', { name: 'What a table is refused for' }).getByRole('listitem'),
   ).toHaveText([
@@ -290,8 +436,8 @@ test('what a table is refused for, where its kinds can’t say it', async ({ pag
     'Row 1 has 1 cell, and the table has 2 columns.',
     'Row 1, cell 1 is a number, and its column takes text.',
     'Row 1’s rest starts at column 3, and the table has 2 columns.',
-    'Row 1’s rest doesn’t start at one of the table’s columns.',
-    'Row 1, cell 1 isn’t a kind of cell.',
+    'Table.rows[0].rest.from: should be from 0 to 7',
+    'Table.rows[0].cells[0].kind: should be one of text, number, age, status, meter, none',
     'In row 2, inner row 2 has 1 cell, and the table has 2 columns.',
   ])
 })

@@ -180,9 +180,11 @@ test('tiles: equal in a row, a value in figures or in words, and one that opens'
     storage.getByText(/^of 2 TiB/),
   ]) {
     expect(
+      // (Cut by what holds the plugin's text: the text itself runs on inside it.)
       await cut.evaluate((el) => {
-        const style = getComputedStyle(el)
-        return [style.textOverflow, style.whiteSpace, el.getClientRects().length]
+        const holder = el.parentElement!
+        const style = getComputedStyle(holder)
+        return [style.textOverflow, style.whiteSpace, holder.getClientRects().length]
       }),
     ).toEqual(['ellipsis', 'nowrap', 1])
   }
@@ -206,16 +208,54 @@ test('tiles: equal in a row, a value in figures or in words, and one that opens'
   expect(side).toBe(300)
 })
 
-test('what a part of a page is refused for, where its kinds can’t say it', async ({ page }) => {
+test('a tile still reading keeps its value’s space, and one counted from a cut read says so in Lumovi’s words', async ({
+  page,
+}) => {
+  await frame(page)
+  const reading = page.getByRole('region', { name: 'Still reading', exact: true })
+  const waiting = page.getByRole('region', { name: 'Pods waiting', exact: true })
+  // No value: its icon and label, the value's space kept (no dash, no "…"), as tall as its row.
+  await expect(reading).not.toContainText('—')
+  await expect(reading).not.toContainText('…')
+  const [still, cut] = await Promise.all(
+    [reading, waiting].map((tile) =>
+      tile.evaluate((el) => Math.round(el.getBoundingClientRect().height)),
+    ),
+  )
+  expect(still).toBe(cut)
+  // Counted from a cut read: the plugin's figure and a "+", said "or more"; the line under is
+  // Lumovi's, never the plugin's.
+  await expect(waiting.locator('[aria-hidden]').filter({ hasText: '+' })).toHaveText('4,980+')
+  await expect(waiting.getByText('4,980 or more', { exact: true })).toHaveClass(/sr-only/)
+  await expect(waiting).toContainText('Counted from the first 5,000 Lumovi read.')
+  await expect(waiting).not.toContainText('The plugin’s own line')
+  // (Not a level: the line has no dot, whatever the plugin's level.)
+  await expect(waiting.locator('[data-health], .rounded-full')).toHaveCount(0)
+})
+
+test('a table still reading in a card is drawn bare: the card says its title, once', async ({
+  page,
+}) => {
+  await frame(page)
+  const card = page.getByRole('region', { name: 'Disruption', exact: true })
+  await expect(card.getByText('Disruption', { exact: true })).toHaveCount(1)
+  await expect(card.getByRole('heading')).toHaveCount(1)
+})
+
+test('what a part of a page is refused for: its kinds first, then what they can’t say', async ({
+  page,
+}) => {
   await frame(page)
   await expect(
     page.getByRole('list', { name: 'What a part is refused for' }).getByRole('listitem'),
   ).toHaveText([
     'Nothing: it can be drawn.',
     'A row of tiles has 1 tile; it takes 2 to 4.',
-    'A row of tiles has 5 tiles; it takes 2 to 4.',
+    // (More than a row holds is its list's kind to refuse, as the door says it.)
+    'Tiles.tiles: is longer than 4',
     'Tiles 1 and 2 of a row have the same key.',
-    'In tile row 2, tiles 2 and 3 have the same key.',
+    'Tiles 2 and 3 of a row have the same key.',
+    'Tiles.tiles[1].value.kind: should be one of figure, words',
     'Nothing: it can be drawn.',
     'Nothing: it can be drawn.',
     'Header buttons 1 and 2 have the same key.',
@@ -224,4 +264,65 @@ test('what a part of a page is refused for, where its kinds can’t say it', asy
     // (A picked row that isn't one of the rows is the cluster changing, not a fault.)
     'Nothing: it can be drawn.',
   ])
+})
+
+test('Karpenter’s overview from the frame’s parts: a card, a pair of cards seven to five, and counts as shares of a whole', async ({
+  page,
+}) => {
+  await frame(page)
+  const overview = page.getByRole('region', { name: 'Karpenter’s overview' })
+  await overview.scrollIntoViewIfNeeded()
+  await expect(overview.getByRole('region', { name: 'Being replaced' })).toBeVisible()
+  // A card is Lumovi's: the plugin's title, its note at the right, and its table inside, with no
+  // frame or heading of its own.
+  const nodes = overview.getByRole('region', { name: 'Nodes', exact: true })
+  await expect(nodes.locator('header')).toContainText('20 · 3 still starting')
+  await expect(nodes.locator('h3')).toHaveCount(0)
+  // A pair: the first seven parts of twelve, the second five, side by side.
+  const mix = overview.getByRole('region', { name: 'Node mix' })
+  const box = async (region: typeof mix) => (await region.boundingBox()) ?? { x: 0, y: 0, width: 0 }
+  await expect
+    .poll(async () => {
+      const [a, b] = [await box(nodes), await box(mix)]
+      return a.y === b.y && Math.round((a.width / b.width) * 100) / 100
+    })
+    .toBe(1.4)
+  // Counts: each group's values the largest first, with a bar of its share of the group's whole.
+  const zones = mix.getByRole('region', { name: 'Zones' })
+  await expect(zones.getByRole('listitem')).toHaveCount(5)
+  await expect(zones.getByRole('listitem').first()).toContainText('eu-central-1a6 of 20')
+  await expect(zones.getByRole('listitem').nth(1)).toContainText('eu-central-1b')
+  const types = mix.getByRole('region', { name: 'Instance types' })
+  const share = (row: number, group = types) =>
+    group
+      .getByRole('listitem')
+      .nth(row)
+      .locator('[data-bar] > span')
+      .evaluate((bar) => Math.round((bar.clientWidth / bar.parentElement!.clientWidth) * 100))
+  await expect.poll(() => share(0)).toBe(35)
+  // None is no bar at all; the smallest share there is, a dot.
+  const capacity = mix.getByRole('region', { name: 'Capacity types' })
+  await expect(capacity.getByRole('listitem').last()).toContainText('Reserved')
+  await expect.poll(() => share(2, capacity)).toBe(0)
+  await expect.poll(() => share(3)).toBe(5)
+  // Values that are code are set as code; words aren't.
+  const font = (group: string) =>
+    mix
+      .getByRole('region', { name: group })
+      .getByRole('listitem')
+      .first()
+      .locator('span')
+      .first()
+      .evaluate((value) => getComputedStyle(value).fontFamily)
+  expect(await font('Instance types')).toMatch(/mono/i)
+  expect(await font('Capacity types')).not.toMatch(/mono/i)
+  // More than five: four, and the rest behind "4 more", which opens them in place.
+  await expect(types.getByRole('listitem')).toHaveCount(4)
+  await types.getByRole('button', { name: '4 more' }).click()
+  await expect(types.getByRole('listitem')).toHaveCount(8)
+  await expect(types.getByRole('button')).toHaveCount(0)
+  // A value longer than its column loses its middle, never its mark.
+  await expect(
+    zones.getByRole('listitem').last().locator('[aria-hidden] [data-mark]'),
+  ).toContainText('U+202E')
 })

@@ -61,6 +61,13 @@ test('a table on a phone: cards, facts side by side only where they all fit, and
   )
   await sheet.getByRole('button', { name: 'Status' }).tap()
   await expect.poll(async () => (await leads(certificates)).at(-1)).toBe('payments-tls')
+  // Sorted the other way now, its arrow in the sheet says so.
+  await certificates.getByRole('button', { name: 'Sort Certificates' }).tap()
+  await expect(sheet.getByRole('option', { name: 'Status' }).locator('svg')).toHaveClass(
+    /lucide-arrow-up/,
+  )
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
   // A table with nothing to sort by has no such button.
   await expect(page.getByRole('region', { name: 'Node pools' }).getByRole('button')).toHaveCount(0)
 
@@ -84,10 +91,15 @@ test('a table on a phone: cards, facts side by side only where they all fit, and
   await expect(
     resources.locator('li[data-row]').filter({ hasText: 'CrashLoopBackOff' }),
   ).toHaveCount(0)
-  // Groups keep their headings and counts; the rest waits behind a button.
+  // Groups keep their headings and counts; each shows five at most, its rest behind its own
+  // button, a finger's height.
   await expect(resources.getByRole('heading', { name: /^Network/ })).toContainText('20')
-  await expect(resources.locator('li[data-row]')).toHaveCount(5)
-  await resources.getByRole('button', { name: 'Show all 23' }).tap()
+  await expect(resources.locator('li[data-row]')).toHaveCount(8)
+  const more = resources.getByRole('button', { name: 'Show all 20' })
+  expect(
+    await more.evaluate((el) => Math.round(el.getBoundingClientRect().height)),
+  ).toBeGreaterThanOrEqual(44)
+  await more.tap()
   await expect(resources.locator('li[data-row]')).toHaveCount(23)
 
   // The long name keeps its end, the note its three lines, and nothing is wider than the phone.
@@ -96,14 +108,31 @@ test('a table on a phone: cards, facts side by side only where they all fit, and
     /…1c9aa7$/,
   )
   await expect(nodes.locator('li[data-row]').nth(1)).toContainText('Ready · 4 cores')
+  // A row's rest takes the card's line, not a fact's third: each on one line here, a number with
+  // its unit and the age with its word.
+  for (const index of [1, 2]) {
+    const rest = nodes.locator('li[data-row]').nth(index).locator('dd').last()
+    await expect
+      .poll(() =>
+        rest.evaluate((el) =>
+          Math.round(
+            el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+          ),
+        ),
+      )
+      .toBe(1)
+  }
+  await expect(nodes.locator('li[data-row]').nth(2)).toContainText(/Launching\s·\s3m/)
   const note = page
     .getByRole('region', { name: 'Waiting for a node', exact: true })
     .getByText(/^0\/9 nodes are available: 3 Insufficient memory/)
   expect(
     Math.round(
-      await note.evaluate(
-        (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
-      ),
+      // (Measured on the block that holds it to three lines: the text inside lays out all its own.)
+      await note.evaluate((el) => {
+        const block = el.closest<HTMLElement>('[class*="line-clamp"]')!
+        return block.getBoundingClientRect().height / parseFloat(getComputedStyle(block).lineHeight)
+      }),
     ),
   ).toBe(3)
   // Side by side, a cell with nothing keeps its place: every card's facts are under the same names.
