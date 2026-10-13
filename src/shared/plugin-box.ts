@@ -301,8 +301,10 @@ parent.postMessage({ box: 'ready' }, '*')
 
 /**
  * Lumovi's first lines in a worker, before a plugin's own: what makes more code is taken away
- * (a worker, a shared one, a script by address, an address for text), and the channel is made
- * ready as `box`: `box.then(({ post, listen }) => …)`, text up and whatever Lumovi sends down.
+ * (a worker, a shared one, a script by address, an address for text), and what hashes, signs
+ * and verifies (`crypto.subtle`: Lumovi's, never a plugin's, and only some browsers' boxes have
+ * it); and the channel is made ready as `box`: `box.then(({ post, listen }) => …)`, text up and
+ * whatever Lumovi sends down.
  * A ping of Lumovi's is answered here.
  *
  * Hardening, not a wall: a plugin's code runs in the same scope after these lines and can undo
@@ -313,6 +315,7 @@ export const WORKER_FIRST_LINES = `for (const name of ['Worker', 'SharedWorker',
   for (let at = self; at; at = Object.getPrototypeOf(at)) { try { delete at[name] } catch {} }
 }
 try { Object.defineProperty(URL, 'createObjectURL', { value: undefined, configurable: false, writable: false }) } catch {}
+try { delete Crypto.prototype.subtle } catch {}
 self.box = new Promise((ready) => {
   self.onmessage = (event) => {
     const port = event.data && event.data.port
