@@ -13,7 +13,7 @@ import {
   boxCheckStore,
   type BoxCheckRole,
 } from '@shared/box-check'
-import type { PluginCode } from '@shared/plugin-hand-over'
+import type { NotHanded, PluginCode } from '@shared/plugin-hand-over'
 import { api } from '@renderer/lib/api'
 import { openBox, type Box } from './box'
 
@@ -134,20 +134,35 @@ async function landed(name: string, unlooked: Set<string>): Promise<string[]> {
 }
 
 /**
+ * Whether a refusal is one a check of this browser's box, run now, may change: none yet, or one
+ * that didn't finish. One that couldn't look is checked again only on a page loaded since.
+ */
+const checkDue = (refused: NotHanded) =>
+  refused === 'not-checked' ||
+  refused === 'check-unfinished' ||
+  (refused === 'check-unlooked' && !checkedHere)
+
+/**
  * A plugin's code, as Lumovi hands it over: where a server hasn't checked this browser's box yet
- * (or its check didn't finish), the check first, once, and then asked again. One that couldn't
- * look is checked again only on a page loaded since.
+ * (or its check didn't finish), the check first, once, and then asked again.
  */
 export async function codeOf(plugin: string): Promise<PluginCode> {
   const answer = await api.kube.pluginCode(plugin)
-  const due =
-    !answer.ok &&
-    (answer.refused === 'not-checked' ||
-      answer.refused === 'check-unfinished' ||
-      (answer.refused === 'check-unlooked' && !checkedHere))
-  if (!due) return answer
+  if (answer.ok || !checkDue(answer.refused)) return answer
   // (A server that has no box, so no check, refuses the call: the answer stands as it was.)
   const checked = await checkBox().catch(() => undefined)
   if (checked === undefined) return answer
   return api.kube.pluginCode(plugin)
+}
+
+/**
+ * Whether a plugin's code would be handed over, or why not, as `codeOf` would find it (the check
+ * first, where it's due), without handing any: for a page that only needs to know.
+ */
+export async function handOverOf(plugin: string): Promise<true | NotHanded> {
+  const answer = await api.kube.pluginHandOver(plugin)
+  if (answer === true || !checkDue(answer)) return answer
+  const checked = await checkBox().catch(() => undefined)
+  if (checked === undefined) return answer
+  return api.kube.pluginHandOver(plugin)
 }

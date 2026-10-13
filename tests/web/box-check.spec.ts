@@ -452,3 +452,24 @@ test('on a phone the box is checked as in any browser: one that passes is handed
   expect(await codeOf(page)).toBe('check-failed')
   expect(audited(open, 'plugin.code')).toEqual([])
 })
+
+test('where this browser’s check failed, Lumovi’s own overview of Karpenter stands in for its code’s page', async ({
+  serve,
+  page,
+}) => {
+  test.slow()
+  const server = await served(serve, { LUMOVI_TEST_BOX_WALL_OFF: 'connect-src' })
+  await signIn(page, `${server.url}cluster/demo/plugins/karpenter`, DEMO_TOKEN)
+  // Its node pools as Lumovi lists them: nothing of the plugin's, and no page that says it ended.
+  await expect(page.getByRole('list', { name: 'Node pools' }).getByRole('listitem')).toHaveCount(3)
+  await expect(page.getByTestId('plugin-whose')).toHaveCount(0)
+  await expect(page.getByTestId('plugin-ended')).toHaveCount(0)
+  // (The check ran, once, as the page would have run it, and it failed: no code was handed.)
+  expect(audited(server, 'plugin.box-check').map((event) => event.outcome)).toEqual(['failure'])
+  expect(audited(server, 'plugin.code')).toEqual([])
+  // The Plugins page says why, and what's shown instead.
+  await page.goto(`${server.url}cluster/demo/plugins?plugin=karpenter`)
+  await expect(page.getByTestId('plugin-not-handed')).toHaveText(
+    'Its pages don’t run here: Lumovi’s check of this browser didn’t pass. Lumovi shows its own overview of Karpenter instead.',
+  )
+})

@@ -7,7 +7,13 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pluginsAndCode, readLock, takePlugins, trust } from '../../scripts/plugins-bundle.ts'
+import {
+  codedPlugins,
+  pluginsAndCode,
+  readLock,
+  takePlugins,
+  trust,
+} from '../../scripts/plugins-bundle.ts'
 import { RENDERER_MAPS } from '../../scripts/vite-coverage.ts'
 import { openCluster } from '../e2e/fixtures.ts'
 import { CONTEXT, expect, test } from './fixtures.ts'
@@ -106,4 +112,46 @@ test('a release’s pages open a plugin’s box only where they take its code th
   const opening = naming.filter((file) => file !== 'index.html')
   expect(opening.length).toBeGreaterThan(0)
   for (const file of opening) expect(read(file), file).toContain('kube:plugin-code')
+})
+
+/**
+ * The runs of a plugin's code that a string holding it has word for word however a bundle writes
+ * it (in what quotes, with what escaped): what's between quotes, backslashes, `$`, line ends and
+ * anything not plain ASCII. The long ones, which nothing else would have.
+ */
+const runsOf = (source: string) =>
+  source.split(/[^\x20-\x7e]|['"`\\$]/).filter((run) => run.length >= 40)
+
+test('a release carries plugins’ code only as the release its lock pins has it, and its pages offer only theirs', async () => {
+  const { code } = pluginsAndCode(await takePlugins(readLock(), trust()))
+  const out = resolve('out')
+  const textOf = (part: string) =>
+    readdirSync(join(out, part), { recursive: true, encoding: 'utf8' })
+      .filter((file) => /\.(js|mjs|cjs|html)$/.test(file))
+      .map((file) => readFileSync(join(out, part, file), 'utf8'))
+      .join('\n')
+  const backends = ['main', 'server'].map((part) => [part, textOf(part)] as const)
+  const pages = textOf('renderer')
+  for (const [file, source] of Object.entries(code)) {
+    const runs = runsOf(source)
+    expect(runs.length, file).toBeGreaterThan(10)
+    // The backends hold each plugin's code, as the bundle has it: the one place a page is handed
+    // it from.
+    for (const [part, text] of backends) {
+      expect(
+        runs.filter((run) => !text.includes(run)),
+        `out/${part}: ${file}`,
+      ).toEqual([])
+    }
+    // The pages hold none of it: none of its lines of code. (Its words may be Lumovi's too, as
+    // its own overview of Karpenter, which stands in where the plugin's code is off, has them.)
+    const lines = runs.filter((run) => /^ {2,}\S/.test(run))
+    expect(lines.length, file).toBeGreaterThan(10)
+    expect(
+      lines.filter((line) => pages.includes(line)),
+      `out/renderer: ${file}`,
+    ).toEqual([])
+  }
+  // Only the names of the plugins whose code came with them: the ones whose pages they may offer.
+  expect(pages).toContain(JSON.stringify(codedPlugins(code)))
 })

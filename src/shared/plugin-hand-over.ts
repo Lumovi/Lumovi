@@ -142,8 +142,13 @@ export const SWITCHED_OFF: ReadonlySet<NotHanded> = new Set([
 /**
  * Why not, as the Plugins page says it in a plugin's entry: "Its pages don’t run here: this
  * server doesn’t offer plugins that run code to this browser." ("…don’t run: you turned off its
- * code", where it's off wherever the person is.)
+ * code", where it's off wherever the person is.) For one Lumovi has a page of its own for (its
+ * label, `standsIn`), that it shows that page instead.
  */
-export const notHandedLine = (refused: Exclude<NotHanded, 'not-in-use'>): string =>
+export const notHandedLine = (
+  refused: Exclude<NotHanded, 'not-in-use'>,
+  standsIn?: string,
+): string =>
   // (Off by the person or by their organization: off anywhere, not only here.)
-  `Its pages don’t run${refused === 'turned-off' || refused === 'off-by-policy' ? '' : ' here'}${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}`
+  `Its pages don’t run${refused === 'turned-off' || refused === 'off-by-policy' ? '' : ' here'}${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}` +
+  (standsIn === undefined ? '' : ` Lumovi shows its own overview of ${standsIn} instead.`)

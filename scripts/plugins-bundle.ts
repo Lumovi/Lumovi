@@ -91,6 +91,10 @@ export function pluginsAndCode(files: PluginFiles): { plugins: PluginFiles; code
   return { plugins: of('.yaml'), code: of('.js') }
 }
 
+/** The plugins with code beside them, by name: `karpenter` for karpenter.js beside karpenter.yaml. */
+export const codedPlugins = (code: PluginFiles): string[] =>
+  Object.keys(code).map((file) => file.replace(/\.js$/, ''))
+
 /** Why the plugins can't be built in: each line a file, and what's wrong with it. */
 export class PluginsBundleError extends Error {}
 

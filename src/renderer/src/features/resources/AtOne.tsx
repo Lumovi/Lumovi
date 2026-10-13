@@ -9,10 +9,8 @@ import { NAMESPACE_NAME } from '@shared/node-shell'
 import { whose, type ListedPlugin } from '@shared/plugins'
 import { PluginIcon } from '@renderer/components/KindIcon'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
+import { CODE_PAGES } from '@renderer/lib/code-pages'
 import { AT_ONE } from '@renderer/lib/routes'
-
-/** Set by the build: true only in the build the tests run. */
-declare const LUMOVI_TEST_BUILD: boolean
 
 export interface AtOne {
   name: string
@@ -25,14 +23,14 @@ export interface AtOne {
  * The one object a list's address names, or nothing: a name an object can have, and a namespace
  * that's a namespace's name (another is no filter at all). Whose page opened it is said only of a
  * plugin in use whose file says its pages open this kind: never a name the address alone gives.
- * (Only a plugin's page opens a list so, and those are offered in the tests' build alone so far.)
+ * (Only a plugin's page opens a list so: where Lumovi offers code pages.)
  */
 export function atOne(
   params: URLSearchParams,
   kind: string,
   plugins: readonly ListedPlugin[],
 ): AtOne | undefined {
-  if (!LUMOVI_TEST_BUILD) return undefined
+  if (!CODE_PAGES) return undefined
   const name = params.get(AT_ONE.name)
   if (name === null || !OBJECT_NAME.test(name)) return undefined
   const namespace = params.get(AT_ONE.namespace)

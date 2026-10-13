@@ -15,3 +15,12 @@ declare module 'virtual:lumovi-plugins/code' {
   const code: Readonly<Record<string, string>>
   export default code
 }
+
+/**
+ * The names of the plugins whose code comes with them ("karpenter"), and none of their code: what
+ * the page needs to know which of them have pages it may offer.
+ */
+declare module 'virtual:lumovi-plugins/coded' {
+  const names: readonly string[]
+  export default names
+}

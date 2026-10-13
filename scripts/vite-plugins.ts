@@ -6,12 +6,21 @@
  * `virtual:lumovi-plugins/code`: the code beside them, by its own file name, in the backend's
  * builds alone. A page is handed a plugin's code by the backend (`pluginCode`) and by nothing
  * else, so the page's build has none of it: one that asks for it stops, saying so.
+ *
+ * `virtual:lumovi-plugins/coded`: the names of the plugins that have code beside them, and no
+ * code: what the page needs to offer their pages, only where their code is part of this Lumovi.
  */
 import type { Plugin } from 'vite'
-import { pluginsAndCode, verifiedPlugins, type PluginFiles } from './plugins-bundle.ts'
+import {
+  codedPlugins,
+  pluginsAndCode,
+  verifiedPlugins,
+  type PluginFiles,
+} from './plugins-bundle.ts'
 
 const ID = 'virtual:lumovi-plugins'
 const CODE_ID = `${ID}/code`
+const CODED_ID = `${ID}/coded`
 
 /**
  * The plugin. `code`: whether this build may hold the plugins' code (the backend's do; the
@@ -35,11 +44,14 @@ export function lumoviPlugins({
       if (id === CODE_ID && !holdsCode) {
         this.error(`${CODE_ID}: plugins’ code isn’t built into the page; the backend hands it over`)
       }
-      return id === ID || id === CODE_ID ? `\0${id}` : undefined
+      return id === ID || id === CODE_ID || id === CODED_ID ? `\0${id}` : undefined
     },
     load(id) {
-      if (id !== `\0${ID}` && id !== `\0${CODE_ID}`) return undefined
+      if (id !== `\0${ID}` && id !== `\0${CODE_ID}` && id !== `\0${CODED_ID}`) return undefined
       const { plugins, code } = pluginsAndCode(files ?? {})
+      if (id === `\0${CODED_ID}`) {
+        return `export default Object.freeze(${JSON.stringify(codedPlugins(code))})`
+      }
       return `export default Object.freeze(${JSON.stringify(id === `\0${ID}` ? plugins : code)})`
     },
   }
