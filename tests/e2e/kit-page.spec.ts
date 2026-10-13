@@ -255,30 +255,37 @@ test('tiles: equal in a row, a value in figures or in words, and one that opens'
   )
   await expect(pressed(page)).toContainText('open {"tile":"ready"}')
   await expect(row[2]!.getByRole('button')).toHaveCount(0)
-  // A value in words is set smaller on the same line and loses its middle; a long label and a
-  // long line under are cut at their ends, and none of it makes a tile taller than its row.
+  // A value in words is set smaller on the same line and loses its middle; a long label is cut at
+  // its end, and a long line under wraps, never cut: its row's tiles take its height together.
   const words = page.getByRole('region', { name: 'Primary', exact: true }).last()
   await expect(words.locator('[title] [aria-hidden]')).toHaveText(/…n-db-1$/)
   const storage = page.getByRole('region', { name: /^Storage for each instance/ })
-  const heights = await Promise.all(
-    [words, storage, page.getByRole('region', { name: 'Auto-sync' })].map((tile) =>
-      tile.evaluate((el) => Math.round(el.getBoundingClientRect().height)),
-    ),
-  )
-  expect(new Set([...heights, boxes[0]![1]]).size).toBe(1)
-  for (const cut of [
-    storage.getByText(/^Storage for each instance/),
-    storage.getByText(/^of 2 TiB/),
-  ]) {
-    expect(
-      // (Cut by what holds the plugin's text: the text itself runs on inside it.)
-      await cut.evaluate((el) => {
-        const holder = el.parentElement!
-        const style = getComputedStyle(holder)
-        return [style.textOverflow, style.whiteSpace, holder.getClientRects().length]
-      }),
-    ).toEqual(['ellipsis', 'nowrap', 1])
-  }
+  const height = (tile: typeof words) =>
+    tile.evaluate((el) => Math.round(el.getBoundingClientRect().height))
+  const auto = page.getByRole('region', { name: 'Auto-sync' })
+  expect(await height(auto)).toBe(boxes[0]![1])
+  // (Storage and Primary stand in one row: the wrapped line makes both taller, together.)
+  expect(await height(words)).toBe(await height(storage))
+  expect(await height(storage)).toBeGreaterThan(boxes[0]![1]!)
+  expect(
+    // (Cut by what holds the plugin's text: the text itself runs on inside it.)
+    await storage.getByText(/^Storage for each instance/).evaluate((el) => {
+      const style = getComputedStyle(el.parentElement!)
+      return [style.textOverflow, style.whiteSpace]
+    }),
+  ).toEqual(['ellipsis', 'nowrap'])
+  expect(
+    // (Wrapped: on two lines or more, and none of it out of sight.)
+    await storage.getByText(/^of 2 TiB/).evaluate((el) => {
+      const holder = el.parentElement!
+      return [
+        getComputedStyle(holder).textOverflow,
+        // (Taller than one line of 16 px.)
+        el.getBoundingClientRect().height > 24,
+        holder.scrollWidth <= holder.clientWidth,
+      ]
+    }),
+  ).toEqual(['clip', true, true])
   // A figure longer than its tile is kept in it: it never runs over its neighbour.
   const [long, beside] = await Promise.all(
     ['Requests', 'Errors'].map((name) =>

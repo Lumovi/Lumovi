@@ -653,6 +653,23 @@ export function Table({
     [lines, activeKey],
   )
   const setActive = (index: number) => setActiveKey(lines[index]?.key)
+  // The keyboard's row's cells that are cut by their columns' width: its tooltip says them whole,
+  // beside the columns that gave way. (Measured once it's drawn: what's cut is the width's to say.)
+  const [cutHere, setCutHere] = useState<{ index: number; columns: number[] }>()
+  useLayoutEffect(() => {
+    const row = keyed && active >= 0 ? document.getElementById(`${id}-${active}`) : null
+    const columns = [...(row?.querySelectorAll<HTMLElement>('[data-column]') ?? [])]
+      .filter((cell) => isCut(cell.querySelector('[data-cuts]')))
+      .map((cell) => Number(cell.dataset.column))
+    setCutHere((was) =>
+      was?.index === active && was.columns.join() === columns.join()
+        ? was
+        : row
+          ? { index: active, columns }
+          : undefined,
+    )
+    // (Again as its rows change: a refresh may lengthen a value, or shorten it.)
+  }, [keyed, active, id, template, lines])
   /** Rows, as a screen reader counts them: a group's heading isn't one. */
   const rowNumbers = useMemo(() => {
     let rows = 0
@@ -808,14 +825,6 @@ export function Table({
   ]
   // (The lead column's heading: the plugin's, where its rows aren't things with names.)
   const leading: ReactNode = leadHeading?.their ? <TheirText text={leadHeading} inline /> : 'Name'
-  // A heading's whole words, as its tooltip: cut short in a narrow column, it's still read whole.
-  // (Spelled: a title can't draw a mark.)
-  const tipOf = (column: number) =>
-    column === NAME
-      ? leadHeading?.their
-        ? spelled(leadHeading.their)
-        : 'Name'
-      : spelled(said(columns[column]?.name))
   const nameOf = (column: number): ReactNode =>
     column === NAME ? leading : <TheirText text={columns[column]?.name} inline />
   // How many show, each group's own `shows` at most, of how many there are.
@@ -1002,30 +1011,13 @@ export function Table({
               }
               className="flex min-w-0"
             >
-              {nameSorts && headings ? (
-                <button
-                  type="button"
-                  onClick={() => sortBy(NAME)}
-                  title={tipOf(NAME)}
-                  className={cn(
-                    HEADING,
-                    'flex min-w-0 items-center gap-1 hover:text-ink-1',
-                    sort?.column === NAME && 'text-ink-1',
-                  )}
-                >
-                  <span className="truncate">{leading}</span>
-                  {sort?.column === NAME &&
-                    (sort.down ? (
-                      <ArrowDown className="size-3 shrink-0" />
-                    ) : (
-                      <ArrowUp className="size-3 shrink-0" />
-                    ))}
-                </button>
-              ) : (
-                <span title={tipOf(NAME)} className={cn(HEADING, 'truncate')}>
-                  {leading}
-                </span>
-              )}
+              <HeadingWords
+                sorts={Boolean(nameSorts && headings)}
+                onSort={() => sortBy(NAME)}
+                sorted={sort?.column === NAME ? sort : undefined}
+              >
+                {leading}
+              </HeadingWords>
             </span>
             {kept.map((c) => {
               const column = columns[c]!
@@ -1038,32 +1030,13 @@ export function Table({
                   aria-sort={sorted ? (sort.down ? 'descending' : 'ascending') : undefined}
                   className={cn('flex min-w-0', right && 'justify-end')}
                 >
-                  {column.sorts && headings ? (
-                    <button
-                      type="button"
-                      onClick={() => sortBy(c)}
-                      title={tipOf(c)}
-                      className={cn(
-                        HEADING,
-                        'flex min-w-0 items-center gap-1 hover:text-ink-1',
-                        sorted && 'text-ink-1',
-                      )}
-                    >
-                      <span className="truncate">
-                        <TheirText text={column.name} inline />
-                      </span>
-                      {sorted &&
-                        (sort.down ? (
-                          <ArrowDown className="size-3 shrink-0" />
-                        ) : (
-                          <ArrowUp className="size-3 shrink-0" />
-                        ))}
-                    </button>
-                  ) : (
-                    <span title={tipOf(c)} className={cn(HEADING, 'truncate')}>
-                      <TheirText text={column.name} inline />
-                    </span>
-                  )}
+                  <HeadingWords
+                    sorts={column.sorts === true && headings}
+                    onSort={() => sortBy(c)}
+                    sorted={sorted ? sort : undefined}
+                  >
+                    <TheirText text={column.name} inline />
+                  </HeadingWords>
                 </span>
               )
             })}
@@ -1108,11 +1081,16 @@ export function Table({
               )
               // What the columns that gave way say of it: in its tooltip, and after it.
               const restAt = from === undefined ? undefined : kept.find((c) => c >= from)
-              const away = row.again ? [] : gone.filter((c) => from === undefined || c < from)
+              const cut = keyed && cutHere?.index === index ? cutHere.columns : []
+              const goneHere = row.again ? [] : gone.filter((c) => from === undefined || c < from)
+              // (In its tooltip, what gave way and what's cut where it stands, in its columns'
+              // order. Read after it, only what gave way: a cut cell is read whole where it is.)
+              const away = [...goneHere, ...(row.again ? [] : cut)].sort((a, b) => a - b)
               const restAway = !row.again && from !== undefined && restAt === undefined
               const said = away.length > 0 || restAway
+              const read = goneHere.length > 0 || restAway
               const awayId = `${id}-${index}-away`
-              const describedBy = [...wholes, ...(said ? [awayId] : [])]
+              const describedBy = [...wholes, ...(read ? [awayId] : [])]
               const drawnRow = (
                 <div
                   key={line.key}
@@ -1199,7 +1177,7 @@ export function Table({
                           </span>
                         )
                       ) : (
-                        <span key={c} role="gridcell" className="min-w-0">
+                        <span key={c} role="gridcell" data-column={c} className="min-w-0">
                           <Cell
                             column={columns[c]!}
                             cell={cellAt(row, c)}
@@ -1215,9 +1193,9 @@ export function Table({
                       <TheirText text={row.note} inline />
                     </span>
                   )}
-                  {said && (
+                  {read && (
                     <span id={awayId} className="sr-only">
-                      <Away columns={columns} row={row} away={away} rest={restAway} />
+                      <Away columns={columns} row={row} away={goneHere} rest={restAway} />
                     </span>
                   )}
                 </div>
@@ -1247,6 +1225,86 @@ export function Table({
  * and its value, and the row's rest where every column it would take gave way. In the row's
  * tooltip, and read after the row.
  */
+/** Whether what an element holds runs past it, cut at its end. */
+const isCut = (element: Element | null) =>
+  element !== null && element.scrollWidth > element.clientWidth
+
+/**
+ * A heading's words, cut at their end in a narrow column: whole in Lumovi's own tooltip while
+ * they're cut (on hover, and on the keyboard's focus where it sorts), and nothing while they fit.
+ */
+function HeadingWords({
+  sorts,
+  onSort,
+  sorted,
+  children,
+}: {
+  sorts: boolean
+  onSort: () => void
+  sorted?: { down: boolean }
+  children: ReactNode
+}) {
+  const words = useRef<HTMLSpanElement>(null)
+  const cut = () => isCut(words.current)
+  return (
+    <Tooltip content={children} when={cut}>
+      {sorts ? (
+        <button
+          type="button"
+          onClick={onSort}
+          className={cn(
+            HEADING,
+            'flex min-w-0 items-center gap-1 hover:text-ink-1',
+            sorted && 'text-ink-1',
+          )}
+        >
+          <span ref={words} className="truncate">
+            {children}
+          </span>
+          {sorted &&
+            (sorted.down ? (
+              <ArrowDown className="size-3 shrink-0" />
+            ) : (
+              <ArrowUp className="size-3 shrink-0" />
+            ))}
+        </button>
+      ) : (
+        <span ref={words} className={cn(HEADING, 'truncate')}>
+          {children}
+        </span>
+      )}
+    </Tooltip>
+  )
+}
+
+/** A text, cut at its end by its column's width: whole in Lumovi's own tooltip while it's cut. */
+function CutText({ cell }: { cell: Extract<TableCell, { kind: 'text' }> }) {
+  const text = useRef<HTMLSpanElement>(null)
+  return (
+    <Tooltip
+      content={
+        <span className={cn(cell.mono && 'font-mono')}>
+          <TheirText text={cell.text} inline />
+        </span>
+      }
+      when={() => isCut(text.current)}
+    >
+      <span
+        ref={text}
+        data-cuts
+        // (Over a cut text, its own tooltip: the row's, which says what gave way, waits until the
+        // pointer's elsewhere on the row. Two at once would close each other.)
+        onPointerMove={(event) => {
+          if (isCut(text.current)) event.stopPropagation()
+        }}
+        className={cn('block truncate text-ink-2', cell.mono && MONO)}
+      >
+        <TheirText text={cell.text} inline />
+      </span>
+    </Tooltip>
+  )
+}
+
 function Away({
   columns,
   row,
@@ -1473,12 +1531,13 @@ function Cell({
         </span>
       )
     case 'text': {
+      // (Cut by its column's width, it's said whole in Lumovi's tooltip: hovered, or in the row's.)
+      if (!cell.full?.their) return <CutText cell={cell} />
       const set = (
         <span className={cn('block truncate text-ink-2', cell.mono && MONO)}>
           <TheirText text={cell.text} inline />
         </span>
       )
-      if (!cell.full?.their) return set
       return (
         <>
           <Tooltip
