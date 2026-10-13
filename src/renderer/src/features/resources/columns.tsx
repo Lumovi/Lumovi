@@ -1083,6 +1083,7 @@ export function sortedBy(
       sorting(fallback) ??
       shown.find((c) => c.sort) ??
       own.find((c) => c.id === fallback && c.sort) ??
+      // (Can't miss: the name is always shown and sorts; Events, without one, has Last seen.)
       own.find((c) => c.sort)!,
     desc: false,
   }
