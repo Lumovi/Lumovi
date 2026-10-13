@@ -175,6 +175,8 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
     }
     const command = commandOf(r, resource, namespace, name)
 
+    /** A scale's count, where the request has one. */
+    const scaledTo = r.action === 'scale' && typeof r.replicas === 'number' ? r.replicas : undefined
     /** The audit's entry: Lumovi's words, never the plugin's verb, and no value the person set. */
     const recorded = (
       outcome: 'success' | 'failure' | 'refused' | 'cancelled',
@@ -193,8 +195,10 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
           outcome === 'success'
             ? `${DONE[r.action]} ${what}, as ${by} proposed`
             : `Didn’t ${r.action === 'patch' ? 'change' : r.action} ${what} that ${by} proposed: ${why}`,
-        // (A patch's or a create's command would carry what the person set: its paths instead.)
-        ...(r.action === 'patch' || r.action === 'create' ? {} : { command }),
+        // (A patch's or a create's command would carry what the person set: its paths instead. A
+        // scale's count is a number, said as Lumovi's own scale says it: its command and count,
+        // where it has one (a cancel has none, and says none).)
+        ...(r.action === 'delete' || scaledTo !== undefined ? { command } : {}),
         details: {
           plugin: plugin.name,
           pluginVersion: plugin.version,
@@ -203,6 +207,7 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
           action: r.action,
           fields: r.fields ?? [],
           ...((r.action === 'patch' || r.action === 'create') && { paths: fieldsOf(r.body) }),
+          ...(scaledTo !== undefined && { replicas: scaledTo }),
         },
         ...(error && { error }),
       })

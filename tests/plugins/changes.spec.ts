@@ -24,6 +24,7 @@ import {
   commandOf,
   createdObject,
   heredocEnd,
+  pluginChanges,
   takenFrom,
 } from '../../src/backend/plugin-changes.ts'
 
@@ -539,4 +540,79 @@ test('a create is said as kubectl reading the very object shown: in Kubernetes�
   }
   expect(heredocEnd('a\nLUMOVI_EOF\nLUMOVI_EOF_2')).toBe('LUMOVI_EOF_3')
   expect(heredocEnd('apiVersion: v1')).toBe('LUMOVI_EOF')
+})
+
+test('a scale is kept in the audit as Lumovi’s own is: its command and its count, and a cancel’s with neither', async () => {
+  const recorded: Record<string, unknown>[] = []
+  // (One of its own kinds: a plugin proposes changes to no other.)
+  const rollouts = {
+    kind: 'Rollout.argoproj.io',
+    apiKind: 'Rollout',
+    plural: 'rollouts',
+    group: 'argoproj.io',
+    version: 'v1alpha1',
+    namespaced: true,
+    label: 'Rollouts',
+    subresources: ['scale'],
+  }
+  const web = {
+    apiVersion: 'argoproj.io/v1alpha1',
+    kind: 'Rollout',
+    metadata: { name: 'web', namespace: 'shop', uid: 'u1', resourceVersion: '9' },
+    spec: { replicas: 2 },
+  }
+  const change = pluginChanges({
+    kube: {
+      resource: async () => rollouts,
+      get: async () => ({ ok: true, data: web }),
+      change: async () => ({ ok: true, data: web }),
+      isReadOnly: () => false,
+    } as never,
+    known: async () =>
+      [
+        {
+          name: 'tinker',
+          version: '1.0.0',
+          origin: 'lumovi',
+          file: 'tinker.yaml',
+          digest: 'sha256:d',
+          code: 'x',
+          codeDigest: 'sha256:c',
+          grant: { secrets: [] },
+          changes: [{ kind: 'argoproj.io/Rollout', actions: ['scale'] }],
+          label: 'Tinker',
+        },
+      ] as never,
+    to: () => ({ host: 'desktop' }) as never,
+    audit: { record: (event: Record<string, unknown>) => void recorded.push(event) } as never,
+  })
+  const asked = {
+    plugin: 'tinker',
+    digest: 'sha256:d',
+    codeDigest: 'sha256:c',
+    context: 'prod',
+    action: 'scale',
+    target: { kind: 'Rollout.argoproj.io', namespace: 'shop', name: 'web' },
+    // (A count the person chose, in the plugin's field.)
+    replicas: 7346,
+    fields: ['count'],
+  }
+  // (A cancel says no count: Lumovi's dialog sends none with it.)
+  const { replicas: _count, ...cancelled } = asked
+  expect(await change({ ...cancelled, step: 'cancelled' })).toEqual({ ok: true })
+  expect(
+    await change({ ...asked, step: 'make', seen: { resourceVersion: '9', uid: 'u1' } }),
+  ).toMatchObject({ ok: true })
+  expect(recorded.map(({ outcome }) => outcome)).toEqual(['cancelled', 'success'])
+  const [unsaid, made] = recorded as { command?: string; details: Record<string, unknown> }[]
+  expect([unsaid!.command, unsaid!.details.replicas, unsaid!.details.paths]).toEqual([
+    undefined,
+    undefined,
+    undefined,
+  ])
+  expect(made!.command).toBe(
+    'kubectl scale rollout.argoproj.io/web --replicas=7346 -n shop --context prod',
+  )
+  expect(made!.details.replicas).toBe(7346)
+  expect(made!.details.paths).toBeUndefined()
 })
