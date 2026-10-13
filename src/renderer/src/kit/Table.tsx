@@ -55,9 +55,11 @@ import {
   type WrittenTableState,
   type DrawnRow,
 } from '@shared/kit/table'
+import { Popover } from 'radix-ui'
 import { Button } from '@renderer/components/Button'
 import { Sheet } from '@renderer/components/Sheet'
 import { HEALTH_STYLE } from '@renderer/components/Status'
+import { TIP, Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { useLayout } from '@renderer/lib/layout'
@@ -330,6 +332,31 @@ const SET = {
 } as const
 /** A fact on a phone's card. */
 const FACT = 'text-xs tabular-nums'
+/** Words a plugin asked for in fixed-width type (a revision, an ID): a step smaller, as an image's reference is. */
+const MONO = 'font-mono text-xs'
+/** Whether a cell's words are set in `MONO`. */
+const isMono = (cell: TableCell) => cell.kind === 'text' && cell.mono === true
+/** The whole of what a cell's words stand for, where the plugin gave it. */
+const fullOf = (cell: TableCell) => (cell.kind === 'text' ? cell.full : undefined)
+
+/**
+ * The widest of some cells' words, each set as it's drawn: in its column's type, or in `MONO`
+ * where the plugin asked for it.
+ */
+function widestCells(cells: readonly TableCell[], set: string, fonts: number): number {
+  return Math.max(
+    widest(
+      cells.filter((cell) => !isMono(cell)).map((cell) => drawn(words(cell))),
+      set,
+      fonts,
+    ),
+    widest(
+      cells.filter(isMono).map((cell) => drawn(words(cell))),
+      cn(set, MONO),
+      fonts,
+    ),
+  )
+}
 
 /**
  * A line of what's drawn: a group's heading, or a row (one inside another is set in). Its key is
@@ -381,6 +408,7 @@ export function Table({
   title,
   columns,
   headings,
+  leadHeading,
   nameSorts,
   rows,
   shows,
@@ -407,6 +435,8 @@ export function Table({
   const id = useId()
   const phone = useLayout() === 'phone'
   const scroll = useRef<HTMLDivElement>(null)
+  // Whether the keyboard has the table: its active row then shows what its cells hold whole.
+  const [keyed, setKeyed] = useState(false)
   const [sort, setSort] = useState<Sort>()
   // The rows a person turned from how they start (closed, or all open): by their lines' keys.
   const [turned, setTurned] = useState<ReadonlySet<string>>(new Set())
@@ -528,8 +558,8 @@ export function Table({
         const width = Math.max(
           // (Its heading counts where headings show.)
           headings ? widest([drawn(column.name)], HEADING, fonts) : 0,
-          widest(
-            everyRow.map((row) => drawn(words(cellAt(row, c)))),
+          widestCells(
+            everyRow.map((row) => cellAt(row, c)),
             SET[column.kind],
             fonts,
           ),
@@ -562,10 +592,13 @@ export function Table({
     const everyRow = groups.flatMap((group) => group.rows.flatMap(withInside))
     return columns.every(
       (column, c) =>
-        widest(
-          [drawn(column.name), ...everyRow.map((row) => drawn(words(cellAt(row, c))))],
-          FACT,
-          fonts,
+        Math.max(
+          widest([drawn(column.name)], FACT, fonts),
+          widestCells(
+            everyRow.map((row) => cellAt(row, c)),
+            FACT,
+            fonts,
+          ),
         ) <= third,
     )
   }, [phone, screen, inCard, groups, columns, fonts])
@@ -676,6 +709,7 @@ export function Table({
     const action = keys[event.key]
     if (!action || event.metaKey || event.ctrlKey || event.altKey) return
     event.preventDefault()
+    setKeyed(true)
     action()
   }
 
@@ -690,8 +724,10 @@ export function Table({
     ...(nameSorts ? [NAME] : []),
     ...columns.flatMap((column, c) => (column.sorts ? [c] : [])),
   ]
+  // (The lead column's heading: the plugin's, where its rows aren't things with names.)
+  const leading: ReactNode = leadHeading?.their ? <TheirText text={leadHeading} inline /> : 'Name'
   const nameOf = (column: number): ReactNode =>
-    column === NAME ? 'Name' : <TheirText text={columns[column]?.name} inline />
+    column === NAME ? leading : <TheirText text={columns[column]?.name} inline />
   // How many show, each group's own `shows` at most, of how many there are.
   const showing = groups.reduce((sum, group, g) => sum + Math.min(limitOf(g), group.rows.length), 0)
   const count =
@@ -849,8 +885,13 @@ export function Table({
           aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
           onKeyDown={onKeyDown}
           onFocus={(event) => {
-            if (active < 0 && event.target === event.currentTarget) setActive(stop(0, 1))
+            if (event.target !== event.currentTarget) return
+            if (active < 0) setActive(stop(0, 1))
+            setKeyed(event.currentTarget.matches(':focus-visible'))
           }}
+          onBlur={(event) => event.target === event.currentTarget && setKeyed(false)}
+          // (A pointer's press is no keyboard's: what the keyboard's row shows, it stops showing.)
+          onPointerDown={() => setKeyed(false)}
           className={cn('group/table outline-none', windowed && 'max-h-[32rem] overflow-y-auto')}
         >
           <div
@@ -881,7 +922,7 @@ export function Table({
                     sort?.column === NAME && 'text-ink-1',
                   )}
                 >
-                  Name
+                  {leading}
                   {sort?.column === NAME &&
                     (sort.down ? (
                       <ArrowDown className="size-3 shrink-0" />
@@ -890,7 +931,7 @@ export function Table({
                     ))}
                 </button>
               ) : (
-                <span className={HEADING}>Name</span>
+                <span className={HEADING}>{leading}</span>
               )}
             </span>
             {columns.map((column, c) => {
@@ -963,6 +1004,13 @@ export function Table({
               const { row } = line
               const from = row.rest?.from
               const called = spelled(row.lead.name.their)
+              // What its cells stand for whole, said after the row: each cell's own, by its place.
+              const wholeOf = (c: number) => `${id}-${index}-whole-${c}`
+              const wholes = columns.flatMap((_, c) =>
+                (from === undefined || c < from) && fullOf(cellAt(row, c))?.their
+                  ? [wholeOf(c)]
+                  : [],
+              )
               return (
                 <div
                   key={line.key}
@@ -970,6 +1018,7 @@ export function Table({
                   role="row"
                   aria-rowindex={rowNumbers[index]! + 1}
                   aria-level={nests ? line.depth + 1 : undefined}
+                  aria-describedby={wholes.length > 0 ? wholes.join(' ') : undefined}
                   // (Active, not picked: nothing here picks rows.)
                   data-active={active === index}
                   aria-expanded={line.holds ? line.open : undefined}
@@ -1046,7 +1095,12 @@ export function Table({
                         )
                       ) : (
                         <span key={c} role="gridcell" className="min-w-0">
-                          <Cell column={column} cell={cellAt(row, c)} />
+                          <Cell
+                            column={column}
+                            cell={cellAt(row, c)}
+                            shown={keyed && active === index}
+                            whole={wholeOf(c)}
+                          />
                         </span>
                       ),
                     )
@@ -1168,8 +1222,22 @@ const METER = {
   critical: { fill: 'bg-critical', track: 'bg-critical/20' },
 } as const
 
-/** A cell, drawn Lumovi's way for its kind. */
-function Cell({ column, cell }: { column: TableColumn; cell: TableCell }) {
+/**
+ * A cell, drawn Lumovi's way for its kind. Words that stand for something longer show it whole
+ * in Lumovi's tooltip: hovered, and while the keyboard is on its row (`shown`); `whole` is where
+ * a screen reader finds it, said after the row.
+ */
+function Cell({
+  column,
+  cell,
+  shown = false,
+  whole,
+}: {
+  column: TableColumn
+  cell: TableCell
+  shown?: boolean
+  whole?: string
+}) {
   switch (cell.kind) {
     case 'none':
       // (Where its column's values stand: right for a number or an age.)
@@ -1236,12 +1304,32 @@ function Cell({ column, cell }: { column: TableColumn; cell: TableCell }) {
           <Words text={words(cell)} />
         </span>
       )
-    case 'text':
-      return (
-        <span className="block truncate text-ink-2">
+    case 'text': {
+      const set = (
+        <span className={cn('block truncate text-ink-2', cell.mono && MONO)}>
           <TheirText text={cell.text} inline />
         </span>
       )
+      if (!cell.full?.their) return set
+      return (
+        <>
+          <Tooltip
+            content={
+              // (A whole that's compared letter by letter with its first seven: in their type.)
+              <span className={cn(cell.mono && 'font-mono')}>
+                <TheirText text={cell.full} inline />
+              </span>
+            }
+            shown={shown}
+          >
+            {set}
+          </Tooltip>
+          <span id={whole} hidden>
+            {spelled(cell.full.their)}
+          </span>
+        </>
+      )
+    }
   }
 }
 
@@ -1299,11 +1387,17 @@ function Card({
             c,
             name: column.name,
             said: words(cellAt(row, c)),
+            mono: isMono(cellAt(row, c)),
+            full: fullOf(cellAt(row, c)),
             // (A meter at its warning or critical line says so, as a status does.)
             level: meterLevel(cellAt(row, c)),
           },
         ],
   )
+  // A fact that stands for something longer is its own small thing to tap, inside a card that's
+  // tapped to open: the card's tap goes under its facts then, never around them.
+  const tapped = facts.some((fact) => fact.full?.their)
+  const named = `${id}-named`
   const body = (
     <>
       <span className="flex items-center gap-2.5">
@@ -1330,10 +1424,20 @@ function Card({
               className={cn(
                 'mt-0.5 [overflow-wrap:anywhere] tabular-nums',
                 fact.level ? HEALTH_STYLE[fact.level].text : 'text-ink-1',
+                fact.mono && 'font-mono',
               )}
             >
               {fact.level && <LevelIcon level={fact.level} />}
-              <Words text={fact.said} />
+              {fact.full?.their ? (
+                <Whole
+                  said={fact.said}
+                  full={fact.full}
+                  mono={fact.mono}
+                  id={`${id}-whole-${fact.c}`}
+                />
+              ) : (
+                <Words text={fact.said} />
+              )}
             </dd>
           </div>
         ))}
@@ -1360,7 +1464,22 @@ function Card({
       style={{ paddingLeft: Math.min(line.depth, PHONE_DEEPEST) * PHONE_INDENT }}
     >
       <Deeper depth={line.depth} deepest={PHONE_DEEPEST} step={PHONE_INDENT} />
-      {row.opens ? (
+      {row.opens && tapped ? (
+        // A row that opens is the whole card: under its facts, where one is tapped on its own.
+        <div className="relative min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-labelledby={named}
+            className="absolute inset-0 active:bg-surface-3"
+          />
+          {/* (Its facts take no taps, so the card's reach the button under them: only a Whole
+              takes its own. Anything else to tap in here would need the same.) */}
+          <div id={named} className="pointer-events-none relative px-3.5 py-2.5">
+            {body}
+          </div>
+        </div>
+      ) : row.opens ? (
         // A row that opens is the whole card.
         <button
           type="button"
@@ -1384,6 +1503,54 @@ function Card({
         </button>
       )}
     </li>
+  )
+}
+
+/**
+ * On a phone, a fact's words that stand for something longer: tapped, they show it whole in
+ * Lumovi's tooltip's look, above them where there's room (over what's been read, not what's
+ * next), and a tap anywhere else puts it away. Their own 44 px to tap, inside the fact; a screen
+ * reader hears the words, then the whole after them.
+ */
+function Whole({
+  said,
+  full,
+  mono,
+  id,
+}: {
+  said: Their | string
+  full: Their
+  mono: boolean
+  id: string
+}) {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          aria-describedby={id}
+          // (Not the card's tap too, where the card opens something.)
+          onClick={(event) => event.stopPropagation()}
+          className="pointer-events-auto relative -my-3.5 inline-flex min-h-11 max-w-full items-center text-left"
+        >
+          <Words text={said} />
+        </button>
+      </Popover.Trigger>
+      <span id={id} hidden>
+        {spelled(full.their)}
+      </span>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          sideOffset={6}
+          // (Inside the phone's 16 px edge, as everything on it is.)
+          collisionPadding={16}
+          className={cn(TIP, '[overflow-wrap:anywhere]', mono && 'font-mono')}
+        >
+          <TheirText text={full} inline />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }
 

@@ -48,6 +48,8 @@ export const TABLE_LIMITS = {
   line: 500,
   /** Rows may hold rows, and those hold none. */
   depth: 1,
+  /** Characters of the lead column's heading: a column's heading, short. */
+  leadHeading: 40,
 } as const
 
 export const HEALTHS = [
@@ -85,7 +87,12 @@ export const column = record(
 export const cell = choice(
   'kind',
   {
-    text: { text: name },
+    /**
+     * Words; `mono` draws them in Lumovi's fixed-width type (a revision, an ID), and `full` is
+     * the whole of what they stand for (a commit's whole hash behind its first seven): said in
+     * its tooltip and to a screen reader, never in the cell.
+     */
+    text: { text: name, mono: yesOrNo, full: name },
     /** A number, or a number with its unit as text ("7 nodes"): stands right, in tabular figures. */
     number: { value: number(-LARGEST, LARGEST), text: name },
     /** A moment, as text (RFC 3339): Lumovi says how long ago, or how soon, never the plugin. */
@@ -97,7 +104,7 @@ export const cell = choice(
     /** Nothing to say here: drawn as a dash. */
     none: {},
   },
-  { number: ['text'], meter: ['of'] },
+  { text: ['mono', 'full'], number: ['text'], meter: ['of'] },
 )
 
 /** What a row is called: a dot in its level, its name, a quiet word beside, a line under. */
@@ -167,6 +174,8 @@ export const table = {
     columns: list(column, TABLE_LIMITS.columns),
     /** Whether the columns' names show as headings; without them it's a list of rows. */
     headings: yesOrNo,
+    /** The lead column's heading, where its rows aren't things with names: "Name" unless said. */
+    leadHeading: text(TABLE_LIMITS.leadHeading),
     /** Whether a person can sort by the rows' names. */
     nameSorts: yesOrNo,
     rows: list(row, TABLE_LIMITS.rows),

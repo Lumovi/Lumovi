@@ -48,6 +48,20 @@ test('the Table’s declaration is one the door takes, and so is a table written
   const launching = { ...row, rest: { from: 1, text: 'Launching', time: '2026-10-12T08:30:00Z' } }
   expect(said({ ...PODS, rows: [launching] })).toBeUndefined()
   expect(said({ ...PODS, cut: 'cut-1' })).toBeUndefined()
+  // Its lead column's heading, and a revision in fixed-width type with its whole hash.
+  const hash = '4f1c9aa8b7e6f5a4c3b2a1908f7e6d5c4b3a2910'
+  const synced = {
+    key: hash,
+    lead: { name: '3h ago' },
+    cells: [{ kind: 'text', text: hash.slice(0, 7), mono: true, full: hash }],
+  }
+  const history = {
+    title: 'History',
+    headings: true,
+    columns: [{ name: 'Revision', kind: 'text' }],
+  }
+  expect(said({ ...history, leadHeading: 'Synced', rows: [synced] })).toBeUndefined()
+  expect(said({ ...history, rows: [{ ...synced, key: 'all', rows: [synced] }] })).toBeUndefined()
 })
 
 test('a table is checked as the door checks one, and refused where it says more than it may', () => {
@@ -103,6 +117,24 @@ test('a table is checked as the door checks one, and refused where it says more 
     ],
     [{ state: { is: 'failed', title: 'x' } }, 'Table.state.said: is required'],
     [{ onOpen: 'javascript:alert(1)' }, 'Table.onOpen: should be a handler'],
+    [{ leadHeading: 'x'.repeat(41) }, 'Table.leadHeading: is longer than 40 characters'],
+    [
+      { rows: [{ ...row, cells: [{ kind: 'text', text: 'abc', mono: 'yes' }, row.cells[1]] }] },
+      'Table.rows[0].cells[0].mono: should be true or false',
+    ],
+    [
+      {
+        rows: [
+          { ...row, cells: [{ kind: 'text', text: 'abc', full: 'x'.repeat(254) }, row.cells[1]] },
+        ],
+      },
+      'Table.rows[0].cells[0].full: is longer than 253 characters',
+    ],
+    // (Only words are set in fixed-width type, or stand for something longer.)
+    [
+      { rows: [{ ...row, cells: [{ ...row.cells[0], mono: true }, row.cells[1]] }] },
+      'Table.rows[0].cells[0]: takes nothing named "mono"',
+    ],
   ] as const) {
     expect(said({ ...PODS, ...change }), refused).toBe(refused)
   }
