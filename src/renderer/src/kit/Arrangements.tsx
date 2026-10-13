@@ -5,7 +5,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { spelled } from '@shared/kit/characters'
-import type { ListDestination, Their } from '@shared/kit/declare'
+import type { ListDestination, ReachDestination, Their } from '@shared/kit/declare'
 import type {
   PairProps,
   PickList as PickListSaid,
@@ -18,6 +18,7 @@ import { Tile } from '@renderer/components/Tile'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { TILE_ROW, tileSpan } from '@renderer/lib/tile-rows'
+import { offered, reachTip } from '@renderer/plugins/reach'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { useUi } from '@renderer/state/ui'
 import { NamedAbove } from './PageHeader'
@@ -69,10 +70,12 @@ export function Tiles({
 }: {
   tiles: readonly TileSaid[]
   /** Opens the list a tile names, as the door made it: Lumovi's own to do. */
-  go?: (list: ListDestination) => void
+  go?: (to: ListDestination | ReachDestination) => void
   onOpen?: TilesProps['onOpen']
 }) {
   const across = Math.max(2, Math.min(4, tiles.length)) as 2 | 3 | 4
+  // (A tile that links to a place Lumovi doesn't have here opens nothing.)
+  const layout = useLayout()
   return (
     // (Laid out as Lumovi's own rows of tiles are: by the width it's given, not the window's.)
     <div className="@container min-w-0">
@@ -101,13 +104,14 @@ export function Tiles({
               wraps={tile.cut !== undefined}
               cut
               onOpen={
-                tile.opens
+                tile.opens && (tile.opens.to !== 'reach' || offered(tile.opens.at, layout))
                   ? () => {
                       go?.(tile.opens!)
                       onOpen?.({ tile: tile.key })
                     }
                   : undefined
               }
+              {...(tile.opens?.to === 'reach' ? { opensTip: reachTip(tile.opens) } : {})}
             />
           </div>
         ))}

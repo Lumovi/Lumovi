@@ -278,6 +278,8 @@ function DetailTabs({
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
   const editing = useActionsUi((state) => state.editing === ref)
   const requested = useActionsUi((state) => (state.tab?.ref === ref ? state.tab.tab : null))
+  // (A container a plugin's link asked its logs from: shown from it, each ask anew.)
+  const logsAsked = useActionsUi((state) => (state.logs?.ref === ref ? state.logs : null))
   const tabShown = useActionsUi((state) => state.tabShown)
   const [tab, setTab] = useState(requested ?? chosen ?? 'overview')
   // Editing happens in the YAML tab, and stays there until it's saved or cancelled.
@@ -365,7 +367,12 @@ function DetailTabs({
       )}
       {kind === 'Pod' && (
         <TabContent value="logs" className={own}>
-          <LogsView pods={[object]} name={object.metadata.name} />
+          <LogsView
+            key={logsAsked?.n}
+            pods={[object]}
+            name={object.metadata.name}
+            {...(logsAsked ? { container: logsAsked.container } : {})}
+          />
         </TabContent>
       )}
       {podLogs && (

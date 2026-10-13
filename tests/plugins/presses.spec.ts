@@ -18,9 +18,10 @@ import {
   text,
   wrongWithFields,
   wrongWithPart,
+  type ListDestination,
   type Part,
 } from '../../src/shared/kit/declare.ts'
-import { header } from '../../src/shared/kit/page.ts'
+import { header, headerProblem, pressable } from '../../src/shared/kit/page.ts'
 import { DoorPage } from '../../src/shared/plugin-door.ts'
 import {
   callOf,
@@ -388,7 +389,10 @@ test('a list to open is one the door made: of a kind its file names, the same ea
   const page = new Tokens({ objects: 0 })
   const kinds = new Set(['NodePool.karpenter.sh', 'Node'])
   const swap = swapFor(page, () => undefined, undefined, kinds)
-  const pools = swap.destination({ list: 'karpenter.sh/NodePool', health: ['critical'] })!
+  const pools = swap.destination({
+    list: 'karpenter.sh/NodePool',
+    health: ['critical'],
+  }) as ListDestination
   expect(pools).toEqual({ to: 'list', kind: 'NodePool.karpenter.sh', health: ['critical'] })
   expect(Object.isFrozen(pools) && Object.isFrozen(pools.health)).toBe(true)
   // Said the same way, the same one: a page drawn again hands its part what it had.
@@ -669,4 +673,101 @@ test('a press is what it does, not what its button said: on a phone nothing a pl
   }
   // The rule takes no word of a plugin's at all: there's nowhere to hand it one.
   expect(mayStart.length).toBe(2)
+})
+
+test('a link to one of Lumovi’s places is one the door made: where its file says, for an object it handed, of a kind that place is for', () => {
+  const page = new Tokens({ objects: 0 })
+  const [pod, service, node] = page.hand(1, [
+    { kind: 'Pod', namespace: 'shop', name: 'cart-1' },
+    { kind: 'Service', namespace: 'shop', name: 'cart' },
+    { kind: 'Node', name: 'worker-1' },
+  ]) as string[]
+  const unlinked: string[] = []
+  const swap = swapFor(
+    page,
+    () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    new Set(['logs', 'shell', 'port-forward']),
+    (at) => unlinked.push(at),
+  )
+  const shell = swap.destination({ object: pod!, at: 'shell', container: 'app' })!
+  expect(shell).toEqual({
+    to: 'reach',
+    at: 'shell',
+    object: { kind: 'Pod', namespace: 'shop', name: 'cart-1' },
+    container: 'app',
+  })
+  expect(Object.isFrozen(shell)).toBe(true)
+  // Said the same way, the same one; and it's this page's to open, as a list it made is.
+  expect(swap.destination({ object: pod!, at: 'shell', container: 'app' })).toBe(shell)
+  expect(page.destinationOf(shell)).toBe(shell)
+  expect(page.destinationOf({ ...shell })).toBeUndefined()
+  expect(swap.destination({ object: service!, at: 'port-forward', port: 80 })).toMatchObject({
+    to: 'reach',
+    at: 'port-forward',
+    port: 80,
+  })
+  // Each place is for its kinds only: no shell or logs of a Service, nothing of a Node.
+  expect(swap.destination({ object: service!, at: 'shell' })).toBeUndefined()
+  expect(swap.destination({ object: node!, at: 'logs' })).toBeUndefined()
+  // An object it doesn't hold links to nothing.
+  expect(swap.destination({ object: 'not-a-token-it-holds', at: 'logs' })).toBeUndefined()
+  // A place its file doesn't name links to nothing, and its author is told which.
+  const logsOnly = swapFor(
+    page,
+    () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    new Set(['logs']),
+    (at) => unlinked.push(at),
+  )
+  expect(logsOnly.destination({ object: pod!, at: 'shell' })).toBeUndefined()
+  expect(logsOnly.destination({ object: pod!, at: 'logs' })).toMatchObject({ at: 'logs' })
+  expect(unlinked).toEqual(['shell'])
+})
+
+test('a link is written as an object’s token and a place, a container only for Logs or Shell, a port only for a forward', () => {
+  const problem = (value: unknown) =>
+    wrongWithFields({ goes: value }, { goes: destination }, [], 'X')
+  expect(problem({ object: 'abc', at: 'shell', container: 'app' })).toBeUndefined()
+  expect(problem({ object: 'abc', at: 'port-forward', port: 8080 })).toBeUndefined()
+  expect(problem({ object: 'abc', at: 'exec' })).toBe(
+    'X.goes.at: should be one of logs, shell, port-forward',
+  )
+  expect(problem({ object: 'a/b', at: 'logs' })).toBe(
+    'X.goes.object: should be an object’s token, as Lumovi handed it',
+  )
+  expect(problem({ object: 'abc', at: 'port-forward', container: 'app' })).toBe(
+    'X.goes.container: goes with logs or shell',
+  )
+  expect(problem({ object: 'abc', at: 'logs', port: 80 })).toBe(
+    'X.goes.port: goes with port-forward',
+  )
+  expect(problem({ object: 'abc', at: 'port-forward', port: 70000 })).toBe(
+    'X.goes.port: should be a port, 1 to 65535',
+  )
+  expect(problem({ object: 'abc', at: 'shell', container: 'Not A Name' })).toBe(
+    'X.goes.container: should be a container’s name',
+  )
+  expect(problem({ object: 'abc', at: 'logs', url: 'https://example.com' })).toBe(
+    'X.goes: takes nothing named "url"',
+  )
+})
+
+test('a header button that goes somewhere is never pressed to its plugin, and changes and asks nothing', () => {
+  const goes = { object: 'abc', at: 'logs' }
+  expect(pressable([{ key: 'logs', name: 'Logs', goes }], { button: 'logs' })).toBe(false)
+  expect(pressable([{ key: 'back', name: 'Back up' }], { button: 'back' })).toBe(true)
+  expect(headerProblem([{ key: 'logs', goes, changes: true }])).toBe(
+    'Header button logs goes somewhere of Lumovi’s: it changes nothing and asks nothing first.',
+  )
+  expect(headerProblem([{ key: 'logs', goes, asks: true }])).toBe(
+    'Header button logs goes somewhere of Lumovi’s: it changes nothing and asks nothing first.',
+  )
+  expect(headerProblem([{ key: 'logs', goes }])).toBeUndefined()
 })

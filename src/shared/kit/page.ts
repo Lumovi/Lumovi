@@ -148,6 +148,14 @@ const button = record(
      * and what a screen reader says of it. A press of it goes nowhere.
      */
     off: text(FRAME_LIMITS.off),
+    /**
+     * Where it goes, in place of telling the plugin it was pressed: one of Lumovi's own places
+     * for an object the page was handed (its Logs or Shell tab, its Port forward dialog), or a
+     * list of Lumovi's own. Lumovi opens it, says where in the button's tooltip, and draws its
+     * icon for the place before the plugin's word; where Lumovi doesn't have that place, the
+     * button isn't drawn. It changes nothing and asks nothing first.
+     */
+    goes: destination,
   },
   ['key', 'name'],
 )
@@ -355,15 +363,23 @@ export function pressable(buttons: unknown, carries: unknown): boolean {
   const pressed = (carries as { button?: unknown } | null)?.button
   return (
     Array.isArray(buttons) &&
-    buttons.some((button: { key?: unknown; off?: unknown }) => {
-      return button.key === pressed && button.off === undefined
+    buttons.some((button: { key?: unknown; off?: unknown; goes?: unknown }) => {
+      // (One that goes somewhere is Lumovi's to open: the plugin is never told of its press.)
+      return button.key === pressed && button.off === undefined && button.goes === undefined
     })
   )
 }
 
-export function headerProblem(buttons: readonly Keyed[]): string | undefined {
+export function headerProblem(
+  buttons: readonly (Keyed & { goes?: unknown; changes?: unknown; asks?: unknown })[],
+): string | undefined {
   const same = clash(buttons.map((each) => each.key))
-  return same && `Header buttons ${same[0]} and ${same[1]} have the same key.`
+  if (same) return `Header buttons ${same[0]} and ${same[1]} have the same key.`
+  const link = buttons.find((each) => each.goes !== undefined && (each.changes || each.asks))
+  return (
+    link &&
+    `Header button ${link.key} goes somewhere of Lumovi’s: it changes nothing and asks nothing first.`
+  )
 }
 
 /**

@@ -381,7 +381,18 @@ export class PageConnection {
         }
       },
     })
-    const deps = { store: configs, envReady: ready, isReadOnly, audit: recording, guard }
+    // The plugins this server has, as its backend reads them: read each time they're asked.
+    const knownPlugins = () =>
+      plugins({ path: config.pluginsDir, shown: config.pluginsDir }, 'server', version)
+    const deps = {
+      store: configs,
+      envReady: ready,
+      isReadOnly,
+      audit: recording,
+      guard,
+      // (Which plugin a link that brought the person came from, for the history: the backend's own.)
+      plugin: async (name: string) => (await knownPlugins()).find((each) => each.name === name),
+    }
     const terminals = new Terminals(
       {
         ...deps,
@@ -454,8 +465,7 @@ export class PageConnection {
       logs,
       files,
       pluginsDirectory: { path: config.pluginsDir, shown: config.pluginsDir },
-      knownPlugins: () =>
-        plugins({ path: config.pluginsDir, shown: config.pluginsDir }, 'server', version),
+      knownPlugins,
       // (Read each time it's asked: how this browser's box check came out, for the box's walls as
       // they are. A server without a box has no check, and hands code to no one.)
       handOverTo: () => ({

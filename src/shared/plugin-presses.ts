@@ -19,11 +19,14 @@ import {
   wrongWithFields,
   type CutRef,
   type ListDestination,
+  type Reach,
+  type ReachDestination,
   type ObjectRef,
   type Part,
   type SecretRef,
   type Swap,
   type WrittenDestination,
+  type WrittenReach,
 } from './kit/declare'
 import type { Health } from './health'
 import { CHANGE_LIMITS } from './plugin-changes'
@@ -118,6 +121,9 @@ export class Tokens {
   /** The lists to open it made, by how each was said; and as a set, to tell them apart. */
   readonly #listsBy = new Map<string, ListDestination>()
   readonly #lists = new Set<ListDestination>()
+  /** The links to Lumovi's own places it made, likewise. */
+  readonly #reachesBy = new Map<string, ReachDestination>()
+  readonly #reaches = new Set<ReachDestination>()
   /** How reads were cut, by the token of each; and each read's one token, its latest answer's. */
   readonly #cuts = new Map<string, CutRef>()
   readonly #cutBy = new Map<number, string>()
@@ -295,9 +301,44 @@ export class Tokens {
    */
   destinationOf(object: unknown): Destination | undefined {
     if (typeof object !== 'object' || object === null || !this.#given.has(object)) return undefined
-    return this.#lists.has(object as ListDestination)
-      ? (object as ListDestination)
-      : { to: 'object', object: object as ObjectRef }
+    if (this.#lists.has(object as ListDestination)) return object as ListDestination
+    if (this.#reaches.has(object as ReachDestination)) return object as ReachDestination
+    return { to: 'object', object: object as ObjectRef }
+  }
+
+  /**
+   * A link to one of Lumovi's own places for an object this page holds, as the door hands it to
+   * a part: only where `links` (what its plugin's file says its pages link to) has that place,
+   * and only for an object of a kind that place is for (`REACHED`); frozen, the same one each
+   * time it's said the same way. Anything else gives nothing, and `unlinked` is told which place.
+   */
+  reachOf(
+    said: WrittenReach,
+    links: ReadonlySet<Reach>,
+    unlinked: (at: string) => void = () => undefined,
+  ): ReachDestination | undefined {
+    const at = said.at as Reach
+    if (!links.has(at)) {
+      unlinked(at)
+      return undefined
+    }
+    const key = JSON.stringify([said.object, at, said.container ?? null, said.port ?? null])
+    const made = this.#reachesBy.get(key)
+    if (made) return made
+    if (this.#reachesBy.size >= HANDED_LIMITS.destinationsAPage) return undefined
+    const object = this.objectOf(said.object)
+    if (!object || !REACHED[at].has(object.kind)) return undefined
+    const reach: ReachDestination = Object.freeze({
+      to: 'reach',
+      at,
+      object,
+      ...(said.container !== undefined ? { container: said.container } : {}),
+      ...(said.port !== undefined ? { port: said.port } : {}),
+    })
+    this.#reachesBy.set(key, reach)
+    this.#reaches.add(reach)
+    this.#given.add(reach)
+    return reach
   }
 
   /**
@@ -467,6 +508,8 @@ export function swapFor(
   kinds: ReadonlySet<string> = new Set(),
   unnamed: (kind: string, by?: Unopened) => void = () => undefined,
   opens: ReadonlySet<string> = new Set(),
+  links: ReadonlySet<Reach> = new Set(),
+  unlinked: (at: string) => void = () => undefined,
 ): Swap {
   const held = <T>(found: T | undefined): T | undefined => {
     if (found === undefined) stale()
@@ -477,7 +520,10 @@ export function swapFor(
     secret: (token) => held(tokens.secretOf(token)),
     // (Lumovi's numbers for a read's latest cut answer; a token no longer held says nothing.)
     cut: (token) => held(tokens.cutOf(token)),
-    destination: (said) => tokens.listOf(said, kinds, unnamed, opens),
+    destination: (said) =>
+      'object' in said
+        ? tokens.reachOf(said, links, unlinked)
+        : tokens.listOf(said, kinds, unnamed, opens),
     handler: (handle, event) => (carries) => call(handle, event, carries),
   }
 }
@@ -551,6 +597,14 @@ const ON_A_LARGER: ReadonlySet<string> = new Set<Does>(['tells', 'opens', 'chang
 
 /**
  * Where a press that opens goes: a name Lumovi makes from what it handed over, never text. An
- * object's page, or a list of Lumovi's own (the list destination itself, as the door made it).
+ * object's page, a list of Lumovi's own, or one of Lumovi's own places for an object (the list
+ * or the link itself, as the door made it).
  */
-export type Destination = { to: 'object'; object: ObjectRef } | ListDestination
+export type Destination = { to: 'object'; object: ObjectRef } | ListDestination | ReachDestination
+
+/** The kinds of object each of Lumovi's own places is for, as Lumovi names them. */
+export const REACHED: Readonly<Record<Reach, ReadonlySet<string>>> = {
+  logs: new Set(['Pod']),
+  shell: new Set(['Pod']),
+  'port-forward': new Set(['Pod', 'Service']),
+}

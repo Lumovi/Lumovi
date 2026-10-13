@@ -44,7 +44,7 @@ import {
 } from 'react'
 import type { Health } from '@shared/health'
 import { inPieces, spelled, type Piece } from '@shared/kit/characters'
-import type { ListDestination, Their } from '@shared/kit/declare'
+import type { ListDestination, ReachDestination, Their } from '@shared/kit/declare'
 import {
   COLUMN_KINDS,
   type ObjectRef,
@@ -64,6 +64,7 @@ import { TIP, Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { useLayout } from '@renderer/lib/layout'
+import { offered, reachTip } from '@renderer/plugins/reach'
 import { MARK_CLASS, Pieces, TheirText } from '@renderer/plugins/TheirText'
 import { InCard } from './Card'
 import { CARD, HEADING, Lead, said } from './Lead'
@@ -464,7 +465,7 @@ export function Table({
    * Opens the object a row names, or the list it goes to: Lumovi's own to do, never the plugin's
    * (and not declared).
    */
-  go?: (to: ObjectRef | ListDestination) => void
+  go?: (to: ObjectRef | ListDestination | ReachDestination) => void
   /** Its rows alone, inside a part that's its own card and says its title and count (Graph). */
   bare?: boolean
   /** Rows that hold rows start open: where a filter has kept what's inside them (Graph). */
@@ -474,7 +475,8 @@ export function Table({
   const inCard = useContext(InCard)
   const bare = inCard || bareSaid === true
   const id = useId()
-  const phone = useLayout() === 'phone'
+  const layout = useLayout()
+  const phone = layout === 'phone'
   const scroll = useRef<HTMLDivElement>(null)
   // Whether the keyboard has the table: its active row then shows what its cells hold whole.
   const [keyed, setKeyed] = useState(false)
@@ -721,7 +723,9 @@ export function Table({
     if (line.row.again) return goFirst(line.row.again.first)
     const to = line.row.opens ?? line.row.goes
     if (!to) return
-    go?.(to)
+    // (A row that links to a place Lumovi doesn't have here opens its object, as one that opens
+    // it would: a shell's on a phone, a forward's where there are none.)
+    go?.('to' in to && to.to === 'reach' && !offered(to.at, layout) ? to.object : to)
     onOpen?.({ row: line.row.key })
   }
   /**
@@ -1131,6 +1135,9 @@ export function Table({
                     marginBottom: GAP,
                     ...place,
                   }}
+                  {...(row.goes?.to === 'reach' && offered(row.goes.at, layout)
+                    ? { title: reachTip(row.goes) }
+                    : {})}
                   className={cn(
                     'grid items-center gap-x-4 rounded-lg px-2 py-2',
                     row.note?.their && 'content-start items-start gap-y-0.5',

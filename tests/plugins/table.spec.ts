@@ -118,7 +118,7 @@ test('a table is checked as the door checks one, and refused where it says more 
     // A list it goes to is one the door makes: never a path or an address the plugin wrote.
     [
       { rows: [{ ...row, goes: '/cluster/demo/deployments?name=web' }] },
-      'Table.rows[0].goes: should be a list to open, as { list: group/Kind }',
+      'Table.rows[0].goes: should be a list to open, as { list: group/Kind }, or a place for an object, as { object, at }',
     ],
     [
       { rows: [{ ...row, rows: [{ ...row, rows: [row] }] }] },

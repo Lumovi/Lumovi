@@ -38,6 +38,7 @@ import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
 import { CODE_PAGES } from '@renderer/lib/code-pages'
 import { PLUGIN_PAGES } from './integrations'
+import type { Reach } from '@shared/kit/declare'
 import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 
@@ -749,6 +750,7 @@ function WhatItAsks({
                 name={plugin.name}
                 added={plugin.added}
                 opens={plugin.opens}
+                links={plugin.links}
                 names={names}
                 {...(PLUGIN_PAGES[plugin.name]
                   ? { standsIn: plugin.place?.label ?? plugin.name }
@@ -910,12 +912,14 @@ function Adds({
   name,
   added,
   opens,
+  links,
   names,
   standsIn,
 }: {
   name: string
   added: Plugin['added']
   opens: ResourceKind[]
+  links: readonly Reach[]
   names: Names
   /** Its label, where Lumovi shows a page of its own in place of its code's. */
   standsIn?: string
@@ -962,8 +966,32 @@ function Adds({
         ))}
       </ul>
       <Opens kinds={opens} names={names} />
+      {links.length > 0 && <p data-plugin-links>{linksLine(links)}</p>}
     </div>
   )
+}
+
+/**
+ * Where its pages may link to, in Lumovi's words: its own places, which the person opens and
+ * does there what they do.
+ */
+function linksLine(links: readonly Reach[]): string {
+  const tabs = (['logs', 'shell'] as const).filter((at) => links.includes(at))
+  const forward = links.includes('port-forward')
+  const lumovis = `Lumovi’s ${listed(tabs.map((at) => (at === 'logs' ? 'Logs' : 'Shell')))} ${
+    tabs.length > 1 ? 'tabs' : 'tab'
+  }`
+  const opens =
+    tabs.length > 0 && forward
+      ? `${lumovis} for pods they show, and its Port forward dialog for pods and services`
+      : tabs.length > 0
+        ? `${lumovis}, for pods they show`
+        : 'Lumovi’s Port forward dialog, for pods and services they show'
+  const starts = [
+    ...(links.includes('shell') ? ['a shell'] : []),
+    ...(forward ? ['a forward'] : []),
+  ]
+  return `Its pages may open ${opens}.${starts.length > 0 ? ` You start ${starts.join(' or ')} there yourself.` : ''}`
 }
 
 function MayRead({ asked, names, tool }: { asked: Asks; names: Names; tool: string }) {

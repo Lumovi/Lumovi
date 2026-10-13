@@ -26,6 +26,8 @@ export const PLUGIN_SINCE = {
     manages: 'next',
     changes: 'next',
     opens: 'next',
+    /** Where its pages link to Lumovi's own places; a destination's `{ object, at }` with it. */
+    links: 'next',
   },
   /** What a read can ask beyond a kind's list or one object of it. */
   read: {
@@ -60,6 +62,7 @@ export const PLUGIN_SINCE = {
     'Header.status.detail': 'next',
     'Header.buttons[].note': 'next',
     'Header.buttons[].off': 'next',
+    'Header.buttons[].goes': 'next',
     'Table.leadHeading': 'next',
     'Table.rows[].cells[].mono': 'next',
     'Table.rows[].cells[].full': 'next',

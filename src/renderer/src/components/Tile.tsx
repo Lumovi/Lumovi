@@ -29,6 +29,7 @@ export function Tile({
   cut = false,
   wraps = false,
   onOpen,
+  opensTip,
 }: {
   icon?: LucideIcon
   label: Said
@@ -45,6 +46,8 @@ export function Tile({
    */
   wraps?: boolean
   onOpen?: () => void
+  /** Where it opens, in Lumovi's words, where that's one of Lumovi's own places for an object. */
+  opensTip?: string
 }) {
   const body = (
     <>
@@ -100,6 +103,7 @@ export function Tile({
         <button
           type="button"
           onClick={onOpen}
+          title={opensTip}
           className={cn(
             'group relative block h-full w-full transition-colors hover:border-line-strong hover:bg-surface-3/40',
             box,

@@ -35,9 +35,11 @@ export type Kind =
   | { kind: 'cut' }
   /**
    * A list of Lumovi's own a part opens: one kind, with a health filter or a label selector, as a
-   * plugin writes it (`{ list: 'karpenter.sh/NodePool', health: ['critical'] }`). The part is
-   * handed a destination the door made (`ListDestination`), never the plugin's words; no address,
-   * path, namespace or field selector is any part of it.
+   * plugin writes it (`{ list: 'karpenter.sh/NodePool', health: ['critical'] }`). Or one of
+   * Lumovi's own places for an object the page was handed, where its file says its pages link
+   * to it (`{ object: <token>, at: 'shell', container: 'postgres' }`). The part is handed a
+   * destination the door made (`ListDestination`, `ReachDestination`), never the plugin's words;
+   * no address, path, namespace or field selector is any part of it.
    */
   | { kind: 'destination' }
   /** A handler: when it's called, the plugin is told, with what the part's event says. */
@@ -205,8 +207,13 @@ export interface Swap {
   object(token: string): ObjectRef | undefined
   secret(token: string): SecretRef | undefined
   cut(token: string): CutRef | undefined
-  /** Nothing for a kind its plugin's file doesn't name. */
-  destination(said: WrittenDestination): ListDestination | undefined
+  /**
+   * Nothing for a kind its plugin's file doesn't name; nor for a place its file doesn't say its
+   * pages link to, or an object that place isn't for.
+   */
+  destination(
+    said: WrittenDestination | WrittenReach,
+  ): ListDestination | ReachDestination | undefined
   handler(handle: string, event: string): ((carries: unknown) => void) | undefined
 }
 
@@ -224,6 +231,37 @@ export interface ListDestination {
    */
   name?: string
   namespace?: string
+}
+
+/**
+ * Lumovi's own places a plugin's page may link to, for an object it was handed, where its file
+ * says so (`spec.links`): the object's Logs tab, its Shell tab, its Port forward dialog. Each is
+ * Lumovi's to open as it does today, and the person does there what they do: nothing starts on
+ * a link alone.
+ */
+export const REACHES = ['logs', 'shell', 'port-forward'] as const
+export type Reach = (typeof REACHES)[number]
+
+/**
+ * One of Lumovi's own places for one object, as a part is handed it: made by the door, frozen,
+ * and opened by `go`. The object is one the door handed the page.
+ */
+export interface ReachDestination {
+  to: 'reach'
+  at: Reach
+  object: ObjectRef
+  /** The container picked there (Logs, Shell), as the plugin named it. */
+  container?: string
+  /** The port filled in (a forward). */
+  port?: number
+}
+
+/** A link to one of Lumovi's own places, as a plugin writes it: the object by its token. */
+export interface WrittenReach {
+  object: string
+  at: string
+  container?: string
+  port?: number
 }
 
 /** A list to open, as a plugin writes it. */
@@ -257,12 +295,48 @@ export const LABEL_TERM = new RegExp(
   `^(?:[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?/)?${LABEL_NAME}(?:=(?:${LABEL_NAME})?)?$`,
 )
 
-/** What's wrong with a list to open, as a plugin wrote it, or nothing. */
+/** A container's name, as Kubernetes has one: a DNS label. */
+const CONTAINER = /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/
+
+/** What's wrong with a link to one of Lumovi's own places, as a plugin wrote it, or nothing. */
+function reachProblem(said: Record<string, unknown>, where: string): string | undefined {
+  for (const key of Object.keys(said)) {
+    if (!['object', 'at', 'container', 'port'].includes(key)) {
+      return `${where}: takes nothing named ${quotedBack(key)}`
+    }
+  }
+  if (typeof said.object !== 'string' || !TOKEN.test(said.object)) {
+    return `${where}.object: should be an object’s token, as Lumovi handed it`
+  }
+  if (!REACHES.includes(said.at as Reach)) {
+    return `${where}.at: should be one of ${REACHES.join(', ')}`
+  }
+  if (Object.hasOwn(said, 'container')) {
+    if (said.at === 'port-forward') return `${where}.container: goes with logs or shell`
+    if (typeof said.container !== 'string' || !CONTAINER.test(said.container)) {
+      return `${where}.container: should be a container’s name`
+    }
+  }
+  if (Object.hasOwn(said, 'port')) {
+    if (said.at !== 'port-forward') return `${where}.port: goes with port-forward`
+    if (
+      !Number.isInteger(said.port) ||
+      (said.port as number) < 1 ||
+      (said.port as number) > 65535
+    ) {
+      return `${where}.port: should be a port, 1 to 65535`
+    }
+  }
+  return undefined
+}
+
+/** What's wrong with a list to open, or a link, as a plugin wrote it, or nothing. */
 function destinationProblem(value: unknown, where: string): string | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return `${where}: should be a list to open, as { list: group/Kind }`
+    return `${where}: should be a list to open, as { list: group/Kind }, or a place for an object, as { object, at }`
   }
   const said = value as Record<string, unknown>
+  if (Object.hasOwn(said, 'object')) return reachProblem(said, where)
   for (const key of Object.keys(said)) {
     if (!['list', 'health', 'labels', 'name', 'namespace'].includes(key)) {
       return `${where}: takes nothing named ${quotedBack(key)}`
@@ -570,7 +644,7 @@ export function handed(value: unknown, kind: Kind, swap?: Swap): unknown {
     case 'cut':
       return swap ? swap.cut(value as string) : value
     case 'destination':
-      return swap ? swap.destination(value as WrittenDestination) : value
+      return swap ? swap.destination(value as WrittenDestination | WrittenReach) : value
     case 'handler':
       return swap ? swap.handler(value as string, kind.event) : value
     case 'list':
@@ -626,7 +700,7 @@ export type ValueOf<K, P extends Part = Part> = K extends { kind: 'text' }
         : K extends { kind: 'cut' }
           ? CutRef
           : K extends { kind: 'destination' }
-            ? ListDestination
+            ? ListDestination | ReachDestination
             : K extends { kind: 'handler'; event: infer E }
               ? (carries: CarriedBy<P, E>) => void
               : K extends { kind: 'number' }
