@@ -1,7 +1,8 @@
 /**
- * Which tests a CI shard runs: all of them, split over the shards so that each takes about as
- * long, by how long each took last time on this platform (tests/durations.json; a test without
- * a time counts as a typical one). Playwright's own --shard splits them by count, and a few long
+ * Which tests a CI shard runs: all of them (or those of the projects E2E_PROJECTS names, by
+ * spaces: `desktop web`), split over the shards so that each takes about as long, by how long
+ * each took last time on this platform (tests/durations.json; a test without a time counts as a
+ * typical one). Playwright's own --shard splits them by count, and a few long
  * tests made one shard take twice as long as another. Prints what `playwright test --test-list`
  * takes, and says how it split them.
  *
@@ -34,6 +35,11 @@ interface Listed {
 
 const [current, total] = (process.argv[2] ?? '').split('/').map(Number)
 const config = process.argv[3]
+/**
+ * The projects whose tests this shard is of, where CI says (the browser's run on Linux alone).
+ * Where it names none (empty, as a plan that says nothing of them leaves it), every project's.
+ */
+const projects = process.env.E2E_PROJECTS?.split(/\s+/).filter(Boolean)
 if (!current || !total || current > total) {
   console.error('Usage: node scripts/e2e-shard.ts <shard>/<shards> [config]')
   process.exit(1)
@@ -71,6 +77,7 @@ const tests: Test[] = []
 function walk(suite: Suite, titles: string[]): void {
   for (const spec of suite.specs ?? []) {
     for (const { projectName } of spec.tests) {
+      if (projects?.length && !projects.includes(projectName)) continue
       const file = suite.file.split('\\').join('/')
       const name = [projectName ? `[${projectName}]` : '', file, ...titles, spec.title]
         .filter(Boolean)

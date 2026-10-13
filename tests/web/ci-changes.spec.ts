@@ -5,6 +5,7 @@
  * case with the files as a pull request would change them (a file moved is both where it was and
  * where it is).
  */
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyMac, withoutChanged } from '../../scripts/borrow-coverage.ts'
@@ -18,6 +19,9 @@ const pr = (changed: string[], branch = 'lmv-1-x', labels: string[] = []) =>
 const macos = (result: ReturnType<typeof plan>) =>
   result.e2e.filter((shard) => shard.os === 'macos-latest').map((shard) => shard.shard)
 const FULL = ['1/4', '2/4', '3/4', '4/4']
+/** The tests' projects each system runs, as one text each. */
+const projects = (result: ReturnType<typeof plan>) =>
+  Object.fromEntries(result.e2e.map((shard) => [shard.os, shard.projects]))
 
 test('docs only: Markdown, and images that aren’t the app’s', () => {
   const result = pr([
@@ -78,6 +82,21 @@ test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its
     expect(macos(result)).toEqual(['smoke'])
     expect(result.e2e).toHaveLength(9)
     expect(result.said).toContain('Main’s merge')
+    // The browser's tests on Linux alone, where the server Lumovi ships runs.
+    expect(projects(result)).toEqual({
+      'ubuntu-latest': 'desktop web',
+      'macos-latest': 'desktop',
+      'windows-latest': 'desktop',
+    })
+  }
+  // And for a pull request, whatever it changes or its label asks.
+  for (const result of [pr(['src/main/menu.ts']), pr(['x.ts'], 'lmv-1-x', ['macos-full'])]) {
+    expect(projects(result)).toEqual({
+      'ubuntu-latest': 'desktop web',
+      'macos-latest': 'desktop',
+      'windows-latest': 'desktop',
+    })
+    expect(result.said).toContain('The browser’s tests run on Linux (on every system nightly).')
   }
 })
 
@@ -91,7 +110,28 @@ test('main’s nightly run, a run by hand and a release’s pull request run eve
     expect(result).toMatchObject({ docs: false, macos: true })
     expect(result.e2e).toHaveLength(12)
     expect(result.said).toContain(said)
+    // Every system runs every test: a break in the browser's on one system shows here.
+    expect(new Set(result.e2e.map((shard) => shard.projects))).toEqual(new Set(['desktop web']))
   }
+})
+
+test('a shard of a system’s tests is of the projects CI names: the browser’s left out where it says', () => {
+  const listed = (env: Record<string, string>) =>
+    execFileSync(process.execPath, ['scripts/e2e-shard.ts', '1/1'], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .split('\n')
+      .filter(Boolean)
+  const desktop = listed({ E2E_PROJECTS: 'desktop' })
+  expect(desktop.length).toBeGreaterThan(100)
+  expect(desktop.every((name) => name.startsWith('[desktop] › '))).toBe(true)
+  const both = listed({ E2E_PROJECTS: 'desktop web' })
+  expect(both.some((name) => name.startsWith('[web] › '))).toBe(true)
+  expect(both.length).toBeGreaterThan(desktop.length)
+  // Where CI names none (a plan that says nothing of them), every project's.
+  expect(listed({ E2E_PROJECTS: '' })).toEqual(both)
 })
 
 test('a nightly run on a head that’s run macOS in full already runs nothing more', () => {
