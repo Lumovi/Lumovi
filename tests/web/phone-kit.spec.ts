@@ -1,5 +1,6 @@
 /** The kit's Table on a phone: every row a card, on the page the tests' build has for the kit. */
 import type { Locator } from '@playwright/test'
+import { placed } from '../placed.ts'
 import { DEMO_TOKEN, expect, test } from './fixtures.ts'
 import { expectFingerSized, expectNoSidewaysScroll, FINGER, PHONE, signInNarrow } from './phone.ts'
 
@@ -157,4 +158,44 @@ test('a table on a phone: cards, facts side by side only where they all fit, and
   await expect(page.getByText('one cell too many')).toHaveCount(0)
   await expectNoSidewaysScroll(page, 'the kit’s tables, on a phone')
   await expectFingerSized(page, 'the kit’s tables, on a phone')
+})
+
+test('on a phone, a revision in fixed-width type shows its whole hash when tapped, and a card that opens still opens', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/kit`, DEMO_TOKEN)
+  const history = page.getByRole('region', { name: 'History', exact: true })
+  const cards = history.locator('li[data-row]')
+  await expect(cards).toHaveCount(3)
+  const pressed = page.getByRole('list', { name: 'What was pressed' })
+  // Its first seven, in fixed-width type, a target of its own; a screen reader hears the whole after.
+  const first = cards.first().getByRole('button', { name: '4f1c9aa', exact: true })
+  expect(await first.evaluate((words) => getComputedStyle(words).fontFamily)).toMatch(/mono/i)
+  await first.scrollIntoViewIfNeeded()
+  expect((await placed(first)).height).toBeGreaterThanOrEqual(FINGER)
+  await expect(first).toHaveAccessibleDescription('4f1c9aa8b7e6f5a4c3b2a1908f7e6d5c4b3a2910')
+  // Tapped, the whole, in its type and above it (over what's been read); tapped away, gone.
+  await first.tap()
+  const whole = page.getByRole('dialog')
+  await expect(whole).toHaveText('4f1c9aa8b7e6f5a4c3b2a1908f7e6d5c4b3a2910')
+  expect(await whole.evaluate((tip) => getComputedStyle(tip).fontFamily)).toMatch(/mono/i)
+  const [tip, value] = [await placed(whole), await placed(first)]
+  expect(tip.y + tip.height).toBeLessThanOrEqual(value.y + 1)
+  await history.getByRole('heading').tap()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // A card that opens: its revision's tap shows the whole and opens nothing; the card's own opens it.
+  const opens = cards.last()
+  await opens.getByRole('button', { name: '1a2b3c4', exact: true }).tap()
+  await expect(page.getByRole('dialog')).toHaveText('1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b')
+  await expect(pressed).not.toContainText('History: open')
+  await history.getByRole('heading').tap()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // (Before the press is listed: the page's own list of presses doesn't wrap a hash.)
+  await expectNoSidewaysScroll(page, 'a table of moments, on a phone')
+  await opens.getByRole('button', { name: /^50h ago/ }).tap()
+  await expect(pressed).toContainText(
+    'History: open {"row":"1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"}',
+  )
 })

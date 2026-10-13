@@ -58,5 +58,10 @@ export const PLUGIN_SINCE = {
     'Header.status.detail': 'next',
     'Header.buttons[].note': 'next',
     'Header.buttons[].off': 'next',
+    'Table.leadHeading': 'next',
+    'Table.rows[].cells[].mono': 'next',
+    'Table.rows[].cells[].full': 'next',
+    'Table.rows[].rows[].cells[].mono': 'next',
+    'Table.rows[].rows[].cells[].full': 'next',
   },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>

@@ -161,6 +161,50 @@ const RESOURCES: Written = {
   ],
 }
 
+/**
+ * An application's history, as Argo CD's tab lists it: rows that are moments, not things with
+ * names, under a heading of the plugin's; each revision its first seven characters in fixed-width
+ * type, the whole hash in its tooltip. (The last opens something, as a row can.)
+ */
+const synced = (
+  hash: string,
+  source: string,
+  level: Health,
+  hours: number,
+  opens = false,
+): WrittenRow => ({
+  key: hash,
+  lead: { level, name: `${hours}h ago` },
+  cells: [
+    { kind: 'text', text: hash.slice(0, 7), mono: true, full: hash },
+    { kind: 'text', text: source },
+  ],
+  ...(opens && {
+    opens: token({ kind: 'Application.argoproj.io', name: 'shop', namespace: 'argocd' }),
+  }),
+})
+
+const HISTORY: Written = {
+  title: 'History',
+  headings: true,
+  leadHeading: 'Synced',
+  columns: [
+    { name: 'Revision', kind: 'text', width: 'text' },
+    { name: 'Source', kind: 'text' },
+  ],
+  rows: [
+    synced('4f1c9aa8b7e6f5a4c3b2a1908f7e6d5c4b3a2910', 'platform/apps/shop', 'healthy', 3),
+    synced('9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a291800', 'platform/apps/shop', 'healthy', 26),
+    synced(
+      '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+      'platform/apps/legacy',
+      'critical',
+      50,
+      true,
+    ),
+  ],
+}
+
 /** Tables that can't be drawn as they're described, each wrong in one way: what's said of each. */
 const REFUSED: Written[] = [
   { ...RESOURCES, rows: [RESOURCES.rows![0]!, RESOURCES.rows![0]!] },
@@ -740,6 +784,7 @@ function Tables() {
             }),
           )}
         />
+        <Table {...handed(HISTORY)} go={said('History', 'go')} onOpen={said('History', 'open')} />
         {/* (The whole width, as design's frame has it: names with room to show their marks.) */}
         <div className="col-span-full">
           <Table {...handed(MARKS)} />

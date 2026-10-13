@@ -441,3 +441,56 @@ test('what a table is refused for, where its kinds can’t say it', async ({ pag
     'In row 2, inner row 2 has 1 cell, and the table has 2 columns.',
   ])
 })
+
+test('a table of moments: its own lead heading, each revision in fixed-width type, and its whole hash shown by the pointer, the keyboard and a screen reader', async ({
+  page,
+}) => {
+  await kit(page)
+  const hashes = [
+    '4f1c9aa8b7e6f5a4c3b2a1908f7e6d5c4b3a2910',
+    '9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a291800',
+    '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+  ]
+  const history = page.getByRole('grid', { name: 'History' })
+  await expect(history.getByRole('columnheader')).toHaveText(['Synced', 'Revision', 'Source'])
+  const rows = history.getByRole('row').filter({ hasText: 'h ago' })
+  await expect(rows).toHaveCount(3)
+  // Its first seven, in fixed-width type a step smaller; the whole never in the cell.
+  const revision = rows.first().getByText('4f1c9aa', { exact: true })
+  await expect(revision).toHaveCSS('font-size', '12px')
+  expect(await revision.evaluate((words) => getComputedStyle(words).fontFamily)).toMatch(/mono/i)
+  await expect(rows.first()).not.toContainText(hashes[0]!, { useInnerText: true })
+  // A screen reader: each row's words, then the whole hash, as what describes it.
+  for (const [i, hash] of hashes.entries()) {
+    await expect(rows.nth(i)).toHaveAccessibleDescription(hash)
+  }
+  // Pointed at, the whole in Lumovi's tooltip, in the same type as its first seven; pointed away,
+  // gone.
+  await revision.hover()
+  await expect(page.getByRole('tooltip')).toHaveText(hashes[0]!)
+  expect(
+    await page
+      .getByRole('tooltip')
+      .getByText(hashes[0]!)
+      .evaluate((whole) => getComputedStyle(whole).fontFamily),
+  ).toMatch(/mono/i)
+  // (Twice: one move away is still on the way to the tooltip, as Radix sees it.)
+  const title = page
+    .getByRole('region', { name: 'History table' })
+    .getByRole('heading')
+    .getByText('History', { exact: true })
+  await title.hover({ position: { x: 2, y: 2 } })
+  await title.hover({ position: { x: 4, y: 4 } })
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  // The keyboard on the table: its row's whole values show, and follow it up and down.
+  await history.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByRole('tooltip')).toHaveText(hashes[1]!)
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByRole('tooltip')).toHaveText(hashes[2]!)
+  await page.keyboard.press('ArrowUp')
+  await expect(page.getByRole('tooltip')).toHaveText(hashes[1]!)
+  // A pointer's press is no keyboard's: what its row showed goes.
+  await rows.nth(1).getByRole('gridcell').last().click()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+})
