@@ -32,6 +32,8 @@ const TESTS_ONLY = [
   'LUMOVI_TEST_BOX_WALL_OFF',
   // And the one that makes a box's check never answer.
   'LUMOVI_TEST_BOX_CHECK',
+  // The one that lengthens Lumovi's wait for a plugin's tool's server.
+  'LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS',
   'LUMOVI_SPONSOR_URL',
   // What the tests reach a plugin's box by.
   '__lumoviBox',

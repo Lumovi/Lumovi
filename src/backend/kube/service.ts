@@ -51,6 +51,24 @@ import {
   optionalString,
 } from './validate'
 
+declare const LUMOVI_TEST_BUILD: boolean
+
+/** The longest a test may have Lumovi wait for a plugin's tool's server. */
+const LONGEST_TEST_WAIT_MS = 120_000
+
+/**
+ * How long a plugin's tool's server has to answer: Lumovi's own limit. In the tests' build alone,
+ * LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS lengthens it (never shortens it, and never past two minutes),
+ * for a test that holds an answer back to see what waits behind it. Anything else it's set to is
+ * Lumovi's limit; and nothing of it is in a release.
+ */
+export function serverWaitMs(env: NodeJS.ProcessEnv): number {
+  const asked = LUMOVI_TEST_BUILD ? Number(env.LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS) : NaN
+  return Number.isFinite(asked) && asked > SERVER_LIMITS.timeoutMs
+    ? Math.min(asked, LONGEST_TEST_WAIT_MS)
+    : SERVER_LIMITS.timeoutMs
+}
+
 const DEFAULT_TIMEOUT_MS = 20_000
 const DEFAULT_MAX_LIST_ITEMS = 5_000
 /** Lists are fetched in chunks of this size, like kubectl does. */
@@ -139,6 +157,8 @@ const SECRET_READ_FAILED: Partial<Record<KubeErrorCode, string>> & { other: stri
 export class KubeService {
   /** How long the API server has to answer (LUMOVI_REQUEST_TIMEOUT_MS). */
   readonly timeoutMs: number
+  /** How long a plugin's tool's server has to answer. */
+  readonly #serverWaitMs: number
   readonly #maxListItems: number
   readonly #checks = new Limiter(CONCURRENT_CHECKS)
   readonly #discoveries = new Limiter(CONCURRENT_DISCOVERY)
@@ -157,6 +177,7 @@ export class KubeService {
     private readonly guard?: AccessGuard,
   ) {
     this.timeoutMs = Number(env.LUMOVI_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS
+    this.#serverWaitMs = serverWaitMs(env)
     this.#maxListItems = Number(env.LUMOVI_MAX_LIST_ITEMS) || DEFAULT_MAX_LIST_ITEMS
   }
 
@@ -794,7 +815,7 @@ export class KubeService {
       const kc = this.store.forContext(q.context)
       const proxy = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/services/${encodeURIComponent(q.service)}:${encodeURIComponent(String(q.port))}/proxy${q.path}`
       return kubeProxyGet(kc, proxy, {
-        timeoutMs: SERVER_LIMITS.timeoutMs,
+        timeoutMs: this.#serverWaitMs,
         maxBytes: SERVER_LIMITS.bytes,
       })
     })
