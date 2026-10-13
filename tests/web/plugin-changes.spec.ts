@@ -39,6 +39,7 @@ const CODE = `box.then(({ post, listen }) => {
     { key: 'stale', name: 'Stale', changes: true },
     { key: 'secret', name: 'Secret', changes: true },
     { key: 'copy', name: 'Copy', changes: true },
+    { key: 'note', name: 'Note', changes: true },
   ]
   // (A change is the part's props whole: its buttons said again with its name.)
   const say = (name) => commit([['change', 1, { name, buttons: BUTTONS, onPress: 'press' }]])
@@ -80,6 +81,12 @@ const CODE = `box.then(({ post, listen }) => {
       }
       // A new widget beside the first, named by the cluster from its generateName.
       if (button === 'copy') propose(said.press, { action: 'create', kind: 'example.com/Widget', in: widget, object: { spec: { size: 1 }, metadata: { generateName: 'copy-' } } })
+      // Notes as long as a change may be: all of it in its command.
+      if (button === 'note') {
+        const annotations = {}
+        for (let i = 0; i < 56; i++) annotations['example.com/note-' + i] = 'n'.repeat(230)
+        propose(said.press, { action: 'patch', target: widget, patch: { metadata: { annotations } } })
+      }
       // A kind its file doesn't say it changes: refused before any dialog.
       if (button === 'secret') propose(said.press, { action: 'create', kind: '/Secret', object: { metadata: { name: 'x' } } })
     }
@@ -313,15 +320,27 @@ test('a create shows the object Lumovi sends, its generateName as asked, and its
   expect(text.indexOf('metadata:')).toBeLessThan(text.indexOf('spec:'))
   await expect(shown).toContainText("kubectl create -f - -n default --context demo <<'LUMOVI_EOF'")
   await expect(shown).not.toContainText('.yaml')
-  // However tall the object and its command, the buttons stay in reach: what's between scrolls.
+  // The command reads the object shown above: its first line and its end, the object said in a
+  // line, not printed again.
+  const command = shown.locator('[data-proposal-command]')
+  await expect(command).toContainText(/the object above, \d+ lines/)
+  await expect(command).toContainText(/LUMOVI_EOF$/)
+  // However tall the object, what Lumovi will send's command, the verdict and the buttons stay
+  // in view: the object scrolls in its box.
   await page.setViewportSize({ width: 1280, height: 600 })
-  await expect(shown.getByRole('button', { name: 'Cancel' })).toBeInViewport({ ratio: 1 })
-  await expect(shown.getByRole('button', { name: 'Create' })).toBeInViewport({ ratio: 1 })
+  for (const inView of [
+    shown.getByRole('button', { name: 'Cancel' }),
+    shown.getByRole('button', { name: 'Create' }),
+    command,
+    shown.getByText('The cluster accepts it.'),
+  ]) {
+    await expect(inView).toBeInViewport({ ratio: 1 })
+  }
   await expect
     .poll(() =>
       shown
-        .locator('[data-proposal-body]')
-        .evaluate((body) => body.scrollHeight > body.clientHeight),
+        .locator('[data-proposal-object]')
+        .evaluate((box) => box.scrollHeight > box.clientHeight),
     )
     .toBe(true)
   // Confirmed: made, and the cluster names it.
@@ -336,4 +355,40 @@ test('a create shows the object Lumovi sends, its generateName as asked, and its
   expect(made?.command).toBeUndefined()
   // (In the order the plugin wrote them, as a patch's are.)
   expect(made?.details?.paths).toEqual(['spec.size', 'metadata.generateName'])
+})
+
+test('a change as long as a plugin may send keeps its buttons in reach: its command scrolls in its box', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await opened(page, server)
+  await press(page, 'Note')
+  const shown = dialog(page)
+  await expect(shown).toContainText('The cluster accepts it.')
+  const command = shown.locator('[data-proposal-command]')
+  await expect(command).toContainText('kubectl annotate')
+  await expect(command).toContainText(`example.com/note-55=${'n'.repeat(230)}`)
+  await page.setViewportSize({ width: 1280, height: 600 })
+  for (const inView of [
+    shown.locator('[data-cancel]'),
+    shown.locator('[data-confirm]'),
+    shown.getByText('The cluster accepts it.'),
+  ]) {
+    await expect(inView).toBeInViewport({ ratio: 1 })
+  }
+  await expect.poll(() => command.evaluate((box) => box.scrollHeight > box.clientHeight)).toBe(true)
+  // Its last lines fade while there's more of it below; the keyboard scrolls it to its end, and
+  // then nothing fades.
+  const fade = () => command.evaluate((box) => getComputedStyle(box).maskImage)
+  await expect.poll(fade).toContain('gradient')
+  const region = shown.getByRole('region', { name: 'Equivalent command' })
+  await region.focus()
+  await page.keyboard.press('End')
+  await expect
+    .poll(() => command.evaluate((box) => box.scrollTop + box.clientHeight >= box.scrollHeight - 1))
+    .toBe(true)
+  await expect.poll(fade).toBe('none')
+  await shown.locator('[data-cancel]').click()
+  await expect(said(page)).toContainText('outcome 2 cancelled')
 })
