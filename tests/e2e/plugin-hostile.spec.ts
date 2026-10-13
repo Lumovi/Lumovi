@@ -13,7 +13,7 @@ import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO } from '../mock-cluster/fixtures/demo.ts'
 import { STAND_IN } from '../mock-cluster/server.ts'
 import { holds } from '../holds.ts'
-import { CONTEXTS, expect, openCluster, panel, test } from './fixtures.ts'
+import { CONTEXTS, expect, openCluster, panel, row, test } from './fixtures.ts'
 
 const TINKER = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
@@ -717,6 +717,86 @@ test('a follow never outlives its part: taken off the page by its code, or with 
   await expect(page.getByTestId('plugin-ended')).toBeVisible()
   await expect(log).toHaveCount(0)
   await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
+})
+
+/** A pod Lumovi's own list of pods draws without scrolling. */
+const AGED = DEMO.pods.checkout[0]!
+
+/** Toys, which reads pods' names and when they were made. */
+const AGES = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  reads: [{ group: '', kind: Pod, fields: [metadata.name, metadata.creationTimestamp] }]
+  pages: [{ id: overview, title: Overview }]
+`
+/**
+ * Its code, with a clock of its own thirty days fast: the pod's age as a cell (a time, which
+ * Lumovi draws), and how old its own clock makes it, in words.
+ */
+const SKEWED = `const real = Date.now.bind(Date)
+Date.now = () => real() + 30 * 24 * 60 * 60 * 1000
+box.then(({ post, listen }) => {
+  let drawn = false
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) post(JSON.stringify({ read: 1, what: 'list', kind: '/Pod', namespace: 'shop' }))
+    if (said.read !== 1 || !said.objects || drawn) return
+    drawn = true
+    const pod = said.objects.find((o) => o.object.metadata.name === ${JSON.stringify(AGED)})
+    const made = pod.object.metadata.creationTimestamp
+    const mine = Math.floor((Date.now() - Date.parse(made)) / (24 * 60 * 60 * 1000))
+    post(JSON.stringify({ commit: [
+      ['make', 1, 'Stack', {}], ['put', 0, 1],
+      ['make', 2, 'Header', { name: 'by its own clock ' + mine + 'd' }], ['put', 1, 2],
+      ['make', 3, 'Card', { title: 'Pods' }], ['put', 1, 3],
+      ['make', 4, 'Table', { title: 'Pods', headings: true, columns: [{ name: 'Age', kind: 'age' }], rows: [
+        { key: 'p', lead: { name: ${JSON.stringify(AGED)} }, cells: [{ kind: 'age', time: made }] },
+      ] }], ['put', 3, 4],
+    ] }))
+  })
+})
+`
+
+test('an age on a plugin’s page is Lumovi’s own, whatever the plugin’s clock says: the same as Lumovi’s list shows', async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), AGES)
+  writeFileSync(join(folder, 'toys.js'), SKEWED)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  /** Its age on the plugin's page, and in Lumovi's own list of pods, one look after the other. */
+  const ages = async () => {
+    await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+    const theirs = body(page).getByRole('row').filter({ hasText: AGED })
+    await expect(theirs).toBeVisible({ timeout: 20_000 })
+    const drawn = (await theirs.getByRole('gridcell').last().innerText()).trim()
+    await go(page, `#/cluster/${CONTEXTS.demo}/pods`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+    const grid = page.getByRole('grid', { name: 'Pods' })
+    const column = (await grid.getByRole('columnheader').allInnerTexts()).findIndex(
+      (name) => name.trim().toLowerCase() === 'age',
+    )
+    expect(column).toBeGreaterThanOrEqual(0)
+    const own = (await row(page, 'Pods', AGED).getByRole('gridcell').nth(column).innerText()).trim()
+    return { drawn, own }
+  }
+  let { drawn, own } = await ages()
+  // (A minute may turn between the two looks; never twice running.)
+  if (drawn !== own) ({ drawn, own } = await ages())
+  expect(drawn).toMatch(/^\d+[smhd]/)
+  expect(drawn).toBe(own)
+  // And its own clock is a month off: what it makes of the pod's age is nothing Lumovi drew.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  const itsOwn = body(page).getByRole('heading', { level: 2 }).first()
+  await expect(itsOwn).toContainText(/by its own clock 3\dd/)
+  expect(drawn).not.toMatch(/^3\dd/)
 })
 
 /** Toys, whose page links to a pod's Shell tab and its Port forward dialog. */
