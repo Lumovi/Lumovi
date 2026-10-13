@@ -9,6 +9,7 @@
  * What a plugin may propose is its file's to say (`spec.changes`), of its own kinds only; and on
  * a server only a browser Lumovi hands a plugin's code to proposes anything (`mayHandOver`).
  */
+import { stringify } from 'yaml'
 import type { Change, ChangeRequest, KubeError, KubeObject, Result } from '@shared/api'
 import { kubectl, objectArg } from '@shared/kubectl'
 import {
@@ -192,8 +193,8 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
           outcome === 'success'
             ? `${DONE[r.action]} ${what}, as ${by} proposed`
             : `Didn’t ${r.action === 'patch' ? 'change' : r.action} ${what} that ${by} proposed: ${why}`,
-        // (A patch's command would carry what the person typed: its fields' paths instead.)
-        ...(r.action === 'patch' ? {} : { command }),
+        // (A patch's or a create's command would carry what the person set: its paths instead.)
+        ...(r.action === 'patch' || r.action === 'create' ? {} : { command }),
         details: {
           plugin: plugin.name,
           pluginVersion: plugin.version,
@@ -201,7 +202,7 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
           codeDigest: plugin.codeDigest!,
           action: r.action,
           fields: r.fields ?? [],
-          ...(r.action === 'patch' && { paths: fieldsOf(r.body) }),
+          ...((r.action === 'patch' || r.action === 'create') && { paths: fieldsOf(r.body) }),
         },
         ...(error && { error }),
       })
@@ -260,6 +261,9 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
         ok: true,
         before,
         after: tried.data,
+        ...(r.action === 'create' && request.change.action === 'create'
+          ? { sent: request.change.object }
+          : {}),
         command,
         ...(r.action === 'patch' && (await takesOver(r, resource, where, name))),
         ...(r.action === 'delete' && finalizers?.length ? { finalizers: [...finalizers] } : {}),
@@ -368,21 +372,37 @@ function changeOf(
     case 'delete':
       change = { action: 'delete', propagation: 'Background', ...(seen?.uid && { uid: seen.uid }) }
       break
-    case 'create': {
-      const body = (r.body ?? {}) as KubeObject
-      change = {
-        action: 'create',
-        object: {
-          ...body,
-          apiVersion: resource.group ? `${resource.group}/${resource.version}` : resource.version,
-          kind: resource.apiKind,
-          metadata: { ...body.metadata, ...(where.namespace && { namespace: where.namespace }) },
-        } as KubeObject,
-      }
+    case 'create':
+      change = { action: 'create', object: createdObject(r, resource, where.namespace) }
       break
-    }
   }
   return { ...at, change }
+}
+
+/**
+ * The object a create sends, as Kubernetes orders one: its apiVersion and kind, its metadata (its
+ * name, or the generateName it asks for, and the namespace it goes to), then the rest as written.
+ */
+export function createdObject(
+  r: PluginChangeRequest,
+  resource: ResourceDefinition,
+  namespace: string | undefined,
+): KubeObject {
+  const { metadata, apiVersion: _version, kind: _kind, ...rest } = (r.body ?? {}) as KubeObject
+  return {
+    apiVersion: resource.group ? `${resource.group}/${resource.version}` : resource.version,
+    kind: resource.apiKind,
+    metadata: { ...metadata, ...(namespace && { namespace }) },
+    ...rest,
+  } as KubeObject
+}
+
+/** A heredoc's last line: `LUMOVI_EOF`, with a number after it while a line of `text` is it. */
+export function heredocEnd(text: string): string {
+  const lines = new Set(text.split('\n'))
+  let end = 'LUMOVI_EOF'
+  for (let n = 2; lines.has(end); n++) end = `LUMOVI_EOF_${n}`
+  return end
 }
 
 /** The kubectl command that makes the same change. */
@@ -452,7 +472,12 @@ export function commandOf(
       return kubectl(r.context, namespace, 'scale', object, `--replicas=${r.replicas ?? 0}`)
     case 'delete':
       return kubectl(r.context, namespace, 'delete', object)
-    case 'create':
-      return kubectl(r.context, namespace, 'create', '-f', `${resource.apiKind.toLowerCase()}.yaml`)
+    case 'create': {
+      // (The very object shown, read from the command's own input: nothing it would need a file
+      // for.)
+      const yaml = stringify(createdObject(r, resource, namespace)).trimEnd()
+      const end = heredocEnd(yaml)
+      return `${kubectl(r.context, namespace, 'create', '-f', '-')} <<'${end}'\n${yaml}\n${end}`
+    }
   }
 }
