@@ -39,7 +39,13 @@ import { readPolicy } from './policy'
 import { SettingsStore } from './settings'
 import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
-import { filterRequests, registerBoxScheme, serveBoxes, watchBoxes } from './plugin-box'
+import {
+  filterRequests,
+  noNamesAhead,
+  registerBoxScheme,
+  serveBoxes,
+  watchBoxes,
+} from './plugin-box'
 import { PluginStore } from './plugin-store'
 import { AgreedPlugins } from './plugins-agreed'
 import { PluginsWatch } from './plugins-watch'
@@ -69,6 +75,8 @@ if (stdio) {
   const shellReady = loadLoginShellEnv()
   // Where a plugin's code will run: its protocol has to be named before the app is ready.
   registerBoxScheme()
+  // And no page looks a name up ahead of a request: said before it's ready too.
+  noNamesAhead()
 
   app.on('window-all-closed', () => app.quit())
 
