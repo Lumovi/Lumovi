@@ -5,7 +5,7 @@ import type { TableLead, WrittenTableLead } from '@shared/kit/table'
 import { StatusDot } from '@renderer/components/Status'
 import { cn } from '@renderer/lib/cn'
 import { TheirText } from '@renderer/plugins/TheirText'
-import { MiddleCut } from './MiddleCut'
+import { MiddleCut, middleIsCut } from './MiddleCut'
 
 export const CARD = 'overflow-hidden rounded-xl border border-line bg-surface-2 shadow-panel'
 /** A heading, uppercased: but not its marks, which stay as they're built. */
@@ -24,6 +24,15 @@ const theirs = (text: Their | string | undefined): Their | undefined =>
   typeof text === 'string' ? { their: text } : text
 
 /**
+ * Whether the lead drawn inside `within` is cut, as it's laid out now: its name in its middle, or
+ * the words beside it or the line under it at their end.
+ */
+export function leadIsCut(within: Element | null): boolean {
+  const ends = [...(within?.querySelectorAll('[data-beside], [data-under]') ?? [])]
+  return middleIsCut(within) || ends.some((words) => words.scrollWidth > words.clientWidth)
+}
+
+/**
  * What a row is called: a dot in a level (or none, and the name keeps its place), a name, a quiet
  * word, a line under. All of them the plugin's, drawn in pieces.
  */
@@ -31,12 +40,15 @@ export function Lead({
   lead,
   top = false,
   quiet = false,
+  tip = true,
 }: {
   lead?: TableLead | WrittenTableLead
   /** Its dot stands on the name's line, not in the middle: where a note runs under the row. */
   top?: boolean
   /** Its name quieter: a row that stands for one listed already (a graph's table). */
   quiet?: boolean
+  /** Its name's own tooltip, once it's cut: not where what it's in says the lead whole (a row). */
+  tip?: boolean
 }) {
   const { level, name, beside, under } = lead ?? {}
   return (
@@ -51,21 +63,24 @@ export function Lead({
           {/* A name is never cut at its end: it loses its middle and keeps its last characters. */}
           <MiddleCut
             text={theirs(name)}
+            tip={tip}
             className={quiet ? 'text-ink-2' : 'font-medium text-ink-1'}
           />
-          {/* The word beside it gives way first, to 40% of the lead at most. */}
+          {/* The words beside it take the room the name leaves. Where the two don't fit, they give
+              way first, all the way to their least, before the name gives anything. */}
           {said(beside) && (
             <span
+              data-beside
               // (A short word stays whole, marks and all; a long one keeps its first few characters.)
               style={{ minWidth: `${Math.min(spelled(said(beside)).length, 5)}ch` }}
-              className="max-w-[40%] shrink-[99] truncate text-xs text-ink-3"
+              className="shrink-[100000] truncate text-xs text-ink-3"
             >
               <TheirText text={beside} inline />
             </span>
           )}
         </span>
         {said(under) && (
-          <span className="block truncate text-xs leading-4 text-ink-3">
+          <span data-under className="block truncate text-xs leading-4 text-ink-3">
             <TheirText text={under} inline />
           </span>
         )}

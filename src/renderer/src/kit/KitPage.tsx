@@ -390,6 +390,77 @@ const WAITING: Written = {
   ],
 }
 
+/** A row that links to its pod's Logs tab, in a card too narrow for all its columns. */
+const instance = (name: string, role: string, restarts: number, days: number): WrittenRow => ({
+  key: name,
+  lead: { level: 'healthy', name },
+  cells: [
+    { kind: 'text', text: role },
+    { kind: 'status', level: 'healthy', word: 'Ready' },
+    { kind: 'text', text: 'ip-10-0-2-44' },
+    { kind: 'number', value: restarts },
+    { kind: 'age', time: ago(days * 1440 + 180) },
+  ],
+  goes: { object: token({ kind: 'Pod', name, namespace: 'shop' }), at: 'logs' },
+})
+
+const INSTANCES: Written = {
+  title: 'Instances',
+  headings: true,
+  columns: [
+    { name: 'Role', kind: 'text', width: 'narrow' },
+    { name: 'Status', kind: 'status' },
+    { name: 'Node', kind: 'text' },
+    { name: 'Restarts', kind: 'number', width: 'narrow' },
+    { name: 'Age', kind: 'age', width: 'narrow' },
+  ],
+  rows: [
+    instance('orders-db-1', 'Primary', 0, 41),
+    instance('orders-db-2', 'Replica', 0, 41),
+    instance('orders-db-3', 'Replica', 2, 3),
+    // (A name its column cuts: its row's tooltip has all three of its parts.)
+    instance('orders-db-analytics-replica-eu-central-1a', 'Replica', 0, 12),
+  ],
+}
+
+type WrittenLead = NonNullable<WrittenRow['lead']>
+
+/** A name with words beside it, or a line under it, as design's frame has them. */
+const down = (lead: WrittenLead): Written => ({
+  title: 'Down',
+  headings: false,
+  columns: [{ name: 'For', kind: 'age', width: 'text' }],
+  rows: [
+    {
+      key: lead.name,
+      lead: { level: 'critical', ...lead },
+      cells: [{ kind: 'age', time: ago(8 * 60) }],
+    },
+  ],
+})
+const BESIDE = 'storefront · ServiceMonitor · shop · Prometheus k8s'
+/**
+ * How wide each stands, and what it's called: room for the name and the words beside it, less,
+ * and not enough for the name; and a line under the name with no room for all of it.
+ */
+const DOWN: readonly (readonly [string, number, WrittenLead])[] = [
+  ['room', 560, { name: '10.0.3.7:8080', beside: BESIDE }],
+  ['less', 340, { name: '10.0.3.7:8080', beside: BESIDE }],
+  [
+    'least',
+    328,
+    { name: 'storefront-metrics-exporter-7d9f6c5b8-x2kqp.shop.svc:8080', beside: BESIDE },
+  ],
+  [
+    'under',
+    328,
+    {
+      name: '10.0.3.7:8080',
+      under: 'Get "http://10.0.3.7:8080/metrics": context deadline exceeded',
+    },
+  ],
+]
+
 /**
  * Texts that aren't Lumovi's, each holding what can't be seen or would act, as design's frame
  * has them: a letter that draws as nothing, a mark that turns text round, marks in the part of
@@ -788,6 +859,21 @@ function Tables() {
         {/* (The whole width, as design's frame has it: names with room to show their marks.) */}
         <div className="col-span-full">
           <Table {...handed(MARKS)} />
+        </div>
+        {/* When it doesn't all fit, at design's frame's widths: a table whose rows link, too
+            narrow for its last columns; and a name with words beside it, with room and without,
+            or a line under it. */}
+        <div className="col-span-full flex flex-wrap items-start gap-x-8 gap-y-4">
+          <div data-fits="instances" style={{ width: 480 }} className="max-w-full">
+            <Table {...handed(INSTANCES)} go={said('Instances', 'go')} />
+          </div>
+          <div className="grid min-w-0 grid-cols-1 gap-4">
+            {DOWN.map(([room, width, lead]) => (
+              <div key={room} data-fits={room} style={{ width }} className="max-w-full">
+                <Table {...handed(down(lead))} />
+              </div>
+            ))}
+          </div>
         </div>
         <div className="col-span-full">
           <button

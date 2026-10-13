@@ -773,7 +773,7 @@ export type WrittenOf<K> = K extends { kind: 'text' }
         : K extends { kind: 'cut' }
           ? string
           : K extends { kind: 'destination' }
-            ? WrittenDestination
+            ? WrittenDestination | WrittenReach
             : K extends { kind: 'handler' }
               ? string
               : K extends { kind: 'number' }
