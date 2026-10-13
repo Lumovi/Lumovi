@@ -386,7 +386,38 @@ function changeOf(
 }
 
 /** The kubectl command that makes the same change. */
-function commandOf(
+/**
+ * A patch that sets only an object's annotations, or only its labels, as kubectl says it: its
+ * verb (`annotate` or `label`) and each key as `key=value`, or `key-` where the patch takes it
+ * away. Exactly what the patch does, or nothing: anything else in it, or a value that isn't text,
+ * is said as the patch itself.
+ */
+export function annotatedAs(
+  body: unknown,
+): { verb: 'annotate' | 'label'; pairs: string[] } | undefined {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return undefined
+  const { metadata, ...rest } = body as { metadata?: unknown }
+  if (Object.keys(rest).length > 0 || typeof metadata !== 'object' || metadata === null)
+    return undefined
+  const names = Object.keys(metadata)
+  if (names.length !== 1 || (names[0] !== 'annotations' && names[0] !== 'labels')) return undefined
+  const map = (metadata as Record<string, unknown>)[names[0]!]
+  if (typeof map !== 'object' || map === null || Array.isArray(map)) return undefined
+  // (A key kubectl's form would read otherwise, one with an `=` in it, is said as the patch.)
+  const pairs = Object.entries(map).map(([key, value]) =>
+    key.includes('=')
+      ? undefined
+      : value === null
+        ? `${key}-`
+        : typeof value === 'string'
+          ? `${key}=${value}`
+          : undefined,
+  )
+  if (pairs.length === 0 || pairs.some((pair) => pair === undefined)) return undefined
+  return { verb: names[0] === 'annotations' ? 'annotate' : 'label', pairs: pairs as string[] }
+}
+
+export function commandOf(
   r: PluginChangeRequest,
   resource: ResourceDefinition,
   namespace: string | undefined,
@@ -394,7 +425,18 @@ function commandOf(
 ): string {
   const object = objectArg(resource.kind, name ?? '')
   switch (r.action) {
-    case 'patch':
+    case 'patch': {
+      const annotated = annotatedAs(r.body)
+      if (annotated) {
+        return kubectl(
+          r.context,
+          namespace,
+          annotated.verb,
+          object,
+          ...annotated.pairs,
+          '--overwrite',
+        )
+      }
       return kubectl(
         r.context,
         namespace,
@@ -405,6 +447,7 @@ function commandOf(
         '-p',
         JSON.stringify(r.body ?? {}),
       )
+    }
     case 'scale':
       return kubectl(r.context, namespace, 'scale', object, `--replicas=${r.replicas ?? 0}`)
     case 'delete':
