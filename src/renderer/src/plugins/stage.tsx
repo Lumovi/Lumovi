@@ -47,6 +47,7 @@ import {
   selectors,
 } from '@shared/plugin-reads'
 import type { PageEnd } from '@shared/plugin-ended'
+import { TooltipProvider } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { elsewhere, linesAt, removeAt, renameAt, setAt } from '@renderer/lib/yaml-edit'
 import { codeOf } from './box-check'
@@ -212,7 +213,12 @@ export const stage = {
     host = document.createElement('div')
     document.body.append(host)
     root = createRoot(host)
-    root.render(<Stage shown={shown} />)
+    // (Under the provider Lumovi's own page has: a kit part's tooltips need one.)
+    root.render(
+      <TooltipProvider delayDuration={500} skipDelayDuration={200}>
+        <Stage shown={shown} />
+      </TooltipProvider>,
+    )
   },
   hide(): void {
     root?.unmount()

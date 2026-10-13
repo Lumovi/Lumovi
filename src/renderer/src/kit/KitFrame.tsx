@@ -215,7 +215,8 @@ const HARD: WrittenTile[][] = [
       icon: 'package',
       label: 'Storage for each instance, of what its claim asked for when it was made',
       value: { kind: 'figure', text: '1.2 TiB' },
-      detail: 'of 2 TiB, and the line under a value is cut at its end where it has no room',
+      detail:
+        'of 2 TiB, as its claim asked for when it was made: the line under a value goes on onto a second line where it has no room to stand on one, and is never cut',
     },
     {
       key: 'b',

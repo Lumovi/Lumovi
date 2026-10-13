@@ -4,6 +4,7 @@
  */
 import type { Page } from '@playwright/test'
 import { expect, openCluster, test } from './fixtures.ts'
+import { placed } from '../placed.ts'
 
 async function kit(page: Page) {
   await openCluster(page)
@@ -490,4 +491,130 @@ test('a table of moments: its own lead heading, each revision in fixed-width typ
   // A pointer's press is no keyboard's: what its row showed goes.
   await rows.nth(1).getByRole('gridcell').last().click()
   await expect(page.getByRole('tooltip')).toHaveCount(0)
+})
+
+test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, and only what’s cut: a heading, a text, and in the keyboard’s row', async ({
+  launch,
+  clusters,
+}) => {
+  // (A 1024 window, laid out at the tests' usual 1440 and zoomed: there the panel leaves the
+  // table room to keep its Repository and path column, cut.)
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x900' } })
+  await openCluster(page)
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
+  })
+  const applications = page.getByRole('grid', { name: 'Applications' })
+  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  await page.waitForFunction(() => window.location.hash.includes('open='))
+  const tip = (text: string) => page.getByRole('tooltip').filter({ hasText: text })
+  // A heading its column cuts: whole in Lumovi's tooltip, and never a title beside it.
+  await applications.getByRole('columnheader', { name: 'Repository and path' }).hover()
+  await expect(tip('Repository and path')).toBeVisible()
+  await expect(applications.getByRole('columnheader').locator('[title]')).toHaveCount(0)
+  // (Pointed away twice: one move away is still on the way to the tooltip, as Radix sees it.)
+  const away = async () => {
+    await page.mouse.move(0, 0)
+    await page.mouse.move(1, 1)
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+  }
+  await away()
+  // One that fits says nothing more.
+  await applications.getByRole('columnheader', { name: 'Sync' }).hover()
+  await expect(tip('Sync')).toHaveCount(0)
+  // A text its column cuts: whole, in its own tooltip.
+  await away()
+  const batch = applications.getByRole('row').filter({ hasText: 'legacy-batch' })
+  await batch.locator('[data-cuts]').first().hover()
+  await expect(tip('apps/batch · github.com/example/deploy').first()).toBeVisible()
+  // The keyboard's row (payments, opened above): cells can't be pointed at, so its tooltip says
+  // the cut one whole too, beside the columns that gave way.
+  await page.mouse.move(0, 0)
+  await applications.focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowUp')
+  const row = page.getByRole('tooltip').filter({ hasText: 'Target revision' })
+  await expect(row).toContainText(
+    /Repository and path\s*apps\/payments · github\.com\/example\/deploy/,
+  )
+  // Read after the row: what gave way, and not the cut cell again, which is read whole where it is.
+  const payments = applications.getByRole('row').filter({ hasText: 'payments' }).first()
+  await expect(payments).toHaveAccessibleDescription(/Target revision/)
+  await expect(payments).not.toHaveAccessibleDescription(/Repository and path/)
+  // Its value shortened as the page reads it again: no longer cut, no longer said.
+  const app = structuredClone(
+    clusters.demo.object('Application.argoproj.io', 'argocd', 'payments')!,
+  )
+  const spec = app.spec as { source: { repoURL: string; path: string } }
+  spec.source.repoURL = 'https://g.io/d'
+  spec.source.path = 'p'
+  clusters.demo.upsert(app)
+  await expect(page.getByRole('tooltip').filter({ hasText: 'Target revision' })).not.toContainText(
+    'Repository and path',
+  )
+})
+
+test('beside a panel at 1024, a row of tiles too narrow for two stands one across, each line on one line', async ({
+  launch,
+}) => {
+  // (Laid out at 1024 itself, not zoomed out to the tests' usual width.)
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x900' }, fullLayout: false })
+  await openCluster(page)
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
+  })
+  const applications = page.getByRole('grid', { name: 'Applications' })
+  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  await page.waitForFunction(() => window.location.hash.includes('open='))
+  const tiles = ['Healthy', 'Out of sync', 'Last sync failed'].map((name) =>
+    page.getByRole('region', { name, exact: true }),
+  )
+  // One across: each at the row's left edge, one under another, with its label whole.
+  await expect
+    .poll(async () => new Set(await Promise.all(tiles.map(async (t) => (await placed(t)).x))).size)
+    .toBe(1)
+  const label = tiles[1]!.getByText('Out of sync', { exact: true })
+  expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  // A short line holds on one line (16 px), never broken inside a word.
+  const line = tiles[1]!.getByText('of 3 applications', { exact: true })
+  expect((await placed(line)).height).toBeLessThanOrEqual(20)
+})
+
+test('beside a panel at 1440, a row of tiles keeps its words at the top, and a line in parts wraps between them', async ({
+  launch,
+}) => {
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1440x900' } })
+  await openCluster(page)
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
+  })
+  const applications = page.getByRole('grid', { name: 'Applications' })
+  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  await page.waitForFunction(() => window.location.hash.includes('open='))
+  const tiles = ['Healthy', 'Out of sync', 'Last sync failed'].map((name) =>
+    page.getByRole('region', { name, exact: true }),
+  )
+  // One height, and in each its label and its figure at the same height: the spare under the line.
+  const tops = await Promise.all(
+    tiles.map((tile) =>
+      tile.evaluate((el) => {
+        const top = (selector: string) =>
+          Math.round(el.querySelector(selector)!.getBoundingClientRect().top)
+        return [Math.round(el.getBoundingClientRect().height), top('span'), top('.text-\\[28px\\]')]
+      }),
+    ),
+  )
+  expect(new Set(tops.map((at) => at.join())).size).toBe(1)
+  // Healthy's line, two parts: each whole on a line of its own, broken only between them.
+  const parts = await tiles[0]!
+    .locator('[data-part]')
+    .evaluateAll((els) =>
+      els.map((el) => [
+        el.textContent,
+        Math.round(el.getBoundingClientRect().top),
+        el.getClientRects().length,
+      ]),
+    )
+  expect(parts.map(([text]) => text)).toEqual(['1 degraded', '1 progressing'])
+  expect(parts[1]![1]).toBeGreaterThan(parts[0]![1] as number)
 })

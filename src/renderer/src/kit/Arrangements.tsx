@@ -3,7 +3,7 @@
  * tiles. No width, gap or position is a plugin's to give: these are Lumovi's. Each takes what its
  * declaration (`@shared/kit/page`) says, as the door hands it: a plugin's texts as `Their`.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { spelled } from '@shared/kit/characters'
 import type { ListDestination, ReachDestination, Their } from '@shared/kit/declare'
 import type {
@@ -96,12 +96,14 @@ export function Tiles({
                 tile.cut ? (
                   `Counted from the first ${counted(tile.cut.at)} Lumovi read.`
                 ) : tile.detail?.their ? (
-                  <TheirText text={tile.detail} inline />
+                  <Parts text={tile.detail} />
                 ) : undefined
               }
               // (A cut's line is Lumovi's saying where the count stops, not a level: no dot.)
               status={tile.cut ? undefined : tile.level}
-              wraps={tile.cut !== undefined}
+              // (Its label and value are cut at their ends; the line under wraps, never cut: a row
+              // of tiles never draws one too narrow to say it.)
+              wraps
               cut
               onOpen={
                 tile.opens && (tile.opens.to !== 'reach' || offered(tile.opens.at, layout))
@@ -201,5 +203,28 @@ export function Split({
       {/* With nothing to list, the rest of the page shows nothing. */}
       {row ? <Stack>{children}</Stack> : <div />}
     </div>
+  )
+}
+
+/**
+ * A tile's line, as a plugin wrote it: where it's in parts (" · "), wrapped only between them,
+ * each held whole where it fits on a line ("1 degraded · / 1 progressing", never "· 1 /
+ * progressing"). One with no parts wraps as any text does.
+ */
+function Parts({ text }: { text: Their }) {
+  const parts = text.their.split(' · ')
+  if (parts.length < 2) return <TheirText text={text} inline />
+  // (One text in the line, which may wrap: its parts in it, each held whole where it fits.)
+  return (
+    <span className="min-w-0">
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {i > 0 && ' · '}
+          <span data-part className="inline-block max-w-full">
+            <TheirText text={part} inline />
+          </span>
+        </Fragment>
+      ))}
+    </span>
   )
 }

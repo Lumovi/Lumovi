@@ -16,6 +16,7 @@ export function Tooltip({
   children,
   side = 'bottom',
   shown,
+  when,
 }: {
   content: ReactNode
   children: ReactNode
@@ -25,6 +26,11 @@ export function Tooltip({
    * shows what its cells hold whole. (Hovered, it shows anyway.)
    */
   shown?: boolean
+  /**
+   * Asked as it would open: whether it has anything to say then (a text that's cut, say). While
+   * it hasn't, it stays closed.
+   */
+  when?: () => boolean
 }) {
   const [hovered, setHovered] = useState(false)
   // Nothing hovers under a finger, and a tooltip shown on focus would take the Escape meant for
@@ -33,7 +39,12 @@ export function Tooltip({
   if (touch) return children
   return (
     <TooltipPrimitive.Root
-      {...(shown === undefined ? {} : { open: shown || hovered, onOpenChange: setHovered })}
+      {...(shown === undefined && when === undefined
+        ? {}
+        : {
+            open: (shown ?? false) || hovered,
+            onOpenChange: (open: boolean) => setHovered(open && (when?.() ?? true)),
+          })}
     >
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>

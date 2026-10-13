@@ -41,7 +41,7 @@ export function Tile({
   /** The label and the line under are cut at their ends, at every width. */
   cut?: boolean
   /**
-   * The line under is Lumovi's own (where a count stops): never cut, it wraps instead, and the
+   * The line under is never cut: it wraps instead (onto a second line in a narrow tile), and the
    * row's tiles take the taller height together.
    */
   wraps?: boolean
@@ -83,11 +83,12 @@ export function Tile({
       )}
       <div
         className={cn(
-          'mt-2 flex items-center gap-1.5 text-xs text-ink-3',
-          wraps ? 'min-h-5 leading-4' : 'h-5',
+          'mt-2 flex gap-1.5 text-xs text-ink-3',
+          // (Wrapped, its dot stands by its first line.)
+          wraps ? 'min-h-5 items-start py-0.5 leading-4' : 'h-5 items-center',
         )}
       >
-        {status && <StatusDot health={status} />}
+        {status && <StatusDot health={status} className={cn(wraps && 'mt-1')} />}
         {cut && !wraps ? <span className="min-w-0 truncate">{detail}</span> : detail}
       </div>
     </>
@@ -105,7 +106,9 @@ export function Tile({
           onClick={onOpen}
           title={opensTip}
           className={cn(
-            'group relative block h-full w-full transition-colors hover:border-line-strong hover:bg-surface-3/40',
+            // (Its content at its top, as a tile that opens nothing has it: in a taller row, the
+            // spare height falls below its line.)
+            'group relative flex h-full w-full flex-col transition-colors hover:border-line-strong hover:bg-surface-3/40',
             box,
           )}
         >
