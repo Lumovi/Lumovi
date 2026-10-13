@@ -76,7 +76,9 @@ export function DiffView({ diff, label }: { diff: { lines: DiffLine[] }; label: 
             line.type === 'gap' && 'my-1 bg-surface-3/60 py-0.5 font-sans text-2xs text-ink-3',
           )}
         >
-          <span className="mr-3 inline-block w-3 text-ink-3 select-none">
+          {/* (Not indented as its line is: on a phone the line's negative indent would take the
+              sign out of its column.) */}
+          <span className="mr-3 inline-block w-3 indent-0 text-ink-3 select-none">
             {{ added: '+', removed: '−', same: ' ', gap: '⋯' }[line.type]}
           </span>
           {line.text}

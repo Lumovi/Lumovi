@@ -9,6 +9,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { cutWords } from '../commands.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { audited, DEMO_TOKEN, expect, freePort, signIn, test, type Served } from './fixtures.ts'
 
@@ -369,6 +370,8 @@ test('a change as long as a plugin may send keeps its buttons in reach: its comm
   const command = shown.locator('[data-proposal-command]')
   await expect(command).toContainText('kubectl annotate')
   await expect(command).toContainText(`example.com/note-55=${'n'.repeat(230)}`)
+  // (Broken only between its words, but for a word wider than its box.)
+  expect(await cutWords(command)).toEqual([])
   await page.setViewportSize({ width: 1280, height: 600 })
   for (const inView of [
     shown.locator('[data-cancel]'),

@@ -4,6 +4,7 @@
  * finger's size. Nothing scrolls sideways, held upright or on its side, in either theme.
  */
 import type { Locator, Page } from '@playwright/test'
+import { cutWords, selectedText } from '../commands.ts'
 import { call, connect } from './assistant-client.ts'
 import { DEMO, DEMO_TOKEN, expect, PEOPLE, signIn, test } from './fixtures.ts'
 import {
@@ -557,6 +558,71 @@ test('an assistant’s change is approved from a sheet; put aside, it waits', as
   await sheet.getByRole('button', { name: /^Approve/ }).click()
   await expect(sheet).toHaveCount(0)
   await expect(waiting).toHaveCount(0)
+})
+
+test('a change’s command breaks only between its words, and its diff keeps its − and +', async ({
+  page,
+  serve,
+}) => {
+  // (The assistant's call answers after a short wait for the approval, not the default's.)
+  const served = await serve({ env: { LUMOVI_APPROVAL_SLICE_MS: '1500' } })
+  const name = DEMO.deployments.storefront
+  await page.setViewportSize({ width: 1440, height: 920 })
+  await signIn(page, `${served.url}cluster/demo`, PEOPLE.alice.token)
+  const { client } = await connect(page, served)
+  await page.setViewportSize(PHONE)
+  await page.goto(`${served.url}cluster/demo`)
+  await call(client, 'scale', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name,
+    replicas: 5,
+    reason: 'Busy.',
+  })
+  await page.getByRole('button', { name: /1 change from Claude Code waits for you/ }).click()
+  const sheet = page.getByRole('dialog', { name: `Scale Deployment ${name} to 5 replicas` })
+  // Its command takes two lines here, broken between its words: never after a flag's "--".
+  const said = `kubectl scale deployment/${name} --replicas=5 -n shop --context demo`
+  const command = sheet.locator('code').filter({ hasText: /^kubectl / })
+  await expect(command).toHaveText(said)
+  expect(await command.evaluate((box) => box.getClientRects()[0]!.height)).toBeGreaterThan(30)
+  expect(await cutWords(command)).toEqual([])
+  // What's selected of it is the command, as Copy copies it.
+  expect(await selectedText(command)).toBe(said)
+  // Each changed line's − or + stands in its own column, before the line's text: colour isn't
+  // all that says which is which.
+  const changed = sheet.locator('[data-change="removed"], [data-change="added"]')
+  await expect(changed).toHaveCount(2)
+  for (const line of await changed.all()) {
+    const { sign, text, row } = await line.evaluate((row) => {
+      const of = (node: Node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        return range.getClientRects()[0]!.toJSON() as DOMRect
+      }
+      return {
+        sign: of(row.firstElementChild!),
+        text: of(row.lastChild!),
+        row: row.getBoundingClientRect().toJSON() as DOMRect,
+      }
+    })
+    expect(sign.width).toBeGreaterThan(0)
+    expect(sign.left).toBeGreaterThanOrEqual(row.left)
+    expect(sign.right).toBeLessThanOrEqual(text.left)
+  }
+  await expect(changed.locator('> span')).toHaveText(['−', '+'])
+  // And a phone's own dialog, the narrowest: a scale's sheet. (The change waits, as a pill.)
+  await page.goto(`${served.url}cluster/demo/deployments?open=Deployment/shop/${name}`)
+  await page
+    .getByRole('complementary', { name: `Deployment ${name}` })
+    .getByRole('button', { name: 'Scale' })
+    .click()
+  const scale = page.getByRole('dialog', { name: `Scale ${name}` })
+  const its = scale.locator('code').filter({ hasText: /^kubectl / })
+  await expect(its).toContainText('--replicas=')
+  expect(await cutWords(its)).toEqual([])
+  expect(await selectedText(its)).toBe(await its.textContent())
 })
 
 test('of two changes waiting, a double tap approves one; a long name is cut, never what’s asked', async ({
