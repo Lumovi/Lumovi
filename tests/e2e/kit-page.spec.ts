@@ -4,6 +4,7 @@
  */
 import type { Page } from '@playwright/test'
 import { expect, openCluster, test } from './fixtures.ts'
+import { placed } from '../placed.ts'
 
 const LONGEST = 'checkout-payments-reconciliation-ledger-archive-eu-west1-main-db'
 
@@ -134,6 +135,8 @@ test('the header: a name that gives way, and at most three buttons with the rest
   // Five actions: the filled one last, the one before it, and "…" between them with the rest.
   const long = page.getByRole('group', { name: LONGEST })
   await expect(long.getByRole('button')).toHaveText(['Switch over…', '', 'Back up now…'])
+  // The filled one is the last that changes something.
+  await expect(long.getByRole('button', { name: 'Back up now…' })).toHaveClass(/\bbg-accent\b/)
   // The name is cut in its middle; the status and the buttons are whole, on one line.
   await expect(long.getByRole('heading').locator('[aria-hidden]')).toHaveText(/…ain-db$/)
   const tops = await long
@@ -210,6 +213,14 @@ test('a button’s note under the buttons; a button that’s off stays in its pl
     .getByRole('option')
     .filter({ hasText: 'sessions-db' })
     .click()
+  // Seven, and its last only reads: the last that changes stands at the end, filled, the read
+  // before it, and the rest behind "…" in their order.
+  const sessions = page.getByRole('group', { name: 'sessions-db' })
+  await expect(sessions.getByRole('button')).toHaveText(['Show metrics', '', 'Fail over…'])
+  await expect(sessions.getByRole('button', { name: 'Fail over…' })).toHaveClass(/\bbg-accent\b/)
+  await expect(sessions.getByRole('button', { name: 'Show metrics' })).not.toHaveClass(
+    /\bbg-accent\b/,
+  )
   // (Opened from the keys: its first item has the focus.)
   await page.getByRole('button', { name: 'More for sessions-db' }).focus()
   await page.keyboard.press('Enter')
@@ -359,6 +370,7 @@ test('what a part of a page is refused for: its kinds first, then what they can�
     'Header buttons 1 and 2 have the same key.',
     'Header.buttons[0].note: is longer than 120 characters',
     'Header.buttons[0].off: is longer than 80 characters',
+    'Card.about: is longer than 240 characters',
     'Nothing: it can be drawn.',
     'Pick list rows 1 and 2 have the same key.',
     // (A picked row that isn't one of the rows is the cluster changing, not a fault.)
@@ -425,4 +437,23 @@ test('Karpenter’s overview from the frame’s parts: a card, a pair of cards s
   await expect(
     zones.getByRole('listitem').last().locator('[aria-hidden] [data-mark]'),
   ).toContainText('U+202E')
+})
+
+test('a card says where its data came from, under its title: two lines, then cut, whole in its tooltip', async ({
+  page,
+}) => {
+  await frame(page)
+  const pools = page.getByRole('region', { name: 'Node mix', exact: true }).first()
+  // Read after its title, never as its name.
+  await expect(pools).toHaveAccessibleName('Node mix')
+  await expect(pools).toHaveAccessibleDescription(/^Counted from Karpenter’s own NodePools/)
+  const about = pools.locator('[data-about]')
+  await about.scrollIntoViewIfNeeded()
+  // Two lines of 18 px at most, cut at its end.
+  expect((await placed(about)).height).toBeLessThanOrEqual(37)
+  expect(await about.evaluate((line) => line.scrollHeight > line.clientHeight)).toBe(true)
+  await about.hover()
+  await expect(page.getByRole('tooltip')).toContainText(
+    'Lumovi’s own Nodes list is always current.',
+  )
 })

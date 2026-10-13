@@ -21,7 +21,13 @@ import {
   type ListDestination,
   type Part,
 } from '../../src/shared/kit/declare.ts'
-import { header, headerProblem, pressable } from '../../src/shared/kit/page.ts'
+import {
+  filledLast,
+  header,
+  headerProblem,
+  pressable,
+  pressChanges,
+} from '../../src/shared/kit/page.ts'
 import { DoorPage } from '../../src/shared/plugin-door.ts'
 import {
   callOf,
@@ -770,4 +776,41 @@ test('a header button that goes somewhere is never pressed to its plugin, and ch
     'Header button logs goes somewhere of Lumovi’s: it changes nothing and asks nothing first.',
   )
   expect(headerProblem([{ key: 'logs', goes }])).toBeUndefined()
+})
+
+test('a press has a token a proposal can spend only where its button says it changes something', () => {
+  const buttons = [
+    { key: 'look', name: 'Look' },
+    { key: 'sync', name: 'Sync', changes: true },
+    { key: 'logs', name: 'Logs', goes: { to: 'reach', at: 'logs' } },
+  ]
+  expect(pressChanges(buttons, { button: 'sync' })).toBe(true)
+  // One that only reads, or goes, or isn't there; or nothing drawn to say: none.
+  for (const button of ['look', 'logs', 'gone', 'toString']) {
+    expect(pressChanges(buttons, { button }), button).toBe(false)
+  }
+  expect(pressChanges(undefined, { button: 'sync' })).toBe(false)
+  expect(pressChanges(buttons, null)).toBe(false)
+})
+
+test('a header’s last button that changes something is drawn at its end, the rest in their order', () => {
+  const keys = (buttons: readonly { key: string }[]) => buttons.map((button) => button.key)
+  // Several that change, the last of them before reads: it moves, so "…" never holds it.
+  const several = [
+    { key: 'restart', changes: true },
+    { key: 'scale', changes: true },
+    { key: 'look' },
+    { key: 'logs' },
+    { key: 'metrics' },
+  ]
+  expect(keys(filledLast(several))).toEqual(['restart', 'look', 'logs', 'metrics', 'scale'])
+  // Off for now, it's still where the change is: it moves too.
+  const off = [{ key: 'failover', changes: true, off: 'Not now.' }, { key: 'metrics' }]
+  expect(keys(filledLast(off))).toEqual(['metrics', 'failover'])
+  // Last already, or none that changes: the plugin's order, as it is.
+  const last = [{ key: 'look' }, { key: 'sync', changes: true }]
+  expect(filledLast(last)).toBe(last)
+  const reads: { key: string; changes?: boolean }[] = [{ key: 'look' }, { key: 'logs' }]
+  expect(filledLast(reads)).toBe(reads)
+  expect(filledLast([])).toEqual([])
 })

@@ -35,6 +35,8 @@ const CODE = `box.then(({ post, listen }) => {
   let widget
   let n = 0
   const BUTTONS = [
+    // (One that only reads: its press has no token, so what it proposes is refused.)
+    { key: 'look', name: 'Look' },
     { key: 'resize', name: 'Resize', changes: true },
     { key: 'remove', name: 'Remove', changes: true },
     { key: 'stale', name: 'Stale', changes: true },
@@ -75,6 +77,7 @@ const CODE = `box.then(({ post, listen }) => {
         })
       }
       if (button === 'remove') propose(said.press, { action: 'delete', target: widget })
+      if (button === 'look') propose(said.press, { action: 'delete', target: widget })
       // A press spent already, by the proposal before it: refused.
       if (button === 'stale') {
         propose(said.press, { action: 'delete', target: widget })
@@ -394,4 +397,15 @@ test('a change as long as a plugin may send keeps its buttons in reach: its comm
   await expect.poll(fade).toBe('none')
   await shown.locator('[data-cancel]').click()
   await expect(said(page)).toContainText('outcome 2 cancelled')
+})
+
+test('a press of a button that only reads proposes nothing: it has no token to spend', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await opened(page, server)
+  await press(page, 'Look')
+  await expect(said(page)).toContainText('outcome 2 refused')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })

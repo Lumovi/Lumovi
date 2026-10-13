@@ -1,9 +1,11 @@
 /**
  * The second-level header of a plugin's page: what's picked, its status, and what can be done
- * with it. At most three buttons show, the one that matters most last and the only filled one;
- * with more, "…" stands before it and holds the rest. On a phone a plugin's buttons that change
- * the cluster aren't offered: one line says where they are. What a button does, where the plugin
- * says, is under them; and one it says can't be pressed now is off, and says why.
+ * with it. At most three buttons show, the one that matters most last: the last that changes
+ * something stands at the end, filled, and the rest keep the plugin's order (none is filled
+ * where none changes anything: a button that only reads or goes never is). With more, "…" stands
+ * before the last and holds the rest. On a phone a plugin's buttons that change the cluster
+ * aren't offered: one line says where they are. What a button does, where the plugin says, is
+ * under them; and one it says can't be pressed now is off, and says why.
  */
 import { Ellipsis, Info } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
@@ -19,7 +21,7 @@ import {
 } from 'react'
 import { spelled } from '@shared/kit/characters'
 import type { ListDestination, ReachDestination } from '@shared/kit/declare'
-import { BUTTONS_SHOWN, type HeaderButton, type HeaderProps } from '@shared/kit/page'
+import { BUTTONS_SHOWN, filledLast, type HeaderButton, type HeaderProps } from '@shared/kit/page'
 import { Button } from '@renderer/components/Button'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
@@ -336,6 +338,10 @@ export function PageHeader({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- (`elsewhereHere` is of `phone`.)
     [all, layout, phone],
   )
+  // The desktop's row, as it's drawn: the last that changes something moved to the end. It's the
+  // filled one, off for now or not. (One that only reads or goes never is.)
+  const ordered = useMemo(() => filledLast(buttons), [buttons])
+  const filled = ordered.at(-1)?.changes === true ? ordered.at(-1) : undefined
   const press = (button: HeaderButton) =>
     button.goes ? go?.(button.goes) : onPress?.({ button: button.key })
   // How many buttons the desktop's row has room for, measured as it's laid out and whenever its
@@ -346,7 +352,7 @@ export function PageHeader({
   const drawnAs = fitKey(
     spelled(header.name.their),
     header.status?.word.their ?? '',
-    buttons.map((button) => `${spelled(button.name.their)}${button.asks ? '…' : ''}`),
+    ordered.map((button) => `${spelled(button.name.their)}${button.asks ? '…' : ''}`),
   )
   useLayoutEffect(() => {
     const group = groupRef.current
@@ -401,8 +407,8 @@ export function PageHeader({
               <Action
                 key={keyOf(button)}
                 button={button}
-                // (Filled only if it's the one that matters most of them all: the header's last.)
-                variant={button === buttons.at(-1) ? 'primary' : 'secondary'}
+                // (Filled only if it's the last that changes something.)
+                variant={button === filled ? 'primary' : 'secondary'}
                 className="h-11"
                 onPress={() => press(button)}
               />
@@ -414,12 +420,13 @@ export function PageHeader({
   }
 
   // More than fit: the last ones keep their places, and "…" before the last holds the rest.
-  const shown = buttons.slice(
-    -(fits?.shown ?? (buttons.length > BUTTONS_SHOWN ? 2 : buttons.length)),
+  const shown = ordered.slice(
+    -(fits?.shown ?? (ordered.length > BUTTONS_SHOWN ? 2 : ordered.length)),
   )
-  const folded = buttons.slice(0, buttons.length - shown.length)
+  const folded = ordered.slice(0, ordered.length - shown.length)
+  // (The filled one, last; the rest by their places.)
   const variant = (index: number) =>
-    index === shown.length - 1 ? 'primary' : index === shown.length - 2 ? 'secondary' : 'ghost'
+    shown[index] === filled ? 'primary' : index >= shown.length - 2 ? 'secondary' : 'ghost'
   const heading = (
     <h2 className="min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
       <MiddleCut text={header.name} />
@@ -473,7 +480,7 @@ export function PageHeader({
       <div className="flex items-start gap-6 empty:hidden">
         {detail}
         {/* (At most 480 px, and never past half the header.) */}
-        <Notes buttons={buttons} named={false} className="ml-auto max-w-[min(480px,50%)]" />
+        <Notes buttons={ordered} named={false} className="ml-auto max-w-[min(480px,50%)]" />
       </div>
     </div>
   )

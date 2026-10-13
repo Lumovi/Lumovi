@@ -1623,13 +1623,17 @@ function Card({
   )
   // A fact that stands for something longer is its own small thing to tap, inside a card that's
   // tapped to open: the card's tap goes under its facts then, never around them.
-  const tapped = facts.some((fact) => fact.full?.their)
+  const { under, ...bare } = row.lead
+  const tapped = facts.some((fact) => fact.full?.their) || Boolean(under?.their)
   const named = `${id}-named`
   const body = (
     <>
       <span className="flex items-center gap-2.5">
-        <Lead lead={row.lead} />
+        <Lead lead={bare} />
       </span>
+      {/* Its line under on two lines, and past them whole where it's tapped: a phone has no
+          tooltip to say the rest. */}
+      {under?.their && <Under text={under} id={`${id}-under`} />}
       {row.note?.their && (
         <span className="mt-1.5 ml-[18px] line-clamp-3 text-xs leading-[18px] text-ink-2">
           <TheirText text={row.note} inline />
@@ -1744,11 +1748,14 @@ function Whole({
   full,
   mono,
   id,
+  children,
 }: {
   said: Their | string
   full: Their
   mono: boolean
   id: string
+  /** What's tapped, drawn otherwise: none, `said`'s words. */
+  children?: ReactNode
 }) {
   return (
     <Popover.Root>
@@ -1760,7 +1767,7 @@ function Whole({
           onClick={(event) => event.stopPropagation()}
           className="pointer-events-auto relative -my-3.5 inline-flex min-h-11 max-w-full items-center text-left"
         >
-          <Words text={said} />
+          {children ?? <Words text={said} />}
         </button>
       </Popover.Trigger>
       <span id={id} hidden>
@@ -1778,6 +1785,46 @@ function Whole({
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  )
+}
+
+/**
+ * A phone card's line under its name: two lines, and where that cuts it, whole where it's tapped,
+ * as a fact that stands for something longer is (`Whole`). One that isn't cut is only its line.
+ */
+function Under({ text, id }: { text: Their; id: string }) {
+  // (The line as it's drawn now: wrapped in a Whole, it's drawn anew, and measured anew.)
+  const [shown, setShown] = useState<HTMLSpanElement | null>(null)
+  const [cut, setCut] = useState(false)
+  useLayoutEffect(() => {
+    if (!shown) return
+    const measure = () => setCut(shown.scrollHeight > shown.clientHeight + 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(shown)
+    // Measured again once the page's own fonts are in: its box is two lines tall either way.
+    void document.fonts.ready.then(measure)
+    return () => observer.disconnect()
+  }, [shown, text])
+  const said = (
+    <span
+      ref={setShown}
+      data-under=""
+      className="line-clamp-2 text-xs leading-4 [overflow-wrap:anywhere] text-ink-3"
+    >
+      <TheirText text={text} inline />
+    </span>
+  )
+  return (
+    <span className="mt-0.5 ml-[18px] block min-w-0">
+      {cut ? (
+        <Whole said={text} full={text} mono={false} id={id}>
+          {said}
+        </Whole>
+      ) : (
+        said
+      )}
+    </span>
   )
 }
 

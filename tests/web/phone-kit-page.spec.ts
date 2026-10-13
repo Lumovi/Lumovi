@@ -104,8 +104,8 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
   await expect(page.getByRole('group', { name: 'payments-db' }).getByRole('paragraph')).toHaveText(
     'Open Lumovi on a larger screen to use Switch over and Back up now.',
   )
-  // Six that change: the first four named, and how many more. The one that only reads is the
-  // header's last, so it's the filled one.
+  // Six that change: the first four named, and how many more. The one that only reads stays, and
+  // is never filled: only one that changes is.
   await page.getByRole('button', { name: 'Back' }).tap()
   await list.getByRole('listitem').filter({ hasText: 'sessions-db' }).getByRole('button').tap()
   const sessions = page.getByRole('group', { name: 'sessions-db' })
@@ -113,7 +113,7 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
     'Open Lumovi on a larger screen to use Hibernate, Restart, Switch over, Back up now and 2 more.',
   )
   await expect(sessions.getByRole('button')).toHaveText(['Show metrics'])
-  await expect(sessions.getByRole('button')).toHaveClass(/\bbg-accent\b/)
+  await expect(sessions.getByRole('button')).not.toHaveClass(/\bbg-accent\b/)
 })
 
 test('Karpenter’s overview on a phone: a pair stacks, a count keeps its row, and “N more” is a finger’s height', async ({
@@ -195,4 +195,26 @@ test('on a phone, a cut tile’s line of Lumovi’s own wraps, never cut, and it
   )
   expect(heights[0]).toBe(heights[1])
   await expectNoSidewaysScroll(page, 'a row with a cut tile, on a phone')
+})
+
+test('on a phone, a row’s line under its name wraps to two lines, and where that cuts it, it’s whole where it’s tapped', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/kit/frame`, DEMO_TOKEN)
+  const list = page.getByRole('region', { name: 'Clusters' }).first()
+  await list.getByRole('listitem').filter({ hasText: 'orders-db' }).getByRole('button').tap()
+  const cards = page.getByRole('region', { name: 'Instances' }).getByRole('listitem')
+  const [long, short] = [cards.nth(0), cards.nth(1)]
+  const line = long.locator('[data-under]')
+  await line.scrollIntoViewIfNeeded()
+  // Two lines of 16 px, cut: tapped, it's whole, and the card isn't opened.
+  expect((await line.boundingBox())!.height).toBeLessThanOrEqual(33)
+  const whole = long.getByRole('button', { name: /^Get "http/ })
+  await whole.tap()
+  await expect(page.getByRole('dialog')).toContainText('the last three scrapes in a row')
+  // Not cut: only its line, nothing to tap.
+  await expect(short.locator('[data-under]')).toHaveText('Streaming')
+  await expect(short.getByRole('button', { name: 'Streaming' })).toHaveCount(0)
 })
