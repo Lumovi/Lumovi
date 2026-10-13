@@ -35,6 +35,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -87,9 +88,46 @@ const PHONE_DEEPEST = 4
 const PAGE_JUMP = 10
 /** Past this many rows, only the ones in view are drawn. */
 const WINDOWED_FROM = 200
-/** A status's own width, and a narrow column's. */
-const WIDTHS = { narrow: '88px', normal: 'minmax(0,1fr)', wide: 'minmax(0,1.4fr)' } as const
+/**
+ * A status's own width, and a narrow column's; the others share what's left. Each takes no less
+ * than its least (`LEAST`, put in place of the word).
+ */
+const WIDTHS = {
+  narrow: 'minmax(LEAST,88px)',
+  normal: 'minmax(LEAST,1fr)',
+  wide: 'minmax(LEAST,1.4fr)',
+} as const
 const STATUS_WIDTH = '144px'
+/**
+ * The most a column's least is (its natural width, where that's less), and the name's floor
+ * (about eighteen of its characters, cut in the middle past that): where they don't all fit at
+ * their least, a column gives way whole, as in Lumovi's own lists, rather than every one
+ * shrinking until none can be read.
+ */
+const LEAST = { narrow: 88, normal: 120, wide: 168, status: 144, lead: 160 } as const
+/** What a cell draws beside its words: a status's icon, a meter's label. */
+const EXTRA: Partial<Record<TableColumn['kind'], number>> = { status: 22, meter: 40 }
+/** The room between a row's columns, and each side of a row. */
+const COLUMN_GAP = 16
+const ROW_SIDES = 16
+
+/**
+ * The columns that fit beside the name in `room` pixels, each at its least (`least`, by its
+ * place): where they don't all fit, they give way whole, the last in the plugin's order first,
+ * and the first status (`statusAt`) last of all. The name never does.
+ */
+export function fittingColumns(least: readonly number[], statusAt: number, room: number): number[] {
+  const kept = new Set(least.map((_, c) => c))
+  const need = () => [...kept].reduce((sum, c) => sum + least[c]! + COLUMN_GAP, LEAST.lead)
+  const order = least.map((_, c) => c).filter((c) => c !== statusAt)
+  order.reverse()
+  if (statusAt >= 0) order.push(statusAt)
+  for (const c of order) {
+    if (need() <= room) break
+    kept.delete(c)
+  }
+  return [...kept].sort((a, b) => a - b)
+}
 /** How bad a level is, least first: what a status sorts by, and not its word. */
 const SEVERITY: Health[] = ['healthy', 'neutral', 'progressing', 'warning', 'critical']
 /** In the sort, the row's name: the lead, which stands before the columns. */
@@ -549,28 +587,64 @@ export function Table({
     return out
   }, [groups, sort, turned, startOpen, limitOf, grouped, lineKeyOf])
 
-  // A column that's as wide as its text is as wide as its widest value, as drawn: of all the rows
-  // it was given, not of the ones drawn, so nothing shifts as a long table scrolls.
-  const template = useMemo(() => {
+  // Each column's natural width: its widest value, as drawn (of all the rows it was given, not of
+  // the ones drawn, so nothing shifts as a long table scrolls), and its heading where headings
+  // show. A column as wide as its text is that wide; the others take no less, up to their own
+  // width on the scale, and share what's left as they did.
+  const sizes = useMemo(() => {
     const everyRow = groups.flatMap((group) => group.rows.flatMap(withInside))
-    return [
-      'minmax(0,1.4fr)',
-      ...columns.map((column, c) => {
-        if (column.kind === 'status') return STATUS_WIDTH
-        if (column.width !== 'text') return WIDTHS[column.width ?? 'normal']
-        const width = Math.max(
-          // (Its heading counts where headings show.)
+    return columns.map((column, c) => {
+      const natural =
+        Math.max(
           headings ? widest([drawn(column.name)], HEADING, fonts) : 0,
           widestCells(
             everyRow.map((row) => cellAt(row, c)),
             SET[column.kind],
             fonts,
           ),
-        )
-        return `${width}px`
-      }),
-    ].join(' ')
+        ) + (EXTRA[column.kind] ?? 0)
+      if (column.kind === 'status') {
+        const least = Math.min(natural, LEAST.status)
+        return { track: `minmax(${least}px,${STATUS_WIDTH})`, least }
+      }
+      if (column.width === 'text') return { track: `${natural}px`, least: natural }
+      const width = column.width ?? 'normal'
+      const least = Math.min(natural, LEAST[width])
+      return { track: WIDTHS[width].replace('LEAST', `${least}px`), least }
+    })
   }, [columns, groups, headings, fonts])
+  // The columns there's room for beside the name, as wide as the table is laid out: the rest
+  // give way whole (said in the row's tooltip, and to a screen reader). Before it's measured, all.
+  const [laidOut, setLaidOut] = useState(0)
+  // (Measured once its rows are drawn: before then, it's a state, or nothing.)
+  const [grid, setGrid] = useState<HTMLDivElement | null>(null)
+  // (One function for every draw: a new one would be called again, with nothing and then the
+  // grid, at each, and set the state each time.)
+  const gridRef = useCallback((element: HTMLDivElement | null) => {
+    scroll.current = element
+    setGrid(element)
+  }, [])
+  useLayoutEffect(() => {
+    if (!grid) return
+    const measure = () => setLaidOut(grid.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [grid])
+  const kept = useMemo(
+    () =>
+      laidOut > 0
+        ? fittingColumns(
+            sizes.map((size) => size.least),
+            columns.findIndex((column) => column.kind === 'status'),
+            laidOut - ROW_SIDES,
+          )
+        : columns.map((_, c) => c),
+    [sizes, columns, laidOut],
+  )
+  const gone = columns.flatMap((_, c) => (kept.includes(c) ? [] : [c]))
+  const template = [`minmax(${LEAST.lead}px,1.4fr)`, ...kept.map((c) => sizes[c]!.track)].join(' ')
 
   const active = useMemo(
     () => (activeKey === undefined ? -1 : lines.findIndex((line) => line.key === activeKey)),
@@ -880,7 +954,7 @@ export function Table({
       {ceiling}
       <div className="flex flex-col px-2 pb-3">
         <div
-          ref={scroll}
+          ref={gridRef}
           // A table whose rows nest is a tree of rows: each says how deep it is, at any depth.
           role={nests ? 'treegrid' : 'grid'}
           tabIndex={0}
@@ -938,7 +1012,8 @@ export function Table({
                 <span className={HEADING}>{leading}</span>
               )}
             </span>
-            {columns.map((column, c) => {
+            {kept.map((c) => {
+              const column = columns[c]!
               const sorted = sort?.column === c
               const right = column.kind === 'number' || column.kind === 'age'
               return (
@@ -1010,19 +1085,26 @@ export function Table({
               const called = spelled(row.lead.name.their)
               // What its cells stand for whole, said after the row: each cell's own, by its place.
               const wholeOf = (c: number) => `${id}-${index}-whole-${c}`
-              const wholes = columns.flatMap((_, c) =>
+              const wholes = kept.flatMap((c) =>
                 (from === undefined || c < from) && fullOf(cellAt(row, c))?.their
                   ? [wholeOf(c)]
                   : [],
               )
-              return (
+              // What the columns that gave way say of it: in its tooltip, and after it.
+              const restAt = from === undefined ? undefined : kept.find((c) => c >= from)
+              const away = row.again ? [] : gone.filter((c) => from === undefined || c < from)
+              const restAway = !row.again && from !== undefined && restAt === undefined
+              const said = away.length > 0 || restAway
+              const awayId = `${id}-${index}-away`
+              const describedBy = [...wholes, ...(said ? [awayId] : [])]
+              const drawnRow = (
                 <div
                   key={line.key}
                   id={`${id}-${index}`}
                   role="row"
                   aria-rowindex={rowNumbers[index]! + 1}
                   aria-level={nests ? line.depth + 1 : undefined}
-                  aria-describedby={wholes.length > 0 ? wholes.join(' ') : undefined}
+                  aria-describedby={describedBy.length > 0 ? describedBy.join(' ') : undefined}
                   // (Active, not picked: nothing here picks rows.)
                   data-active={active === index}
                   aria-expanded={line.holds ? line.open : undefined}
@@ -1085,13 +1167,13 @@ export function Table({
                       <Again again={row.again} onGo={() => goFirst(row.again!.first)} />
                     </span>
                   ) : (
-                    columns.map((column, c) =>
+                    kept.map((c, at) =>
                       from !== undefined && c >= from ? (
-                        c === from && (
+                        c === restAt && (
                           <span
                             key={c}
                             role="gridcell"
-                            style={{ gridColumn: `${c + 2} / -1` }}
+                            style={{ gridColumn: `${at + 2} / -1` }}
                             className="min-w-0 truncate text-right text-xs text-ink-3"
                           >
                             <Rest rest={row.rest} />
@@ -1100,7 +1182,7 @@ export function Table({
                       ) : (
                         <span key={c} role="gridcell" className="min-w-0">
                           <Cell
-                            column={column}
+                            column={columns[c]!}
                             cell={cellAt(row, c)}
                             shown={keyed && active === index}
                             whole={wholeOf(c)}
@@ -1114,7 +1196,23 @@ export function Table({
                       <TheirText text={row.note} inline />
                     </span>
                   )}
+                  {said && (
+                    <span id={awayId} className="sr-only">
+                      <Away columns={columns} row={row} away={away} rest={restAway} />
+                    </span>
+                  )}
                 </div>
+              )
+              return said ? (
+                <Tooltip
+                  key={line.key}
+                  content={<Away columns={columns} row={row} away={away} rest={restAway} />}
+                  shown={keyed && active === index}
+                >
+                  {drawnRow}
+                </Tooltip>
+              ) : (
+                drawnRow
               )
             })}
           </div>
@@ -1122,6 +1220,53 @@ export function Table({
         {more}
       </div>
     </section>
+  )
+}
+
+/**
+ * What a row's columns that gave way say, where the table's too narrow for them: each one's name
+ * and its value, and the row's rest where every column it would take gave way. In the row's
+ * tooltip, and read after the row.
+ */
+function Away({
+  columns,
+  row,
+  away,
+  rest,
+}: {
+  columns: readonly TableColumn[]
+  row: DrawnRow
+  away: readonly number[]
+  rest: boolean
+}) {
+  return (
+    <span className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-left">
+      {away.map((c) => {
+        const cell = cellAt(row, c)
+        // (A value that stands for something longer says it whole here, as its own tooltip would.)
+        const whole = fullOf(cell)
+        return (
+          <span key={c} className="contents">
+            <span className="opacity-70">
+              <TheirText text={columns[c]!.name} inline />
+            </span>
+            <span
+              className={cn(
+                'min-w-0 [overflow-wrap:anywhere] tabular-nums',
+                isMono(cell) && 'font-mono',
+              )}
+            >
+              {whole?.their ? <TheirText text={whole} inline /> : <Words text={words(cell)} />}
+            </span>
+          </span>
+        )
+      })}
+      {rest && (
+        <span className="col-span-full">
+          <Rest rest={row.rest} />
+        </span>
+      )}
+    </span>
   )
 }
 
