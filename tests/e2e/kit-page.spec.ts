@@ -34,6 +34,17 @@ test('a pick list: one row is always picked, the worst first, and the keys pick'
   await expect(list.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
   await expect(picked).toContainText('Unrecoverable')
   await expect(page.getByRole('group', { name: LONGEST })).toBeVisible()
+  // Why, where the plugin says: a line under its name and word, whole in its tooltip.
+  const why = page.getByRole('group', { name: LONGEST }).getByRole('paragraph')
+  await expect(why).toHaveText('No instance can be promoted: all three lost their storage')
+  await expect(why).toHaveAttribute(
+    'title',
+    'No instance can be promoted: all three lost their storage',
+  )
+  // A moment in a tile is Lumovi's to say: how long ago, never the plugin's words.
+  await expect(page.getByRole('region', { name: 'Last backup', exact: true })).toContainText(
+    /3h\d+m/,
+  )
   // Its name loses its middle and keeps its end; its status is never cut.
   await expect(picked.locator('[title] [aria-hidden]')).toHaveText(/^check\S*â€¦ain-db$/)
   const fits = await picked
@@ -257,7 +268,7 @@ test('what a part of a page is refused for: its kinds first, then what they canâ
     'Tiles.tiles: is longer than 4',
     'Tiles 1 and 2 of a row have the same key.',
     'Tiles 2 and 3 of a row have the same key.',
-    'Tiles.tiles[1].value.kind: should be one of figure, words',
+    'Tiles.tiles[1].value.kind: should be one of figure, words, time',
     'Nothing: it can be drawn.',
     'Nothing: it can be drawn.',
     'Header buttons 1 and 2 have the same key.',

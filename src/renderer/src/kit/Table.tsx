@@ -94,7 +94,7 @@ const SEVERITY: Health[] = ['healthy', 'neutral', 'progressing', 'warning', 'cri
 const NAME = -1
 
 /** A moment as Lumovi says it: how long ago, or how soon. */
-function when(time: string, now = Date.now()): string {
+export function when(time: string, now = Date.now()): string {
   const at = Date.parse(time)
   // (A time that isn't one says nothing, as a cell with nothing in it.)
   if (Number.isNaN(at)) return '—'

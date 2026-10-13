@@ -46,4 +46,13 @@ export const PLUGIN_SINCE = {
     destination: 'next',
     cut: 'next',
   },
+  /**
+   * What a part's description can say past what it first took, drawn only by a Lumovi that
+   * carries it. Keyed by the part, then the path: `[]` for each item of a list, `kind=time` for a
+   * choice's variant, a bare name for a property that's there.
+   */
+  props: {
+    'Tiles.tiles[].value.kind=time': 'next',
+    'Header.status.detail': 'next',
+  },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>
