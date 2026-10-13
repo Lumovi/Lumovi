@@ -12,7 +12,7 @@ import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO } from '../mock-cluster/fixtures/demo.ts'
 import { STAND_IN } from '../mock-cluster/server.ts'
-import { CONTEXTS, expect, openCluster, test } from './fixtures.ts'
+import { CONTEXTS, expect, openCluster, panel, test } from './fixtures.ts'
 
 const TINKER = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
@@ -56,6 +56,8 @@ const go = (page: Page, hash: string) =>
     window.location.hash = to
   }, hash)
 const body = (page: Page) => page.locator('[data-plugin-body]')
+const events = (page: Page, q: object = {}) =>
+  page.evaluate((q) => window.lumovi!.audit.query(q), q).then((p) => p.events)
 
 test('on a cluster read-only in Lumovi a plugin’s change is shown nowhere, and made nowhere, even asked straight', async ({
   launch,
@@ -335,4 +337,90 @@ test('logs shown on a plugin’s page never reach its code, and stop being read 
   // The page goes: what Lumovi followed for it is followed no more.
   await go(page, `#/cluster/${CONTEXTS.demo}/pods`)
   await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
+})
+
+/** Toys, whose page links to a pod's Shell tab and its Port forward dialog. */
+const LINKS = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  reads: [{ group: '', kind: Pod, fields: [metadata.name] }]
+  pages: [{ id: overview, title: Overview }]
+  links: [shell, port-forward]
+`
+const LINKING = `box.then(({ post, listen }) => {
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) post(JSON.stringify({ read: 1, what: 'list', kind: '/Pod', namespace: 'shop' }))
+    if (said.read !== 1 || !said.objects) return
+    const pod = said.objects.find((o) => o.object.metadata.name === ${JSON.stringify(POD)})
+    if (!pod) return
+    post(JSON.stringify({ commit: [
+      ['make', 1, 'Header', { name: 'Storefront', buttons: [
+        { key: 'app', name: 'Shell into app', goes: { object: pod.token, at: 'shell', container: 'app' } },
+        { key: 'forward', name: 'Forward 8080', goes: { object: pod.token, at: 'port-forward', port: 8080 } },
+      ] }],
+      ['put', 0, 1],
+    ] }))
+  })
+})
+`
+
+async function linked(launch: Parameters<Parameters<typeof test>[2]>[0]['launch']) {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), LINKS)
+  writeFileSync(join(folder, 'toys.js'), LINKING)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  await expect(body(page).getByRole('button', { name: 'Shell into app' })).toBeVisible({
+    timeout: 20_000,
+  })
+  return page
+}
+
+test('a link to a shell arrives where the person may not open one: Lumovi’s refusal, never a Start', async ({
+  launch,
+  clusters,
+}) => {
+  // Their account may not exec in shop.
+  clusters.demo.deny({ verb: 'create', resource: 'pods', subresource: 'exec', namespace: 'shop' })
+  const page = await linked(launch)
+  await body(page).getByRole('button', { name: 'Shell into app' }).click()
+  const detail = panel(page, 'Pod', POD)
+  await expect(detail).toContainText('Your account can’t open shells in shop.')
+  await expect(page.locator('[data-shell-start]')).toHaveCount(0)
+  expect(clusters.demo.requests.filter((r) => r.path.endsWith(`/pods/${POD}/exec`))).toEqual([])
+})
+
+test('a link to a shell on a cluster read-only in Lumovi: Lumovi’s own words, never a Start', async ({
+  launch,
+  clusters,
+}) => {
+  const page = await linked(launch)
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('option', { name: `Make ${CONTEXTS.demo} read-only` }).click()
+  await body(page).getByRole('button', { name: 'Shell into app' }).click()
+  await expect(panel(page, 'Pod', POD)).toContainText(
+    `${CONTEXTS.demo} is read-only in Lumovi, and a shell can change a container.`,
+  )
+  await expect(page.locator('[data-shell-start]')).toHaveCount(0)
+  expect(clusters.demo.requests.filter((r) => r.path.endsWith(`/pods/${POD}/exec`))).toEqual([])
+})
+
+test('a forward a link opened, started by the person, is in the history as the plugin’s page’s', async ({
+  launch,
+}) => {
+  const page = await linked(launch)
+  await body(page).getByRole('button', { name: 'Forward 8080' }).click()
+  const dialog = page.getByRole('dialog', { name: `Forward a port to ${POD}` })
+  await dialog.getByRole('button', { name: 'Start forwarding' }).click()
+  await expect
+    .poll(async () => (await events(page, { actions: ['port-forward.open'] }))[0])
+    .toMatchObject({ outcome: 'success', details: { plugin: 'toys' } })
 })
