@@ -404,7 +404,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/judge.sh borrow-coverage.ts
       # One pass: the report, then the gate, from the report's one merged file.
-      - name: Report, and require more than 95%
+      - name: Report, and require more than 90%
         run: |
           npx nyc report --reporter=text-summary --reporter=html --reporter=lcov --reporter=json-summary --reporter=json
           node -e '

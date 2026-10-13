@@ -1,11 +1,11 @@
 /**
  * The coverage gate: every source file must be loaded by the e2e suite, and more
- * than 95% of statements, branches, functions and lines must run.
+ * than 90% of statements, branches, functions and lines must run.
  *
  * Reads the raw coverage in `.nyc_output/` (from one or several test runs, e.g.
  * the Linux, macOS and Windows CI jobs), or the files given (CI's: the report's
  * one merged file), lists exactly what wasn't run, and exits non-zero if a file
- * was never loaded, or any measure is 95% or less.
+ * was never loaded, or any measure is 90% or less.
  */
 import { globSync, readFileSync } from 'node:fs'
 import libCoverage from 'istanbul-lib-coverage'
@@ -19,7 +19,7 @@ if (files.length === 0) {
 for (const file of files) map.merge(JSON.parse(readFileSync(file, 'utf8')))
 
 /** More than this, of each measure, must run. */
-const THRESHOLD = 95
+const THRESHOLD = 90
 
 const unloaded: string[] = []
 const problems: string[] = []

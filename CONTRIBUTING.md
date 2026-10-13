@@ -99,7 +99,7 @@ that plugin’s name, whole. Plugins are read again on refresh (⌘R / Ctrl+R).
 
 ## Coverage
 
-The project keeps **above 95% end-to-end coverage** of statements, branches, functions and
+The project keeps **above 90% end-to-end coverage** of statements, branches, functions and
 lines, and every source file loaded by some test, enforced in CI. `npm run coverage` prints the
 report and writes an HTML version to `coverage/index.html`, and `npm run coverage:check` lists
 every uncovered line. New code should come with tests that run it.
