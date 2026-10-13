@@ -11,6 +11,7 @@ import type { Browser, Locator, Page } from '@playwright/test'
 import { call, connect } from './assistant-client.ts'
 import { DEMO, expect, PEOPLE, signIn, test } from './fixtures.ts'
 import { PHONE } from './phone.ts'
+import { holds } from '../holds.ts'
 
 test.use({ viewport: PHONE, hasTouch: true, isMobile: true })
 
@@ -309,12 +310,11 @@ test('a note arriving doesn’t put Approve off again; with too little height it
   await expect(strip(deletion)).toHaveCount(0)
   await expect(floating(page)).toBeHidden()
   for (const part of whole) await expect(part).toBeInViewport({ ratio: 1 })
-  await page.waitForTimeout(3000)
+  await holds(() => deletion.isVisible(), 3000, 'the deletion’s note stays')
   await deletion.getByRole('button', { name: 'Later' }).tap()
   const kept = floating(page).getByText('Scaled cart to 7 replicas')
   await expect(kept).toBeVisible()
-  await page.waitForTimeout(4000)
-  await expect(kept).toBeVisible()
+  await holds(() => kept.isVisible(), 4000, 'it’s kept')
   await desk.close()
 })
 
@@ -466,6 +466,7 @@ test('a change that ran out of time while another is looked at says it was anoth
   })
   const client = await onAPhone(page, served)
   await scale(client, DEMO.deployments.cart, 4)
+  // eslint-disable-next-line no-restricted-syntax -- the first change has to be the older by as long as that: time itself.
   await page.waitForTimeout(4000)
   await scale(client, DEMO.deployments.storefront, 4)
   await page.getByRole('button', { name: /2 changes from Claude Code wait for you/ }).tap()

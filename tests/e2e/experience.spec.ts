@@ -17,6 +17,7 @@ import {
   test,
   expect,
 } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
 
@@ -54,6 +55,7 @@ test.describe('keyboard shortcuts', () => {
     await page.keyboard.press('p')
     await expect(heading(page)).toHaveText('Overview')
     await page.keyboard.press('g')
+    // eslint-disable-next-line no-restricted-syntax -- the chord's own time runs out: nothing else to wait for.
     await page.waitForTimeout(1500)
     await page.keyboard.press('p')
     await expect(heading(page)).toHaveText('Overview')
@@ -139,8 +141,11 @@ test('keys typed while a view opens reach it', async ({ lumovi }) => {
   await page.keyboard.press('Meta+1')
   await expect(heading(page)).toHaveText('Overview')
   await page.keyboard.press('/')
-  await page.waitForTimeout(1200)
-  await expect(page.locator('input:focus')).toHaveCount(0)
+  await holds(
+    async () => (await page.locator('input:focus').count()) === 0,
+    1200,
+    'nothing takes the focus',
+  )
 })
 
 test('the native menu runs the same commands', async ({ lumovi, clusters }) => {
@@ -398,8 +403,11 @@ test('errors Lumovi didn’t expect still explain themselves', async ({ lumovi }
 async function scrollToTop(log: Locator): Promise<void> {
   await expect(async () => {
     await log.evaluate((element) => element.scrollTo({ top: 0 }))
-    await log.page().waitForTimeout(100)
-    expect(await log.evaluate((element) => element.scrollTop)).toBe(0)
+    await holds(
+      async () => (await log.evaluate((element) => element.scrollTop)) === 0,
+      100,
+      'it stays at the top',
+    )
   }).toPass()
 }
 

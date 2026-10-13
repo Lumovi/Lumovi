@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test'
 import { BOX_LIMITS } from '../../src/shared/plugin-box.ts'
 import { DOOR_LIMITS } from '../../src/shared/plugin-door.ts'
 import { expect, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 interface Shown {
   plugin: string
@@ -281,8 +282,11 @@ test('“Open it again” opens it again, on the person’s press and never by i
   await show(page, { code: `throw new Error('not yet')` })
   await expect(ended(page)).toHaveAttribute('data-why', 'failed')
   // Lumovi doesn't try again by itself.
-  await page.waitForTimeout(1500)
-  await expect(stage(page)).toHaveAttribute('data-opened', '0')
+  await holds(
+    async () => (await stage(page).getAttribute('data-opened')) === '0',
+    1500,
+    'it isn’t opened again',
+  )
   await ended(page).getByRole('button', { name: 'Open it again' }).click()
   await expect(stage(page)).toHaveAttribute('data-opened', '1')
   // It stops again, and says so again.

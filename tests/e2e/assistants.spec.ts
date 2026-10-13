@@ -1594,6 +1594,7 @@ test('A call waits a while for the answer, then keeps waiting with wait_for_chan
   const [, again] = restart.text.match(/id “([\w-]+)”/)!
   const abort = new AbortController()
   const waiting = call(client, 'wait_for_change', { id: again }, { signal: abort.signal })
+  // eslint-disable-next-line no-restricted-syntax -- a waiting call answers nothing until it's withdrawn: no sign that it has reached Lumovi.
   await page.waitForTimeout(300)
   abort.abort()
   await expect(waiting).rejects.toThrow()

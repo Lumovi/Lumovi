@@ -16,6 +16,7 @@ import { FLEET } from '../mock-cluster/fleet.ts'
 import type { TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { audited, expect, freePort, inCluster, startAgent, test } from './fixtures.ts'
 import { as, fleetEnv } from './fleet.ts'
+import { holds } from '../holds.ts'
 
 const EDGE = 'edge-ap-south'
 const SECRET = 'lumovi-agent'
@@ -279,6 +280,7 @@ test('a join token that isn’t one, or expired, is refused; an agent stopped ha
 
   // Past its time: refused, said so.
   const late = await connect(page, 'lab')
+  // eslint-disable-next-line no-restricted-syntax -- the join token's time has to pass.
   await page.waitForTimeout(JOIN_SECONDS * 1000 + 100)
   const expired = agentOf(hub.url, clusters, {
     LUMOVI_AGENT_NAME: 'lab',
@@ -342,9 +344,8 @@ test('an agent refused that resets its connection leaves the hub running', async
   await expect
     .poll(() => hub.log().split('An agent was refused').length - 1)
     .toBeGreaterThanOrEqual(2)
-  await page.waitForTimeout(500)
   // Still there: its join waits, and its agent joins with it.
-  expect(hub.log()).not.toContain('ECONNRESET')
+  await holds(() => !hub.log().includes('ECONNRESET'), 500, 'no connection is reset')
   expect(await call(page, 'joins')).toMatchObject({ value: { joins: [{ name: EDGE }] } })
   agentSecret(clusters, { 'join-token': token })
   const agent = agentOf(hub.url, clusters, { LUMOVI_AGENT_JOIN_TOKEN: token })
@@ -572,8 +573,12 @@ test('a cluster connected from the page is the page’s to name, label and remov
   await expect(confirm).toBeFocused()
   // (In the page at all: the dialog below one would be hidden from its roles.)
   await expect(page.locator('[role="dialog"]')).toHaveCount(1)
-  await page.waitForTimeout(250) // (what closed gives the focus back a moment later, if anywhere)
-  await expect(confirm).toBeFocused()
+  // (What closed gives the focus back a moment later, if anywhere: it stays here.)
+  await holds(
+    () => confirm.evaluate((input) => input === document.activeElement),
+    250,
+    'the field keeps the focus',
+  )
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
   await expect(settings.getByRole('button', { name: 'Remove qa' })).toBeVisible()
   await expect(settings.getByLabel('Name')).toBeFocused()

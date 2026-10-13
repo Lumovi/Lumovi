@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { audited, expect, test, type Served } from './fixtures.ts'
 import { as } from './fleet.ts'
+import { holds } from '../holds.ts'
 
 /** What a server keeps in its folder, by entry name. */
 const entries = (dir: string): Record<string, string> =>
@@ -119,9 +120,11 @@ test('read-only taken off where the server keeps it is put back, recorded, and s
   await bob.close()
 
   // Recorded once: kept counting above it, it's Lumovi's own to both replicas now.
-  await page.waitForTimeout(12_000)
-  expect(outside(served)).toHaveLength(1)
-  expect(outside(other)).toHaveLength(0)
+  await holds(
+    () => outside(served).length === 1 && outside(other).length === 0,
+    12_000,
+    'it’s recorded once',
+  )
 
   // Settled on one replica, by the admin who confirms it: gone on both, and theirs.
   await banner(second).getByRole('button', { name: 'Keep it read-only' }).click()

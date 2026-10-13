@@ -7,6 +7,7 @@ import { DEMO } from '../mock-cluster/kubeconfig.ts'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import { open, toasts } from './action-helpers.ts'
 import { clipboardText, CONTEXTS, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const PODS = DEMO.pods.storefront
 /** How the logs tell the storefront's pods apart: by what's left of their names. */
@@ -300,6 +301,7 @@ test('streams stop when the logs close, even ones still starting', async ({ page
   await expect
     .poll(() => clusters.demo.requests.some((r) => r.path.endsWith(`/pods/${PODS[1]}/log`)))
     .toBe(true)
+  // eslint-disable-next-line no-restricted-syntax -- the stand-in answers the follow later, and Lumovi closes it: no sign to wait for.
   await page.waitForTimeout(2000)
   expect(clusters.demo.logFollowers()).toBe(0)
 })
@@ -318,8 +320,7 @@ test('logs the account may not read aren’t asked for again and again', async (
   const asked = () => clusters.demo.requests.filter((r) => r.path === path).length
   const before = asked()
   // Longer than it waits before trying again after other failures.
-  await page.waitForTimeout(4000)
-  expect(asked()).toBe(before)
+  await holds(() => asked() === before, 4000, 'it isn’t asked again')
 })
 
 test('colors and styles from escape codes', async ({ page, clusters }) => {

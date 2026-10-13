@@ -14,6 +14,7 @@ import {
   row,
   test,
 } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 test.describe('deleting', () => {
   test.beforeEach(async ({ page }) => {
@@ -427,8 +428,7 @@ test.describe('activity and feedback', () => {
     await done.getByRole('button', { name: 'Undo' }).focus()
     await page.keyboard.press('Tab')
     await expect(done.getByRole('button', { name: 'Dismiss' })).toBeFocused()
-    await page.waitForTimeout(6_500)
-    await expect(done).toBeVisible()
+    await holds(() => done.isVisible(), 6_500, 'it stays while its button has the focus')
     await page.getByPlaceholder('Filter nodes').focus()
     await expect(done).not.toHaveAttribute('data-paused')
     await done.getByRole('button', { name: 'Dismiss' }).click()

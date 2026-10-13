@@ -7,6 +7,7 @@ import type { Locator, Page } from '@playwright/test'
 import { HIDDEN } from '../../src/renderer/src/lib/create-form.ts'
 import { dialog, menuAction, open as openObject, toasts, writes } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const form = (page: Page) => dialog(page).getByRole('group', { name: 'Form', exact: true })
 const field = (page: Page, name: string) => form(page).getByRole('textbox', { name, exact: true })
@@ -920,8 +921,7 @@ test.describe('when the form’s pane moves by itself', () => {
     // Tapping a field of that group moves nothing either: the field stays where it was tapped.
     await field(page, 'key1’s value').click()
     await expect(field(page, 'key1’s value')).toBeFocused()
-    await page.waitForTimeout(300)
-    expect(await scrolled(page)).toBe(0)
+    await holds(async () => (await scrolled(page)) === 0, 300, 'nothing scrolls')
     await expect(field(page, 'key1’s value')).toBeInViewport({ ratio: 1 })
     // Typing in it changes no sentence, and moves nothing.
     await field(page, 'key1’s value').fill('changed')
@@ -941,7 +941,11 @@ test.describe('when the form’s pane moves by itself', () => {
     const before = await scrolled(page)
     await name.fill('Not A Name')
     await expect(form(page).getByRole('alert')).toBeVisible()
-    await page.waitForTimeout(300)
+    await holds(
+      async () => (await scrolled(page)) <= before + 24,
+      300,
+      'it scrolls no further than its sentence',
+    )
     // Whatever it did for the sentence, the field and its label are still in view.
     await expect(name).toBeInViewport({ ratio: 1 })
     expect(await scrolled(page)).toBeLessThanOrEqual(before + 24)

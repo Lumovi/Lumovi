@@ -2,6 +2,7 @@ import net from 'node:net'
 import type { Page } from '@playwright/test'
 import { dialog, menuAction, open, toasts, writes } from './action-helpers.ts'
 import { DEMO, expect, goTo, mockOpenExternal, openCluster, panel, row, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const POD = DEMO.pods.storefront[0]!
 
@@ -79,8 +80,11 @@ test('a shell in a container', async ({ page, clusters }) => {
       }),
     POD,
   )
-  await page.waitForTimeout(300)
-  expect((await screen(page).innerText()).split('\n').length).toBe(lines)
+  await holds(
+    async () => (await screen(page).innerText()).split('\n').length === lines,
+    300,
+    'no line is added',
+  )
 
   await page.keyboard.type('exit 3')
   await page.keyboard.press('Enter')
@@ -119,6 +123,7 @@ test('a shell closed while it connects doesn’t stay running in the container',
     .toBe(true)
   await detail.getByRole('tab', { name: 'Overview' }).click()
   // The connection is answered after the tab is gone, and closed straight away.
+  // eslint-disable-next-line no-restricted-syntax -- the stand-in answers later, and Lumovi closes it: no sign to wait for.
   await page.waitForTimeout(2000)
   await expect.poll(() => clusters.demo.shells()).toBe(0)
 })
@@ -313,6 +318,7 @@ test('forward a port to a pod', async ({ page, lumovi, clusters }) => {
   await expect(list).toContainText('1 connection')
   early.destroy()
   await expect(list).toContainText('0 connections')
+  // eslint-disable-next-line no-restricted-syntax -- the tunnel's answer comes a second later, and Lumovi closes it: no sign to wait for.
   await page.waitForTimeout(1500)
   await expect.poll(() => clusters.demo.tunnels()).toBe(0)
   unfail()

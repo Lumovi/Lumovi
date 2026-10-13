@@ -39,6 +39,7 @@ import {
   test,
   type Served,
 } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 // One no step changes the owner of: storefront's are replaced as it restarts, a moment later.
 const POD = DEMO.pods.checkout[2]!
@@ -2301,6 +2302,7 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
 
   // Events it refuses (400) can't ever be sent: let go, counted, and said, there and here. (By
   // then, a while later, batches are as large as they were: sent whole.)
+  // eslint-disable-next-line no-restricted-syntax -- the server's batches grow back with time: nothing else to wait for.
   await page.waitForTimeout(1100)
   hook.answer(() => 400)
   await page.evaluate(() => window.lumovi!.app.setReadOnly('demo', true))
@@ -2318,8 +2320,7 @@ test('events reach a webhook however it answers, and what doesn’t is said', as
   )
   // Saying so is refused too: that isn't news, nor said again, and again.
   await expect.poll(() => hook.received.at(-1)!.body).toContain('"action":"audit.dropped"')
-  await page.waitForTimeout(1000)
-  expect(audited(served, 'audit.dropped')).toHaveLength(1)
+  await holds(() => audited(served, 'audit.dropped').length === 1, 1000, 'it isn’t said again')
   // Never its token: the query isn't said.
   expect(served.log()).not.toContain('token=secret')
   await page.goto(`${served.url}audit`)
@@ -2824,8 +2825,7 @@ test('a history that can’t be kept is said; its events still go everywhere els
   expect(audited(served, 'audit.dropped')[0]!.summary).toMatch(
     /^[12] audit events? couldn’t be kept in the history$/,
   )
-  await page.waitForTimeout(1000)
-  expect(said()).toBe(2)
+  await holds(() => said() === 2, 1000, 'nothing more is said')
   expect(await page.evaluate(() => window.lumovi!.audit.info())).toMatchObject({
     sinks: [
       { name: 'history', dropped: expect.any(Number), problem: expect.stringContaining('ENOSPC') },

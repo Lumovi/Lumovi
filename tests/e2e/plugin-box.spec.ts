@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { BOX_LIMITS, takeOffScript } from '../../src/shared/plugin-box.ts'
 import { CONTEXTS, DEMO, expect, openCluster, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 /** What a test's box has heard and how it ended, kept on the page. */
 interface Kept {
@@ -144,8 +145,7 @@ test('none runs unseen: a box closed is gone at once, and its process is given b
   // At once: no frame, and not one more word from it.
   expect((await boxFrames(app)).boxes).toEqual([])
   const { count } = await kept(page, 'ticker')
-  await page.waitForTimeout(300)
-  expect((await kept(page, 'ticker')).count).toBe(count)
+  await holds(async () => (await kept(page, 'ticker')).count === count, 300, 'not one more word')
   // Closing isn't an ending to tell anyone of.
   expect((await kept(page, 'ticker')).ended).toBeUndefined()
   // And its process is given back (the browser keeps one a little while, in case it's wanted).

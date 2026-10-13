@@ -6,6 +6,7 @@
  */
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { clusterOption, expect, hoverForTooltip, openCluster, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const hasButton = process.platform !== 'darwin'
 
@@ -92,8 +93,7 @@ test('on Windows and Linux, a button in the window’s corner opens the app’s 
   await expect(page.locator('.xterm-helper-textarea:focus')).toHaveCount(1)
   await page.keyboard.press('F10')
   await page.keyboard.press('Alt')
-  await page.waitForTimeout(500)
-  expect(await opened()).toBe(4)
+  await holds(async () => (await opened()) === 4, 500, 'the menu stays shut')
   await page.keyboard.press('Control+Backquote')
 
   // A page of its own.
