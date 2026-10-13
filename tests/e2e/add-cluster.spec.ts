@@ -20,6 +20,7 @@ import type { Page } from '@playwright/test'
 import { stringify } from 'yaml'
 import { DEMO_TOKEN } from '../mock-cluster/kubeconfig.ts'
 import { clusterOption, DEMO, expect, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 /** A kubeconfig: a context (`name`, or several) for a server, signing in as `user` says. */
 function config(
@@ -304,7 +305,7 @@ test('a check that fails says why; Cancel while checking adds nothing', async ({
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect.poll(() => existsSync(ran), { timeout: 10_000 }).toBe(true)
-  await page.waitForTimeout(500)
+  await holds(() => own(userDataDir).length === 0, 500, 'nothing of the pasted cluster is kept')
   expect(own(userDataDir)).toEqual([])
   await expect(clusterOption(page, 'pasted')).toHaveCount(0)
 })

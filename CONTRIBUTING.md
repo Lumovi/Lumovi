@@ -32,7 +32,11 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    for what's different when Lumovi is served). Tests drive the real app through the UI,
    like a user would. If you need a new cluster state, add it to the demo
    fixture in `tests/mock-cluster/fixtures/` (when it's realistic) or create it in the test
-   with `clusters.demo.upsert(...)`.
+   with `clusters.demo.upsert(...)`. A test waits for what it needs, not a fixed time (lint
+   refuses `waitForTimeout`): an `expect`, `expect.poll` or a locator's state, and for what
+   mustn't happen, `holds()` (`tests/holds.ts`). Where only time itself can pass, the wait says
+   why, on the line before it (`// eslint-disable-next-line no-restricted-syntax -- <why>`). It
+   measures with `placed()` (`tests/placed.ts`), which waits until what it measures is in view.
 4. Run the checks:
 
    ```sh

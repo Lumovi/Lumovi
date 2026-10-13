@@ -404,6 +404,7 @@ test('a cluster behind its agent', async ({ page, context, serve, clusters, requ
     impersonate: true,
   })
   writeFileSync(join(account.dir, 'token'), 'lumovi-rotated-token')
+  // eslint-disable-next-line no-restricted-syntax -- the agent reads its token file again on its own time: no sign to wait for.
   await page.waitForTimeout(2000)
   await page.goto(served.url)
   await expect
@@ -414,6 +415,7 @@ test('a cluster behind its agent', async ({ page, context, serve, clusters, requ
     .toBe('Bearer lumovi-rotated-token')
 
   // Connections the API server closes when idle are closed through the tunnel too.
+  // eslint-disable-next-line no-restricted-syntax -- the stand-in API server's idle time has to pass.
   await page.waitForTimeout(6000)
   await page.reload()
   await expect(card(page, NAME)).toContainText('Nodes3/4')

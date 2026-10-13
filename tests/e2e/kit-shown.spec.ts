@@ -5,6 +5,7 @@
  */
 import type { Locator, Page } from '@playwright/test'
 import { clipboardText, DEMO, expect, openCluster, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const MASK = '••••••••'
 
@@ -99,8 +100,11 @@ test('a Secret’s value on a plugin’s page: nothing read until a press, and a
   slow()
   await box('tls.key').getByRole('button', { name: 'Hide tls.key' }).click()
   await expectHidden(box('tls.key'), true)
-  await page.waitForTimeout(500)
-  await expectHidden(box('tls.key'), true)
+  await holds(
+    async () => (await box('tls.key').locator('pre').innerText()) === MASK,
+    500,
+    'tls.key stays hidden',
+  )
 
   // A read that's still out when the plugin points the card elsewhere is used for nothing: it
   // isn't copied, and it doesn't land in the new Secret's boxes.
@@ -112,8 +116,11 @@ test('a Secret’s value on a plugin’s page: nothing read until a press, and a
   await page.getByRole('button', { name: 'Point the first card elsewhere' }).click()
   await expect(card).toContainText('Secret registry-pull in shop')
   held()
-  await page.waitForTimeout(2500)
-  expect((await clipboardText(page)).length).toBe(copiedBefore)
+  await holds(
+    async () => (await clipboardText(page)).length === copiedBefore,
+    2500,
+    'nothing is copied from the read that was out',
+  )
   for (const key of ['tls.crt', 'tls.key', 'token']) await expectHidden(box(key), true)
   await expect(card.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Point the first card back' }).click()
@@ -221,8 +228,12 @@ test('a pod’s logs and an object’s events on a plugin’s page: Lumovi’s o
   const logs = page.getByRole('region', { name: 'Logs', exact: true })
   const events = page.getByRole('region', { name: 'Events', exact: true })
   await expect(logs).toContainText('Shown by Lumovi. Sample plugin can’t see them.')
-  // (Given a moment, so that anything that would have been asked has been.)
-  await page.waitForTimeout(1000)
+  // (For a moment: anything that would have been asked would have been.)
+  await holds(
+    () => asked(/\/pods\/[^/]+\/log$/) + asked(new RegExp(`/pods/${pod}$`)) === 0,
+    1000,
+    'nothing below the fold is read',
+  )
   expect(asked(/\/pods\/[^/]+\/log$/)).toBe(0)
   expect(asked(new RegExp(`/pods/${pod}$`))).toBe(0)
   expect(asked(/\/pods\/gone-pod$/)).toBe(0)

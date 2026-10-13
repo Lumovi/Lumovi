@@ -33,6 +33,7 @@ import {
 import { HELM_VERSION } from '../../scripts/helm.ts'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import type { MockDownloads } from '../mock-downloads/server.ts'
+import { holds } from '../holds.ts'
 
 const WINDOWS = process.platform === 'win32'
 const MAC = process.platform === 'darwin'
@@ -455,8 +456,12 @@ test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
   // One that isn't shown is, once it's renamed; its name keeps focus meanwhile.
   await tabs.getByRole('tab', { name: 'logs' }).focus()
   await page.keyboard.press('F2')
-  await page.waitForTimeout(100)
   await expect(name).toBeFocused()
+  await holds(
+    () => name.evaluate((input) => input === document.activeElement),
+    100,
+    'its name keeps focus',
+  )
   await name.press('Escape')
   await expect(tabs.getByRole('tab', { name: 'logs' })).toHaveAttribute('aria-selected', 'true')
   await tabs.getByRole('tab', { name: 'logs' }).click({ button: 'right' })
@@ -555,8 +560,11 @@ test('a command Lumovi shows, pasted in to run', async ({ launch, clusters }) =>
     'kubectl scale deployment/storefront --replicas=3 -n shop --context demo',
   )
   await ready(page)
-  await page.waitForTimeout(500)
-  await expect(screen(page)).not.toContainText('scaled')
+  await holds(
+    async () => !(await screen(page).innerText()).includes('scaled'),
+    500,
+    'nothing is run',
+  )
   await page.keyboard.press('Control+c')
   // In the terminal that's shown, when there's one.
   await detail.getByRole('button', { name: 'Scale' }).click()
@@ -583,8 +591,11 @@ test('a command Lumovi shows, pasted in to run', async ({ launch, clusters }) =>
       `kubectl delete pod/\\S+ -n \\S+ --context demo${joined}kubectl delete pod/\\S+ -n \\S+ --context demo`,
     ),
   )
-  await page.waitForTimeout(500)
-  expect(writes(clusters.demo, 'DELETE', /\/pods\//)).toHaveLength(0)
+  await holds(
+    () => writes(clusters.demo, 'DELETE', /\/pods\//).length === 0,
+    500,
+    'nothing is deleted',
+  )
   await page.keyboard.press('Control+c')
 
   // Lumovi's read-only switch is Lumovi's: a terminal says so. (Out of the terminal, whose

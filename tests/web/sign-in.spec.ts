@@ -1,6 +1,7 @@
 /** Signing in to a Lumovi server with a token, and the session that follows. */
 import type { Page } from '@playwright/test'
 import { audited, expect, GRACEFUL, PEOPLE, signIn, signIns, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 /** What the sign-in page says about the last session. */
 const notice = (page: Page, text: string) => page.getByRole('status').filter({ hasText: text })
@@ -112,18 +113,32 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
   })
   await page.goto(served.url)
   await expect(page.getByPlaceholder('Paste a token')).toBeVisible()
+  /** Sign-ins with tokens that aren't any, one after another. */
+  const tryTokens = (tokens: string[]) =>
+    page.evaluate(async (tokens) => {
+      for (const token of tokens) {
+        await fetch('api/session', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token }),
+        })
+      }
+    }, tokens)
+  const said = () => audited(served, 'session.sign-in')
+  /** Whether the minute has just ended with a count said: the server's own word, its last. */
+  const counted = () => said().at(-1)?.actor.via === 'server'
+  // A minute runs from the server's start, not from a sign-in: one's end is found first, by
+  // sign-ins past the two it records (said as it ends), so that each burst falls in one.
+  await expect(async () => {
+    await tryTokens(['first-0', 'first-1', 'first-2'])
+    await expect.poll(counted, { timeout: 4000, intervals: [50] }).toBe(true)
+  }).toPass()
+  const before = said().length
+  const since = () => said().slice(before)
   // Anyone can try, as often as they like.
-  await page.evaluate(async () => {
-    for (let i = 0; i < 5; i++) {
-      await fetch('api/session', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: `not-a-token-${i}` }),
-      })
-    }
-  })
+  await tryTokens(Array.from({ length: 5 }, (_, i) => `not-a-token-${i}`))
   await expect
-    .poll(() => audited(served, 'session.sign-in').map((e) => [e.outcome, e.summary]))
+    .poll(() => since().map((e) => [e.outcome, e.summary]), { intervals: [50] })
     .toEqual([
       ['refused', 'Sign in with a token'],
       ['refused', 'Sign in with a token'],
@@ -132,22 +147,14 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
         '3 more sign-ins didn’t succeed, each not recorded: more than 2 were tried in a minute',
       ],
     ])
-  expect(audited(served, 'session.sign-in').at(-1)).toMatchObject({
+  expect(said().at(-1)).toMatchObject({
     actor: { user: 'lumovi', via: 'server' },
     details: { count: 3, from: [expect.stringMatching(/127\.0\.0\.1: 3$/)] },
   })
   // A new minute: recorded each again, and past that, counted again.
-  await page.evaluate(async () => {
-    for (let i = 0; i < 3; i++) {
-      await fetch('api/session', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: `still-not-${i}` }),
-      })
-    }
-  })
+  await tryTokens(Array.from({ length: 3 }, (_, i) => `still-not-${i}`))
   await expect
-    .poll(() => audited(served, 'session.sign-in').map((e) => e.summary))
+    .poll(() => since().map((e) => e.summary), { intervals: [50] })
     .toEqual([
       ...Array(2).fill('Sign in with a token'),
       '3 more sign-ins didn’t succeed, each not recorded: more than 2 were tried in a minute',
@@ -155,22 +162,13 @@ test('sign-ins that fail, past so many a minute, are counted, not each recorded'
       '1 more sign-in didn’t succeed, each not recorded: more than 2 were tried in a minute',
     ])
   // A minute with none past that: nothing said.
-  await page.waitForTimeout(3500)
-  expect(audited(served, 'session.sign-in')).toHaveLength(6)
+  await holds(() => since().length === 6, 3500, 'nothing more is said')
   // As the server stops, what's only been counted so far is said too.
-  await page.evaluate(async () => {
-    for (let i = 0; i < 4; i++) {
-      await fetch('api/session', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: `at-the-end-${i}` }),
-      })
-    }
-  })
+  await tryTokens(Array.from({ length: 4 }, (_, i) => `at-the-end-${i}`))
   await served.stop()
   // (Not where a server can only be ended at once.)
   if (GRACEFUL) {
-    expect(audited(served, 'session.sign-in').at(-1)!.summary).toBe(
+    expect(said().at(-1)!.summary).toBe(
       '2 more sign-ins didn’t succeed, each not recorded: more than 2 were tried in a minute',
     )
   }

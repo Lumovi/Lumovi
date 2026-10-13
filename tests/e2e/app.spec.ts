@@ -20,6 +20,7 @@ import {
   row,
   test,
 } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const posixOnly = process.platform === 'win32'
 
@@ -96,8 +97,7 @@ test('never navigates away or opens pop-ups', async ({ lumovi }) => {
   await page.evaluate(() => {
     window.location.href = 'https://example.com/'
   })
-  await page.waitForTimeout(300)
-  expect(page.url()).toBe(url)
+  await holds(() => page.url() === url, 300, 'the page stays where it is')
   expect(app.windows()).toHaveLength(1)
 })
 

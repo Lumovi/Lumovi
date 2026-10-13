@@ -7,6 +7,7 @@
 import type { Page } from '@playwright/test'
 import { dialog, yamlSide } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const editor = (page: Page) => dialog(page).getByRole('textbox', { name: 'YAML to create' })
 const errors = (page: Page) => dialog(page).locator('.cm-lintRange-error')
@@ -20,6 +21,7 @@ const card = (page: Page) => page.locator('.cm-tooltip .cm-schema-card')
  * given that floor, as a person's key would be.
  */
 async function take(page: Page, key: 'Tab' | 'Enter') {
+  // eslint-disable-next-line no-restricted-syntax -- the list's own floor (75 ms) has to pass: no sign of it.
   await page.waitForTimeout(100)
   await page.keyboard.press(key)
 }
@@ -443,8 +445,7 @@ test('a field’s card: its default, a description that scrolls; none on a value
     [/^ {2}name: web$/, 'name'],
   ] as const) {
     await hover(text, word)
-    await page.waitForTimeout(800)
-    await expect(fieldCard).toHaveCount(0)
+    await holds(async () => (await fieldCard.count()) === 0, 800, `no field’s card on ${word}`)
   }
   // ⌥F1 on a key the schema hasn't: nothing; on one it has, its card, which Esc closes (not the
   // dialog).
@@ -453,8 +454,7 @@ test('a field’s card: its default, a description that scrolls; none on a value
   for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown')
   await page.keyboard.press('End')
   await page.keyboard.press('Alt+F1')
-  await page.waitForTimeout(300)
-  await expect(card(page)).toHaveCount(0)
+  await holds(async () => (await card(page).count()) === 0, 300, 'no card')
   await page.keyboard.press('ArrowUp')
   await page.keyboard.press('End')
   await page.keyboard.press('Alt+F1')
@@ -477,8 +477,7 @@ test('after a key, its values; at a key, the object’s fields: a deprecated one
   }
   const none = async (yaml: string) => {
     await offer(yaml)
-    await page.waitForTimeout(300)
-    await expect(list).toHaveCount(0)
+    await holds(async () => (await list.count()) === 0, 300, 'nothing is offered')
   }
   // (Once its schema is in: a key it hasn't is said.)
   await create(page, `${head}  naem: x\n`)
@@ -506,6 +505,7 @@ test('after a key, its values; at a key, the object’s fields: a deprecated one
   await offer(`${head}  colo`)
   await expect(options).toHaveText([/^legacyColor.*deprecated$/, /^color.*already set/])
   // (As a person's key would be: once the list has stood long enough to take one.)
+  // eslint-disable-next-line no-restricted-syntax -- the list's own floor (75 ms) has to pass: no sign of it.
   await page.waitForTimeout(100)
   await page.keyboard.press('ArrowDown')
   await take(page, 'Enter')

@@ -17,6 +17,7 @@ import {
   type ServeOptions,
   type Served,
 } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 const ALICE = {
   sub: 'u-1',
@@ -247,6 +248,7 @@ test('a way back from the provider is taken once, and what it says is kept short
   ])
   // Long after: its cookie (whoever has it) is refused as expired, what was taken is let go, and
   // another sign-in goes.
+  // eslint-disable-next-line no-restricted-syntax -- the session's own time has to pass.
   await page.waitForTimeout(6500)
   await context.addCookies([{ ...cookie, expires: -1 }])
   await page.goto(back)
@@ -425,8 +427,7 @@ test('with a cluster that trusts the provider: people’s own tokens, renewed be
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(notice(page, 'You’ve signed out.')).toBeVisible()
   const after = renewals()
-  await page.waitForTimeout(3_000)
-  expect(renewals()).toBe(after)
+  await holds(() => renewals() === after, 3_000, 'nothing is renewed')
   await oidc.close()
 })
 

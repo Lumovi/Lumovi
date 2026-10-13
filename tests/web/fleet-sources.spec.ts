@@ -10,6 +10,7 @@ import { FLEET, fleetKubeconfig } from '../mock-cluster/fleet.ts'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import { expect, inCluster, refusedConfig, test } from './fixtures.ts'
 import { as, card, fleetEnv } from './fleet.ts'
+import { holds } from '../holds.ts'
 
 /** A kubeconfig of one context, `name`, for `server`. */
 function kubeconfig(
@@ -300,8 +301,11 @@ test('kubeconfig files, read again as they change', async ({ page, context, serv
   await expect
     .poll(() => served.log())
     .toContain(`Fleet: ${second} can’t be read: ${second} isn’t a kubeconfig:`)
-  await page.waitForTimeout(2500)
-  expect(served.log().split(`${second} can’t be read`)).toHaveLength(2)
+  await holds(
+    () => served.log().split(`${second} can’t be read`).length === 2,
+    2500,
+    'it’s said once',
+  )
   await page.goto(served.url)
   await expect(card(page, 'qa')).toBeVisible()
   // Readable again; two clusters of one name: the first stays.
@@ -553,7 +557,7 @@ test('clusters described by Secrets, and the cluster it runs in', async ({
   await expect
     .poll(() => served.log())
     .toContain('Fleet: Secrets for lumovi in lumovi can’t be listed:')
-  await page.waitForTimeout(1500)
+  await holds(() => !served.log().includes('Fleet: qa removed'), 1500, 'no cluster is removed')
   await page.reload()
   await expect(card(page, 'qa')).toBeVisible()
   expect(served.log()).not.toContain('Fleet: qa removed')
