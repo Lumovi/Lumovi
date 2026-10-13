@@ -37,8 +37,6 @@ const MEASURED_BEFORE = [
   'tests/web/phone-notes.spec.ts',
   'tests/web/phone.spec.ts',
 ]
-/** A test whose waits change with it on another branch, held until that's in. */
-const WAITS_ELSEWHERE = ['tests/e2e/long-text.spec.ts']
 
 export default tseslint.config(
   {
@@ -100,12 +98,11 @@ export default tseslint.config(
   // in view measures it where it opened, on a slow machine.
   {
     files: ['tests/**/*.ts'],
-    ignores: [...MEASURED_BEFORE, ...WAITS_ELSEWHERE],
+    ignores: MEASURED_BEFORE,
     rules: { 'no-restricted-syntax': ['error', FIXED_WAIT, MEASURED] },
   },
   {
     files: MEASURED_BEFORE,
-    ignores: WAITS_ELSEWHERE,
     rules: { 'no-restricted-syntax': ['error', FIXED_WAIT] },
   },
 )
