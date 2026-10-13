@@ -9,7 +9,7 @@ import { createServer, type AddressInfo } from 'node:net'
 import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { chromium, firefox, webkit, type Frame, type Page } from '@playwright/test'
-import { BOX_LIMITS } from '../../src/shared/plugin-box.ts'
+import { BOX_LIMITS, workerText } from '../../src/shared/plugin-box.ts'
 import { gotOut, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
 import { notRefused } from '../e2e/plugin-box/worked.ts'
 import { DEMO_TOKEN, expect, refusedConfig, signIn, test, type Served } from './fixtures.ts'
@@ -225,6 +225,84 @@ async function open(page: Page, as: string, code: string) {
 const close = (page: Page, as: string) =>
   page.evaluate((as) => (window as unknown as OnPage).__boxes[as]?.box.close(), as)
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms))
+
+interface Hand {
+  frame: HTMLIFrameElement
+  port?: MessagePort
+  got: { kind: string; data: string; ports: number }[]
+  second: string[]
+  /** What its frame posted to the page's own window, from the first. */
+  window: string[]
+}
+type HandOnPage = { __hand: Hand }
+
+/**
+ * A box made by the test's own hand on Lumovi's page, as Lumovi's page makes one, and not yet
+ * handed its text: what reaches the page from the box's script is seen whole, each message's
+ * data and the ports it came with, on its channel and on the page's own window.
+ */
+async function handMade(page: Page, address: string) {
+  await page.evaluate(async (address) => {
+    const frame = document.createElement('iframe')
+    frame.hidden = true
+    frame.name = 'hand'
+    frame.setAttribute('sandbox', 'allow-scripts')
+    frame.src = address
+    const posted: string[] = []
+    addEventListener('message', (event) => {
+      if (event.source === frame.contentWindow) posted.push(JSON.stringify(event.data))
+    })
+    const ready = new Promise<void>((done) => {
+      const on = (event: MessageEvent) => {
+        if (event.source !== frame.contentWindow) return
+        if ((event.data as { box?: unknown } | null)?.box !== 'ready') return
+        removeEventListener('message', on)
+        done()
+      }
+      addEventListener('message', on)
+    })
+    document.body.append(frame)
+    await ready
+    ;(window as unknown as HandOnPage).__hand = { frame, got: [], second: [], window: posted }
+  }, address)
+}
+/** Hands the hand-made box a worker's text, with a channel of its own: what it says is kept. */
+const handIt = (page: Page, text: string, into: 'got' | 'second') =>
+  page.evaluate(
+    ({ text, into }) => {
+      const hand = (window as unknown as HandOnPage).__hand
+      const channel = new MessageChannel()
+      channel.port1.onmessage = (event) => {
+        const data = typeof event.data === 'string' ? event.data : JSON.stringify(event.data)
+        if (into === 'second') hand.second.push(data)
+        else hand.got.push({ kind: typeof event.data, data, ports: event.ports.length })
+      }
+      if (into === 'got') hand.port = channel.port1
+      hand.frame.contentWindow!.postMessage({ text }, '*', [channel.port2])
+    },
+    { text, into },
+  )
+const handOf = (page: Page) => page.evaluate(() => (window as unknown as HandOnPage).__hand.got)
+
+/** A worker's text that, were a worker made of it, would say so on the channel it was handed. */
+const ANOTHERS = `self.onmessage = (event) => event.data.port.postMessage('made from another’s text')`
+/**
+ * A plugin's code that takes the channel itself, before Lumovi's first lines can, and sends up
+ * what isn't text alone: straight to the box's page, a port, a buffer, and a Blob.
+ */
+const SENDER = `let raw
+const theirs = self.onmessage
+self.onmessage = (event) => { raw = event.data.port; theirs.call(self, event) }
+box.then(({ post, listen }) => {
+  post('ready')
+  listen((told) => {
+    if (told !== 'go') return
+    self.postMessage('straight to the box’s page')
+    raw.postMessage('with a port', [new MessageChannel().port2])
+    raw.postMessage('with a buffer', [new ArrayBuffer(8)])
+    raw.postMessage(new Blob(['a blob']))
+  })
+})`
 
 const TRIER = `${WAYS}
 box.then(({ post, listen }) => {
@@ -452,6 +530,72 @@ for (const [name, browsers] of [
             timeout: BOX_LIMITS.pingEveryMs * (BOX_LIMITS.missedPings + 6),
           })
           .toEqual({ why: 'silent' })
+      } finally {
+        await done()
+      }
+    })
+
+    test('its script makes one worker, from the page that holds it, and hands up nothing but text', async ({
+      serve,
+    }) => {
+      const { page, url, done } = await pageIn(serve)
+      try {
+        await handMade(page, `${url}plugin-box/box.html`)
+        // Another frame on the page, a box too, hands the hand-made one a text first: it arrives,
+        // and no worker is made of it.
+        await page.frame({ name: 'hand' })!.evaluate(() => {
+          const counted = self as unknown as { arrived: number }
+          counted.arrived = 0
+          addEventListener('message', () => counted.arrived++)
+        })
+        await open(page, 'other', IDLE)
+        const other = page
+          .frames()
+          .find((frame) => frame.url().includes('/plugin-box/box.html') && frame.name() !== 'hand')!
+        const heardByOther = await other.evaluate(
+          (text) =>
+            new Promise<string[]>((done) => {
+              const heard: string[] = []
+              for (let at = 0; at < parent.length; at++) {
+                if (parent[at] === self) continue
+                const channel = new MessageChannel()
+                channel.port1.onmessage = (event) => heard.push(String(event.data))
+                parent[at]!.postMessage({ text }, '*', [channel.port2])
+              }
+              setTimeout(() => done(heard), 1500)
+            }),
+          ANOTHERS,
+        )
+        expect(heardByOther).toEqual([])
+        expect(
+          await page
+            .frame({ name: 'hand' })!
+            .evaluate(() => (self as unknown as { arrived: number }).arrived),
+        ).toBe(1)
+        // The page that holds it hands it the plugin's text: that one is made.
+        await handIt(page, workerText(SENDER), 'got')
+        await expect.poll(() => handOf(page)).toEqual([{ kind: 'string', data: 'ready', ports: 0 }])
+        // A second text, even from that page, makes nothing.
+        await handIt(page, ANOTHERS, 'second')
+        await pause(1500)
+        expect(await page.evaluate(() => (window as unknown as HandOnPage).__hand.second)).toEqual(
+          [],
+        )
+        // What the worker sends up past Lumovi's first lines: text arrives as text alone; the
+        // rest never comes, and what isn't text ends it.
+        await page.evaluate(() => (window as unknown as HandOnPage).__hand.port!.postMessage('go'))
+        await expect.poll(() => handOf(page).then((got) => got.length)).toBe(4)
+        await pause(500)
+        expect(await handOf(page)).toEqual([
+          { kind: 'string', data: 'ready', ports: 0 },
+          { kind: 'string', data: 'with a port', ports: 0 },
+          { kind: 'string', data: 'with a buffer', ports: 0 },
+          { kind: 'object', data: '{"box":"ended","over":"not-text"}', ports: 0 },
+        ])
+        // And nothing on the page's own window but that the box was there.
+        expect(await page.evaluate(() => (window as unknown as HandOnPage).__hand.window)).toEqual([
+          '{"box":"ready"}',
+        ])
       } finally {
         await done()
       }
