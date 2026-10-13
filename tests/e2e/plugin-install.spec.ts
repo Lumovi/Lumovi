@@ -260,6 +260,42 @@ test('an update whose code reads the logs its pages only showed asks again: in r
   await expect(page.getByText('Updated Toys to 1.3.0.')).toBeVisible()
 })
 
+test('an update whose code asks its tool’s server asks again: in red, its paths listed, first under New in', async ({
+  launch,
+  downloads,
+}) => {
+  const pages = `  pages: [{ id: overview, title: Overview }]
+`
+  const server = `  server:
+    service: { name: toys-api }
+    in: { group: example.com, kind: Widget }
+    port: http
+    paths: ["/api/v1/widgets/{widget}/history"]
+`
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), file('toys', 'Toys', 'Widget', '1.2.0', pages))
+  writeFileSync(join(folder, 'toys.js'), 'box.then(() => {})\n')
+  downloads.pluginStore = release(1, {
+    ...plugin('toys', 'Toys', 'Widget', '1.3.0', pages + server),
+    code: 'box.then(() => {})\n',
+  })
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, pluginsPage)
+  await row(page, 'Toys').getByRole('button', { name: 'Update…' }).click()
+  const asks = dialog(page).getByRole('region', { name: 'New in 1.3.0' }).locator('[data-ask]')
+  await expect(asks).toHaveCount(1)
+  await expect(asks.first()).toHaveAttribute('data-ask', 'server')
+  await expect(asks.first()).toHaveAttribute('data-red', '')
+  await expect(asks.first()).toHaveText(
+    'Asks the server toys-api in this cluster, through Lumovi, and its code reads what it answers:' +
+      'The Service toys-api, port http, in the namespace of the Widget its page shows.' +
+      '/api/v1/widgets/{widget}/history',
+  )
+  await dialog(page).getByRole('button', { name: 'Update to 1.3.0' }).click()
+  await expect(page.getByText('Updated Toys to 1.3.0.')).toBeVisible()
+})
+
 test('an installed copy whose files changed isn’t used: Lumovi’s own is, and the page says why', async ({
   launch,
   downloads,

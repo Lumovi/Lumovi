@@ -13,6 +13,7 @@
 import { clashes, ownKinds, parsePlugin, type ChangesKind, type Plugin } from './plugins'
 import { settle, type Origin, type PluginFile } from './plugin-loading'
 import type { Grant } from './plugin-reads'
+import type { PluginServer } from './plugin-server'
 import type { ResourceKind } from './resources'
 
 /** A file's name without its folders. */
@@ -95,6 +96,8 @@ export interface KnownPlugin {
   label?: string
   /** Whether its pages show containers' logs, or its code reads them too (`spec.logs`). */
   logs?: 'shown' | 'read'
+  /** Its tool's own server its code may ask, through Lumovi (`spec.server`). */
+  server?: PluginServer
 }
 
 /** What a plugin's code may read, by its file. */
@@ -190,6 +193,7 @@ export function knownPlugins(
         ),
         ...(plugin.place?.label !== undefined && { label: plugin.place.label }),
         ...(plugin.logs !== undefined && { logs: plugin.logs }),
+        ...(plugin.server !== undefined && { server: plugin.server }),
       }
     }),
     ...settled.files.flatMap(({ file, plugin, state }) =>

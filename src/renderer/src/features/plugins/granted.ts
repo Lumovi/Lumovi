@@ -7,6 +7,7 @@
 import { asks, type Asks } from '@shared/plugin-asks'
 import type { Reach } from '@shared/kit/declare'
 import type { AskedField } from '@shared/plugin-store'
+import type { PluginServer } from '@shared/plugin-server'
 import type { Plugin } from '@shared/plugins'
 import type { ResourceKind } from '@shared/resources'
 
@@ -18,6 +19,8 @@ export interface Granted {
   links: Reach[]
   /** What its pages do with containers' logs. None, where its file says nothing. */
   logs?: Plugin['logs']
+  /** Its tool's own server its code may ask: the Service, and the paths. */
+  server?: PluginServer
   code: boolean
 }
 
@@ -25,10 +28,13 @@ export interface Granted {
  * The fields a person agrees to as they are (`PLUGIN_FIELDS`' `asked`), each compared below:
  * TypeScript asks for a new one here, so it's never agreed to unseen.
  */
-const COMPARED = { added: true, opens: true, links: true, logs: true } as const satisfies Record<
-  AskedField,
-  true
->
+const COMPARED = {
+  added: true,
+  opens: true,
+  links: true,
+  logs: true,
+  server: true,
+} as const satisfies Record<AskedField, true>
 void COMPARED
 
 export const grantedOf = (plugin: Plugin, code: boolean): Granted => ({
@@ -37,8 +43,21 @@ export const grantedOf = (plugin: Plugin, code: boolean): Granted => ({
   opens: plugin.opens,
   links: plugin.links,
   ...(plugin.logs ? { logs: plugin.logs } : {}),
+  ...(plugin.server ? { server: plugin.server } : {}),
   code,
 })
+
+/**
+ * What of its server `next` asks that `was` doesn't: all of it, where it asks another Service,
+ * port or kind (or none before); else the paths it didn't list.
+ */
+function serverBeyond(next: PluginServer | undefined, was: PluginServer | undefined) {
+  if (!next) return undefined
+  const where = ({ service, in: within, port }: PluginServer) => json([service, within, port])
+  if (!was || where(next) !== where(was)) return next
+  const paths = next.paths.filter((path) => !was.paths.includes(path))
+  return paths.length > 0 ? { ...next, paths } : undefined
+}
 
 /**
  * How much of containers' logs each way gives, least first: a step up is new, as a new field is.
@@ -110,6 +129,9 @@ function more(next: Granted, was: Granted): Granted {
     ...(next.logs !== undefined && logsLevel(next.logs) > logsLevel(was.logs)
       ? { logs: next.logs }
       : {}),
+    ...(serverBeyond(next.server, was.server)
+      ? { server: serverBeyond(next.server, was.server) }
+      : {}),
     code: next.code && !was.code,
   }
 }
@@ -120,6 +142,7 @@ export function isEmpty(granted: Granted): boolean {
   return (
     !code &&
     logs === undefined &&
+    granted.server === undefined &&
     [
       a.kinds,
       a.groups,

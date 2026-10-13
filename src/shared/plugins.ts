@@ -10,6 +10,15 @@ import { parseAllDocuments } from 'yaml'
 import { checkPath, parse, type Step } from './jsonpath'
 import { CHANGE_ACTIONS, type ChangeAction } from './plugin-changes'
 import { isSecretKey } from './plugin-presses'
+import {
+  LABEL_KEY,
+  LABEL_VALUE,
+  pathProblem,
+  PORT_NAME,
+  SERVER_LIMITS,
+  SERVICE_NAME,
+  type PluginServer,
+} from './plugin-server'
 import { readable, READABLE, resolvedAs, type Granted, type ResolvedKind } from './plugin-reads'
 import {
   apiGroupOf,
@@ -271,6 +280,12 @@ export interface Plugin {
    * follow, within Lumovi's limits. None, where its file says nothing.
    */
   logs?: 'shown' | 'read'
+  /**
+   * Its tool's own server in the cluster (`spec.server`): the Service, the port and the paths
+   * its code may ask Lumovi to GET, as the person, through the API server, in the namespace of
+   * an object of its own kind its page was handed. None, where its file says none.
+   */
+  server?: PluginServer
 }
 
 /** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
@@ -322,7 +337,7 @@ export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as con
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
 export type ListedPlugin = Pick<
   Plugin,
-  'name' | 'source' | 'version' | 'added' | 'opens' | 'links' | 'logs'
+  'name' | 'source' | 'version' | 'added' | 'opens' | 'links' | 'logs' | 'server'
 > &
   PluginPlace & {
     /** Every kind its file names (`namedKinds`): what its pages may open a list of. */
@@ -1039,6 +1054,109 @@ function changesProblems(changes: unknown, own: ReadonlySet<ResourceKind>): stri
   })
   return problems
 }
+
+const SERVER_KEYS = ['service', 'in', 'port', 'paths']
+
+/**
+ * What's wrong with what a file says of its tool's own server: the Service by its name or by
+ * labels, one of its own kinds whose objects' namespace it's in, a port of it, and the paths
+ * its code may ask for, each as Lumovi asks for it.
+ */
+function serverProblems(server: unknown, own: ReadonlySet<ResourceKind>): string[] {
+  const at = 'spec.server'
+  const isMap = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+  if (!isMap(server)) {
+    return [`${at}: should be a map of service, in, port and paths, not ${describe(server)}`]
+  }
+  const problems = Object.keys(server)
+    .filter((key) => !SERVER_KEYS.includes(key))
+    .map((key) => `${at}.${plain(key)}: isn’t something a server has`)
+  const { service, in: within, port, paths } = server
+  if (service === undefined) {
+    problems.push(`${at}.service: is needed: the Service, by its name or by its labels`)
+  } else if (!isMap(service) || Object.keys(service).length !== 1) {
+    problems.push(`${at}.service: should have a name or labels, one of the two`)
+  } else if (Object.hasOwn(service, 'name')) {
+    if (typeof service.name !== 'string' || !SERVICE_NAME.test(service.name)) {
+      problems.push(`${at}.service.name: should be a Service’s name, not ${describe(service.name)}`)
+    }
+  } else if (Object.hasOwn(service, 'labels')) {
+    const labels = service.labels
+    if (!isMap(labels)) {
+      problems.push(`${at}.service.labels: should be a map of labels, not ${describe(labels)}`)
+    } else if (Object.keys(labels).length === 0) {
+      problems.push(`${at}.service.labels: should name at least one label`)
+    } else if (Object.keys(labels).length > SERVER_LIMITS.labels) {
+      problems.push(`${at}.service.labels: should be at most ${SERVER_LIMITS.labels} labels`)
+    } else {
+      for (const [key, value] of Object.entries(labels)) {
+        if (!LABEL_KEY.test(key)) {
+          problems.push(`${at}.service.labels: ${plain(key)} isn’t a label’s key`)
+        } else if (typeof value !== 'string' || !LABEL_VALUE.test(value)) {
+          problems.push(
+            `${at}.service.labels.${key}: should be a label’s value, not ${describe(value)}`,
+          )
+        }
+      }
+    }
+  } else {
+    problems.push(`${at}.service: should have a name or labels, one of the two`)
+  }
+  if (within === undefined) {
+    problems.push(`${at}.in: is needed: the kind of the objects whose namespace the Service is in`)
+  } else if (
+    !isMap(within) ||
+    !Object.keys(within).every((key) => key === 'group' || key === 'kind') ||
+    typeof within.kind !== 'string' ||
+    (within.group !== undefined && typeof within.group !== 'string')
+  ) {
+    problems.push(`${at}.in: should be one of its own kinds, as { group, kind }`)
+  } else {
+    const id = kindId(within as unknown as NamedKind)
+    if (within.kind === '*' || !own.has(id)) {
+      problems.push(`${at}.in: should be one of its own kinds, and ${plain(id)} isn’t`)
+    }
+  }
+  if (port === undefined) {
+    problems.push(`${at}.port: is needed: a port the Service declares, by its name or number`)
+  } else if (
+    !(typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535) &&
+    !(typeof port === 'string' && PORT_NAME.test(port))
+  ) {
+    problems.push(`${at}.port: should be a port’s name or number, not ${describe(port)}`)
+  }
+  if (paths === undefined) {
+    problems.push(`${at}.paths: is needed: the paths its code may ask for`)
+  } else if (!Array.isArray(paths) || paths.length === 0) {
+    problems.push(`${at}.paths: should be a list of paths, not ${describe(paths)}`)
+  } else if (paths.length > SERVER_LIMITS.paths) {
+    problems.push(`${at}.paths: should be at most ${SERVER_LIMITS.paths} paths`)
+  } else {
+    paths.forEach((path, i) => {
+      const wrong =
+        typeof path !== 'string' ? `should be a path, not ${describe(path)}` : pathProblem(path)
+      if (wrong) problems.push(`${at}.paths[${i}]: ${wrong}`)
+      else if (paths.indexOf(path) < i) problems.push(`${at}.paths[${i}]: is listed once`)
+    })
+  }
+  return problems
+}
+
+/** A file's `server`, as checked. */
+interface RawServer {
+  service: { name: string } | { labels: Record<string, string> }
+  in: NamedKind
+  port: string | number
+  paths: string[]
+}
+
+const serverOf = ({ service, in: within, port, paths }: RawServer): PluginServer => ({
+  service: 'name' in service ? { name: service.name } : { labels: { ...service.labels } },
+  in: kindId(within),
+  port,
+  paths: [...paths],
+})
 
 /** What's wrong with what a file says its pages link to: Lumovi's own places, each once. */
 function linksProblems(links: unknown): string[] {
@@ -1918,6 +2036,7 @@ function readPlugin(
     opens,
     links,
     logs,
+    server,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -2053,6 +2172,11 @@ function readPlugin(
   } else if (logs !== undefined && logs !== 'shown' && logs !== 'read') {
     problems.push(`${source}: spec.logs: should be shown or read, not ${describe(logs)}`)
   }
+  if (server !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.server: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they ask its server`,
+    )
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -2080,6 +2204,10 @@ function readPlugin(
       problems.push(
         `${source}: spec.logs: read needs Pods in spec.reads: its code reads the logs only of pods it was handed`,
       )
+    }
+    // Its tool's own server: in the namespace of one of its own kinds' objects.
+    if (server !== undefined && carriesCode) {
+      problems.push(...serverProblems(server, own).map((problem) => `${source}: ${problem}`))
     }
     // What its pages show of Secrets: named by objects of its own kinds.
     if (showsSecrets !== undefined) {
@@ -2169,6 +2297,7 @@ function readPlugin(
       opens: ((opens ?? []) as NamedKind[]).map(kindId),
       links: [...((links ?? []) as Reach[])],
       ...(logs === 'shown' || logs === 'read' ? { logs: logs as 'shown' | 'read' } : {}),
+      ...(server !== undefined ? { server: serverOf(server as RawServer) } : {}),
     },
     problems: [],
   }

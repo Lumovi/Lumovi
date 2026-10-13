@@ -50,6 +50,8 @@ export interface CodeSwitches {
   secretsOff?: true
   /** The organization's policy lets no plugin's page show or read logs (the desktop app's). */
   logsOff?: true
+  /** The organization's policy lets no plugin talk to a server in the cluster (the desktop app's). */
+  serversOff?: true
   /** This person's own choices, by plugin: on, or off. A plugin they haven't chosen for is as `CODE_ON` says. */
   chosen: Readonly<Record<string, boolean>>
 }

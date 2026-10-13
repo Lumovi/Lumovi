@@ -504,6 +504,7 @@ if (stdio) {
           ...(policy.managed?.pluginProposalsOff ? { proposalsOff: true as const } : {}),
           ...(policy.managed?.pluginSecretsOff ? { secretsOff: true as const } : {}),
           ...(policy.managed?.pluginLogsOff ? { logsOff: true as const } : {}),
+          ...(policy.managed?.pluginServersOff ? { serversOff: true as const } : {}),
           chosen: settings.pluginCode(),
         },
       }),

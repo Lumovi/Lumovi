@@ -351,6 +351,20 @@ test('every plugin is checked against its operator’s CRDs, and names their kin
   expect(problems).toEqual([])
 })
 
+test('a plugin’s server is in the namespace of its own kind’s objects: a kind that’s in one', () => {
+  test.skip(!UNDER_CHECK, ITS_CRDS)
+  const problems = plugins.flatMap((plugin) => {
+    const kind = plugin.server?.in
+    const crd = kind === undefined ? undefined : crds.get(kind)?.crd
+    return crd && !crd.namespaced
+      ? [
+          `${plugin.source}: spec.server.in: ${kind} isn’t in a namespace, so its objects can’t say which namespace the server is in`,
+        ]
+      : []
+  })
+  expect(problems).toEqual([])
+})
+
 test('every kind a view is for has a CRD here, unless it’s one of Kubernetes’ own', () => {
   test.skip(!UNDER_CHECK, ITS_CRDS)
   const problems = views.flatMap((view) =>
