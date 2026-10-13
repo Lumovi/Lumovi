@@ -47,6 +47,7 @@ import { pluginChanges } from './plugin-changes'
 import { pluginCodes, type HandOverTo } from './plugin-code'
 import { PLUGIN_NAME } from '@shared/plugins'
 import { pluginLogs } from './plugin-logs'
+import { pluginServer } from './plugin-server'
 import { pluginReads, secretsAskedFor } from './plugin-reads'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
@@ -365,6 +366,7 @@ export function handlers({
       },
       [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit, to: handOverTo }),
       [IPC.pluginLogs]: pluginLogs({ kube, known: knownPlugins, audit, to: handOverTo }),
+      [IPC.pluginServer]: pluginServer({ kube, known: knownPlugins, audit, to: handOverTo }),
       [IPC.pluginChange]: pluginChanges({ kube, known: knownPlugins, to: handOverTo, audit }),
       ...(() => {
         const codes = pluginCodes({ known: knownPlugins, to: handOverTo, audit })

@@ -33,6 +33,8 @@ export const PLUGIN_SINCE = {
      * reads them too (`read`).
      */
     logs: 'next',
+    /** Its tool's own server its code may ask, through Lumovi. */
+    server: 'next',
   },
   /** What a read can ask beyond a kind's list or one object of it. */
   read: {
@@ -41,6 +43,8 @@ export const PLUGIN_SINCE = {
     labels: 'next',
     /** A pod's logs, read once: for a plugin whose file says `logs: read`. */
     logs: 'next',
+    /** A path of its tool's own server, asked once: for a plugin whose file says `server`. */
+    server: 'next',
   },
   /** The parts a page's code can name. */
   parts: {

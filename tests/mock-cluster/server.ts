@@ -211,6 +211,35 @@ const REASONS: Record<number, string> = {
   504: 'Timeout',
 }
 
+/** The label that makes a Service a stand-in for a tool's own server, and which. */
+export const STAND_IN = 'mock.lumovi.dev/stand-in'
+
+/**
+ * What the tests' Toys' own server answers: JSON for its status and a widget's history, a web
+ * page, and more JSON than Lumovi takes. Anything else, a JSON 404.
+ */
+function toysApi(path: string): { status: number; body: string; contentType: string } {
+  const json = (body: Json, status = 200) => ({
+    status,
+    body: JSON.stringify(body),
+    contentType: 'application/json; charset=utf-8',
+  })
+  if (path === '/api/v1/status') return json({ healthy: true, widgets: 1 })
+  const history = /^\/api\/v1\/widgets\/([^/]+)\/history$/.exec(path)
+  if (history) {
+    return json({ widget: decodeURIComponent(history[1]!), sizes: [1, 2, 3] })
+  }
+  if (path === '/page') {
+    return { status: 200, body: '<!doctype html><title>Toys</title>', contentType: 'text/html' }
+  }
+  if (path === '/everything') {
+    return json({
+      items: Array.from({ length: 40_000 }, (_, i) => `widget-${i}-${'x'.repeat(24)}`),
+    })
+  }
+  return json({ error: 'no such path' }, 404)
+}
+
 class HttpError extends Error {
   status: number
   body: Json
@@ -1223,6 +1252,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         contentType: 'text/html',
       }
     }
+    // A plugin's tool's own server: the tests' Toys', where a test puts it.
+    if (service.metadata.labels?.[STAND_IN] === 'toys-api') return toysApi(match[3] ?? '/')
     throw new HttpError(503, `no endpoints available for service "${name}"`)
   }
 

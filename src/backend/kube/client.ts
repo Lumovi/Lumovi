@@ -153,3 +153,72 @@ export async function kubeStream(
     req.end()
   })
 }
+
+/** What a server behind the API server's service proxy answered, within Lumovi's limits. */
+export type ProxyAnswer =
+  | {
+      status: number
+      /** Its media type as it said it, lowercased, without its parameters. */
+      type: string
+      body: string
+    }
+  /** It answered more than Lumovi takes: nothing of it is kept. */
+  | { tooBig: true }
+
+/**
+ * GETs a path of a server in the cluster through the API server's service proxy, for a plugin's
+ * tool: only JSON asked for and nothing else of Lumovi's sent but its credentials for the API
+ * server, no redirect followed, and all of the answer within `timeoutMs` (past it, a
+ * `KubeRequestError` 'timeout') and `maxBytes`, unpacked.
+ */
+export async function kubeProxyGet(
+  kc: KubeConfig,
+  path: string,
+  options: { timeoutMs: number; maxBytes: number },
+): Promise<ProxyAnswer> {
+  const url = serverUrl(kc, path)
+  const request: https.RequestOptions = { method: 'GET', headers: { Accept: 'application/json' } }
+  await authorize(kc, request)
+  const transport = url.protocol === 'http:' ? http : https
+  return new Promise((resolve, reject) => {
+    const req = transport.request(url, request, (res) => {
+      const packed = res.headers['content-encoding']
+      const body = packed === 'gzip' ? res.pipe(createGunzip()) : res
+      const chunks: Buffer[] = []
+      let bytes = 0
+      body.on('data', (chunk: Buffer) => {
+        bytes += chunk.length
+        if (bytes > options.maxBytes) {
+          clearTimeout(timer)
+          req.destroy()
+          resolve({ tooBig: true })
+          return
+        }
+        chunks.push(chunk)
+      })
+      body.on('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      body.on('end', () => {
+        clearTimeout(timer)
+        resolve({
+          status: res.statusCode!,
+          type: (res.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase(),
+          body: Buffer.concat(chunks).toString('utf8'),
+        })
+      })
+    })
+    // (All of it within the time: a server that trickles its answer is as late as a silent one.)
+    const timer = setTimeout(() => {
+      req.destroy(
+        new KubeRequestError('timeout', `It didn’t answer within ${options.timeoutMs / 1000}s`),
+      )
+    }, options.timeoutMs)
+    req.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    req.end()
+  })
+}

@@ -55,6 +55,7 @@ export const AUDIT_ACTIONS = {
   'helm.values.read': 'access',
   // What a plugin's page was handed, read as the person; and which code it ran.
   'plugin.read': 'access',
+  'plugin.server': 'access',
   'plugin.code': 'access',
   // Lumovi's check of a plugin's box in a browser: what every hand-over there rests on.
   'plugin.box-check': 'access',

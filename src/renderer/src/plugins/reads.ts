@@ -14,6 +14,8 @@
  * - `{ read, lines: [{ time?, text }], cut? }`: a pod's logs, once, where its file says its code
  *   reads them: its last lines, oldest first, each with when it was written; `cut`, where Lumovi
  *   kept only the last of them. The read is over;
+ * - `{ read, json }`: what its tool's own server answered a path its file lists, once, as JSON.
+ *   The read is over;
  * - `{ read, ended, said }`: the read is over (refused, or what it read is gone): a code, and
  *   Lumovi's sentence for it;
  * - `{ read, failing, said }`: reading it again failed this time; it's tried again.
@@ -33,6 +35,13 @@ import {
   type ReadRefusal,
 } from '@shared/plugin-reads'
 import { Tokens, type PluginHanded } from '@shared/plugin-presses'
+import {
+  SERVER_LIMITS,
+  type PluginServerAnswer,
+  type ServerObject,
+  serverSaid,
+  type ServerRefusal,
+} from '@shared/plugin-server'
 import { whose } from '@shared/plugins'
 import { listPollInterval, POLL_INTERVAL } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
@@ -43,6 +52,33 @@ const countOf = (plugin: string) => {
   let count = plugins.get(plugin)
   if (!count) plugins.set(plugin, (count = { lists: 0, kept: 0, objects: 0 }))
   return count
+}
+
+/**
+ * Asks of each plugin's server going now, across its pages in this window, by its name; and
+ * those waiting their turn, first asked first.
+ */
+const servers = new Map<string, { going: number; waiting: (() => void)[] }>()
+
+/** Starts an ask of a plugin's server now, or once one of its others is answered. */
+function inTurn(plugin: string, start: () => void): void {
+  let asking = servers.get(plugin)
+  if (!asking) servers.set(plugin, (asking = { going: 0, waiting: [] }))
+  if (asking.going < SERVER_LIMITS.waitingAPlugin) {
+    asking.going++
+    start()
+  } else {
+    asking.waiting.push(start)
+  }
+}
+
+/** An ask of a plugin's server is answered: the next waiting has its turn. */
+function turnDone(plugin: string): void {
+  const asking = servers.get(plugin)
+  if (!asking) return
+  const next = asking.waiting.shift()
+  if (next) next()
+  else if (--asking.going === 0) servers.delete(plugin)
 }
 
 /** What ends a read, rather than failing once: said as its end. */
@@ -90,6 +126,8 @@ export class PageReading {
   readonly #going = new Map<number, Going>()
   /** Asks for a pod's logs not yet answered: each is answered once. */
   readonly #logs = new Set<number>()
+  /** Asks of its server not yet answered (or waiting their turn): each is answered once. */
+  readonly #asking = new Set<number>()
   /** Of the reads going: those failing now, and why; those whose last answer was cut, and how. */
   readonly #failing = new Map<number, ReadRefusal>()
   readonly #cut = new Map<number, Cut>()
@@ -147,6 +185,10 @@ export class PageReading {
     }
     if (ask.what === 'logs') {
       this.#readLogs(ask)
+      return undefined
+    }
+    if (ask.what === 'server') {
+      this.#askServer(ask)
       return undefined
     }
     const { kind, namespace, usage } = ask
@@ -301,6 +343,57 @@ export class PageReading {
       })
   }
 
+  /**
+   * A path of its tool's own server, once: the objects by the tokens its page holds, and the
+   * rest (its file's `server`, the path listed, the kinds) the backend's to check. In its turn:
+   * a plugin's pages ask so many at once.
+   */
+  #askServer({ read, in: token, path, with: given = {} }: ServerAsk): void {
+    const named = (ref: ObjectRef): ServerObject => ({
+      kind: ref.kind,
+      ...(ref.namespace === undefined ? {} : { namespace: ref.namespace }),
+      name: ref.name,
+    })
+    const within = this.tokens.heldOf(token)
+    const fills = Object.entries(given).map(([fill, of]) => [fill, this.tokens.heldOf(of)] as const)
+    // (A token that's no object's, or no longer held: as asking about what isn't there.)
+    if (!within || fills.some(([, ref]) => !ref)) {
+      return this.#serverEnded(read, { refused: 'not-found', said: SAID_NOT_FOUND })
+    }
+    this.#asking.add(read)
+    inTurn(this.#plugin, () => {
+      // (Ended by its code while it waited its turn, or the page is gone: nobody's asking.)
+      if (this.#closed || !this.#asking.has(read)) return turnDone(this.#plugin)
+      void api.kube
+        .pluginServer({
+          context: this.#context,
+          plugin: this.#plugin,
+          ...this.#handed,
+          in: named(within),
+          path,
+          ...(fills.length > 0
+            ? { with: Object.fromEntries(fills.map(([fill, ref]) => [fill, named(ref!)])) }
+            : {}),
+        })
+        .catch((): PluginServerAnswer => ({ ok: false, refused: 'failed', said: SAID_FAILED }))
+        .then((answer) => {
+          turnDone(this.#plugin)
+          if (this.#closed || !this.#asking.delete(read)) return
+          if (!answer.ok) return this.#serverEnded(read, answer)
+          this.#reads.over(read)
+          this.#tell({ read, json: answer.json })
+        })
+    })
+  }
+
+  /** An ask of its server that got no answer: over, with Lumovi's code and sentence for why. */
+  #serverEnded(read: number, { refused, said }: { refused: ServerRefusal; said: string }): void {
+    this.#end(read)
+    this.#reads.refused(read)
+    this.#tell({ read, ended: refused, said })
+    if (refused === 'changed') this.#changed()
+  }
+
   /** Reads it again in a while: a list as often as Lumovi's own list of as many. */
   #again(read: number, going: Going, count: number): void {
     going.timer = setTimeout(
@@ -327,6 +420,7 @@ export class PageReading {
     if (going) clearTimeout(going.timer)
     this.#going.delete(read)
     this.#logs.delete(read)
+    this.#asking.delete(read)
     this.tokens.ended(read)
     this.#failing.delete(read)
     this.#cut.delete(read)
@@ -413,6 +507,10 @@ export class PageReading {
 }
 
 type LogsAsk = Extract<ReadAsk, { what: 'logs' }>
+type ServerAsk = Extract<ReadAsk, { what: 'server' }>
+
+const SAID_NOT_FOUND = serverSaid('not-found')
+const SAID_FAILED = serverSaid('failed')
 
 const key = ({ kind, namespace, name }: ObjectRef) => `${kind}\u0000${namespace ?? ''}\u0000${name}`
 

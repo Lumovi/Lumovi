@@ -37,6 +37,7 @@
  *     "pluginSecrets": "off",            no plugin's page may show what's in a Secret
  *     "pluginLogs": "off",               no plugin's page may show or read containers' logs
  *     "pluginStore": "off",              Lumovi doesn't check Lumovi-plugins for newer plugins
+ *     "pluginServers": "off",            no plugin may talk to a server in the cluster
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -111,6 +112,7 @@ const KEYS = [
   'pluginSecrets',
   'pluginLogs',
   'pluginStore',
+  'pluginServers',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -155,6 +157,7 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
         pluginSecretsOff: true,
         pluginLogsOff: true,
         pluginStoreOff: true,
+        pluginServersOff: true,
         problem,
       },
       assistantRules: [],
@@ -382,6 +385,7 @@ function checked(given: unknown, path: string): Policy {
     pluginSecrets,
     pluginLogs,
     pluginStore,
+    pluginServers,
     network = {},
   } = policy
   if (
@@ -461,6 +465,7 @@ function checked(given: unknown, path: string): Policy {
     ['pluginSecrets', pluginSecrets],
     ['pluginLogs', pluginLogs],
     ['pluginStore', pluginStore],
+    ['pluginServers', pluginServers],
   ] as const) {
     if (value !== undefined && value !== 'off') throw new Error(`${key} must be "off".`)
   }
@@ -507,6 +512,7 @@ function checked(given: unknown, path: string): Policy {
     ...(pluginSecrets === 'off' ? { pluginSecretsOff: true as const } : {}),
     ...(pluginLogs === 'off' ? { pluginLogsOff: true as const } : {}),
     ...(pluginStore === 'off' ? { pluginStoreOff: true as const } : {}),
+    ...(pluginServers === 'off' ? { pluginServersOff: true as const } : {}),
   }
   return {
     managed,

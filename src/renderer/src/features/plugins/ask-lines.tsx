@@ -15,6 +15,7 @@ import {
   Play,
   PlusSquare,
   ScrollText,
+  Server,
   type LucideIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -22,6 +23,7 @@ import type { Asks } from '@shared/plugin-asks'
 import { apiKindOf } from '@shared/resources'
 import type { Granted } from './granted'
 import { linksLine, listed, LOGS_LINE, proposesLine, type KindNames } from './proposes'
+import { ServerPaths, serverSays, ServerWhere } from './server-line'
 
 export { listed, proposesLine, type KindNames }
 
@@ -61,6 +63,21 @@ export function askLines(granted: Granted, names: KindNames, tool: string): AskL
   if (logs === 'read') {
     const { text, note } = LOGS_LINE.read
     lines.push({ key: 'logs', icon: ScrollText, text, note, red: true })
+  }
+  // Its tool's own server: what it answers reaches its code too.
+  if (granted.server) {
+    lines.push({
+      key: 'server',
+      icon: Server,
+      text: serverSays(granted.server),
+      note: (
+        <>
+          <ServerWhere server={granted.server} />
+          <ServerPaths paths={granted.server.paths} />
+        </>
+      ),
+      red: true,
+    })
   }
   if (a.changes.length > 0) {
     lines.push({ key: 'proposes', icon: Pencil, text: proposesLine(a.changes, names) })

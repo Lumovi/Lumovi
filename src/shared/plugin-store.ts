@@ -30,6 +30,7 @@ export const PLUGIN_FIELDS = {
   opens: 'asked',
   links: 'asked',
   logs: 'asked',
+  server: 'asked',
 } as const satisfies Record<keyof Plugin, 'asked' | 'not-asked'>
 
 /**
@@ -252,6 +253,12 @@ export function policyRefusal(
     return {
       line: 'Your organization’s policy doesn’t let plugins show or read containers’ logs, and this one would.',
       key: 'pluginLogs: off',
+    }
+  }
+  if (managed.pluginServersOff && plugin.server !== undefined) {
+    return {
+      line: 'Your organization’s policy doesn’t let plugins talk to servers in the cluster, and this one would.',
+      key: 'pluginServers: off',
     }
   }
   if (managed.pluginCodeOff && code) {

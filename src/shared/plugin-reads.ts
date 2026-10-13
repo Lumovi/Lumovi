@@ -15,6 +15,7 @@
 import type { Step } from './jsonpath'
 import { LABEL_TERM } from './kit/declare'
 import type { Stopped } from './plugin-door'
+import { SERVER_LIMITS } from './plugin-server'
 import { isCustomGroup, type ResourceKind } from './resources'
 
 /**
@@ -118,6 +119,18 @@ export type ReadAsk =
       tail?: number
       since?: number
       previous?: true
+    }
+  /**
+   * A path its file lists, of its tool's own server (`spec.server`): in the namespace of an
+   * object of its `in` kind, by Lumovi's token for it; each segment it fills, by the token of
+   * the object whose name fills it. Answered once.
+   */
+  | {
+      read: number
+      what: 'server'
+      in: string
+      path: string
+      with?: Readonly<Record<string, string>>
     }
   /** The end of a read it began. */
   | { stop: number }
@@ -267,6 +280,50 @@ export function readAsk(message: unknown): ReadAsk | Stopped {
         return notAllowed('asks about an object Lumovi didn’t hand it')
       }
       return { read, what: 'events', of }
+    }
+    case 'server': {
+      if (!has(said, 'read', 'what', 'in', 'path', 'with')) {
+        return notAllowed('an ask with something it doesn’t take')
+      }
+      const within = Object.hasOwn(said, 'in') ? said.in : undefined
+      if (typeof within !== 'string' || !TOKEN.test(within)) {
+        return notAllowed('asks its server about an object Lumovi didn’t hand it')
+      }
+      const path = Object.hasOwn(said, 'path') ? said.path : undefined
+      if (
+        typeof path !== 'string' ||
+        !path.startsWith('/') ||
+        path.length > SERVER_LIMITS.pathLength
+      ) {
+        return notAllowed('asks its server for a path that isn’t one')
+      }
+      const given = Object.hasOwn(said, 'with') ? said.with : undefined
+      if (given !== undefined) {
+        const fills =
+          typeof given === 'object' && given !== null && !Array.isArray(given)
+            ? Object.entries(given)
+            : undefined
+        if (
+          !fills ||
+          fills.length === 0 ||
+          fills.length > SERVER_LIMITS.fills ||
+          !fills.every(
+            ([fill, token]) =>
+              /^[a-z][A-Za-z0-9]{0,30}$/.test(fill) &&
+              typeof token === 'string' &&
+              TOKEN.test(token),
+          )
+        ) {
+          return notAllowed('fills a path with something other than objects Lumovi handed it')
+        }
+      }
+      return {
+        read,
+        what: 'server',
+        in: within,
+        path,
+        ...(given === undefined ? {} : { with: { ...(given as Record<string, string>) } }),
+      }
     }
     case 'logs': {
       if (!has(said, 'read', 'what', 'pod', 'container', 'tail', 'since', 'previous')) {
@@ -1011,8 +1068,8 @@ export interface PluginCount {
 export class PageReads {
   readonly #plugin: PluginCount
   readonly #now: () => number
-  /** Reads going, by their number: whether each is a list kept up to date. */
-  readonly #going = new Map<number, { list: boolean; answered: boolean }>()
+  /** Reads going, by their number: whether each is a list kept up to date, or an ask of its server. */
+  readonly #going = new Map<number, { list: boolean; server: boolean; answered: boolean }>()
   #newest = 0
   #second = { since: 0, asks: 0 }
   #refreshed: number | undefined
@@ -1059,6 +1116,13 @@ export class PageReads {
       return tooMuch('reads a plugin keeps going', READ_LIMITS.keptAPlugin)
     }
     const list = ask.what === 'list'
+    const server = ask.what === 'server'
+    if (server) {
+      const asking = [...this.#going.values()].filter((read) => read.server).length
+      if (asking >= SERVER_LIMITS.waitingAPage) {
+        return tooMuch('asks of its server not yet answered', SERVER_LIMITS.waitingAPage)
+      }
+    }
     if (list) {
       const mine = [...this.#going.values()].filter((read) => read.list).length
       if (mine >= READ_LIMITS.listsAPage)
@@ -1069,11 +1133,11 @@ export class PageReads {
       this.#plugin.lists++
     }
     this.#plugin.kept++
-    this.#going.set(ask.read, { list, answered: false })
+    this.#going.set(ask.read, { list, server, answered: false })
     return undefined
   }
 
-  /** A read answered once, and over (a pod's logs): it isn't going. */
+  /** A read answered once, and over (a pod's logs, an ask of its server): it isn't going. */
   over(read: number): void {
     this.#forget(read)
   }

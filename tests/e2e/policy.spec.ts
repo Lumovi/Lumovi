@@ -139,16 +139,17 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       // default kubeconfig (kubeconfig-files.spec.ts).
       kubectlOff: true,
       kubeconfigFilesLocked: true,
-      // And no plugins at all, nor any plugin's code, proposal, Secret or logs
-      // (plugin-code-switch.spec.ts, plugin-logs.spec.ts), and nothing asked of Lumovi-plugins
-      // for newer ones (plugin-store.spec.ts).
+      // And no plugins at all, nor any plugin's code, proposal, Secret, logs or server
+      // (plugin-code-switch.spec.ts, plugin-logs.spec.ts, plugin-server.spec.ts), and nothing
+      // asked of Lumovi-plugins for newer ones (plugin-store.spec.ts).
       pluginsOff: true,
       pluginCodeOff: true,
       pluginProposalsOff: true,
       pluginSecretsOff: true,
       pluginLogsOff: true,
       pluginStoreOff: true,
-      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, pluginLogs, pluginStore, network.`,
+      pluginServersOff: true,
+      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, pluginLogs, pluginStore, pluginServers, network.`,
     },
   })
   await openCluster(page)
@@ -231,6 +232,7 @@ test('a policy with a value of the wrong kind can’t be used, and says which', 
     [policyFile({ pluginSecrets: 'hidden' }), 'pluginSecrets must be "off".'],
     [policyFile({ pluginLogs: 'shown' }), 'pluginLogs must be "off".'],
     [policyFile({ pluginStore: true }), 'pluginStore must be "off".'],
+    [policyFile({ pluginServers: 'on' }), 'pluginServers must be "off".'],
   ])
 })
 

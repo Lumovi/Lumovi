@@ -237,6 +237,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'secret.read': { label: 'Read a Secret', icon: KeyRound },
   'helm.values.read': { label: 'Read a release’s values', icon: KeyRound },
   'plugin.read': { label: 'Read for a plugin’s page', icon: Plug },
+  'plugin.server': { label: 'Asked a server in the cluster for a plugin’s page', icon: Plug },
   'plugin.code': { label: 'Handed a plugin’s code', icon: Plug },
   'plugin.box-check': { label: 'Checked a browser’s plugin box', icon: Plug },
   'plugin.change': { label: 'Made a change a plugin proposed', icon: Plug },

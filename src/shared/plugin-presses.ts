@@ -299,8 +299,17 @@ export class Tokens {
    * nothing.)
    */
   podOf(token: string): ObjectRef | undefined {
+    const held = this.heldOf(token)
+    return held?.kind === 'Pod' ? held : undefined
+  }
+
+  /**
+   * The object a token stands for on this page, for its code's ask of its server: nothing for a
+   * Secret's token, or one not held. (Handed to no part, it opens nothing.)
+   */
+  heldOf(token: string): ObjectRef | undefined {
     const held = this.#held.get(token)
-    return held?.sort === 'object' && held.ref.kind === 'Pod' ? held.ref : undefined
+    return held?.sort === 'object' ? held.ref : undefined
   }
 
   /**

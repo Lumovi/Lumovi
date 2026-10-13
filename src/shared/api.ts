@@ -45,6 +45,7 @@ import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
 import type { PluginLogs, PluginLogsQuery, PluginRead, PluginReadQuery } from './plugin-reads'
 import type { Installed, InstalledRecord, StoreCheck } from './plugin-store'
+import type { PluginServerAnswer, PluginServerQuery } from './plugin-server'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
 
@@ -200,6 +201,8 @@ export interface ManagedSettings {
   pluginLogsOff?: true
   /** Lumovi doesn't check Lumovi-plugins for newer plugins: nothing is asked of GitHub. */
   pluginStoreOff?: true
+  /** No plugin may talk to a server in the cluster. */
+  pluginServersOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1239,6 +1242,8 @@ export interface LumoviApi {
     pluginRead(query: PluginReadQuery): Promise<PluginRead>
     /** A pod's logs, once, for a plugin's code its file lets read them (`spec.logs: read`). */
     pluginLogs(query: PluginLogsQuery): Promise<PluginLogs>
+    /** A path its file lists, of a plugin's tool's own server, once, as JSON (`spec.server`). */
+    pluginServer(query: PluginServerQuery): Promise<PluginServerAnswer>
     /**
      * A plugin's code, for its page's box: the only way any plugin's code reaches a page, and
      * only where the backend's `mayHandOver` says this page may have it.
@@ -1613,6 +1618,7 @@ export const IPC = {
   secretValues: 'kube:secret-values',
   pluginRead: 'kube:plugin-read',
   pluginLogs: 'kube:plugin-logs',
+  pluginServer: 'kube:plugin-server',
   pluginChange: 'kube:plugin-change',
   pluginCode: 'kube:plugin-code',
   pluginHandOver: 'kube:plugin-hand-over',

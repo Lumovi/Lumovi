@@ -41,6 +41,14 @@ const SECRET = `  showsSecrets:
 /** What its pages show besides: containers' logs. */
 const LOGS = `  logs: shown
 `
+/** Its tool's own server: the paths its code may ask, of the Service in its Widget's namespace. */
+const SERVER = (...paths: string[]) => `  pages: [{ id: overview, title: Overview }]
+  server:
+    service: { name: toys-api }
+    in: { group: example.com, kind: Widget }
+    port: http
+    paths: [${paths.join(', ')}]
+`
 /** Containers' logs of the pods it reads: shown on its pages, or read by its code too. */
 const PODS_LOGS = (
   logs: 'shown' | 'read',
@@ -152,6 +160,16 @@ test('refused, with nothing written, where it isn’t what was agreed, needs a n
   await expect(
     reading.installed.install('toys', '1.3.0', agreed(file('1.3.0', '1.0.0', PODS_LOGS('shown')))),
   ).rejects.toThrow('What it asks isn’t what you were shown')
+  // (So is asking its tool's server: agreed to without it, or without a path it lists now.)
+  const serving = installer({
+    latest: () => released({ toys: file('1.3.0', '1.0.0', SERVER('/status', '/targets')) }),
+  })
+  for (const before of [PAGES, SERVER('/status')]) {
+    await expect(
+      serving.installed.install('toys', '1.3.0', agreed(file('1.3.0', '1.0.0', before), true)),
+      before,
+    ).rejects.toThrow('What it asks isn’t what you were shown')
+  }
   // (As read, it's what was agreed.)
   expect(agreed(file('1.3.0', '1.0.0', PODS_LOGS('read')))).not.toBe(
     agreed(file('1.3.0', '1.0.0', PODS_LOGS('shown'))),
@@ -203,6 +221,16 @@ test('the policy refuses what it doesn’t allow, saying which, at install and a
     plugins: [],
     notUsed: [{ name: 'toys', version: '1.3.0', why: 'policy' }],
   })
+})
+
+test('the policy that lets no plugin talk to servers in the cluster refuses one that would', async () => {
+  const serving = file('1.3.0', '1.0.0', SERVER('/status'))
+  const made = installer({ latest: () => released({ toys: serving }, 'box.then(() => {})\n') })
+  made.policy({ pluginServersOff: true })
+  await expect(made.installed.install('toys', '1.3.0', agreed(serving, true))).rejects.toThrow(
+    'Your organization’s policy doesn’t let plugins talk to servers in the cluster, and this one would.',
+  )
+  expect(made.records()).toEqual({})
 })
 
 test('every read checks each file against what was agreed, and its Lumovi against this one', async () => {
@@ -319,5 +347,7 @@ test('what a person agrees to is every field of a plugin but who it is and what 
   }).plugin!
   expect(unsaid(plugin)).toEqual([])
   // A field this Lumovi can't say what it asks: nothing installs it, or goes back to it.
-  expect(unsaid({ ...plugin, server: { name: 'argocd-server' } } as Plugin)).toEqual(['server'])
+  expect(unsaid({ ...plugin, tunnel: { to: 'argocd-server' } } as unknown as Plugin)).toEqual([
+    'tunnel',
+  ])
 })

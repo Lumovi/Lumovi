@@ -33,7 +33,8 @@ import {
   type ResourceKind,
 } from '@shared/resources'
 import type { AccessGuard, Levels } from '@shared/access'
-import { kubeRequest, type RequestOptions } from './client'
+import { SERVER_LIMITS } from '@shared/plugin-server'
+import { kubeProxyGet, kubeRequest, type ProxyAnswer, type RequestOptions } from './client'
 import { discover } from './discovery'
 import { KubeRequestError, readOnlyRefusal, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -773,6 +774,29 @@ export class KubeService {
       if (q.timestamps) params.set('timestamps', 'true')
       const path = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/pods/${encodeURIComponent(q.pod)}/log`
       return this.#request(q.context, `${path}?${params}`, {})
+    })
+  }
+
+  /**
+   * A path of a Service's own server, through the API server's service proxy (`get` on
+   * `services/proxy`, as whoever is using Lumovi): for a plugin's tool, within Lumovi's limits.
+   */
+  serviceProxy(q: {
+    context: string
+    namespace: string
+    service: string
+    port: string | number
+    path: string
+  }): Promise<Result<ProxyAnswer>> {
+    return this.#run(async () => {
+      assertString(q.context, 'context')
+      await this.envReady
+      const kc = this.store.forContext(q.context)
+      const proxy = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/services/${encodeURIComponent(q.service)}:${encodeURIComponent(String(q.port))}/proxy${q.path}`
+      return kubeProxyGet(kc, proxy, {
+        timeoutMs: SERVER_LIMITS.timeoutMs,
+        maxBytes: SERVER_LIMITS.bytes,
+      })
     })
   }
 

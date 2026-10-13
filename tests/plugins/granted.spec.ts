@@ -122,6 +122,34 @@ test('its code reading containers’ logs is more than its pages showing them, a
   })
 })
 
+test('its tool’s server is asked too: all of it where it’s new or elsewhere, else the paths it adds', () => {
+  const server = (where: string, ...paths: string[]) =>
+    grantedOf(
+      plugin(`  pages: [{ id: overview, title: Overview }]
+  server: { service: { name: ${where} }, in: { group: example.com, kind: Widget }, port: http, paths: [${paths.join(', ')}] }
+`),
+      true,
+    )
+  const none = grantedOf(plugin('  pages: [{ id: overview, title: Overview }]\n'), true)
+  const one = server('toys-api', '/status')
+  const two = server('toys-api', '/status', '/targets')
+  // None before: all of it.
+  expect(compared(none, one).added.server).toEqual(one.server)
+  // A path more: that path, of the same Service.
+  expect(compared(one, two).added.server).toEqual({ ...two.server, paths: ['/targets'] })
+  expect(isEmpty(compared(one, two).gone)).toBe(true)
+  // A path less: no longer, and nothing new.
+  expect(compared(two, one).gone.server).toEqual({ ...two.server, paths: ['/targets'] })
+  expect(isEmpty(compared(two, one).added)).toBe(true)
+  // Another Service: all of it is new, and what it asked before is gone.
+  const other = server('other-api', '/status')
+  expect(compared(one, other).added.server).toEqual(other.server)
+  expect(compared(one, other).gone.server).toEqual(one.server)
+  // The same: nothing new.
+  expect(isEmpty(compared(two, two).added)).toBe(true)
+  expect(compared(two, two).same.server).toEqual(two.server)
+})
+
 test('showing containers’ logs is asked too: new where it didn’t, no longer where it doesn’t', () => {
   const was = grantedOf(plugin(READS('metadata.name')), true)
   const next = grantedOf(plugin(`${READS('metadata.name')}  logs: shown\n`), true)

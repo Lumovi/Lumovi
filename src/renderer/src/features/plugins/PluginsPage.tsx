@@ -19,6 +19,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
 import { codeOff, notHandedLine } from '@shared/plugin-hand-over'
+import type { PluginServer } from '@shared/plugin-server'
 import type { Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
 import { apiKindOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
@@ -38,6 +39,7 @@ import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
 import { CODE_PAGES } from '@renderer/lib/code-pages'
 import { linksLine, LOGS_LINE, proposesLine } from './proposes'
+import { ServerPaths, serverSays, ServerWhere } from './server-line'
 import { PLUGIN_PAGES } from './integrations'
 import type { Reach } from '@shared/kit/declare'
 import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
@@ -992,6 +994,7 @@ function WhatItAsks({
               names={names}
               tool={plugin.place?.label ?? plugin.name}
               {...(plugin.logs ? { logs: plugin.logs } : {})}
+              {...(plugin.server ? { server: plugin.server } : {})}
             />
           </section>
           {/* (Its pages, tabs and commands are drawn by the door: said where Lumovi offers them.) */}
@@ -1206,16 +1209,35 @@ function Adds({
   )
 }
 
-/** Under its logs line, where the organization's policy turns plugins' logs off. */
-function LogsLocked() {
+/** Under its logs line, or its server's, where the organization's policy turns them off. */
+function PolicyLocked({ by, then }: { by: 'pluginLogs' | 'pluginServers'; then: string }) {
   return (
     <p className="mt-2 flex gap-1.5 text-xs leading-[18px] text-ink-2">
       <Lock className="mt-0.5 size-[13px] shrink-0 text-ink-3" aria-hidden />
       <span>
         Turned off by your organization’s policy (
-        <code className="font-mono text-ink-1">pluginLogs: off</code>): Lumovi reads no logs for it.
+        <code className="font-mono text-ink-1">{by}: off</code>): {then}
       </span>
     </p>
+  )
+}
+
+const LogsLocked = () => <PolicyLocked by="pluginLogs" then="Lumovi reads no logs for it." />
+
+/**
+ * Its tool's own server, as its file says: the red line, which Service and where, then every
+ * path as listed. Quiet where the organization's policy turns it off.
+ */
+function ServerLine({ server, off }: { server: PluginServer; off: boolean }) {
+  return (
+    <div data-red-line="server">
+      <p className={off ? 'text-ink-2' : 'text-critical-text'}>{serverSays(server)}</p>
+      <p className="text-xs leading-[18px] text-ink-3">
+        <ServerWhere server={server} />
+      </p>
+      <ServerPaths paths={server.paths} off={off} />
+      {off && <PolicyLocked by="pluginServers" then="Lumovi asks no server for it." />}
+    </div>
   )
 }
 
@@ -1224,17 +1246,21 @@ function MayRead({
   names,
   tool,
   logs,
+  server,
 }: {
   asked: Asks
   names: Names
   tool: string
   /** What its pages do with containers' logs, as its file says. */
   logs?: Plugin['logs']
+  /** Its tool's own server its code may ask, as its file says. */
+  server?: PluginServer
 }) {
   const kinds = ({ kinds, templated }: Asks['related']) =>
     kinds.length > 0 ? listed(kinds.map(names.plural)) : templated ? 'kinds its objects name' : ''
   // (The desktop app's policy: a server has none.)
-  const logsOff = useSettings().data?.managed?.pluginLogsOff === true
+  const managed = useSettings().data?.managed
+  const logsOff = managed?.pluginLogsOff === true
   return (
     <div className="space-y-2">
       {/* What its code is handed that can hold anything at all: first, and red; quiet where the
@@ -1247,6 +1273,7 @@ function MayRead({
           {logsOff && <LogsLocked />}
         </div>
       )}
+      {server && <ServerLine server={server} off={managed?.pluginServersOff === true} />}
       <p>Its own kinds’ objects: its columns, status and details are fields of the object shown.</p>
       {asked.shows.length > 0 && (
         <p>{listed(asked.shows.map(names.plural))}, which it shows and can’t change.</p>
