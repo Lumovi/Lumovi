@@ -45,6 +45,15 @@ test('code is handed only where every wall holds, and the first that doesn’t s
   expect(mayHandOver(plugin(), server(true))).toBe('not-checked')
   expect(mayHandOver(plugin(), server(true, 'failed'))).toBe('check-failed')
   expect(mayHandOver(plugin(), server(true, 'unfinished'))).toBe('check-unfinished')
+  // (Unfinished because a look couldn't be made: no use checking again in this browser.)
+  const unlooked = (check: 'unfinished' | 'failed'): HandOverTo => ({
+    host: 'server',
+    held: true,
+    check,
+    unlooked: true,
+  })
+  expect(mayHandOver(plugin(), unlooked('unfinished'))).toBe('check-unlooked')
+  expect(mayHandOver(plugin(), unlooked('failed'))).toBe('check-failed')
   expect(mayHandOver(plugin(), server(true, 'passed'))).toBe(true)
   // Only those words, as a yes: anything else, or a place it doesn't know, is no.
   for (const to of [
@@ -129,9 +138,12 @@ test('what a person is told where code isn’t handed', () => {
     'Its pages don’t run here: its code isn’t part of this Lumovi.',
   )
   expect(notHandedLine('check-failed')).toBe(
-    'Its pages don’t run here: Lumovi checked this browser and found that a plugin’s code could get out of its box here.',
+    'Its pages don’t run here: Lumovi’s check of this browser didn’t pass.',
   )
   expect(notHandedLine('check-unfinished')).toBe(
     'Its pages don’t run here yet: Lumovi’s check of this browser didn’t finish in time.',
+  )
+  expect(notHandedLine('check-unlooked')).toBe(
+    'Its pages don’t run here: Lumovi couldn’t check this browser.',
   )
 })

@@ -29,6 +29,7 @@ const SWAP: Swap = {
   object: (token) => (token === 'object-1' ? { kind: 'Deployment', name: 'cart' } : undefined),
   secret: () => undefined,
   cut: () => undefined,
+  destination: () => undefined,
   handler: () => undefined,
 }
 

@@ -26,6 +26,8 @@ export type HandOverTo =
       held: boolean
       /** How Lumovi's check of this browser's box came out, if it has been checked. */
       check?: 'passed' | 'failed' | 'unfinished'
+      /** Unfinished because a look couldn't be made: no use checking again in this browser. */
+      unlooked?: boolean
     }
 
 /** Whether a page there may be handed `plugin`'s code: yes, or why not. */
@@ -44,7 +46,10 @@ export function mayHandOver(
     : to.check === 'failed'
       ? 'check-failed'
       : to.check === 'unfinished'
-        ? 'check-unfinished'
+        ? // (One that couldn't look is no use running again: this browser can't look.)
+          to.unlooked === true
+          ? 'check-unlooked'
+          : 'check-unfinished'
         : 'not-checked'
 }
 

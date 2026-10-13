@@ -182,13 +182,15 @@ export function StaleNotice({
   error: { message: string }
   onRetry: () => void
 }) {
+  // (On a phone the sentence wraps: what's wrong is never cut. Retry stays at the right of its
+  // first line.)
   return (
     <div
       role="status"
-      className="flex shrink-0 animate-fade-in items-center gap-2 border-b border-warn/25 bg-warn/10 px-5 py-1.5 text-xs text-warn-text"
+      className="flex shrink-0 animate-fade-in items-center gap-2 border-b border-warn/25 bg-warn/10 px-5 py-1.5 text-xs text-warn-text phone:items-start"
     >
-      <TriangleAlert className="size-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate" title={error.message}>
+      <TriangleAlert className="size-3.5 shrink-0 phone:mt-px" />
+      <span className="min-w-0 flex-1 truncate phone:whitespace-normal" title={error.message}>
         Couldn’t refresh — showing the last data. {error.message}
       </span>
       <button type="button" onClick={onRetry} className="shrink-0 font-medium hover:underline">

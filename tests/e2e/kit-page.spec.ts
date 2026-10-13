@@ -159,9 +159,11 @@ test('tiles: equal in a row, a value in figures or in words, and one that opens'
     ),
   )
   expect(new Set(boxes.map((box) => box.join(','))).size).toBe(1)
-  // One that opens something is a button; Lumovi opens the object, and its describer is told.
+  // One that opens something is a button; Lumovi opens the list, and its describer is told.
   await row[0]!.getByRole('button').click()
-  await expect(pressed(page)).toContainText('go {"kind":"Pod"')
+  await expect(pressed(page)).toContainText(
+    'go {"to":"list","kind":"Pod","labels":["cnpg.io/cluster"]}',
+  )
   await expect(pressed(page)).toContainText('open {"tile":"ready"}')
   await expect(row[2]!.getByRole('button')).toHaveCount(0)
   // A value in words is set smaller on the same line and loses its middle; a long label and a

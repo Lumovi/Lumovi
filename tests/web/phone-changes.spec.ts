@@ -54,11 +54,11 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'kube.secretValues': 'reads',
   'kube.pluginRead': 'reads',
   'kube.pluginHandOver': 'reads',
-  // (Refused on a phone as a change is: a phone is never handed a plugin's code.)
-  'kube.pluginCode': 'changes',
-  // (A check of the box comes before any code: no phone's either.)
-  'kube.boxCheckStart': 'changes',
-  'kube.boxCheckEnd': 'changes',
+  // (A plugin's code, on a phone as anywhere, is the hand-over's to give, after the box's check:
+  // nothing of them changes a cluster.)
+  'kube.pluginCode': 'reads',
+  'kube.boxCheckStart': 'reads',
+  'kube.boxCheckEnd': 'reads',
   // (What a server says when this browser's check fails after all: it ends pages, changes nothing.)
   'kube.onBoxCheckFailed': 'listens',
   'kube.metrics': 'reads',

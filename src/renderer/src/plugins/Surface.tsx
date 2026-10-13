@@ -4,7 +4,6 @@
  * with which properties, and the door checked every word.
  */
 import { memo, useCallback, useSyncExternalStore } from 'react'
-import { handedFields } from '@shared/kit/declare'
 import { ROOT } from '@shared/plugin-door'
 import type { OpenPage } from './page'
 import { TheirText } from './TheirText'
@@ -25,20 +24,13 @@ const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) 
   if (id === ROOT) return inside
   // (A text under a part runs on with the texts beside it; the part that holds it clips it.)
   if (node.part === undefined) return <TheirText text={node.text ?? ''} lines inline />
-  const { draw: Part, declared } = page.parts[node.part]!
-  return <Part props={handedOnce(node.props, declared.props)}>{inside}</Part>
+  const { draw: Part } = page.parts[node.part]!
+  return (
+    <Part props={page.handed(node.part, node.props)} go={page.go}>
+      {inside}
+    </Part>
+  )
 })
-
-/** What a part is handed, made once for the properties the door holds (they're never changed). */
-const made = new WeakMap<object, Readonly<Record<string, unknown>>>()
-function handedOnce(
-  props: Readonly<Record<string, unknown>>,
-  fields: Parameters<typeof handedFields>[1],
-) {
-  let handed = made.get(props)
-  if (!handed) made.set(props, (handed = handedFields(props, fields)))
-  return handed
-}
 
 /** The page of `page`, as it is now. */
 export function PluginSurface({ page }: { page: OpenPage }) {

@@ -114,6 +114,7 @@ test('handed over, every text is a Their, and every token its object or nothing'
       token === 'object-1' ? { kind: 'Pod', name: 'web-1', namespace: 'shop' } : undefined,
     secret: () => undefined,
     cut: (made) => (made === 'cut-1' ? { at: 5000, of: 12345 } : undefined),
+    destination: () => undefined,
     handler: () => undefined,
   }
   const handed = handedFields(PODS, table.props, swap) as TableProps

@@ -21,6 +21,21 @@ export function kindPath(context: string, kind: ResourceKind): string {
     : `${clusterPath(context)}/r/${encodeURIComponent(kind)}`
 }
 
+/**
+ * A kind's list, filtered as a list keeps its filters in the address (`?health=critical,warning`,
+ * `?labels=karpenter.sh/nodepool`): what a part of a plugin's page opens, from what the door made.
+ */
+export function listPath(
+  context: string,
+  list: { kind: ResourceKind; health?: readonly string[]; labels?: readonly string[] },
+): string {
+  const filters = new URLSearchParams()
+  if (list.health) filters.set('health', list.health.join(','))
+  if (list.labels) filters.set('labels', list.labels.join(','))
+  const query = filters.toString()
+  return query ? `${kindPath(context, list.kind)}?${query}` : kindPath(context, list.kind)
+}
+
 /** Every workload, whatever its kind. */
 export function workloadsPath(context: string): string {
   return `${clusterPath(context)}/workloads`

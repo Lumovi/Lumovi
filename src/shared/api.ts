@@ -1171,6 +1171,8 @@ export interface LumoviApi {
       reports: Record<BoxCheckRole, string | null>,
       /** The ways Lumovi's own page found under the check's name, as it never should. */
       heard: string[],
+      /** Where Lumovi's own page couldn't look or listen: no pass rests on those. */
+      unlooked: string[],
     ): Promise<'passed' | 'failed' | 'unfinished' | undefined>
     /**
      * A server's: this browser's check failed after all (something got out after it was judged).

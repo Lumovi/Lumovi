@@ -16,12 +16,17 @@
  */
 import {
   wrongWithFields,
+  type CutRef,
+  type ListDestination,
   type ObjectRef,
   type Part,
   type SecretRef,
   type Swap,
+  type WrittenDestination,
 } from './kit/declare'
+import type { Health } from './health'
 import { NAMESPACE_NAME } from './node-shell'
+import { kindFor } from './resources'
 
 /**
  * How much Lumovi hands over. Not a ceiling on a plugin, which doesn't choose how many objects
@@ -35,6 +40,11 @@ export const HANDED_LIMITS = {
   objectsAPlugin: 100_000,
   /** Secrets named for one page's parts to show, across all its reads. */
   secretsAPage: 50_000,
+  /**
+   * Lists to open one page's parts are handed, each different (as many as a page could draw, and
+   * then some): past it, one more opens nothing. Each is kept for as long as the page.
+   */
+  destinationsAPage: 1_000,
 } as const
 
 /** What a token stands for. The two sorts never stand in for each other. */
@@ -110,9 +120,16 @@ export class Tokens {
   >()
   /** The references this page's door has put in a component's hands: only these open anything. */
   readonly #given = new Set<object>()
+  /** The lists to open it made, by how each was said; and as a set, to tell them apart. */
+  readonly #listsBy = new Map<string, ListDestination>()
+  readonly #lists = new Set<ListDestination>()
+  /** How reads were cut, by the token of each; and each read's one token, its latest answer's. */
+  readonly #cuts = new Map<string, CutRef>()
+  readonly #cutBy = new Map<number, string>()
   #objects = 0
   #secrets = 0
   #staleSaid = false
+  #unnamedSaid = false
 
   constructor(plugin: PluginHanded, make: () => string = random) {
     this.#plugin = plugin
@@ -235,6 +252,33 @@ export class Tokens {
   }
 
   /**
+   * The token for how `read`'s answer was cut, as Lumovi's backend said it: made anew for each
+   * answer, the one before it taken back. So a part that names it carries Lumovi's numbers for
+   * the read's latest answer, and a part drawn from an earlier one, another read's or another
+   * page's names a token not held here, and says nothing of any cut.
+   */
+  cutFor(read: number, cut: CutRef): string {
+    this.uncut(read)
+    const token = this.#make()
+    this.#cuts.set(token, Object.freeze({ ...cut }))
+    this.#cutBy.set(read, token)
+    return token
+  }
+
+  /** `read`'s answer wasn't cut, or the read is over: the token for how it was is no more. */
+  uncut(read: number): void {
+    const token = this.#cutBy.get(read)
+    if (token === undefined) return
+    this.#cuts.delete(token)
+    this.#cutBy.delete(read)
+  }
+
+  /** How a read was cut, by its token on this page; nothing for one not held. The swap's alone. */
+  cutOf(token: string): CutRef | undefined {
+    return this.#cuts.get(token)
+  }
+
+  /**
    * The object a token stands for on this page; nothing for a Secret's token, or one not held.
    * Called by the door's swap alone: what it gives is the right to open, and anything else that
    * looked tokens up would be handing that out.
@@ -253,9 +297,46 @@ export class Tokens {
    * whose read has ended, opens nothing.
    */
   destinationOf(object: unknown): Destination | undefined {
-    return typeof object === 'object' && object !== null && this.#given.has(object)
-      ? { to: 'object', object: object as ObjectRef }
-      : undefined
+    if (typeof object !== 'object' || object === null || !this.#given.has(object)) return undefined
+    return this.#lists.has(object as ListDestination)
+      ? (object as ListDestination)
+      : { to: 'object', object: object as ObjectRef }
+  }
+
+  /**
+   * A list to open, as the door hands it to a part: of a kind among `kinds` (Lumovi's names for
+   * the kinds its plugin's file names), frozen, the same one each time it's said the same way
+   * (its levels in any order), and one this page's door made, so `destinationOf` opens it.
+   * Nothing past a page's share; nor for another kind, which `unnamed` is told of, as the plugin
+   * wrote it.
+   */
+  listOf(
+    said: WrittenDestination,
+    kinds: ReadonlySet<string>,
+    unnamed: (kind: string) => void = () => undefined,
+  ): ListDestination | undefined {
+    const slash = said.list.lastIndexOf('/')
+    const group = said.list.slice(0, slash)
+    const kind = kindFor(group ? `${group}/v1` : 'v1', said.list.slice(slash + 1))
+    if (!kinds.has(kind)) {
+      unnamed(said.list)
+      return undefined
+    }
+    const levels = said.health ? [...said.health].sort() : null
+    const key = JSON.stringify([kind, levels, said.labels ?? null])
+    const made = this.#listsBy.get(key)
+    if (made) return made
+    if (this.#listsBy.size >= HANDED_LIMITS.destinationsAPage) return undefined
+    const list: ListDestination = Object.freeze({
+      to: 'list',
+      kind,
+      ...(said.health ? { health: Object.freeze([...said.health] as Health[]) } : {}),
+      ...(said.labels ? { labels: Object.freeze([...said.labels]) } : {}),
+    })
+    this.#listsBy.set(key, list)
+    this.#lists.add(list)
+    this.#given.add(list)
+    return list
   }
 
   /** The Secret a token stands for on this page; nothing for an object's token, or one not held. */
@@ -274,8 +355,19 @@ export class Tokens {
     return (this.#staleSaid = true)
   }
 
+  /**
+   * Whether to say, in the log for a plugin's author, that its page named a list of a kind its
+   * file doesn't (`unnamedLine`): true the first time on this page and never again. (To the
+   * person nothing is said: a tile that opens nothing is quiet.)
+   */
+  unnamedToSay(): boolean {
+    if (this.#unnamedSaid) return false
+    return (this.#unnamedSaid = true)
+  }
+
   /** A read ended: the tokens it brought are no more, nor what was handed out for them. */
   ended(read: number): void {
+    this.uncut(read)
     const of = this.#byRead.get(read)
     if (!of) return
     for (const token of of.objects.values()) this.#forget(token)
@@ -285,20 +377,35 @@ export class Tokens {
 
   /** The page is gone, and every token with it. */
   close(): void {
-    for (const read of [...this.#byRead.keys()]) this.ended(read)
+    for (const read of new Set([...this.#byRead.keys(), ...this.#cutBy.keys()])) this.ended(read)
   }
 }
+
+/**
+ * What the log says, for a plugin's author, of a list its page named of a kind its file doesn't:
+ * the kind as the plugin wrote it (as its file would), and whose page, as `whose` says it.
+ */
+export const unnamedLine = (kind: string, whose: string): string =>
+  `Lumovi opens no list of ${kind} for ${whose} page: its file doesn’t name that kind.`
 
 /** A press a part reports: which handle the plugin named for it, the event, what it carries. */
 export type Call = (handle: string, event: string, carries: unknown) => void
 
 /**
  * What the door puts in the place of what a plugin named, for one page: the object or the
- * Secret a token stands for there, a function for a handler. A token this page doesn't hold
- * gives nothing, and the component shows what it would for a row that opens nothing: never
- * anything the plugin wrote in the token's place.
+ * Secret a token stands for there, a function for a handler, a list it made for a list to open
+ * (of a kind among `kinds`, Lumovi's names for those its plugin's file names). A token this page
+ * doesn't hold gives nothing, and so does a list of another kind (`unnamed` is told which): the
+ * component shows what it would for a row that opens nothing, never anything the plugin wrote in
+ * its place.
  */
-export function swapFor(tokens: Tokens, call: Call, stale: () => void = () => undefined): Swap {
+export function swapFor(
+  tokens: Tokens,
+  call: Call,
+  stale: () => void = () => undefined,
+  kinds: ReadonlySet<string> = new Set(),
+  unnamed: (kind: string) => void = () => undefined,
+): Swap {
   const held = <T>(found: T | undefined): T | undefined => {
     if (found === undefined) stale()
     return found
@@ -306,8 +413,9 @@ export function swapFor(tokens: Tokens, call: Call, stale: () => void = () => un
   return {
     object: (token) => held(tokens.objectOf(token)),
     secret: (token) => held(tokens.secretOf(token)),
-    // (No read is answered cut yet: app's door gives each its token, and this its numbers.)
-    cut: () => undefined,
+    // (Lumovi's numbers for a read's latest cut answer; a token no longer held says nothing.)
+    cut: (token) => held(tokens.cutOf(token)),
+    destination: (said) => tokens.listOf(said, kinds, unnamed),
     handler: (handle, event) => (carries) => call(handle, event, carries),
   }
 }
@@ -369,5 +477,8 @@ const LARGER: ReadonlySet<string> = new Set(['wide', 'tablet'])
 const ON_A_PHONE: ReadonlySet<string> = new Set<Does>(['tells', 'opens'])
 const ON_A_LARGER: ReadonlySet<string> = new Set<Does>(['tells', 'opens', 'changes'])
 
-/** Where a press that opens goes: a name Lumovi makes from what it handed over, never text. */
-export type Destination = { to: 'object'; object: ObjectRef }
+/**
+ * Where a press that opens goes: a name Lumovi makes from what it handed over, never text. An
+ * object's page, or a list of Lumovi's own (the list destination itself, as the door made it).
+ */
+export type Destination = { to: 'object'; object: ObjectRef } | ListDestination

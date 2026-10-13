@@ -131,7 +131,7 @@ export function kindIcon(kind: ResourceKind): LucideIcon {
 }
 
 /** A plugin's icon: its own, or the one for custom resources. */
-export function pluginIcon(plugin: ListedPlugin): LucideIcon {
+export function pluginIcon(plugin: Pick<ListedPlugin, 'icon'>): LucideIcon {
   return VIEW_ICONS[plugin.icon ?? 'puzzle']
 }
 
@@ -141,6 +141,12 @@ export function KindIcon({ kind, className }: { kind: ResourceKind; className?: 
 }
 
 /** A plugin's icon, as an element. */
-export function PluginIcon({ plugin, className }: { plugin: ListedPlugin; className?: string }) {
+export function PluginIcon({
+  plugin,
+  className,
+}: {
+  plugin: Pick<ListedPlugin, 'icon'>
+  className?: string
+}) {
   return createElement(pluginIcon(plugin), { className, 'aria-hidden': true })
 }

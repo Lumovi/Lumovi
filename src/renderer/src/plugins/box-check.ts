@@ -17,18 +17,30 @@ import type { PluginCode } from '@shared/plugin-hand-over'
 import { api } from '@renderer/lib/api'
 import { openBox, type Box } from './box'
 
+/**
+ * Whether this page has run a check: one that couldn't look is run again only once the page is
+ * loaded again (the person may have let this site keep things since).
+ */
+let checkedHere = false
+
 /** Runs a check of this browser's box, if the server asks for one: how it came out. */
 export async function checkBox(): Promise<'passed' | 'failed' | 'unfinished' | undefined> {
   const start = await api.kube.boxCheckStart?.()
   if (!start) return undefined
+  checkedHere = true
   const { nonce, code } = start
-  // Where the check's boxes send: Lumovi's own page hearing it means it got out of its box.
+  // Where the check's boxes send: Lumovi's own page hearing it means it got out of its box. And
+  // where this page couldn't look or listen: no pass rests on a look that wasn't made, whatever
+  // the reason (what this page lacks, a box in its frame may still have).
   const heard = new Set<string>()
-  const channel =
-    typeof BroadcastChannel === 'undefined'
-      ? undefined
-      : new BroadcastChannel(boxCheckChannel(nonce))
-  if (channel) channel.onmessage = () => void heard.add('broadcast-channel')
+  const unlooked = new Set<string>()
+  let channel: BroadcastChannel | undefined
+  try {
+    channel = new BroadcastChannel(boxCheckChannel(nonce))
+    channel.onmessage = () => void heard.add('broadcast-channel')
+  } catch {
+    unlooked.add('broadcast-channel')
+  }
   const until = Date.now() + BOX_CHECK_LIMITS.answerWithinMs
   const reports: Record<BoxCheckRole, string | null> = { first: null, second: null, later: null }
   Object.assign(reports, await opened(nonce, { first: code.first, second: code.second }, until))
@@ -41,9 +53,9 @@ export async function checkBox(): Promise<'passed' | 'failed' | 'unfinished' | u
   // a store of its own, which is no way out, unless another box sees it). Found in Lumovi's own,
   // it got out.
   for (const role of ['first', 'second'] as const) {
-    for (const way of await landed(boxCheckStore(nonce, role))) heard.add(way)
+    for (const way of await landed(boxCheckStore(nonce, role), unlooked)) heard.add(way)
   }
-  return api.kube.boxCheckEnd?.(nonce, reports, [...heard])
+  return api.kube.boxCheckEnd?.(nonce, reports, [...heard], [...unlooked])
 }
 
 /**
@@ -93,38 +105,49 @@ async function opened(
   return Object.fromEntries(roles.map((role) => [role, reports[role] ?? null]))
 }
 
-/** Which of Lumovi's own page's stores hold what a check put under `name`; each then let go. */
-async function landed(name: string): Promise<string[]> {
+/**
+ * Which of Lumovi's own page's stores hold what a check put under `name`; each then let go. A
+ * store this page can't look in (it hasn't got it, or the look throws) goes into `unlooked`:
+ * never "nothing landed".
+ */
+async function landed(name: string, unlooked: Set<string>): Promise<string[]> {
   const found: string[] = []
   try {
-    if (typeof caches !== 'undefined' && (await caches.has(name))) {
+    if (await caches.has(name)) {
       found.push('caches')
       await caches.delete(name)
     }
   } catch {
-    // (No storage of Lumovi's own here, so nothing could land in it.)
+    unlooked.add('caches')
   }
   try {
-    const databases = typeof indexedDB === 'undefined' ? [] : await indexedDB.databases()
+    // (Older engines have no list of databases: that's a look that can't be made, too.)
+    const databases = await indexedDB.databases()
     if (databases.some((database) => database.name === name)) {
       found.push('indexed-db')
       indexedDB.deleteDatabase(name)
     }
   } catch {
-    // (As above.)
+    unlooked.add('indexed-db')
   }
   return found
 }
 
 /**
  * A plugin's code, as Lumovi hands it over: where a server hasn't checked this browser's box yet
- * (or its check didn't finish), the check first, once, and then asked again.
+ * (or its check didn't finish), the check first, once, and then asked again. One that couldn't
+ * look is checked again only on a page loaded since.
  */
 export async function codeOf(plugin: string): Promise<PluginCode> {
   const answer = await api.kube.pluginCode(plugin)
-  if (answer.ok || (answer.refused !== 'not-checked' && answer.refused !== 'check-unfinished')) {
-    return answer
-  }
-  if ((await checkBox()) === undefined) return answer
+  const due =
+    !answer.ok &&
+    (answer.refused === 'not-checked' ||
+      answer.refused === 'check-unfinished' ||
+      (answer.refused === 'check-unlooked' && !checkedHere))
+  if (!due) return answer
+  // (A server that has no box, so no check, refuses the call: the answer stands as it was.)
+  const checked = await checkBox().catch(() => undefined)
+  if (checked === undefined) return answer
   return api.kube.pluginCode(plugin)
 }

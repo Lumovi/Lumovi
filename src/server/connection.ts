@@ -182,14 +182,59 @@ export interface ConnectionOptions {
   }
 }
 
+/** Where a check couldn't look, by the names a person knows: "Cache Storage, IndexedDB or …". */
+const UNLOOKED_NAMES: Readonly<Record<string, string>> = {
+  caches: 'Cache Storage',
+  'indexed-db': 'IndexedDB',
+  'broadcast-channel': 'broadcast channels',
+}
+function unlookedWords(unlooked: readonly string[]): string {
+  const names = Object.keys(UNLOOKED_NAMES)
+    .filter((look) => unlooked.includes(look))
+    .map((look) => UNLOOKED_NAMES[look]!)
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0]!
+}
+
 /**
  * A check of a browser's box, said once a session: on the server's log (a failure, with the
  * browser and the ways that got out; one that didn't finish), and in the history (a failure, and
  * a pass, which every later hand-over rests on). Never its nonce.
  */
 function told(judged: Judged, audit: Recorder, browser: string): void {
+  // Couldn't look: unfinished, and in the history with where (it stays so in this browser), by
+  // the names a person knows them by.
+  if (judged.result === 'unfinished' && judged.unlooked.length > 0) {
+    const where = unlookedWords(judged.unlooked)
+    log(
+      `Lumovi couldn’t check ${browser}: it can’t look in this browser’s ${where}. This browser isn’t handed any plugin’s code.`,
+    )
+    audit.record({
+      action: 'plugin.box-check',
+      outcome: 'failure',
+      target: { kind: 'Browser', name: browser },
+      summary: `Lumovi couldn’t check this browser: it can’t look in its ${where}`,
+      details: { browser, unlooked: judged.unlooked },
+    })
+    return
+  }
   if (judged.result === 'unfinished') {
     log(`Lumovi’s check of a plugin’s box in ${browser} didn’t finish in time.`)
+    return
+  }
+  // Failed on a report it couldn't read: nothing is known to have got out, and nothing says so.
+  if (judged.result === 'failed' && judged.out.length === 0) {
+    log(
+      `Lumovi’s check of ${browser} failed: a box’s report came back in a form Lumovi couldn’t read. This browser isn’t handed any plugin’s code.`,
+    )
+    audit.record({
+      action: 'plugin.box-check',
+      outcome: 'failure',
+      target: { kind: 'Browser', name: browser },
+      summary:
+        'Lumovi’s check of this browser failed: a box’s report came back in a form it couldn’t read',
+      // (A failure with nothing out is always one it couldn't read: it says whose.)
+      details: { browser, unreadable: judged.unreadable! },
+    })
     return
   }
   if (judged.result === 'failed') {
@@ -381,7 +426,12 @@ export class PageConnection {
         plugins({ path: config.pluginsDir, shown: config.pluginsDir }, 'server', version),
       // (Read each time it's asked: how this browser's box check came out, for the box's walls as
       // they are. A server without a box has no check, and hands code to no one.)
-      handOverTo: () => ({ host: 'server', held, check: checks?.result(checkKey) }),
+      handOverTo: () => ({
+        host: 'server',
+        held,
+        check: checks?.result(checkKey),
+        unlooked: checks?.unlooked(checkKey) ?? false,
+      }),
       audit: recording,
     })
     const auditing = auditHandlers(
@@ -425,13 +475,24 @@ export class PageConnection {
                 const nonce = checks.start(checkKey)
                 return { nonce, code: checkCode(`${catcher}/${nonce}`, nonce, env) }
               },
-              [IPC.boxCheckEnd]: (nonce: unknown, reports: unknown, heard: unknown) => {
+              [IPC.boxCheckEnd]: (
+                nonce: unknown,
+                reports: unknown,
+                heard: unknown,
+                unlooked: unknown,
+              ) => {
                 if (typeof nonce !== 'string') return undefined
-                const found = Array.isArray(heard)
-                  ? heard.filter((way): way is string => typeof way === 'string')
-                  : []
-                const judged = checks.end(checkKey, nonce, reports, found, (late) =>
-                  told(late, recording, browser),
+                const ways = (said: unknown) =>
+                  Array.isArray(said)
+                    ? said.filter((way): way is string => typeof way === 'string')
+                    : []
+                const judged = checks.end(
+                  checkKey,
+                  nonce,
+                  reports,
+                  ways(heard),
+                  ways(unlooked),
+                  (late) => told(late, recording, browser),
                 )
                 if (judged?.first) told(judged, recording, browser)
                 return judged?.result

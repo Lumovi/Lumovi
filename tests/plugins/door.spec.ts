@@ -6,6 +6,7 @@
 import { expect, test } from '@playwright/test'
 import {
   choice,
+  destination,
   handler,
   list,
   number,
@@ -71,6 +72,28 @@ test.describe('a value against its kind', () => {
     ['time', time, ['2026-10-12T08:30:00Z'], ['yesterday', '2026-13-40T99:00:00Z', 5]],
     ['object', object, ['o_1-A'], ['', 'a b', '../x', 'x'.repeat(65), { kind: 'Pod' }]],
     ['handler', handler('press'), ['h7'], ['() => 1', 7, null]],
+    [
+      'list to open',
+      destination,
+      [
+        { list: 'karpenter.sh/NodePool' },
+        { list: '/Node', labels: ['karpenter.sh/nodepool'] },
+        { list: '/Pod', health: ['critical', 'warning'], labels: ['app=web', 'tier='] },
+      ],
+      [
+        'karpenter.sh/NodePool',
+        {},
+        { list: 'NodePool' },
+        { list: '/Node', path: '/api/v1/nodes' },
+        { list: '/Node', namespace: 'kube-system' },
+        { list: '/Node', health: [] },
+        { list: '/Node', health: ['bad'] },
+        { list: '/Node', health: ['critical', 'critical'] },
+        { list: '/Node', labels: ['a b'] },
+        { list: '/Node', labels: ['a', 'b', 'c', 'd', 'e'] },
+        { list: '/Node', labels: 'app=web' },
+      ],
+    ],
     ['list', list(text(3), 2), [[], ['a', 'b']], [['a', 'b', 'c'], ['long'], 'ab', { 0: 'a' }]],
     [
       'record',

@@ -280,7 +280,11 @@ export const SHOWS_SECRETS_LIMITS = { items: 10, keys: 20 } as const
 export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
 
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
-export type ListedPlugin = Pick<Plugin, 'name' | 'source' | 'version' | 'added'> & PluginPlace
+export type ListedPlugin = Pick<Plugin, 'name' | 'source' | 'version' | 'added'> &
+  PluginPlace & {
+    /** Every kind its file names (`namedKinds`): what its pages may open a list of. */
+    named: ResourceKind[]
+  }
 
 // ——— Checking ———
 
@@ -1999,6 +2003,28 @@ export function ownKinds(plugin: Pick<Plugin, 'place' | 'views'>): string[] {
         .map(({ group, kind }) => `${group}/${kind}`),
     ),
   ]
+}
+
+/**
+ * Every kind a plugin's file names, as Lumovi names it (`NodePool.karpenter.sh`, `Node`): under
+ * its place, in a view, of Kubernetes' own that it shows, and those its code reads. A list its
+ * page opens is of one of these and of no other. (A view of `*.group` names no one kind.)
+ */
+export function namedKinds(
+  plugin: Pick<Plugin, 'place' | 'views' | 'shows' | 'reads'>,
+): ResourceKind[] {
+  const read = Object.keys(plugin.reads).map((id) => {
+    const slash = id.lastIndexOf('/')
+    const group = id.slice(0, slash)
+    return kindFor(group ? `${group}/v1` : 'v1', id.slice(slash + 1))
+  })
+  const kinds = [
+    ...(plugin.place?.kinds ?? []),
+    ...plugin.views.flatMap((view) => view.kinds),
+    ...plugin.shows,
+    ...read,
+  ]
+  return [...new Set(kinds.filter((kind) => !kind.startsWith('*.')))]
 }
 
 export function clashes(plugins: Plugin[], held: Plugin[] = []): Map<Plugin, string> {

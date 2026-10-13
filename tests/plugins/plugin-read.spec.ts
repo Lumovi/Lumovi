@@ -5,7 +5,15 @@
  * launched.
  */
 import { expect, test } from '@playwright/test'
-import type { GetQuery, KubeList, KubeObject, ListQuery, Result } from '../../src/shared/api.ts'
+import type {
+  GetQuery,
+  KubeList,
+  KubeObject,
+  ListQuery,
+  MetricsQuery,
+  MetricsSnapshot,
+  Result,
+} from '../../src/shared/api.ts'
 import { parse } from '../../src/shared/jsonpath.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import { KubeRequestError } from '../../src/backend/kube/errors.ts'
@@ -16,7 +24,7 @@ import {
   secretsAskedFor,
 } from '../../src/backend/plugin-reads.ts'
 import { READ_REFUSED, type Grant } from '../../src/shared/plugin-reads.ts'
-import { ownKinds, parsePlugin } from '../../src/shared/plugins.ts'
+import { namedKinds, ownKinds, parsePlugin } from '../../src/shared/plugins.ts'
 import type { KnownPlugin } from '../../src/shared/plugins-known.ts'
 import { builtinResource, type ResourceDefinition } from '../../src/shared/resources.ts'
 
@@ -92,9 +100,13 @@ function stage(
   answers: {
     list?: (q: ListQuery) => Result<KubeList>
     get?: (q: GetQuery) => Result<KubeObject>
+    metrics?: (q: MetricsQuery) => Result<MetricsSnapshot>
   } = {},
 ) {
-  const asked: { list: ListQuery[]; get: GetQuery[] } = { list: [], get: [] }
+  const asked: { list: ListQuery[]; get: GetQuery[]; metrics?: MetricsQuery[] } = {
+    list: [],
+    get: [],
+  }
   const audit: { key: string; input: Recorded }[] = []
   const read = pluginReads({
     kube: {
@@ -120,6 +132,15 @@ function stage(
       get: async (q) => {
         asked.get.push(q as GetQuery)
         return answers.get?.(q as GetQuery) ?? { ok: true, data: pool((q as GetQuery).name) }
+      },
+      metrics: async (q) => {
+        ;(asked.metrics ??= []).push(q as MetricsQuery)
+        return (
+          answers.metrics?.(q as MetricsQuery) ?? {
+            ok: true,
+            data: { available: false, items: [] },
+          }
+        )
       },
     },
     known: async () => known,
@@ -357,16 +378,24 @@ test('a failure is a code: never what the cluster said', async () => {
   expect(await read({ ...ask, context: 'gone' })).toEqual({ ok: false, refused: 'unreachable' })
 })
 
-test('more objects than Lumovi lists at once: none of them, never the first as if they were all', async () => {
+test('more objects than Lumovi lists at once: the first of them, said to be the first, of how many where it’s known', async () => {
+  let total: number | undefined = 9000
   const { read } = stage([plugin()], {
-    list: () => ({ ok: true, data: { items: [pool('a')], truncated: true, total: 9000 } }),
+    list: () => ({
+      ok: true,
+      data: { items: [pool('a')], truncated: true, ...(total === undefined ? {} : { total }) },
+    }),
   })
-  expect(
-    await read({ context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool' }),
-  ).toEqual({
-    ok: false,
-    refused: 'too-many',
+  const pools = { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool' }
+  expect(await read(pools)).toMatchObject({
+    ok: true,
+    answer: { objects: [{ name: 'a' }], cut: { at: 1, of: 9000 } },
   })
+  // (A picked list's count the cluster doesn't say: of none.)
+  total = undefined
+  const answered = await read(pools)
+  expect(answered).toMatchObject({ ok: true, answer: { cut: { at: 1 } } })
+  expect(answered.ok && answered.answer.cut).toEqual({ at: 1 })
 })
 
 test('of Kubernetes’ own kinds, the fields its file names and no other, picked here', async () => {
@@ -404,12 +433,165 @@ test('of Kubernetes’ own kinds, the fields its file names and no other, picked
   })
 })
 
+test('a list picked by fields and labels is asked of the cluster so, and in the history so; one it may not pick reads nothing', async () => {
+  const fields = (...paths: string[]) => paths.map((path) => ({ path, steps: parse(`.${path}`) }))
+  const reading: Grant = {
+    ...GRANT,
+    reads: {
+      '/Pod': {
+        fields: fields('metadata.name', 'spec.nodeName'),
+        status: false,
+        events: false,
+        usage: false,
+      },
+    },
+  }
+  const { read, asked, audit } = stage([plugin({ grant: reading })], {
+    list: () => ({ ok: true, data: { items: [], truncated: false } }),
+  })
+  const pods = { context: 'demo', plugin: 'karpenter', kind: '/Pod' }
+  // Pods on no node yet: the cluster picks them.
+  expect(await read({ ...pods, fields: { 'spec.nodeName': '' } })).toEqual({
+    ok: true,
+    answer: { kind: 'Pod', held: 0, objects: [] },
+  })
+  expect(asked.list).toEqual([{ context: 'demo', kind: 'Pod', fieldSelector: 'spec.nodeName=' }])
+  expect(audit.at(-1)?.input.details).toEqual({
+    plugin: 'karpenter',
+    pluginVersion: '1.0.0',
+    pluginDigest: FILE,
+    fieldSelector: 'spec.nodeName=',
+  })
+  // The same kind unpicked is another read, apart in the history.
+  await read(pods)
+  expect(new Set(audit.map(({ key }) => key)).size).toBe(2)
+  // A field the cluster doesn't pick pods by; one it does that the file doesn't grant; labels
+  // it can't read: refused, and nothing is read.
+  for (const [also, refused] of [
+    [{ fields: { 'spec.hostname': 'a' } }, 'not-pickable'],
+    [{ fields: { 'status.phase': 'Pending' } }, 'not-granted'],
+    [{ labels: ['app'] }, 'not-granted'],
+  ] as const) {
+    expect(await read({ ...pods, ...also }), JSON.stringify(also)).toEqual({ ok: false, refused })
+  }
+  expect(asked.list).toHaveLength(2)
+  expect(audit.at(-1)?.input).toMatchObject({
+    outcome: 'refused',
+    details: { labelSelector: 'app', refused: 'not-granted' },
+  })
+})
+
+test('a read asked for usage hands each object its own, read as Lumovi’s pages read it, where its file says', async () => {
+  const fields = (...paths: string[]) => paths.map((path) => ({ path, steps: parse(`.${path}`) }))
+  const says = (usage: boolean): Grant => ({
+    ...GRANT,
+    reads: {
+      '/Node': { fields: fields('metadata.name'), status: false, events: false, usage },
+      '/Pod': { fields: fields('metadata.name'), status: false, events: false, usage },
+    },
+  })
+  const other = { ...node, metadata: { name: 'ip-10-0-2-9' } } as unknown as KubeObject
+  const { read, asked } = stage([plugin({ grant: says(true) })], {
+    list: () => ({ ok: true, data: { items: [node, other], truncated: false } }),
+    // (The second node is too new to be measured: it has no usage, and the read still answers.)
+    metrics: () => ({
+      ok: true,
+      data: { available: true, items: [{ name: 'ip-10-0-1-5', cpu: 1.5, memory: 2_147_483_648 }] },
+    }),
+  })
+  const asking = { context: 'demo', plugin: 'karpenter', kind: '/Node', usage: true }
+  expect(await read(asking)).toEqual({
+    ok: true,
+    answer: {
+      kind: 'Node',
+      held: 0,
+      objects: [
+        {
+          name: 'ip-10-0-1-5',
+          object: { metadata: { name: 'ip-10-0-1-5' } },
+          usage: { cpu: 1.5, memory: 2_147_483_648 },
+        },
+        { name: 'ip-10-0-2-9', object: { metadata: { name: 'ip-10-0-2-9' } } },
+      ],
+    },
+  })
+  // One read of the cluster's measures for all of them, as the person; pods' in their namespace.
+  expect(asked.metrics).toEqual([{ context: 'demo', target: 'nodes' }])
+  // A cluster that measures nothing says so once, for the read; a file that doesn't say it reads
+  // usage, or a kind nothing measures, refuses the read, and nothing's measured for it.
+  const unmeasured = stage([plugin({ grant: says(true) })], {
+    list: () => ({ ok: true, data: { items: [node], truncated: false } }),
+  })
+  expect(await unmeasured.read(asking)).toMatchObject({
+    ok: true,
+    answer: { noUsage: 'unmeasured' },
+  })
+  const refused = stage([plugin({ grant: says(false) })])
+  expect(await refused.read(asking)).toEqual({ ok: false, refused: 'not-granted' })
+  expect(await refused.read({ ...asking, kind: 'karpenter.sh/NodePool' })).toEqual({
+    ok: false,
+    refused: 'not-granted',
+  })
+  expect(refused.asked).toEqual({ list: [], get: [] })
+  // A person who may read the objects and not their usage is handed the objects, said to have
+  // none and why, as Lumovi's own pages show them; a measure that fails otherwise fails the read,
+  // as a code.
+  const metrics = (code: 'forbidden' | 'unauthorized' | 'unreachable') => () => ({
+    ok: false as const,
+    error: { code, message: 'pods.metrics.k8s.io is forbidden for 10.0.0.1' },
+  })
+  const pods = { ...asking, kind: '/Pod', namespace: 'shop' }
+  for (const code of ['forbidden', 'unauthorized'] as const) {
+    const forbidden = stage([plugin({ grant: says(true) })], {
+      list: () => ({ ok: true, data: { items: [node], truncated: false } }),
+      metrics: metrics(code),
+    })
+    expect(await forbidden.read(pods), code).toEqual({
+      ok: true,
+      answer: {
+        kind: 'Pod',
+        held: 0,
+        objects: [{ name: 'ip-10-0-1-5', object: { metadata: { name: 'ip-10-0-1-5' } } }],
+        noUsage: 'not-allowed',
+      },
+    })
+    expect(forbidden.asked.metrics).toEqual([
+      { context: 'demo', target: 'pods', namespace: 'shop' },
+    ])
+  }
+  const failing = stage([plugin({ grant: says(true) })], {
+    list: () => ({ ok: true, data: { items: [node], truncated: false } }),
+    metrics: metrics('unreachable'),
+  })
+  expect(await failing.read(pods)).toEqual({ ok: false, refused: 'unreachable' })
+})
+
+test('a read with usage is said so in the history, and counted apart from one without', async () => {
+  const fields = (...paths: string[]) => paths.map((path) => ({ path, steps: parse(`.${path}`) }))
+  const grant: Grant = {
+    ...GRANT,
+    reads: {
+      '/Node': { fields: fields('metadata.name'), status: false, events: false, usage: true },
+    },
+  }
+  const { read, audit } = stage([plugin({ grant })], {
+    list: () => ({ ok: true, data: { items: [node], truncated: false } }),
+  })
+  await read({ context: 'demo', plugin: 'karpenter', kind: '/Node' })
+  await read({ context: 'demo', plugin: 'karpenter', kind: '/Node', usage: true })
+  expect(audit).toHaveLength(2)
+  expect(audit[0]!.key).not.toBe(audit[1]!.key)
+  expect(audit[0]!.input.details).not.toHaveProperty('usage')
+  expect(audit[1]!.input.details).toMatchObject({ usage: true })
+})
+
 test('Lumovi’s page asks with exactly a read’s keys: anything else is no plugin’s, and isn’t made', async () => {
   const { read, asked, audit } = stage()
   for (const query of [
     undefined,
     { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool', fieldSelector: 'x' },
     { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool', name: '../x' },
+    { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/NodePool', usage: 'yes' },
   ]) {
     expect(await read(query), JSON.stringify(query)).toEqual({ ok: false, refused: 'failed' })
   }
@@ -442,6 +624,38 @@ spec:
     'karpenter.sh/NodePool',
     'karpenter.sh/NodeClaim',
     'karpenter.k8s.aws/*',
+  ])
+})
+
+test('the kinds a plugin’s page may open a list of are every kind its file names, as Lumovi names them', () => {
+  const { plugin: parsed, problems } = parsePlugin(
+    `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: karpenter }
+spec:
+  version: 1.0.0
+  needs: { lumovi: 1.0.0 }
+  groups: [karpenter.sh, karpenter.k8s.aws]
+  label: Karpenter
+  kinds: [{ group: karpenter.sh, kind: NodePool }]
+  pages: [{ id: overview, title: Overview }]
+  reads:
+    - { group: '', kind: Node, fields: [metadata.name] }
+    - { group: '', kind: Pod, fields: [metadata.name, metadata.namespace] }
+  views:
+    - kinds: [{ group: karpenter.k8s.aws, kind: '*' }]
+    - kinds: [{ group: karpenter.sh, kind: NodeClaim }]
+`,
+    'karpenter.yaml',
+    { carriesCode: true },
+  )
+  expect(problems).toEqual([])
+  // (A view of every kind of a group names no one kind: none of them is opened by name.)
+  expect(namedKinds(parsed!)).toEqual([
+    'NodePool.karpenter.sh',
+    'NodeClaim.karpenter.sh',
+    'Node',
+    'Pod',
   ])
 })
 

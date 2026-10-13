@@ -106,14 +106,70 @@ const held = (nonce: string) => ({
     role: 'first',
     ways: Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, 'refused'])),
     found: [],
+    unlooked: [],
   }),
   second: JSON.stringify({
     check: nonce,
     role: 'second',
     ways: Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, 'refused'])),
     found: [],
+    unlooked: [],
   }),
-  later: JSON.stringify({ check: nonce, role: 'later', found: [] }),
+  later: JSON.stringify({ check: nonce, role: 'later', found: [], unlooked: [] }),
+})
+
+test('a hand-back that isn’t a whole report fails its check, whichever way it falls short', async ({
+  serve,
+  browser,
+}) => {
+  const server = await served(serve)
+  // Each in a session of its own, so no failure before it stands in for its own.
+  const whole = (nonce: string) => JSON.parse(held(nonce).first) as Record<string, unknown>
+  const { fetch: _, ...leftOut } = whole('NONCE').ways as Record<string, string>
+  const shapes: Record<string, (nonce: string) => unknown> = {
+    'not an object': () => [],
+    'another check’s': (nonce) => ({ ...whole(nonce), check: `${nonce}-other` }),
+    'a find that isn’t a list': (nonce) => ({ ...whole(nonce), found: 'caches' }),
+    'ways that aren’t a list of ways': (nonce) => ({ ...whole(nonce), ways: [] }),
+    'a way left out': (nonce) => ({ ...whole(nonce), ways: leftOut }),
+  }
+  for (const [shape, first] of Object.entries(shapes)) {
+    const context = await browser.newContext()
+    try {
+      const page = await context.newPage()
+      await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+      const check = calls(page)
+      const { nonce } = (await check.start())!
+      const reports = { ...held(nonce), first: JSON.stringify(first(nonce)) }
+      expect(await check.end(nonce, reports, []), shape).toBe('failed')
+      expect(await check.handOver(), shape).toBe('check-failed')
+    } finally {
+      await context.close()
+    }
+  }
+  // (And a whole one, in a session of its own, passes: it's the shape that failed each.)
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  const { nonce } = (await calls(page).start())!
+  expect(await calls(page).end(nonce, held(nonce), [])).toBe('passed')
+  await context.close()
+  // Each said as a report Lumovi couldn't read, and whose: nothing is said to have got out.
+  const said = audited(server, 'plugin.box-check')
+  expect(said.map((event) => event.outcome)).toEqual([
+    ...Object.keys(shapes).map(() => 'failure'),
+    'success',
+  ])
+  for (const event of said.slice(0, -1)) {
+    expect(event.summary).toBe(
+      'Lumovi’s check of this browser failed: a box’s report came back in a form it couldn’t read',
+    )
+    expect(event.details).toEqual({ browser: expect.any(String), unreadable: ['first'] })
+  }
+  expect(server.log()).toContain(
+    'failed: a box’s report came back in a form Lumovi couldn’t read. This browser isn’t handed any plugin’s code.',
+  )
+  expect(server.log()).not.toContain('lets a plugin’s code out of its box: .')
 })
 
 test('what reaches the catcher under a name that’s no way’s is kept, as “other”, and fails the check', async ({

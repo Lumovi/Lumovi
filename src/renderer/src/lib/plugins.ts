@@ -19,6 +19,7 @@ import {
   ONLY_PLACEHOLDER,
   PLACEHOLDER,
   clashes,
+  namedKinds,
   parsePlugin,
   type Condition,
   type Added,
@@ -165,21 +166,24 @@ const NOTHING: Added = { pages: [], tabs: [], commands: [] }
  */
 export function listedPlugins(): ListedPlugin[] {
   const listed = (plugins: Iterable<Plugin>) =>
-    [...plugins].flatMap(({ name, source, version, place, added }) =>
-      place
+    [...plugins].flatMap((plugin) => {
+      const { name, source, version, place, added } = plugin
+      return place
         ? [
             {
               name,
               source,
               version,
               ...place,
-              // (Its pages, tabs and commands are drawn by the door, which isn't in a release yet:
-              // until it is, only the tests' build takes them.)
+              named: namedKinds(plugin),
+              // (Its pages, tabs and commands are drawn by the door, and offered in the tests' build
+              // alone so far. When a release offers them, a plugin whose code isn't part of that
+              // Lumovi has none of them offered at all: never a page that couldn't start.)
               added: LUMOVI_TEST_BUILD ? added : NOTHING,
             },
           ]
-        : [],
-    )
+        : []
+    })
   return [
     ...listed(localPlugins.values()),
     ...listed([...shippedPlugins.values()].filter((plugin) => !localPlugins.has(plugin.name))),

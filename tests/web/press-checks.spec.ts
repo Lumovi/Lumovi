@@ -548,6 +548,113 @@ test('presses: what a part is handed, and what opens anything', async ({ page, s
     expect(said.told).toEqual([true, false])
   })
 
+  await test.step('a list to open is one the door made, of a kind its file names, opened only so', async () => {
+    const said = await page.evaluate(() => {
+      const { Tokens, swapFor } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      const tokens = new Tokens({ objects: 0 })
+      const unnamed: string[] = []
+      const kinds = new Set(['NodePool.karpenter.sh'])
+      const swap = swapFor(
+        tokens,
+        () => undefined,
+        undefined,
+        kinds,
+        (kind) => unnamed.push(kind),
+      )
+      const pools = swap.destination({ list: 'karpenter.sh/NodePool', labels: ['team=web'] })
+      const both = swap.destination({
+        list: 'karpenter.sh/NodePool',
+        health: ['warning', 'critical'],
+      })
+      const said = {
+        pools,
+        again: swap.destination({ list: 'karpenter.sh/NodePool', labels: ['team=web'] }) === pools,
+        reordered:
+          swap.destination({ list: 'karpenter.sh/NodePool', health: ['critical', 'warning'] }) ===
+          both,
+        opens: tokens.destinationOf(pools) === pools,
+        lookalike: tokens.destinationOf({ ...pools }),
+        other: swap.destination({ list: '/Secret' }),
+        unnamed,
+        told: [tokens.unnamedToSay(), tokens.unnamedToSay()],
+        // Told no one of a kind its file doesn't name: still nothing.
+        untold: tokens.listOf({ list: '/Secret' }, kinds),
+      }
+      // Past a page's share of them, one more is nothing; and those made still open.
+      for (let i = 0; i < 1000; i++) {
+        swap.destination({ list: 'karpenter.sh/NodePool', labels: [`l${i}`] })
+      }
+      return {
+        ...said,
+        past: swap.destination({ list: 'karpenter.sh/NodePool', labels: ['one-more'] }),
+        stillOpens: tokens.destinationOf(pools) === pools,
+      }
+    })
+    expect(said).toEqual({
+      pools: { to: 'list', kind: 'NodePool.karpenter.sh', labels: ['team=web'] },
+      again: true,
+      reordered: true,
+      opens: true,
+      lookalike: undefined,
+      other: undefined,
+      unnamed: ['/Secret'],
+      told: [true, false],
+      untold: undefined,
+      past: undefined,
+      stillOpens: true,
+    })
+    expect(HANDED_LIMITS.destinationsAPage).toBe(1000)
+  })
+
+  await test.step('how a read was cut is the door’s numbers for its latest answer: a stale, borrowed or ended token says nothing', async () => {
+    const said = await page.evaluate(() => {
+      const { Tokens, swapFor } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      const tokens = new Tokens({ objects: 0 })
+      let stale = 0
+      const swap = swapFor(
+        tokens,
+        () => undefined,
+        () => stale++,
+      )
+      const first = tokens.cutFor(1, { at: 5000, of: 12345 })
+      const firstSaid = swap.cut(first)
+      const second = tokens.cutFor(1, { at: 5000 })
+      const other = tokens.cutFor(2, { at: 5000, of: 7000 })
+      const elsewhere = new Tokens({ objects: 0 }).cutFor(1, { at: 5000, of: 99999 })
+      const said = {
+        first: firstSaid,
+        frozen: Object.isFrozen(firstSaid),
+        renewed: second !== first,
+        before: swap.cut(first),
+        second: swap.cut(second),
+        elsewhere: swap.cut(elsewhere),
+        madeUp: swap.cut('cut-1'),
+      }
+      tokens.uncut(1)
+      const whole = swap.cut(second)
+      const kept = swap.cut(other)
+      const third = tokens.cutFor(1, { at: 5000 })
+      tokens.ended(1)
+      const ended = swap.cut(third)
+      tokens.close()
+      return { ...said, whole, kept, ended, closed: swap.cut(other), stale }
+    })
+    expect(said).toEqual({
+      first: { at: 5000, of: 12345 },
+      frozen: true,
+      renewed: true,
+      before: undefined,
+      second: { at: 5000 },
+      elsewhere: undefined,
+      madeUp: undefined,
+      whole: undefined,
+      kept: { at: 5000, of: 7000 },
+      ended: undefined,
+      closed: undefined,
+      stale: 6,
+    })
+  })
+
   await test.step('nothing the door swaps can be required: a part is always written to draw without it', async () => {
     // (A token can be made up, or gone with its read while a commit was on its way: the property
     // is then absent, and a part that required it would fail as it drew, by a plugin's choice.)
@@ -580,8 +687,8 @@ test('presses: what a part is handed, and what opens anything', async ({ page, s
       parts,
     )
     expect(said[0]).toBeUndefined()
-    expect(said[1]).toBe('A.opens: an object or a Secret can’t be required')
-    expect(said[2]).toBe('A.shows: an object or a Secret can’t be required')
+    expect(said[1]).toBe('A.opens: an object, a Secret or a list to open can’t be required')
+    expect(said[2]).toBe('A.shows: an object, a Secret or a list to open can’t be required')
     expect(said[3]).toContain('can’t be required')
     expect(said[4]).toContain('can’t be required')
     expect(said[5]).toContain('can’t be required')

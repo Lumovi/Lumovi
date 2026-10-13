@@ -5,18 +5,34 @@
  * person is told; its box is taken away with it, and its reads.
  */
 import type { ComponentType, ReactNode } from 'react'
-import type { Part } from '@shared/kit/declare'
+import {
+  handedFields,
+  type ListDestination,
+  type ObjectRef,
+  type Part,
+  type Swap,
+} from '@shared/kit/declare'
 import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
+import { callOf, swapFor, unnamedLine, type Destination } from '@shared/plugin-presses'
+import { whose } from '@shared/plugins'
 import { api } from '@renderer/lib/api'
 import { openBox, type BoxEnd } from './box'
-import { PageReading } from './reads'
+import { PageReading, type ReadNotices } from './reads'
 
 /** A part of Lumovi's a plugin may name: how it's declared, and what draws it. */
 export interface KitPart {
   declared: Part
-  /** Drawn with the properties the door checked, and what's inside it already drawn. */
-  draw: ComponentType<{ props: Readonly<Record<string, unknown>>; children?: ReactNode }>
+  /**
+   * Drawn with the properties the door checked (as `handed` hands them), what's inside it
+   * already drawn, and `go`: Lumovi's own open of an object or a list the part was handed, never
+   * the plugin's (it's no property, and no plugin names it).
+   */
+  draw: ComponentType<{
+    props: Readonly<Record<string, unknown>>
+    children?: ReactNode
+    go?: (to: ObjectRef | ListDestination) => void
+  }>
 }
 
 export interface OpenPage {
@@ -42,8 +58,49 @@ export interface OpenPage {
    * leads here.
    */
   fault(): void
+  /**
+   * The part `part`'s properties as its component is handed them: every text a plugin's, and
+   * every token and handle in the place of what it stands for on this page (the door's swap). A
+   * handler, pressed, sends the plugin its call, checked against the part's declaration. Made
+   * once for the properties the door holds, which are never changed.
+   */
+  handed(part: string, props: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>>
+  /**
+   * Opens the object a component was handed, where this page's door handed it, for a read
+   * that's still going; or the list the door made for it. Anything else opens nothing.
+   */
+  go(object: unknown): void
+  /**
+   * What Lumovi says of the page's reads, round the page and never by the plugin: one failing
+   * now, a list cut at Lumovi's limit. The same object until that changes.
+   */
+  readonly notices: ReadNotices
+  subscribeNotices(heard: () => void): () => void
+  /** The person's "Retry": the reads that are failing are read again now. */
+  retry(): void
   /** Takes the page away: its box and its worker with it. */
   close(): void
+}
+
+/**
+ * What a press carries, as its plugin is sent it: each text of a plugin's that a part was handed
+ * (a `Their`) as the text it wrote. (What isn't one of the part's declared kinds is still
+ * refused by `callOf`: this changes no shape, only takes the texts back out of their wrapping.)
+ */
+function written(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(written)
+  if (typeof value !== 'object' || value === null) return value
+  const keys = Object.keys(value)
+  if (
+    keys.length === 1 &&
+    keys[0] === 'their' &&
+    typeof (value as { their: unknown }).their === 'string'
+  ) {
+    return (value as { their: string }).their
+  }
+  return Object.fromEntries(
+    keys.map((key) => [key, written((value as Record<string, unknown>)[key])]),
+  )
 }
 
 /** What a box's end is to a person. (A way for a box to end that isn't here fails the build.) */
@@ -82,8 +139,11 @@ function askIn(text: string): object | undefined {
     : undefined
 }
 
-/** Longer than any ask can be: its kind, its namespace and its name at their longest. */
-const ASK_AT_MOST = 1024
+/**
+ * Longer than any ask can be: its kind, its namespace and its name at their longest, or a list's
+ * fields and labels at theirs.
+ */
+const ASK_AT_MOST = 4096
 
 /**
  * Opens the page of the plugin named `plugin` (its box's address), from its `code`. What it
@@ -99,7 +159,20 @@ export function openPage(options: {
    */
   handed?: { digest: string; codeDigest: string }
   parts: Readonly<Record<string, KitPart>>
+  /**
+   * Every kind its file names, as Lumovi names them (`namedKinds`): what its parts may open a
+   * list of. None, and a part opens no list.
+   */
+  kinds?: readonly string[]
+  /**
+   * What its code is told first, once it's there: which of its pages it describes, or which tab,
+   * with the object the tab is on (read for it as its own kind is, and handed with a token).
+   */
+  opening?: { page: string } | { tab: string; object: ObjectRef }
+  /** Lumovi's own open of what a press named: where its door says, and nowhere else. */
+  open?: (to: Destination) => void
 }): OpenPage {
+  const kinds: ReadonlySet<string> = new Set(options.kinds)
   const declared = Object.fromEntries(
     Object.entries(options.parts).map(([name, part]) => [name, part.declared]),
   )
@@ -128,6 +201,29 @@ export function openPage(options: {
     },
     fault() {
       ended({ why: 'drawing' })
+    },
+    handed(part: string, props: Readonly<Record<string, unknown>>) {
+      let handed = made.get(props)
+      if (!handed) {
+        made.set(
+          props,
+          (handed = handedFields(props, options.parts[part]!.declared.props, swapOf(part))),
+        )
+      }
+      return handed
+    },
+    go(object: unknown) {
+      const to = reading.tokens.destinationOf(object)
+      if (to && !page.end) options.open?.(to)
+    },
+    get notices() {
+      return reading.notices
+    },
+    subscribeNotices(heard: () => void) {
+      return reading.subscribeNotices(heard)
+    },
+    retry() {
+      if (!page.end) reading.retry()
     },
     close() {
       stopListening()
@@ -161,6 +257,42 @@ export function openPage(options: {
     toTell.clear()
     listeners.forEach((listener) => listener())
   }
+  // What each part is handed, made once; and each part's swap, whose presses are checked against
+  // that part's declaration before anything is sent.
+  const made = new WeakMap<object, Readonly<Record<string, unknown>>>()
+  const swaps = new Map<string, Swap>()
+  const swapOf = (part: string): Swap => {
+    let swap = swaps.get(part)
+    if (!swap) {
+      const { declared: said } = options.parts[part]!
+      swap = swapFor(
+        reading.tokens,
+        (handle, event, carries) => {
+          if (page.end) return
+          const call = callOf(said, event, handle, written(carries))
+          if (call !== undefined) box.post(call)
+        },
+        () => {
+          // (For whoever writes the plugin, once a page: to the person, a row that doesn't
+          // open is quiet.)
+          if (reading.tokens.staleToSay()) {
+            console.warn(
+              `Lumovi’s page of the plugin ${options.plugin} named a token it doesn’t hold: what it stood for is gone, or was never handed to it.`,
+            )
+          }
+        },
+        kinds,
+        (kind) => {
+          // (Likewise once a page: a tile that opens nothing is quiet.)
+          if (reading.tokens.unnamedToSay()) {
+            console.warn(unnamedLine(kind, `the plugin ${whose(options.plugin)}`))
+          }
+        },
+      )
+      swaps.set(part, swap)
+    }
+    return swap
+  }
   // (What's read is sent down to its code once the box is there: nothing is read before.)
   const reading = new PageReading({
     context: options.context,
@@ -184,6 +316,13 @@ export function openPage(options: {
     },
     ended: (end) => ended(boxEnd(end)),
   })
+  // What its code is told first: which page, or which tab and its object (read first, as its own
+  // kind is). (Sent before the box is there, it waits in the box's channel for its code.)
+  if (options.opening && 'page' in options.opening) {
+    box.post(JSON.stringify({ open: { page: options.opening.page } }))
+  } else if (options.opening) {
+    reading.open(options.opening.tab, options.opening.object)
+  }
   // The desktop measures a plugin's process, and says when it ended one.
   const stopEnded = api.desktop?.onPluginEnded((plugin, over) => {
     if (plugin === options.plugin) ended({ why: over })
