@@ -272,6 +272,56 @@ function toysApi(path: string): ProxyAnswer {
   return json({ error: 'no such path' }, 404)
 }
 
+/**
+ * What a stand-in Prometheus server answers of its targets: three up, one down with why, one not
+ * scraped yet, as Prometheus says them. Anything else, a JSON 404.
+ */
+function prometheusTargets(path: string, params: URLSearchParams): ProxyAnswer {
+  const json = (body: Json, status = 200) => ({
+    status,
+    body: JSON.stringify(body),
+    contentType: 'application/json',
+  })
+  if (path !== '/api/v1/targets' || params.get('state') !== 'active') {
+    return json({ status: 'error', errorType: 'not_found', error: 'no such path' }, 404)
+  }
+  const scraped = new Date(Date.now() - 20_000).toISOString()
+  const target = (
+    pool: string,
+    instance: string,
+    health: 'up' | 'down' | 'unknown',
+    lastError = '',
+  ): Json => ({
+    labels: { instance, job: pool.split('/')[2]!, namespace: pool.split('/')[1]! },
+    scrapePool: pool,
+    scrapeUrl: `http://${instance}/metrics`,
+    lastError,
+    lastScrape: health === 'unknown' ? '0001-01-01T00:00:00Z' : scraped,
+    lastScrapeDuration: health === 'down' ? 10 : 0.012,
+    health,
+    scrapeInterval: '30s',
+    scrapeTimeout: '10s',
+  })
+  return json({
+    status: 'success',
+    data: {
+      activeTargets: [
+        target('serviceMonitor/shop/storefront/0', '10.0.3.5:8080', 'up'),
+        target('serviceMonitor/shop/storefront/0', '10.0.3.6:8080', 'up'),
+        target(
+          'serviceMonitor/shop/storefront/0',
+          '10.0.3.7:8080',
+          'down',
+          'Get "http://10.0.3.7:8080/metrics": context deadline exceeded',
+        ),
+        target('serviceMonitor/monitoring/node-exporter/0', '10.0.1.17:9100', 'up'),
+        target('podMonitor/shop/checkout/0', '10.0.4.2:9090', 'unknown'),
+      ],
+      droppedTargets: [],
+    },
+  })
+}
+
 class HttpError extends Error {
   status: number
   body: Json
@@ -1283,6 +1333,10 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     }
     // A plugin's tool's own server: the tests' Toys', where a test puts it.
     if (service.metadata.labels?.[STAND_IN] === 'toys-api') return toysApi(match[3] ?? '/')
+    // A Prometheus server, as the operator's own Service reaches it.
+    if (service.metadata.labels?.[STAND_IN] === 'prometheus') {
+      return prometheusTargets(match[3] ?? '/', params)
+    }
     throw new HttpError(503, `no endpoints available for service "${name}"`)
   }
 
