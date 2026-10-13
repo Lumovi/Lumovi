@@ -214,6 +214,40 @@ test('the catcher’s address with nothing in it, a socket to it, and the box’
   }
 })
 
+test('an old browser’s session, where the second wall holds, starts no check and is handed no code', async ({
+  serve,
+  page,
+  browser,
+}) => {
+  const server = await served(serve)
+  // (The same server, to a browser that says where its sign-in came from: held, and checked.)
+  const said = await browser.newContext()
+  const saidPage = await said.newPage()
+  await signIn(saidPage, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  expect(await calls(saidPage).handOver()).toBe('not-checked')
+  expect(await calls(saidPage).start()).toMatchObject({ nonce: expect.any(String) })
+  await said.close()
+  // Signed in as a browser that sends no Sec-Fetch-Site would (its cookie in the page's jar).
+  const signedIn = await page.request.post(`${server.url}api/session`, {
+    headers: { Origin: new URL(server.url).origin },
+    data: { token: DEMO_TOKEN },
+  })
+  expect(signedIn.status()).toBe(200)
+  // Its page, whose own requests do say they come from it: the session stays as it signed in.
+  await page.goto(`${server.url}cluster/demo/pods`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
+  const check = calls(page)
+  expect(await check.start()).toBeUndefined()
+  expect(await check.end('made-up', null, [])).toBeUndefined()
+  expect(await check.handOver()).toBe('not-held')
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { lumovi: { kube: Kube } }).lumovi.kube.pluginCode('toys'),
+    ),
+  ).toEqual({ ok: false, refused: 'not-held' })
+  expect(audited(server, 'plugin.code')).toEqual([])
+})
+
 test('where the second wall doesn’t hold, no check is started, and none is judged', async ({
   serve,
   page,
