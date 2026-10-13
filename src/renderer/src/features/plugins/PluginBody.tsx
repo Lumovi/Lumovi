@@ -14,7 +14,11 @@ import { mayStart, type Destination } from '@shared/plugin-presses'
 import type { ListedPlugin } from '@shared/plugins'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useLayout } from '@renderer/lib/layout'
-import { formatRef, listPath, pluginAsksPath } from '@renderer/lib/routes'
+import { codeOff } from '@shared/plugin-hand-over'
+import { useSettings } from '@renderer/hooks/settings'
+import { formatRef, listPath, pluginAsksPath, pluginSwitchPath } from '@renderer/lib/routes'
+import { switchesOf } from '@renderer/plugins/code-switches'
+import { PluginFrame } from '@renderer/plugins/PluginFrame'
 import { KIT_PARTS } from '@renderer/plugins/kit'
 import { Opened } from '@renderer/plugins/opened'
 import { proposeChange } from '@renderer/plugins/proposals'
@@ -36,6 +40,10 @@ export function PluginBody({
   const navigate = useNavigate()
   // Opened again by the person ("Open it again"): made anew, as a change of cluster makes it.
   const [again, setAgain] = useState(0)
+  // Its code turned off (by the person, the server or the organization): its place at once, and
+  // its code never asked for. Turned on again, the page is opened anew, as "Open it again" does.
+  const settings = useSettings().data
+  const off = settings === undefined ? undefined : codeOff(plugin.name, switchesOf(settings))
   const which = page !== undefined ? `page ${page}` : `tab ${tab} ${formatRef(object)}`
   // What a press may open, where the door says: an object's own page in Lumovi, or a list of
   // Lumovi's own as the door made it, and only what this screen may start.
@@ -44,6 +52,23 @@ export function PluginBody({
     // (A list at one object says whose page opened it.)
     if (to.to === 'list') void navigate(listPath(context, { ...to, plugin: plugin.name }))
     else openObject(to.object.kind, to.object.name, to.object.namespace)
+  }
+  if (settings === undefined) return null
+  if (off) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
+        <PluginFrame
+          name={plugin.label}
+          version={plugin.version}
+          end={{ why: 'not-handed', refused: off }}
+          plugins={pluginSwitchPath(context, plugin.name)}
+          onAgain={() => undefined}
+          onFault={() => undefined}
+        >
+          {null}
+        </PluginFrame>
+      </div>
+    )
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>

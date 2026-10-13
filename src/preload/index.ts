@@ -33,6 +33,7 @@ const api: LumoviApi = {
     setCluster: (context, settings) => invoke(IPC.setCluster, context, settings),
     setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
     setNodeShell: (context, setting) => invoke(IPC.setNodeShell, context, setting),
+    setPluginCode: (plugin, on) => invoke(IPC.setPluginCode, plugin, on),
     openExternal: (url) => invoke(IPC.openExternal, url),
     saveFile: (name, text) => invoke(IPC.saveFile, name, text),
     showSaved: (token) => invoke(IPC.showSaved, token),

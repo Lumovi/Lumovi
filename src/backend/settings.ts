@@ -43,4 +43,8 @@ export interface SettingsAccess {
   nodeShell(context: string): NodeShellSetting | null
   /** Sets where they run; null goes back to the default. */
   setNodeShell(context: string, setting: NodeShellSetting | null): Settings
+  /** This person's choices of which plugins' code runs, by plugin (`Settings.pluginCode`). */
+  pluginCode(): Readonly<Record<string, boolean>>
+  /** Turns `plugin`'s code on or off for this person: refused where it's off for them anyway. */
+  setPluginCode(plugin: string, on: boolean): Settings | Promise<Settings>
 }

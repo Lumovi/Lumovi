@@ -40,6 +40,8 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   // A person's own pins and saved views, which a phone pins and unpins too.
   'marks.get': 'reads',
   'marks.set': 'answers',
+  // (Off, a phone does it: stopping a plugin's code is done anywhere. On again, a larger screen's.)
+  'app.setPluginCode': 'answers',
   'usage.source': 'reads',
   'usage.test': 'reads',
   'usage.range': 'reads',

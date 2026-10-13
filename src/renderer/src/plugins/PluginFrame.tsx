@@ -8,6 +8,7 @@ import { Info, Plug } from 'lucide-react'
 import { Component, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { endedWords, type PageEnd } from '@shared/plugin-ended'
+import { SWITCHED_OFF } from '@shared/plugin-hand-over'
 import { Button } from '@renderer/components/Button'
 import { StaleNotice } from '@renderer/components/States'
 import type { ReadNotices } from './reads'
@@ -86,11 +87,14 @@ export function EndedPage({
   name,
   end,
   onAgain,
+  plugins,
 }: {
   name: string
   end: PageEnd
   /** The person's own press, never a retry of Lumovi's. */
   onAgain: () => void
+  /** The way to the plugin's switch on the Plugins page, where its code is off by the person's. */
+  plugins?: string
 }) {
   const words = endedWords(name, end)
   return (
@@ -121,7 +125,17 @@ export function EndedPage({
           />
         </div>
       )}
-      <p className="mt-3 text-[12px] leading-[18px] text-balance text-ink-3">{words.still}</p>
+      {words.still && (
+        <p className="mt-3 text-[12px] leading-[18px] text-balance text-ink-3">{words.still}</p>
+      )}
+      {words.toPlugins && plugins !== undefined && (
+        <Link
+          to={plugins}
+          className="mt-4 inline-flex h-8 items-center rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-ink-1 outline-none hover:bg-surface-3 focus-visible:ring-3 focus-visible:ring-accent-soft phone:h-11"
+        >
+          Open Plugins
+        </Link>
+      )}
       {words.advice && (
         <p className="mt-1.5 text-[12px] leading-[18px] text-ink-3">{words.advice}</p>
       )}
@@ -148,6 +162,7 @@ export function PluginFrame({
   onAgain,
   onFault,
   asks,
+  plugins,
   children,
 }: {
   name: string
@@ -167,6 +182,8 @@ export function PluginFrame({
   onFault: () => void
   /** Where the strip's "What it may do" goes: the plugin's entry on the Plugins page. */
   asks?: string
+  /** The way to its switch on the Plugins page, for a page whose code the person turned off. */
+  plugins?: string
   children: ReactNode
 }) {
   // (A boundary that caught something stays so until it's made anew.)
@@ -177,14 +194,22 @@ export function PluginFrame({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <WhoseStrip name={name} version={version} {...(asks === undefined ? {} : { asks })} />
+      {/* (Turned off: nothing of the plugin is drawn, so nothing is said to be its.) */}
+      {!(end?.why === 'not-handed' && SWITCHED_OFF.has(end.refused)) && (
+        <WhoseStrip name={name} version={version} {...(asks === undefined ? {} : { asks })} />
+      )}
       {!end && notices.stale !== undefined && (
         <StaleNotice error={{ message: notices.stale }} onRetry={onRetry} />
       )}
       {!end && notices.cut && <CutLine cut={notices.cut} />}
       <div className="min-h-0 flex-1 overflow-auto">
         {end ? (
-          <EndedPage name={name} end={end} onAgain={again} />
+          <EndedPage
+            name={name}
+            end={end}
+            onAgain={again}
+            {...(plugins === undefined ? {} : { plugins })}
+          />
         ) : (
           <Boundary
             key={opened}

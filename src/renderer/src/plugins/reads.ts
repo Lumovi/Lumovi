@@ -43,6 +43,7 @@ const countOf = (plugin: string) => {
 /** What ends a read, rather than failing once: said as its end. */
 const ENDS: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'changed',
+  'code-off',
   'not-yet',
   'not-granted',
   'not-in-use',

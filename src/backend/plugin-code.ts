@@ -5,11 +5,18 @@
  * the plugin's box; nothing else hands code over.
  *
  * What it asks, in order: a plugin Lumovi has in use whose code it runs (only its own: a folder's
- * file is data); one that has code; and on a server, that this session is held to coming from
+ * file is data); one that has code; that no switch turns its code off (the organization's policy,
+ * a server's administrator, the person's own: `codeOff`); and on a server, that this session is held to coming from
  * Lumovi's own page (the second wall), and that this browser has passed Lumovi's check that it
  * keeps a plugin's code apart (`box-check`), for the box's walls as they are now.
  */
-import type { NotHanded, PluginCode } from '@shared/plugin-hand-over'
+import {
+  ALL_CODE_ON,
+  codeOff,
+  type CodeSwitches,
+  type NotHanded,
+  type PluginCode,
+} from '@shared/plugin-hand-over'
 import { mayCarryCode } from '@shared/plugin-loading'
 import { PLUGIN_NAME, whose } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
@@ -20,9 +27,11 @@ import type { Recorder } from './audit/recorder'
  * session is held to Lumovi's own page and whether it passed the box's check.
  */
 export type HandOverTo =
-  | { host: 'desktop' }
+  | { host: 'desktop'; switches?: CodeSwitches }
   | {
       host: 'server'
+      /** What turns plugins' code off for this person on this server, now. */
+      switches?: CodeSwitches
       held: boolean
       /** How Lumovi's check of this browser's box came out, if it has been checked. */
       check?: 'passed' | 'failed' | 'unfinished'
@@ -37,6 +46,9 @@ export function mayHandOver(
 ): true | NotHanded {
   if (!plugin || !mayCarryCode(plugin.origin)) return 'not-in-use'
   if (plugin.code === undefined || plugin.codeDigest === undefined) return 'no-code'
+  // (Before any browser's check: code that's turned off is never asked about, nor handed.)
+  const off = codeOff(plugin.name, to.switches ?? ALL_CODE_ON)
+  if (off) return off
   if (to.host === 'desktop') return true
   // Anywhere else is a server's browser, and held only by exactly these: whatever isn't one of
   // them, or isn't said as a yes, is no.

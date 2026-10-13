@@ -13,6 +13,7 @@ import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { ServerAccess } from './access'
 import { ServerAssistants } from './assistants/assistants'
 import { PermissionsStore } from './assistants/permissions'
+import { PluginCodeStore } from './plugin-code'
 import { Auth, UNSAID } from './auth'
 import { auditorsOf, isAuditor, openAudit, personActor, SERVER_ACTOR, sessionActor } from './audit'
 import type { Hosted } from './cluster'
@@ -119,6 +120,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const permissions = config.assistants.enabled
     ? await PermissionsStore.open(config.assistants.keep, options.env)
     : undefined
+  // Whose plugins' code runs for each person: kept where their AI rules are.
+  const pluginCode = await PluginCodeStore.open(config.assistants.keep, options.env)
   // What a restart mustn't lose: who's signed in, and the assistants they allowed.
   const state = await ServerState.open(
     config.state,
@@ -475,6 +478,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         added,
         sponsor,
         transfers,
+        pluginCode,
         refusing: () => (refusing ? NOT_DONE : undefined),
         rejected: () =>
           sessions.end(

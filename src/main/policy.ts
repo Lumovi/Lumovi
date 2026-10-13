@@ -28,6 +28,12 @@
  *                                        remove one) where a cluster has no usage history
  *     "fileCopy": false,                 no files are copied out of containers or into them; or
  *                                        the most one copy carries, in bytes (1073741824)
+ *     "plugins": "no-code",              plugins as data, with none of their code; "bundled": only
+ *                                        those that come with Lumovi; "off": none at all; or a list
+ *                                        of the last two (["bundled", "no-code"])
+ *     "pluginsAllowed": ["karpenter"],   only these plugins, by name: any other isn't there
+ *     "pluginProposals": "off",          no plugin's page may propose a change
+ *     "pluginSecrets": "off",            no plugin's page may show what's in a Secret
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -36,8 +42,8 @@
  *   }
  *
  * One that can't be used locks the most it could: every cluster read-only, AI assistants off,
- * no kubectl got to match a cluster (terminals use the one installed), and only the default
- * kubeconfig, until it's put right.
+ * no kubectl got to match a cluster (terminals use the one installed), only the default
+ * kubeconfig, and no plugins, until it's put right.
  *
  * readOnly's names are kubeconfig contexts', which the person names: a list keeps them from
  * changing those clusters by mistake, `true` from changing any.
@@ -62,6 +68,7 @@ import { dirname, join } from 'node:path'
 import { parseDocument } from 'yaml'
 import { checkedLimits, type AiRule } from '@shared/ai-permissions'
 import type { ManagedSettings } from '@shared/api'
+import { PLUGIN_NAME } from '@shared/plugins'
 import { trustedMirror } from './kubectl'
 
 export interface Policy {
@@ -95,6 +102,10 @@ const KEYS = [
   'kubeconfigFiles',
   'metricsStack',
   'fileCopy',
+  'plugins',
+  'pluginsAllowed',
+  'pluginProposals',
+  'pluginSecrets',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -133,6 +144,10 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
         assistantsOff: true,
         kubectlOff: true,
         kubeconfigFilesLocked: true,
+        pluginsOff: true,
+        pluginCodeOff: true,
+        pluginProposalsOff: true,
+        pluginSecretsOff: true,
         problem,
       },
       assistantRules: [],
@@ -354,6 +369,10 @@ function checked(given: unknown, path: string): Policy {
     kubeconfigFiles,
     metricsStack,
     fileCopy,
+    plugins,
+    pluginsAllowed,
+    pluginProposals,
+    pluginSecrets,
     network = {},
   } = policy
   if (
@@ -400,6 +419,36 @@ function checked(given: unknown, path: string): Policy {
       'kubeconfigFiles must be "locked": only KUBECONFIG’s kubeconfig, or ~/.kube/config, none chosen in Lumovi.',
     )
   }
+  // (What plugins may do: off, Lumovi's own only, or data alone; and these alone, and no more.)
+  const pluginsSaid = typeof plugins === 'string' ? [plugins] : plugins
+  if (
+    pluginsSaid !== undefined &&
+    !(
+      Array.isArray(pluginsSaid) &&
+      pluginsSaid.length > 0 &&
+      (pluginsSaid.length === 1
+        ? ['off', 'bundled', 'no-code'].includes(pluginsSaid[0] as string)
+        : pluginsSaid.every((value) => value === 'bundled' || value === 'no-code'))
+    )
+  ) {
+    throw new Error('plugins must be "off", "bundled" or "no-code", or a list of the last two.')
+  }
+  if (
+    pluginsAllowed !== undefined &&
+    !(
+      Array.isArray(pluginsAllowed) &&
+      pluginsAllowed.every((name) => typeof name === 'string' && PLUGIN_NAME.test(name))
+    )
+  ) {
+    throw new Error('pluginsAllowed must be a list of plugins’ names.')
+  }
+  for (const [key, value] of [
+    ['pluginProposals', pluginProposals],
+    ['pluginSecrets', pluginSecrets],
+  ] as const) {
+    if (value !== undefined && value !== 'off') throw new Error(`${key} must be "off".`)
+  }
+  const pluginsSet = new Set((pluginsSaid ?? []) as string[])
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
     throw new Error('network must be an object: proxy, noProxy and caFiles.')
   }
@@ -434,6 +483,12 @@ function checked(given: unknown, path: string): Policy {
     ...(metricsStack === false ? { metricsStackOff: true as const } : {}),
     ...(fileCopy === false ? { fileCopyOff: true as const } : {}),
     ...(typeof fileCopy === 'number' ? { fileCopyMaxBytes: fileCopy } : {}),
+    ...(pluginsSet.has('off') ? { pluginsOff: true as const } : {}),
+    ...(pluginsSet.has('bundled') ? { pluginsBundledOnly: true as const } : {}),
+    ...(pluginsSet.has('no-code') ? { pluginCodeOff: true as const } : {}),
+    ...(Array.isArray(pluginsAllowed) ? { pluginsAllowed: pluginsAllowed as string[] } : {}),
+    ...(pluginProposals === 'off' ? { pluginProposalsOff: true as const } : {}),
+    ...(pluginSecrets === 'off' ? { pluginSecretsOff: true as const } : {}),
   }
   return {
     managed,

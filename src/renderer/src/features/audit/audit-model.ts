@@ -251,6 +251,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'access.changed': { label: 'Changed access', icon: ShieldCheck },
   'read-only.changed': { label: 'Changed read-only', icon: Lock },
   'node-shell.changed': { label: 'Changed node shells', icon: SlidersHorizontal },
+  'plugin.code-switch': { label: 'Turned a plugin’s code on or off', icon: Plug },
   'agent.pinned': { label: 'Trusted an agent', icon: ShieldCheck },
   'agent.refused': { label: 'Refused an agent', icon: ShieldX },
   'agent.trusted': { label: 'Let an agent be trusted again', icon: ShieldCheck },

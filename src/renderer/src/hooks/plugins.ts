@@ -53,19 +53,31 @@ export function usePlugins() {
   return useQuery({
     queryKey: ['plugins'],
     queryFn: async () => {
-      const [plugins, { version: lumovi }] = await Promise.all([api.app.plugins(), api.app.info()])
+      const [plugins, { version: lumovi }, { managed }] = await Promise.all([
+        api.app.plugins(),
+        api.app.info(),
+        api.app.settings(),
+      ])
       const { directory, files } = plugins
+      // Which may be there at all, by the organization's policy: none, or these by name.
+      const allowed = (name: string) =>
+        !managed?.pluginsOff && (!managed?.pluginsAllowed || managed.pluginsAllowed.includes(name))
       // (A release build has none of this: Lumovi's own are the ones built into it, and
       // nothing that's read while it runs is ever taken for one.)
-      if (LUMOVI_TEST_BUILD && plugins.included) {
-        const standIns = plugins.included.map((file) => [file.name, file.text] as const)
-        shippedProblems = loadShippedPlugins({ ...SHIPPED, ...Object.fromEntries(standIns) }, OWN)
+      const standIns =
+        LUMOVI_TEST_BUILD && plugins.included
+          ? Object.fromEntries(plugins.included.map((file) => [file.name, file.text] as const))
+          : {}
+      if (Object.keys(standIns).length > 0 || managed?.pluginsOff || managed?.pluginsAllowed) {
+        shippedProblems = loadShippedPlugins({ ...SHIPPED, ...standIns }, OWN, allowed)
       }
       const included = includedPlugins()
       const settled = settle(included, files, api.host === 'desktop' ? 'yours' : 'server', {
         lumovi,
         lumovisOwn: lumovisOwnKinds(),
       })
+      // (One the policy doesn't name isn't there: not in use, nor listed.)
+      settled.files = settled.files.filter(({ plugin }) => !plugin || allowed(plugin.name))
       const local = settled.files.flatMap(({ state, plugin }) =>
         state === 'not-in-use' ? [] : [plugin!],
       )

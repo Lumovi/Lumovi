@@ -22,6 +22,7 @@ import {
   type SettingsAccess,
 } from '@backend/settings'
 import { checkedClusterSettings, type ClusterSettings } from '@shared/cluster-settings'
+import { PLUGIN_NAME } from '@shared/plugins'
 import { NO_POLICY, type Policy } from './policy'
 
 const DEFAULTS: Settings = {
@@ -129,6 +130,18 @@ export class SettingsStore implements SettingsAccess {
     return this.update({ nodeShell: setting ? { ...others, [context]: setting } : others })
   }
 
+  pluginCode(): Readonly<Record<string, boolean>> {
+    return this.#settings.pluginCode ?? {}
+  }
+
+  setPluginCode(plugin: string, on: boolean): Settings {
+    // (Off by the organization's policy: nothing here turns it on.)
+    if (on && this.policy.managed?.pluginCodeOff) {
+      throw new Error('Your organization’s policy doesn’t let plugins run code.')
+    }
+    return this.update({ pluginCode: { ...this.pluginCode(), [plugin]: on } })
+  }
+
   /** What AI assistants may do, and where. */
   aiPermissions(): AiPermissions {
     return this.#settings.aiPermissions!
@@ -219,6 +232,8 @@ export class SettingsStore implements SettingsAccess {
             : {}),
         },
         aiPermissions,
+        // Each plugin's, as it was chosen: one that doesn't make sense is as if never chosen.
+        ...pluginCodeOf(stored.pluginCode),
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.
@@ -240,6 +255,17 @@ function clustersOf(value: unknown): { clusters?: Record<string, ClusterSettings
     }),
   )
   return Object.keys(clusters).length > 0 ? { clusters } : {}
+}
+
+/** Whose plugins' code runs, as chosen: plugins' names, each on or off (the rest left out). */
+function pluginCodeOf(value: unknown): { pluginCode?: Record<string, boolean> } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const chosen = Object.fromEntries(
+    Object.entries(value).filter(
+      ([plugin, on]) => PLUGIN_NAME.test(plugin) && typeof on === 'boolean',
+    ),
+  ) as Record<string, boolean>
+  return Object.keys(chosen).length > 0 ? { pluginCode: chosen } : {}
 }
 
 /** Whether a setting is a list of files, each where it is. */

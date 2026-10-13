@@ -137,6 +137,16 @@ export interface Settings {
   aiPermissions?: AiPermissions
   /** What the organization's policy sets on this computer, which can't be changed here. */
   managed?: ManagedSettings
+  /**
+   * Whether each plugin's code runs for this person, as they chose on the Plugins page (one they
+   * haven't chosen for: as `CODE_ON` says). On a server, kept for each person.
+   */
+  pluginCode?: Record<string, boolean>
+  /**
+   * A server's: the plugins whose code may run on it (LUMOVI_PLUGIN_CODE's names; none, where it's
+   * off). Unset: every plugin's. Not stored.
+   */
+  pluginCodeOnServer?: string[]
 }
 
 /** What a company's policy sets on a computer (the desktop app's), locked; not stored. */
@@ -163,6 +173,18 @@ export interface ManagedSettings {
   fileCopyOff?: true
   /** The most one copy of files carries, in bytes. */
   fileCopyMaxBytes?: number
+  /** No plugins at all: none of Lumovi's own, none of a person's. */
+  pluginsOff?: true
+  /** Only the plugins that come with Lumovi: a person's own aren't read. */
+  pluginsBundledOnly?: true
+  /** Plugins as data, with none of their code: no page or tab their code draws runs. */
+  pluginCodeOff?: true
+  /** Only these plugins, by name: any other isn't there. */
+  pluginsAllowed?: string[]
+  /** No plugin's page may propose a change. */
+  pluginProposalsOff?: true
+  /** No plugin's page may show what's in a Secret. */
+  pluginSecretsOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1115,6 +1137,8 @@ export interface LumoviApi {
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
     /** Where `context`'s node shells run; NODE_SHELL_DEFAULTS (or the server's) to reset. */
     setNodeShell(context: string, setting: NodeShellSetting | null): Promise<Settings>
+    /** Turns a plugin's code on or off for this person (the Plugins page's "Run its code"). */
+    setPluginCode(plugin: string, on: boolean): Promise<Settings>
     /** Opens a web page in the browser. */
     openExternal(url: string): Promise<boolean>
     /**
@@ -1497,6 +1521,7 @@ export const IPC = {
   setCluster: 'app:set-cluster',
   setMetricsSource: 'app:set-metrics-source',
   setNodeShell: 'app:set-node-shell',
+  setPluginCode: 'app:set-plugin-code',
   openExternal: 'app:open-external',
   saveFile: 'app:save-file',
   showSaved: 'app:show-saved',

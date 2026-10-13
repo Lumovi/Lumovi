@@ -7,7 +7,7 @@
  * every character that can't be seen spelled out, so it can't pass for a sentence of Lumovi's.
  */
 import { shortInPieces, type Piece } from './kit/characters'
-import { notHandedWhy, type NotHanded } from './plugin-hand-over'
+import { notHandedWhy, SWITCHED_OFF, type NotHanded } from './plugin-hand-over'
 import { whose } from './plugins'
 
 /** Every way a plugin's page ends. */
@@ -42,12 +42,14 @@ export interface EndedWords {
   why?: string
   /** The plugin's own words, in pieces: shown under "<name> said", as its and as text. */
   said?: Piece[]
-  /** That nothing else changed. */
-  still: string
+  /** That nothing else changed. (None, where its code is turned off: nothing ended, it's a setting.) */
+  still?: string
   /** A last line: for a page over its memory or processor time, or a fault of Lumovi's. */
   advice?: string
   /** Whether "Open it again" is offered: where opening again can help. */
   again: boolean
+  /** Where its code is off by the person's own switch: the way to it, on the Plugins page. */
+  toPlugins?: true
 }
 
 const STILL =
@@ -81,6 +83,9 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
         again: false,
       }
     }
+    // Its code turned off: a setting, not a fault. What turns it on, where there's anything here
+    // that can; otherwise the sentence alone.
+    if (SWITCHED_OFF.has(end.refused)) return switchedOff(end.refused)
     // A check that couldn't look: said as Lumovi's, with what the person can change; opening the
     // page again would look again where it can't.
     if (end.refused === 'check-unlooked') {
@@ -148,6 +153,31 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
     still: STILL,
     ...((end.why === 'memory' || end.why === 'processor') && { advice: ADVICE }),
     again: true,
+  }
+}
+
+/** What stands in the place of a page whose code a switch turned off: whose switch, and what then. */
+function switchedOff(refused: NotHanded): EndedWords {
+  switch (refused) {
+    case 'turned-off':
+      return {
+        title: 'You turned off its code.',
+        why: 'Turn it on in Plugins to see this page.',
+        again: false,
+        toPlugins: true,
+      }
+    case 'off-on-server':
+    case 'off-on-server-for-it':
+      return {
+        title:
+          refused === 'off-on-server'
+            ? 'This server doesn’t run plugins’ code.'
+            : 'This server doesn’t run this plugin’s code.',
+        why: 'Whoever runs Lumovi can turn it on.',
+        again: false,
+      }
+    default:
+      return { title: notHandedWhy('off-by-policy'), again: false }
   }
 }
 

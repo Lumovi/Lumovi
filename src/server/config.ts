@@ -18,6 +18,7 @@ import { isMetricsSourceSetting, isNodeShellSetting } from '@backend/settings'
 import { fileCopyMaxBytes } from '@backend/kube/files'
 import { FILE_COPY_MAX_BYTES } from '@shared/files'
 import { MAX_SESSION_HOURS } from './sessions'
+import { PLUGIN_NAME } from '@shared/plugins'
 
 export type AuthConfig =
   | { mode: 'token' }
@@ -146,6 +147,11 @@ export interface ServerConfig {
   metricsSource: MetricsSourceSetting
   /** Where node shells run unless a page says otherwise, and whether they're turned off. */
   nodeShell: { setting: NodeShellSetting; off: boolean }
+  /**
+   * The plugins whose code may run on this server (LUMOVI_PLUGIN_CODE): none, where it's off;
+   * those it names. Unset (or on): every plugin's.
+   */
+  pluginCode?: string[]
   /** Whether Lumovi's admins may install its metrics stack where a cluster has no history. */
   metricsStack: boolean
   /** The most one copy of files to or from a container carries, in bytes; 0: none is made. */
@@ -373,6 +379,7 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
     heartbeatSeconds: number('LUMOVI_HEARTBEAT_SECONDS', 30, 3600),
     metricsSource: metricsSource(value('LUMOVI_METRICS_SOURCE')),
     nodeShell: nodeShell(value),
+    ...pluginCodeOf(value('LUMOVI_PLUGIN_CODE')),
     metricsStack: metricsStack(value('LUMOVI_METRICS_STACK')),
     fileCopyMaxBytes: fileCopyLimit(value('LUMOVI_FILE_COPY_MAX_BYTES')),
     allowPrivateCharts: ['1', 'true'].includes(value('LUMOVI_ALLOW_PRIVATE_CHARTS') ?? ''),
@@ -916,6 +923,22 @@ function forwardToken(setting: string | undefined): 'id' | 'access' | undefined 
   throw new ConfigError(
     `LUMOVI_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "${setting}".`,
   )
+}
+
+/**
+ * Whose code runs: every plugin's (on, or unset), none (off), or only those it names, by commas
+ * (LUMOVI_PLUGIN_CODE). (Its value is said back when it's wrong: plugins' names, never a secret.)
+ */
+function pluginCodeOf(text: string | undefined): { pluginCode?: string[] } {
+  if (text === undefined || text === 'on') return {}
+  if (text === 'off') return { pluginCode: [] }
+  const names = text.split(',').map((name) => name.trim())
+  if (!names.every((name) => PLUGIN_NAME.test(name))) {
+    throw new ConfigError(
+      `LUMOVI_PLUGIN_CODE must be on, off, or plugins’ names separated by commas: ${text}`,
+    )
+  }
+  return { pluginCode: names }
 }
 
 /** Node shells: on unless LUMOVI_NODE_SHELL is off, and where their pods run. */

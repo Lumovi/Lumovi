@@ -806,6 +806,8 @@ export type ReadRefusal =
   | 'failed'
   /** A read Lumovi doesn't make for a plugin yet: an object's events. */
   | 'not-yet'
+  /** Its code is turned off: by the person, a server's administrator, or the organization's policy. */
+  | 'code-off'
   /** The plugin's file or code isn't what the page was handed with: it changed since. */
   | 'changed'
 
@@ -824,6 +826,7 @@ export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
   failed: 'Lumovi couldn’t read this.',
   'not-yet': 'Lumovi doesn’t read this for a plugin yet.',
   changed: 'This plugin changed since its page was opened.',
+  'code-off': 'This plugin’s code is turned off.',
 }
 
 /** What a read for a plugin comes to. */

@@ -44,6 +44,7 @@ import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from 
 import { readPlugins } from './plugins'
 import { pluginChanges } from './plugin-changes'
 import { pluginCodes, type HandOverTo } from './plugin-code'
+import { PLUGIN_NAME } from '@shared/plugins'
 import { pluginReads, secretsAskedFor } from './plugin-reads'
 
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
@@ -288,7 +289,35 @@ export function handlers({
           () => settings.setNodeShell(context, reset ? null : setting),
         )
       },
-      [IPC.plugins]: () => readPlugins(pluginsDirectory),
+      [IPC.setPluginCode]: async (plugin, on) => {
+        if (typeof plugin !== 'string' || !PLUGIN_NAME.test(plugin) || typeof on !== 'boolean') {
+          throw new Error('Expected a plugin’s name and whether its code runs')
+        }
+        // Only a plugin Lumovi has in use whose code it has: the name a person reads it by.
+        const known = (await knownPlugins()).find((p) => p.name === plugin && p.code !== undefined)
+        if (!known) throw new Error(`No plugin called “${plugin}” has code in this Lumovi.`)
+        const label = known.label ?? known.name
+        const input: Omit<Recorded, 'outcome'> = {
+          action: 'plugin.code-switch',
+          target: { kind: 'Plugin', name: plugin },
+          summary: `Turned ${on ? 'on' : 'off'} the ${label} plugin’s code`,
+          details: { plugin, on },
+        }
+        try {
+          const updated = await settings.setPluginCode(plugin, on)
+          audit.record({ ...input, outcome: 'success' })
+          return updated
+        } catch (error) {
+          audit.record({ ...input, outcome: 'refused', error: (error as Error).message })
+          throw error
+        }
+      },
+      [IPC.plugins]: async () => {
+        const read = await readPlugins(pluginsDirectory)
+        // (Lumovi's own only, or none, by the organization's policy: a person's folder isn't read.)
+        const managed = settings.get().managed
+        return managed?.pluginsOff || managed?.pluginsBundledOnly ? { ...read, files: [] } : read
+      },
 
       [IPC.contexts]: () => kube.contexts(),
       [IPC.version]: (context) => kube.version(context),
@@ -306,7 +335,12 @@ export function handlers({
       [IPC.secretValues]: async (query) => {
         // On a plugin's page: whose page, as the backend knows it, and only keys its file says
         // its pages show (`secretsAskedFor`).
-        const asked = await secretsAskedFor(query, knownPlugins, kube)
+        const asked = await secretsAskedFor(
+          query,
+          knownPlugins,
+          kube,
+          handOverTo().switches?.secretsOff === true,
+        )
         if ('refused' in asked) {
           const refused = { ok: false as const, error: asked.refused }
           if (asked.recorded) secretKeysRead(asked.recorded.query, refused, asked.recorded.plugin)
@@ -318,7 +352,7 @@ export function handlers({
         }
         return result
       },
-      [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit }),
+      [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit, to: handOverTo }),
       [IPC.pluginChange]: pluginChanges({ kube, known: knownPlugins, to: handOverTo, audit }),
       ...(() => {
         const codes = pluginCodes({ known: knownPlugins, to: handOverTo, audit })

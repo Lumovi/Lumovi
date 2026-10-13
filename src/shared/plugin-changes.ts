@@ -670,6 +670,9 @@ export interface PluginChangeRequest {
   fields?: string[]
 }
 
+/** What a person is told where the organization's policy lets no plugin propose a change. */
+export const PROPOSALS_OFF = 'Your organization’s policy doesn’t let plugins propose changes.'
+
 /** Why a proposal isn't asked, tried or made. */
 export type ChangeRefusal =
   /** No plugin Lumovi has in use by that name whose code ran here, or its page's code changed. */
@@ -683,6 +686,8 @@ export type ChangeRefusal =
   | 'no-scale'
   /** A create of a kind that's in a namespace, where the page names none and none is in view. */
   | 'no-namespace'
+  /** The organization's policy lets no plugin propose a change (the desktop app's). */
+  | 'off-by-policy'
   /** The cluster is read-only in Lumovi, or the person may not make changes there. */
   | 'read-only'
   | 'not-allowed'

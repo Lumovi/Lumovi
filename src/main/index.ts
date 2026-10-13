@@ -19,7 +19,7 @@ import { UsageHistory } from '@backend/kube/usage'
 import { setUpNetwork } from '@backend/network'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { pluginsDirectory } from '@backend/plugins'
-import { plugins } from '@backend/plugins-known'
+import { plugins, pluginsAllowedBy } from '@backend/plugins-known'
 import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
@@ -405,9 +405,25 @@ if (stdio) {
       updates,
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
-      knownPlugins: () => plugins(pluginsDirectory(homedir()), 'desktop', app.getVersion()),
+      knownPlugins: () =>
+        plugins(
+          pluginsDirectory(homedir()),
+          'desktop',
+          app.getVersion(),
+          process.env,
+          pluginsAllowedBy(policy.managed),
+        ),
       // (A window of the desktop app's: its box is a process of its own, kept apart by Electron.)
-      handOverTo: () => ({ host: 'desktop' }),
+      // What turns code off: the organization's policy, and the person's own switch, read each time.
+      handOverTo: () => ({
+        host: 'desktop',
+        switches: {
+          ...(policy.managed?.pluginCodeOff ? { policyOff: true as const } : {}),
+          ...(policy.managed?.pluginProposalsOff ? { proposalsOff: true as const } : {}),
+          ...(policy.managed?.pluginSecretsOff ? { secretsOff: true as const } : {}),
+          chosen: settings.pluginCode(),
+        },
+      }),
       rendererUrl: url,
       audit,
       auditLog,

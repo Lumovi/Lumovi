@@ -112,6 +112,8 @@ function withoutNulls(value: unknown): unknown {
 /** Lumovi's page's calls of a plugin's proposals: one function, by its request's step. */
 export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
   return async function change(said: unknown): Promise<PluginChangeAnswer> {
+    // (None proposes anything, by the organization's policy: whatever's asked, the dialog never opens.)
+    if (to().switches?.proposalsOff) return { ok: false, refused: 'off-by-policy' }
     const r = requestOf(said)
     if (!r) return { ok: false, refused: 'failed' }
     // What's to be sent, asked again here, by the door's own rule: never what no plugin may
