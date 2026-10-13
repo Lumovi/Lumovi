@@ -313,18 +313,20 @@ test('several namespaces are read five at a time, the rest waiting their turn', 
   await expect
     .poll(() => clusters.demo.requests.slice(before).filter((r) => team.test(r.path)).length)
     .toBeGreaterThanOrEqual(12)
-  // How many were being answered at once, at most, over the first twelve.
-  const reads = clusters.demo.requests
+  // When each of the first twelve arrived. (By arrivals alone: when an answer is counted as
+  // sent, on a slow runner, can be later than the client had it and asked again.)
+  const arrived = clusters.demo.requests
     .slice(before)
     .filter((request) => team.test(request.path))
     .slice(0, 12)
-  const at = (request: (typeof reads)[number]) => request.at!
-  const most = Math.max(
-    ...reads.map(
-      (one) =>
-        reads.filter((other) => at(other) <= at(one) && at(one) < at(other) + other.ms!).length,
-    ),
-  )
-  expect(most).toBeLessThanOrEqual(5)
-  expect(most).toBeGreaterThan(1)
+    .map((request) => request.at!)
+    .sort((a, b) => a - b)
+  // Five at a time, each answered 400 ms or more after it came: a read can come only once one
+  // of the five before it was answered, so 400 ms at least after the fifth before it. (Less a
+  // little, as a timer may round.)
+  for (let i = 5; i < arrived.length; i++) {
+    expect(arrived[i]! - arrived[i - 5]!, `read ${i + 1}`).toBeGreaterThanOrEqual(380)
+  }
+  // And not one at a time: the first two together.
+  expect(arrived[1]! - arrived[0]!).toBeLessThan(400)
 })
