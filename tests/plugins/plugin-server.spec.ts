@@ -130,7 +130,7 @@ test('a file says which Service, where, which port and which paths; anything els
   })
   // Only a plugin that comes with Lumovi: a folder's file has no code.
   expect(file(byName, false).problems).toContain(
-    'toys.yaml: spec.server: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they ask its server',
+    'toys.yaml: spec.server: a plugin of yours draws pages only from a folder of its own, for Developer mode: toys/plugin.yaml, with its plugin.js',
   )
   const IN = 'in: { group: example.com, kind: Widget }'
   for (const [server, problem] of [

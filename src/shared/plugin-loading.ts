@@ -134,6 +134,7 @@ export function settle(
       const read = parsePlugin(file.text, file.name, {
         ...options,
         carriesCode: mayCarryCode(origin) || folder !== undefined,
+        from: origin,
       })
       if (read.plugin && folder !== undefined && read.plugin.name !== folder) {
         return refused(
