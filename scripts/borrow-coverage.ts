@@ -92,23 +92,44 @@ export function onlyMac(mac: Coverage[], others: Coverage[]): Coverage {
 }
 
 /**
+ * How many coverage files of Linux's and Windows' shards a run of main has: as many as its E2E
+ * jobs' names (`E2E (ubuntu-latest, 2/6)`) say each platform was split into, which needn't be as
+ * many as this run's (Linux's went from four to six). Nothing where a platform has no such job.
+ */
+export function othersIn(jobs: string[]): number | undefined {
+  let count = 0
+  for (const os of ['ubuntu-latest', 'windows-latest']) {
+    const of = jobs.flatMap((name) => {
+      const total = new RegExp(`^E2E \\(${os}, \\d+/(\\d+)\\)$`).exec(name)?.[1]
+      return total ? [Number(total)] : []
+    })
+    if (of.length === 0) return undefined
+    count += Math.max(...of)
+  }
+  return count
+}
+
+/**
  * What's borrowed of the files a run of main keeps (their texts): what macOS's shards reached
  * and the other platforms' didn't, without the files that changed; or why none of it is. All or
- * nothing: with a shard missing, of macOS's or of the others', "only macOS" can't be told, and
- * a part would give a figure that's neither this run's nor main's.
+ * nothing: with a shard missing, of macOS's or of the others' (`otherShards`, as many as that
+ * run's Linux and Windows had: othersIn), "only macOS" can't be told, and a part would give a
+ * figure that's neither this run's nor main's.
  */
 export function borrowedOf(
   texts: { mac: string[]; others: string[] },
   changed: string[],
+  otherShards: number,
 ): { kept: Coverage } | { nothing: string } {
-  if (texts.mac.length !== SHARDS) {
+  const macShards = SHARDS['macos-latest']
+  if (texts.mac.length !== macShards) {
     return {
-      nothing: `${texts.mac.length} of macOS’s ${SHARDS} coverage files are there, not all of them`,
+      nothing: `${texts.mac.length} of macOS’s ${macShards} coverage files are there, not all of them`,
     }
   }
-  if (texts.others.length !== SHARDS * 2) {
+  if (texts.others.length !== otherShards) {
     return {
-      nothing: `${texts.others.length} of Linux’s and Windows’ ${SHARDS * 2} coverage files are there, not all of them`,
+      nothing: `${texts.others.length} of Linux’s and Windows’ ${otherShards} coverage files are there, not all of them`,
     }
   }
   const read = (list: string[]): Coverage[] | string => {
@@ -144,6 +165,8 @@ if (import.meta.main) {
   // Main's newest green run whose macOS ran in full, whatever started it (for now, its
   // nightly one or one by hand; a merge's runs macOS's smoke set), and whose coverage is kept.
   let run: { databaseId: number; headSha: string } | undefined
+  // (And how many of Linux's and Windows' shards it had, by its jobs.)
+  let others: number | undefined
   try {
     const runs = JSON.parse(
       gh(
@@ -159,10 +182,20 @@ if (import.meta.main) {
         ).split('\n'),
       ),
     )
+    if (run) {
+      others = othersIn(
+        gh(
+          ...['run', 'view', String(run.databaseId), '--repo', repo],
+          ...['--json', 'jobs', '--jq', '.jobs[].name'],
+        ).split('\n'),
+      )
+    }
   } catch (error) {
     nothing(`its runs couldn’t be asked for (${(error as Error).message.split('\n')[0]})`)
   }
   if (!run) nothing('no green run of CI there whose macOS ran in full, and whose coverage is kept')
+  if (others === undefined)
+    nothing(`run ${run!.databaseId}’s jobs don’t say how its Linux and Windows were split`)
   const borrowed = 'borrowed-coverage'
   rmSync(borrowed, { recursive: true, force: true })
   try {
@@ -193,7 +226,7 @@ if (import.meta.main) {
   } catch (error) {
     nothing(`what run ${run!.databaseId} keeps couldn’t be used (${(error as Error).message})`)
   }
-  const result = borrowedOf(texts, changed)
+  const result = borrowedOf(texts, changed, others!)
   if ('nothing' in result) nothing(`of run ${run!.databaseId}, ${result.nothing}`)
   const { kept } = result as { kept: Coverage }
   mkdirSync('.nyc_output', { recursive: true })

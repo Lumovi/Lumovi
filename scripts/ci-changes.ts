@@ -32,8 +32,15 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 
 const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'] as const
-/** How many machines a platform's tests are split over. */
-export const SHARDS = 4
+/**
+ * How many machines each platform's tests are split over: Linux's over more, since it runs the
+ * browser's tests and the desktop tests alike on every system as well.
+ */
+export const SHARDS = {
+  'ubuntu-latest': 6,
+  'macos-latest': 4,
+  'windows-latest': 4,
+} as const satisfies Record<(typeof OSES)[number], number>
 
 /** What only explains the app: Markdown, and images that aren't the app's (in docs/, say). */
 const isDocs = (path: string) =>
@@ -52,8 +59,8 @@ export const MACOS_FULL = 'macos-full'
  * smoke set's.
  */
 export const ranMacosInFull = (names: string[]) =>
-  Array.from({ length: SHARDS }, (_, i) => `coverage-macOS-${i + 1}`).every((name) =>
-    names.includes(name),
+  Array.from({ length: SHARDS['macos-latest'] }, (_, i) => `coverage-macOS-${i + 1}`).every(
+    (name) => names.includes(name),
   )
 
 /** What the run needs, from the event, the pull request's branch, labels and what it changes. */
@@ -95,9 +102,9 @@ export function plan({
   const e2e = OSES.flatMap((os) =>
     os === 'macos-latest' && !macos
       ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop', only: '' }]
-      : Array.from({ length: SHARDS }, (_, i) => ({
+      : Array.from({ length: SHARDS[os] }, (_, i) => ({
           os,
-          shard: `${i + 1}/${SHARDS}`,
+          shard: `${i + 1}/${SHARDS[os]}`,
           part: String(i + 1),
           projects: projectsOn(os),
           only: onlyOn(os),

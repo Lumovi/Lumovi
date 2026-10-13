@@ -262,8 +262,9 @@ jobs:
     if: needs.changes.outputs.docs != 'true'
     strategy:
       fail-fast: false
-      # Each platform's tests, split over four machines that run at once, so that each takes
-      # about as long (scripts/e2e-shard.ts); or on macOS, the smoke set (scripts/ci-changes.ts).
+      # Each platform's tests, split over machines that run at once (Linux's six, the others' four:
+      # SHARDS in scripts/ci-changes.ts), so that each takes about as long (scripts/e2e-shard.ts);
+      # or on macOS, the smoke set.
       matrix: ${{ fromJSON(needs.changes.outputs.e2e) }}
     runs-on: ${{ matrix.os }}
     # The longest shard has taken 28 minutes: room for a few failing tests' retries, so that a
@@ -346,7 +347,7 @@ jobs:
           else
             npx playwright test --test-list "$list"
           fi
-      # One file of this shard's coverage, merged here (where it's one of twelve at once) rather
+      # One file of this shard's coverage, merged here (where it's one of many at once) rather
       # than as thousands, after the last shard.
       - name: Merge coverage
         if: ${{ !cancelled() }}
