@@ -11,6 +11,7 @@ import { runInNewContext } from 'node:vm'
 import { chromium, firefox, webkit, type Frame, type Page } from '@playwright/test'
 import { BOX_LIMITS } from '../../src/shared/plugin-box.ts'
 import { gotOut, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
+import { notRefused } from '../e2e/plugin-box/worked.ts'
 import { DEMO_TOKEN, expect, refusedConfig, signIn, test, type Served } from './fixtures.ts'
 
 const WAYS = readFileSync(resolve('tests/e2e/plugin-box/ways-out.js'), 'utf8')
@@ -283,9 +284,11 @@ const GROUPS = [...new Set(ALL.map((way) => way.group))].filter((group) => group
 
 /** Every way of `where` (of one group, if given), one after another: which got something out. */
 async function tryAll(where: 'worker' | 'page', page: Page, catchers: Catchers, only?: string) {
+  // (Two frames of one plugin's at once, on the page, for what one can leave for the other: in
+  // the worker only; the box's own page is no plugin's.)
   const ways = ALL.filter(
     (way) =>
-      way.group !== 'pair' &&
+      (way.group !== 'pair' || where === 'worker') &&
       (only === undefined || way.group === only) &&
       (where === 'page' || !way.needsDom),
   )
@@ -296,12 +299,27 @@ async function tryAll(where: 'worker' | 'page', page: Page, catchers: Catchers, 
   for (const [n, { id, group }] of ways.entries()) {
     catchers.reset()
     // (No way has longer than this, whatever it does to its frame.)
-    saw[id] = await Promise.race([
-      where === 'worker'
-        ? inWorker(page, `${where}-${n}`, id, catchers.context(id))
-        : onPage(page, `${where}-${n}`, id, catchers.context(id)),
-      pause(20_000).then(() => 'took too long'),
-    ]).catch((error: Error) => `failed: ${error.message.slice(0, 80)}`)
+    const within = (tried: Promise<string>) =>
+      Promise.race([tried, pause(20_000).then(() => 'took too long')]).catch(
+        (error: Error) => `failed: ${error.message.slice(0, 80)}`,
+      )
+    if (group === 'pair') {
+      // Two boxes of one plugin alive together: what one can leave for the other.
+      const first = within(inWorker(page, `${where}-${n}-first`, id, catchers.context(id, 'first')))
+      await pause(300)
+      const second = await within(
+        inWorker(page, `${where}-${n}-second`, id, catchers.context(id, 'second')),
+      )
+      saw[id] = `first: ${await first} / second: ${second}`
+      await close(page, `${where}-${n}-first`).catch(() => undefined)
+      await close(page, `${where}-${n}-second`).catch(() => undefined)
+    } else {
+      saw[id] = await within(
+        where === 'worker'
+          ? inWorker(page, `${where}-${n}`, id, catchers.context(id))
+          : onPage(page, `${where}-${n}`, id, catchers.context(id)),
+      )
+    }
     await pause(group === 'port' ? 600 : 350)
     const got = gotOut(id, catchers.caught())
     if (got) out[id] = got
@@ -446,6 +464,9 @@ for (const [name, browsers] of [
         await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
         expect(tried).toBeGreaterThan(40)
         expect(out).toEqual({})
+        // And each way judged by what it saw was refused: none worked, whatever reached a catcher,
+        // and none said something that's neither.
+        expect(notRefused(saw)).toEqual([])
       } finally {
         await done()
       }
