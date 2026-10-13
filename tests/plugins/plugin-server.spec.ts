@@ -24,14 +24,27 @@ import { parsePlugin } from '../../src/shared/plugins.ts'
 import type { KnownPlugin } from '../../src/shared/plugins-known.ts'
 
 test('a listed path is asked for as it reads: whole segments, filled ones whole, nothing to step out', () => {
-  for (const path of ['/api/v1/targets', '/api/v1/widgets/{widget}/history', '/v1/a:b@c', '/x']) {
+  for (const path of [
+    '/api/v1/targets',
+    '/api/v1/widgets/{widget}/history',
+    '/v1/a:b@c',
+    '/x',
+    '/api/v1/targets?state=active',
+    '/api/v1/widgets/{widget}?a=1&b=two/three',
+  ]) {
     expect(pathProblem(path), path).toBeUndefined()
   }
   for (const [path, problem] of [
     ['api/v1', 'should start with /'],
     [`/${'a'.repeat(SERVER_LIMITS.pathLength)}`, 'is longer than 200 characters'],
-    ['/api?x=1', 'takes no query or fragment: Lumovi asks for the path as listed'],
-    ['/api#top', 'takes no query or fragment: Lumovi asks for the path as listed'],
+    ['/api#top', 'takes no fragment: Lumovi asks for the path as listed'],
+    ['/api?x=1#top', 'takes no fragment: Lumovi asks for the path as listed'],
+    // A fixed query, asked as listed: never filled, never empty, never escaped.
+    ['/api?', 'has an empty query'],
+    ['/api?x={widget}', 'fills nothing in its query: Lumovi asks for it as listed'],
+    ['/api?x=a b', 'has U+0020 in its query, which a query can’t hold as it is'],
+    ['/api?x=%41', 'has a %-escape: write it as it reads, and Lumovi encodes what it fills'],
+    ['/a/../b?x=1', 'can’t step with . or ..'],
     ['/a%2Fb', 'has a %-escape: write it as it reads, and Lumovi encodes what it fills'],
     ['/a//b', 'has an empty segment'],
     ['/a/', 'has an empty segment'],
@@ -53,12 +66,17 @@ test('a listed path is asked for as it reads: whole segments, filled ones whole,
     expect(pathProblem(path), path).toBe(problem)
   }
   expect(fillsOf('/a/{widget}/b/{part}')).toEqual(['widget', 'part'])
+  expect(fillsOf('/a/{widget}?b=c')).toEqual(['widget'])
 })
 
 test('a filled path takes objects’ names, encoded, and only names an object could have', () => {
   expect(filled('/w/{widget}/h', { widget: 'blue-widget' })).toBe('/w/blue-widget/h')
   expect(filled('/w/{widget}', { widget: 'a.b' })).toBe('/w/a.b')
   expect(filled('/status', {})).toBe('/status')
+  // (A fixed query, as listed.)
+  expect(filled('/w/{widget}?state=active', { widget: 'blue-widget' })).toBe(
+    '/w/blue-widget?state=active',
+  )
   const wrong: Record<string, string>[] = [
     {},
     { widget: '..' },

@@ -6,6 +6,9 @@
  * header, a cookie, a redirect or anything but JSON. The page never writes a URL, a host or a
  * query.
  *
+ * A listed path may end in a fixed query (`/api/v1/targets?state=active`), asked exactly as listed:
+ * Lumovi fills nothing in it.
+ *
  * Each ask is checked by the page (the door's counts, the tokens it holds) and again by the
  * main process or the server: the organization's policy, the plugin and the code its page was
  * handed, its file's `server`, the objects' kinds, the path as listed, then the Service and its
@@ -58,6 +61,8 @@ export const LABEL_KEY =
 export const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/
 /** A segment of a listed path: what a path holds as it is, unencoded. */
 const SEGMENT = /^[A-Za-z0-9._~!$&'()*+,;=:@-]+$/
+/** What a listed path's fixed query holds as it is: never anything Lumovi fills. */
+const QUERY = /^[A-Za-z0-9._~!$&'()*+,;=:@/?-]+$/
 /** A segment Lumovi fills from an object's name: `{name}`. */
 const FILL = /^\{([a-z][A-Za-z0-9]{0,30})\}$/
 /** An object's name, as Kubernetes has them: never `/`, `.` or `..`. */
@@ -73,9 +78,17 @@ const said = (character: string) =>
     ? `“${character}”`
     : `U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`
 
+/** A listed path's own path, and its fixed query (none, where it has none). */
+export function queryApart(listed: string): [path: string, query: string | undefined] {
+  const at = listed.indexOf('?')
+  return at < 0 ? [listed, undefined] : [listed.slice(0, at), listed.slice(at + 1)]
+}
+
 /** The segments of a listed path Lumovi fills, by their names, in order. */
 export function fillsOf(path: string): string[] {
-  return path.split('/').flatMap((segment) => FILL.exec(segment)?.[1] ?? [])
+  return queryApart(path)[0]
+    .split('/')
+    .flatMap((segment) => FILL.exec(segment)?.[1] ?? [])
 }
 
 /** What's wrong with a path as a file lists it, or nothing. */
@@ -84,12 +97,20 @@ export function pathProblem(path: string): string | undefined {
   if (path.length > SERVER_LIMITS.pathLength) {
     return `is longer than ${SERVER_LIMITS.pathLength} characters`
   }
-  if (/[?#]/.test(path)) return 'takes no query or fragment: Lumovi asks for the path as listed'
+  if (path.includes('#')) return 'takes no fragment: Lumovi asks for the path as listed'
   if (path.includes('%')) {
     return 'has a %-escape: write it as it reads, and Lumovi encodes what it fills'
   }
+  const [own, query] = queryApart(path)
+  if (query !== undefined) {
+    if (query === '') return 'has an empty query'
+    if (/[{}]/.test(query)) return 'fills nothing in its query: Lumovi asks for it as listed'
+    if (!QUERY.test(query)) {
+      return `has ${said([...query.replace(/[A-Za-z0-9._~!$&'()*+,;=:@/?-]/g, '')][0]!)} in its query, which a query can’t hold as it is`
+    }
+  }
   const fills: string[] = []
-  for (const segment of path.slice(1).split('/')) {
+  for (const segment of own.slice(1).split('/')) {
     if (segment === '') return 'has an empty segment'
     if (segment === '.' || segment === '..') return 'can’t step with . or ..'
     const fill = FILL.exec(segment)?.[1]
@@ -119,13 +140,16 @@ export function filled(path: string, names: Readonly<Record<string, string>>): s
     return undefined
   }
   if (!fills.every((fill) => NAME.test(names[fill]!))) return undefined
-  return path
+  const [own, query] = queryApart(path)
+  const asked = own
     .split('/')
     .map((segment) => {
       const fill = FILL.exec(segment)?.[1]
       return fill === undefined ? segment : encodeURIComponent(names[fill]!)
     })
     .join('/')
+  // (Its query, as listed.)
+  return query === undefined ? asked : `${asked}?${query}`
 }
 
 /** An object as Lumovi's page names it to the backend: by kind, namespace and name. */
