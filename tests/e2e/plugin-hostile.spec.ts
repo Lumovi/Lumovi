@@ -13,6 +13,7 @@ import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO } from '../mock-cluster/fixtures/demo.ts'
 import { STAND_IN } from '../mock-cluster/server.ts'
 import { holds } from '../holds.ts'
+import { placed } from '../placed.ts'
 import { CONTEXTS, expect, openCluster, panel, row, test } from './fixtures.ts'
 
 const TINKER = `apiVersion: lumovi.dev/v1beta1
@@ -473,6 +474,160 @@ test('a press of a button that only reads proposes nothing, whatever its code do
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // Asked of the cluster: the one trial behind Lumovi's dialog, which changes nothing; the
   // three refused asked nothing, and nothing was written.
+  expect(
+    clusters.demo.requests
+      .slice(before)
+      .filter((r) => r.method !== 'GET' && r.path.includes('widgets'))
+      .map((r) => `${r.method} ${r.path}?${r.search}`),
+  ).toEqual([`PATCH /apis/example.com/v1/namespaces/default/widgets/${CUSTOM.widget}?dryRun=All`])
+})
+
+/**
+ * Its code: the nearest thing to Lumovi's dialog that a page's parts draw, in the dialog's own
+ * words and with its buttons' names, and a count of every press it's told of.
+ */
+const FAKES = `box.then(({ post, listen }) => {
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  const BUTTONS = [{ key: 'cancel', name: 'Cancel' }, { key: 'resize', name: 'Resize', changes: true }]
+  let widget
+  let presses = 0
+  let outcome = 'none'
+  const header = () => ({ name: 'Tinker asks to change the Widget: presses ' + presses + ', outcome ' + outcome, buttons: BUTTONS, onPress: 'press' })
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) {
+      post(JSON.stringify({ read: 1, what: 'list', kind: 'example.com/Widget' }))
+      commit([
+        ['make', 1, 'Header', header()],
+        ['make', 2, 'Card', { title: 'What Lumovi will send', about: 'Press Resize to confirm.' }],
+        ['put', 0, 1],
+        ['put', 0, 2],
+      ])
+    }
+    if (said.read === 1 && said.objects) widget = said.objects[0] && said.objects[0].token
+    if (said.proposed) {
+      outcome = said.outcome
+      commit([['change', 1, header()]])
+    }
+    if (said.call === 'press') {
+      presses += 1
+      commit([['change', 1, header()]])
+      if (said.carries.button === 'resize') post(JSON.stringify({ propose: presses, press: said.press, change: { action: 'patch', target: widget, patch: { spec: { size: 9 } } } }))
+    }
+  })
+})
+`
+
+test('a page that draws what reads like Lumovi’s dialog draws no dialog, and none of it over Lumovi’s header; Lumovi’s own is over it, and the page under it takes no press', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'tinker.yaml'), TINKER)
+  writeFileSync(join(folder, 'tinker.js'), FAKES)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/tinker/overview`)
+  const said = body(page).locator('h2').first()
+  await expect(said).toContainText('presses 0, outcome none', { timeout: 20_000 })
+  await expect(body(page).getByText('What Lumovi will send')).toBeVisible()
+  // (Lumovi's header, by its Back button: found the same while a dialog hides the page.)
+  const header = page.locator('header:has(button[aria-label^="Back ("])')
+  const strip = body(page).getByTestId('plugin-whose')
+  const drawn = body(page).getByTestId('plugin-surface')
+  const dialog = page.getByRole('dialog')
+  /** Whether anything of the plugin's page is the topmost thing at a point. */
+  const pluginsAt = (at: { x: number; y: number }) =>
+    page.evaluate(
+      ({ x, y }) => !!document.elementFromPoint(x, y)?.closest('[data-plugin-body]'),
+      at,
+    )
+
+  // What it drew is a dialog to nobody: no part of a page has that role, whatever its words.
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.locator('dialog, [aria-modal]')).toHaveCount(0)
+  // All of it is in the plugin's rectangle, under the strip that says whose it is, and that is
+  // under Lumovi's header: across the header, nothing of the page is on top.
+  await expect(strip).toContainText('Tinker 1.0.0')
+  await expect(async () => {
+    const [top, named, whole, parts] = await Promise.all(
+      [header, strip, body(page), drawn].map(placed),
+    )
+    expect(top!.y + top!.height).toBeLessThanOrEqual(whole!.y)
+    expect(named!.y).toBeGreaterThanOrEqual(whole!.y)
+    expect(named!.y + named!.height).toBeLessThanOrEqual(parts!.y)
+    for (let x = top!.x + 2; x < top!.x + top!.width; x += 24) {
+      expect(await pluginsAt({ x, y: top!.y + top!.height / 2 })).toBe(false)
+    }
+  }).toPass({ timeout: 10_000 })
+  expect(
+    await drawn.evaluate(
+      (el) =>
+        [...el.querySelectorAll('*')].filter((e) => getComputedStyle(e).position === 'fixed')
+          .length,
+    ),
+  ).toBe(0)
+
+  // Its "Resize" proposes, and Lumovi's own dialog opens: partly over Lumovi's header, which
+  // is above the plugin's rectangle, where no page draws.
+  const before = clusters.demo.requests.length
+  const resize = body(page)
+    .locator('button')
+    .filter({ hasText: /^Resize$/ })
+  await resize.click()
+  await expect(dialog).toBeVisible({ timeout: 15_000 })
+  await expect(dialog).toContainText('From Tinker 1.0.0')
+  await expect(said).toContainText('presses 1, outcome none')
+  await dialog.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
+  await expect(async () => {
+    const [top, whole, over] = await Promise.all([header, body(page), dialog].map(placed))
+    expect(over!.y).toBeLessThan(top!.y + top!.height)
+    expect(over!.y).toBeLessThan(whole!.y)
+  }).toPass({ timeout: 10_000 })
+  // The page under it is out of reach while it's open: hidden from a screen reader, dimmed, and
+  // at each of its buttons the topmost thing is Lumovi's scrim, never the page's.
+  expect(await body(page).evaluate((el) => el.closest('[aria-hidden="true"]') !== null)).toBe(true)
+  const under = body(page)
+    .locator('button')
+    .filter({ hasText: /^(Cancel|Resize)$/ })
+  await expect(under).toHaveCount(2)
+  for (const button of await under.all()) {
+    const at = await placed(button)
+    const scrim = await page.evaluate(
+      ({ x, y }) => {
+        const top = document.elementFromPoint(x, y)
+        if (!top || top.closest('[data-plugin-body], [role="dialog"]')) return null
+        const { width, height } = top.getBoundingClientRect()
+        return {
+          whole: width >= window.innerWidth && height >= window.innerHeight,
+          clear: ['transparent', 'rgba(0, 0, 0, 0)'].includes(
+            getComputedStyle(top).backgroundColor,
+          ),
+        }
+      },
+      { x: at.x + at.width / 2, y: at.y + at.height / 2 },
+    )
+    expect(scrim).toEqual({ whole: true, clear: false })
+  }
+  // The keyboard stays in the dialog: no Tab lands on the page.
+  for (let i = 0; i < 12; i += 1) {
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(
+      true,
+    )
+  }
+  // A click where the page's own "Resize" is drawn is Lumovi's: a click beside its dialog, which
+  // is a no. The page's code is told how it ended, and of no second press.
+  const at = await placed(resize)
+  await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
+  await expect(dialog).toHaveCount(0)
+  await expect(said).toContainText('presses 1, outcome cancelled')
+  // (With the dialog gone the page is in reach again, and its code hears of a press as before.)
+  await body(page).getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(said).toContainText('presses 2, outcome cancelled')
+  await expect(dialog).toHaveCount(0)
+  // Asked of the cluster: the one trial behind Lumovi's dialog, which changes nothing.
   expect(
     clusters.demo.requests
       .slice(before)
