@@ -182,6 +182,9 @@ test('a change proposed after a press is shown in Lumovi’s dialog, asked of th
     fields: ['size', 'color'],
   })
   expect(String(change?.details?.pluginDigest)).toMatch(/^sha256:/)
+  // A patch's command would carry what was typed: its fields' paths are kept instead.
+  expect(change?.command).toBeUndefined()
+  expect(change?.details?.paths).toEqual(['spec.size', 'spec.color'])
   expect(JSON.stringify(change?.details)).not.toContain('"5"')
 })
 
@@ -232,6 +235,29 @@ test('a proposal that follows a spent press, or names a kind its file doesn’t 
   await expect(said(page)).toContainText('outcome 4 refused')
   await expect(dialog(page)).toHaveCount(0)
   expect(audited(server, 'plugin.change').map((event) => event.outcome)).toEqual(['cancelled'])
+  // What the backend is asked to send is held to the door's rule there too, whatever a page says.
+  const asked = await page.evaluate(
+    (name) =>
+      (
+        window as unknown as {
+          lumovi: { kube: { pluginChange(request: object): Promise<unknown> } }
+        }
+      ).lumovi.kube.pluginChange({
+        step: 'try',
+        plugin: 'tinker',
+        digest: '',
+        codeDigest: '',
+        context: 'demo',
+        action: 'patch',
+        target: { kind: 'Widget.example.com', name, namespace: 'default' },
+        body: {
+          metadata: { ownerReferences: [{ apiVersion: 'v1', kind: 'Pod', name: 'x', uid: 'u' }] },
+        },
+      }),
+    CUSTOM.widget,
+  )
+  expect(asked).toMatchObject({ ok: false, refused: 'not-granted' })
+  expect(audited(server, 'plugin.change')).toHaveLength(1)
 })
 
 test('on a server, a browser Lumovi hands no plugin’s code to proposes nothing', async ({

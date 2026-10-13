@@ -24,9 +24,11 @@ import {
   type FieldValue,
   type PluginChangeAnswer,
 } from '@shared/plugin-changes'
+import { whose } from '@shared/plugins'
 import { apiKindOf } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
+import { TYPE_TO_DELETE } from '@renderer/features/actions/DeleteDialog'
 import { forDiff } from '@renderer/features/assistants/ApprovalCenter'
 import { refreshAfterChange } from '@renderer/hooks/change'
 import { useProduction } from '@renderer/hooks/settings'
@@ -91,6 +93,8 @@ function refusedWords(answer: PluginChangeAnswer & { ok: false }): string {
       return 'You may not make this change here.'
     case 'no-scale':
       return 'This kind has no scale to set.'
+    case 'no-namespace':
+      return 'Pick one namespace to make it in.'
     case 'not-granted':
     case 'not-in-use':
     case 'changed':
@@ -145,10 +149,12 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
   const madeIn = base.namespace
   const title =
     proposed.action === 'create'
-      ? `${by.label} asks to create a ${apiKind}${madeIn ? ` in ${madeIn}` : ''}`
+      ? `${by.label} asks to create a new ${apiKind}${madeIn ? ` in ${madeIn}` : ''}`
       : `${by.label} asks to ${proposed.action === 'patch' ? 'change' : proposed.action} the ${apiKind} ${where}`
   const danger = proposed.action === 'delete'
-  const typeToConfirm = danger && production ? target?.name : undefined
+  // (Today's rule, as Lumovi's own Delete has it: the kinds it always asks it for, or production.)
+  const typeToConfirm =
+    danger && (TYPE_TO_DELETE.includes(kind) || production) ? target?.name : undefined
   const word = danger ? LUMOVIS_WORD.delete : (proposed.verb ?? LUMOVIS_WORD[proposed.action])
   const confirmable =
     answer?.ok === true &&
@@ -170,7 +176,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
     settle(refused ? 'refused' : 'cancelled')
   }
   const confirm = async () => {
-    if (!confirmable || typeof change === 'string' || !answer.ok) return
+    if (!confirmable || typeof change === 'string' || !answer.ok || !document.hasFocus()) return
     setMaking(true)
     const made = await api.kube.pluginChange({
       step: 'make',
@@ -237,11 +243,11 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
 
           {proposed.fields.length > 0 && (
             <section
-              aria-label={`Options, in ${by.label}’s words`}
+              aria-label={`Options, in ${whose(by.label)} words`}
               className="min-h-0 flex-1 overflow-y-auto border-t border-line px-5 py-3"
             >
               <p className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-                Options, in {by.label}’s words
+                Options, in {whose(by.label)} words
               </p>
               <div className="space-y-3">
                 {proposed.fields.map((field) => (
@@ -285,6 +291,10 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             ) : change === 'too-big' ? (
               <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
                 The change comes to more than a plugin may send.
+              </p>
+            ) : change === 'not-allowed' ? (
+              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                With these options, the change would write what no plugin may.
               </p>
             ) : (
               !danger &&
@@ -350,12 +360,14 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             {typeToConfirm !== undefined && (
               <label className="block">
                 <span className="mb-1.5 block text-xs text-ink-2">
-                  <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
+                  {production && (
+                    <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
+                  )}
                   Type{' '}
                   <span className="font-mono font-medium wrap-anywhere text-ink-1 select-all">
                     {typeToConfirm}
                   </span>{' '}
-                  to delete it on production
+                  to confirm
                 </span>
                 <input
                   data-type-to-confirm

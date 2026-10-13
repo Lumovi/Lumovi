@@ -46,8 +46,35 @@ export const CHANGE_LIMITS = {
 export const CHANGE_ACTIONS = ['patch', 'create', 'delete', 'scale'] as const
 export type ChangeAction = (typeof CHANGE_ACTIONS)[number]
 
-/** Words that read as the way out of the dialog: never a plugin's button, in any case. */
-const WAY_OUT = new Set(['cancel', 'close', 'back', 'no', 'keep', 'ok', 'done', 'don’t', "don't"])
+/**
+ * Words that read as the way out of the dialog: never a plugin's button, however it's cased or
+ * marked ("Cancel…", "Not now!"), compared on its letters alone.
+ */
+const WAY_OUT = new Set([
+  'cancel',
+  'close',
+  'back',
+  'no',
+  'keep',
+  'ok',
+  'okay',
+  'done',
+  'dont',
+  'dismiss',
+  'skip',
+  'exit',
+  'abort',
+  'notnow',
+  'nevermind',
+  'gotit',
+  'leave',
+  'stop',
+])
+const lettersOf = (text: string) =>
+  text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}]/gu, '')
 
 const label = text(CHANGE_LIMITS.label)
 const hint = text(CHANGE_LIMITS.hint)
@@ -173,8 +200,17 @@ const placeOf = (value: unknown): string | undefined =>
     ? (value as { field: string }).field
     : undefined
 
-/** Never in what a page writes: who owns an object, and who managed which field. */
-const NEVER_WRITTEN = ['ownerReferences', 'managedFields']
+/**
+ * The only names a page's metadata may hold: a patch's, its labels and annotations; a create's,
+ * also its name. Everything else of an object's metadata (its owners, finalizers, uid, version,
+ * namespace, managers) is the cluster's or Lumovi's to set: a fence, never a list of what not to.
+ */
+const METADATA_WRITTEN: Record<ChangeAction, readonly string[]> = {
+  patch: ['labels', 'annotations'],
+  scale: [],
+  delete: [],
+  create: ['name', 'generateName', 'labels', 'annotations'],
+}
 
 /**
  * What's wrong with a page's proposal as it came up the channel, in the door's words; or the
@@ -213,8 +249,8 @@ export function proposalProblem(said: unknown): string | Proposed {
     if ((verb as string).trim() === '' || /[\r\n]/.test(verb as string)) {
       return 'propose.verb: should be one line of words'
     }
-    if (WAY_OUT.has((verb as string).trim().toLowerCase())) {
-      return 'propose.verb: would read as the way out of the dialog (Cancel, Close, Back, No, Keep, OK, Done, Don’t)'
+    if (WAY_OUT.has(lettersOf(verb as string))) {
+      return 'propose.verb: would read as the way out of the dialog (Cancel, Close, Back, Not now…)'
     }
   }
   // (A choice's options carry any JSON as their values: checked as JSON apart from their shape.)
@@ -241,19 +277,9 @@ export function proposalProblem(said: unknown): string | Proposed {
       }
       proposed.in = within
     }
-    const wrong = bodyProblem(object, 'propose.change.object', keys)
+    const wrong =
+      bodyProblem(object, 'propose.change.object', keys) ?? writtenProblem(object, 'create')
     if (wrong) return wrong
-    const meta = (object as { metadata?: unknown }).metadata
-    if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
-      return 'propose.change.object.metadata: should be named values'
-    }
-    const { name, generateName, namespace } = meta as Record<string, unknown>
-    if (typeof name !== 'string' && typeof generateName !== 'string') {
-      return 'propose.change.object.metadata: should have a name or a generateName'
-    }
-    if (namespace !== undefined) {
-      return 'propose.change.object.metadata.namespace: is Lumovi’s to say'
-    }
     proposed.body = object
   } else {
     if (typeof target !== 'string' || !TOKEN.test(target)) {
@@ -261,7 +287,8 @@ export function proposalProblem(said: unknown): string | Proposed {
     }
     proposed.target = target
     if (action === 'patch') {
-      const wrong = bodyProblem(patch, 'propose.change.patch', keys)
+      const wrong =
+        bodyProblem(patch, 'propose.change.patch', keys) ?? writtenProblem(patch, 'patch')
       if (wrong) return wrong
       proposed.body = patch
     }
@@ -271,7 +298,7 @@ export function proposalProblem(said: unknown): string | Proposed {
         if (!keys.includes(place)) return `propose.change.replicas: names no field ${place}`
         proposed.replicas = { field: place }
       } else {
-        const wrong = wrongWith(replicas, number(0, 10_000, true), 'propose.change.replicas')
+        const wrong = wrongWith(replicas, number(0, REPLICAS_MOST, true), 'propose.change.replicas')
         if (wrong) return wrong
         proposed.replicas = replicas as number
       }
@@ -307,7 +334,7 @@ function withoutOptionValues(field: unknown): unknown {
 
 /** What's wrong with a field beyond its kind's shape: a number's bounds, a choice's options. */
 function fieldShapeProblem(field: Field, where: string): string | undefined {
-  if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(field.key)) return `${where}.key: should be a name`
+  if (!FIELD_KEY.test(field.key)) return `${where}.key: should be a name`
   if (field.kind === 'number') {
     if (field.min > field.max) return `${where}: its min is above its max`
     if (field.value !== undefined && (field.value < field.min || field.value > field.max)) {
@@ -335,15 +362,94 @@ function fieldShapeProblem(field: Field, where: string): string | undefined {
   return undefined
 }
 
-/** What's wrong with a patch or an object a page wrote: plain JSON, its places, nothing never written. */
-function bodyProblem(body: unknown, where: string, keys: readonly string[]): string | undefined {
+/**
+ * What's wrong with a patch or an object as it's sent, whoever filled it in: named values, never
+ * who owns it or who managed its fields, never its status, no deeper than a proposal may be; and a
+ * create's with a name (or a generateName) and no namespace of its own. Asked of what a page wrote,
+ * of what the person's values made of it, and again by the backend before anything is tried.
+ */
+export function writtenProblem(
+  body: unknown,
+  action: ChangeAction,
+  where = 'propose.change',
+): string | undefined {
+  const at = `${where}.${action === 'create' ? 'object' : 'patch'}`
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return `${where}: should be named values`
+    return `${at}: should be named values`
   }
+  if (Object.hasOwn(body, 'status')) return `${at}.status: isn’t a plugin’s to write`
   const meta = (body as { metadata?: unknown }).metadata
-  if (typeof meta === 'object' && meta !== null) {
-    const never = NEVER_WRITTEN.find((name) => Object.hasOwn(meta, name))
-    if (never) return `${where}.metadata.${never}: isn’t a plugin’s to write`
+  if (meta !== undefined && (typeof meta !== 'object' || meta === null || Array.isArray(meta))) {
+    return `${at}.metadata: should be named values`
+  }
+  if (meta) {
+    const never = Object.keys(meta).find((name) => !METADATA_WRITTEN[action].includes(name))
+    if (never !== undefined) {
+      return `${at}.metadata: holds only ${METADATA_WRITTEN[action].join(', ')}: the rest is the cluster’s or Lumovi’s to set`
+    }
+  }
+  if (action === 'create') {
+    const { name, generateName } = (meta ?? {}) as Record<string, unknown>
+    if (typeof name !== 'string' && typeof generateName !== 'string') {
+      return `${at}.metadata: should have a name or a generateName`
+    }
+  }
+  const deepest = (value: unknown, depth: number): number =>
+    typeof value !== 'object' || value === null
+      ? depth
+      : Math.max(depth, ...Object.values(value).map((item) => deepest(item, depth + 1)))
+  if (deepest(body, 0) > CHANGE_LIMITS.depth)
+    return `${at}: is nested deeper than ${CHANGE_LIMITS.depth}`
+  return undefined
+}
+
+/**
+ * What's wrong with a patch or an object as the backend is asked to send it: what's wrong with
+ * any written one, and besides, a place no value was put in, a key longer than a key may be, or
+ * more than a proposal may send.
+ */
+export function sentProblem(body: unknown, action: ChangeAction): string | undefined {
+  const wrong = writtenProblem(body, action, 'change')
+  if (wrong) return wrong
+  let found: string | undefined
+  const walk = (value: unknown): void => {
+    if (found !== undefined || typeof value !== 'object' || value === null) return
+    if (placeOf(value) !== undefined) found = 'a field’s place is left in it'
+    else if (Array.isArray(value)) value.forEach(walk)
+    else {
+      for (const [key, item] of Object.entries(value)) {
+        if (key.length > CHANGE_LIMITS.key) found = `a key is longer than ${CHANGE_LIMITS.key}`
+        if (key === '__proto__') found = 'it has a key no object may have'
+        walk(item)
+      }
+    }
+  }
+  walk(body)
+  if (found) return `change: ${found}`
+  return new TextEncoder().encode(JSON.stringify(body)).length > CHANGE_LIMITS.bytes
+    ? 'change: comes to more than a plugin may send'
+    : undefined
+}
+
+/** A scale's count, as the door takes one. */
+export const REPLICAS_MOST = 10_000
+
+/** A field's key, as a page names it: what the audit keeps of the fields the person changed. */
+export const FIELD_KEY = /^[A-Za-z][A-Za-z0-9]{0,39}$/
+
+/**
+ * What's wrong with a patch or an object a page wrote: what's wrong with it as sent, its places
+ * each a field's, and none where a value could bring in what's never written (the whole of it, or
+ * its metadata whole).
+ */
+function bodyProblem(body: unknown, where: string, keys: readonly string[]): string | undefined {
+  if (placeOf(body) !== undefined) return `${where}: a field can’t stand for the whole of it`
+  if (
+    typeof body === 'object' &&
+    body !== null &&
+    placeOf((body as { metadata?: unknown }).metadata) !== undefined
+  ) {
+    return `${where}.metadata: a field can’t stand for the whole of it`
   }
   return jsonProblem(body, where, 0, keys)
 }
@@ -440,12 +546,13 @@ export interface Filled {
 /**
  * The change with the person's values in the places the page marked: each a JSON value of its
  * field's kind, never inside a key or a text around it. Or why not: a field's value is wrong
- * (`fields`), or the change comes to more than a proposal may send (`too-big`).
+ * (`fields`), the change comes to more than a proposal may send (`too-big`), or to what no plugin
+ * may write (`not-allowed`).
  */
 export function filled(
   proposed: Proposed,
   values: Readonly<Record<string, FieldValue>>,
-): Filled | 'fields' | 'too-big' {
+): Filled | 'fields' | 'too-big' | 'not-allowed' {
   const fields = new Map(proposed.fields.map((field) => [field.key, field]))
   for (const field of proposed.fields) if (fieldWrong(field, values[field.key])) return 'fields'
   const fill = (value: unknown): unknown => {
@@ -463,6 +570,8 @@ export function filled(
     if (new TextEncoder().encode(JSON.stringify(out.body)).length > CHANGE_LIMITS.bytes) {
       return 'too-big'
     }
+    // (What the person's values made of it, asked as what a page writes is: never what no plugin may.)
+    if (writtenProblem(out.body, proposed.action)) return 'not-allowed'
   }
   if (proposed.replicas !== undefined) out.replicas = fill(proposed.replicas) as number
   return out
@@ -572,6 +681,8 @@ export type ChangeRefusal =
   | 'not-granted'
   /** A scale of a kind that has no scale. */
   | 'no-scale'
+  /** A create of a kind that's in a namespace, where the page names none and none is in view. */
+  | 'no-namespace'
   /** The cluster is read-only in Lumovi, or the person may not make changes there. */
   | 'read-only'
   | 'not-allowed'
