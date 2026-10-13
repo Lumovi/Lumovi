@@ -1141,6 +1141,29 @@
           ? 'ran: an address can still be made from text'
           : 'refused: no address can be made from text',
     ],
+    // What hashes, signs and verifies: Lumovi's, never a plugin's (and some browsers' boxes have
+    // it where others' don't).
+    ['crypto-subtle', 'script', false, () => `${typeof self.crypto?.subtle}`],
+    [
+      'back-crypto-subtle',
+      'script',
+      false,
+      () => {
+        const found = []
+        for (let at = self.crypto; at; at = Object.getPrototypeOf(at)) {
+          if (Object.getOwnPropertyDescriptor(at, 'subtle')) {
+            found.push(`subtle on ${at.constructor?.name ?? 'what it inherits from'}`)
+          }
+        }
+        try {
+          new SubtleCrypto()
+          found.push('a SubtleCrypto made')
+        } catch {
+          // (Never made, here or anywhere: no such API, or not one to make.)
+        }
+        return found.length ? `ran: ${found.join(', ')}` : 'refused: nothing hands it back'
+      },
+    ],
 
     // --- More requests ---
     [

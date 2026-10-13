@@ -242,8 +242,8 @@ test.afterAll(async () => {
 test.setTimeout(240_000)
 
 test('the list holds every way that was ever tried', () => {
-  expect(ALL).toHaveLength(165)
-  expect(new Set(ALL.map((way) => way.id)).size).toBe(165)
+  expect(ALL).toHaveLength(167)
+  expect(new Set(ALL.map((way) => way.id)).size).toBe(167)
   // Each of them judged: by the catchers alone, or by what it saw too (worked.ts). A way added
   // here fails until someone says how it's judged.
   expect(Object.keys(JUDGED).sort()).toEqual(ALL.map((way) => way.id).sort())

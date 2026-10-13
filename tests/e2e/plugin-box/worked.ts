@@ -152,6 +152,8 @@ export const JUDGED: Readonly<Record<string, 'egress' | BySaw>> = {
   'back-own-address': { worked: /^ran/, refused: /^(refused|no such API)/ },
   'back-worker-constructor': { worked: /^ran/, refused: /^refused/ },
   'back-create-object-url': { worked: /^ran/, refused: /^refused/ },
+  'crypto-subtle': { worked: /^object/, refused: /^undefined/ },
+  'back-crypto-subtle': { worked: /^ran/, refused: /^refused/ },
   // request
   websocketstream: 'egress',
   'fetch-later': 'egress',
