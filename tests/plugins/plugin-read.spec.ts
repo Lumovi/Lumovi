@@ -198,7 +198,12 @@ test('a plugin reads its own kind whole: as the cluster serves it, with nothing 
       cluster: 'demo',
       target: { kind: 'NodePool.karpenter.sh' },
       summary: 'Read NodePools for the plugin karpenter',
-      details: { plugin: 'karpenter', pluginVersion: '1.0.0', pluginDigest: FILE },
+      details: {
+        plugin: 'karpenter',
+        pluginVersion: '1.0.0',
+        pluginDigest: FILE,
+        codeDigest: CODE,
+      },
     },
   ])
   // One object, by its name.
@@ -460,6 +465,7 @@ test('a list picked by fields and labels is asked of the cluster so, and in the 
     plugin: 'karpenter',
     pluginVersion: '1.0.0',
     pluginDigest: FILE,
+    codeDigest: CODE,
     fieldSelector: 'spec.nodeName=',
   })
   // The same kind unpicked is another read, apart in the history.
