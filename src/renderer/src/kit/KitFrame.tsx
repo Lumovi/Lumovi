@@ -362,11 +362,12 @@ const refusal = <P extends Part>(part: P, written: WrittenProps<P>) =>
   wrongWithFields(written, part.props, part.required ?? [], part.name) ?? part.also?.(written)
 
 /**
- * Where Karpenter's node mix card's counts came from, in its words: longer than two lines of the
- * card (the narrower of a pair), so it's cut, and whole in its tooltip.
+ * Where Karpenter's node mix card's counts came from, in its words, as long as one may be (240
+ * characters): longer than two lines of the card (the narrower of a pair), so it's cut, and whole
+ * in its tooltip; under a finger, whole on the page.
  */
 const MIX_ABOUT =
-  'Counted from Karpenter’s own NodePools and NodeClaims, as their status says: Karpenter writes it as it launches and removes nodes, so a node launched a few seconds ago may not be counted yet. Lumovi’s own Nodes list is always current.'
+  'Counted from Karpenter’s own NodePools and NodeClaims, as their status says: Karpenter writes it as it launches and removes nodes, so a node launched a few seconds ago may not be counted yet. Lumovi’s own Nodes list is current at all times.'
 
 /** Parts that can't be drawn as they're described, each wrong in one way. */
 const REFUSED: (string | undefined)[] = [

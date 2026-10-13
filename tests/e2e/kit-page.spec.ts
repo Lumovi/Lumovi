@@ -454,6 +454,6 @@ test('a card says where its data came from, under its title: two lines, then cut
   expect(await about.evaluate((line) => line.scrollHeight > line.clientHeight)).toBe(true)
   await about.hover()
   await expect(page.getByRole('tooltip')).toContainText(
-    'Lumovi’s own Nodes list is always current.',
+    'Lumovi’s own Nodes list is current at all times.',
   )
 })

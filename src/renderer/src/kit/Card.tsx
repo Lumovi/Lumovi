@@ -36,8 +36,8 @@ export function Card({ title, note, about, children }: CardProps & { children?: 
 
 /**
  * Where a card's data came from, in the plugin's words: quiet, card-wide, two lines and then cut
- * at its end, whole in Lumovi's tooltip while it's cut. No mark and no colour: it's said, not
- * warned.
+ * at its end, whole in Lumovi's tooltip while it's cut. Under a finger, where there's no tooltip,
+ * it isn't cut: it wraps whole. No mark and no colour: it's said, not warned.
  */
 function About({ text }: { text: Their }) {
   const line = useRef<HTMLParagraphElement>(null)
@@ -49,7 +49,12 @@ function About({ text }: { text: Their }) {
         return shown !== null && shown.scrollHeight > shown.clientHeight + 1
       }}
     >
-      <p ref={line} data-about="" className="line-clamp-2 text-xs leading-[18px] text-ink-3">
+      <p
+        ref={line}
+        data-about=""
+        // (Under a finger nothing hovers: it wraps whole, all it may be.)
+        className="line-clamp-2 text-xs leading-[18px] text-ink-3 touch:line-clamp-none"
+      >
         <TheirText text={text} inline />
       </p>
     </Tooltip>
