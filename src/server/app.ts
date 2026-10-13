@@ -31,6 +31,7 @@ import { AGENT_JOINED } from './fleet/agents'
 import { FleetSettings } from './fleet/settings'
 import { AddedClusters } from './fleet/added'
 import { addNamespace } from './fleet/secrets'
+import { PeopleMarks } from './marks'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -155,6 +156,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   sponsor.start()
   // Its clusters' settings (read-only, metrics, node shells), the same for everyone.
   const clusters = new ClusterSettings(state, access, audit)
+  // (A fleet's clusters as it has them now; a single cluster's, its own.)
+  const marks = new PeopleMarks(state, (context) =>
+    hosted.hasCluster ? hosted.hasCluster(context) : context === hosted.name,
+  )
   // A fleet's page names, labels and shares its clusters (what their sources leave unset), and
   // its admins see them all.
   // Clusters added by kubeconfig or token, where the server allows it.
@@ -464,6 +469,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           isAuditor(config.audit, caller.identity) || access.readsEveryone(caller.identity.user),
         access,
         clusters,
+        marks,
         joins,
         fleetSettings,
         added,

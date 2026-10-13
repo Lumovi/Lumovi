@@ -19,6 +19,7 @@ export function Picker({
   className,
   collisionPadding,
   onOpenAutoFocus,
+  onEscapeKeyDown,
   tooltip,
   sheetHeader,
   children,
@@ -35,6 +36,8 @@ export function Picker({
   collisionPadding?: number
   /** For a popover that says itself where the focus goes. */
   onOpenAutoFocus?: (event: Event) => void
+  /** For a popover whose Escape can mean less than closing it (a name being typed). */
+  onEscapeKeyDown?: (event: KeyboardEvent) => void
   /** What the button says under a pointer. */
   tooltip?: ReactNode
   /** A phone's sheet's own top bar, in place of its title and Close (it closes itself). */
@@ -64,6 +67,7 @@ export function Picker({
             sideOffset={6}
             collisionPadding={collisionPadding}
             onOpenAutoFocus={onOpenAutoFocus}
+            onEscapeKeyDown={onEscapeKeyDown}
             aria-label={title}
             className={cn(menuContent, className)}
           >

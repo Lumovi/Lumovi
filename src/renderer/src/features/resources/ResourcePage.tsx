@@ -18,15 +18,18 @@ import {
   StaleNotice,
   UnreadNotice,
 } from '@renderer/components/States'
+import { useGo } from '@renderer/hooks/go'
 import { usePluginOf } from '@renderer/hooks/plugins'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
+import { useUpdateParams } from '@renderer/hooks/update-params'
 import { usePlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
 import { namespacesParam, readOf, scopeOf } from '@renderer/lib/namespaces'
 import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
 import { fieldValue, viewFor } from '@renderer/lib/plugins'
+import { pinnable } from '@renderer/lib/marks'
 import { isWorkloadType } from '@renderer/lib/workloads'
 import { useManagers } from '@renderer/hooks/managers'
 import { useCluster } from '@renderer/state/cluster'
@@ -57,6 +60,8 @@ import {
 import { Pagination } from './Pagination'
 import { ResourceTable } from './ResourceTable'
 import { TableSkeleton } from './TableSkeleton'
+import { openView, VIEW_PARAM, viewOfList } from './views'
+import { useOpenView, ViewsMenu, viewWords } from './ViewsMenu'
 
 const METRICS_TARGET: Partial<Record<ResourceKind, 'pods' | 'nodes'>> = {
   Pod: 'pods',
@@ -182,6 +187,28 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     namespaced: resource.namespaced,
   })
   const shown = chosen.columns
+  // The saved views: what the list shows now, and the one it was opened as (the address says).
+  const go = useGo()
+  const updateParams = useUpdateParams()
+  const current = viewOfList({
+    name: '',
+    kind,
+    state,
+    namespaced: resource.namespaced,
+    namespaces,
+    columns: usePrefs((prefs) => prefs.columns[`${context}/${kind}`]),
+  })
+  const openName = params.get(VIEW_PARAM) ?? undefined
+  const opened = useOpenView(current, openName)
+  const views = (
+    <ViewsMenu
+      current={current}
+      open={openName}
+      kinds={noun}
+      onOpen={(view) => openView(context, view, go)}
+      onNamed={(name) => updateParams((next) => next.set(VIEW_PARAM, name), { replace: true })}
+    />
+  )
 
   const needle = state.q.trim().toLowerCase()
   const { column, desc } = sortedBy(shown, state, defaultSort, columns)
@@ -261,6 +288,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           onPick={kind === 'Event' ? undefined : (keys) => setPicked({ scope: scopeKey, keys })}
           layout={chosen.layout}
           onCopy={() => chosen.copy(pickedRows)}
+          pins={pinnable(kind)}
         />
         <SelectionBar
           noun={noun}
@@ -302,6 +330,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
             />
             <SortButton columns={shown} sort={{ id: column.id, desc }} onSort={onSort} />
             {chosen.button(rows)}
+            {views}
           </div>
           <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-4 py-2">
             <span className="mr-1 text-[13px] text-ink-2">
@@ -315,10 +344,15 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
               name={(health) => healthName(kind, health)}
             />
           </div>
+          {/* (The square says no name: the view open is said here, under the bar.) */}
+          {opened && (
+            <p className="-mt-1 truncate pb-2 text-[13px] text-ink-2">View: {viewWords(opened)}</p>
+          )}
         </div>
       ) : (
         <ListBar
           count={`${number.format(items.length)} ${items.length === 1 ? 'item' : 'items'}`}
+          views={views}
           chips={
             counts.size > 0 && (
               <HealthChips

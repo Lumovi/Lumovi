@@ -12,6 +12,7 @@ import {
   type Settings,
   type ShellExit,
 } from '@shared/api'
+import type { Marks } from '@shared/marks'
 import { PATHS } from '@shared/server'
 import { Connection, LOST, useConnection } from './connection'
 import { webFiles } from './files'
@@ -122,6 +123,12 @@ export function createWebApi(): LumoviApi {
         return { ok: true, data: { name } }
       },
       plugins: invoke(IPC.plugins),
+    },
+    // The signed-in person's own: kept for them by the server.
+    marks: {
+      get: (context) => connection.invoke(IPC.marks, context) as Promise<Result<Marks>>,
+      set: (context, marks) =>
+        connection.invoke(IPC.setMarks, context, marks) as Promise<Result<Marks>>,
     },
     usage: {
       source: invoke(IPC.usageSource),

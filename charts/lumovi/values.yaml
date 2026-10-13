@@ -150,10 +150,11 @@ auth:
   # something in front of Lumovi removes that header from some requests, and can't be made to
   # keep it. Off, plugins that run code aren't offered on this server.
   secFetchSite: 'on'
-  # Sessions, the AI assistants people allowed, and what's set for each cluster (read-only,
-  # say), kept in a Secret of the chart's, so a restart (an upgrade, say) signs nobody out and
-  # changes nothing. No credential is kept as it is. false: in Lumovi's memory, so a restart
-  # signs everyone out, and the clusters' settings start over.
+  # Sessions, the AI assistants people allowed, what's set for each cluster (read-only, say),
+  # and people's pins and saved views, kept in a Secret of the chart's, so a restart (an
+  # upgrade, say) signs nobody out and changes nothing. No credential is kept as it is. false:
+  # in Lumovi's memory, so a restart signs everyone out, the clusters' settings start over, and
+  # pins and saved views are lost.
   keepSessions: true
   # What they're sealed with, apart from them: the chart makes a Secret with a random key (and
   # keeps it). Where the chart is rendered with helm template (Argo CD), which can't keep it,

@@ -35,6 +35,8 @@ export const ON_A_PHONE: ReadonlySet<string> = new Set([
 
 /** Calls that read, and change nothing. */
 const READS: readonly string[] = [
+  // A person's own pins and saved views.
+  IPC.marks,
   IPC.appInfo,
   IPC.settings,
   IPC.plugins,
@@ -139,6 +141,8 @@ const PHONE_CHANGES: Record<string, (args: unknown[]) => boolean> = {
   [IPC.change]: ([request]) => phoneMakes(request),
   // An assistant's change, approved or rejected.
   [IPC.assistantsDecide]: () => true,
+  // A person's own pins and saved views, kept for them: nothing of a cluster's or Lumovi's.
+  [IPC.setMarks]: () => true,
 }
 
 /** Every call a phone lets through: the test of this holds it to the server's own list. */

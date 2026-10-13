@@ -171,6 +171,7 @@ export function WorkloadsPage() {
           onPick={(keys) => setPicked({ scope: where, keys })}
           layout={chosen.layout}
           onCopy={() => chosen.copy(pickedRows)}
+          pins
         />
         <SelectionBar
           noun="workloads"

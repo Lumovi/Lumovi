@@ -37,6 +37,9 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'app.setReadOnly': 'changes',
   'app.setMetricsSource': 'changes',
   'app.setNodeShell': 'changes',
+  // A person's own pins and saved views, which a phone pins and unpins too.
+  'marks.get': 'reads',
+  'marks.set': 'answers',
   'usage.source': 'reads',
   'usage.test': 'reads',
   'usage.range': 'reads',

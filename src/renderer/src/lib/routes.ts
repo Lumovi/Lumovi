@@ -1,5 +1,5 @@
 import type { NavTarget } from '@shared/navigation'
-import { builtinResource, type ResourceKind } from '@shared/resources'
+import { builtinResource, resourceByPlural, type ResourceKind } from '@shared/resources'
 import { basename } from '@renderer/web/session'
 import { api } from './api'
 
@@ -34,6 +34,15 @@ export function listPath(
   if (list.labels) filters.set('labels', list.labels.join(','))
   const query = filters.toString()
   return query ? `${kindPath(context, list.kind)}?${query}` : kindPath(context, list.kind)
+}
+
+/** The kind whose list a page of `context` is (`pathname` as the address has it), if it's one. */
+export function listedKind(context: string, pathname: string): ResourceKind | undefined {
+  const base = `${clusterPath(context)}/`
+  if (!pathname.startsWith(base)) return undefined
+  const [first, second] = pathname.slice(base.length).split('/')
+  if (first === 'r') return second ? (decodeURIComponent(second) as ResourceKind) : undefined
+  return resourceByPlural(first!)?.kind
 }
 
 /** Every workload, whatever its kind. */

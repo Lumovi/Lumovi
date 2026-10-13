@@ -18,6 +18,7 @@ import {
   type Result,
   type Settings,
 } from '@shared/api'
+import { marksProblem, type Marks } from '@shared/marks'
 import type { KnownPlugin } from '@shared/plugins-known'
 import {
   describeChange,
@@ -47,6 +48,18 @@ import { pluginReads, secretsAskedFor } from './plugin-reads'
 /** Answers a call from the page. Its arguments come from the page, so they're checked. */
 export type Handler = (...args: unknown[]) => unknown
 
+/**
+ * Where a person's pins and saved views are kept, as the backend is given it: a server's, for
+ * each signed-in person, in its sealed state (src/server/marks.ts). The desktop keeps them in the
+ * page's own settings, and gives the backend none.
+ */
+export interface MarksAccess {
+  /** This person's in a cluster: none yet is nothing. */
+  get(context: string): Marks
+  /** Keeps them as given, or says why not in Lumovi's words (past the server's budget). */
+  set(context: string, marks: Marks): string | undefined
+}
+
 export interface Backend {
   kube: KubeService
   helm: HelmService
@@ -64,6 +77,8 @@ export interface Backend {
   handOverTo: () => HandOverTo
   /** The audit log, as the page's person records to it. */
   audit: Recorder
+  /** A server's: where the page's person's pins and saved views are kept. */
+  marks?: MarksAccess
 }
 
 export interface Handlers {
@@ -86,6 +101,7 @@ export function handlers({
   knownPlugins,
   handOverTo,
   audit,
+  marks,
 }: Backend): Handlers {
   /** Recorded once it's done, as it came out: but not what was only tried (a dry run). */
   const recorded =
@@ -184,8 +200,27 @@ export function handlers({
       throw error
     }
   }
+  /** A person's own: what they pinned and saved, kept only as Lumovi would make it. */
+  const ownMarks: Record<string, Handler> = marks
+    ? {
+        [IPC.marks]: (context): Result<Marks> => {
+          if (typeof context !== 'string' || context === '')
+            throw new Error('Expected a context name')
+          return { ok: true, data: marks.get(context) }
+        },
+        [IPC.setMarks]: (context, given): Result<Marks> => {
+          if (typeof context !== 'string' || context === '')
+            throw new Error('Expected a context name')
+          const problem = marksProblem(given) ?? marks.set(context, given as Marks)
+          return problem
+            ? { ok: false, error: { code: 'invalid', message: problem } }
+            : { ok: true, data: given as Marks }
+        },
+      }
+    : {}
   return {
     invoke: {
+      ...ownMarks,
       [IPC.settings]: () => settings.get(),
       [IPC.setReadOnly]: (context, readOnly) => {
         if (typeof context !== 'string' || context === '' || typeof readOnly !== 'boolean') {

@@ -110,6 +110,8 @@ const managedBy = (page: Page, name: string) =>
   deployment(page, name)
     .getByRole('gridcell')
     .filter({ has: page.getByRole('button') })
+    // (Not the row's pin, the other cell with a button.)
+    .filter({ hasNot: page.getByRole('button', { name: /^(Pin|Unpin) .* the sidebar$/ }) })
 /** Opens a row's object, by a cell that's no link or box of its own. */
 const opened = (page: Page, name: string) =>
   deployment(page, name).getByRole('gridcell').nth(1).click()

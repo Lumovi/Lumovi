@@ -8,6 +8,7 @@ import { open } from './action-helpers.ts'
 import { expect, goTo, openCluster, panel, row, rows, test } from './fixtures.ts'
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
+/** A list's headings: the rows' checkboxes first, their pins last, both without words. */
 const headers = (page: Page, label: string) =>
   page.getByRole('grid', { name: label }).getByRole('columnheader')
 /** A table in a panel, row by row, as its cells' text. */
@@ -60,7 +61,7 @@ test('the five kinds are in the sidebar, the palette and g navigation', async ({
 
 test('a role: how many rules in its list, and its rules as a table', async ({ page }) => {
   await goTo(page, 'Roles')
-  await expect(headers(page, 'Roles')).toHaveText(['', 'Name', 'Rules', 'Age'])
+  await expect(headers(page, 'Roles')).toHaveText(['', 'Name', 'Rules', 'Age', ''])
   await expect(row(page, 'Roles', 'config-reader')).toContainText('config-readershop3')
   // One with no rules at all is a row like another, and says it allows nothing.
   await expect(row(page, 'Roles', 'nothing-yet')).toContainText('nothing-yetshop0')
@@ -96,7 +97,7 @@ test('a cluster role: everything, URLs, and rules gathered from others', async (
   clusters,
 }) => {
   await goTo(page, 'Cluster Roles')
-  await expect(headers(page, 'Cluster Roles')).toHaveText(['', 'Name', 'Rules', 'Age'])
+  await expect(headers(page, 'Cluster Roles')).toHaveText(['', 'Name', 'Rules', 'Age', ''])
   await open(page, 'Cluster Roles', 'cluster-admin')
   const admin = panel(page, 'ClusterRole', 'cluster-admin')
   await expect
@@ -247,7 +248,14 @@ test('a cluster role: everything, URLs, and rules gathered from others', async (
 
 test('a binding: its role and its subjects, each a link where it’s an object', async ({ page }) => {
   await goTo(page, 'Role Bindings')
-  await expect(headers(page, 'Role Bindings')).toHaveText(['', 'Name', 'Role', 'Subjects', 'Age'])
+  await expect(headers(page, 'Role Bindings')).toHaveText([
+    '',
+    'Name',
+    'Role',
+    'Subjects',
+    'Age',
+    '',
+  ])
   await expect(row(page, 'Role Bindings', 'shop-viewers')).toContainText(
     'ClusterRole/viewGroup shop-team, and 2 more',
   )
@@ -291,6 +299,7 @@ test('a binding: its role and its subjects, each a link where it’s an object',
     'Role',
     'Subjects',
     'Age',
+    '',
   ])
   await open(page, 'Cluster Role Bindings', 'platform-admins')
   const admins = panel(page, 'ClusterRoleBinding', 'platform-admins')
@@ -309,7 +318,7 @@ test('a service account: its secrets, the bindings that name it, and the workloa
   clusters,
 }) => {
   await goTo(page, 'Service Accounts')
-  await expect(headers(page, 'Service Accounts')).toHaveText(['', 'Name', 'Secrets', 'Age'])
+  await expect(headers(page, 'Service Accounts')).toHaveText(['', 'Name', 'Secrets', 'Age', ''])
   await expect(row(page, 'Service Accounts', 'checkout')).toContainText('checkoutshop1')
   await open(page, 'Service Accounts', 'checkout')
   const checkout = panel(page, 'ServiceAccount', 'checkout')

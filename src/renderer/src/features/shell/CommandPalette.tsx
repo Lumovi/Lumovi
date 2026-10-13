@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   Blocks,
+  Bookmark,
   Plug,
   ChartSpline,
   CornerDownLeft,
@@ -19,6 +20,8 @@ import {
   LogOut,
   Monitor,
   Moon,
+  Pin,
+  PinOff,
   Scale,
   ScrollText,
   Server,
@@ -32,18 +35,23 @@ import {
   SquareTerminal,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useLocation, useSearchParams } from 'react-router'
 import type { KubeList, KubeObject } from '@shared/api'
+import { spelled } from '@shared/kit/characters'
+import { MARKS_LIMITS, samePin, type Pin as PinOf } from '@shared/marks'
 import { GO_KEYS } from '@shared/navigation'
-import { isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
-import { pluginIcon, KIND_ICONS, kindIcon } from '@renderer/components/KindIcon'
-import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
+import { apiKindOf, isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
+import { pluginIcon, KIND_ICONS, KindIcon, kindIcon } from '@renderer/components/KindIcon'
+import { StatusDot } from '@renderer/components/Status'
+import { ALT_KEY, Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
+import { usePinning } from '@renderer/hooks/marks'
 import { useContexts, useList, useObject } from '@renderer/hooks/queries'
 import { useServedPlugins } from '@renderer/hooks/plugins'
 import { useResources } from '@renderer/hooks/resources'
 import { useClusterName, useReadOnly, useSetTheme } from '@renderer/hooks/settings'
+import { pinnable } from '@renderer/lib/marks'
 import { matchWords } from '@renderer/lib/match'
 import {
   pluginPagePath,
@@ -58,16 +66,32 @@ import {
   rightsizingPath,
   workloadsPath,
   parseRef,
+  listedKind,
 } from '@renderer/lib/routes'
-import { api } from '@renderer/lib/api'
+import { api, KubeApiError } from '@renderer/lib/api'
+import { statusOf } from '@renderer/lib/health'
+import {
+  deletingView,
+  movingPin,
+  repinning,
+  undeletingView,
+  unpinning,
+  viewsOf,
+} from '@renderer/lib/marks'
+import { toast } from '@renderer/state/toasts'
 import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
 import { useSwitching } from '@renderer/state/session'
 import { useUi } from '@renderer/state/ui'
+import { TheirText } from '@renderer/plugins/TheirText'
+import { usePrefs } from '@renderer/state/prefs'
 import { useMyAccess } from '../access/use-access'
 import { useObjectActions, useRunAction } from '../actions/use-actions'
+import { openView } from '../resources/views'
+import { PIN_KEY } from '../details/PinButton'
 import { useDock } from '../terminal/dock'
 import { TERMINAL_KEYS } from '../terminal/keys'
+import { kindName, pinKey, pinNumber, pinPath, PINS_NUMBERED } from './PinnedObjects'
 import { CATEGORY_LABELS } from './Sidebar'
 
 const THEMES = [
@@ -81,6 +105,10 @@ const MIN_OBJECT_QUERY = 2
 const MAX_OBJECTS = 20
 
 const goKey = (target: string) => GO_KEYS.find((entry) => entry.target === target)!.key
+
+/** A pinned object's row: told apart from the same object found by its name ("object"). */
+const pinValue = (pin: PinOf, kind: string) =>
+  `${pin.name} ${kind} ${pin.namespace ?? ''} pinned ${formatRef(pin)}`
 
 /** Every object in the lists already loaded for this cluster, without duplicates. */
 function useCachedObjects(context: string): KubeObject[] {
@@ -122,7 +150,19 @@ function Palette({ onDone }: { onDone: () => void }) {
   const clusterName = useClusterName()
   const namespaces = useList('Namespace', { namespace: null }).data ?? []
   // The cluster's other kinds, custom resources included.
-  const others = (useResources().data ?? []).filter((r) => !isBuiltinKind(r.kind))
+  const known = useResources().data
+  const resources = known ?? []
+  const others = resources.filter((r) => !isBuiltinKind(r.kind))
+  const served = new Map(resources.map((r) => [r.kind as string, r]))
+  const pinnedKinds = usePrefs((prefs) => prefs.pinned).flatMap((kind) => served.get(kind) ?? [])
+  const pinning = usePinning()
+  const pins = pinning.marks.pins
+  // The row that's chosen, for what the keys do to a pin's (⌥↑ ⌥↓ move it, ⌫ unpins it).
+  const [chosen, setChosen] = useState('')
+  // Pins unpinned here: shown where they were, with their Undo, while the palette is open (a
+  // dialog, which keeps a screen reader in it, out of a toast's reach). And what it's told.
+  const [unpinned, setUnpinned] = useState<{ pin: PinOf; kind: string; at: number }[]>([])
+  const [said, setSaid] = useState('')
   const plugins = useServedPlugins()
   const setTheme = useSetTheme()
   const setShortcuts = useUi((ui) => ui.setShortcuts)
@@ -146,9 +186,139 @@ function Palette({ onDone }: { onDone: () => void }) {
   }
   const go = useGo()
   const access = useMyAccess()
+  const numbered = PINS_NUMBERED && !touch
+  // The saved views: the open list's kind's first; all of them once something's typed.
+  const here = listedKind(context, useLocation().pathname)
+  const views = pinning.marks.views
+  const viewsHere = here ? viewsOf(pinning.marks, here) : []
+  const viewsElsewhere = needle ? views.filter((view) => view.kind !== here) : []
+  const kindLabel = (kind: string) => served.get(kind)?.label ?? apiKindOf(kind)
+  const deleteView = (view: (typeof views)[number]) => async () => {
+    const { marks: next, at } = deletingView(pinning.latest(), view)
+    const why = await pinning.save(next)
+    if (why) return toast({ tone: 'error', title: why })
+    toast({
+      tone: 'success',
+      title: `Deleted the view “${view.name}”`,
+      action: {
+        label: 'Undo',
+        run: () =>
+          void pinning
+            .save(undeletingView(pinning.latest(), view, at))
+            .then((no) => no && toast({ tone: 'error', title: no })),
+      },
+    })
+  }
+  const viewItems = (list: typeof views) =>
+    list.flatMap((view) => {
+      // (Judged once the cluster has said what it serves.)
+      const gone = known !== undefined && !served.has(view.kind)
+      const value = `${view.name} ${kindLabel(view.kind)} view ${view.kind}`
+      return gone
+        ? [
+            <Item
+              key={`${view.kind}/${view.name}`}
+              icon={<Bookmark />}
+              value={value}
+              disabled
+              hint={
+                <span className="text-xs text-ink-3">
+                  This cluster doesn’t serve {apiKindOf(view.kind)} any more
+                </span>
+              }
+              onSelect={() => undefined}
+            >
+              {view.name}
+            </Item>,
+            <Item
+              key={`${view.kind}/${view.name}/delete`}
+              icon={<Bookmark />}
+              value={`Delete ${value}`}
+              onSelect={run(deleteView(view))}
+            >
+              Delete the view “{view.name}”
+            </Item>,
+          ]
+        : [
+            <Item
+              key={`${view.kind}/${view.name}`}
+              icon={<Bookmark />}
+              value={value}
+              hint={<span className="text-xs text-ink-3">{kindLabel(view.kind)}</span>}
+              onSelect={run(() => openView(context, view, go))}
+            >
+              {view.name}
+            </Item>,
+          ]
+    })
+  const pinRows = pins.map((pin) => ({ pin, kind: kindName(pin, served) }))
+  const chosenPin = pinRows.findIndex(({ pin, kind }) => pinValue(pin, kind) === chosen)
+  const chosenUnpinned = unpinned.find(({ pin, kind }) => pinValue(pin, kind) === chosen)
+  // The pins in their order, each unpinned here back where it was.
+  const pinnedRows: (
+    { pin: PinOf; kind: string; index: number } | { unpinned: (typeof unpinned)[number] }
+  )[] = pinRows.map((row, index) => ({ ...row, index }))
+  for (const each of [...unpinned].sort((a, b) => a.at - b.at)) {
+    pinnedRows.splice(Math.min(each.at, pinnedRows.length), 0, { unpinned: each })
+  }
+  const unpinHere = async (pin: PinOf, kind: string) => {
+    const { marks: next, at } = unpinning(pinning.latest(), pin)
+    if (at < 0) return
+    // Its row turns unpinned in the same moment it leaves the pins: the row it was, still chosen.
+    setUnpinned((list) => [...list, { pin, kind, at }])
+    const why = await pinning.save(next)
+    if (why) {
+      setUnpinned((list) => list.filter((each) => !samePin(each.pin, pin)))
+      return setSaid(why)
+    }
+    setSaid(`Unpinned ${kind} ${spelled(pin.name)}.`)
+  }
+  const undo = async ({ pin, at }: (typeof unpinned)[number]) => {
+    const why = await pinning.save(repinning(pinning.latest(), pin, at))
+    if (why) return setSaid(why)
+    setUnpinned((list) => list.filter((each) => !samePin(each.pin, pin)))
+  }
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    const number = pinNumber(event)
+    if (number !== undefined) {
+      const pin = numbered ? pins[number - 1] : undefined
+      // (Nothing typed in the field either way: ⌥ with a number types a character on a Mac.)
+      event.preventDefault()
+      if (pin) run(() => go(pinPath(context, pin)))()
+      return
+    }
+    // On one unpinned here, ↵ undoes; ⌫ and ⌥↑ ⌥↓ do nothing.
+    if (
+      chosenUnpinned &&
+      (event.key === 'Backspace' ||
+        (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')))
+    ) {
+      if (event.key !== 'Backspace' || search === '') event.preventDefault()
+      return
+    }
+    if (chosenPin < 0) return
+    const { pin, kind } = pinRows[chosenPin]!
+    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      // (Before cmdk, whose ⌥↑ and ⌥↓ go from group to group.)
+      event.preventDefault()
+      const to = chosenPin + (event.key === 'ArrowUp' ? -1 : 1)
+      if (to >= 0 && to < pins.length) void pinning.save(movingPin(pinning.latest(), chosenPin, to))
+    } else if (event.key === 'Backspace' && search === '' && !event.altKey && !event.metaKey) {
+      event.preventDefault()
+      void unpinHere(pin, kind)
+    }
+  }
 
   return (
-    <Command loop filter={matchWords} className="phone:flex phone:h-full phone:flex-col">
+    <Command
+      loop
+      filter={matchWords}
+      value={chosen}
+      onValueChange={setChosen}
+      onKeyDown={onKeyDown}
+      className="phone:flex phone:h-full phone:flex-col"
+    >
       <div className="phone:flex phone:items-center phone:border-b phone:border-line phone:pr-1">
         <Command.Input
           autoFocus
@@ -163,6 +333,51 @@ function Palette({ onDone }: { onDone: () => void }) {
       </div>
       <Command.List className="max-h-[420px] overflow-y-auto p-2 phone:max-h-none phone:min-h-0 phone:flex-1 phone:pb-[max(0.5rem,var(--keyboard,0px))] [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
         <Command.Empty className="py-10 text-center text-ink-3">No matches.</Command.Empty>
+        {(pinnedRows.length > 0 || pinnedKinds.length > 0) && (
+          <Command.Group heading="Pinned">
+            {/* (One row each, by the pin: unpinned here, it stays the row it was, still chosen.) */}
+            {pinnedRows.map((row) =>
+              'unpinned' in row ? (
+                <PinnedOption
+                  key={formatRef(row.unpinned.pin)}
+                  pin={row.unpinned.pin}
+                  kind={row.unpinned.kind}
+                  onOpen={() => undefined}
+                  onUndo={() => void undo(row.unpinned)}
+                />
+              ) : (
+                <PinnedOption
+                  key={formatRef(row.pin)}
+                  pin={row.pin}
+                  kind={row.kind}
+                  number={numbered && row.index < MARKS_LIMITS.numbered ? row.index + 1 : undefined}
+                  onOpen={(to) => run(() => go(to))()}
+                />
+              ),
+            )}
+            {pinnedKinds.map((resource) => {
+              const Icon = kindIcon(resource.kind)
+              return (
+                <Item
+                  key={resource.kind}
+                  icon={<Icon />}
+                  value={`${resource.label} pinned kind`}
+                  onSelect={run(() => go(kindPath(context, resource.kind)))}
+                >
+                  {resource.label}
+                </Item>
+              )
+            })}
+          </Command.Group>
+        )}
+        {viewsHere.length > 0 && (
+          <Command.Group heading={`Views of ${kindLabel(here!)}`}>
+            {viewItems(viewsHere)}
+          </Command.Group>
+        )}
+        {viewsElsewhere.length > 0 && (
+          <Command.Group heading="Views">{viewItems(viewsElsewhere)}</Command.Group>
+        )}
         {open && <ObjectActions open={open} run={run} />}
         {matches.length > 0 && (
           <Command.Group heading="Objects">
@@ -456,8 +671,29 @@ function Palette({ onDone }: { onDone: () => void }) {
           )}
         </Command.Group>
       </Command.List>
+      <p role="status" className="sr-only">
+        {said}
+      </p>
       {/* (Keys to press: of no use to a finger.) */}
       <footer className="flex items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3 touch:hidden">
+        {chosenUnpinned && (
+          <span className="flex items-center gap-1.5">
+            <Kbd>↵</Kbd> to undo
+          </span>
+        )}
+        {chosenPin >= 0 && (
+          <>
+            <span className="flex items-center gap-1.5">
+              <Kbd>{ALT_KEY === '⌥' ? '⌥↑' : `${ALT_KEY}+↑`}</Kbd>
+              <Kbd>{ALT_KEY === '⌥' ? '⌥↓' : `${ALT_KEY}+↓`}</Kbd> to move the pin
+            </span>
+            {search === '' && (
+              <span className="flex items-center gap-1.5">
+                <Kbd>⌫</Kbd> to unpin
+              </span>
+            )}
+          </>
+        )}
         <span className="flex items-center gap-1.5">
           <Kbd>↑</Kbd>
           <Kbd>↓</Kbd> to move
@@ -473,6 +709,99 @@ function Palette({ onDone }: { onDone: () => void }) {
         </span>
       </footer>
     </Command>
+  )
+}
+
+/**
+ * A pinned object's row, as the sidebar's: its kind's icon, its name, its namespace quietly, its
+ * status now as a dot, and its number key. One that's gone is struck through and opens its
+ * kind's list filtered to its name, as one that can't be read does. Unpinned here (`onUndo`), it
+ * says so where it was, its crossed pin and its name quiet (not struck, as a gone one is), and ↵
+ * undoes it.
+ */
+function PinnedOption({
+  pin,
+  kind,
+  number,
+  onOpen,
+  onUndo,
+}: {
+  pin: PinOf
+  kind: string
+  number?: number
+  onOpen: (to: string) => void
+  onUndo?: () => void
+}) {
+  const { context } = useCluster()
+  const object = useObject(pin.kind, pin.name, pin.namespace)
+  const code = object.error instanceof KubeApiError ? object.error.code : undefined
+  const gone = code === 'not-found'
+  const unreadable = code === 'forbidden' || code === 'not-allowed'
+  const status = object.data && !gone && !unreadable ? statusOf(pin.kind, object.data) : undefined
+  const called = `${kind} ${spelled(pin.name)}${pin.namespace ? ` in ${pin.namespace}` : ''}`
+  const to =
+    gone || unreadable
+      ? `${kindPath(context, pin.kind)}?q=${encodeURIComponent(pin.name)}`
+      : pinPath(context, pin)
+  if (onUndo) {
+    return (
+      <Item
+        icon={<PinOff />}
+        value={pinValue(pin, kind)}
+        label={`${kind} ${spelled(pin.name)}: unpinned. Enter undoes it.`}
+        hint={
+          <span className="shrink-0 text-xs text-ink-3">
+            Unpinned · <span className="text-accent-strong">Undo</span>
+          </span>
+        }
+        onSelect={onUndo}
+      >
+        <span className="text-ink-3">
+          <TheirText text={{ their: pin.name }} inline />
+        </span>
+      </Item>
+    )
+  }
+  return (
+    <Item
+      icon={<KindIcon kind={pin.kind} />}
+      value={pinValue(pin, kind)}
+      label={
+        gone
+          ? `${called}: not in the cluster any more`
+          : unreadable
+            ? `${called}: you can’t read it any more`
+            : status
+              ? `${called}, ${status.label}`
+              : called
+      }
+      keys="Alt+ArrowUp Alt+ArrowDown Backspace"
+      hint={
+        <span className="flex min-w-0 items-center gap-2">
+          {pin.namespace && (
+            <span className="min-w-0 truncate text-xs text-ink-3">
+              <TheirText text={{ their: pin.namespace }} inline />
+            </span>
+          )}
+          {status && <StatusDot health={status.health} />}
+          {number !== undefined && (
+            <span aria-hidden className="shrink-0">
+              <Kbd>{pinKey(number)}</Kbd>
+            </span>
+          )}
+        </span>
+      }
+      onSelect={() => onOpen(to)}
+    >
+      <span
+        className={cn(
+          (gone || unreadable) && 'text-ink-3',
+          gone && 'line-through [&_*]:line-through',
+        )}
+      >
+        <TheirText text={{ their: pin.name }} inline />
+      </span>
+    </Item>
   )
 }
 
@@ -498,7 +827,17 @@ function ObjectActionItems({
 }) {
   const available = useObjectActions(object)
   const start = useRunAction()
-  if (available.length === 0) return null
+  const { pinned, toggle } = usePinning()
+  const kind = kindOf(object)
+  const pin: PinOf = {
+    kind,
+    name: object.metadata.name,
+    ...(object.metadata.namespace ? { namespace: object.metadata.namespace } : {}),
+  }
+  const called = `${apiKindOf(kind)} ${spelled(pin.name)}`
+  const on = pinned(pin)
+  // (Nothing to do to it, and nothing to pin: no Actions at all.)
+  if (available.length === 0 && !pinnable(kind)) return null
   return (
     <Command.Group heading="Actions">
       {available.map(({ action, disabled }) => (
@@ -513,6 +852,16 @@ function ObjectActionItems({
           {action.label}
         </Item>
       ))}
+      {pinnable(kind) && (
+        <Item
+          icon={on ? <PinOff /> : <Pin />}
+          value={`${on ? 'Unpin' : 'Pin'} ${object.metadata.name} sidebar action`}
+          hint={<Keys keys={[PIN_KEY]} />}
+          onSelect={run(() => toggle(pin, called))}
+        >
+          {on ? 'Unpin' : 'Pin'} {called}
+        </Item>
+      )}
     </Command.Group>
   )
 }
@@ -534,6 +883,8 @@ function Item({
   onSelect,
   disabled,
   whole = false,
+  label,
+  keys,
   children,
 }: {
   icon: ReactNode
@@ -541,6 +892,10 @@ function Item({
   value: string
   onSelect: () => void
   disabled?: boolean
+  /** Its name for a screen reader, where what's drawn says less (or draws marks). */
+  label?: string
+  /** The keys that work on it (aria-keyshortcuts). */
+  keys?: string
   /** Its name is never cut: what's beside it gives way. */
   whole?: boolean
   children: ReactNode
@@ -550,6 +905,8 @@ function Item({
       value={value}
       onSelect={onSelect}
       disabled={disabled}
+      aria-label={label}
+      aria-keyshortcuts={keys}
       className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-[13.5px] text-ink-1 select-none data-[disabled=true]:opacity-45 data-[selected=true]:bg-surface-3 touch:h-11 touch:active:bg-surface-3 touch:data-[selected=true]:bg-transparent [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-ink-3"
     >
       {icon}
