@@ -385,6 +385,125 @@ test('a plugin’s pages ask its server four at a time between them: the rest wa
   expect(most).toBe(4)
 })
 
+/**
+ * Its code: what reads like an address, or a class, wherever a page's parts take a plugin's words
+ * (but a Graph's and a Split's, which hold the same names and notes).
+ */
+const ADDRESSES = `box.then(({ post, listen }) => {
+  listen((text) => {
+    if (!JSON.parse(text).open) return
+    post(JSON.stringify({ commit: [
+      ['make', 1, 'Stack', {}],
+      ['make', 2, 'Header', {
+        name: 'https://evil.example/header x-plugin-class',
+        status: { level: 'warning', word: 'https://evil.example/word', detail: 'www.evil.example/detail' },
+        buttons: [
+          { key: 'b1', name: 'https://evil.example/button', note: 'www.evil.example/button-note' },
+          { key: 'b2', name: 'x-plugin-class button', off: 'https://evil.example/off' },
+        ],
+      }],
+      ['make', 3, 'Card', { title: 'bg-[#ff00aa] x-plugin-class', note: 'www.evil.example/note', about: 'https://evil.example/about x-plugin-class' }],
+      ['make', 4, 'Tiles', { tiles: [
+        { key: 't', label: 'javascript:alert(1)', value: { kind: 'words', text: 'https://evil.example/tile' }, detail: 'mailto:someone@evil.example' },
+        { key: 'u', label: 'Second', value: { kind: 'figure', text: 'www.evil.example/figure' } },
+      ] }],
+      ['make', 5, 'Counts', { groups: [{ title: 'x-plugin-class counts', rows: [{ value: 'https://evil.example/count', count: 1 }] }] }],
+      ['make', 6, 'Table', {
+        title: 'https://evil.example/table',
+        headings: true,
+        leadHeading: 'www.evil.example/lead',
+        columns: [{ name: 'https://evil.example/column', kind: 'text' }, { name: 'x-plugin-class column', kind: 'status' }],
+        rows: [{
+          key: 'r',
+          lead: { name: 'https://evil.example/row', beside: 'www.evil.example/beside', under: 'https://evil.example/under' },
+          cells: [
+            { kind: 'text', text: 'https://evil.example/cell', full: 'https://evil.example/full' },
+            { kind: 'status', level: 'healthy', word: 'https://evil.example/status' },
+          ],
+          note: 'https://evil.example/row-note',
+        }],
+      }],
+      ['make', 7, 'Card', { title: 'Markup', note: '<a href="https://evil.example/a" class="x-plugin-class">www.evil.example/text</a>' }],
+      ['make', 8, 'Table', {
+        title: 'Failed',
+        headings: false,
+        columns: [{ name: 'One', kind: 'text' }],
+        rows: [],
+        state: { is: 'failed', title: 'https://evil.example/failed', said: 'style="background:url(https://evil.example/said)"' },
+      }],
+      ['put', 3, 5],
+      ['put', 7, 8],
+      ['put', 1, 2], ['put', 1, 3], ['put', 1, 4], ['put', 1, 6], ['put', 1, 7],
+      ['put', 0, 1],
+    ] }))
+  })
+})
+`
+
+test('a plugin’s words are drawn as text wherever its parts take them: no link, class, style or attribute is made of them', async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'tinker.yaml'), TINKER)
+  writeFileSync(join(folder, 'tinker.js'), ADDRESSES)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/tinker/overview`)
+  // All of it drawn, as its words. (A button's "off" is its tooltip, and a cell's "full" its
+  // own: what's in an attribute's value is swept below with the rest.)
+  for (const words of [
+    'https://evil.example/header x-plugin-class',
+    'https://evil.example/word',
+    'www.evil.example/detail',
+    'https://evil.example/button',
+    'www.evil.example/button-note',
+    'x-plugin-class button',
+    'bg-[#ff00aa] x-plugin-class',
+    'www.evil.example/note',
+    'https://evil.example/about x-plugin-class',
+    'javascript:alert(1)',
+    'https://evil.example/tile',
+    'mailto:someone@evil.example',
+    'www.evil.example/figure',
+    'x-plugin-class counts',
+    'https://evil.example/count',
+    'https://evil.example/table',
+    'www.evil.example/lead',
+    'https://evil.example/column',
+    'x-plugin-class column',
+    'https://evil.example/row',
+    'www.evil.example/beside',
+    'https://evil.example/under',
+    'https://evil.example/cell',
+    'https://evil.example/status',
+    'https://evil.example/row-note',
+    '<a href="https://evil.example/a" class="x-plugin-class">www.evil.example/text</a>',
+    'https://evil.example/failed',
+    'style="background:url(https://evil.example/said)"',
+  ]) {
+    await expect(body(page), words).toContainText(words, { timeout: 20_000 })
+  }
+  // Nothing on the page is a link to any of it, nor anything else made of its words: no class,
+  // no style, and no attribute's name.
+  const made = await page.evaluate(() => {
+    const found: string[] = []
+    for (const element of document.querySelectorAll('*')) {
+      for (const { name, value } of element.attributes) {
+        if (/plugin-class|evil/.test(name)) found.push(`an attribute ${name}`)
+        if (name === 'class' && /x-plugin-class|#ff00aa/.test(value)) found.push(`class ${value}`)
+        if (name === 'style' && /evil|#ff00aa|url\(/.test(value)) found.push(`style ${value}`)
+        if (['href', 'src', 'action', 'formaction', 'xlink:href'].includes(name)) {
+          if (/evil\.example|^mailto:|^javascript:/.test(value)) found.push(`${name} ${value}`)
+        }
+      }
+    }
+    return found
+  })
+  expect(made).toEqual([])
+  // The one link on it is Lumovi's own, in its strip.
+  await expect(body(page).getByRole('link')).toHaveText(['What it may do →'])
+})
+
 const POD = DEMO.pods.storefront[0]!
 /** A line a container writes while a plugin's page shows its logs. */
 const MARK = 'only-lumovi-reads-this-line'
