@@ -6,6 +6,7 @@
 import {
   ArrowLeft,
   Check,
+  CircleDashed,
   FileCode2,
   Info,
   Lock,
@@ -41,17 +42,33 @@ import { PLUGIN_PAGES } from './integrations'
 import type { Reach } from '@shared/kit/declare'
 import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
+import {
+  offerFor,
+  releaseOf,
+  StoreLine,
+  timeOf,
+  useNotHere,
+  usePluginStore,
+  type Offer,
+} from './store'
 
-/** A line of the list: one of Lumovi's plugins, or a file of the folder. */
+/**
+ * A line of the list: one of Lumovi's plugins, a file of the folder, or one of Lumovi-plugins'
+ * latest release that this Lumovi doesn't carry (`store`).
+ */
 interface Row {
   key: string
   /** As the sidebar has it; a file that holds no plugin goes by its name. */
   title: string
   plugin?: Plugin
-  origin: 'lumovi' | 'yours' | 'server'
+  origin: 'lumovi' | 'yours' | 'server' | 'store'
   file?: string
-  /** `replaced`: one of Lumovi's with a file in its place. */
-  state: Loaded['state'] | 'replaced'
+  /** `replaced`: one of Lumovi's with a file in its place. `not-here`: one this Lumovi lacks. */
+  state: Loaded['state'] | 'replaced' | 'not-here'
+  /** What Lumovi-plugins' latest release offers for it: a newer version, or one too new. */
+  offer?: Offer
+  /** The store's release it's from, for one this Lumovi lacks. */
+  release?: string
   /** For one in Lumovi's place, that plugin; for one of Lumovi's replaced, the file. */
   lumovis?: Plugin
   replacedBy?: string
@@ -60,11 +77,16 @@ interface Row {
   here: boolean
 }
 
-type Filter = 'all' | 'here' | 'yours' | 'unused'
+type Filter = 'all' | 'here' | 'yours' | 'unused' | 'updates' | 'not-here'
+
+/** The filters of what the store found: shown only where they'd list something. */
+const FOUND: readonly Filter[] = ['updates', 'not-here']
 
 const HOST = api.host === 'desktop' ? 'yours' : 'server'
 const label = (plugin: Plugin) => plugin.place?.label ?? plugin.name
 const inUse = (row: Row) => row.state === 'in-use' || row.state === 'in-place-of'
+/** Whether it's in the page's own list: any but one this Lumovi lacks. */
+const carried = (row: Row) => row.state !== 'not-here'
 
 /** "Pods and Jobs", "Pods, Jobs and Secrets". */
 function listed(names: string[]): string {
@@ -101,6 +123,18 @@ export function PluginsPage() {
   const phone = useLayout() === 'phone'
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
+  // What's newer in Lumovi-plugins (the desktop app's): checked as the page opens.
+  const store = usePluginStore()
+  const release = releaseOf(store.check)
+  const lumovi = plugins?.lumovi ?? '0.0.0'
+  const notHere = useNotHere(
+    release,
+    new Set([
+      ...(plugins?.included ?? []).map(({ name }) => name),
+      ...(plugins?.files ?? []).flatMap(({ plugin }) => (plugin ? [plugin.name] : [])),
+    ]),
+    lumovi,
+  )
   // The address may name a plugin to open (a link to what it asks for). A name only: anything
   // that isn't one, or that no plugin here has, opens nothing.
   const [params, setParams] = useSearchParams()
@@ -138,6 +172,7 @@ export function PluginsPage() {
         (file) => file.state === 'in-place-of' && file.lumovis === plugin,
       )
       const replacedBy = replacing && plain(replacing.file)
+      const offer = replacedBy ? undefined : offerFor(plugin, release, lumovi)
       return {
         key: `lumovi:${plugin.name}`,
         title: label(plugin),
@@ -147,6 +182,7 @@ export function PluginsPage() {
         replacedBy,
         problems: [],
         here: here(plugin),
+        ...(offer ? { offer } : {}),
       }
     }),
     ...plugins.files.map((file): Row => ({
@@ -164,21 +200,50 @@ export function PluginsPage() {
       ),
       here: file.plugin ? here(file.plugin) : false,
     })),
+    // (Listed under their own filter alone: they aren't this Lumovi's.)
+    ...notHere.map(({ plugin, needs }): Row => ({
+      key: `store:${plugin.name}`,
+      title: label(plugin),
+      plugin,
+      origin: 'store',
+      state: 'not-here',
+      problems: [],
+      here: here(plugin),
+      release: release!.version,
+      ...(needs ? { offer: { needs: { version: plugin.version, lumovi: needs } } } : {}),
+    })),
   ]
   const FILTERS: [Filter, string, (row: Row) => boolean][] = [
-    ['all', 'All', () => true],
+    ['all', 'All', carried],
     ['here', 'On this cluster', (row) => inUse(row) && row.here],
-    ['yours', HOST === 'yours' ? 'Yours' : 'This server’s', (row) => row.origin !== 'lumovi'],
-    ['unused', 'Not in use', (row) => !inUse(row)],
+    ['yours', HOST === 'yours' ? 'Yours' : 'This server’s', (row) => row.origin === HOST],
+    ['unused', 'Not in use', (row) => carried(row) && !inUse(row)],
+    ['updates', 'Updates', (row) => row.offer !== undefined && 'update' in row.offer],
+    ['not-here', 'Not here yet', (row) => !carried(row)],
   ]
+  // The store's filters only where they'd list something: one that empties while it's on gives
+  // way to All, without a word.
+  const offered = FILTERS.filter(([key, , matches]) => !FOUND.includes(key) || rows.some(matches))
+  const active = offered.find(([key]) => key === filter) ?? offered[0]!
   const needle = search.trim().toLowerCase()
   const shown = rows
-    .filter(FILTERS.find(([key]) => key === filter)![2])
+    .filter(active[2])
     .filter((row) =>
       `${row.title} ${row.plugin?.name ?? ''} ${row.file ?? ''}`.toLowerCase().includes(needle),
     )
   // (Files, as the filter beside it counts them: one that holds no plugin is still theirs.)
-  const own = rows.filter((row) => row.origin !== 'lumovi').length
+  const own = rows.filter((row) => row.origin === HOST).length
+  // A column at the rows' end, only where a row has something for it: over all of them, so a
+  // filter never moves the columns.
+  const offers = rows.some((row) => row.offer !== undefined && 'needs' in row.offer)
+  const columns = offers ? 4 : 3
+  // What the filter draws from: the page's own list, or (Not here yet) what this Lumovi lacks.
+  const drawnFrom = rows.filter(active[0] === 'not-here' ? (row) => !carried(row) : carried)
+  // Where the last check failed, its filters say whose they are: the last good check's.
+  const keptFrom =
+    store.check?.state === 'failed' && store.check.last
+      ? `From the check at ${timeOf(store.check.last.checked)}`
+      : undefined
   // Of two rows with the asked name, the one in use: what the link was about.
   const askedRow = asked
     ? (rows.find((row) => row.plugin?.name === asked && inUse(row)) ??
@@ -230,20 +295,29 @@ export function PluginsPage() {
             data-scrolls-sideways
             className="flex max-w-full [scrollbar-width:none] gap-0.5 overflow-x-auto rounded-lg bg-surface-2 p-0.5"
           >
-            {FILTERS.map(([key, text, matches]) => (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={filter === key}
-                onClick={() => setFilter(key)}
-                className={cn(
-                  'h-8 shrink-0 rounded-md px-2.5 text-[13px] whitespace-nowrap text-ink-2 phone:h-11 phone:px-2 phone:text-xs',
-                  filter === key && 'bg-surface font-medium text-ink-1 shadow-sm',
-                )}
-              >
-                {text} <span className="tabular-nums">{rows.filter(matches).length}</span>
-              </button>
-            ))}
+            {offered.map(([key, text, matches]) => {
+              const button = (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={active[0] === key}
+                  onClick={() => setFilter(key)}
+                  className={cn(
+                    'h-8 shrink-0 rounded-md px-2.5 text-[13px] whitespace-nowrap text-ink-2 phone:h-11 phone:px-2 phone:text-xs',
+                    active[0] === key && 'bg-surface font-medium text-ink-1 shadow-sm',
+                  )}
+                >
+                  {text} <span className="tabular-nums">{rows.filter(matches).length}</span>
+                </button>
+              )
+              return FOUND.includes(key) && keptFrom ? (
+                <Tooltip key={key} content={keptFrom}>
+                  {button}
+                </Tooltip>
+              ) : (
+                button
+              )
+            })}
           </div>
           <div className="flex-1" />
           <SearchInput
@@ -254,6 +328,12 @@ export function PluginsPage() {
             placeholder="Search plugins"
             className="w-60 phone:w-full"
           />
+          {/* (A row of its own, at its right: so nothing moves as a check ends.) */}
+          {store.there && (
+            <div className="flex basis-full justify-end">
+              <StoreLine store={store} />
+            </div>
+          )}
         </div>
         {plugins.shipped.length > 0 && (
           // (Never in a release: what's wrong with one of Lumovi's own is found when it's built.)
@@ -295,11 +375,28 @@ export function PluginsPage() {
           >
             <thead className="text-left text-2xs font-medium tracking-wider text-ink-3 uppercase">
               <tr>
-                <th className="w-[38%] border-b border-line py-2 pr-3 pl-[4.75rem] font-medium">
+                <th
+                  className={cn(
+                    'border-b border-line py-2 pr-3 pl-[4.75rem] font-medium',
+                    offers ? 'w-[34%]' : 'w-[38%]',
+                  )}
+                >
                   Plugin
                 </th>
-                <th className="w-[34%] border-b border-line py-2 pr-3 font-medium">On {context}</th>
+                <th
+                  className={cn(
+                    'border-b border-line py-2 pr-3 font-medium',
+                    offers ? 'w-[26%]' : 'w-[34%]',
+                  )}
+                >
+                  On {context}
+                </th>
                 <th className="border-b border-line py-2 pr-5 font-medium">From</th>
+                {offers && (
+                  <th className="w-44 border-b border-line py-2 pr-5 font-medium">
+                    <span className="sr-only">Newer</span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -327,17 +424,22 @@ export function PluginsPage() {
                     <td className="border-b border-line py-3 pr-5">
                       <From row={row} directory={plugins.directory} />
                     </td>
+                    {offers && (
+                      <td className="border-b border-line py-3 pr-5">
+                        <Offered row={row} />
+                      </td>
+                    )}
                   </tr>
                   {row.problems.length > 0 && (
                     <tr>
-                      <td colSpan={3} className="border-b border-line p-0">
+                      <td colSpan={columns} className="border-b border-line p-0">
                         <Problems row={row} />
                       </td>
                     </tr>
                   )}
                   {opened === row.key && row.plugin && (
                     <tr>
-                      <td colSpan={3} className="border-b border-line bg-surface-2/60 p-0">
+                      <td colSpan={columns} className="border-b border-line bg-surface-2/60 p-0">
                         <WhatItAsks
                           plugin={row.plugin}
                           names={names}
@@ -355,7 +457,7 @@ export function PluginsPage() {
       <footer className="flex shrink-0 items-start gap-2 border-t border-line px-5 py-2.5 text-xs text-ink-3 phone:px-4">
         <Info className="mt-0.5 size-3.5 shrink-0" />
         <span className="min-w-0">
-          {shown.length} of {rows.length} shown.{' '}
+          {shown.length} of {drawnFrom.length} shown.{' '}
           {HOST === 'yours' ? 'Yours go in' : 'This server’s are in'}{' '}
           <span className="font-mono break-all text-ink-2 selectable">{plugins.directory}</span>.
           One with the name of one of Lumovi’s is used in its place, all of it.
@@ -461,7 +563,7 @@ function Name({
         ) : (
           <span>{title}</span>
         )}
-        {row.origin !== 'lumovi' && (
+        {(row.origin === 'yours' || row.origin === 'server') && (
           <span className="ml-2 rounded bg-surface-3 px-1.5 py-0.5 text-2xs text-ink-2">
             {row.origin === 'yours' ? 'Yours' : 'This server’s'}
           </span>
@@ -472,9 +574,28 @@ function Name({
             {more > 0 && ` and ${more} more ${more === 1 ? 'kind' : 'kinds'}`}
           </p>
         )}
+        {row.offer && 'update' in row.offer && (
+          <p data-plugin-update={row.offer.update} className="mt-0.5 text-xs text-ink-2">
+            Update: <span className="font-mono font-medium text-ink-1">{row.offer.update}</span>
+          </p>
+        )}
         {CODE_PAGES && row.plugin && <CodeOffLine plugin={row.plugin} />}
       </div>
     </div>
+  )
+}
+
+/**
+ * At a row's end, what the store offers that's no update: a version this Lumovi is too old for,
+ * quietly, and nothing to press (Lumovi's own update is how to get it).
+ */
+function Offered({ row }: { row: Row }) {
+  if (!row.offer || !('needs' in row.offer)) return null
+  const { version, lumovi } = row.offer.needs
+  return (
+    <p data-plugin-needs={lumovi} className="text-right text-xs text-ink-3">
+      <span className="font-medium text-ink-2">{version}</span> needs Lumovi {lumovi}
+    </p>
   )
 }
 
@@ -522,6 +643,19 @@ function OnCluster({ row }: { row: Row }) {
       </p>
     )
   }
+  if (row.state === 'not-here') {
+    // (Before it's here: whether it would show anything on this cluster.)
+    return (
+      <p className={cn('flex gap-2', row.here ? 'text-ink-2' : 'text-ink-3')}>
+        {row.here ? (
+          <CircleDashed className="mt-0.5 size-4 shrink-0" />
+        ) : (
+          <Minus className="mt-0.5 size-4 shrink-0" />
+        )}
+        {row.here ? 'Its kinds are on this cluster' : 'Not on this cluster'}
+      </p>
+    )
+  }
   if (row.state === 'replaced') {
     return (
       <p className="flex gap-2">
@@ -564,10 +698,20 @@ function From({ row, directory }: { row: Row; directory: string }) {
   return (
     <div className="min-w-0">
       <p className="text-ink-2 [.text-ink-3_&]:text-ink-3">
-        {row.origin === 'lumovi' ? 'Lumovi' : row.origin === 'yours' ? 'Yours' : 'This server’s'}
+        {row.origin === 'lumovi'
+          ? 'Lumovi'
+          : row.origin === 'store'
+            ? 'Lumovi-plugins'
+            : row.origin === 'yours'
+              ? 'Yours'
+              : 'This server’s'}
       </p>
       <p className="mt-0.5 font-mono text-xs break-all text-ink-3 selectable">
-        {row.origin === 'lumovi' ? 'came with this Lumovi' : `${directory}${separator}${row.file}`}
+        {row.origin === 'lumovi'
+          ? 'Comes with Lumovi'
+          : row.origin === 'store'
+            ? `From Lumovi-plugins release ${row.release}`
+            : `${directory}${separator}${row.file}`}
       </p>
     </div>
   )

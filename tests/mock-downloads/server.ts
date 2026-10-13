@@ -3,13 +3,24 @@
  * kubectl a script that says which it is (on Windows, never run), signed as Kubernetes signs it,
  * by a stand-in for Sigstore (sigstore.ts). Below /mirror, it's an organization's mirror of it.
  * What it's asked is kept, and it can be made to fail as the real one can.
+ *
+ * And for GitHub, as the Plugins page asks it for Lumovi-plugins' latest release
+ * (plugin-store.ts): its redirect to the latest tag, git's list of refs, and the release's files,
+ * each sent on to where GitHub keeps them, as GitHub does.
  */
 import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
+import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  builtWith,
+  makeRelease,
+  refsAnswer,
+  type MadeRelease,
+  type StandInRelease,
+} from './plugin-store.ts'
 import { startMockSigstore, type CertificateFault } from './sigstore.ts'
 
 export interface MockDownloads {
@@ -29,6 +40,13 @@ export interface MockDownloads {
   signing?: CertificateFault | 'tampered' | 'unsigned' | 'no-certificate' | 'no-signature'
   /** What `signing` goes back to after each test. */
   defaultSigning?: MockDownloads['signing']
+  /**
+   * Lumovi-plugins' latest release, as GitHub's stand-in has it: by default, the one Lumovi was
+   * built with (nothing newer). `none`: it has no release; a number: what GitHub answers.
+   */
+  pluginStore?: StandInRelease | 'none' | number
+  /** How long GitHub's stand-in takes to say which release is the latest. */
+  pluginStoreDelayMs?: number
   reset(): void
   close(): Promise<void>
 }
@@ -50,6 +68,8 @@ export async function startMockDownloads(): Promise<MockDownloads> {
       this.fail = undefined
       this.delayMs = undefined
       this.signing = this.defaultSigning
+      this.pluginStore = undefined
+      this.pluginStoreDelayMs = undefined
     },
     // Without waiting for the connections apps kept open (a killed app's, on Windows, never end).
     close: () =>
@@ -58,9 +78,51 @@ export async function startMockDownloads(): Promise<MockDownloads> {
         server.closeAllConnections()
       }),
   }
+  // Each release as it was made, made once: signing takes a moment.
+  const made = new WeakMap<StandInRelease, Promise<MadeRelease>>()
+  let ownRelease: StandInRelease | undefined
+  const releaseFor = (wanted: StandInRelease) => {
+    if (!made.has(wanted)) made.set(wanted, makeRelease(sigstore, wanted))
+    return made.get(wanted)!
+  }
+  const plugins = '/Lumovi/Lumovi-plugins'
+  /** GitHub, as the Plugins page asks it for Lumovi-plugins' latest release. */
+  const store = async (path: string, res: ServerResponse) => {
+    const { pluginStore } = downloads
+    if (typeof pluginStore === 'number' || pluginStore === 'none') {
+      res.statusCode = pluginStore === 'none' ? 404 : pluginStore
+      return res.end()
+    }
+    const release = await releaseFor(pluginStore ?? (ownRelease ??= builtWith()))
+    const download = new RegExp(`^${plugins}/releases/download/v${release.version}/([^/]+)$`).exec(
+      path,
+    )
+    const asset = /^\/release-assets\/([^/]+)$/.exec(path)
+    if (path === `${plugins}/releases/latest`) {
+      await new Promise((done) => setTimeout(done, downloads.pluginStoreDelayMs ?? 0))
+      res.writeHead(302, { location: `${plugins}/releases/tag/v${release.version}` })
+    } else if (path === `${plugins}.git/info/refs`) {
+      res.write(refsAnswer(release.version, release.commit))
+    } else if (download && release.files[download[1]!]) {
+      // (Sent on to where the files are kept, as GitHub does.)
+      res.writeHead(302, { location: `/release-assets/${download[1]}` })
+    } else if (asset && release.files[asset[1]!]) {
+      res.write(release.files[asset[1]!])
+    } else {
+      res.statusCode = 404
+    }
+    res.end()
+  }
   const server = createServer((req, res) => {
     const path = new URL(req.url!, 'http://localhost').pathname
     downloads.requests.push(path)
+    if (path.startsWith(plugins) || path.startsWith('/release-assets/')) {
+      store(path, res).catch((error: unknown) => {
+        res.statusCode = 500
+        res.end(String(error))
+      })
+      return
+    }
     const stable = /^(?:\/mirror)?\/release\/stable-(\d+\.\d+)\.txt$/.exec(path)
     const binary =
       /^(?:\/mirror)?\/release\/(v\d+\.\d+\.\d+)\/bin\/(\w+)\/(\w+)\/kubectl(\.exe)?(\.sha256|\.sig|\.cert)?$/.exec(

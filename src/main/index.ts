@@ -38,6 +38,9 @@ import { SettingsStore } from './settings'
 import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
 import { filterRequests, registerBoxScheme, serveBoxes, watchBoxes } from './plugin-box'
+import { PluginStore } from './plugin-store'
+import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
+import BUILT_WITH from 'virtual:lumovi-plugins/release'
 import { createMainWindow, rendererUrl } from './window'
 
 // Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
@@ -225,6 +228,11 @@ if (stdio) {
       { ...deps, nodeShell: (context) => settings.nodeShell(context), timeoutMs: kube.timeoutMs },
       shellEvents,
     )
+    // The e2e tests' stand-in for Sigstore's trust root: never a packaged app's.
+    const sigstoreRoot =
+      !app.isPackaged && process.env.LUMOVI_SIGSTORE_ROOT
+        ? (JSON.parse(readFileSync(process.env.LUMOVI_SIGSTORE_ROOT, 'utf8')) as TrustRoot)
+        : (SIGSTORE_ROOT as TrustRoot)
     // Terminals' kubectl, matching each cluster's version, from the policy's mirror if it says.
     const kubectls = new Kubectls({
       dir: join(app.getPath('userData'), 'kubectl'),
@@ -233,12 +241,9 @@ if (stdio) {
         policy.managed?.kubectlMirror || process.env.LUMOVI_KUBECTL_MIRROR || KUBECTL_MIRROR,
       // A mirror's kubectl too only with Kubernetes' signature, where the policy says.
       signaturesRequired: () => policy.managed?.kubectlSignatures === 'required',
-      // The e2e tests' stand-ins for dl.k8s.io and Sigstore's trust root: never a packaged app's.
+      // The e2e tests' stand-in for dl.k8s.io: never a packaged app's.
       official: (!app.isPackaged && process.env.LUMOVI_KUBECTL_OFFICIAL) || KUBECTL_MIRROR,
-      trust:
-        !app.isPackaged && process.env.LUMOVI_SIGSTORE_ROOT
-          ? (JSON.parse(readFileSync(process.env.LUMOVI_SIGSTORE_ROOT, 'utf8')) as TrustRoot)
-          : SIGSTORE_ROOT,
+      trust: sigstoreRoot,
       clusterVersion: async (context) => {
         const version = await kube.version(context)
         if (!version.ok) throw new Error(version.error.message)
@@ -305,6 +310,27 @@ if (stdio) {
           ? 'store'
           : undefined,
     )
+    // What's newer in Lumovi-plugins, for the Plugins page: asked only when it's opened, or on
+    // Check now. None where the policy turns it off, or allows no plugins but Lumovi's own.
+    const pluginStore = new PluginStore({
+      trust: { root: sigstoreRoot, signer: PLUGINS_SIGNER, repository: PLUGINS_REPOSITORY },
+      // The e2e tests' stand-in for GitHub: never a packaged app's.
+      ...(!app.isPackaged && process.env.LUMOVI_PLUGIN_STORE
+        ? { github: process.env.LUMOVI_PLUGIN_STORE }
+        : {}),
+      ready: envReady,
+      off: () =>
+        Boolean(
+          policy.managed?.pluginStoreOff ||
+          policy.managed?.pluginsOff ||
+          policy.managed?.pluginsBundledOnly,
+        ),
+      allowed: () => policy.managed?.pluginsAllowed,
+      builtWith: BUILT_WITH,
+      serial: () => settings.pluginStoreSerial(),
+      accept: (serial) => settings.acceptPluginStoreSerial(serial),
+      warn: console.warn,
+    })
     // The sidebar's sponsor card, from Lumovi/main-sponsor: what was read last time at once, read
     // again soon after starting (once the network is set up, as the updater does) and every hour.
     const { base, everyMs } = sponsorSource(process.env)
@@ -419,6 +445,7 @@ if (stdio) {
       files,
       localFiles,
       updates,
+      pluginStore,
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
       knownPlugins,

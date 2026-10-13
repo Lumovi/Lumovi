@@ -30,6 +30,7 @@ import { LocalTerminals } from './local-terminal'
 import { SavedFiles } from './saved-files'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
+import type { PluginStore } from './plugin-store'
 import type { Updates } from './updates'
 
 interface Dependencies extends Backend {
@@ -45,6 +46,8 @@ interface Dependencies extends Backend {
   /** What's saved and picked on this computer, for files copied out of and into containers. */
   localFiles: DesktopFiles
   updates: Updates
+  /** What's newer in Lumovi-plugins, for the Plugins page. */
+  pluginStore: PluginStore
   sponsor: SponsorSource
   /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
   auditLog: AuditLog
@@ -75,6 +78,7 @@ export function registerIpc(deps: Dependencies): void {
     forwards,
     localFiles,
     updates,
+    pluginStore,
     sponsor,
     rendererUrl,
     problems,
@@ -237,6 +241,7 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.appProblems]: () => problems(),
     [IPC.updateCheck]: () => updates.check(true),
     [IPC.updateInstall]: () => updates.install(),
+    [IPC.pluginStore]: (now) => pluginStore.check(now === true),
     [IPC.sponsorCard]: () => sponsor.card(),
     // Terminals on this computer, besides the cluster's shells (each ignores the other's).
     [IPC.terminalOpen]: (id, request) =>

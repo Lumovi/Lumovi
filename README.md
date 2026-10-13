@@ -233,11 +233,13 @@ and the [Changelog](CHANGELOG.md).
   them to Prometheus), to the chart repositories and registries you install or upgrade from,
   to [Artifact Hub](https://artifacthub.io) when you search it for charts, to
   [dl.k8s.io](https://dl.k8s.io) for the kubectl each terminal gets, and to GitHub, to look
-  for new versions and to read the sidebar's sponsor card from
+  for new versions, to check for newer plugins (only when you open Plugins or press Check now),
+  and to read the sidebar's sponsor card from
   [Lumovi/main-sponsor](https://github.com/Lumovi/main-sponsor) a few seconds after it starts
-  and every hour. Getting kubectl and looking for new versions can be turned off. Reading the
-  card can't, and sends nothing but the request: no cookies, no IDs, nothing about you or your
-  clusters. See
+  and every hour. Getting kubectl and looking for new versions can be turned off. Checking for
+  newer plugins happens only when you open Plugins or press Check now, and an organization's
+  policy can turn it off. Reading the card can't be, and sends nothing but the request: no
+  cookies, no IDs, nothing about you or your clusters. See
   [what it connects to](https://docs.lumovi.dev/reference/privacy-and-security#what-it-connects-to).
 - **Verifiable releases.** Every installer, the image and the chart carry a signed build
   provenance attestation (`gh attestation verify <file> --repo Lumovi/Lumovi`) and a

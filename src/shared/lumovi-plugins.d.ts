@@ -24,3 +24,12 @@ declare module 'virtual:lumovi-plugins/coded' {
   const names: readonly string[]
   export default names
 }
+
+/**
+ * Which release of Lumovi-plugins they're from: its version, and its serial, which a later
+ * release's is never lower than.
+ */
+declare module 'virtual:lumovi-plugins/release' {
+  const release: Readonly<{ version: string; serial: number }>
+  export default release
+}

@@ -44,6 +44,7 @@ import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
 import type { PluginRead, PluginReadQuery } from './plugin-reads'
+import type { StoreCheck } from './plugin-store'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
 
@@ -147,6 +148,11 @@ export interface Settings {
    * off). Unset: every plugin's. Not stored.
    */
   pluginCodeOnServer?: string[]
+  /**
+   * The desktop app's: the highest serial of Lumovi-plugins' releases it has taken, so it takes
+   * none older (src/main/plugin-store.ts).
+   */
+  pluginStoreSerial?: number
 }
 
 /** What a company's policy sets on a computer (the desktop app's), locked; not stored. */
@@ -185,6 +191,8 @@ export interface ManagedSettings {
   pluginProposalsOff?: true
   /** No plugin's page may show what's in a Secret. */
   pluginSecretsOff?: true
+  /** Lumovi doesn't check Lumovi-plugins for newer plugins: nothing is asked of GitHub. */
+  pluginStoreOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1520,6 +1528,11 @@ export interface LumoviApi {
     install(): Promise<void>
     onChange(listener: (event: UpdateEvent) => void): () => void
   }
+  /** The desktop app's: what's newer in Lumovi-plugins' latest release (shared/plugin-store). */
+  pluginStore?: {
+    /** As last checked, within ten minutes; `now`: checked again now, as Check now does. */
+    check(now?: boolean): Promise<StoreCheck>
+  }
 }
 
 /** Channel names, shared so the page and what answers it cannot drift apart. */
@@ -1542,6 +1555,7 @@ export const IPC = {
   saveFile: 'app:save-file',
   showSaved: 'app:show-saved',
   plugins: 'app:plugins',
+  pluginStore: 'plugins:store',
   marks: 'marks:get',
   setMarks: 'marks:set',
   contexts: 'kube:contexts',

@@ -649,8 +649,11 @@ test('a download larger than any release’s file is cut off, saying so', async 
   )
 })
 
-test('the build serves the files as one module and their code as another, the code to the backend’s builds alone, or stops saying why', async () => {
-  const take = async () => ({ 'alpha.yaml': PLUGINS.alpha, 'alpha.js': 'export {}\n' })
+test('the build serves the files as one module and their code as another, the code to the backend’s builds alone, and which release they’re from, or stops saying why', async () => {
+  const take = async () => ({
+    files: { 'alpha.yaml': PLUGINS.alpha, 'alpha.js': 'export {}\n' },
+    release: { version: VERSION, serial: 1 },
+  })
   const context = {
     error: (message: string) => {
       throw new Error(message)
@@ -671,6 +674,12 @@ test('the build serves the files as one module and their code as another, the co
   expect(resolved(backend, 'virtual:lumovi-plugins/code')).toBe('\0virtual:lumovi-plugins/code')
   expect(loaded(backend, '\0virtual:lumovi-plugins/code')).toBe(
     `export default Object.freeze(${JSON.stringify({ 'alpha.js': 'export {}\n' })})`,
+  )
+  expect(resolved(backend, 'virtual:lumovi-plugins/release')).toBe(
+    '\0virtual:lumovi-plugins/release',
+  )
+  expect(loaded(backend, '\0virtual:lumovi-plugins/release')).toBe(
+    `export default Object.freeze(${JSON.stringify({ version: VERSION, serial: 1 })})`,
   )
   expect(resolved(backend, 'other')).toBeUndefined()
   expect(loaded(backend, 'other')).toBeUndefined()

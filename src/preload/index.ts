@@ -168,6 +168,9 @@ const api: LumoviApi = {
     install: () => invoke(IPC.updateInstall),
     onChange: (listener) => subscribe(IPC.updateChanged, listener),
   },
+  pluginStore: {
+    check: (now) => invoke(IPC.pluginStore, now === true),
+  },
   logs: {
     start: (id, request) => invoke(IPC.logsStart, id, request),
     stop: (id) => ipcRenderer.send(IPC.logsStop, id),

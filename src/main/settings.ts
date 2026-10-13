@@ -142,6 +142,16 @@ export class SettingsStore implements SettingsAccess {
     return this.update({ pluginCode: { ...this.pluginCode(), [plugin]: on } })
   }
 
+  /** The highest serial of Lumovi-plugins' releases taken here: none, 0. */
+  pluginStoreSerial(): number {
+    return this.#settings.pluginStoreSerial ?? 0
+  }
+
+  /** Keeps a release's serial, where it's higher than any taken before. */
+  acceptPluginStoreSerial(serial: number): void {
+    if (serial > this.pluginStoreSerial()) this.update({ pluginStoreSerial: serial })
+  }
+
   /** What AI assistants may do, and where. */
   aiPermissions(): AiPermissions {
     return this.#settings.aiPermissions!
@@ -234,6 +244,10 @@ export class SettingsStore implements SettingsAccess {
         aiPermissions,
         // Each plugin's, as it was chosen: one that doesn't make sense is as if never chosen.
         ...pluginCodeOf(stored.pluginCode),
+        // (One that isn't a whole number is as if none was taken: the built-in release's holds.)
+        ...(Number.isSafeInteger(stored.pluginStoreSerial) && stored.pluginStoreSerial! > 0
+          ? { pluginStoreSerial: stored.pluginStoreSerial }
+          : {}),
       }
     } catch {
       // First run, or the file is unreadable: start from defaults.

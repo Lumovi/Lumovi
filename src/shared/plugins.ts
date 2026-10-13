@@ -1433,7 +1433,7 @@ const THREE_NUMBERS = /^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})$/
  * Whether version `a` is older than `b`, three numbers each. (A Lumovi between releases has a
  * tail after its numbers, "1.22.0-beta.1": it counts as its release.)
  */
-function older(a: string, b: string): boolean {
+export function older(a: string, b: string): boolean {
   const [x, y] = [a, b].map((version) => version.split(/[-+]/)[0]!.split('.').map(Number))
   const at = x!.findIndex((part, i) => part !== y![i])
   return at >= 0 && x![at]! < y![at]!
