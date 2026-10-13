@@ -96,7 +96,8 @@ test('a plugin’s code asks its tool’s server for a path its file lists, thro
   clusters,
 }) => {
   clusters.demo.upsert(TOYS_API)
-  const paths = ['/api/v1/status', '/api/v1/widgets/{widget}/history']
+  // (A fixed query is asked as listed.)
+  const paths = ['/api/v1/status?verbose=1', '/api/v1/widgets/{widget}/history']
   const { page } = await launch({
     env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included(paths, [...paths, '/api/v1/secrets']) },
   })
@@ -116,6 +117,7 @@ test('a plugin’s code asks its tool’s server for a path its file lists, thro
     `/api/v1/namespaces/default/services/toys-api:http/proxy/api/v1/widgets/${CUSTOM.widget}/history`,
   ])
   const sent = clusters.demo.requests.find((r) => r.path.endsWith('/proxy/api/v1/status'))!
+  expect(sent.search).toBe('verbose=1')
   expect(sent.headers.accept).toBe('application/json')
   expect(sent.headers.cookie).toBeUndefined()
   // The history names the plugin, and the path as its file lists it.
@@ -129,7 +131,7 @@ test('a plugin’s code asks its tool’s server for a path its file lists, thro
       [
         [
           'success',
-          'Asked the Service toys-api in default for /api/v1/status, for the plugin Toys’ page',
+          'Asked the Service toys-api in default for /api/v1/status?verbose=1, for the plugin Toys’ page',
         ],
         [
           'success',
