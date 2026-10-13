@@ -20,6 +20,7 @@ import {
   cut,
   destination,
   handler,
+  object,
   list,
   number,
   oneOf,
@@ -234,6 +235,20 @@ export const split = {
  * A card: a title, a quiet note at its right if one's given (words too, "20 · 3 still starting"),
  * and one part under them. Never an arrangement, so cards don't hold pages.
  */
+/**
+ * A pod's logs, in Lumovi's own log view, where its file says its pages show them
+ * (`spec.logs: shown`): Lumovi reads them as the person and draws them, and the plugin's code
+ * never holds a line. The pod is one the page was handed (a Pod: another kind shows nothing);
+ * the container, where the pod has one of that name, is shown first. It follows while it's in
+ * view, and stops when the page is hidden or closed.
+ */
+export const logs = {
+  name: 'Logs',
+  holds: 'nothing',
+  props: { title: name, pod: object, container: name },
+  required: ['title'],
+} as const satisfies Part
+
 export const card = {
   name: 'Card',
   holds: ['Table', 'Graph', 'Counts'],
@@ -287,7 +302,7 @@ export const counts = {
 export const stack = {
   name: 'Stack',
   // (Every part but a split, which nothing holds.)
-  holds: ['Tiles', 'Header', 'Card', 'Pair', 'Table', 'Graph', 'Counts'],
+  holds: ['Tiles', 'Header', 'Card', 'Pair', 'Table', 'Graph', 'Counts', 'Logs'],
   props: {},
 } as const satisfies Part
 

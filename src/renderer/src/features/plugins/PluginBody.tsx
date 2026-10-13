@@ -28,6 +28,11 @@ import { offered } from '@renderer/plugins/reach'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 
+/** Lumovi's parts, but for the Logs part: for a plugin whose file doesn't say it shows logs. */
+const WITHOUT_LOGS = Object.fromEntries(
+  Object.entries(KIT_PARTS).filter(([name]) => name !== 'Logs'),
+) as typeof KIT_PARTS
+
 export function PluginBody({
   plugin,
   page,
@@ -104,7 +109,9 @@ export function PluginBody({
           version: plugin.version,
           context,
           opening: page !== undefined ? { page } : { tab, object },
-          parts: KIT_PARTS,
+          // (Its Logs part only where its file says its pages show logs: elsewhere the door
+          // knows no such part, and a page that names it is stopped.)
+          parts: plugin.logs === 'shown' ? KIT_PARTS : WITHOUT_LOGS,
           kinds: plugin.named,
           opens: plugin.opens,
           links: plugin.links,

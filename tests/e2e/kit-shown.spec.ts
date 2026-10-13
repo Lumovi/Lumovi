@@ -227,7 +227,18 @@ test('a pod’s logs and an object’s events on a plugin’s page: Lumovi’s o
   // Below the fold as the page opens: no pod read for them, no log, no events.
   const logs = page.getByRole('region', { name: 'Logs', exact: true })
   const events = page.getByRole('region', { name: 'Events', exact: true })
-  await expect(logs).toContainText('Shown by Lumovi. Sample plugin can’t see them.')
+  await expect(logs).toContainText('Shown by Lumovi: Sample plugin’s code never sees them.')
+  // Waiting for a place, on its page and of its plugin: said, and nothing read.
+  await expect(
+    page.getByRole('region', { name: 'Logs waiting on its page' }).locator('[data-logs-waiting]'),
+  ).toHaveText(
+    'Not shown: a plugin’s page shows 4 logs at once. This one starts when another closes.',
+  )
+  await expect(
+    page.getByRole('region', { name: 'Logs waiting on its plugin' }).locator('[data-logs-waiting]'),
+  ).toHaveText(
+    'Not shown: Sample plugin shows 8 logs at once, across its pages and tabs. This one starts when another closes.',
+  )
   // (For a moment: anything that would have been asked would have been.)
   await holds(
     () => asked(/\/pods\/[^/]+\/log$/) + asked(new RegExp(`/pods/${pod}$`)) === 0,

@@ -112,6 +112,7 @@ function Running({
   const [page] = useState<OpenPage>(() =>
     openPage({
       plugin: shown.plugin,
+      by: { plugin: shown.plugin, name: shown.name, version: shown.version },
       context: shown.context,
       code,
       ...(handed ? { handed: { digest: handed.digest, codeDigest: handed.codeDigest } } : {}),

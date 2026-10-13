@@ -14,6 +14,9 @@ import {
   type LogsShown as LogsShownSaid,
   type SecretShown as SecretShownSaid,
 } from '@shared/kit/shown'
+import type { PluginVia } from '@shared/api'
+import { DOOR_LIMITS } from '@shared/plugin-door'
+import { whose } from '@shared/plugins'
 import type { ObjectRef } from '@shared/kit/table'
 import { apiKindOf } from '@shared/resources'
 import { Button, IconButton } from '@renderer/components/Button'
@@ -42,7 +45,7 @@ export function ShownCard({
 }: {
   title: string
   by: By
-  /** "…can’t see them": logs and events. */
+  /** "…never sees them": logs and events. */
   them?: boolean
   /** At the heading's far end: what the card is of, or what it does to all of it. */
   aside?: ReactNode
@@ -51,7 +54,15 @@ export function ShownCard({
   const phone = useLayout() === 'phone'
   const caption = (
     <span className="text-xs font-normal text-ink-3">
-      Shown by Lumovi. <bdi>{by.name}</bdi> can’t see {them ? 'them' : 'it'}.
+      {them ? (
+        <>
+          Shown by Lumovi: <bdi>{whose(by.name)}</bdi> code never sees them.
+        </>
+      ) : (
+        <>
+          Shown by Lumovi. <bdi>{by.name}</bdi> can’t see it.
+        </>
+      )}
     </span>
   )
   return (
@@ -439,8 +450,60 @@ function OnceInView({ children }: { children: ReactNode }) {
 }
 
 /** A pod's logs, in Lumovi's own log view. The plugin never holds a line of them. */
-export function LogsShown({ shown, by }: { shown: LogsShownSaid; by: By }) {
+export function LogsShown({
+  shown,
+  by,
+  container,
+  via,
+  off = false,
+  waiting,
+}: {
+  shown: LogsShownSaid
+  by: By
+  /** The container to show first, where the pod has one of that name. */
+  container?: string
+  /** Which plugin's page asked Lumovi to show them, for the history. */
+  via?: PluginVia
+  /** The organization's policy lets no plugin show logs: none are read. */
+  off?: boolean
+  /** Not streaming yet: a page shows so many at once, and a plugin so many. */
+  waiting?: 'page' | 'plugin'
+}) {
   const { pod } = shown
+  if (off) {
+    return (
+      <ShownCard title={shown.title} by={by} them>
+        <Said refused>Your organization’s policy doesn’t let plugins show containers’ logs.</Said>
+      </ShownCard>
+    )
+  }
+  if (waiting) {
+    // (Its quiet place, until a place for its stream frees: it then turns into the log view.)
+    return (
+      <ShownCard
+        title={shown.title}
+        by={by}
+        them
+        {...(pod
+          ? { aside: <bdi className="font-mono text-xs font-normal text-ink-3">{pod.name}</bdi> }
+          : {})}
+      >
+        <p
+          data-logs-waiting
+          className="flex min-h-24 items-center justify-center px-4 py-3 text-center text-[13px] text-ink-3"
+        >
+          {waiting === 'page' ? (
+            `Not shown: a plugin’s page shows ${DOOR_LIMITS.logStreamsPage} logs at once. This one starts when another closes.`
+          ) : (
+            <span>
+              Not shown: <bdi>{by.name}</bdi> shows {DOOR_LIMITS.logStreamsPlugin} logs at once,
+              across its pages and tabs. This one starts when another closes.
+            </span>
+          )}
+        </p>
+      </ShownCard>
+    )
+  }
   // (What a plugin points at may be gone by the time the page is drawn: said, never thrown on.)
   if (!pod) {
     return (
@@ -457,13 +520,28 @@ export function LogsShown({ shown, by }: { shown: LogsShownSaid; by: By }) {
       aside={<bdi className="font-mono text-xs font-normal text-ink-3">{pod.name}</bdi>}
     >
       <OnceInView>
-        <PodLogs pod={pod} by={by} />
+        <PodLogs
+          pod={pod}
+          by={by}
+          {...(container !== undefined ? { container } : {})}
+          {...(via ? { via } : {})}
+        />
       </OnceInView>
     </ShownCard>
   )
 }
 
-function PodLogs({ pod, by }: { pod: ObjectRef; by: By }) {
+function PodLogs({
+  pod,
+  by,
+  container,
+  via,
+}: {
+  pod: ObjectRef
+  by: By
+  container?: string
+  via?: PluginVia
+}) {
   const read = useObject('Pod', pod.name, pod.namespace)
   if (read.isPending) return <Loading label="Loading logs…" />
   if (read.data === undefined) {
@@ -489,7 +567,12 @@ function PodLogs({ pod, by }: { pod: ObjectRef; by: By }) {
   // The app's own log view, in a box of its own height: it scrolls inside it.
   return (
     <div className="flex h-96 flex-col overflow-hidden rounded-xl border border-line phone:h-[28rem]">
-      <LogsView pods={[read.data]} name={pod.name} />
+      <LogsView
+        pods={[read.data]}
+        name={pod.name}
+        {...(container !== undefined ? { container } : {})}
+        {...(via ? { via } : {})}
+      />
     </div>
   )
 }

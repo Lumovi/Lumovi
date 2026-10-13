@@ -40,6 +40,8 @@ export interface KitPart {
     props: Readonly<Record<string, unknown>>
     children?: ReactNode
     go?: (to: ObjectRef | ListDestination | ReachDestination) => void
+    /** Whose page it is, as Lumovi knows it: for what Lumovi shows on it in its own words. */
+    by?: PageBy
   }>
 }
 
@@ -50,6 +52,8 @@ export interface OpenPage {
   readonly end: PageEnd | undefined
   /** The parts its plugin may name: what the door checked against, and what draws them. */
   readonly parts: Readonly<Record<string, KitPart>>
+  /** Whose page it is, as Lumovi lists the plugin: none on the tests' stage. */
+  readonly by: PageBy | undefined
   /** Hears when the page ends. */
   subscribe(ended: () => void): () => void
   /**
@@ -177,8 +181,17 @@ function proposalIn(text: string): object | undefined {
  * Opens the page of the plugin named `plugin` (its box's address), from its `code`. What it
  * reads, it reads in `context`.
  */
+/** Whose page it is: its plugin's name, the label a person reads it by, and its version. */
+export interface PageBy {
+  plugin: string
+  name: string
+  version: string
+}
+
 export function openPage(options: {
   plugin: string
+  /** Whose page it is, as Lumovi lists the plugin. */
+  by?: PageBy
   context: string
   code: string
   /**
@@ -230,6 +243,7 @@ export function openPage(options: {
   const page = {
     tree: new DoorPage(declared),
     parts: options.parts,
+    by: options.by,
     end: undefined as PageEnd | undefined,
     subscribe(ended: () => void) {
       listeners.add(ended)

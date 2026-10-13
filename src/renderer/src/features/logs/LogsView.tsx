@@ -12,7 +12,7 @@ import {
   WrapText,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { KubeObject } from '@shared/api'
+import type { KubeObject, PluginVia } from '@shared/api'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { Sheet } from '@renderer/components/Sheet'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
@@ -209,18 +209,38 @@ export function LogsView({
   pods,
   name,
   container: asked,
+  via,
 }: {
   pods: KubeObject[]
   name: string
   /** The container to show first, where one asked for it is among the pods'. */
   container?: string
+  /** Shown on a plugin's page: which plugin's page asked Lumovi to show them. */
+  via?: PluginVia
 }) {
   const notAllowed = useAccessHere().whyNot('logs', 'on', pods[0]!.metadata.namespace)
   if (notAllowed) return <NotAllowed title="You can’t read logs here" reason={notAllowed} />
-  return <Logs pods={pods} name={name} {...(asked !== undefined ? { asked } : {})} />
+  return (
+    <Logs
+      pods={pods}
+      name={name}
+      {...(asked !== undefined ? { asked } : {})}
+      {...(via ? { via } : {})}
+    />
+  )
 }
 
-function Logs({ pods, name, asked }: { pods: KubeObject[]; name: string; asked?: string }) {
+function Logs({
+  pods,
+  name,
+  asked,
+  via,
+}: {
+  pods: KubeObject[]
+  name: string
+  asked?: string
+  via?: PluginVia
+}) {
   const sorted = [...pods].sort((a, b) => a.metadata.name.localeCompare(b.metadata.name))
   const names = [...new Set(sorted.flatMap(containerNames))]
   const [container, setContainer] = useState<string>(
@@ -278,6 +298,7 @@ function Logs({ pods, name, asked }: { pods: KubeObject[]; name: string; asked?:
     follow,
     attempt,
     container,
+    ...(via ? { via } : {}),
   })
 
   const podOf = (line: LogLine) => line.source.slice(0, line.source.indexOf('/'))

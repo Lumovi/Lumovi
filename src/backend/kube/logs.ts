@@ -5,11 +5,13 @@
  */
 import type { KubeError, LogStreamRequest, Result } from '@shared/api'
 import { kubectl } from '@shared/kubectl'
+import { whose } from '@shared/plugins'
 import { outcomeOf } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
 import type { AccessGuard } from '@shared/access'
 import { kubeStream } from './client'
-import { toKubeError } from './errors'
+import { knownVia, type PluginLookup, type Via } from './plugin-via'
+import { KubeRequestError, toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
 import { assertIntegerInRange, assertQuery, assertString, invalid } from './validate'
 
@@ -27,7 +29,14 @@ interface Dependencies {
   audit: Recorder
   /** A server's: what its person may do (the desktop app has none). */
   guard?: AccessGuard
+  /** A plugin Lumovi has, by its name: whose page logs were shown on, for the history. */
+  plugin?: PluginLookup
+  /** The desktop app's: the organization's policy lets no plugin's page show logs. */
+  pluginLogsOff?: () => boolean
 }
+
+/** Why a plugin's page is shown no logs, where its organization says so. */
+export const LOGS_OFF = 'Your organization’s policy doesn’t let plugins show containers’ logs.'
 
 export class LogStreams {
   readonly #streams = new Map<string, () => void>()
@@ -42,6 +51,7 @@ export class LogStreams {
 
   async start(id: unknown, request: unknown): Promise<Result<null>> {
     let asked: LogStreamRequest | undefined
+    let via: Via | undefined
     try {
       if (typeof id !== 'string' || !/^[\w-]{8,64}$/.test(id) || this.#streams.has(id)) {
         throw invalid('A new stream needs a new id')
@@ -70,11 +80,17 @@ export class LogStreams {
       const path = `/api/v1/namespaces/${encodeURIComponent(r.namespace)}/pods/${encodeURIComponent(r.pod)}/log?${params}`
 
       asked = r
+      // (Asked for a plugin's page where the organization lets none show logs: none are read.)
+      if (r.via !== undefined && this.deps.pluginLogsOff?.()) {
+        throw new KubeRequestError('forbidden', LOGS_OFF)
+      }
       await this.deps.guard?.require(r.context, 'logs', 'on', r.namespace, 'read logs')
       await this.deps.envReady
       const kc = this.deps.store.forContext(r.context)
       const { body, abort } = await kubeStream(kc, path, { timeoutMs: this.deps.timeoutMs })
-      this.#read(r, { outcome: 'success' })
+      // (Shown on a plugin's page: whose, as the backend knows it, never as the page says.)
+      via = await knownVia(this.deps.plugin, r.via)
+      this.#read(r, { outcome: 'success' }, via)
       this.#streams.set(id, abort)
       let partial = ''
       let batch: string[] = []
@@ -108,22 +124,24 @@ export class LogStreams {
       return { ok: true, data: null }
     } catch (error) {
       const failure = { ok: false as const, error: toKubeError(error) }
-      if (asked) this.#read(asked, outcomeOf(failure))
+      if (asked)
+        this.#read(asked, outcomeOf(failure), via ?? (await knownVia(this.deps.plugin, asked.via)))
       return failure
     }
   }
 
   /** Recorded once a while for the same container's logs: a page asks for them again. */
-  #read(r: LogStreamRequest, outcome: ReturnType<typeof outcomeOf>) {
+  #read(r: LogStreamRequest, outcome: ReturnType<typeof outcomeOf>, via?: Via) {
     const which = r.previous === true ? 'previous' : 'current'
     this.deps.audit.read(
-      `logs:${r.context}/${r.namespace}/${r.pod}/${r.container}/${which}/${outcome.outcome}`,
+      // (A plugin's page's showing is its own: once a while, as the person's own reading is.)
+      `logs:${r.context}/${r.namespace}/${r.pod}/${r.container}/${which}/${outcome.outcome}${via ? `/${via.details.plugin}` : ''}`,
       {
         action: 'logs.read',
         ...outcome,
         cluster: r.context,
         target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
-        summary: `Read the logs of Pod ${r.pod} (${r.container})${r.previous === true ? ', from before it restarted' : ''}`,
+        summary: `Read the logs of Pod ${r.pod} (${r.container})${r.previous === true ? ', from before it restarted' : ''}${via ? `, shown on the plugin ${whose(via.label)} page` : ''}`,
         command: kubectl(
           r.context,
           r.namespace,
@@ -137,6 +155,7 @@ export class LogStreams {
           container: r.container,
           previous: r.previous === true,
           follow: r.follow === true,
+          ...via?.details,
         },
       },
     )

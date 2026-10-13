@@ -884,7 +884,12 @@ function WhatItAsks({
           </section>
           <section aria-label="May read">
             <h3 className={heading}>May read</h3>
-            <MayRead asked={asked} names={names} tool={plugin.place?.label ?? plugin.name} />
+            <MayRead
+              asked={asked}
+              names={names}
+              tool={plugin.place?.label ?? plugin.name}
+              {...(plugin.logs ? { logs: plugin.logs } : {})}
+            />
           </section>
           {/* (Its pages, tabs and commands are drawn by the door: said where Lumovi offers them.) */}
           {CODE_PAGES && (
@@ -1138,7 +1143,18 @@ function linksLine(links: readonly Reach[]): string {
   return `Its pages may open ${opens}.${starts.length > 0 ? ` You start ${starts.join(' or ')} there yourself.` : ''}`
 }
 
-function MayRead({ asked, names, tool }: { asked: Asks; names: Names; tool: string }) {
+function MayRead({
+  asked,
+  names,
+  tool,
+  logs,
+}: {
+  asked: Asks
+  names: Names
+  tool: string
+  /** Whether its pages show containers' logs, as its file says. */
+  logs?: 'shown'
+}) {
   const kinds = ({ kinds, templated }: Asks['related']) =>
     kinds.length > 0 ? listed(kinds.map(names.plural)) : templated ? 'kinds its objects name' : ''
   return (
@@ -1192,7 +1208,15 @@ function MayRead({ asked, names, tool }: { asked: Asks; names: Names; tool: stri
           by labels and annotations the workload carries under {tool}’s own groups.
         </p>
       )}
-      <p>It reads no logs and no Secret’s value, and sends nothing anywhere but to this cluster.</p>
+      {/* Each true of it: what it does with logs, a Secret's value (where the lines above don't
+          say it), and where it sends what it reads. */}
+      <p>
+        {logs === 'shown'
+          ? 'It shows containers’ logs: Lumovi reads them, and its code never sees them.'
+          : 'It reads no logs.'}
+        {asked.secrets.length > 0 ? '' : ' It reads no Secret’s value.'} It sends nothing anywhere
+        but to this cluster.
+      </p>
     </div>
   )
 }

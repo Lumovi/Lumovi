@@ -264,6 +264,12 @@ export interface Plugin {
    * does there what they do, as always; a link starts nothing. None, where its file says none.
    */
   links: Reach[]
+  /**
+   * Whether its pages show containers' logs (`spec.logs: shown`): Lumovi reads them as the
+   * person and draws them in its own log view, and the plugin's code never holds a line. None,
+   * where its file says nothing.
+   */
+  logs?: 'shown'
 }
 
 /** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
@@ -315,7 +321,7 @@ export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as con
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
 export type ListedPlugin = Pick<
   Plugin,
-  'name' | 'source' | 'version' | 'added' | 'opens' | 'links'
+  'name' | 'source' | 'version' | 'added' | 'opens' | 'links' | 'logs'
 > &
   PluginPlace & {
     /** Every kind its file names (`namedKinds`): what its pages may open a list of. */
@@ -1910,6 +1916,7 @@ function readPlugin(
     changes,
     opens,
     links,
+    logs,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -2038,6 +2045,13 @@ function readPlugin(
   } else if (links !== undefined) {
     problems.push(...linksProblems(links).map((problem) => `${source}: ${problem}`))
   }
+  if (logs !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.logs: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they show logs`,
+    )
+  } else if (logs !== undefined && logs !== 'shown') {
+    problems.push(`${source}: spec.logs: should be shown, not ${describe(logs)}`)
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -2147,6 +2161,7 @@ function readPlugin(
       changes: changesOf(changes),
       opens: ((opens ?? []) as NamedKind[]).map(kindId),
       links: [...((links ?? []) as Reach[])],
+      ...(logs === 'shown' ? { logs: 'shown' as const } : {}),
     },
     problems: [],
   }

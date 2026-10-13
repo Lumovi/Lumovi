@@ -219,6 +219,8 @@ if (stdio) {
       audit,
       // (Which plugin a link that brought the person came from, for the history: the backend's own.)
       plugin: async (name: string) => (await knownPlugins()).find((each) => each.name === name),
+      // (Read each time: the organization's policy, as it stands.)
+      pluginLogsOff: () => policy.managed?.pluginLogsOff === true,
     }
     const shellEvents = {
       data: (id: string, data: string) => send(IPC.terminalData, id, data),
