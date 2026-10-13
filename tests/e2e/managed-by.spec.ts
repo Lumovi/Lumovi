@@ -282,7 +282,13 @@ test('without a plugin that says what manages workloads, there’s no column, an
   lumovi,
   clusters,
 }) => {
-  const { page } = lumovi
+  const { page, userDataDir } = lumovi
+  // (Lumovi's own Flux and Argo CD say it: in their place, the test's, saying nothing of it.)
+  const plugins = join(userDataDir, 'plugins')
+  mkdirSync(plugins, { recursive: true })
+  const silent = (file: string) => file.slice(0, file.indexOf('  views:'))
+  writeFileSync(join(plugins, 'flux.yaml'), silent(FLUX))
+  writeFileSync(join(plugins, 'argo-cd.yaml'), silent(ARGO_CD))
   marked(clusters.demo, storefront, {
     'kustomize.toolkit.fluxcd.io/name': apps,
     'kustomize.toolkit.fluxcd.io/namespace': CUSTOM.namespaces.flux,
