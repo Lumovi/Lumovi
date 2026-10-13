@@ -5,7 +5,15 @@
  * On a phone it's the page: full width, nothing picked, and a tap opens what it lists.
  */
 import { SearchX } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
 import type { Health } from '@shared/health'
 import { spelled } from '@shared/kit/characters'
 import { PICKS_BEFORE_FILTER, type Pick, type PickList as PickListSaid } from '@shared/kit/page'
@@ -22,6 +30,12 @@ const WORST_FIRST: Health[] = ['critical', 'warning', 'progressing', 'neutral', 
 /** A row, and the gap under it. */
 const ROW = 52
 const GAP = 2
+/** A row's sides (its padding), how far in its name starts (a dot and its gap), a table's least
+ * for a lead, and the gap before a status beside it. */
+const ROW_SIDES = 16
+const NAME_IN = 18
+const LEAD_LEAST = 160
+const PILL_GAP = 12
 
 /** The rows as they stand: the worst first (and otherwise as given), unless said. */
 export function standing(list: PickListSaid): Pick[] {
@@ -71,6 +85,34 @@ export function PickList({
   // The plugin's title, as a screen reader and a field's placeholder say it: spelled.
   const named = spelled(list.title.their)
   const noun = named.toLowerCase()
+
+  // Its statuses stand beside the names, or all of them under: where any one won't fit beside its
+  // name, the name kept to a table's least (its own width, up to 160 px), every one goes under, at
+  // the names' edge. One column of them, or one line each: never some of each.
+  const [under, setUnder] = useState(false)
+  useLayoutEffect(() => {
+    const box = scroll.current
+    if (!box || phone) return
+    const fit = () =>
+      setUnder(
+        [...box.querySelectorAll<HTMLElement>('[role="option"]')].some((option) => {
+          const pill = option.querySelector('[data-pill]')
+          if (!pill) return false
+          const name = option.querySelector('[data-whole]')?.getBoundingClientRect().width ?? 0
+          const room = option.clientWidth - ROW_SIDES
+          return (
+            Math.min(NAME_IN + name, LEAD_LEAST) + PILL_GAP + pill.getBoundingClientRect().width >
+            room
+          )
+        }),
+      )
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(box)
+    // Measured again once the page's own fonts are in.
+    void document.fonts.ready.then(fit)
+    return () => observer.disconnect()
+  }, [shown, phone])
 
   // The picked row is kept in view, as rows come and go around it.
   useEffect(() => {
@@ -184,19 +226,24 @@ export function PickList({
                 setActiveKey(keyOf(row))
                 onPick(keyOf(row))
               }}
-              style={{ height: ROW, marginBottom: GAP }}
+              style={{ minHeight: ROW, marginBottom: GAP }}
               className={cn(
-                'flex cursor-default items-center gap-3 rounded-lg border border-transparent px-2 hover:bg-surface-3/60',
+                'flex cursor-default rounded-lg border border-transparent px-2 hover:bg-surface-3/60',
+                under ? 'flex-col justify-center gap-1 py-2' : 'items-center gap-3',
                 // Picked: the selection's wash, and never the blue alone (the header names it).
                 'aria-selected:border-accent/30 aria-selected:bg-accent-soft',
                 index === active &&
                   'group-focus-visible/picks:ring-2 group-focus-visible/picks:ring-accent',
               )}
             >
-              <Lead lead={row.lead} />
-              {/* The status is never cut: the name gives way. */}
+              <span className={cn('flex min-w-0', !under && 'flex-1')}>
+                <Lead lead={row.lead} />
+              </span>
+              {/* The status is never cut: the name gives way, to its least. */}
               {row.status?.level && (
-                <Pill level={row.status.level} word={row.status.word} className="shrink-0" />
+                <span data-pill className={cn('flex shrink-0', under && 'ml-[18px] self-start')}>
+                  <Pill level={row.status.level} word={row.status.word} />
+                </span>
               )}
             </div>
           ))}

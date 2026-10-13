@@ -62,7 +62,7 @@ const conditionsSchema = {
 }
 
 /** A CRD as `kubectl get crd -o yaml` shows it. */
-function crd(
+export function crd(
   b: Builder,
   age: number,
   def: {

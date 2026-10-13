@@ -1,0 +1,757 @@
+{
+  "now": "2026-10-13T12:00:00Z",
+  "objects": {
+    "postgresql.cnpg.io/Cluster": [
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Cluster",
+        "metadata": {
+          "name": "orders-db",
+          "namespace": "shop",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "instances": 3,
+          "imageName": "ghcr.io/cloudnative-pg/postgresql:16.4-bookworm",
+          "storage": {
+            "size": "20Gi"
+          },
+          "backup": {
+            "volumeSnapshot": {
+              "className": "csi-snapclass"
+            },
+            "barmanObjectStore": {
+              "destinationPath": "s3://example-backups/orders-db"
+            }
+          }
+        },
+        "status": {
+          "phase": "Cluster in healthy state",
+          "instances": 3,
+          "readyInstances": 3,
+          "currentPrimary": "orders-db-1",
+          "timelineID": 4,
+          "image": "ghcr.io/cloudnative-pg/postgresql:16.4-bookworm",
+          "lastSuccessfulBackup": "2026-10-13T09:04:12Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Cluster",
+        "metadata": {
+          "name": "reports-db",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "instances": 2,
+          "imageName": "ghcr.io/cloudnative-pg/postgresql:17.2",
+          "storage": {
+            "size": "20Gi"
+          },
+          "backup": {
+            "volumeSnapshot": {
+              "className": "csi-snapclass"
+            }
+          }
+        },
+        "status": {
+          "phase": "Cluster is in an unrecoverable state, needs manual intervention",
+          "instances": 2,
+          "readyInstances": 0,
+          "currentPrimary": "reports-db-1",
+          "timelineID": 2,
+          "image": "ghcr.io/cloudnative-pg/postgresql:17.2",
+          "phaseReason": "No instance can be promoted: reports-db-1 and reports-db-2 both lost their storage",
+          "lastSuccessfulBackup": "2026-10-11T02:09:40Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Cluster",
+        "metadata": {
+          "name": "sessions-db",
+          "namespace": "shop",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "instances": 2,
+          "imageName": "ghcr.io/cloudnative-pg/postgresql:16.4-bookworm",
+          "storage": {
+            "size": "20Gi"
+          },
+          "backup": {
+            "volumeSnapshot": {
+              "className": "csi-snapclass"
+            }
+          },
+          "plugins": [
+            {
+              "name": "barman-cloud.cloudnative-pg.io",
+              "isWALArchiver": true,
+              "parameters": {
+                "barmanObjectName": "sessions-store"
+              }
+            }
+          ]
+        },
+        "status": {
+          "phase": "Switchover in progress",
+          "instances": 2,
+          "readyInstances": 1,
+          "currentPrimary": "sessions-db-1",
+          "timelineID": 7,
+          "image": "ghcr.io/cloudnative-pg/postgresql:16.4-bookworm",
+          "phaseReason": "Switching over to sessions-db-2",
+          "lastSuccessfulBackup": "2026-10-13T11:02:20Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Cluster",
+        "metadata": {
+          "name": "payments-reconciliation-ledger-db",
+          "namespace": "billing",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "instances": 3,
+          "imageName": "ghcr.io/cloudnative-pg/postgresql:16.4-bookworm",
+          "storage": {
+            "size": "20Gi"
+          },
+          "backup": {
+            "volumeSnapshot": {
+              "className": "csi-snapclass"
+            }
+          }
+        },
+        "status": {
+          "phase": "Cluster in healthy state",
+          "instances": 3,
+          "readyInstances": 3,
+          "currentPrimary": "payments-reconciliation-ledger-db-1",
+          "timelineID": 1,
+          "image": "ghcr.io/cloudnative-pg/postgresql:16.4-bookworm",
+          "lastSuccessfulBackup": "2026-10-13T11:36:05Z"
+        }
+      }
+    ],
+    "/Pod": [
+      {
+        "metadata": {
+          "name": "orders-db-1",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "orders-db",
+            "cnpg.io/instanceRole": "primary",
+            "cnpg.io/instanceName": "orders-db-1"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-1-17"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "orders-db-2",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "orders-db",
+            "cnpg.io/instanceRole": "replica",
+            "cnpg.io/instanceName": "orders-db-2"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-2-44"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "orders-db-3",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-10T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "orders-db",
+            "cnpg.io/instanceRole": "replica",
+            "cnpg.io/instanceName": "orders-db-3"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-3-91"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 2
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "reports-db-1",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "reports-db",
+            "cnpg.io/instanceRole": "primary",
+            "cnpg.io/instanceName": "reports-db-1"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-1-23"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 14
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "reports-db-2",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "reports-db",
+            "cnpg.io/instanceRole": "replica",
+            "cnpg.io/instanceName": "reports-db-2"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-2-51"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 9
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "sessions-db-1",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "sessions-db",
+            "cnpg.io/instanceRole": "primary",
+            "cnpg.io/instanceName": "sessions-db-1"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-1-17"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "sessions-db-2",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "sessions-db",
+            "cnpg.io/instanceRole": "replica",
+            "cnpg.io/instanceName": "sessions-db-2"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-3-91"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "payments-reconciliation-ledger-db-1",
+          "namespace": "billing",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "payments-reconciliation-ledger-db",
+            "cnpg.io/instanceRole": "primary",
+            "cnpg.io/instanceName": "payments-reconciliation-ledger-db-1"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-2-44"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "payments-reconciliation-ledger-db-2",
+          "namespace": "billing",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "payments-reconciliation-ledger-db",
+            "cnpg.io/instanceRole": "replica",
+            "cnpg.io/instanceName": "payments-reconciliation-ledger-db-2"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-3-91"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "payments-reconciliation-ledger-db-3",
+          "namespace": "billing",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "cnpg.io/cluster": "payments-reconciliation-ledger-db",
+            "cnpg.io/instanceRole": "replica",
+            "cnpg.io/instanceName": "payments-reconciliation-ledger-db-3"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-1-23"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "postgres",
+              "restartCount": 0
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "storefront-7d9f6c5b8-x2kqp",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-01T09:00:00Z",
+          "labels": {
+            "app": "storefront"
+          }
+        },
+        "spec": {
+          "nodeName": "ip-10-0-1-17"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ]
+        }
+      }
+    ],
+    "postgresql.cnpg.io/Backup": [
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "orders-db-20261013-1200",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-13T11:56:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "running",
+          "startedAt": "2026-10-13T11:56:00Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "orders-db-20261013-0900",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-13T09:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-13T09:00:00Z",
+          "stoppedAt": "2026-10-13T09:04:12Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "orders-db-20261013-0600",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-13T06:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "method": "barmanObjectStore"
+        },
+        "status": {
+          "phase": "failed",
+          "startedAt": "2026-10-13T06:00:00Z",
+          "stoppedAt": "2026-10-13T06:01:03Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "orders-db-20261013-0300",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-13T03:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-13T03:00:00Z",
+          "stoppedAt": "2026-10-13T03:04:01Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "orders-db-20261013-0000",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-13T00:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-13T00:00:00Z",
+          "stoppedAt": "2026-10-13T00:03:58Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "orders-db-20261012-2100",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-12T21:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-12T21:00:00Z",
+          "stoppedAt": "2026-10-12T21:04:20Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "reports-db-20261013-0200",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-10-13T02:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "reports-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "failed",
+          "startedAt": "2026-10-13T02:00:00Z",
+          "stoppedAt": "2026-10-13T02:00:31Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "reports-db-20261011-0200",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-10-11T02:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "reports-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-11T02:00:00Z",
+          "stoppedAt": "2026-10-11T02:09:40Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "sessions-db-20261013-1100",
+          "namespace": "shop",
+          "creationTimestamp": "2026-10-13T11:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "sessions-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-13T11:00:00Z",
+          "stoppedAt": "2026-10-13T11:02:20Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Backup",
+        "metadata": {
+          "name": "payments-reconciliation-ledger-db-20261013-1130",
+          "namespace": "billing",
+          "creationTimestamp": "2026-10-13T11:30:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "payments-reconciliation-ledger-db"
+          },
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "phase": "completed",
+          "startedAt": "2026-10-13T11:30:00Z",
+          "stoppedAt": "2026-10-13T11:36:05Z"
+        }
+      }
+    ],
+    "postgresql.cnpg.io/ScheduledBackup": [
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "ScheduledBackup",
+        "metadata": {
+          "name": "nightly-and-day",
+          "namespace": "shop",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "schedule": "0 0 */3 * * *",
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "lastScheduleTime": "2026-10-13T09:00:00Z",
+          "nextScheduleTime": "2026-10-13T12:04:00Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "ScheduledBackup",
+        "metadata": {
+          "name": "weekly-offsite",
+          "namespace": "shop",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "schedule": "0 0 2 * * 0",
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "lastScheduleTime": "2026-10-11T02:00:00Z",
+          "nextScheduleTime": "2026-10-18T02:00:00Z"
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "ScheduledBackup",
+        "metadata": {
+          "name": "nightly",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "reports-db"
+          },
+          "schedule": "0 0 2 * * *",
+          "method": "volumeSnapshot"
+        },
+        "status": {
+          "lastScheduleTime": "2026-10-13 02:00:00",
+          "nextScheduleTime": "2026-10-14T02:00:00Z"
+        }
+      }
+    ],
+    "postgresql.cnpg.io/Pooler": [
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Pooler",
+        "metadata": {
+          "name": "orders-db-rw",
+          "namespace": "shop",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "orders-db"
+          },
+          "instances": 2,
+          "type": "rw"
+        },
+        "status": {
+          "instances": 2
+        }
+      },
+      {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Pooler",
+        "metadata": {
+          "name": "reports-db-ro",
+          "namespace": "analytics",
+          "creationTimestamp": "2026-09-01T09:00:00Z"
+        },
+        "spec": {
+          "cluster": {
+            "name": "reports-db"
+          },
+          "instances": 1,
+          "type": "ro"
+        },
+        "status": {
+          "instances": 0
+        }
+      }
+    ]
+  }
+}

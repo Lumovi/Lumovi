@@ -249,7 +249,7 @@ export function MiddleCut({
     >
       {/* All of it, unseen, as it's drawn whole (what was found in bold): how wide it would like
           to be, and how wide each of its marks is. */}
-      <span ref={whole} className="invisible">
+      <span ref={whole} data-whole className="invisible">
         {bold ? <Bolded pieces={all} bold={bold} /> : <TheirText pieces={all} inline />}
       </span>
       {/* All of it for a screen reader, its marks spelled. */}
