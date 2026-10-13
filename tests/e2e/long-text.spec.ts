@@ -7,7 +7,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { LONG, longCluster } from '../mock-cluster/fixtures/long.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
@@ -19,14 +19,65 @@ import { misplaced } from './long-text.ts'
 const CONTEXT =
   'arn:aws:eks:eu-central-1:123456789012:cluster/a-production-cluster-with-a-long-name'
 
-/** Waits for what loads, and for what moves to stop. */
+/**
+ * Waits for what loads, and for what moves to stop: nothing busy, no transition or animation
+ * that ends still running (a spinner's never does), and then nothing changed for two frames.
+ */
 async function settle(page: Page) {
   await page
-    .waitForFunction(() => !document.querySelector('[aria-busy="true"], .animate-pulse'), null, {
-      timeout: 5_000,
-    })
+    .waitForFunction(
+      () =>
+        !document.querySelector('[aria-busy="true"], .animate-pulse') &&
+        document
+          .getAnimations()
+          .every(
+            (animation) =>
+              animation.playState !== 'running' ||
+              animation.effect?.getComputedTiming().iterations === Infinity,
+          ),
+      null,
+      { timeout: 5_000 },
+    )
     .catch(() => undefined)
-  await page.waitForTimeout(400)
+  await quiet(page.locator('body'))
+}
+
+/**
+ * Waits until nothing in `where` has changed for two frames (two seconds at most, by the clock:
+ * a window covered by another draws no frames): what the last change set off, a list's rows
+ * drawn as it scrolls, say, is in place.
+ */
+function quiet(where: Locator): Promise<void> {
+  return where.evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        let changed = true
+        const changes = new MutationObserver(() => (changed = true))
+        changes.observe(element, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        })
+        let finished = false
+        const done = () => {
+          finished = true
+          clearTimeout(cap)
+          changes.disconnect()
+          resolve()
+        }
+        const cap = setTimeout(done, 2_000)
+        let calm = 0
+        const frame = () => {
+          if (finished) return
+          calm = changed ? 0 : calm + 1
+          changed = false
+          if (calm >= 2) done()
+          else requestAnimationFrame(frame)
+        }
+        requestAnimationFrame(frame)
+      }),
+  )
 }
 
 for (const size of ['wide', 'narrow'] as const) {
@@ -86,7 +137,7 @@ for (const size of ['wide', 'narrow'] as const) {
             return el.scrollTop !== before
           })
           if (!moved) break
-          await page.waitForTimeout(150)
+          await quiet(scroller)
           await look(`${where} (scrolled)`)
         }
         await scroller.evaluate((el) => (el.scrollTop = 0)).catch(() => undefined)
