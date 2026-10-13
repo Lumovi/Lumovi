@@ -12,6 +12,7 @@ import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO } from '../mock-cluster/fixtures/demo.ts'
 import { STAND_IN } from '../mock-cluster/server.ts'
+import { holds } from '../holds.ts'
 import { CONTEXTS, expect, openCluster, panel, test } from './fixtures.ts'
 
 const TINKER = `apiVersion: lumovi.dev/v1beta1
@@ -270,6 +271,118 @@ test('a server asked about an object of a kind that’s in no namespace is refus
   expect(
     clusters.demo.requests.filter((r) => r.path.includes('/proxy') && !r.path.startsWith(usage)),
   ).toEqual([])
+})
+
+/** Toys again, whose server says how it is. */
+const ASKING = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: toys }
+spec:
+  version: 1.2.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Toys
+  kinds: [{ group: example.com, kind: Widget }]
+  pages: [{ id: overview, title: Overview }]
+  server:
+    service: { name: toys-api }
+    in: { group: example.com, kind: Widget }
+    port: http
+    paths: [/api/v1/status]
+`
+/** Its code: two asks of its server once it holds a widget (as many as a page may), and what came. */
+const TWICE = `box.then(({ post, listen }) => {
+  let asked = false
+  let answered = 0
+  const say = (name) => post(JSON.stringify({ commit: [['change', 1, { name }]] }))
+  listen((text) => {
+    const heard = JSON.parse(text)
+    if (heard.open) {
+      post(JSON.stringify({ commit: [['make', 1, 'Header', { name: 'reading' }], ['put', 0, 1]] }))
+      post(JSON.stringify({ read: 1, what: 'list', kind: 'example.com/Widget', namespace: 'default' }))
+    }
+    if (heard.read === 1 && heard.objects && heard.objects[0] && !asked) {
+      asked = true
+      for (const read of [2, 3]) {
+        post(JSON.stringify({ read, what: 'server', in: heard.objects[0].token, path: '/api/v1/status' }))
+      }
+      say('asked 2')
+    }
+    if (heard.read === 2 || heard.read === 3) {
+      if ('json' in heard) answered++
+      say('json' in heard ? 'answered ' + answered : heard.ended + ': ' + heard.said)
+    }
+  })
+})
+`
+
+test('a plugin’s pages ask its server four at a time between them: the rest wait their turn, and none is lost', async ({
+  launch,
+  clusters,
+}) => {
+  test.setTimeout(90_000)
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: {
+      name: 'toys-api',
+      namespace: 'default',
+      creationTimestamp: new Date().toISOString(),
+      labels: { [STAND_IN]: 'toys-api' },
+    },
+    spec: { ports: [{ name: 'http', port: 8080 }] },
+  })
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), ASKING)
+  writeFileSync(join(folder, 'toys.js'), TWICE)
+  const { page } = await launch({
+    env: {
+      LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder,
+      // (Lumovi waits for its server for as long as this test holds an answer back: nothing here
+      // ends by the clock, however slow the machine.)
+      LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS: '60000',
+    },
+  })
+  await openCluster(page)
+  const toys = `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`
+  const asked = () =>
+    clusters.demo.requests.filter((r) => r.path.includes('/services/toys-api:http/proxy/'))
+  // Its server holds every ask, unanswered, until the test lets them go.
+  let letGo!: () => void
+  const held = new Promise<void>((done) => (letGo = done))
+  const holding = clusters.demo.fail(/\/services\/toys-api:http\/proxy\//, { until: held })
+  // The page twice, each left while its two asks are still with the server: still asked, so
+  // still counted.
+  for (const reached of [2, 4]) {
+    await go(page, toys)
+    await expect.poll(() => asked().length, { timeout: 20_000 }).toBe(reached)
+    await go(page, `#/cluster/${CONTEXTS.demo}/pods`)
+    await expect(body(page)).toHaveCount(0)
+  }
+  // A third time: its two wait their turn, and nothing more reaches the server meanwhile.
+  await go(page, toys)
+  await expect(body(page).getByRole('heading', { name: 'asked 2' })).toBeVisible({
+    timeout: 20_000,
+  })
+  await holds(() => asked().length === 4, 1000, 'no fifth ask reaches the server')
+  // (And the four were with the server all that while: none answered, none given up on.)
+  expect(asked().map((r) => r.ms)).toEqual([undefined, undefined, undefined, undefined])
+  // Its server answers again: the four it held, and whatever is asked from here on.
+  holding()
+  letGo()
+  // The first ones answered, the third page's two are asked, and answered.
+  await expect(body(page).getByRole('heading', { name: 'answered 2' })).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect
+    .poll(() => asked().map((r) => r.ms !== undefined))
+    .toEqual([true, true, true, true, true, true])
+  // Never more than four with the server at once.
+  const spans = asked().map((r) => [r.at!, r.at! + r.ms!] as const)
+  const most = Math.max(
+    ...spans.map(([start]) => spans.filter(([from, to]) => from <= start && start < to).length),
+  )
+  expect(most).toBe(4)
 })
 
 const POD = DEMO.pods.storefront[0]!
