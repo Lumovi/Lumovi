@@ -600,6 +600,9 @@ export function schemaProblem(schema: Json, value: Json, path = ''): string | un
 // ——— OpenAPI v3 ———
 
 const OBJECT_META = 'io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta'
+const OWNER_REFERENCE = 'io.k8s.apimachinery.pkg.apis.meta.v1.OwnerReference'
+const CRD_SPEC =
+  'io.k8s.apiextensions-apiserver.pkg.apis.apiextensions.v1.CustomResourceDefinitionSpec'
 const JSON_SCHEMA_PROPS = 'io.k8s.apiextensions-apiserver.pkg.apis.apiextensions.v1.JSONSchemaProps'
 
 /** Shared definitions: object metadata, and the recursive schema of schemas CRDs use. */
@@ -620,6 +623,23 @@ const SHARED_SCHEMAS: Record<string, Json> = {
           'Map of string keys and values that can be used to organize and categorize objects.',
         additionalProperties: { type: 'string', default: '' },
       },
+      ownerReferences: {
+        type: 'array',
+        description: 'List of objects depended by this object.',
+        items: { allOf: [{ $ref: `#/components/schemas/${OWNER_REFERENCE}` }], default: {} },
+      },
+    },
+  },
+  [OWNER_REFERENCE]: {
+    type: 'object',
+    description: 'OwnerReference contains enough information to let you identify an owning object.',
+    required: ['apiVersion', 'kind', 'name', 'uid'],
+    properties: {
+      apiVersion: { type: 'string' },
+      kind: { type: 'string' },
+      name: { type: 'string' },
+      uid: { type: 'string' },
+      controller: { type: 'boolean' },
     },
   },
   [JSON_SCHEMA_PROPS]: {
@@ -679,36 +699,46 @@ const BUILTIN_SCHEMAS: Record<string, Record<string, Json>> = {
       description:
         'CustomResourceDefinition represents a resource that should be exposed on the API server.',
       properties: {
+        apiVersion: { type: 'string' },
+        kind: { type: 'string' },
         metadata: { allOf: [{ $ref: `#/components/schemas/${OBJECT_META}` }], default: {} },
         spec: {
-          type: 'object',
+          allOf: [{ $ref: `#/components/schemas/${CRD_SPEC}` }],
           description: 'spec describes how the user wants the resources to appear',
-          properties: {
-            group: {
-              type: 'string',
-              description: 'group is the API group of the defined custom resource.',
-            },
-            versions: {
-              type: 'array',
-              items: {
+        },
+        status: {
+          type: 'object',
+          description: 'status indicates the actual state of the CustomResourceDefinition',
+          properties: { storedVersions: { type: 'array', items: { type: 'string' } } },
+        },
+      },
+      'x-kubernetes-group-version-kind': [
+        { group: 'apiextensions.k8s.io', kind: 'CustomResourceDefinition', version: 'v1' },
+      ],
+    },
+    [CRD_SPEC]: {
+      type: 'object',
+      properties: {
+        group: {
+          type: 'string',
+          description: 'group is the API group of the defined custom resource.',
+        },
+        versions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              schema: {
                 type: 'object',
                 properties: {
-                  name: { type: 'string' },
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      openAPIV3Schema: { $ref: `#/components/schemas/${JSON_SCHEMA_PROPS}` },
-                    },
-                  },
+                  openAPIV3Schema: { $ref: `#/components/schemas/${JSON_SCHEMA_PROPS}` },
                 },
               },
             },
           },
         },
       },
-      'x-kubernetes-group-version-kind': [
-        { group: 'apiextensions.k8s.io', kind: 'CustomResourceDefinition', version: 'v1' },
-      ],
     },
   },
 }
