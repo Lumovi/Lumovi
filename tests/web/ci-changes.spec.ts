@@ -22,6 +22,9 @@ const FULL = ['1/4', '2/4', '3/4', '4/4']
 /** The tests' projects each system runs, as one text each. */
 const projects = (result: ReturnType<typeof plan>) =>
   Object.fromEntries(result.e2e.map((shard) => [shard.os, shard.projects]))
+/** What each system's shards leave to Linux, as one text each. */
+const only = (result: ReturnType<typeof plan>) =>
+  Object.fromEntries(result.e2e.map((shard) => [shard.os, shard.only]))
 
 test('docs only: Markdown, and images that aren’t the app’s', () => {
   const result = pr([
@@ -82,13 +85,25 @@ test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its
     expect(macos(result)).toEqual(['smoke'])
     expect(result.e2e).toHaveLength(9)
     expect(result.said).toContain('Main’s merge')
-    // The browser's tests on Linux alone, where the server Lumovi ships runs.
+    // The browser's tests on Linux alone, where the server Lumovi ships runs; and Windows leaves
+    // to Linux the desktop tests alike on every system (macOS runs its smoke set by name).
     expect(projects(result)).toEqual({
       'ubuntu-latest': 'desktop web',
       'macos-latest': 'desktop',
       'windows-latest': 'desktop',
     })
+    expect(only(result)).toEqual({
+      'ubuntu-latest': '',
+      'macos-latest': '',
+      'windows-latest': 'system',
+    })
   }
+  // macOS in full, as its label asks, is all of the desktop app's tests there.
+  expect(only(pr(['x.ts'], 'lmv-1-x', ['macos-full']))).toEqual({
+    'ubuntu-latest': '',
+    'macos-latest': '',
+    'windows-latest': 'system',
+  })
   // And for a pull request, whatever it changes or its label asks.
   for (const result of [pr(['src/main/menu.ts']), pr(['x.ts'], 'lmv-1-x', ['macos-full'])]) {
     expect(projects(result)).toEqual({
@@ -112,6 +127,7 @@ test('main’s nightly run, a run by hand and a release’s pull request run eve
     expect(result.said).toContain(said)
     // Every system runs every test: a break in the browser's on one system shows here.
     expect(new Set(result.e2e.map((shard) => shard.projects))).toEqual(new Set(['desktop web']))
+    expect(new Set(result.e2e.map((shard) => shard.only))).toEqual(new Set(['']))
   }
 })
 
@@ -132,6 +148,35 @@ test('a shard of a system’s tests is of the projects CI names: the browser’s
   expect(both.length).toBeGreaterThan(desktop.length)
   // Where CI names none (a plan that says nothing of them), every project's.
   expect(listed({ E2E_PROJECTS: '' })).toEqual(both)
+  // A system's shard leaves the desktop tests alike on every system to Linux: each named spec is
+  // there, and none of its tests is in the system's shard.
+  const alike = readFileSync('tests/e2e/linux-only.txt', 'utf8')
+    .split('\n')
+    .filter((line) => line && !line.startsWith('#'))
+  expect(alike.length).toBeGreaterThan(5)
+  const system = listed({ E2E_PROJECTS: 'desktop', E2E_ONLY: 'system' })
+  for (const file of alike) {
+    expect(
+      desktop.some((name) => name.startsWith(`[desktop] › ${file} › `)),
+      file,
+    ).toBe(true)
+    expect(
+      system.some((name) => name.startsWith(`[desktop] › ${file} › `)),
+      file,
+    ).toBe(false)
+  }
+  expect(system.length).toBeLessThan(desktop.length)
+  // The specs that rest on what a system does are never left to Linux.
+  for (const kept of [
+    'plugin-box',
+    'plugin-hand-over',
+    'plugin-page',
+    'secret-by-key',
+    'safety',
+    'details',
+  ]) {
+    expect(alike, kept).not.toContain(`tests/e2e/${kept}.spec.ts`)
+  }
 })
 
 test('a nightly run on a head that’s run macOS in full already runs nothing more', () => {

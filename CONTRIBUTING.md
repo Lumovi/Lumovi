@@ -52,8 +52,9 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    It can merge once CI's _CI passed_ check is green: `main` requires it, of everyone, with no
    one able to bypass it.
 
-On a pull request CI runs every test on Linux; the desktop app's tests on Windows; and on macOS
-a short set (`tests/e2e/smoke.txt`), whatever the change touches: GitHub gives an account five
+On a pull request CI runs every test on Linux; the desktop app's tests on Windows, except those
+alike on every system (`tests/e2e/linux-only.txt`); and on macOS a short set
+(`tests/e2e/smoke.txt`), whatever the change touches: GitHub gives an account five
 macOS machines at a time, and a full run takes all five. The browser's tests (`tests/web`) run
 on Linux, where the server Lumovi ships runs. So for now, macOS's full suite runs nightly on
 `main`, on a release's pull request, on a run by hand, and where the label `macos-full` asks for

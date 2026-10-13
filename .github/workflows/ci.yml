@@ -331,6 +331,8 @@ jobs:
           SHARD: ${{ matrix.shard }}
           # Its tests' projects: the browser's on Linux alone, but nightly and for a release.
           E2E_PROJECTS: ${{ matrix.projects }}
+          # And on macOS and Windows, the desktop tests alike on every system left to Linux.
+          E2E_ONLY: ${{ matrix.only }}
         run: |
           if [ "$SHARD" = smoke ]; then
             list=tests/e2e/smoke.txt

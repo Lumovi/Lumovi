@@ -1,0 +1,15 @@
+# Desktop specs that run on Linux alone for a pull request and a merge (see scripts/ci-changes.ts):
+# their logic is the same on every system, and nothing in them rests on what a system does: its
+# keyboard, its fonts, its files and paths, its credentials, its terminals, or what listens on it.
+# Every system runs them nightly, for a release's pull request, and for a run by hand.
+tests/e2e/resources.spec.ts
+tests/e2e/overview.spec.ts
+tests/e2e/events-many.spec.ts
+tests/e2e/karpenter.spec.ts
+tests/e2e/yaml-edit.spec.ts
+tests/e2e/assistant-permissions.spec.ts
+tests/e2e/plugin-read.spec.ts
+tests/e2e/plugin-page-reads.spec.ts
+tests/e2e/plugin-page-parts.spec.ts
+tests/e2e/plugin-body.spec.ts
+tests/e2e/managed-by.spec.ts

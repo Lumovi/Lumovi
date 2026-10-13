@@ -40,6 +40,18 @@ const config = process.argv[3]
  * Where it names none (empty, as a plan that says nothing of them leaves it), every project's.
  */
 const projects = process.env.E2E_PROJECTS?.split(/\s+/).filter(Boolean)
+/**
+ * The spec files a shard of macOS or Windows leaves to Linux, where CI says (E2E_ONLY=system):
+ * those alike on every system (tests/e2e/linux-only.txt).
+ */
+const leftToLinux = new Set(
+  process.env.E2E_ONLY === 'system'
+    ? readFileSync('tests/e2e/linux-only.txt', 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'))
+    : [],
+)
 if (!current || !total || current > total) {
   console.error('Usage: node scripts/e2e-shard.ts <shard>/<shards> [config]')
   process.exit(1)
@@ -79,6 +91,7 @@ function walk(suite: Suite, titles: string[]): void {
     for (const { projectName } of spec.tests) {
       if (projects?.length && !projects.includes(projectName)) continue
       const file = suite.file.split('\\').join('/')
+      if (leftToLinux.has(file)) continue
       const name = [projectName ? `[${projectName}]` : '', file, ...titles, spec.title]
         .filter(Boolean)
         .join(' › ')

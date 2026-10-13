@@ -7,7 +7,8 @@
  *   a head that's run macOS in full, green, already: there's nothing new for it to run.
  * - `e2e`: the E2E shards, each with the tests' projects it runs. Linux runs every test, the
  *   desktop app's (tests/e2e) and the browser's (tests/web). macOS and Windows run the desktop
- *   app's: the browser's run there only nightly, for a run by hand and for a release's pull
+ *   app's, less those whose logic is the same on every system (tests/e2e/linux-only.txt): those,
+ *   and the browser's, run there only nightly, for a run by hand and for a release's pull
  *   request, since the server Lumovi ships runs on Linux. macOS, for now, runs only its smoke set
  *   (tests/e2e/smoke.txt) for a pull request and for main's merges, whatever they change: an
  *   account has five macOS machines at once, and a full run takes all five. Its full suite runs
@@ -81,14 +82,19 @@ export function plan({
   const everySystem = !again && (event === 'schedule' || event === 'workflow_dispatch' || release)
   const projectsOn = (os: (typeof OSES)[number]) =>
     os === 'ubuntu-latest' || everySystem ? 'desktop web' : 'desktop'
+  // What a system's shards leave to Linux: the tests that are alike on every system.
+  // (macOS in full, as its label asks, is all of the desktop app's tests there.)
+  const onlyOn = (os: (typeof OSES)[number]) =>
+    os === 'ubuntu-latest' || everySystem || (os === 'macos-latest' && asked) ? '' : 'system'
   const e2e = OSES.flatMap((os) =>
     os === 'macos-latest' && !macos
-      ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop' }]
+      ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop', only: '' }]
       : Array.from({ length: SHARDS }, (_, i) => ({
           os,
           shard: `${i + 1}/${SHARDS}`,
           part: String(i + 1),
           projects: projectsOn(os),
+          only: onlyOn(os),
         })),
   )
   const said = [
