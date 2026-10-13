@@ -12,7 +12,7 @@ import { knownPlugins, readIncluded, type KnownPlugin } from '@shared/plugins-kn
 // plugin's file is.
 import SHIPPED from 'virtual:lumovi-plugins'
 import SHIPPED_CODE from 'virtual:lumovi-plugins/code'
-import { digestOf, filesMark, readFiles } from './plugins'
+import { digestOf, filesMark, readFiles, type OwnReading } from './plugins'
 
 /** Set by the build: true only in the build the tests run. */
 declare const LUMOVI_TEST_BUILD: boolean
@@ -77,23 +77,41 @@ export async function plugins(
   allowed: PluginsAllowed = {},
   /** Those installed from the store, in place of Lumovi's own of their names. */
   installed?: () => Promise<InstalledFiles>,
+  /**
+   * The desktop app's: whether Developer mode is on, now. A person's own plugins in folders of
+   * their own are read (the desktop's alone), and their code only while it's on.
+   */
+  developer?: () => boolean,
 ): Promise<readonly Readonly<KnownPlugin>[]> {
   // (None at all: not one of Lumovi's own, nor of a folder's.)
   if (allowed.off) return Object.freeze([])
   const origin = host === 'desktop' ? 'yours' : 'server'
   // (Lumovi's own only: none installed is used either.)
   const fromStore = installed && !allowed.bundledOnly ? await installed() : undefined
-  const mark = JSON.stringify([origin, lumovi, allowed, fromStore, await filesMark(directory, env)])
+  const reading: OwnReading =
+    host === 'desktop' ? { folders: true, code: developer?.() === true } : {}
+  const mark = JSON.stringify([
+    origin,
+    lumovi,
+    allowed,
+    fromStore,
+    reading,
+    await filesMark(directory, env, reading),
+  ])
   if (last?.mark === mark) return last.known
-  const read = await readFiles(directory, env)
+  const read = await readFiles(directory, env, reading)
   // (Lumovi's own only: a person's folder isn't read as plugins.)
-  if (allowed.bundledOnly) read.files = []
+  if (allowed.bundledOnly) {
+    read.files = []
+    delete read.code
+  }
   const from = JSON.stringify([
     origin,
     lumovi,
     allowed,
     fromStore,
-    ...[read.files, read.included ?? [], read.includedCode ?? []].map((files) =>
+    reading,
+    ...[read.files, read.code ?? [], read.included ?? [], read.includedCode ?? []].map((files) =>
       files.map(({ name, digest, error }) => [name, digest ?? error]),
     ),
   ])
@@ -121,6 +139,8 @@ export async function plugins(
       ? read.includedCode.filter((file) => !file.error).map((file) => [file.name, file.text])
       : []),
     ...Object.entries(fromStore?.codes ?? {}),
+    // A person's own, in their plugins' folders (`toys/plugin.js`): read in Developer mode alone.
+    ...(read.code ?? []).filter((file) => !file.error).map((file) => [file.name, file.text]),
   ])
   // One of Lumovi's own: the bytes of its file are its text as UTF-8, which the release's index
   // pins and the build checked (a test holds it of every one of them, and of their code).

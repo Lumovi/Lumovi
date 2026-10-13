@@ -4,11 +4,12 @@
  * what stands in the page's place once it has ended. All are outside what a plugin's code
  * describes: nothing it sends can draw here, cover this or scroll it away.
  */
-import { Info, Plug } from 'lucide-react'
+import { Info, Lock, Plug } from 'lucide-react'
 import { Component, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { endedWords, type PageEnd } from '@shared/plugin-ended'
-import { SWITCHED_OFF } from '@shared/plugin-hand-over'
+import { SWITCHED_OFF, WAITING } from '@shared/plugin-hand-over'
+import { whose as whoseName } from '@shared/plugins'
 import { Button } from '@renderer/components/Button'
 import { StaleNotice } from '@renderer/components/States'
 import type { ReadNotices } from './reads'
@@ -47,11 +48,15 @@ export function WhoseStrip({
   name,
   version,
   asks,
+  yours = false,
 }: {
   name: string
   version: string
   asks?: string
+  /** One of the person's own, from their own folder (Developer mode). */
+  yours?: boolean
 }) {
+  const whose = yours ? 'your plugin' : 'the plugin'
   return (
     <div
       data-testid="plugin-whose"
@@ -61,11 +66,12 @@ export function WhoseStrip({
       {/* (A long name wraps; it's never cut. Narrow, as beside an open panel, it's said as on a
       phone.) */}
       <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        <span className="@max-[40rem]:hidden phone:hidden">This page is from the plugin </span>
-        <span className="hidden @max-[40rem]:inline phone:inline">From the plugin </span>
+        <span className="@max-[40rem]:hidden phone:hidden">This page is from {whose} </span>
+        <span className="hidden @max-[40rem]:inline phone:inline">From {whose} </span>
         <b className="font-semibold text-ink-1">{name}</b> {version}
         <span className="@max-[40rem]:hidden phone:hidden">
-          . Lumovi draws it from its own parts; what it shows and says is the plugin’s.
+          {yours && ', from your own folder'}. Lumovi draws it from its own parts; what it shows and
+          says is the plugin’s.
         </span>
       </span>
       {asks !== undefined && (
@@ -105,9 +111,14 @@ export function EndedPage({
       className="mx-auto flex max-w-sm flex-col items-center px-6 py-10 text-center phone:px-4 phone:py-7"
     >
       <div className="mb-4 grid size-11 place-items-center rounded-2xl border border-line bg-surface-3 text-ink-2">
-        <Plug className="size-5" aria-hidden />
+        {/* (Kept off by the organization's policy: its mark is the lock.) */}
+        {words.locked ? (
+          <Lock className="size-5" aria-hidden />
+        ) : (
+          <Plug className="size-5" aria-hidden />
+        )}
       </div>
-      <h3 className="text-[14px] leading-5 font-semibold [overflow-wrap:anywhere] text-ink-1">
+      <h3 className="text-[14px] leading-5 font-semibold text-balance [overflow-wrap:anywhere] text-ink-1">
         {words.title}
       </h3>
       {words.why && (
@@ -150,6 +161,44 @@ export function EndedPage({
 }
 
 /**
+ * The place of a page of the person's own plugin whose code waits for them (Developer mode): its
+ * mark, that it waits, and the way to what it may do, which agreeing to runs. Its code never runs
+ * from here.
+ */
+export function WaitingPage({
+  name,
+  icon,
+  onAgree,
+}: {
+  name: string
+  icon?: ReactNode
+  /** Opens what it may do, to agree to (none: nothing to press). */
+  onAgree?: () => void
+}) {
+  return (
+    <div
+      data-testid="plugin-waiting"
+      className="mx-auto flex max-w-sm flex-col items-center px-6 py-10 text-center phone:px-4 phone:py-7"
+    >
+      <div className="mb-4 grid size-11 place-items-center rounded-2xl border border-line bg-surface-3 text-ink-2">
+        {icon ?? <Plug className="size-5" aria-hidden />}
+      </div>
+      <h3 className="text-[14px] leading-5 font-semibold text-balance [overflow-wrap:anywhere] text-ink-1">
+        {whoseName(name)} code waits for you
+      </h3>
+      <p className="mt-1.5 text-[13px] leading-5 text-balance text-ink-2">
+        It runs once you’ve seen what it may do and agreed.
+      </p>
+      {onAgree && (
+        <Button variant="primary" className="mt-4" onClick={onAgree}>
+          See what it may do…
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/**
  * A plugin's page in its frame: the strip, and under it the page as Lumovi draws it, or what
  * stands in its place once it has ended. A part of Lumovi's own that fails as it draws takes
  * the plugin's page with it and nothing else, and is said as Lumovi's fault.
@@ -164,10 +213,16 @@ export function PluginFrame({
   onFault,
   asks,
   plugins,
+  yours = false,
+  waiting,
   children,
 }: {
   name: string
   version: string
+  /** One of the person's own, from their own folder (Developer mode): its strip says so. */
+  yours?: boolean
+  /** Where its code waits for the person: its mark, and the way to agree. */
+  waiting?: { icon?: ReactNode; onAgree?: () => void }
   /** Why the page ended, once it has. */
   end?: PageEnd
   /** What Lumovi says of the page's reads: decided from its own answers, never the plugin's. */
@@ -197,7 +252,12 @@ export function PluginFrame({
     <div className="flex min-h-0 flex-1 flex-col">
       {/* (Turned off: nothing of the plugin is drawn, so nothing is said to be its.) */}
       {!(end?.why === 'not-handed' && SWITCHED_OFF.has(end.refused)) && (
-        <WhoseStrip name={name} version={version} {...(asks === undefined ? {} : { asks })} />
+        <WhoseStrip
+          name={name}
+          version={version}
+          yours={yours}
+          {...(asks === undefined ? {} : { asks })}
+        />
       )}
       {!end && notices.stale !== undefined && (
         <StaleNotice error={{ message: notices.stale }} onRetry={onRetry} />
@@ -205,12 +265,20 @@ export function PluginFrame({
       {!end && notices.cut && <CutLine cut={notices.cut} />}
       <div className="min-h-0 flex-1 overflow-auto">
         {end ? (
-          <EndedPage
-            name={name}
-            end={end}
-            onAgain={again}
-            {...(plugins === undefined ? {} : { plugins })}
-          />
+          waiting && end.why === 'not-handed' && WAITING.has(end.refused) ? (
+            <WaitingPage
+              name={name}
+              {...(waiting.icon === undefined ? {} : { icon: waiting.icon })}
+              {...(waiting.onAgree === undefined ? {} : { onAgree: waiting.onAgree })}
+            />
+          ) : (
+            <EndedPage
+              name={name}
+              end={end}
+              onAgain={again}
+              {...(plugins === undefined ? {} : { plugins })}
+            />
+          )
         ) : (
           <Boundary
             key={opened}

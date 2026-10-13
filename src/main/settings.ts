@@ -1,8 +1,10 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import {
+  developerModeLocked,
   managedReadOnly,
   NODE_SHELL_DEFAULTS,
+  type AgreedRecord,
   type MetricsSourceSetting,
   type NodeShellSetting,
   type Settings,
@@ -158,6 +160,29 @@ export class SettingsStore implements SettingsAccess {
     this.update({ pluginsInstalled: records })
   }
 
+  /** Whether Developer mode is on: never while the organization's policy keeps it off. */
+  pluginDeveloperMode(): boolean {
+    return this.#settings.pluginDeveloperMode === true && !developerModeLocked(this.policy.managed)
+  }
+
+  setPluginDeveloperMode(on: boolean): Settings {
+    // (Off by the organization's policy: nothing here turns it on.)
+    if (on && developerModeLocked(this.policy.managed)) {
+      throw new Error('Your organization’s policy keeps Developer mode off.')
+    }
+    return this.update({ pluginDeveloperMode: on })
+  }
+
+  /** What the person agreed to run of each of their own plugins' code. */
+  pluginsAgreed(): Readonly<Record<string, AgreedRecord>> {
+    return this.#settings.pluginsAgreed ?? {}
+  }
+
+  /** Keeps them, as the agreements leave them. */
+  setPluginsAgreed(records: Record<string, AgreedRecord>): void {
+    this.update({ pluginsAgreed: records })
+  }
+
   /** Keeps a release's serial, where it's higher than any taken before. */
   acceptPluginStoreSerial(serial: number): void {
     if (serial > this.pluginStoreSerial()) this.update({ pluginStoreSerial: serial })
@@ -258,6 +283,10 @@ export class SettingsStore implements SettingsAccess {
         // Each installed plugin's record, as it was kept: one that doesn't make sense is as if
         // never installed (Lumovi's own, or none, is used).
         ...installedOf(stored.pluginsInstalled),
+        // On only where it was turned on; what was agreed, each as kept (one that doesn't make
+        // sense is as if never agreed: its code waits for the person again).
+        ...(stored.pluginDeveloperMode === true ? { pluginDeveloperMode: true } : {}),
+        ...agreedOf(stored.pluginsAgreed),
         // (One that isn't a whole number is as if none was taken: the built-in release's holds.)
         ...(Number.isSafeInteger(stored.pluginStoreSerial) && stored.pluginStoreSerial! > 0
           ? { pluginStoreSerial: stored.pluginStoreSerial }
@@ -344,6 +373,25 @@ function installedOf(value: unknown): { pluginsInstalled?: Record<string, Instal
     }),
   )
   return Object.keys(records).length > 0 ? { pluginsInstalled: records } : {}
+}
+
+/** The agreements to a person's own plugins' code that make sense, as kept (none: left out). */
+function agreedOf(value: unknown): { pluginsAgreed?: Record<string, AgreedRecord> } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const records = Object.fromEntries(
+    Object.entries(value).flatMap(([name, record]) => {
+      const r = record as Partial<AgreedRecord> | null
+      return PLUGIN_NAME.test(name) &&
+        typeof r?.asks === 'string' &&
+        typeof r.code === 'string' &&
+        /^sha256:[0-9a-f]{64}$/.test(r.code) &&
+        typeof r.file === 'string' &&
+        typeof r.at === 'string'
+        ? [[name, { asks: r.asks, code: r.code, file: r.file, at: r.at }]]
+        : []
+    }),
+  )
+  return Object.keys(records).length > 0 ? { pluginsAgreed: records } : {}
 }
 
 /** Whether a setting is a list of files, each where it is. */

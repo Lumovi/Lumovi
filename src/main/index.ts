@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, Menu, nativeTheme, Notification, session, shell } from 'electron'
-import { IPC, type ShellExit } from '@shared/api'
+import { developerModeLocked, IPC, type ShellExit } from '@shared/api'
+import { folderOf } from '@shared/plugin-loading'
 import { parsePlugin } from '@shared/plugins'
 import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
 import icon from '../../build/icon.png?asset'
@@ -40,6 +41,8 @@ import { loadLoginShellEnv } from './shell-env'
 import { Updates } from './updates'
 import { filterRequests, registerBoxScheme, serveBoxes, watchBoxes } from './plugin-box'
 import { PluginStore } from './plugin-store'
+import { AgreedPlugins } from './plugins-agreed'
+import { PluginsWatch } from './plugins-watch'
 import { InstalledPlugins } from './plugins-installed'
 import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
@@ -228,7 +231,26 @@ if (stdio) {
             ),
           }
         },
+        // (A person's own plugins' code is read in Developer mode alone.)
+        () => settings.pluginDeveloperMode(),
       )
+    // What the person agreed to run of their own plugins' code: let go of, under a policy that
+    // keeps Developer mode off (and agreed to again from the start once it's allowed).
+    const agreed = new AgreedPlugins({
+      records: () => settings.pluginsAgreed(),
+      keep: (records) => settings.setPluginsAgreed(records),
+      known: knownPlugins,
+      shown: (file) => join(pluginsDirectory(homedir()).shown, file),
+      audit,
+      byLumovi: (input) =>
+        void auditLog.record({ ...input, actor: { user: 'lumovi', via: 'server' } }),
+    })
+    agreed.clearUnder(policy.managed)
+    // In Developer mode, their folder watched: the page reads its plugins again as it changes.
+    const pluginsWatch = new PluginsWatch(pluginsDirectory(homedir()).path, () =>
+      send(IPC.pluginsChanged),
+    )
+    pluginsWatch.set(settings.pluginDeveloperMode())
     const deps = {
       store,
       envReady,
@@ -491,6 +513,8 @@ if (stdio) {
       updates,
       pluginStore,
       installed,
+      agreed,
+      pluginsWatch,
       installedPlugins: () => installed.read(),
       sponsor,
       pluginsDirectory: pluginsDirectory(homedir()),
@@ -506,6 +530,18 @@ if (stdio) {
           ...(policy.managed?.pluginLogsOff ? { logsOff: true as const } : {}),
           ...(policy.managed?.pluginServersOff ? { serversOff: true as const } : {}),
           chosen: settings.pluginCode(),
+        },
+        // One of the person's own: a folder's, in Developer mode, as they agreed to it.
+        own: (plugin) => {
+          if (folderOf(plugin.file) === undefined) return 'not-in-use'
+          if (!settings.pluginDeveloperMode()) {
+            return developerModeLocked(policy.managed)
+              ? 'developer-mode-locked'
+              : 'developer-mode-off'
+          }
+          if (plugin.asks === undefined) return 'no-code'
+          const standing = agreed.standing(plugin)
+          return standing === 'agreed' ? true : (`waiting-${standing}` as const)
         },
       }),
       rendererUrl: url,
@@ -548,6 +584,7 @@ if (stdio) {
     let waited = false
     app.on('will-quit', (event) => {
       closeStreams()
+      pluginsWatch.set(false)
       void assistants.stop()
       void auditLog.close()
       // And a download stopped by quitting has what was saved of it removed first.

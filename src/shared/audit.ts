@@ -80,6 +80,9 @@ export const AUDIT_ACTIONS = {
   'plugin.updated': 'settings',
   'plugin.went-back': 'settings',
   'plugin.removed': 'settings',
+  // A person's own plugin's code, agreed to run (Developer mode, the desktop app's); or let go of,
+  // where the organization's policy turns Developer mode off.
+  'plugin.code-agreed': 'settings',
   // A fleet's agents: whose cluster's certificate authority is trusted.
   'agent.pinned': 'server',
   'agent.refused': 'server',

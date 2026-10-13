@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { create } from 'zustand'
-import { settle } from '@shared/plugin-loading'
+import { folderOf, settle } from '@shared/plugin-loading'
 import { allowedBy } from '@shared/plugin-store'
 import { apiGroupOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
 import { api } from '@renderer/lib/api'
@@ -17,7 +17,7 @@ import {
 } from '@renderer/lib/plugins'
 import SHIPPED from 'virtual:lumovi-plugins'
 import CODED from 'virtual:lumovi-plugins/coded'
-import { setCodedPlugins } from '@renderer/lib/code-pages'
+import { setCodedPlugins, setOwnPlugins } from '@renderer/lib/code-pages'
 import { useResources } from './resources'
 
 /**
@@ -114,6 +114,15 @@ export function usePlugins() {
       // (One the policy doesn't name isn't there: not in use, nor listed.)
       settled.files = settled.files.filter(
         ({ plugin }) => !plugin || allowed(plugin.name, plugin.version),
+      )
+      // The person's own with code, each in a folder of its own: their pages offered, in a
+      // release as in the tests' build (their code runs as Developer mode and they say).
+      setOwnPlugins(
+        api.host === 'desktop'
+          ? settled.files.flatMap(({ file, plugin, state }) =>
+              plugin && state !== 'not-in-use' && folderOf(file) !== undefined ? [plugin.name] : [],
+            )
+          : [],
       )
       const local = settled.files.flatMap(({ state, plugin }) =>
         state === 'not-in-use' ? [] : [plugin!],

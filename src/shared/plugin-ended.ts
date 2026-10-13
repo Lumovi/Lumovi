@@ -50,6 +50,8 @@ export interface EndedWords {
   again: boolean
   /** Where its code is off by the person's own switch: the way to it, on the Plugins page. */
   toPlugins?: true
+  /** Off by the organization's policy: its mark is the lock. */
+  locked?: true
 }
 
 const STILL =
@@ -85,7 +87,7 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
     }
     // Its code turned off: a setting, not a fault. What turns it on, where there's anything here
     // that can; otherwise the sentence alone.
-    if (SWITCHED_OFF.has(end.refused)) return switchedOff(end.refused)
+    if (SWITCHED_OFF.has(end.refused)) return switchedOff(end.refused, name)
     // A check that couldn't look: said as Lumovi's, with what the person can change; opening the
     // page again would look again where it can't.
     if (end.refused === 'check-unlooked') {
@@ -157,8 +159,18 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
 }
 
 /** What stands in the place of a page whose code a switch turned off: whose switch, and what then. */
-function switchedOff(refused: NotHanded): EndedWords {
+function switchedOff(refused: NotHanded, name: string): EndedWords {
   switch (refused) {
+    // One of the person's own: Developer mode, theirs to turn on (or their organization's).
+    case 'developer-mode-off':
+      return {
+        title: 'Developer mode is off.',
+        why: `Turn it on in Plugins to run ${whose(name)} code.`,
+        again: false,
+        toPlugins: true,
+      }
+    case 'developer-mode-locked':
+      return { title: notHandedWhy('developer-mode-locked'), again: false, locked: true }
     case 'turned-off':
       return {
         title: 'You turned off its code.',

@@ -38,6 +38,8 @@
  *     "pluginLogs": "off",               no plugin's page may show or read containers' logs
  *     "pluginStore": "off",              Lumovi doesn't check Lumovi-plugins for newer plugins
  *     "pluginServers": "off",            no plugin may talk to a server in the cluster
+ *     "pluginDeveloperMode": "off",      Developer mode stays off: no plugin of a person's own runs
+ *                                        code (as with "plugins" "bundled", "off" or "no-code")
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -113,6 +115,7 @@ const KEYS = [
   'pluginLogs',
   'pluginStore',
   'pluginServers',
+  'pluginDeveloperMode',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -158,6 +161,7 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
         pluginLogsOff: true,
         pluginStoreOff: true,
         pluginServersOff: true,
+        pluginDeveloperModeOff: true,
         problem,
       },
       assistantRules: [],
@@ -386,6 +390,7 @@ function checked(given: unknown, path: string): Policy {
     pluginLogs,
     pluginStore,
     pluginServers,
+    pluginDeveloperMode,
     network = {},
   } = policy
   if (
@@ -466,6 +471,7 @@ function checked(given: unknown, path: string): Policy {
     ['pluginLogs', pluginLogs],
     ['pluginStore', pluginStore],
     ['pluginServers', pluginServers],
+    ['pluginDeveloperMode', pluginDeveloperMode],
   ] as const) {
     if (value !== undefined && value !== 'off') throw new Error(`${key} must be "off".`)
   }
@@ -513,6 +519,7 @@ function checked(given: unknown, path: string): Policy {
     ...(pluginLogs === 'off' ? { pluginLogsOff: true as const } : {}),
     ...(pluginStore === 'off' ? { pluginStoreOff: true as const } : {}),
     ...(pluginServers === 'off' ? { pluginServersOff: true as const } : {}),
+    ...(pluginDeveloperMode === 'off' ? { pluginDeveloperModeOff: true as const } : {}),
   }
   return {
     managed,

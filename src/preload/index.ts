@@ -176,6 +176,12 @@ const api: LumoviApi = {
     goBack: (name, to, agreed) => invoke(IPC.pluginGoBack, name, to, agreed),
     remove: (name) => invoke(IPC.pluginRemove, name),
   },
+  ownCode: {
+    developerMode: (on) => invoke(IPC.pluginDeveloperMode, on),
+    standing: (name) => invoke(IPC.pluginOwnCode, name),
+    agree: (name, asks, code) => invoke(IPC.pluginAgree, name, asks, code),
+    onChange: (listener) => subscribe(IPC.pluginsChanged, listener),
+  },
   logs: {
     start: (id, request) => invoke(IPC.logsStart, id, request),
     stop: (id) => ipcRenderer.send(IPC.logsStop, id),

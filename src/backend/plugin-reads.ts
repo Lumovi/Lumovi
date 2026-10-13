@@ -54,7 +54,7 @@ import type { Recorder } from './audit/recorder'
 import { toKubeError } from './kube/errors'
 import type { KubeService } from './kube/service'
 import { ALL_CODE_ON, codeOff } from '@shared/plugin-hand-over'
-import type { HandOverTo } from './plugin-code'
+import { runsCode, type HandOverTo } from './plugin-code'
 
 export interface PluginReading {
   kube: Pick<KubeService, 'resource' | 'list' | 'get' | 'metrics'>
@@ -102,7 +102,7 @@ export function pluginReads({ kube, known, audit, to }: PluginReading) {
     const named: ResourceKind = kindFor(asked.group ? `${asked.group}/v1` : 'v1', asked.kind)
     const plugin = (await known()).find((p) => p.name === q.plugin)
     // Only a plugin whose code Lumovi may run has code that reads.
-    if (!plugin || !mayCarryCode(plugin.origin)) {
+    if (!plugin || !(to ? runsCode(plugin, to()) : mayCarryCode(plugin.origin))) {
       return refuse({ kind: named }, undefined, 'not-in-use')
     }
     // And only the code, and the file, its page was handed: never a grant read since, for code
@@ -343,6 +343,8 @@ export async function secretsAskedFor(
   kube: Pick<KubeService, 'resource' | 'get'>,
   /** The organization's policy lets no plugin's page show a Secret's keys. */
   secretsOff = false,
+  /** Where the page that asks is: whose code runs there (a person's own only as they agreed). */
+  to?: () => HandOverTo,
 ): Promise<
   | { query: unknown; plugin?: Readonly<KnownPlugin> }
   | { refused: KubeError; recorded?: { query: SecretValuesQuery; plugin: Readonly<KnownPlugin> } }
@@ -361,7 +363,7 @@ export async function secretsAskedFor(
     return { refused: { code: 'invalid', message: 'Expected a plugin’s name' } }
   }
   const plugin = (await known()).find((p) => p.name === name)
-  if (!plugin || !mayCarryCode(plugin.origin)) {
+  if (!plugin || !(to ? runsCode(plugin, to()) : mayCarryCode(plugin.origin))) {
     return { refused: { code: 'not-allowed', message: READ_REFUSED['not-in-use'] } }
   }
   // (None shows a Secret's keys, by the organization's policy: nothing of it is read.)

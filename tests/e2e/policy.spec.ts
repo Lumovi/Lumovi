@@ -140,8 +140,9 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       kubectlOff: true,
       kubeconfigFilesLocked: true,
       // And no plugins at all, nor any plugin's code, proposal, Secret, logs or server
-      // (plugin-code-switch.spec.ts, plugin-logs.spec.ts, plugin-server.spec.ts), and nothing
-      // asked of Lumovi-plugins for newer ones (plugin-store.spec.ts).
+      // (plugin-code-switch.spec.ts, plugin-logs.spec.ts, plugin-server.spec.ts), nothing asked
+      // of Lumovi-plugins for newer ones (plugin-store.spec.ts), and no Developer mode
+      // (plugin-developer.spec.ts).
       pluginsOff: true,
       pluginCodeOff: true,
       pluginProposalsOff: true,
@@ -149,7 +150,8 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       pluginLogsOff: true,
       pluginStoreOff: true,
       pluginServersOff: true,
-      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, pluginLogs, pluginStore, pluginServers, network.`,
+      pluginDeveloperModeOff: true,
+      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, pluginLogs, pluginStore, pluginServers, pluginDeveloperMode, network.`,
     },
   })
   await openCluster(page)
@@ -229,10 +231,19 @@ test('a policy with a value of the wrong kind can’t be used, and says which', 
       policyFile({ pluginsAllowed: ['Not A Name'] }),
       'pluginsAllowed must be a list of plugins’ names, each with a version if it says one (argo-cd@1.2.0).',
     ],
+  ])
+})
+
+// (Its own test: each case is a launch of its own, and together they'd be more than one test's time.)
+test('a policy’s plugin keys that turn something off take only "off": anything else can’t be used, and says which', async ({
+  launch,
+}) => {
+  await cantBeUsed(launch, [
     [policyFile({ pluginSecrets: 'hidden' }), 'pluginSecrets must be "off".'],
     [policyFile({ pluginLogs: 'shown' }), 'pluginLogs must be "off".'],
     [policyFile({ pluginStore: true }), 'pluginStore must be "off".'],
     [policyFile({ pluginServers: 'on' }), 'pluginServers must be "off".'],
+    [policyFile({ pluginDeveloperMode: 'on' }), 'pluginDeveloperMode must be "off".'],
   ])
 })
 

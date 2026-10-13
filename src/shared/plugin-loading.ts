@@ -20,7 +20,8 @@
  * its state and every reason: nothing is dropped unsaid. The answer doesn't depend on the order
  * the files are handed in.
  */
-import { clashes, parsePlugin, plain, type ParseOptions, type Plugin } from './plugins'
+import { clashes, parsePlugin, plain, PLUGIN_NAME, type ParseOptions, type Plugin } from './plugins'
+import { unsaid } from './plugin-store'
 
 /**
  * Where a plugin came from, which is what it's trusted by: worked out here from where its file
@@ -41,6 +42,30 @@ export type Origin = 'lumovi' | 'yours' | 'server' | 'installed'
  */
 export function mayCarryCode(origin: Origin): boolean {
   return origin === 'lumovi' || origin === 'installed'
+}
+
+/**
+ * The plugin a person's own folder holds, from its file's name (`<name>/plugin.yaml`): one of
+ * theirs with code, its folder named as the plugin. A file of the folder itself (`<name>.yaml`)
+ * holds none: data alone.
+ */
+export function folderOf(file: string): string | undefined {
+  const [folder, name, ...more] = file.split('/')
+  return more.length === 0 && name === 'plugin.yaml' && PLUGIN_NAME.test(folder!)
+    ? folder
+    : undefined
+}
+
+/**
+ * Why one of a person's own with code can't be agreed to: a field this Lumovi can't say what it
+ * asks (`unsaid`), which an agreement couldn't cover. None, where it can say all of it.
+ */
+export function ownRefusal(plugin: Plugin): string | undefined {
+  // (Named, so its author knows what to take out, or which Lumovi it needs.)
+  const fields = unsaid(plugin).map(plain)
+  return fields.length > 0
+    ? `this Lumovi can’t say all that it asks for (${fields.join(', ')}), so it isn’t used`
+    : undefined
 }
 
 /** A file of a folder, as it was read: its text, or why it couldn't be. */
@@ -103,11 +128,21 @@ export function settle(
     })
     if (file.error) return refused([`${file.name}: ${file.error}`])
     try {
-      // (Whether it may carry code is its origin's to say, whatever a caller passed.)
+      // (Whether it may carry code is its origin's to say, whatever a caller passed: and a
+      // person's own folder for a plugin, whose code waits for Developer mode and their word.)
+      const folder = origin === 'yours' ? folderOf(file.name) : undefined
       const read = parsePlugin(file.text, file.name, {
         ...options,
-        carriesCode: mayCarryCode(origin),
+        carriesCode: mayCarryCode(origin) || folder !== undefined,
       })
+      if (read.plugin && folder !== undefined && read.plugin.name !== folder) {
+        return refused(
+          [`${file.name}: the plugin is named ${read.plugin.name}, so its folder should be too`],
+          read.plugin.name,
+        )
+      }
+      const unsure = read.plugin && folder !== undefined ? ownRefusal(read.plugin) : undefined
+      if (unsure) return refused([`${file.name}: ${unsure}`], read.plugin!.name)
       return read.plugin
         ? { file: file.name, origin, plugin: read.plugin, state: 'in-use', problems: [] }
         : refused(read.problems, read.name)

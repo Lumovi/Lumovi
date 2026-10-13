@@ -257,6 +257,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'plugin.updated': { label: 'Updated a plugin', icon: Plug },
   'plugin.went-back': { label: 'Went back to an earlier plugin', icon: Plug },
   'plugin.removed': { label: 'Removed a plugin', icon: Plug },
+  'plugin.code-agreed': { label: 'Agreed to run a plugin’s code', icon: Plug },
   'agent.pinned': { label: 'Trusted an agent', icon: ShieldCheck },
   'agent.refused': { label: 'Refused an agent', icon: ShieldX },
   'agent.trusted': { label: 'Let an agent be trusted again', icon: ShieldCheck },
