@@ -10,6 +10,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { BOX_LIMITS, takeOffScript } from '../../src/shared/plugin-box.ts'
 import { CONTEXTS, DEMO, expect, openCluster, test } from './fixtures.ts'
 import { holds } from '../holds.ts'
+import { featuresOf, unsealed } from './plugin-box/sealed.ts'
 
 /** What a test's box has heard and how it ended, kept on the page. */
 interface Kept {
@@ -105,6 +106,18 @@ test('a plugin’s code runs in a worker of a box, hears Lumovi and answers in t
   expect(frames.boxes.map((box) => box.url)).toEqual(['lumovi-plugin://echo/box.html'])
   expect(frames.boxes[0]!.pid).not.toBe(frames.page)
   expect((await kept(page, 'echo')).ended).toBeUndefined()
+})
+
+test('a box’s frame is sealed by Lumovi’s page too, and its page is given no feature', async ({
+  lumovi: { page },
+}) => {
+  await open(page, 'echo', ECHO)
+  await expect.poll(async () => (await kept(page, 'echo')).heard).toEqual(['hello from blob:'])
+  const box = page.frames().find((frame) => frame.url() === 'lumovi-plugin://echo/box.html')!
+  expect(await (await box.frameElement()).getAttribute('sandbox')).toBe('allow-scripts')
+  // From inside it: nothing, by the box's policy, not by a browser's default; and every
+  // feature this Chromium knows is named in it.
+  expect(await featuresOf(box)).toEqual({ given: [], unnamed: [] })
 })
 
 test('two plugins are never in one process; two pages of one plugin share theirs', async ({
@@ -498,7 +511,11 @@ test('the box’s protocol serves its two files and nothing else, however it’s
     app.evaluate(
       async ({ net }, { url, method }) => {
         const answer = await net.fetch(url, { method, bypassCustomProtocolHandlers: false })
-        return { status: answer.status, type: answer.headers.get('content-type') ?? '' }
+        return {
+          status: answer.status,
+          type: answer.headers.get('content-type') ?? '',
+          headers: [...answer.headers.entries()],
+        }
       },
       { url, method },
     )
@@ -506,8 +523,15 @@ test('the box’s protocol serves its two files and nothing else, however it’s
   await expect(ask('lumovi-plugin://echo/box.html')).rejects.toThrow(/ERR_BLOCKED_BY_CLIENT/)
   // (Taken away, to hear the protocol itself.)
   await app.evaluate(({ session }) => session.defaultSession.webRequest.onBeforeRequest(null))
-  expect(await ask('lumovi-plugin://echo/box.html')).toMatchObject({ status: 200 })
-  expect((await ask('lumovi-plugin://echo/box.js')).type).toContain('text/javascript')
+  const document = await ask('lumovi-plugin://echo/box.html')
+  expect(document.status).toBe(200)
+  // Sealed by its own answer, shown by Lumovi's page alone (a file of the app's).
+  expect(unsealed(new Headers(document.headers), 'lumovi-plugin://echo/box.js', 'file:')).toEqual(
+    [],
+  )
+  const script = await ask('lumovi-plugin://echo/box.js')
+  expect(script.type).toContain('text/javascript')
+  expect(new Headers(script.headers).get('x-content-type-options')).toBe('nosniff')
   for (const [url, method] of [
     ['lumovi-plugin://echo/other.html', 'GET'],
     ['lumovi-plugin://echo/', 'GET'],
