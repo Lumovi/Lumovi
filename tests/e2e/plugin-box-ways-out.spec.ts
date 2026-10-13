@@ -115,26 +115,27 @@ async function inWorker(page: Page, as: string, id: string, context: object): Pr
   }
 }
 
-/** Tries one way on a box's own page, where Lumovi's few lines run and no plugin's code. */
-async function onPage(
+/**
+ * Runs `script` in a box's own frame, from the app's main process (a page can't reach into a
+ * frame that's sealed from it): what it gives back, as text.
+ */
+async function inFrame(
   page: Page,
   app: ElectronApplication,
   as: string,
-  id: string,
-  context: object,
+  script: string,
 ): Promise<string> {
-  await open(page, as, IDLE)
   // Which of the page's frames it is, in the page's order (the main process's is the same).
-  const index = await page.evaluate(
-    (as) =>
-      [...document.querySelectorAll('iframe')].indexOf(
-        (window as unknown as OnPage).__boxes[as]!.frame as never,
-      ),
-    as,
-  )
+  const index = await page.evaluate((as) => {
+    const frame = (window as unknown as OnPage).__boxes[as]?.frame
+    return frame?.isConnected
+      ? [...document.querySelectorAll('iframe')].indexOf(frame as never)
+      : -1
+  }, as)
+  if (index < 0) return 'no such frame'
   return app
     .evaluate(
-      async ({ BrowserWindow }, { ways, id, context, index }) => {
+      async ({ BrowserWindow }, { script, index }) => {
         const [win] = BrowserWindow.getAllWindows()
         const frames = win!.webContents.mainFrame.framesInSubtree.filter((frame) => {
           try {
@@ -145,11 +146,10 @@ async function onPage(
         })
         const frame = frames.at(index)
         if (!frame) return 'no such frame'
-        const run = `${ways}\n;(() => { const c = ${JSON.stringify(context)}; c.post = () => undefined; return self.runAttempt(${JSON.stringify(id)}, c) })()`
         try {
           return String(
             await Promise.race([
-              frame.executeJavaScript(run),
+              frame.executeJavaScript(script),
               new Promise((done) => setTimeout(() => done('no word back'), 3200)),
             ]),
           )
@@ -157,12 +157,40 @@ async function onPage(
           return `the frame went: ${(error as Error).message.slice(0, 80)}`
         }
       },
-      { ways: WAYS, id, context, index },
+      { script, index },
     )
     .catch((error: Error) => `the frame went: ${error.message.slice(0, 80)}`)
 }
 
-/** Every way of a group, tried one after another: which of them got something out, and what. */
+/** Tries one way on a box's own page, where Lumovi's few lines run and no plugin's code. */
+async function onPage(
+  page: Page,
+  app: ElectronApplication,
+  as: string,
+  id: string,
+  context: object,
+): Promise<string> {
+  await open(page, as, IDLE)
+  return inFrame(
+    page,
+    app,
+    as,
+    `${WAYS}\n;(() => { const c = ${JSON.stringify(context)}; c.post = () => undefined; return self.runAttempt(${JSON.stringify(id)}, c) })()`,
+  )
+}
+
+/**
+ * A box's own document as it stands: every element and attribute of it, in its own frame's
+ * words. (No such frame, if its box was ended.)
+ */
+const documentOf = (page: Page, app: ElectronApplication, as: string) =>
+  inFrame(page, app, as, 'new XMLSerializer().serializeToString(document)')
+
+/**
+ * Every way of a group, tried one after another: which of them got something out, and what;
+ * and, from the worker, after which of them the box's own document was no longer as Lumovi
+ * serves it.
+ */
 async function tryGroup(
   where: 'worker' | 'page',
   group: string,
@@ -171,10 +199,30 @@ async function tryGroup(
   catchers: Catchers,
   /** The other host goes by each try's own name: for a run whose log of the network is read. */
   named = false,
-): Promise<{ tried: number; out: Record<string, string>; saw: Record<string, string> }> {
+): Promise<{
+  tried: number
+  out: Record<string, string>
+  saw: Record<string, string>
+  changed: Record<string, string>
+}> {
   const ways = ALL.filter((way) => way.group === group && (where === 'page' || !way.needsDom))
   const out: Record<string, string> = {}
   const saw: Record<string, string> = {}
+  const changed: Record<string, string> = {}
+  // A box's own document as Lumovi serves it, its worker running: read from one that tries
+  // nothing. A plugin's code is in the worker, and no way it tries may leave a mark on it.
+  let served = ''
+  if (where === 'worker') {
+    await open(page, 'served', IDLE)
+    served = await documentOf(page, app, 'served')
+    expect(served).toContain('<script src=')
+    // (And a mark would be seen: one made by the test's own hand is.)
+    await inFrame(page, app, 'served', 'document.body.setAttribute("data-marked", "")')
+    expect(await documentOf(page, app, 'served')).toBe(
+      served.replace('<body', '<body data-marked=""'),
+    )
+    await close(page, 'served')
+  }
   const tryIt = (as: string, id: string, role?: 'first' | 'second') =>
     where === 'worker'
       ? inWorker(page, as, id, catchers.context(id, role, named))
@@ -195,9 +243,14 @@ async function tryGroup(
     await pause(group === 'port' ? 600 : 350)
     const got = gotOut(id, catchers.caught())
     if (got) out[id] = got
+    if (where === 'worker') {
+      const now = await documentOf(page, app, `${n}-first`)
+      // (A box that was ended has no document left to read.)
+      if (now.startsWith('<') && now !== served) changed[id] = now.slice(0, 400)
+    }
     await close(page, `${n}-first`)
   }
-  return { tried: ways.length, out, saw }
+  return { tried: ways.length, out, saw, changed }
 }
 
 /** Takes one of the desktop's walls away, in the app's main process, for a test. */
@@ -305,10 +358,20 @@ for (const group of GROUPS) {
       launch,
     }) => {
       const { page, app, named } = await logged(launch)
-      const { tried, out, saw } = await tryGroup('worker', group, page, app, catchers, true)
-      await test.info().attach('saw', { body: JSON.stringify(saw, null, 2) })
+      const { tried, out, saw, changed } = await tryGroup(
+        'worker',
+        group,
+        page,
+        app,
+        catchers,
+        true,
+      )
+      await test.info().attach('saw', { body: JSON.stringify({ changed, saw }, null, 2) })
       expect(tried).toBeGreaterThan(0)
       expect(out).toEqual({})
+      // Nor did any of them leave a mark on the box's own page: after each, its document was
+      // as Lumovi serves it, every element and attribute.
+      expect(changed).toEqual({})
       // And each way judged by what it saw was refused: none worked, whatever reached a catcher,
       // and none said something that's neither.
       expect(notRefused(saw)).toEqual([])
