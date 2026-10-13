@@ -56,6 +56,8 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   // (Some of a Secret's values, picked by key where it's read: a read, as a get is.)
   'kube.secretValues': 'reads',
   'kube.pluginRead': 'reads',
+  // (A plugin's proposed change, confirmed in Lumovi's dialog: never on a phone.)
+  'kube.pluginChange': 'changes',
   'kube.pluginHandOver': 'reads',
   // (A plugin's code, on a phone as anywhere, is the hand-over's to give, after the box's check:
   // nothing of them changes a cluster.)

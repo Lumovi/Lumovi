@@ -17,6 +17,7 @@ import { useLayout } from '@renderer/lib/layout'
 import { formatRef, listPath, pluginAsksPath } from '@renderer/lib/routes'
 import { KIT_PARTS } from '@renderer/plugins/kit'
 import { Opened } from '@renderer/plugins/opened'
+import { proposeChange } from '@renderer/plugins/proposals'
 import { useCluster } from '@renderer/state/cluster'
 
 export function PluginBody({
@@ -29,7 +30,7 @@ export function PluginBody({
 } & (
   { page: string; tab?: never; object?: never } | { tab: string; object: ObjectRef; page?: never }
 )) {
-  const { context } = useCluster()
+  const { context, namespace } = useCluster()
   const layout = useLayout()
   const openObject = useOpenObject()
   const navigate = useNavigate()
@@ -56,6 +57,21 @@ export function PluginBody({
           parts: KIT_PARTS,
           kinds: plugin.named,
           open,
+          // A change its page proposes, in Lumovi's own dialog: on the cluster it's open on, the
+          // person's to confirm.
+          propose: (proposal, handed) =>
+            proposeChange(
+              {
+                plugin: plugin.name,
+                label: plugin.label,
+                version: plugin.version,
+                ...handed,
+                context,
+                ...(namespace && { namespace }),
+              },
+              proposal,
+              layout,
+            ),
           asks: pluginAsksPath(context, plugin.name),
         }}
         onAgain={() => setAgain((n) => n + 1)}

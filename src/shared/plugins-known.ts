@@ -10,7 +10,7 @@
  * page's refresh is still the old text to the page, and has its new digest here. Whatever writes
  * a digest beside something a page did has to say which reading it names.
  */
-import { clashes, ownKinds, parsePlugin, type Plugin } from './plugins'
+import { clashes, ownKinds, parsePlugin, type ChangesKind, type Plugin } from './plugins'
 import { settle, type Origin, type PluginFile } from './plugin-loading'
 import type { Grant } from './plugin-reads'
 import type { ResourceKind } from './resources'
@@ -86,6 +86,13 @@ export interface KnownPlugin {
   code?: string
   /** `sha256:` and the hex of its code's bytes (its text as UTF-8): what every read names. */
   codeDigest?: string
+  /**
+   * What its pages may propose to change, from its file (`spec.changes`): its own kinds, and how.
+   * Only one with code proposes anything; none, where its file says none.
+   */
+  changes?: readonly Readonly<ChangesKind>[]
+  /** The name a person reads it by (its file's `label`), where its file gives one. */
+  label?: string
 }
 
 /** What a plugin's code may read, by its file. */
@@ -174,6 +181,10 @@ export function knownPlugins(
         digest: digest(text),
         grant: grantOf(plugin),
         ...(code === undefined ? {} : { code, codeDigest: digest(code) }),
+        changes: Object.freeze(
+          plugin.changes.map(({ kind, actions }) => Object.freeze({ kind, actions: [...actions] })),
+        ),
+        ...(plugin.place?.label !== undefined && { label: plugin.place.label }),
       }
     }),
     ...settled.files.flatMap(({ file, plugin, state }) =>

@@ -42,6 +42,7 @@ import type { Terminals } from './kube/streams'
 import type { UsageHistory } from './kube/usage'
 import { isMetricsSourceSetting, isNodeShellSetting, type SettingsAccess } from './settings'
 import { readPlugins } from './plugins'
+import { pluginChanges } from './plugin-changes'
 import { pluginCodes, type HandOverTo } from './plugin-code'
 import { pluginReads, secretsAskedFor } from './plugin-reads'
 
@@ -318,6 +319,7 @@ export function handlers({
         return result
       },
       [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit }),
+      [IPC.pluginChange]: pluginChanges({ kube, known: knownPlugins, to: handOverTo, audit }),
       ...(() => {
         const codes = pluginCodes({ known: knownPlugins, to: handOverTo, audit })
         return { [IPC.pluginCode]: codes.code, [IPC.pluginHandOver]: codes.whether }

@@ -42,6 +42,7 @@ import type { Marks } from './marks'
 import type { AppCommand } from './navigation'
 import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
+import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
 import type { PluginRead, PluginReadQuery } from './plugin-reads'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
@@ -1181,6 +1182,12 @@ export interface LumoviApi {
     /** What `pluginCode` would answer, without the code: for a page that only says so. */
     pluginHandOver(plugin: string): Promise<true | NotHanded>
     /**
+     * A change a plugin's page proposed, from Lumovi's own dialog: whether it may be asked, what
+     * the cluster would make of it, made once the person confirms, or recorded as cancelled.
+     * Made as the person, and recorded with the plugin's name, version and digests.
+     */
+    pluginChange(request: PluginChangeRequest): Promise<PluginChangeAnswer>
+    /**
      * A server's: a check of this browser's plugin box, with its one-time nonce and the code a
      * box runs for it (none for a session whose code wouldn't be handed over anyway).
      */
@@ -1518,6 +1525,7 @@ export const IPC = {
   get: 'kube:get',
   secretValues: 'kube:secret-values',
   pluginRead: 'kube:plugin-read',
+  pluginChange: 'kube:plugin-change',
   pluginCode: 'kube:plugin-code',
   pluginHandOver: 'kube:plugin-hand-over',
   boxCheckStart: 'kube:box-check-start',

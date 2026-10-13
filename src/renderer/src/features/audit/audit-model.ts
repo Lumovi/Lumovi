@@ -239,6 +239,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'plugin.read': { label: 'Read for a plugin’s page', icon: Plug },
   'plugin.code': { label: 'Handed a plugin’s code', icon: Plug },
   'plugin.box-check': { label: 'Checked a browser’s plugin box', icon: Plug },
+  'plugin.change': { label: 'Made a change a plugin proposed', icon: Plug },
   'session.sign-in': { label: 'Signed in', icon: LogIn },
   'session.sign-out': { label: 'Signed out', icon: LogOut },
   'session.expired': { label: 'Session ended', icon: TimerOff },

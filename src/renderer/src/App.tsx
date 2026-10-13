@@ -13,6 +13,7 @@ import { YourAccessPage } from './features/access/YourAccessPage'
 import { PluginPage } from './features/plugins/PluginPage'
 import { PluginsPage } from './features/plugins/PluginsPage'
 import { ApprovalCenter } from './features/assistants/ApprovalCenter'
+import { ProposalDialog } from './plugins/ProposalDialog'
 import { AssistantsPage } from './features/assistants/AssistantsPage'
 import { AuditPage } from './features/audit/AuditPage'
 import { HelmPage } from './features/helm/HelmPage'
@@ -147,6 +148,8 @@ const router =
 
 /** The changes AI assistants ask for (the desktop app's, or a server's), wherever the page is. */
 const assistants = api.approvals && <ApprovalCenter approvals={api.approvals} />
+/** A change a plugin's page proposed, in Lumovi's own dialog: one at a time, above everything. */
+const proposals = <ProposalDialog />
 
 export function App() {
   return (
@@ -158,11 +161,13 @@ export function App() {
             <RouterProvider router={router} />
             {/* The signed-in person's: over the page's connection, which a session opens. */}
             {assistants}
+            {proposals}
           </SessionGate>
         ) : (
           <>
             <RouterProvider router={router} />
             {assistants}
+            {proposals}
           </>
         )}
         <Toaster />

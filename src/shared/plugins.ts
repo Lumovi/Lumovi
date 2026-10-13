@@ -8,6 +8,7 @@
  */
 import { parseAllDocuments } from 'yaml'
 import { checkPath, parse, type Step } from './jsonpath'
+import { CHANGE_ACTIONS, type ChangeAction } from './plugin-changes'
 import { isSecretKey } from './plugin-presses'
 import { readable, READABLE, resolvedAs, type Granted, type ResolvedKind } from './plugin-reads'
 import {
@@ -243,6 +244,18 @@ export interface Plugin {
    * person, on the person's press; the plugin never does. Nothing, where its file says none.
    */
   showsSecrets: ShowsSecret[]
+  /**
+   * What its pages may propose to change (`spec.changes`): of its own kinds only, each with what
+   * may be asked. Every change is the person's to confirm, in Lumovi's own dialog. Nothing, where
+   * its file says none.
+   */
+  changes: ChangesKind[]
+}
+
+/** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
+export interface ChangesKind {
+  kind: string
+  actions: ChangeAction[]
 }
 
 /** A Secret a plugin's page may show: which of its kinds names it, where, and which keys. */
@@ -275,6 +288,9 @@ export const READS_LIMITS = { kinds: 20, fields: 30, path: 253 } as const
 
 /** How much a file may say its pages show of Secrets: items, and keys an item. */
 export const SHOWS_SECRETS_LIMITS = { items: 10, keys: 20 } as const
+
+/** How many of its kinds a file may say its pages propose changes to. */
+export const CHANGES_LIMITS = { kinds: 20 } as const
 
 /** How many of each a plugin may add, and how long a title or a command's name may be. */
 export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
@@ -941,6 +957,69 @@ function showsSecretsProblems(shows: unknown, own: ReadonlySet<ResourceKind>): s
 }
 
 /** What a file says its pages show of Secrets: once it's found right. */
+const CHANGES_SHAPE: Shape = {
+  fields: {
+    group: { shape: 'string', required: true },
+    kind: { shape: 'string', required: true },
+    actions: { shape: { list: 'string', nonEmpty: true }, required: true },
+  },
+  refine: (item) => {
+    if (item.kind === '*')
+      return 'a change is proposed to kinds named one by one: never every kind of a group'
+    return groupNameProblem(item.group) ?? kindNameProblem(item.kind)
+  },
+}
+
+interface ChangesItem {
+  group: string
+  kind: string
+  actions: string[]
+}
+
+/**
+ * What's wrong with what a file says its pages propose changes to: its own kinds only (never one
+ * of Kubernetes' own, which a plugin never claims), each once, with actions Lumovi knows.
+ */
+function changesProblems(changes: unknown, own: ReadonlySet<ResourceKind>): string[] {
+  const shaped = check(changes, { list: CHANGES_SHAPE, nonEmpty: true }, 'spec.changes', 'an item')
+  if (Array.isArray(changes) && changes.length > CHANGES_LIMITS.kinds) {
+    shaped.push(
+      `spec.changes: holds ${changes.length}, and a file says ${CHANGES_LIMITS.kinds} at most`,
+    )
+  }
+  if (shaped.length) return shaped
+  const problems: string[] = []
+  const said = new Set<ResourceKind>()
+  ;(changes as ChangesItem[]).forEach((item, i) => {
+    const at = `spec.changes[${i}]`
+    const id = kindId(item)
+    if (!own.has(id) && !own.has(kindId({ group: item.group, kind: '*' }))) {
+      problems.push(
+        `${at}: ${id} isn’t one of this plugin’s own kinds: a plugin proposes changes only to its own`,
+      )
+      return
+    }
+    if (said.has(id)) problems.push(`${at}: ${id} is said once`)
+    said.add(id)
+    const wrong = item.actions.find(
+      (action) => !(CHANGE_ACTIONS as readonly string[]).includes(action),
+    )
+    if (wrong !== undefined) {
+      problems.push(`${at}.actions: ${quoted(wrong)} should be one of ${CHANGE_ACTIONS.join(', ')}`)
+    } else if (new Set(item.actions).size !== item.actions.length) {
+      problems.push(`${at}.actions: each once`)
+    }
+  })
+  return problems
+}
+
+function changesOf(changes: unknown): ChangesKind[] {
+  return ((changes ?? []) as ChangesItem[]).map((item) => {
+    const kind = resolvedOf(item)
+    return { kind: `${kind.group}/${kind.kind}`, actions: [...item.actions] as ChangeAction[] }
+  })
+}
+
 function showsSecretsOf(shows: unknown): ShowsSecret[] {
   return ((shows ?? []) as ShowsSecretItem[]).map((item) => {
     const kind = resolvedOf(item)
@@ -1761,6 +1840,7 @@ function readPlugin(
     commands,
     reads,
     showsSecrets,
+    changes,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -1870,6 +1950,11 @@ function readPlugin(
       `${source}: spec.showsSecrets: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they show`,
     )
   }
+  if (changes !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.changes: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they propose`,
+    )
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -1897,6 +1982,10 @@ function readPlugin(
       problems.push(
         ...showsSecretsProblems(showsSecrets, own).map((problem) => `${source}: ${problem}`),
       )
+    }
+    // What its pages may propose to change: its own kinds, the person confirming each.
+    if (changes !== undefined) {
+      problems.push(...changesProblems(changes, own).map((problem) => `${source}: ${problem}`))
     }
     ;((tabs ?? []) as { kinds: NamedKind[] }[]).forEach((tab, t) => {
       tab.kinds.forEach((kind, k) => {
@@ -1972,6 +2061,7 @@ function readPlugin(
       },
       reads: readsOf(reads),
       showsSecrets: showsSecretsOf(showsSecrets),
+      changes: changesOf(changes),
     },
     problems: [],
   }

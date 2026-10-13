@@ -25,6 +25,7 @@ import {
   type WrittenDestination,
 } from './kit/declare'
 import type { Health } from './health'
+import { CHANGE_LIMITS } from './plugin-changes'
 import { NAMESPACE_NAME } from './node-shell'
 import { kindFor } from './resources'
 
@@ -130,6 +131,8 @@ export class Tokens {
   #secrets = 0
   #staleSaid = false
   #unnamedSaid = false
+  /** The latest press's token, and when it was pressed: good once, for a moment, until the next. */
+  #press: { token: string; at: number } | undefined
 
   constructor(plugin: PluginHanded, make: () => string = random) {
     this.#plugin = plugin
@@ -375,9 +378,43 @@ export class Tokens {
     this.#byRead.delete(read)
   }
 
+  /**
+   * The person pressed something of the page's (`now`, in ms): a token for that press, which a
+   * proposal of a change must carry. It lets go of the one before: only the latest press counts.
+   */
+  pressed(now: number): string {
+    const token = this.#make()
+    this.#press = { token, at: now }
+    return token
+  }
+
+  /**
+   * Spends a press's token: true once, for the latest press, within its moment
+   * (`CHANGE_LIMITS.pressMs`); never again, and never for one let go.
+   */
+  spendPress(token: string, now: number): boolean {
+    const press = this.#press
+    if (
+      !press ||
+      press.token !== token ||
+      now - press.at > CHANGE_LIMITS.pressMs ||
+      now < press.at
+    ) {
+      return false
+    }
+    this.#press = undefined
+    return true
+  }
+
+  /** Lets go of the latest press's token: the page is hidden, or its cluster changed. */
+  letPressGo(): void {
+    this.#press = undefined
+  }
+
   /** The page is gone, and every token with it. */
   close(): void {
     for (const read of new Set([...this.#byRead.keys(), ...this.#cutBy.keys()])) this.ended(read)
+    this.#press = undefined
   }
 }
 
@@ -428,19 +465,24 @@ export function swapFor(
  * does a press of what `drawn` (the part's description, as it was drawn) has no press for now:
  * a header's button that's off, or gone (the part's `heeds`). A part that heeds what it drew,
  * pressed with nothing said of what it drew, sends nothing: no press of it skips the asking.
+ * With the press's token (`Tokens.pressed`, made by `press` only for a press that's sent),
+ * which a proposal of a change that follows it carries.
  */
 export function callOf(
   part: Part,
   event: string,
   handle: string,
   carries: unknown,
-  drawn?: Readonly<Record<string, unknown>>,
+  { drawn, press }: { drawn?: Readonly<Record<string, unknown>>; press?: () => string } = {},
 ): string | undefined {
   const declared = Object.hasOwn(part.events ?? {}, event) ? part.events![event]! : undefined
   if (!declared) return undefined
   if (wrongWithFields(carries, declared, Object.keys(declared), part.name)) return undefined
   if (part.heeds && (!drawn || !part.heeds(drawn, event, carries))) return undefined
-  return JSON.stringify({ call: handle, carries })
+  const token = press?.()
+  return JSON.stringify(
+    token === undefined ? { call: handle, carries } : { call: handle, carries, press: token },
+  )
 }
 
 /** What a press would do, as the door classes it. */

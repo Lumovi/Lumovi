@@ -542,16 +542,27 @@ test('a press of a header’s button goes to the plugin only where that button w
       { key: 'sync', name: 'Sync', asks: true, off: 'A sync is running.' },
     ],
   }
-  expect(callOf(header, 'press', 'h1', { button: 'logs' }, drawn)).toBe(
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, { drawn })).toBe(
     '{"call":"h1","carries":{"button":"logs"}}',
   )
   // One that's off, one it doesn't have (gone since, or never), and one where it has none.
-  expect(callOf(header, 'press', 'h1', { button: 'sync' }, drawn)).toBeUndefined()
-  expect(callOf(header, 'press', 'h1', { button: 'delete' }, drawn)).toBeUndefined()
-  expect(callOf(header, 'press', 'h1', { button: 'logs' }, { name: 'payments' })).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'sync' }, { drawn })).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'delete' }, { drawn })).toBeUndefined()
+  expect(
+    callOf(header, 'press', 'h1', { button: 'logs' }, { drawn: { name: 'payments' } }),
+  ).toBeUndefined()
   // Pressed with nothing said of what was drawn: nothing, never a press past the asking.
   expect(callOf(header, 'press', 'h1', { button: 'logs' })).toBeUndefined()
-  expect(callOf(header, 'press', 'h1', { button: 'logs' }, undefined)).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, {})).toBeUndefined()
+  // The press's token, made only for a press that's sent: none for one that isn't.
+  let made = 0
+  const press = () => `token-${++made}`
+  expect(callOf(header, 'press', 'h1', { button: 'sync' }, { drawn, press })).toBeUndefined()
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, { press })).toBeUndefined()
+  expect(made).toBe(0)
+  expect(callOf(header, 'press', 'h1', { button: 'logs' }, { drawn, press })).toBe(
+    '{"call":"h1","carries":{"button":"logs"},"press":"token-1"}',
+  )
 })
 
 test('a press is what it does, not what its button said: on a phone nothing a plugin’s page starts is a change', () => {

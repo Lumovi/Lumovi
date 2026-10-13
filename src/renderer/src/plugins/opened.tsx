@@ -5,6 +5,7 @@
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { ObjectRef } from '@shared/kit/declare'
+import type { PageProposal, ProposalOutcome } from '@shared/plugin-changes'
 import type { PluginCode } from '@shared/plugin-hand-over'
 import type { Destination } from '@shared/plugin-presses'
 import { codeOf } from './box-check'
@@ -36,6 +37,14 @@ export interface Opening {
   kinds?: readonly string[]
   /** Lumovi's own open of what a press named: an object, or a list the door made. */
   open?: (to: Destination) => void
+  /**
+   * Lumovi's own dialog for a change its page proposes, with what the page was handed: what
+   * became of it. None, and every proposal is refused.
+   */
+  propose?: (
+    proposal: PageProposal,
+    handed: { digest: string; codeDigest: string },
+  ) => Promise<ProposalOutcome>
   /** Where its strip's "What it may do" goes. */
   asks?: string
 }
@@ -106,6 +115,9 @@ function Running({
       ...(shown.kinds ? { kinds: shown.kinds } : {}),
       ...(shown.opening ? { opening: shown.opening } : {}),
       ...(shown.open ? { open: shown.open } : {}),
+      ...(shown.propose && handed
+        ? { propose: (proposal: PageProposal) => shown.propose!(proposal, handed) }
+        : {}),
     }),
   )
   useEffect(() => () => page.close(), [page])
