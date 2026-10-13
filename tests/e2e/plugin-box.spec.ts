@@ -108,6 +108,21 @@ test('a plugin’s code runs in a worker of a box, hears Lumovi and answers in t
   expect((await kept(page, 'echo')).ended).toBeUndefined()
 })
 
+/** Its code: what a plugin has of the browser's crypto. */
+const RANDOM = `box.then(({ post }) => {
+  const made = crypto.getRandomValues(new Uint8Array(16))
+  post(JSON.stringify({ bytes: made.length, random: made.some((byte) => byte !== 0), subtle: typeof crypto.subtle }))
+})`
+
+test('a plugin’s code has random numbers of the browser’s making, and nothing else of its crypto', async ({
+  lumovi: { page },
+}) => {
+  await open(page, 'random', RANDOM)
+  await expect
+    .poll(async () => (await kept(page, 'random')).heard)
+    .toEqual(['{"bytes":16,"random":true,"subtle":"undefined"}'])
+})
+
 test('a box’s frame is sealed by Lumovi’s page too, and its page is given no feature', async ({
   lumovi: { page },
 }) => {

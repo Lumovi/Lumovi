@@ -734,6 +734,28 @@ for (const [name, browsers] of [
       }
     })
 
+    test('its code has random numbers of the browser’s making, and nothing else of its crypto', async ({
+      serve,
+    }) => {
+      const { page, done } = await pageIn(serve)
+      try {
+        await open(
+          page,
+          'random',
+          `box.then(({ post }) => {
+            const made = crypto.getRandomValues(new Uint8Array(16))
+            post('ready')
+            post(JSON.stringify({ bytes: made.length, random: made.some((byte) => byte !== 0), subtle: typeof crypto.subtle }))
+          })`,
+        )
+        await expect
+          .poll(() => page.evaluate(() => (window as unknown as OnPage).__boxes.random!.heard))
+          .toEqual(['ready', '{"bytes":16,"random":true,"subtle":"undefined"}'])
+      } finally {
+        await done()
+      }
+    })
+
     test('from the worker, nothing gets out', async ({ serve }) => {
       const { page, done, named } = await pageIn(serve)
       try {
