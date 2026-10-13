@@ -18,7 +18,14 @@ import {
   type Proposed,
 } from '../../src/shared/plugin-changes.ts'
 import { Tokens } from '../../src/shared/plugin-presses.ts'
-import { annotatedAs, commandOf, takenFrom } from '../../src/backend/plugin-changes.ts'
+import { parse as parseYaml } from 'yaml'
+import {
+  annotatedAs,
+  commandOf,
+  createdObject,
+  heredocEnd,
+  takenFrom,
+} from '../../src/backend/plugin-changes.ts'
 
 /** A whole proposal: a patch of one field, the size, with what's said otherwise. */
 const proposal = (also: Record<string, unknown> = {}, change: Record<string, unknown> = {}) => ({
@@ -482,4 +489,54 @@ test('a patch of only annotations, or only labels, is said as kubectl annotate o
       /^kubectl patch application\.argoproj\.io\/storefront --type merge -p /,
     )
   }
+})
+
+test('a create is said as kubectl reading the very object shown: in Kubernetes’ order, its generateName as asked', () => {
+  const backup = {
+    kind: 'Backup.postgresql.cnpg.io',
+    apiKind: 'Backup',
+    plural: 'backups',
+    group: 'postgresql.cnpg.io',
+    version: 'v1',
+    namespaced: true,
+    label: 'Backups',
+  }
+  const request = {
+    step: 'try' as const,
+    plugin: 'cloudnative-pg',
+    digest: '',
+    codeDigest: '',
+    context: 'prod',
+    action: 'create' as const,
+    // (As a plugin may write it: its spec before its metadata.)
+    body: {
+      spec: { cluster: { name: 'orders' }, method: 'barmanObjectStore' },
+      metadata: { generateName: 'orders-' },
+    },
+  }
+  const object = createdObject(request, backup, 'data')
+  expect(Object.keys(object)).toEqual(['apiVersion', 'kind', 'metadata', 'spec'])
+  expect(object.metadata).toEqual({ generateName: 'orders-', namespace: 'data' })
+  const command = commandOf(request, backup, 'data', undefined)
+  expect(command.split('\n')[0]).toBe("kubectl create -f - -n data --context prod <<'LUMOVI_EOF'")
+  expect(command.endsWith('\nLUMOVI_EOF')).toBe(true)
+  // What kubectl reads from it is the object Lumovi sends, and nothing named for a file.
+  const said = command.slice(command.indexOf('\n') + 1, command.lastIndexOf('\nLUMOVI_EOF'))
+  expect(parseYaml(said)).toEqual(object)
+  expect(said.split('\n')[0]).toBe('apiVersion: postgresql.cnpg.io/v1')
+  expect(command).not.toContain('.yaml')
+  // A value that reads as the end ends nothing: the end is a line no line of the object is.
+  for (const value of ['EOF', 'LUMOVI_EOF', 'line\nLUMOVI_EOF\nline']) {
+    const odd = {
+      ...request,
+      body: { ...request.body, spec: { ...request.body.spec, method: value } },
+    }
+    const lines = commandOf(odd, backup, 'data', undefined).split('\n')
+    const end = lines.at(-1)!
+    expect(lines[0]).toBe(`kubectl create -f - -n data --context prod <<'${end}'`)
+    expect(lines.slice(1, -1)).not.toContain(end)
+    expect(parseYaml(lines.slice(1, -1).join('\n'))).toEqual(createdObject(odd, backup, 'data'))
+  }
+  expect(heredocEnd('a\nLUMOVI_EOF\nLUMOVI_EOF_2')).toBe('LUMOVI_EOF_3')
+  expect(heredocEnd('apiVersion: v1')).toBe('LUMOVI_EOF')
 })

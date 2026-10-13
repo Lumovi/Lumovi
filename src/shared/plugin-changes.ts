@@ -701,6 +701,11 @@ export type PluginChangeAnswer =
       /** The object as it is, and as the cluster says it would be (a create's: as made). */
       before?: unknown
       after?: unknown
+      /**
+       * A create's object as Lumovi sends it, in Kubernetes' order and with the generateName it
+       * asks for (the name a dry run makes up is no name it will have): what the dialog shows.
+       */
+      sent?: unknown
       /** The kubectl command that makes the same change. */
       command?: string
       /** Who'd lose fields it sets, by the field: "operation" from "argocd-application-controller". */

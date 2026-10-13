@@ -302,7 +302,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
                 <div className="max-h-56 overflow-auto rounded-lg">
                   {proposed.action === 'create' ? (
                     <DiffView
-                      diff={unifiedDiff('', forDiff(answer.after as KubeObject))}
+                      diff={unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))}
                       label="The whole object Lumovi will create"
                     />
                   ) : (

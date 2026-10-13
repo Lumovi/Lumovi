@@ -22,7 +22,7 @@ spec:
   label: Tinker
   kinds: [{ group: example.com, kind: Widget }]
   pages: [{ id: overview, title: Overview }]
-  changes: [{ group: example.com, kind: Widget, actions: [patch, delete] }]
+  changes: [{ group: example.com, kind: Widget, actions: [patch, create, delete] }]
 `
 
 /**
@@ -38,6 +38,7 @@ const CODE = `box.then(({ post, listen }) => {
     { key: 'remove', name: 'Remove', changes: true },
     { key: 'stale', name: 'Stale', changes: true },
     { key: 'secret', name: 'Secret', changes: true },
+    { key: 'copy', name: 'Copy', changes: true },
   ]
   // (A change is the part's props whole: its buttons said again with its name.)
   const say = (name) => commit([['change', 1, { name, buttons: BUTTONS, onPress: 'press' }]])
@@ -77,6 +78,8 @@ const CODE = `box.then(({ post, listen }) => {
         propose(said.press, { action: 'delete', target: widget })
         propose(said.press, { action: 'delete', target: widget })
       }
+      // A new widget beside the first, named by the cluster from its generateName.
+      if (button === 'copy') propose(said.press, { action: 'create', kind: 'example.com/Widget', in: widget, object: { spec: { size: 1 }, metadata: { generateName: 'copy-' } } })
       // A kind its file doesn't say it changes: refused before any dialog.
       if (button === 'secret') propose(said.press, { action: 'create', kind: '/Secret', object: { metadata: { name: 'x' } } })
     }
@@ -289,4 +292,37 @@ test('on a server, a browser Lumovi hands no plugin’s code to proposes nothing
   )
   expect(answer).toEqual({ ok: false, refused: 'not-held' })
   expect(audited(server, 'plugin.change')).toEqual([])
+})
+
+test('a create shows the object Lumovi sends, its generateName as asked, and its command reads that very object', async ({
+  serve,
+  page,
+}) => {
+  test.slow()
+  const server = await served(serve)
+  await opened(page, server)
+  await press(page, 'Copy')
+  const shown = dialog(page)
+  await expect(shown).toContainText('The cluster accepts it.')
+  // In Kubernetes' order, with the generateName it asks for (not the name a dry run made up).
+  const object = shown.getByLabel('The whole object Lumovi will create')
+  await expect(object).toContainText('generateName: copy-')
+  const text = await object.innerText()
+  expect(text).not.toMatch(/(^|\s)name: /)
+  expect(text.indexOf('apiVersion:')).toBeLessThan(text.indexOf('metadata:'))
+  expect(text.indexOf('metadata:')).toBeLessThan(text.indexOf('spec:'))
+  await expect(shown).toContainText("kubectl create -f - -n default --context demo <<'LUMOVI_EOF'")
+  await expect(shown).not.toContainText('.yaml')
+  // Confirmed: made, and the cluster names it.
+  await expect(shown.getByRole('button', { name: 'Create' })).toBeEnabled()
+  await shown.getByRole('button', { name: 'Create' }).click()
+  await expect(said(page)).toContainText('applied')
+  // The audit keeps no command for it (that would hold what was set): what it wrote, by path.
+  const [made] = audited(server, 'plugin.change').filter(
+    (entry) => entry.details?.action === 'create',
+  )
+  expect(made?.outcome).toBe('success')
+  expect(made?.command).toBeUndefined()
+  // (In the order the plugin wrote them, as a patch's are.)
+  expect(made?.details?.paths).toEqual(['spec.size', 'metadata.generateName'])
 })
