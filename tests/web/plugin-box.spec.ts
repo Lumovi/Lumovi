@@ -4,13 +4,15 @@
  * server has no request filter, and no process of its own for a plugin). Only test plugins of
  * Lumovi's own run here; nothing in Lumovi opens a box yet.
  */
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { createServer, type AddressInfo } from 'node:net'
-import { resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { chromium, firefox, webkit, type Frame, type Page } from '@playwright/test'
 import { BOX_LIMITS, workerText } from '../../src/shared/plugin-box.ts'
-import { gotOut, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
+import { gotOut, nameFor, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
+import { namedIn } from '../e2e/plugin-box/net-log.ts'
 import { featuresOf, unsealed } from '../e2e/plugin-box/sealed.ts'
 import { notRefused } from '../e2e/plugin-box/worked.ts'
 import { DEMO_TOKEN, expect, refusedConfig, signIn, test, type Served } from './fixtures.ts'
@@ -339,6 +341,19 @@ const lastBox = (page: Page): Frame | undefined =>
     .filter((frame) => frame.url().includes('/plugin-box/box.html'))
     .at(-1)
 
+/**
+ * The document of the box that was opened last, as it stands: every element and attribute of
+ * it, in its own frame's words. Gone, if its box was ended.
+ */
+const documentOf = (page: Page): Promise<string> => {
+  const frame = lastBox(page)
+  if (!frame) return Promise.resolve('gone')
+  return Promise.race([
+    frame.evaluate(() => new XMLSerializer().serializeToString(document)).catch(() => 'gone'),
+    pause(3000).then(() => 'no word back'),
+  ])
+}
+
 /** One way, tried on a box's own page (by the test's hand: no plugin's code ever runs there). */
 async function onPage(page: Page, as: string, id: string, context: object): Promise<string> {
   await open(page, as, IDLE)
@@ -356,8 +371,23 @@ async function onPage(page: Page, as: string, id: string, context: object): Prom
 
 const GROUPS = [...new Set(ALL.map((way) => way.group))].filter((group) => group !== 'pair')
 
-/** Every way of `where` (of one group, if given), one after another: which got something out. */
-async function tryAll(where: 'worker' | 'page', page: Page, catchers: Catchers, only?: string) {
+/**
+ * Every way of `where` (of one group, if `only` is given), one after another: which got
+ * something out, and, from the worker, after which of them the box's own document was no longer
+ * as Lumovi serves it. `named`, the other host goes by each try's own name: for a browser whose
+ * log of its network is read after. `awaited` is what's known to get out, by way: waited for,
+ * so that it's seen with its own try and never with the next.
+ */
+async function tryAll(
+  where: 'worker' | 'page',
+  page: Page,
+  catchers: Catchers,
+  {
+    only,
+    named = false,
+    awaited = {},
+  }: { only?: string; named?: boolean; awaited?: Record<string, string> } = {},
+) {
   // (Two frames of one plugin's at once, on the page, for what one can leave for the other: in
   // the worker only; the box's own page is no plugin's.)
   const ways = ALL.filter(
@@ -370,6 +400,19 @@ async function tryAll(where: 'worker' | 'page', page: Page, catchers: Catchers, 
   page.on('dialog', (dialog) => void dialog.dismiss().catch(() => undefined))
   const out: Record<string, string> = {}
   const saw: Record<string, string> = {}
+  const changed: Record<string, string> = {}
+  // A box's own document as Lumovi serves it, its worker running: read from one that tries
+  // nothing. A plugin's code is in the worker, and no way it tries may leave a mark on it.
+  let served = ''
+  if (where === 'worker') {
+    await open(page, 'served', IDLE)
+    served = await documentOf(page)
+    expect(served).toContain('<script src=')
+    // (And a mark would be seen: one made by the test's own hand is.)
+    await lastBox(page)!.evaluate(() => document.body.setAttribute('data-marked', ''))
+    expect(await documentOf(page)).toBe(served.replace('<body', '<body data-marked=""'))
+    await close(page, 'served')
+  }
   for (const [n, { id, group }] of ways.entries()) {
     catchers.reset()
     // (No way has longer than this, whatever it does to its frame.)
@@ -379,10 +422,12 @@ async function tryAll(where: 'worker' | 'page', page: Page, catchers: Catchers, 
       )
     if (group === 'pair') {
       // Two boxes of one plugin alive together: what one can leave for the other.
-      const first = within(inWorker(page, `${where}-${n}-first`, id, catchers.context(id, 'first')))
+      const first = within(
+        inWorker(page, `${where}-${n}-first`, id, catchers.context(id, 'first', named)),
+      )
       await pause(300)
       const second = await within(
-        inWorker(page, `${where}-${n}-second`, id, catchers.context(id, 'second')),
+        inWorker(page, `${where}-${n}-second`, id, catchers.context(id, 'second', named)),
       )
       saw[id] = `first: ${await first} / second: ${second}`
       await close(page, `${where}-${n}-first`).catch(() => undefined)
@@ -390,33 +435,83 @@ async function tryAll(where: 'worker' | 'page', page: Page, catchers: Catchers, 
     } else {
       saw[id] = await within(
         where === 'worker'
-          ? inWorker(page, `${where}-${n}`, id, catchers.context(id))
-          : onPage(page, `${where}-${n}`, id, catchers.context(id)),
+          ? inWorker(page, `${where}-${n}`, id, catchers.context(id, undefined, named))
+          : onPage(page, `${where}-${n}`, id, catchers.context(id, undefined, named)),
       )
+    }
+    if (awaited[id]) {
+      await expect
+        .poll(() => gotOut(id, catchers.caught()), { timeout: 5_000 })
+        .toBe(awaited[id])
+        .catch(() => undefined)
     }
     await pause(group === 'port' ? 600 : 350)
     const got = gotOut(id, catchers.caught())
     if (got) out[id] = got
+    if (where === 'worker') {
+      const now = await documentOf(page)
+      // (A box that was ended has no document left to read.)
+      if (now.startsWith('<') && now !== served) changed[id] = now.slice(0, 400)
+    }
     await close(page, `${where}-${n}`).catch(() => undefined)
     // (A way that took the page itself somewhere has ended this run: said, not hidden.)
     if (page.isClosed()) break
   }
-  return { tried: ways.length, out, saw }
+  return { tried: ways.length, out, saw, changed }
+}
+
+/**
+ * What Chromium, as a person has it, doesn't hold from a box's own page on a server: each way,
+ * what a catcher sees of it, and what Chromium's own log of its network has of the way's name
+ * (looked up by its resolver; named by a connection alone; or nothing, as with WebRTC, whose
+ * look-ups aren't in that log). The whole of it, and exactly: a way more fails the tests, and
+ * so does one of these that no longer gets out (it's taken off this list then).
+ *
+ * Nothing a server sends holds these. The box's policy has no word for what a browser does
+ * ahead of a request, and `X-DNS-Prefetch-Control: off` is heeded only for the links a browser
+ * guesses at. What holds is that no plugin's code ever runs on a box's page: only in its
+ * worker, from which none of this can be reached, and nothing at all gets out.
+ */
+const ON_THE_PAGE_IN_CHROMIUM: Record<
+  string,
+  { out: string; log: 'looked up' | 'named' | 'nothing' }
+> = {
+  'webrtc-stun': { out: 'a UDP packet', log: 'nothing' },
+  'webrtc-turn-tcp': { out: 'a connection to another host', log: 'nothing' },
+  // A link that asks for a name ahead of a request: looked up, and nothing more.
+  'link-dns-prefetch': { out: '', log: 'looked up' },
+  // A link that asks for a connection to be made ready: made, and nothing sent on it.
+  'link-preconnect': { out: 'a connection to another host', log: 'looked up' },
+  // A link that asks for a page ahead: asked for, with its path and query. The one of these
+  // that carries what it's given.
+  'link-prerender': { out: 'a request to another host (GET)', log: 'looked up' },
+  // A navigation of the box's own frame, or a frame in it, that's then refused: a connection
+  // to its host is made ahead of it, and nothing is sent on it.
+  'navigate-self-other': { out: 'a connection to another host', log: 'named' },
+  'navigate-self-replace': { out: 'a connection to another host', log: 'named' },
+  'meta-refresh': { out: 'a connection to another host', log: 'named' },
+  'link-click-self': { out: 'a connection to another host', log: 'named' },
+  'link-download': { out: 'a connection to another host', log: 'named' },
+  'frame-other': { out: 'a connection to another host', log: 'named' },
 }
 
 /**
  * What a browser doesn't hold from a box's own page (never from its worker), by engine. No
  * plugin's code ever runs on a box's page, only in its worker, so none can be reached. A server
- * has no request filter behind the policy, and WebRTC is the browser's own to send.
+ * has no request filter behind the policy; WebRTC is the browser's own to send, and so is what
+ * a browser does ahead of a request, which a policy has no word for.
  */
 const NOT_HELD_ON_THE_PAGE: Record<string, string[]> = {
-  Chromium: ['webrtc-stun', 'webrtc-turn-tcp'],
+  Chromium: Object.keys(ON_THE_PAGE_IN_CHROMIUM),
   Firefox: ['webrtc-stun', 'webrtc-turn-tcp'],
   // (WebKit's two more: for a link that asks for a connection to be made ready, and for a link
   // to a new window that's clicked, it opens a connection to the other host and sends nothing
   // on it. No request is made and no window opens; what leaves is that a connection was made.)
   WebKit: ['webrtc-stun', 'webrtc-turn-tcp', 'link-preconnect', 'link-click-blank'],
 }
+
+/** The name a test itself asks for, which a log that was kept holds. */
+const ASKED = 'asked-by-the-test'
 
 let catchers: Catchers
 test.beforeAll(async () => {
@@ -435,24 +530,61 @@ for (const [name, browsers] of [
     // (Every way is tried one after another, each in a box of its own.)
     test.setTimeout(420_000)
 
-    /** Lumovi's page in that browser, signed in; nothing if the browser isn't here. */
+    /**
+     * Lumovi's page in that browser, signed in; nothing if the browser isn't here. `free()` is
+     * another page of the same browser, for what a page that's held by nothing does.
+     *
+     * Chromium is started as a person has it, the full build with a profile of its own. The
+     * tests' usual build, and any window without a profile, has nothing that acts ahead of a
+     * request: no name looked up for a link that asks to, no connection made ready, no page
+     * fetched ahead. Tried there, those ways say nothing of a person's browser. And it keeps its own log
+     * of its network (net-log.ts): `named()` asks for a name of the test's own from a free
+     * page, closes the browser, and reads which names the log holds: the test's (a log without
+     * it wasn't kept), and those of the tries that were looked up.
+     */
     async function pageIn(
       serve: (options?: { env?: Record<string, string>; port?: number }) => Promise<Served>,
+      env: Record<string, string> = {},
     ) {
       // Chromium is every run's. The other two are CI's Browsers job's, which says so
       // (LUMOVI_E2E_BROWSERS=all): there, one that isn't installed or doesn't start fails the
       // test. Elsewhere they run where they can, and are skipped where they can't.
       const must = name === 'Chromium' || process.env.LUMOVI_E2E_BROWSERS === 'all'
       test.skip(!must && Boolean(process.env.CI), 'CI’s Browsers job runs it')
-      const { url } = await served(serve)
-      const browser = await browsers.launch().catch((error: unknown) => {
-        if (must) throw error
-        return undefined
-      })
+      const { url } = await served(serve, env)
+      const log =
+        name === 'Chromium'
+          ? join(mkdtempSync(join(tmpdir(), 'lumovi-net-log-')), 'net-log.json')
+          : undefined
+      const browser = log
+        ? await chromium
+            .launchPersistentContext(mkdtempSync(join(tmpdir(), 'lumovi-profile-')), {
+              channel: 'chromium',
+              args: [`--log-net-log=${log}`],
+            })
+            .then((own) => ({ newPage: () => own.newPage(), close: () => own.close() }))
+        : await browsers.launch().then(
+            (whole) => ({ newPage: () => whole.newPage(), close: () => whole.close() }),
+            (error: unknown) => {
+              if (must) throw error
+              return undefined
+            },
+          )
       test.skip(!browser, `${name} doesn’t start on this computer`)
       const page = await browser!.newPage()
       await signIn(page, `${url}cluster/demo/pods`, DEMO_TOKEN)
-      return { page, url, done: () => browser!.close() }
+      const free = () => browser!.newPage()
+      const named = async () => {
+        const asking = await free()
+        await asking.goto(`${String(catchers.context(ASKED, undefined, true).other)}/asked`)
+        await browser!.close()
+        const { events, lookedUp, anywhere } = namedIn(log!)
+        expect(events).toBeGreaterThan(0)
+        expect(lookedUp).toContain(ASKED)
+        const tries = (names: string[]) => names.filter((id) => id !== ASKED)
+        return { lookedUp: tries(lookedUp), anywhere: tries(anywhere) }
+      }
+      return { page, url, free, done: () => browser!.close(), named: log ? named : undefined }
     }
 
     test('its code runs in a worker and answers in text; too much, or silence, ends it', async ({
@@ -491,10 +623,10 @@ for (const [name, browsers] of [
             : 'not something a test can see in this browser'
         console.log(`${name}: the box’s frame is ${apart}`)
         await test.info().attach('where the frame is', { body: apart })
-        // What was seen, held: the Chromium these tests run puts the box's frame in the page's
-        // own process. The day one puts it apart this says so, and what's said of a server can
-        // be made better; nothing is promised on it either way.
-        if (name === 'Chromium') expect(apart).toBe('in the page’s own process')
+        // What was seen, held: Chromium as a person has it puts the box's frame in a process
+        // apart from the page's (the tests' usual build, which no person runs, keeps it in the
+        // page's own). The day it doesn't this says so; nothing is promised on it either way.
+        if (name === 'Chromium') expect(apart).toBe('in a process apart from the page’s')
         // The channel's ceiling: ended at the first message over a second's worth, the second
         // counted from the plugin's first message as the box takes them in. In Chromium and
         // WebKit a loop's 2,001st comes well inside it, so exactly a second's worth gets through.
@@ -603,33 +735,84 @@ for (const [name, browsers] of [
     })
 
     test('from the worker, nothing gets out', async ({ serve }) => {
-      const { page, done } = await pageIn(serve)
+      const { page, done, named } = await pageIn(serve)
       try {
-        const { tried, out, saw } = await tryAll('worker', page, catchers)
-        await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
+        const { tried, out, saw, changed } = await tryAll('worker', page, catchers, {
+          named: !!named,
+        })
+        await test.info().attach('saw', { body: JSON.stringify({ out, changed, saw }, null, 2) })
         expect(tried).toBeGreaterThan(40)
         expect(out).toEqual({})
+        // Nor did any of them leave a mark on the box's own page: after each, its document
+        // was as Lumovi serves it, every element and attribute. On a server that page is held
+        // by one thing alone, that no plugin's code runs on it.
+        expect(changed).toEqual({})
         // And each way judged by what it saw was refused: none worked, whatever reached a catcher,
         // and none said something that's neither.
         expect(notRefused(saw)).toEqual([])
+        // In Chromium, whose own log of its network says so: what's refused is refused before
+        // its host's name is asked for. The log holds no try's name, in a resolver's event or
+        // any other.
+        if (named) expect(await named()).toEqual({ lookedUp: [], anywhere: [] })
       } finally {
         await done()
       }
     })
 
+    if (name === 'Chromium') {
+      test('with the box’s wall taken away, what leaves asked for its host’s name first, and Chromium’s log names it: the tests can tell', async ({
+        serve,
+      }) => {
+        const { page, done, named } = await pageIn(serve, {
+          LUMOVI_TEST_BOX_WALL_OFF: 'connect-src',
+        })
+        try {
+          catchers.reset()
+          const context = catchers.context('fetch-other', undefined, true)
+          expect(await inWorker(page, 'free', 'fetch-other', context)).toBe('answered')
+          expect(gotOut('fetch-other', catchers.caught())).toContain('a request to another host')
+          expect((await named!()).lookedUp).toEqual(['fetch-other'])
+        } finally {
+          await done()
+        }
+      })
+    }
+
     test('the catchers are within this browser’s reach: the tests can tell', async ({ serve }) => {
       // (That nothing reaches them from a box means something only if something can. With the
       // box's policy taken away, what leaves is shown where each wall can be taken away by
       // itself: the desktop's tests. Here: the same addresses, asked from a page that's free to.)
-      const { page, done } = await pageIn(serve)
+      const { free, done, named } = await pageIn(serve)
       try {
-        const context = catchers.context('fetch-other') as { leak: string; other: string }
-        const free = await page.context().browser()!.newPage()
-        await free.goto(`${context.other}/a-free-page`)
+        const context = catchers.context('fetch-other', undefined, !!named) as {
+          leak: string
+          other: string
+          otherPort: number
+        }
+        const page = await free()
+        await page.goto(`${context.other}/a-free-page`)
         catchers.reset()
-        await free.evaluate((leak) => fetch(leak, { mode: 'no-cors' }), context.leak)
+        await page.evaluate((leak) => fetch(leak, { mode: 'no-cors' }), context.leak)
         expect(gotOut('fetch-other', catchers.caught())).toContain('a request to another host')
-        await free.context().close()
+        if (named) {
+          // And in Chromium a name is within its log's reach: the request's, and the names two
+          // links ask for ahead of any request, which this browser looks up from a free page.
+          const links = (['dns-prefetch', 'preconnect'] as const).map(
+            (rel) => [rel, `http://${nameFor(`free-${rel}`)}:${context.otherPort}`] as const,
+          )
+          await page.evaluate((links) => {
+            for (const [rel, href] of links) {
+              document.head.append(Object.assign(document.createElement('link'), { rel, href }))
+            }
+          }, links)
+          await pause(1500)
+          expect((await named()).lookedUp.sort()).toEqual([
+            'fetch-other',
+            'free-dns-prefetch',
+            'free-preconnect',
+          ])
+        }
+        await page.close().catch(() => undefined)
       } finally {
         await done()
       }
@@ -637,16 +820,48 @@ for (const [name, browsers] of [
 
     for (const group of GROUPS) {
       test(`on the box’s own page, only what’s named gets out: ${group}`, async ({ serve }) => {
-        const { page, done } = await pageIn(serve)
+        const { page, done, named } = await pageIn(serve)
         try {
-          const { out, saw } = await tryAll('page', page, catchers, group)
-          await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
+          const { out, saw } = await tryAll('page', page, catchers, {
+            only: group,
+            named: !!named,
+            awaited: named
+              ? Object.fromEntries(
+                  Object.entries(ON_THE_PAGE_IN_CHROMIUM).map(([id, { out }]) => [id, out]),
+                )
+              : {},
+          })
+          const log = named ? await named() : undefined
+          await test.info().attach('saw', { body: JSON.stringify({ out, log, saw }, null, 2) })
           if (Object.keys(out).length) {
             console.log(`${name}, on the box’s own page, got out: ${JSON.stringify(out)}`)
           }
           expect(
             Object.keys(out).filter((id) => !NOT_HELD_ON_THE_PAGE[name]!.includes(id)),
           ).toEqual([])
+          if (log) {
+            // In Chromium, whose log says what else a way did: exactly what's known of this
+            // group's ways, no way more and none fewer.
+            const seen = Object.fromEntries(
+              [...new Set([...Object.keys(out), ...log.anywhere])].map((id) => [
+                id,
+                {
+                  out: out[id] ?? '',
+                  log: log.lookedUp.includes(id)
+                    ? 'looked up'
+                    : log.anywhere.includes(id)
+                      ? 'named'
+                      : 'nothing',
+                },
+              ]),
+            )
+            const known = Object.fromEntries(
+              Object.entries(ON_THE_PAGE_IN_CHROMIUM).filter(
+                ([id]) => ALL.find((way) => way.id === id)?.group === group,
+              ),
+            )
+            expect(seen).toEqual(known)
+          }
         } finally {
           await done()
         }
