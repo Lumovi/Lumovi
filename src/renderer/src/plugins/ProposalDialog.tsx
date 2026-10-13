@@ -332,6 +332,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
               answer={answer}
               refused={refused}
               under={refusedField !== undefined}
+              options={proposed.fields.length > 0}
             />
             {answer?.ok &&
               answer.takesOver?.map(({ manager }, i, all) =>
@@ -418,17 +419,23 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
   )
 }
 
-/** The cluster's verdict on the options as they stand: asked, accepted, or refused, and why. */
+/**
+ * The cluster's verdict on the change, with the options as they stand where it has any: asked,
+ * accepted, or refused, and why.
+ */
 function Verdict({
   asking,
   answer,
   refused,
   under,
+  options,
 }: {
   asking: boolean
   answer: PluginChangeAnswer | undefined
   refused: (PluginChangeAnswer & { ok: false }) | undefined
   under: boolean
+  /** It has options: what the cluster accepts is the change with them as they stand. */
+  options: boolean
 }): ReactNode {
   if (refused) {
     return <p className="text-xs text-critical-text">{refusedWords(refused)}</p>
@@ -437,7 +444,9 @@ function Verdict({
   if (!answer) return null
   if (answer.ok)
     return (
-      <p className="text-success-text text-xs">The cluster accepts it, as the options stand.</p>
+      <p className="text-success-text text-xs">
+        {options ? 'The cluster accepts it, as the options stand.' : 'The cluster accepts it.'}
+      </p>
     )
   // (Said under the field it names, where it names one; here, otherwise.)
   return under ? null : <p className="text-xs text-critical-text">{refusedWords(answer)}</p>
