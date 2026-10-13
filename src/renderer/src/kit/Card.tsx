@@ -3,9 +3,11 @@
  * right (words too, "20 · 3 still starting"), cut at its end; and the one part it holds (a Table,
  * a Graph or Counts), drawn bare inside it, so there's one frame and one title.
  */
-import { createContext, type ReactNode } from 'react'
+import { createContext, useRef, type ReactNode } from 'react'
+import type { Their } from '@shared/kit/declare'
 import type { CardProps } from '@shared/kit/page'
 import { Card as Framed } from '@renderer/components/Card'
+import { Tooltip } from '@renderer/components/Tooltip'
 import { TheirText } from '@renderer/plugins/TheirText'
 
 /**
@@ -14,10 +16,11 @@ import { TheirText } from '@renderer/plugins/TheirText'
  */
 export const InCard = createContext(false)
 
-export function Card({ title, note, children }: CardProps & { children?: ReactNode }) {
+export function Card({ title, note, about, children }: CardProps & { children?: ReactNode }) {
   return (
     <Framed
       title={<TheirText text={title} inline />}
+      {...(about?.their ? { about: <About text={about} /> } : {})}
       action={
         note?.their ? (
           <span className="min-w-0 truncate text-xs text-ink-3 tabular-nums">
@@ -28,5 +31,27 @@ export function Card({ title, note, children }: CardProps & { children?: ReactNo
     >
       <InCard.Provider value>{children}</InCard.Provider>
     </Framed>
+  )
+}
+
+/**
+ * Where a card's data came from, in the plugin's words: quiet, card-wide, two lines and then cut
+ * at its end, whole in Lumovi's tooltip while it's cut. No mark and no colour: it's said, not
+ * warned.
+ */
+function About({ text }: { text: Their }) {
+  const line = useRef<HTMLParagraphElement>(null)
+  return (
+    <Tooltip
+      content={<TheirText text={text} inline />}
+      when={() => {
+        const shown = line.current
+        return shown !== null && shown.scrollHeight > shown.clientHeight + 1
+      }}
+    >
+      <p ref={line} data-about="" className="line-clamp-2 text-xs leading-[18px] text-ink-3">
+        <TheirText text={text} inline />
+      </p>
+    </Tooltip>
   )
 }

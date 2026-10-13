@@ -52,6 +52,8 @@ export const FRAME_LIMITS = {
   note: 120,
   /** Characters of why a header's button can't be pressed now. */
   off: 80,
+  /** Characters of what a card says of where its data came from. */
+  about: 240,
   /** Groups of counts, and the values in one. */
   counts: { groups: 6, rows: 50 },
 } as const
@@ -253,7 +255,15 @@ export const card = {
   name: 'Card',
   holds: ['Table', 'Graph', 'Counts'],
   holdsMost: 1,
-  props: { title: name, note: name },
+  props: {
+    title: name,
+    note: name,
+    /**
+     * Where its data came from, in the plugin's words, when its title and note can't say:
+     * quiet, under the title, two lines and then cut at its end, whole in its tooltip.
+     */
+    about: text(FRAME_LIMITS.about),
+  },
   required: ['title'],
 } as const satisfies Part
 
@@ -383,6 +393,34 @@ export function pressable(buttons: unknown, carries: unknown): boolean {
       return button.key === pressed && button.off === undefined && button.goes === undefined
     })
   )
+}
+
+/**
+ * Whether the button pressed declares that it changes something (`changes`): only its press has
+ * a token a proposal can spend. One that only reads, or goes, proposes nothing.
+ */
+export function pressChanges(buttons: unknown, carries: unknown): boolean {
+  const pressed = (carries as { button?: unknown } | null)?.button
+  return (
+    Array.isArray(buttons) &&
+    buttons.some(
+      (button: { key?: unknown; changes?: unknown }) =>
+        button.key === pressed && button.changes === true,
+    )
+  )
+}
+
+/**
+ * A header's buttons in the order they're drawn: the plugin's, with the last that changes
+ * something (off for now or not) moved to the end, where the filled one always stands, so it's
+ * never the one folded into "…". Where none changes anything, the plugin's order as it is.
+ */
+export function filledLast<Button extends { changes?: boolean }>(
+  buttons: readonly Button[],
+): readonly Button[] {
+  const at = buttons.findLastIndex((button) => button.changes === true)
+  if (at < 0 || at === buttons.length - 1) return buttons
+  return [...buttons.slice(0, at), ...buttons.slice(at + 1), buttons[at]!]
 }
 
 export function headerProblem(

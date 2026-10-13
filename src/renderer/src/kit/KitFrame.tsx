@@ -108,6 +108,10 @@ const EVERY_BUTTON: WrittenButton[] = [
   { key: 'metrics', name: 'Show metrics' },
 ]
 
+/** A row's line under at length: more than a phone's card's two lines. */
+const UNDER_AT_LENGTH =
+  'Get "http://10.0.3.7:8080/metrics": context deadline exceeded (Client.Timeout exceeded while awaiting headers), the last three scrapes in a row'
+
 /** The rest of the page for what's picked, as a plugin would describe it anew for each. */
 function described(pick: WrittenPick): {
   header: WrittenHeader
@@ -169,7 +173,12 @@ function described(pick: WrittenPick): {
       ],
       rows: [1, 2, 3].map((n) => ({
         key: `${n}`,
-        lead: { level: 'healthy', name: `${name}-${n}` },
+        // (A line under at length, as a scrape's error is; one short; one with none.)
+        lead: {
+          level: 'healthy',
+          name: `${name}-${n}`,
+          ...(n === 1 ? { under: UNDER_AT_LENGTH } : n === 2 ? { under: 'Streaming' } : {}),
+        },
         cells: [
           { kind: 'text', text: n === 1 ? 'Primary' : 'Replica' },
           { kind: 'status', level: 'healthy', word: 'Ready' },
@@ -352,6 +361,13 @@ const MIX: WrittenCounts = {
 const refusal = <P extends Part>(part: P, written: WrittenProps<P>) =>
   wrongWithFields(written, part.props, part.required ?? [], part.name) ?? part.also?.(written)
 
+/**
+ * Where Karpenter's node mix card's counts came from, in its words: longer than two lines of the
+ * card (the narrower of a pair), so it's cut, and whole in its tooltip.
+ */
+const MIX_ABOUT =
+  'Counted from Karpenter’s own NodePools and NodeClaims, as their status says: Karpenter writes it as it launches and removes nodes, so a node launched a few seconds ago may not be counted yet. Lumovi’s own Nodes list is always current.'
+
 /** Parts that can't be drawn as they're described, each wrong in one way. */
 const REFUSED: (string | undefined)[] = [
   refusal(tilesPart, { tiles: HARD[0]! }),
@@ -368,6 +384,7 @@ const REFUSED: (string | undefined)[] = [
   refusal(headerPart, { name: 'a', buttons: [BUTTONS[0]!, BUTTONS[0]!] }),
   refusal(headerPart, { name: 'a', buttons: [{ ...BUTTONS[0]!, note: 'x'.repeat(121) }] }),
   refusal(headerPart, { name: 'a', buttons: [{ ...BUTTONS[0]!, off: 'x'.repeat(81) }] }),
+  refusal(cardPart, { title: 'Node pools', about: 'x'.repeat(241) }),
   refusal(splitPart, { list: LISTS['38 clusters']! }),
   refusal(splitPart, { list: { title: 'Clusters', rows: [FEW[0]!, FEW[0]!] } }),
   // (Not refused: what was picked may be gone from the cluster, and the list takes its first.)
@@ -505,7 +522,7 @@ export function KitFrame() {
                   )}
                 />
               </Card>
-              <Card {...handedAs({ title: 'Node mix' }, cardPart)}>
+              <Card {...handedAs({ title: 'Node mix', about: MIX_ABOUT }, cardPart)}>
                 <Counts {...handedAs(MIX, countsPart)} />
               </Card>
             </Pair>

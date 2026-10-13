@@ -20,6 +20,7 @@ import {
   type PageProposal,
   type ProposalOutcome,
 } from '@shared/plugin-changes'
+import { pressChanges } from '@shared/kit/page'
 import { DoorPage } from '@shared/plugin-door'
 import type { PageEnd } from '@shared/plugin-ended'
 import { callOf, swapFor, unnamedLine, type Destination } from '@shared/plugin-presses'
@@ -331,10 +332,16 @@ export function openPage(options: {
     drawn?: Readonly<Record<string, unknown>>,
   ) => {
     if (page.end) return
-    // (Each press of a button has its token, made only for a press that's sent: a change the page
-    // proposes right after carries it. A pick, an open or a retry is no press.)
-    const press = event === 'press' ? () => reading.tokens.pressed(Date.now()) : undefined
-    const call = callOf(options.parts[part]!.declared, event, handle, written(carries), {
+    // (A press of a button that declares it changes something has its token, made only for a
+    // press that's sent: a change the page proposes right after carries it. A button that only
+    // reads or goes has none, as what it was drawn with says; and a pick, an open or a retry is
+    // no press.)
+    const said = written(carries)
+    const press =
+      event === 'press' && drawn !== undefined && pressChanges(drawn.buttons, said)
+        ? () => reading.tokens.pressed(Date.now())
+        : undefined
+    const call = callOf(options.parts[part]!.declared, event, handle, said, {
       ...(drawn && { drawn }),
       ...(press && { press }),
     })

@@ -73,6 +73,7 @@ export const PLUGIN_SINCE = {
     'Tiles.tiles[].value.kind=time': 'next',
     'Header.status.detail': 'next',
     'Header.buttons[].note': 'next',
+    'Card.about': 'next',
     'Header.buttons[].off': 'next',
     'Header.buttons[].goes': 'next',
     'Table.leadHeading': 'next',
