@@ -5,6 +5,7 @@
  * times two of them, which a page built to be measured can't). And a refusal through a real box,
  * as a plugin meets it.
  */
+import { readFileSync } from 'node:fs'
 import { createServer, type AddressInfo } from 'node:net'
 import type { JSHandle, Page } from '@playwright/test'
 import {
@@ -42,6 +43,8 @@ import type { inPieces, shortInPieces, spelled } from '../../src/shared/kit/char
 import type { tableProblem } from '../../src/shared/kit/table.ts'
 import type { placed } from '../../src/shared/plugin-box.ts'
 import type { notHandedLine } from '../../src/shared/plugin-hand-over.ts'
+import { DECLARED } from '../../src/shared/kit/parts.ts'
+import { PLUGIN_SINCE } from '../../src/shared/plugin-since.ts'
 import { DEMO_TOKEN, expect, signIn, test, type ServeOptions, type Served } from './fixtures.ts'
 
 /** What the stage lends the tests of the door. */
@@ -62,6 +65,7 @@ interface DoorChecks {
   spelled: typeof spelled
   placed: typeof placed
   notHandedLine: typeof notHandedLine
+  PLUGIN_SINCE: typeof PLUGIN_SINCE
 }
 /** The page's window, as the stage lends it. */
 type Lent = { __lumoviDoor: { doorChecks: DoorChecks; show(shown: object): void } }
@@ -770,6 +774,31 @@ test('a plugin’s page: what it is, and how it changes', async ({ page, serve }
     }
     expect(await door.stopped()).toBeUndefined()
   })
+})
+
+test('what a plugin can use of the door: the release that first carried each, as the page holds it', async ({
+  page,
+  serve,
+}) => {
+  await opened(page, serve)
+  // plugin-since.spec's first case, of what the built page holds: every part a page may name has
+  // a release, and each is the one being made or three numbers no newer than this one.
+  const since = await page.evaluate(
+    () => (window as unknown as Lent).__lumoviDoor.doorChecks.PLUGIN_SINCE,
+  )
+  expect(since).toEqual(PLUGIN_SINCE)
+  expect(Object.keys(since.parts).sort()).toEqual(Object.keys(DECLARED).sort())
+  const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
+  const numbers = (release: string) => release.split('.').map(Number)
+  for (const [what, each] of Object.entries(since)) {
+    for (const [name, release] of Object.entries(each) as [string, string][]) {
+      if (release === 'next') continue
+      expect(release, `${what}.${name}`).toMatch(/^\d+\.\d+\.\d+$/)
+      const [a, b] = [numbers(release), numbers(version)]
+      const newer = a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]!
+      expect(newer, `${what}.${name}`).toBeLessThanOrEqual(0)
+    }
+  }
 })
 
 test('a plugin’s page: what stops it', async ({ page, serve }) => {

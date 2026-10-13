@@ -31,6 +31,7 @@ import { changeProblem, parsePlugin } from '@shared/plugins'
 import { asks } from '@shared/plugin-asks'
 import { settle } from '@shared/plugin-loading'
 import { callOf, mayStart, swapFor, Tokens } from '@shared/plugin-presses'
+import { PLUGIN_SINCE } from '@shared/plugin-since'
 import {
   granted,
   handedWhole,
@@ -224,7 +225,8 @@ export const stage = {
    * The door's own checks, a plugin file's, and how a text that isn't Lumovi's is drawn in
    * pieces, for the tests to try door.spec's, reads.spec's,
    * presses.spec's and plugins.spec's cases in this built page: what's measured of them is then
-   * what ran in a page.
+   * what ran in a page. With the release that first carried each thing a plugin can use of the
+   * door, as this page holds it (plugin-since.spec's).
    */
   doorChecks: {
     DoorPage,
@@ -263,6 +265,7 @@ export const stage = {
     changeProblem,
     asks,
     settle,
+    PLUGIN_SINCE,
   },
   /**
    * The edits Create's form makes to YAML text, for the tests to try yaml-edit.spec's cases in
