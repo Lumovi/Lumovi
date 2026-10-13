@@ -549,3 +549,31 @@ test('only JSON comes back: never its words, an error’s text, a redirect, a we
   )
   expect(await ask(ASK)).toEqual({ ok: true, json: [] })
 })
+
+test('in the tests’ build alone, a test can lengthen Lumovi’s wait for a tool’s server: never shorten it, never past two minutes', async () => {
+  const tests = globalThis as { LUMOVI_TEST_BUILD?: boolean }
+  tests.LUMOVI_TEST_BUILD = true
+  const { serverWaitMs } = await import('../../src/backend/kube/service.ts')
+  const wait = (set?: string) =>
+    serverWaitMs(set === undefined ? {} : { LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS: set })
+  expect(wait()).toBe(SERVER_LIMITS.timeoutMs)
+  expect(wait('60000')).toBe(60_000)
+  // Never shorter than Lumovi's own limit, never past two minutes, and nothing else is a wait.
+  for (const set of [
+    '1',
+    '0',
+    '-1',
+    String(SERVER_LIMITS.timeoutMs),
+    '',
+    'soon',
+    'Infinity',
+    'NaN',
+  ]) {
+    expect(wait(set), set).toBe(SERVER_LIMITS.timeoutMs)
+  }
+  expect(wait('120001')).toBe(120_000)
+  expect(wait('9999999999')).toBe(120_000)
+  // In a release there's no such switch.
+  tests.LUMOVI_TEST_BUILD = false
+  expect(wait('60000')).toBe(SERVER_LIMITS.timeoutMs)
+})
