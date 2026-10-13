@@ -453,6 +453,27 @@ test('a part’s declaration', async ({ page, serve }) => {
     expect(said).toBe('Row 1’s rest starts at column 2, and the table has 1 column.')
   })
 
+  await test.step('the Table’s own check: a row is pressed for one thing, an object or a list', async () => {
+    const said = await page.evaluate(() => {
+      const { tableProblem } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      return tableProblem({
+        title: 'Resources',
+        columns: [{ name: 'Sync', kind: 'text' }],
+        headings: true,
+        rows: [
+          {
+            key: 'a',
+            lead: { name: 'storefront' },
+            cells: [{ kind: 'text', text: 'Synced' }],
+            opens: 'object-1',
+            goes: { list: 'apps/Deployment', name: 'storefront', namespace: 'shop' },
+          },
+        ],
+      })
+    })
+    expect(said).toBe('Row 1 opens an object and goes to a list: a row is pressed for one of them.')
+  })
+
   await test.step('the parts here are declared rightly', async () => {
     expect(
       await page.evaluate(

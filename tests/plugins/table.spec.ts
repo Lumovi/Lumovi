@@ -62,6 +62,10 @@ test('the Table’s declaration is one the door takes, and so is a table written
   }
   expect(said({ ...history, leadHeading: 'Synced', rows: [synced] })).toBeUndefined()
   expect(said({ ...history, rows: [{ ...synced, key: 'all', rows: [synced] }] })).toBeUndefined()
+  // A row that goes to a list of Lumovi's own instead, as a tile does: one object of a kind.
+  const { opens: _opens, ...unopened } = row
+  const going = { ...unopened, goes: { list: 'apps/Deployment', name: 'web', namespace: 'shop' } }
+  expect(said({ ...PODS, rows: [going] })).toBeUndefined()
 })
 
 test('a table is checked as the door checks one, and refused where it says more than it may', () => {
@@ -110,6 +114,11 @@ test('a table is checked as the door checks one, and refused where it says more 
     [
       { rows: [{ ...row, opens: 'Pod/shop/web-1' }] },
       'Table.rows[0].opens: should be an object Lumovi named',
+    ],
+    // A list it goes to is one the door makes: never a path or an address the plugin wrote.
+    [
+      { rows: [{ ...row, goes: '/cluster/demo/deployments?name=web' }] },
+      'Table.rows[0].goes: should be a list to open, as { list: group/Kind }',
     ],
     [
       { rows: [{ ...row, rows: [{ ...row, rows: [row] }] }] },
@@ -196,6 +205,15 @@ test('what the kinds can’t say, said where a person counts, quoting nothing of
     [
       [{ ...row, rest: { from: 2, text: 'Nowhere' } }],
       'Row 1’s rest starts at column 3, and the table has 2 columns.',
+    ],
+    // A row is pressed for one thing: the object it opens, or the list it goes to.
+    [
+      [{ ...row, goes: { list: 'apps/Deployment' } }],
+      'Row 1 opens an object and goes to a list: a row is pressed for one of them.',
+    ],
+    [
+      [{ ...row, rows: [{ ...inner('x'), opens: 'object-2', goes: { list: '/Node' } }] }],
+      'In row 1, inner row 1 opens an object and goes to a list: a row is pressed for one of them.',
     ],
     [[{ ...row, cells: [row.cells[0], { kind: 'none' }] }], undefined],
   ] as const) {
