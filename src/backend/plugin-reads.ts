@@ -66,7 +66,7 @@ export interface PluginReading {
 }
 
 /** What a failure the cluster's, or Lumovi's, is to a plugin: a code and nothing it said. */
-function refusalOf(code: KubeErrorCode): ReadRefusal {
+export function refusalOf(code: KubeErrorCode): ReadRefusal {
   switch (code) {
     case 'forbidden':
     case 'unauthorized':
@@ -283,9 +283,10 @@ function record(
 }
 
 /** What's not allowed, rather than what failed: by the plugin's file, the cluster or Lumovi. */
-const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
+export const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'changed',
   'code-off',
+  'logs-off',
   'not-granted',
   'not-in-use',
   'not-allowed',

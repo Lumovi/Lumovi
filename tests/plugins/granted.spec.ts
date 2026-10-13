@@ -4,7 +4,7 @@
  * new and what's gone. And the proposals line, as the Plugins page and the dialog both say it.
  */
 import { expect, test } from '@playwright/test'
-import { proposesLine } from '../../src/renderer/src/features/plugins/proposes.ts'
+import { LOGS_LINE, proposesLine } from '../../src/renderer/src/features/plugins/proposes.ts'
 import { compared, grantedOf, isEmpty } from '../../src/renderer/src/features/plugins/granted.ts'
 import { parsePlugin } from '../../src/shared/plugins.ts'
 
@@ -99,6 +99,27 @@ test('what its pages add and where they link are what it asks too: a new page, a
   expect(added.added.pages).toEqual([{ id: 'history', title: 'History' }])
   expect(added.links).toEqual(['logs'])
   expect(isEmpty(compared(next, was).gone)).toBe(false)
+})
+
+test('its code reading containers’ logs is more than its pages showing them, and said in red', () => {
+  const none = grantedOf(plugin(READS('metadata.name')), true)
+  const shown = grantedOf(plugin(`${READS('metadata.name')}  logs: shown\n`), true)
+  const read = grantedOf(plugin(`${READS('metadata.name')}  logs: read\n`), true)
+  // Shown, then read: new. Nothing, then read: new. Read, then shown: nothing new, and it's gone.
+  expect(compared(shown, read).added.logs).toBe('read')
+  expect(compared(none, read).added.logs).toBe('read')
+  expect(isEmpty(compared(read, shown).added)).toBe(true)
+  expect(compared(read, shown).gone.logs).toBe('read')
+  // Its words: docs' red line, with how much under it; shown, its quiet line, never red. (The
+  // store's dialog draws them: plugin-install.spec.ts.)
+  expect(LOGS_LINE).toEqual({
+    shown: { text: 'It shows containers’ logs: Lumovi reads them, and its code never sees them.' },
+    read: {
+      text: 'Its code reads containers’ logs: what they print, which can hold tokens and personal data, reaches its code.',
+      note: 'Of pods its page shows, one container at a time: at most its last 500 lines or hour, as you, within your access.',
+      red: true,
+    },
+  })
 })
 
 test('showing containers’ logs is asked too: new where it didn’t, no longer where it doesn’t', () => {

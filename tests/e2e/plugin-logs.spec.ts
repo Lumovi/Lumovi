@@ -185,14 +185,122 @@ test('where the organization’s policy lets no plugin show logs, a page’s Log
   await openCluster(page)
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
   await expect(body(page).getByRole('region', { name: 'Its proxy' })).toContainText(
-    'Your organization’s policy doesn’t let plugins show containers’ logs.',
+    'Your organization’s policy doesn’t let plugins show or read containers’ logs.',
     { timeout: 20_000 },
   )
   await expect(body(page).getByRole('log')).toHaveCount(0)
   expect(await events(page, { actions: ['logs.read'] })).toEqual([])
-  // The Plugins page says so under its logs line.
+  // The Plugins page says so, under its logs line.
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins?plugin=toys`)
   await expect(page.getByRole('region', { name: 'May read' })).toContainText(
-    'Turned off by your organization’s policy (pluginLogs: off): Lumovi reads no logs for it.',
+    'It shows containers’ logs: Lumovi reads them, and its code never sees them.' +
+      'Turned off by your organization’s policy (pluginLogs: off): Lumovi reads no logs for it.' +
+      'It reads no Secret’s value. It sends nothing anywhere but to this cluster.',
   )
+})
+
+/** Toys, whose code reads logs: of the pods it reads. */
+const READER = toys(false).replace('  pages:', '  logs: read\n  pages:')
+
+/**
+ * Its code: it reads shop's pods, asks for the last lines of the envoy of storefront's first,
+ * and draws the newest it was handed; then asks for a container the pod hasn't, and for a token
+ * that's no pod's, and draws what it was told.
+ */
+const READS = `box.then(({ post, listen }) => {
+  const said = []
+  let drawn = false
+  const draw = () => {
+    const header = { name: said.join(' | ') }
+    post(JSON.stringify({ commit: drawn ? [['change', 1, header]] : [['make', 1, 'Header', header], ['put', 0, 1]] }))
+    drawn = true
+  }
+  listen((text) => {
+    const heard = JSON.parse(text)
+    if (heard.open) post(JSON.stringify({ read: 1, what: 'list', kind: '/Pod', namespace: 'shop' }))
+    if (heard.read === 1 && heard.objects && said.length === 0) {
+      const pod = heard.objects.find((o) => o.object.metadata.name === ${JSON.stringify(POD)})
+      said.push('asked')
+      post(JSON.stringify({ read: 2, what: 'logs', pod: pod.token, container: 'envoy', tail: 5 }))
+      post(JSON.stringify({ read: 3, what: 'logs', pod: 'o_nobody', container: 'envoy' }))
+    }
+    if (heard.read === 2) {
+      said.push(heard.lines ? 'newest: ' + heard.lines.at(-1).text + ' of ' + heard.lines.length + (heard.lines.at(-1).time ? ', timed' : '') : 'refused: ' + heard.ended)
+      draw()
+    }
+    if (heard.read === 3) {
+      said.push('other: ' + heard.ended)
+      draw()
+    }
+  })
+})
+`
+
+function reader() {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), READER)
+  writeFileSync(join(folder, 'toys.js'), READS)
+  return folder
+}
+
+test('a plugin whose file says its code reads logs is handed a pod’s last lines, once, and the history says so', async ({
+  launch,
+  clusters,
+}) => {
+  clusters.demo.appendLogs('shop', POD, 'envoy', ['read-by-its-code'])
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: reader() } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  // Its code drew what it was handed: the newest line, of as many as it asked for, each timed.
+  // A token that's no pod's reads nothing.
+  const header = body(page)
+  await expect(header).toContainText('newest: read-by-its-code of 5, timed', { timeout: 20_000 })
+  await expect(header).toContainText('other: not-found')
+  await expect
+    .poll(async () => (await events(page, { actions: ['logs.read'] }))[0])
+    .toMatchObject({
+      outcome: 'success',
+      summary: `Read the logs of Pod ${POD} (envoy), for the plugin Toys’ code`,
+      command: `kubectl logs ${POD} -c envoy --tail=5 -n shop --context ${CONTEXTS.demo}`,
+      details: { container: 'envoy', previous: false, plugin: 'toys', pluginVersion: '1.2.0' },
+    })
+  // The Plugins page says so, first and in red: what logs print reaches its code.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins?plugin=toys`)
+  const may = page.getByRole('region', { name: 'May read' })
+  await expect(may.locator('[data-red-line="logs"]')).toHaveText(
+    'Its code reads containers’ logs: what they print, which can hold tokens and personal data, reaches its code.' +
+      'Of pods its page shows, one container at a time: at most its last 500 lines or hour, as you, within your access.',
+  )
+  await expect(may.locator('p').first()).toHaveText(/^Its code reads containers’ logs/)
+  await expect(may.locator('p').first()).toHaveClass(/text-critical-text/)
+  await expect(may).toContainText(
+    'It reads no Secret’s value. It sends nothing anywhere but to this cluster.',
+  )
+  await expect(may).not.toContainText('It reads no logs.')
+  await expect(may).not.toContainText('It shows containers’ logs')
+})
+
+test('where the organization’s policy lets no plugin show logs, its code reads none either', async ({
+  launch,
+}) => {
+  const policy = join(mkdtempSync(join(tmpdir(), 'lumovi-policy-')), 'policy.json')
+  writeFileSync(policy, JSON.stringify({ pluginLogs: 'off' }))
+  const { page } = await launch({
+    env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: reader(), LUMOVI_POLICY: policy },
+  })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  await expect(body(page)).toContainText('refused: logs-off', { timeout: 20_000 })
+  await expect
+    .poll(async () => (await events(page, { actions: ['logs.read'] }))[0])
+    .toMatchObject({ outcome: 'refused', details: { plugin: 'toys', refused: 'logs-off' } })
+  // The Plugins page's red line goes quiet, and says why.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins?plugin=toys`)
+  const line = page.getByRole('region', { name: 'May read' }).locator('[data-red-line="logs"]')
+  await expect(line).toHaveText(
+    'Its code reads containers’ logs: what they print, which can hold tokens and personal data, reaches its code.' +
+      'Of pods its page shows, one container at a time: at most its last 500 lines or hour, as you, within your access.' +
+      'Turned off by your organization’s policy (pluginLogs: off): Lumovi reads no logs for it.',
+  )
+  await expect(line.locator('p').first()).not.toHaveClass(/text-critical-text/)
 })

@@ -36,6 +36,14 @@ export const READ_LIMITS = {
    *  doesn't stop the plugin: a person's second press mustn't end a page. It's still one of its
    *  second's asks, so it can't be used to knock on the door without end.) */
   refreshEveryMs: 10_000,
+  /**
+   * A pod's logs its code reads (`spec.logs: read`): one answer an ask, never a follow, of at
+   * most so many of its last lines (or of those it asks for: the lines of its last seconds, at
+   * most so many), and so many bytes; past them, its oldest are cut, and the answer says so.
+   */
+  logLines: 500,
+  logSeconds: 3600,
+  logBytes: 64 * 1024,
 } as const
 
 /** What a plugin's file says it reads of one kind (the file checker makes these). */
@@ -97,6 +105,20 @@ export type ReadAsk =
   | { read: number; what: 'object'; kind: string; namespace?: string; name: string; usage?: true }
   /** The events of an object Lumovi handed it: named by Lumovi's token for it. */
   | { read: number; what: 'events'; of: string }
+  /**
+   * A pod's logs, once, where its file says its code reads them (`spec.logs: read`): the pod by
+   * Lumovi's token for it, one of its containers, its last lines or those of the last seconds,
+   * or its previous instance's.
+   */
+  | {
+      read: number
+      what: 'logs'
+      pod: string
+      container: string
+      tail?: number
+      since?: number
+      previous?: true
+    }
   /** The end of a read it began. */
   | { stop: number }
   /** Its lists read again from the cluster. */
@@ -108,6 +130,8 @@ const KIND = /^(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?)?\/[A-Z][A-Za-z0-9]{0,6
 const NAME = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/
 /** An object's token, as the door gives them out. */
 const TOKEN = /^[A-Za-z0-9_-]{1,64}$/
+/** A container's name, as Kubernetes has one: a DNS label. */
+const CONTAINER = /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/
 
 /** A field a list is picked by, as a path of field names (`spec.nodeName`). */
 const FIELD_PATH = /^(?=.{3,63}$)[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*){1,3}$/
@@ -243,6 +267,42 @@ export function readAsk(message: unknown): ReadAsk | Stopped {
         return notAllowed('asks about an object Lumovi didn’t hand it')
       }
       return { read, what: 'events', of }
+    }
+    case 'logs': {
+      if (!has(said, 'read', 'what', 'pod', 'container', 'tail', 'since', 'previous')) {
+        return notAllowed('an ask with something it doesn’t take')
+      }
+      const pod = Object.hasOwn(said, 'pod') ? said.pod : undefined
+      if (typeof pod !== 'string' || !TOKEN.test(pod)) {
+        return notAllowed('asks about a pod Lumovi didn’t hand it')
+      }
+      const container = Object.hasOwn(said, 'container') ? said.container : undefined
+      if (typeof container !== 'string' || !CONTAINER.test(container)) {
+        return notAllowed('asks for a container by a name that isn’t one')
+      }
+      const whole = (value: unknown, most: number) =>
+        Number.isInteger(value) && (value as number) >= 1 && (value as number) <= most
+      const tail = Object.hasOwn(said, 'tail') ? said.tail : undefined
+      if (tail !== undefined && !whole(tail, READ_LIMITS.logLines)) {
+        return notAllowed(`asks for more than its last ${READ_LIMITS.logLines} lines`)
+      }
+      const since = Object.hasOwn(said, 'since') ? said.since : undefined
+      if (since !== undefined && !whole(since, READ_LIMITS.logSeconds)) {
+        return notAllowed(`asks for lines from more than ${READ_LIMITS.logSeconds} seconds back`)
+      }
+      const previous = Object.hasOwn(said, 'previous') ? said.previous : undefined
+      if (previous !== undefined && previous !== true) {
+        return notAllowed('asks for its previous instance with something other than true')
+      }
+      return {
+        read,
+        what: 'logs',
+        pod,
+        container,
+        ...(tail === undefined ? {} : { tail: tail as number }),
+        ...(since === undefined ? {} : { since: since as number }),
+        ...(previous ? { previous: true as const } : {}),
+      }
     }
     default:
       return notAllowed('an ask that isn’t one')
@@ -808,6 +868,8 @@ export type ReadRefusal =
   | 'not-yet'
   /** Its code is turned off: by the person, a server's administrator, or the organization's policy. */
   | 'code-off'
+  /** The organization's policy lets no plugin show or read containers' logs (`pluginLogs: off`). */
+  | 'logs-off'
   /** The plugin's file or code isn't what the page was handed with: it changed since. */
   | 'changed'
 
@@ -827,6 +889,54 @@ export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
   'not-yet': 'Lumovi doesn’t read this for a plugin yet.',
   changed: 'This plugin changed since its page was opened.',
   'code-off': 'This plugin’s code is turned off.',
+  'logs-off': 'Your organization’s policy doesn’t let plugins show or read containers’ logs.',
+}
+
+/**
+ * A pod's logs a plugin's code asks for, once (`spec.logs: read`), as Lumovi's own page sends it
+ * to the backend: the pod by its name, found from the token the page holds for it.
+ */
+export interface PluginLogsQuery {
+  context: string
+  plugin: string
+  /** What the page's code was handed with, as a read's are. */
+  digest: string
+  codeDigest: string
+  namespace: string
+  pod: string
+  container: string
+  tail?: number
+  since?: number
+  previous?: true
+}
+
+/** A line of a pod's logs, as its code is handed it: when it was written, and what. */
+export interface LogLine {
+  time?: string
+  text: string
+}
+
+export type PluginLogs =
+  { ok: true; lines: LogLine[]; cut?: true } | { ok: false; refused: ReadRefusal }
+
+/** A plugin's ask for logs as the backend takes it from a page, or nothing: exactly its keys. */
+export function logsQuery(value: unknown): PluginLogsQuery | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const q = value as Record<string, unknown>
+  const keys = ['context', 'plugin', 'digest', 'codeDigest', 'namespace', 'pod', 'container']
+  if (!has(q, ...keys, 'tail', 'since', 'previous')) return undefined
+  const text = (key: string) => typeof q[key] === 'string' && (q[key] as string).length > 0
+  if (!keys.every(text)) return undefined
+  if (!NAME.test(q.namespace as string) || !NAME.test(q.pod as string)) return undefined
+  if (!CONTAINER.test(q.container as string)) return undefined
+  const whole = (key: string, most: number) =>
+    !Object.hasOwn(q, key) ||
+    (Number.isInteger(q[key]) && (q[key] as number) >= 1 && (q[key] as number) <= most)
+  if (!whole('tail', READ_LIMITS.logLines) || !whole('since', READ_LIMITS.logSeconds)) {
+    return undefined
+  }
+  if (Object.hasOwn(q, 'previous') && q.previous !== true) return undefined
+  return q as unknown as PluginLogsQuery
 }
 
 /** What a read for a plugin comes to. */
@@ -961,6 +1071,11 @@ export class PageReads {
     this.#plugin.kept++
     this.#going.set(ask.read, { list, answered: false })
     return undefined
+  }
+
+  /** A read answered once, and over (a pod's logs): it isn't going. */
+  over(read: number): void {
+    this.#forget(read)
   }
 
   /** A read has its first answer: it no longer waits. */

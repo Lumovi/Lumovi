@@ -28,7 +28,10 @@ export const PLUGIN_SINCE = {
     opens: 'next',
     /** Where its pages link to Lumovi's own places; a destination's `{ object, at }` with it. */
     links: 'next',
-    /** Whether its pages show containers' logs (`shown`: Lumovi reads and draws them). */
+    /**
+     * Whether its pages show containers' logs (`shown`: Lumovi reads and draws them), or its code
+     * reads them too (`read`).
+     */
     logs: 'next',
   },
   /** What a read can ask beyond a kind's list or one object of it. */
@@ -36,6 +39,8 @@ export const PLUGIN_SINCE = {
     usage: 'next',
     fields: 'next',
     labels: 'next',
+    /** A pod's logs, read once: for a plugin whose file says `logs: read`. */
+    logs: 'next',
   },
   /** The parts a page's code can name. */
   parts: {

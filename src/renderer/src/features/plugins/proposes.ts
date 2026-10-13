@@ -5,6 +5,7 @@
 import type { Asks } from '@shared/plugin-asks'
 import type { ChangeAction } from '@shared/plugin-changes'
 import type { Reach } from '@shared/kit/declare'
+import { READ_LIMITS } from '@shared/plugin-reads'
 import type { Plugin } from '@shared/plugins'
 import type { ResourceKind } from '@shared/resources'
 
@@ -78,8 +79,17 @@ export function linksLine(links: readonly Reach[]): string {
 
 /**
  * What its pages do with containers' logs, by what its file says: each said here, and TypeScript
- * holds it, so a new way is never shown without its words.
+ * holds it, so a new way is never shown without its words. One its code reads is red: what
+ * containers print reaches its code; a quiet note says how much.
  */
 export const LOGS_LINE = {
-  shown: 'It shows containers’ logs: Lumovi reads them, and its code never sees them.',
-} as const satisfies Record<NonNullable<Plugin['logs']>, string>
+  shown: { text: 'It shows containers’ logs: Lumovi reads them, and its code never sees them.' },
+  read: {
+    text: 'Its code reads containers’ logs: what they print, which can hold tokens and personal data, reaches its code.',
+    note: `Of pods its page shows, one container at a time: at most its last ${READ_LIMITS.logLines} lines or hour, as you, within your access.`,
+    red: true,
+  },
+} as const satisfies Record<
+  NonNullable<Plugin['logs']>,
+  { text: string; note?: string; red?: true }
+>

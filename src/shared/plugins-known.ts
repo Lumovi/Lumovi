@@ -93,6 +93,8 @@ export interface KnownPlugin {
   changes?: readonly Readonly<ChangesKind>[]
   /** The name a person reads it by (its file's `label`), where its file gives one. */
   label?: string
+  /** Whether its pages show containers' logs, or its code reads them too (`spec.logs`). */
+  logs?: 'shown' | 'read'
 }
 
 /** What a plugin's code may read, by its file. */
@@ -187,6 +189,7 @@ export function knownPlugins(
           plugin.changes.map(({ kind, actions }) => Object.freeze({ kind, actions: [...actions] })),
         ),
         ...(plugin.place?.label !== undefined && { label: plugin.place.label }),
+        ...(plugin.logs !== undefined && { logs: plugin.logs }),
       }
     }),
     ...settled.files.flatMap(({ file, plugin, state }) =>

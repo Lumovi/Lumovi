@@ -294,6 +294,16 @@ export class Tokens {
   }
 
   /**
+   * The pod a token stands for on this page, for its code's ask for the pod's logs: nothing for
+   * an object of another kind, a Secret's token, or one not held. (Handed to no part, it opens
+   * nothing.)
+   */
+  podOf(token: string): ObjectRef | undefined {
+    const held = this.#held.get(token)
+    return held?.sort === 'object' && held.ref.kind === 'Pod' ? held.ref : undefined
+  }
+
+  /**
    * Where a press on something that opens `object` goes: a name Lumovi makes from what it
    * handed over, never text. Nothing unless `object` is the very reference this page's door put
    * in a component's hands, for a read that's still going: one that merely looks like it, or

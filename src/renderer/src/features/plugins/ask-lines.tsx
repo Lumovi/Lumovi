@@ -36,6 +36,11 @@ export interface AskLine {
   text: ReactNode
   /** Said under it, quieter. */
   note?: ReactNode
+  /**
+   * What reaches its code that can hold anything at all (containers' logs it reads): red, and
+   * first under what's new.
+   */
+  red?: true
 }
 
 /**
@@ -51,6 +56,11 @@ export function askLines(granted: Granted, names: KindNames, tool: string): AskL
       icon: Code,
       text: 'Draws its pages with its own code, which runs in Lumovi’s sealed box and is handed only what’s listed here.',
     })
+  }
+  // What its code reads that can hold anything: right after its code (and first, when new).
+  if (logs === 'read') {
+    const { text, note } = LOGS_LINE.read
+    lines.push({ key: 'logs', icon: ScrollText, text, note, red: true })
   }
   if (a.changes.length > 0) {
     lines.push({ key: 'proposes', icon: Pencil, text: proposesLine(a.changes, names) })
@@ -134,8 +144,8 @@ export function askLines(granted: Granted, names: KindNames, tool: string): AskL
       text: `Every ${listed(a.manages.map(names.bare))} in the cluster you may list (or, where you can’t, in the namespaces you’re looking at), to say which of them manages each workload, by labels and annotations the workload carries under ${tool}’s own groups.`,
     })
   }
-  if (logs !== undefined) {
-    lines.push({ key: 'logs', icon: ScrollText, text: LOGS_LINE[logs] })
+  if (logs === 'shown') {
+    lines.push({ key: 'logs', icon: ScrollText, text: LOGS_LINE.shown.text })
   }
   for (const page of added.pages) {
     lines.push({
