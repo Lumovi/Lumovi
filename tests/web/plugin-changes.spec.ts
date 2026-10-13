@@ -330,8 +330,9 @@ test('a create shows the object Lumovi sends, its generateName as asked, and its
   await expect(command).toContainText(/the object above, \d+ lines/)
   await expect(command).toContainText(/LUMOVI_EOF$/)
   // However tall the object, what Lumovi will send's command, the verdict and the buttons stay
-  // in view: the object scrolls in its box.
-  await page.setViewportSize({ width: 1280, height: 600 })
+  // in view: the object scrolls in its box. (In a window too short for all of it, and tall
+  // enough for the command's two lines: where it all fits, the object shows whole.)
+  await page.setViewportSize({ width: 1280, height: 500 })
   for (const inView of [
     shown.getByRole('button', { name: 'Cancel' }),
     shown.getByRole('button', { name: 'Create' }),
