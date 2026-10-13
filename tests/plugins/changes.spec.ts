@@ -18,7 +18,7 @@ import {
   type Proposed,
 } from '../../src/shared/plugin-changes.ts'
 import { Tokens } from '../../src/shared/plugin-presses.ts'
-import { takenFrom } from '../../src/backend/plugin-changes.ts'
+import { annotatedAs, commandOf, takenFrom } from '../../src/backend/plugin-changes.ts'
 
 /** A whole proposal: a patch of one field, the size, with what's said otherwise. */
 const proposal = (also: Record<string, unknown> = {}, change: Record<string, unknown> = {}) => ({
@@ -421,4 +421,65 @@ test('whose fields a patch would take, read from the cluster’s own words', () 
     { manager: 'helm', field: 'spec.source.targetRevision' },
   ])
   expect(takenFrom('something else')).toEqual([])
+})
+
+test('a patch of only annotations, or only labels, is said as kubectl annotate or label: exactly what it sends', () => {
+  const application = {
+    kind: 'Application.argoproj.io',
+    apiKind: 'Application',
+    plural: 'applications',
+    group: 'argoproj.io',
+    version: 'v1alpha1',
+    namespaced: true,
+    label: 'Applications',
+  }
+  const said = (body: unknown) =>
+    commandOf(
+      {
+        step: 'try',
+        plugin: 'argo-cd',
+        digest: '',
+        codeDigest: '',
+        context: 'prod',
+        action: 'patch',
+        body,
+      },
+      application,
+      'argocd',
+      'storefront',
+    )
+  expect(said({ metadata: { annotations: { 'argocd.argoproj.io/refresh': 'normal' } } })).toBe(
+    'kubectl annotate application.argoproj.io/storefront argocd.argoproj.io/refresh=normal --overwrite -n argocd --context prod',
+  )
+  expect(said({ metadata: { labels: { team: 'web', old: null } } })).toBe(
+    'kubectl label application.argoproj.io/storefront team=web old- --overwrite -n argocd --context prod',
+  )
+  // What kubectl's form sets, read back, is the patch: each key to its text, or taken away.
+  for (const body of [
+    { metadata: { annotations: { a: '1', 'b.example.com/c': 'two words', d: null } } },
+    { metadata: { labels: { tier: 'web' } } },
+  ]) {
+    const { verb, pairs } = annotatedAs(body)!
+    const back = Object.fromEntries(
+      pairs.map((pair) =>
+        pair.endsWith('-') && !pair.includes('=')
+          ? [pair.slice(0, -1), null]
+          : [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)],
+      ),
+    )
+    expect({ metadata: { [verb === 'annotate' ? 'annotations' : 'labels']: back } }).toEqual(body)
+  }
+  // Anything else, or a value that isn't text, is said as the patch itself.
+  for (const body of [
+    { metadata: { annotations: { a: '1' }, labels: { b: '2' } } },
+    { metadata: { annotations: { a: 1 } } },
+    { metadata: { annotations: {} } },
+    { metadata: { annotations: { a: '1' } }, spec: { x: 1 } },
+    { metadata: { annotations: { 'a=b': '1' } } },
+  ]) {
+    expect(annotatedAs(body), JSON.stringify(body)).toBeUndefined()
+    expect(said(body)).toMatch(
+      /^kubectl patch application\.argoproj\.io\/storefront --type merge -p /,
+    )
+  }
 })
