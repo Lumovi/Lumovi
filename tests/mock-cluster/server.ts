@@ -44,6 +44,11 @@ export type Fault =
   | { hang: true }
   /** Not a failure: the answer, after a wait. */
   | { delayMs: number }
+  /**
+   * Not a failure: the answer, once the test says (when `until` settles), unless whoever asked
+   * has gone by then. One never let go is as `hang`.
+   */
+  | { until: Promise<unknown> }
 
 export interface RecordedRequest {
   method: string
@@ -56,7 +61,10 @@ export interface RecordedRequest {
   body?: Json
   /** Who it was from, as they authenticated or were impersonated. */
   user?: string
-  /** When the request arrived (ms since the epoch), how long answering took, and the status. */
+  /**
+   * When the request arrived (ms since the epoch), how long answering took (or, unanswered, until
+   * the asker gave up on it), and the status (none, unanswered).
+   */
   at?: number
   ms?: number
   status?: number
@@ -1414,6 +1422,9 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       recorded.ms = Date.now() - at
       recorded.status = res.statusCode
     })
+    res.on('close', () => {
+      recorded.ms ??= Date.now() - at
+    })
     const json = (status: number, body: Json) =>
       send(req, res, status, JSON.stringify(body), 'application/json')
 
@@ -1445,6 +1456,15 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const serve = () => who.run(caller, () => answer(req, res, url, body, accept))
     if (fault && 'delayMs' in fault) {
       setTimeout(serve, fault.delayMs)
+      return
+    }
+    if (fault && 'until' in fault) {
+      // (Held as a hung one is: ended with the mock, or on a reset, if never let go.)
+      pending.add(res)
+      res.on('close', () => pending.delete(res))
+      void fault.until.then(() => {
+        if (!res.destroyed) serve()
+      })
       return
     }
     if (fault) {
