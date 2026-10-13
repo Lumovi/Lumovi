@@ -152,6 +152,8 @@ export function knownPlugins(
    * named as it is (`karpenter.js` beside `karpenter.yaml`). A folder's files carry none.
    */
   codes: Readonly<Record<string, string>> = {},
+  /** Which of `included` were installed from the store: their origin is `installed`. */
+  installed: ReadonlySet<string> = new Set(),
 ): readonly Readonly<KnownPlugin>[] {
   const settled = settle(
     included.plugins.map(({ plugin }) => plugin),
@@ -176,7 +178,7 @@ export function knownPlugins(
       return {
         name: plugin.name,
         version: plugin.version,
-        origin: 'lumovi' as const,
+        origin: installed.has(plugin.name) ? ('installed' as const) : ('lumovi' as const),
         file,
         digest: digest(text),
         grant: grantOf(plugin),

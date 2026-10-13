@@ -44,7 +44,7 @@ import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
 import type { PluginRead, PluginReadQuery } from './plugin-reads'
-import type { StoreCheck } from './plugin-store'
+import type { Installed, InstalledRecord, StoreCheck } from './plugin-store'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
 
@@ -153,6 +153,11 @@ export interface Settings {
    * none older (src/main/plugin-store.ts).
    */
   pluginStoreSerial?: number
+  /**
+   * The desktop app's: the plugins installed from Lumovi-plugins, each as it was agreed to, and
+   * the copy before it (src/main/plugins-installed.ts).
+   */
+  pluginsInstalled?: Record<string, InstalledRecord>
 }
 
 /** What a company's policy sets on a computer (the desktop app's), locked; not stored. */
@@ -185,7 +190,7 @@ export interface ManagedSettings {
   pluginsBundledOnly?: true
   /** Plugins as data, with none of their code: no page or tab their code draws runs. */
   pluginCodeOff?: true
-  /** Only these plugins, by name: any other isn't there. */
+  /** Only these plugins, by name (any version) or name@version (only that one). */
   pluginsAllowed?: string[]
   /** No plugin's page may propose a change. */
   pluginProposalsOff?: true
@@ -740,6 +745,10 @@ export interface LocalPlugins {
   files: { name: string; text: string; error?: string }[]
   /** Only ever from the build the tests run: files for it to take as plugins that came inside it. */
   included?: { name: string; text: string; error?: string }[]
+  /** Only ever from the build the tests run: which of those have code beside them. */
+  includedCoded?: string[]
+  /** The desktop app's: what's installed from Lumovi-plugins, and why any of it isn't used. */
+  installed?: Installed
 }
 
 export interface ClusterVersion {
@@ -1536,6 +1545,18 @@ export interface LumoviApi {
   pluginStore?: {
     /** As last checked, within ten minutes; `now`: checked again now, as Check now does. */
     check(now?: boolean): Promise<StoreCheck>
+    /**
+     * Installs a plugin at a version from the latest release, checked again first: only if what
+     * it asks is `agreed` (what the person was shown, `asksOf`).
+     */
+    install(name: string, version: string, agreed: string): Promise<void>
+    /**
+     * Back to the copy kept (what it asks `agreed`, which the main process holds it to), or to the
+     * one that comes with Lumovi.
+     */
+    goBack(name: string, to: 'kept' | 'lumovi', agreed?: string): Promise<void>
+    /** Removes one installed that doesn't come with Lumovi. */
+    remove(name: string): Promise<void>
   }
 }
 
@@ -1560,6 +1581,9 @@ export const IPC = {
   showSaved: 'app:show-saved',
   plugins: 'app:plugins',
   pluginStore: 'plugins:store',
+  pluginInstall: 'plugins:install',
+  pluginGoBack: 'plugins:go-back',
+  pluginRemove: 'plugins:remove',
   marks: 'marks:get',
   setMarks: 'marks:set',
   contexts: 'kube:contexts',

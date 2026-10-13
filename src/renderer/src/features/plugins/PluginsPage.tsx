@@ -18,7 +18,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
-import type { ChangeAction } from '@shared/plugin-changes'
 import { codeOff, notHandedLine } from '@shared/plugin-hand-over'
 import type { Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
@@ -38,19 +37,25 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
 import { CODE_PAGES } from '@renderer/lib/code-pages'
+import { linksLine, LOGS_LINE, proposesLine } from './proposes'
 import { PLUGIN_PAGES } from './integrations'
 import type { Reach } from '@shared/kit/declare'
 import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
+import BUILT_WITH from 'virtual:lumovi-plugins/release'
+import type { InstalledNotUsed, InstalledPlugin } from '@shared/plugin-store'
+import { Button } from '@renderer/components/Button'
 import {
+  notHere,
   offerFor,
   releaseOf,
   StoreLine,
   timeOf,
-  useNotHere,
+  useOffered,
   usePluginStore,
   type Offer,
 } from './store'
+import { InstalledMenu, useStoreActions } from './store-actions'
 
 /**
  * A line of the list: one of Lumovi's plugins, a file of the folder, or one of Lumovi-plugins'
@@ -69,6 +74,12 @@ interface Row {
   offer?: Offer
   /** The store's release it's from, for one this Lumovi lacks. */
   release?: string
+  /** Installed from the store, in place of Lumovi's own (or of none). */
+  installed?: InstalledPlugin
+  /** Why its installed copy isn't used, and Lumovi's own is. */
+  notUsed?: InstalledNotUsed
+  /** One of its name comes with Lumovi. */
+  builtIn?: boolean
   /** For one in Lumovi's place, that plugin; for one of Lumovi's replaced, the file. */
   lumovis?: Plugin
   replacedBy?: string
@@ -87,6 +98,8 @@ const label = (plugin: Plugin) => plugin.place?.label ?? plugin.name
 const inUse = (row: Row) => row.state === 'in-use' || row.state === 'in-place-of'
 /** Whether it's in the page's own list: any but one this Lumovi lacks. */
 const carried = (row: Row) => row.state !== 'not-here'
+/** Whether this Lumovi lacks it: in the store, not installed. (Installed, it's here.) */
+const lacks = (row: Row) => row.state === 'not-here'
 
 /** "Pods and Jobs", "Pods, Jobs and Secrets". */
 function listed(names: string[]): string {
@@ -127,14 +140,22 @@ export function PluginsPage() {
   const store = usePluginStore()
   const release = releaseOf(store.check)
   const lumovi = plugins?.lumovi ?? '0.0.0'
-  const notHere = useNotHere(
-    release,
+  const fromStore = useOffered(release)
+  const lacking = notHere(
+    fromStore,
     new Set([
       ...(plugins?.included ?? []).map(({ name }) => name),
       ...(plugins?.files ?? []).flatMap(({ plugin }) => (plugin ? [plugin.name] : [])),
     ]),
     lumovi,
   )
+  // Installing, updating, going back and removing: each from its row, through the store's dialog.
+  const actions = useStoreActions({
+    names,
+    builtWith: BUILT_WITH.version,
+    ownFiles: plugins?.ownFiles ?? {},
+    ownCoded: plugins?.ownCoded ?? new Set(),
+  })
   // The address may name a plugin to open (a link to what it asks for). A name only: anything
   // that isn't one, or that no plugin here has, opens nothing.
   const [params, setParams] = useSearchParams()
@@ -167,24 +188,32 @@ export function PluginsPage() {
   const here = (plugin: Plugin) =>
     [...(plugin.place?.kinds ?? []), ...plugin.views.flatMap((view) => view.kinds)].some(names.here)
   const rows: Row[] = [
-    ...plugins.included.map((plugin): Row => {
-      const replacing = plugins.files.find(
-        (file) => file.state === 'in-place-of' && file.lumovis === plugin,
-      )
-      const replacedBy = replacing && plain(replacing.file)
-      const offer = replacedBy ? undefined : offerFor(plugin, release, lumovi)
-      return {
-        key: `lumovi:${plugin.name}`,
-        title: label(plugin),
-        plugin,
-        origin: 'lumovi',
-        state: replacedBy ? 'replaced' : 'in-use',
-        replacedBy,
-        problems: [],
-        here: here(plugin),
-        ...(offer ? { offer } : {}),
-      }
-    }),
+    // One order, by name, wherever each came from: an install or an update never moves a row.
+    ...[...plugins.included]
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+      .map((plugin): Row => {
+        const replacing = plugins.files.find(
+          (file) => file.state === 'in-place-of' && file.lumovis === plugin,
+        )
+        const replacedBy = replacing && plain(replacing.file)
+        const offer = replacedBy ? undefined : offerFor(plugin, release, lumovi)
+        const installed = plugins.installed.plugins.find(({ name }) => name === plugin.name)
+        const notUsed = plugins.installed.notUsed.find(({ name }) => name === plugin.name)
+        return {
+          key: `lumovi:${plugin.name}`,
+          title: label(plugin),
+          plugin,
+          origin: 'lumovi',
+          state: replacedBy ? 'replaced' : 'in-use',
+          replacedBy,
+          problems: [],
+          here: here(plugin),
+          ...(offer ? { offer } : {}),
+          ...(installed ? { installed } : {}),
+          ...(notUsed ? { notUsed } : {}),
+          builtIn: plugins.builtIn.has(plugin.name),
+        }
+      }),
     ...plugins.files.map((file): Row => ({
       key: `file:${file.file}`,
       // (A file's name is the file's to choose: shown with nothing in it that can't be seen.)
@@ -201,7 +230,7 @@ export function PluginsPage() {
       here: file.plugin ? here(file.plugin) : false,
     })),
     // (Listed under their own filter alone: they aren't this Lumovi's.)
-    ...notHere.map(({ plugin, needs }): Row => ({
+    ...lacking.map(({ plugin, needs }): Row => ({
       key: `store:${plugin.name}`,
       title: label(plugin),
       plugin,
@@ -219,7 +248,7 @@ export function PluginsPage() {
     ['yours', HOST === 'yours' ? 'Yours' : 'This server’s', (row) => row.origin === HOST],
     ['unused', 'Not in use', (row) => carried(row) && !inUse(row)],
     ['updates', 'Updates', (row) => row.offer !== undefined && 'update' in row.offer],
-    ['not-here', 'Not here yet', (row) => !carried(row)],
+    ['not-here', 'Not here yet', lacks],
   ]
   // The store's filters only where they'd list something: one that empties while it's on gives
   // way to All, without a word.
@@ -233,12 +262,67 @@ export function PluginsPage() {
     )
   // (Files, as the filter beside it counts them: one that holds no plugin is still theirs.)
   const own = rows.filter((row) => row.origin === HOST).length
+  // (Of Lumovi's own list: installed from Lumovi-plugins, in use; and the rest, as Lumovi came.)
+  const installed = rows.filter((row) => row.installed !== undefined).length
+  const comes = rows.filter((row) => row.origin === 'lumovi' && !row.installed).length
   // A column at the rows' end, only where a row has something for it: over all of them, so a
   // filter never moves the columns.
-  const offers = rows.some((row) => row.offer !== undefined && 'needs' in row.offer)
+  const offers = rows.some(
+    (row) =>
+      row.offer !== undefined ||
+      row.state === 'not-here' ||
+      row.installed !== undefined ||
+      row.notUsed !== undefined,
+  )
   const columns = offers ? 4 : 3
   // What the filter draws from: the page's own list, or (Not here yet) what this Lumovi lacks.
-  const drawnFrom = rows.filter(active[0] === 'not-here' ? (row) => !carried(row) : carried)
+  const drawnFrom = rows.filter(active[0] === 'not-here' ? lacks : carried)
+  /** At a row's end: what the store offers it, and what can be done with what was installed. */
+  const end = (row: Row) => {
+    const plugin = row.plugin
+    if (!plugin) return null
+    const here = {
+      plugin,
+      ...(row.installed ? { installed: row.installed } : {}),
+      code: row.installed ? row.installed.code : plugins.ownCoded.has(plugin.name),
+    }
+    const offer = fromStore.get(plugin.name)
+    return (
+      <div className="flex items-center justify-end gap-1.5">
+        {row.offer && 'needs' in row.offer && (
+          <p data-plugin-needs={row.offer.needs.lumovi} className="text-right text-xs text-ink-3">
+            <span className="font-medium text-ink-2">{row.offer.needs.version}</span> needs Lumovi{' '}
+            {row.offer.needs.lumovi}
+          </p>
+        )}
+        {row.offer && 'update' in row.offer && offer && release && (
+          <Button
+            className="h-7 px-2.5 text-xs"
+            onClick={() => actions.update(here, offer, release.version)}
+          >
+            Update…
+          </Button>
+        )}
+        {row.state === 'not-here' && !row.offer && offer && release && (
+          <Button
+            className="h-7 px-2.5 text-xs"
+            onClick={() => actions.install(offer, release.version)}
+          >
+            Install…
+          </Button>
+        )}
+        {/* (And where its installed copy isn't used: going back to Lumovi's own clears it.) */}
+        {(row.installed || (row.notUsed && row.builtIn)) && (
+          <InstalledMenu
+            here={here}
+            builtIn={row.builtIn === true}
+            builtWith={BUILT_WITH.version}
+            actions={actions}
+          />
+        )}
+      </div>
+    )
+  }
   // Where the last check failed, its filters say whose they are: the last good check's.
   const keptFrom =
     store.check?.state === 'failed' && store.check.last
@@ -284,9 +368,20 @@ export function PluginsPage() {
         {/* (On a phone it's the first thing on a plugin's own page, not above the list.) */}
         {!phone && <Opening />}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3 phone:px-4">
-          <span className="text-[13px] text-ink-2 tabular-nums">
-            {plugins.included.length} from Lumovi
-            {own > 0 && (HOST === 'yours' ? `, ${own} of yours` : `, ${own} from this server`)}
+          <span data-plugins-count className="text-[13px] text-ink-2 tabular-nums">
+            {HOST === 'yours' ? (
+              // Each row once, by what its source line says: as Lumovi came, installed, or yours.
+              <>
+                {comes} {comes === 1 ? 'comes' : 'come'} with Lumovi
+                {installed > 0 && `, ${installed} installed`}
+                {own > 0 && `, ${own} of yours`}
+              </>
+            ) : (
+              <>
+                {plugins.included.length} from Lumovi
+                {own > 0 && `, ${own} from this server`}
+              </>
+            )}
           </span>
           <div
             role="group"
@@ -424,11 +519,7 @@ export function PluginsPage() {
                     <td className="border-b border-line py-3 pr-5">
                       <From row={row} directory={plugins.directory} />
                     </td>
-                    {offers && (
-                      <td className="border-b border-line py-3 pr-5">
-                        <Offered row={row} />
-                      </td>
-                    )}
+                    {offers && <td className="border-b border-line py-3 pr-5">{end(row)}</td>}
                   </tr>
                   {row.problems.length > 0 && (
                     <tr>
@@ -463,6 +554,7 @@ export function PluginsPage() {
           One with the name of one of Lumovi’s is used in its place, all of it.
         </span>
       </footer>
+      {actions.dialog}
     </div>
   )
 }
@@ -579,22 +671,23 @@ function Name({
             Update: <span className="font-mono font-medium text-ink-1">{row.offer.update}</span>
           </p>
         )}
+        {row.notUsed && <NotUsedLine notUsed={row.notUsed} label={row.title} />}
         {CODE_PAGES && row.plugin && <CodeOffLine plugin={row.plugin} />}
       </div>
     </div>
   )
 }
 
-/**
- * At a row's end, what the store offers that's no update: a version this Lumovi is too old for,
- * quietly, and nothing to press (Lumovi's own update is how to get it).
- */
-function Offered({ row }: { row: Row }) {
-  if (!row.offer || !('needs' in row.offer)) return null
-  const { version, lumovi } = row.offer.needs
+/** Under a plugin's name, where its installed copy isn't used: why, and that Lumovi's own is. */
+function NotUsedLine({ notUsed, label }: { notUsed: InstalledNotUsed; label: string }) {
   return (
-    <p data-plugin-needs={lumovi} className="text-right text-xs text-ink-3">
-      <span className="font-medium text-ink-2">{version}</span> needs Lumovi {lumovi}
+    <p data-plugin-not-used={notUsed.why} className="mt-0.5 flex gap-1.5 text-warn-text">
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      {notUsed.why === 'files'
+        ? `Its installed files aren’t the ones you agreed to, so Lumovi uses its own ${label}.`
+        : notUsed.why === 'lumovi'
+          ? `Its installed ${notUsed.version} needs Lumovi ${notUsed.needs ?? 'newer than this one'}, so Lumovi uses its own ${label}.`
+          : `Your organization’s policy doesn’t allow it, so Lumovi uses its own ${label}.`}
     </p>
   )
 }
@@ -698,20 +791,30 @@ function From({ row, directory }: { row: Row; directory: string }) {
   return (
     <div className="min-w-0">
       <p className="text-ink-2 [.text-ink-3_&]:text-ink-3">
-        {row.origin === 'lumovi'
-          ? 'Lumovi'
-          : row.origin === 'store'
-            ? 'Lumovi-plugins'
-            : row.origin === 'yours'
-              ? 'Yours'
-              : 'This server’s'}
+        {row.installed
+          ? 'Lumovi-plugins'
+          : row.origin === 'lumovi'
+            ? 'Lumovi'
+            : row.origin === 'store'
+              ? 'Lumovi-plugins'
+              : row.origin === 'yours'
+                ? 'Yours'
+                : 'This server’s'}
       </p>
-      <p className="mt-0.5 font-mono text-xs break-all text-ink-3 selectable">
-        {row.origin === 'lumovi'
-          ? 'Comes with Lumovi'
-          : row.origin === 'store'
-            ? `From Lumovi-plugins release ${row.release}`
-            : `${directory}${separator}${row.file}`}
+      <p
+        className={cn(
+          'mt-0.5 font-mono text-xs text-ink-3 selectable',
+          // (A file's path breaks anywhere; a line of words, between them, never in a number.)
+          row.installed || row.origin === 'store' ? 'break-words' : 'break-all',
+        )}
+      >
+        {row.installed
+          ? `Installed from Lumovi-plugins release ${row.installed.release}${row.installed.kept ? ` · ${row.installed.kept.version} kept to go back to` : ''}`
+          : row.origin === 'lumovi'
+            ? 'Comes with Lumovi'
+            : row.origin === 'store'
+              ? `From Lumovi-plugins release ${row.release}`
+              : `${directory}${separator}${row.file}`}
       </p>
     </div>
   )
@@ -972,27 +1075,10 @@ function WhatItAsks({
   )
 }
 
-/** How a plugin's page may propose a change, as the Plugins page says it. */
-const PROPOSES: Record<ChangeAction, string> = {
-  patch: 'change',
-  create: 'create',
-  delete: 'delete',
-  scale: 'scale',
-}
-
 function MayChange({ asked, names }: { asked: Asks; names: Names }) {
   // (Where Lumovi offers its pages: elsewhere, nothing of what they'd propose is said.)
   const proposes = CODE_PAGES && asked.changes.length > 0 && (
-    <p data-plugin-proposes="">
-      Its pages may propose to{' '}
-      {listed(
-        asked.changes.map(
-          ({ kind, actions }) =>
-            `${listed(actions.map((action) => PROPOSES[action]))} ${names.plural(kind)}`,
-        ),
-      )}
-      , each change one you confirm in Lumovi.
-    </p>
+    <p data-plugin-proposes="">{proposesLine(asked.changes, names)}</p>
   )
   if (asked.actions.length === 0) return proposes || <p>Nothing. It has no actions.</p>
   return (
@@ -1120,29 +1206,6 @@ function Adds({
   )
 }
 
-/**
- * Where its pages may link to, in Lumovi's words: its own places, which the person opens and
- * does there what they do.
- */
-function linksLine(links: readonly Reach[]): string {
-  const tabs = (['logs', 'shell'] as const).filter((at) => links.includes(at))
-  const forward = links.includes('port-forward')
-  const lumovis = `Lumovi’s ${listed(tabs.map((at) => (at === 'logs' ? 'Logs' : 'Shell')))} ${
-    tabs.length > 1 ? 'tabs' : 'tab'
-  }`
-  const opens =
-    tabs.length > 0 && forward
-      ? `${lumovis} for pods they show, and its Port forward dialog for pods and services`
-      : tabs.length > 0
-        ? `${lumovis}, for pods they show`
-        : 'Lumovi’s Port forward dialog, for pods and services they show'
-  const starts = [
-    ...(links.includes('shell') ? ['a shell'] : []),
-    ...(forward ? ['a forward'] : []),
-  ]
-  return `Its pages may open ${opens}.${starts.length > 0 ? ` You start ${starts.join(' or ')} there yourself.` : ''}`
-}
-
 function MayRead({
   asked,
   names,
@@ -1152,9 +1215,10 @@ function MayRead({
   asked: Asks
   names: Names
   tool: string
-  /** Whether its pages show containers' logs, as its file says. */
-  logs?: 'shown'
+  /** What its pages do with containers' logs, as its file says. */
+  logs?: Plugin['logs']
 }) {
+  const logsOff = useSettings().data?.managed?.pluginLogsOff === true
   const kinds = ({ kinds, templated }: Asks['related']) =>
     kinds.length > 0 ? listed(kinds.map(names.plural)) : templated ? 'kinds its objects name' : ''
   return (
@@ -1208,14 +1272,31 @@ function MayRead({
           by labels and annotations the workload carries under {tool}’s own groups.
         </p>
       )}
-      {/* Each true of it: what it does with logs, a Secret's value (where the lines above don't
-          say it), and where it sends what it reads. */}
+      {logs !== undefined && (
+        <div>
+          <p>{LOGS_LINE[logs]}</p>
+          {logsOff && (
+            <p className="mt-1 flex gap-1.5">
+              <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
+              <span>
+                Turned off by your organization’s policy (
+                <code className="font-mono text-xs text-ink-1">pluginLogs: off</code>): Lumovi reads
+                no logs for it.
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+      {/* Each true of it: no logs, no Secret's value (where the lines above don't say it), and
+          where it sends what it reads. */}
       <p>
-        {logs === 'shown'
-          ? 'It shows containers’ logs: Lumovi reads them, and its code never sees them.'
-          : 'It reads no logs.'}
-        {asked.secrets.length > 0 ? '' : ' It reads no Secret’s value.'} It sends nothing anywhere
-        but to this cluster.
+        {[
+          logs === undefined && 'It reads no logs.',
+          asked.secrets.length === 0 && 'It reads no Secret’s value.',
+          'It sends nothing anywhere but to this cluster.',
+        ]
+          .filter(Boolean)
+          .join(' ')}
       </p>
     </div>
   )

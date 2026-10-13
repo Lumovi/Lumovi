@@ -18,7 +18,13 @@
  *
  * Nothing is installed here: the page says what's newer.
  */
-import type { StoreCheck, StoreFailure, StorePlugin, StoreRelease } from '@shared/plugin-store'
+import {
+  allowedBy,
+  type StoreCheck,
+  type StoreFailure,
+  type StorePlugin,
+  type StoreRelease,
+} from '@shared/plugin-store'
 import {
   checkRelease,
   DownloadError,
@@ -30,6 +36,7 @@ import {
   taggedCommit,
   VERSION,
   type Asking,
+  type PluginFiles,
   type Trust,
 } from './plugins-release'
 
@@ -127,6 +134,8 @@ export class PluginStore {
   readonly #asking: Asking
   #last?: { at: number; result: StoreCheck }
   #good?: StoreRelease
+  /** The plugins' files of the last release that passed, and of which. */
+  #files?: { release: StoreRelease; files: PluginFiles }
   #running?: Promise<StoreCheck>
 
   constructor(options: StoreOptions) {
@@ -164,8 +173,10 @@ export class PluginStore {
     let result: StoreCheck
     try {
       await this.#options.ready
-      result = { state: 'checked', release: await this.#latest(at) }
-      this.#good = result.release
+      const latest = await this.#latest(at)
+      result = { state: 'checked', release: latest.release }
+      this.#good = latest.release
+      this.#files = latest
     } catch (error) {
       this.#options.warn?.(`Lumovi couldn’t check for newer plugins: ${(error as Error).message}`)
       result = {
@@ -179,8 +190,23 @@ export class PluginStore {
     return result
   }
 
+  /**
+   * The latest release checked again now, with its plugins' files: what an install takes, never
+   * an earlier check's. Or why not.
+   */
+  async again(): Promise<
+    { release: StoreRelease; files: PluginFiles } | { failure: StoreFailure | 'off' }
+  > {
+    const result = await this.check(true)
+    if (result.state === 'off') return { failure: 'off' }
+    if (result.state === 'failed') return { failure: result.failure }
+    return this.#files!.release === result.release
+      ? this.#files!
+      : { failure: { check: 'network', words: 'the release changed while it was checked' } }
+  }
+
   /** The latest release, checked, or why not. */
-  async #latest(at: number): Promise<StoreRelease> {
+  async #latest(at: number): Promise<{ release: StoreRelease; files: PluginFiles }> {
     const version = await this.#latestVersion()
     const commit = await taggedCommit(version, this.#asking)
     if (commit === undefined) {
@@ -204,7 +230,8 @@ export class PluginStore {
     this.#options.accept(index.serial)
     const allowed = this.#options.allowed?.()
     const plugins: StorePlugin[] = index.plugins
-      .filter(({ name }) => !allowed || allowed.includes(name))
+      // (By name: one whose version it doesn't name is refused at install, saying so.)
+      .filter(({ name }) => allowedBy(allowed, name))
       .map(({ name, version, lumovi }) => ({
         name,
         version,
@@ -212,7 +239,7 @@ export class PluginStore {
         file: files[`${name}.yaml`]!,
         code: Object.hasOwn(files, `${name}.js`),
       }))
-    return { version, serial: index.serial, checked: at, plugins }
+    return { release: { version, serial: index.serial, checked: at, plugins }, files }
   }
 
   /** The latest release's version, as GitHub's redirect to its tag names it. */

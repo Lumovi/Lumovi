@@ -98,9 +98,18 @@ test('the Plugins page says a plugin shows logs, and that its code never sees th
   const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included() } })
   await openCluster(page)
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins?plugin=toys`)
-  await expect(page.getByRole('region', { name: 'May read' })).toContainText(
-    'It shows containers’ logs: Lumovi reads them, and its code never sees them. It reads no Secret’s value. It sends nothing anywhere but to this cluster.',
-  )
+  const read = page.getByRole('region', { name: 'May read' })
+  await expect(
+    read.getByText('It shows containers’ logs: Lumovi reads them, and its code never sees them.', {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    read.getByText('It reads no Secret’s value. It sends nothing anywhere but to this cluster.', {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(read).not.toContainText('Turned off by your organization’s policy')
 })
 
 /**
@@ -181,4 +190,9 @@ test('where the organization’s policy lets no plugin show logs, a page’s Log
   )
   await expect(body(page).getByRole('log')).toHaveCount(0)
   expect(await events(page, { actions: ['logs.read'] })).toEqual([])
+  // The Plugins page says so under its logs line.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins?plugin=toys`)
+  await expect(page.getByRole('region', { name: 'May read' })).toContainText(
+    'Turned off by your organization’s policy (pluginLogs: off): Lumovi reads no logs for it.',
+  )
 })

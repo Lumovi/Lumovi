@@ -29,18 +29,18 @@ import { clashes, parsePlugin, plain, type ParseOptions, type Plugin } from './p
  * - `lumovi`: inside the build.
  * - `yours`: the person's own folder, on their computer.
  * - `server`: the folder a server's administrator fills.
- * - `installed`: from the store. A place that's known and not yet filled: nothing is accepted
- *   from it.
+ * - `installed`: from the store (Lumovi-plugins' releases, checked as Lumovi's own are, and only
+ *   on the person's press), in place of Lumovi's own of its name.
  */
 export type Origin = 'lumovi' | 'yours' | 'server' | 'installed'
 
 /**
- * Whether a plugin from there may carry code of its own. Only what came inside Lumovi may: a
- * folder's files, a person's or a server's, are data, whatever they say. (The store answers for
- * itself when there is one.)
+ * Whether a plugin from there may carry code of its own. Only what came inside Lumovi may, and
+ * what was installed from Lumovi-plugins, checked as Lumovi's own are: a folder's files, a
+ * person's or a server's, are data, whatever they say.
  */
 export function mayCarryCode(origin: Origin): boolean {
-  return origin === 'lumovi'
+  return origin === 'lumovi' || origin === 'installed'
 }
 
 /** A file of a folder, as it was read: its text, or why it couldn't be. */

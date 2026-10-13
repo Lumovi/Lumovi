@@ -93,27 +93,45 @@ export interface NotHere {
   needs?: string
 }
 
-/**
- * The release's plugins whose names none here has (`have`), each read as Lumovi reads its own:
- * one it can't read isn't offered.
- */
-export function useNotHere(
-  release: StoreRelease | undefined,
+/** A plugin of the release, read as Lumovi reads its own. */
+export interface Offered {
+  plugin: Plugin
+  code: boolean
+  /** The oldest Lumovi it works with, as the release's index says. */
+  needs?: string
+}
+
+/** The release's plugins, each read as Lumovi reads its own, by name: one it can't read isn't offered. */
+export function useOffered(release: StoreRelease | undefined): ReadonlyMap<string, Offered> {
+  return useMemo(
+    () =>
+      new Map(
+        (release?.plugins ?? []).flatMap((entry) => {
+          const { plugin } = parsePlugin(entry.file, `${entry.name}.yaml`, {
+            lumovisOwn: lumovisOwnKinds(),
+            carriesCode: true,
+          })
+          return plugin
+            ? [
+                [
+                  plugin.name,
+                  { plugin, code: entry.code, ...(entry.lumovi ? { needs: entry.lumovi } : {}) },
+                ] as const,
+              ]
+            : []
+        }),
+      ),
+    [release],
+  )
+}
+
+/** The release's plugins whose names none here has (`have`). */
+export function notHere(
+  offered: ReadonlyMap<string, Offered>,
   have: ReadonlySet<string>,
   lumovi: string,
 ): NotHere[] {
-  const read = useMemo(
-    () =>
-      (release?.plugins ?? []).flatMap((entry) => {
-        const { plugin } = parsePlugin(entry.file, `${entry.name}.yaml`, {
-          lumovisOwn: lumovisOwnKinds(),
-          carriesCode: true,
-        })
-        return plugin ? [{ plugin, needs: entry.lumovi }] : []
-      }),
-    [release],
-  )
-  return read
+  return [...offered.values()]
     .filter(({ plugin }) => !have.has(plugin.name))
     .map(({ plugin, needs }) => ({
       plugin,

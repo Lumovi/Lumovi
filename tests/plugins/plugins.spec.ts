@@ -723,10 +723,10 @@ test('every file comes back once, in one state, whatever order the files are han
   }
 })
 
-test('only what came inside Lumovi may carry code: a folder’s file is data, whatever it says', () => {
+test('only what came inside Lumovi, or was installed from Lumovi-plugins, may carry code: a folder’s file is data, whatever it says', () => {
   expect(mayCarryCode('lumovi')).toBe(true)
-  for (const origin of ['yours', 'server', 'installed'] as const)
-    expect(mayCarryCode(origin)).toBe(false)
+  expect(mayCarryCode('installed')).toBe(true)
+  for (const origin of ['yours', 'server'] as const) expect(mayCarryCode(origin)).toBe(false)
   // There's no field for code in a plugin's file, so a file that names some is refused like
   // any file with something unknown in it: nothing of it is used.
   for (const extra of ['  code: ./index.js', '  src: [a.ts]', '  entry: { page: main.js }']) {

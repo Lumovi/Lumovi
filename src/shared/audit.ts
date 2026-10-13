@@ -74,6 +74,11 @@ export const AUDIT_ACTIONS = {
   'read-only.changed': 'settings',
   'node-shell.changed': 'settings',
   'plugin.code-switch': 'settings',
+  // Plugins installed from Lumovi-plugins, updated, taken back, removed (the desktop app's).
+  'plugin.installed': 'settings',
+  'plugin.updated': 'settings',
+  'plugin.went-back': 'settings',
+  'plugin.removed': 'settings',
   // A fleet's agents: whose cluster's certificate authority is trusted.
   'agent.pinned': 'server',
   'agent.refused': 'server',

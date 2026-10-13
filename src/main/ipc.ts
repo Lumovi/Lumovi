@@ -31,6 +31,7 @@ import { SavedFiles } from './saved-files'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
 import type { PluginStore } from './plugin-store'
+import { InstallError, type InstalledPlugins } from './plugins-installed'
 import type { Updates } from './updates'
 
 interface Dependencies extends Backend {
@@ -48,6 +49,8 @@ interface Dependencies extends Backend {
   updates: Updates
   /** What's newer in Lumovi-plugins, for the Plugins page. */
   pluginStore: PluginStore
+  /** What's installed from it. */
+  installed: InstalledPlugins
   sponsor: SponsorSource
   /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
   auditLog: AuditLog
@@ -79,6 +82,7 @@ export function registerIpc(deps: Dependencies): void {
     localFiles,
     updates,
     pluginStore,
+    installed,
     sponsor,
     rendererUrl,
     problems,
@@ -242,6 +246,24 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.updateCheck]: () => updates.check(true),
     [IPC.updateInstall]: () => updates.install(),
     [IPC.pluginStore]: (now) => pluginStore.check(now === true),
+    // Installed, updated, taken back or removed: each only on the person's press, and checked here.
+    [IPC.pluginInstall]: (name, version, agreed) =>
+      typeof name === 'string' && typeof version === 'string' && typeof agreed === 'string'
+        ? installed.install(name, version, agreed)
+        : Promise.reject(new InstallError('Lumovi didn’t understand what to install.')),
+    // (Back to the copy kept only with what it asks that the person was shown: the main holds it.)
+    [IPC.pluginGoBack]: (name, to, agreed) =>
+      typeof name !== 'string'
+        ? Promise.reject(new InstallError('Lumovi didn’t understand what to go back to.'))
+        : to === 'lumovi'
+          ? installed.goBack(name, 'lumovi')
+          : to === 'kept'
+            ? installed.goBack(name, 'kept', typeof agreed === 'string' ? agreed : undefined)
+            : Promise.reject(new InstallError('Lumovi didn’t understand what to go back to.')),
+    [IPC.pluginRemove]: (name) =>
+      typeof name === 'string'
+        ? installed.remove(name)
+        : Promise.reject(new InstallError('Lumovi didn’t understand what to remove.')),
     [IPC.sponsorCard]: () => sponsor.card(),
     // Terminals on this computer, besides the cluster's shells (each ignores the other's).
     [IPC.terminalOpen]: (id, request) =>
