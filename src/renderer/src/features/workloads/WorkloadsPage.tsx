@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { builtinResource, kindOf } from '@shared/resources'
 import { EmptyState, ErrorState, StaleNotice, UnreadNotice } from '@renderer/components/States'
+import { useManagers } from '@renderer/hooks/managers'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useList, useListResponse, useMetrics } from '@renderer/hooks/queries'
 import type { KubeApiError } from '@renderer/lib/api'
@@ -20,7 +21,7 @@ import {
 import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
 import { useListColumns } from '../resources/ColumnsMenu'
-import { sortedBy, sortRows, type CellContext } from '../resources/columns'
+import { sortedBy, sortRows, withManagedBy, type CellContext } from '../resources/columns'
 import { useListState } from '../resources/list-state'
 import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
@@ -78,15 +79,20 @@ export function WorkloadsPage() {
     : undefined
 
   const workloads = listedWorkloads(lists)
-  const columns = workloadColumns({
+  // What manages each workload, where a plugin says what can and the cluster serves it.
+  const managers = useManagers()
+  const ownColumns = workloadColumns({
     showNamespace: namespace === null,
     usage: usage !== undefined,
     scalers: autoscalers(hpas),
   })
+  const columns = managers ? withManagedBy(ownColumns, kindOf) : ownColumns
   const ctx: CellContext = {
     // Ages are relative to the last refresh, which keeps rendering pure.
     now: Math.max(...all.map(([, q]) => q.dataUpdatedAt)),
     metrics: usage,
+    open,
+    managers,
   }
   const counts = countBy(workloads, (o) => statusOf(kindOf(o), o).health)
   // The columns as the person chose them for workloads in this cluster.

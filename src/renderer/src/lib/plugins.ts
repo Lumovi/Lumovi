@@ -14,6 +14,8 @@ import { jsonPath } from '@shared/jsonpath'
 import {
   EXPRESSION,
   INPUT_PATH,
+  MANAGING_MARK,
+  OBJECT_PATH,
   ONLY_PLACEHOLDER,
   PLACEHOLDER,
   clashes,
@@ -132,6 +134,20 @@ export function shownBy(view: View): string {
   return plugin ? (plugin.place?.label ?? plugin.name) : 'Lumovi'
 }
 
+/** The kinds whose objects manage others, each with the view in use for it that says how. */
+export function managingKinds(): { kind: ResourceKind; view: View }[] {
+  const kinds = new Set([...local.keys(), ...shipped.keys()])
+  return [...kinds].flatMap((kind) => {
+    const view = viewFor(kind)
+    return view?.manages ? [{ kind, view }] : []
+  })
+}
+
+/** The plugin in use by a name: the user's, or Lumovi's. */
+export function pluginNamed(name: string): Plugin | undefined {
+  return localPlugins.get(name) ?? shippedPlugins.get(name)
+}
+
 /** The plugins Lumovi comes with. */
 export function includedPlugins(): Plugin[] {
   return [...shippedPlugins.values()]
@@ -196,6 +212,51 @@ function text(values: unknown[]): string | undefined {
   return values.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ')
 }
 
+/** An object as a manager's templates name it: `{{ object.kind }}` and the rest. */
+export interface ManagedObject {
+  /** '' for Kubernetes' core kinds. */
+  group: string
+  kind: string
+  /** '' for an object of no namespace. */
+  namespace: string
+  name: string
+}
+
+/**
+ * A template filled in from `object`, and whether every placeholder found something (or had a
+ * fallback that did, or a text of its own).
+ */
+function filled(
+  template: string,
+  object: unknown,
+  now: number,
+  inputs: InputValues,
+  managed?: ManagedObject,
+): { text: string; whole: boolean } {
+  // An action's inputs are `input.name`; empty ones count as missing. A manager's object is
+  // `object.kind` and the rest; and a manager's own text that's empty, or holds the mark its
+  // object's name is found by, says nothing (it would match what it doesn't say).
+  const lookup = (path: string) => {
+    if (OBJECT_PATH.test(path))
+      return managed?.[path.slice('object.'.length) as keyof ManagedObject]
+    if (!INPUT_PATH.test(path)) {
+      const found = text(jsonPath(object, path))
+      return managed && (found === '' || found?.includes(MANAGING_MARK)) ? undefined : found
+    }
+    const value = inputs[path.slice('input.'.length)]!
+    return value === '' ? undefined : String(value)
+  }
+  let whole = true
+  const out = template.replace(PLACEHOLDER, (_, expression: string) => {
+    const [, path, literal, fallback] = EXPRESSION.exec(expression)!
+    if (path === 'now') return new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const found = lookup(path!) ?? (fallback ? lookup(fallback) : literal)
+    if (found === undefined) whole = false
+    return found ?? ''
+  })
+  return { text: out, whole }
+}
+
 /** A template with its {{ }} placeholders filled in from `object`. */
 export function render(
   template: string,
@@ -203,17 +264,20 @@ export function render(
   now = Date.now(),
   inputs: InputValues = {},
 ): string {
-  // An action's inputs are `input.name`; empty ones count as missing.
-  const lookup = (path: string) => {
-    if (!INPUT_PATH.test(path)) return text(jsonPath(object, path))
-    const value = inputs[path.slice('input.'.length)]!
-    return value === '' ? undefined : String(value)
-  }
-  return template.replace(PLACEHOLDER, (_, expression: string) => {
-    const [, path, literal = '', fallback] = EXPRESSION.exec(expression)!
-    if (path === 'now') return new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z')
-    return lookup(path!) ?? (fallback ? lookup(fallback) : literal) ?? ''
-  })
+  return filled(template, object, now, inputs).text
+}
+
+/**
+ * A manager's template for `managed`, filled in from the manager: nothing where a placeholder
+ * finds nothing, or it all comes to nothing, so that no manager is taken for one by what it hasn't.
+ */
+export function renderManaging(
+  template: string,
+  manager: unknown,
+  managed: ManagedObject,
+): string | undefined {
+  const { text, whole } = filled(template, manager, 0, {}, managed)
+  return whole && text !== '' ? text : undefined
 }
 
 /**

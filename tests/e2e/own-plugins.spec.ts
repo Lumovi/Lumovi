@@ -669,7 +669,7 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'needy.yaml: spec.groups: should be a list, not a string',
     'too-new.yaml: needs Lumovi 99.0.0 or newer; this is ',
     // Groups nobody may declare.
-    'grabby.yaml: spec.groups[1]: apps is Kubernetes’ own, so a plugin can’t have it',
+    'grabby.yaml: spec.groups[1]: apps has no dot, and no custom resource’s group can be one',
     'grabby.yaml: spec.groups[2]: the core group is Kubernetes’ own, so a plugin can’t have it',
     'grabby.yaml: spec.groups[3]: lumovi.dev is Lumovi’s own, so a plugin can’t have it',
     'grabby.yaml: spec.groups[4]: lumovi.dev is Lumovi’s own, so a plugin can’t have it',

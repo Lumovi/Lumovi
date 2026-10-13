@@ -15,6 +15,8 @@ import { allocatable } from '@renderer/lib/usage'
 import { fieldValue, type View, type ViewField } from '@renderer/lib/plugins'
 import { MiddleCut } from '@renderer/kit/MiddleCut'
 import { TheirText } from '@renderer/plugins/TheirText'
+import { managedBy, type Managers } from '@renderer/lib/managers'
+import { ManagerCell, ManagerFact, managerText } from '@renderer/features/details/ManagedBy'
 
 export interface CellContext {
   /** Live usage keyed by `metricsKey`, when the metrics API is available. */
@@ -23,6 +25,8 @@ export interface CellContext {
   cells?: Map<KubeObject, unknown[]>
   /** Opens another object in the detail panel (for columns that link to one, like events'). */
   open?: (kind: ResourceKind, name: string, namespace?: string) => void
+  /** What manages each object, where plugins say what manages workloads (`useManagers`). */
+  managers?: Managers
   now: number
 }
 
@@ -47,6 +51,11 @@ export interface Column {
    * cell, unless said here; `false` for what a line can't hold (a meter).
    */
   fact?: ((object: KubeObject, ctx: CellContext) => ReactNode) | false
+  /**
+   * Said in a phone's row whenever an object has it, after the kind's first fact: what manages a
+   * workload, which a change made by hand would be undone by.
+   */
+  alwaysSaid?: boolean
   /**
    * Its words for an object, where its cell's text isn't them (a meter's, say): what a copied row
    * and a saved CSV hold.
@@ -858,6 +867,46 @@ const PRIORITY: Record<string, 2 | 3> = {
 
 export function withPriorities(columns: Column[]): Column[] {
   return columns.map((column) => ({ ...column, priority: PRIORITY[column.id] ?? 1 }))
+}
+
+/**
+ * What manages each workload, as plugins say it (a Flux Kustomization, an Argo CD Application…):
+ * its name, which opens it. `kindOf` says each row's kind.
+ */
+export function managedByColumn(kindOf: (object: KubeObject) => ResourceKind): Column {
+  const of = (object: KubeObject, ctx: CellContext) =>
+    ctx.managers ? managedBy(ctx.managers.of(object, kindOf(object))) : []
+  return {
+    id: 'managedBy',
+    header: 'Managed by',
+    width: 'minmax(140px, 1fr)',
+    priority: 2,
+    cell: (o, ctx) => {
+      const by = of(o, ctx)
+      return by.length ? <ManagerCell managers={by} /> : none
+    },
+    // (The row is the thing to tap: nothing in it is one of its own.)
+    fact: (o, ctx) => {
+      const by = of(o, ctx)
+      return by.length ? <ManagerFact managers={by} /> : ''
+    },
+    alwaysSaid: true,
+    text: (o, ctx) => of(o, ctx).map(managerText).join('; '),
+    sort: (o, ctx) =>
+      of(o, ctx)
+        .map((manager) => manager.name)
+        .join(', '),
+  }
+}
+
+/** `columns` with what manages each workload, before its age. */
+export function withManagedBy(
+  columns: Column[],
+  kindOf: (object: KubeObject) => ResourceKind,
+): Column[] {
+  const age = columns.findIndex((column) => column.id === 'age')
+  const at = age === -1 ? columns.length : age
+  return [...columns.slice(0, at), managedByColumn(kindOf), ...columns.slice(at)]
 }
 
 /** The columns for a kind, and the column it sorts by until the user picks one. */

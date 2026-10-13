@@ -1,4 +1,4 @@
-import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import type { KubeList, KubeObject } from '@shared/api'
 import type { ResourceDefinition, ResourceKind } from '@shared/resources'
 import { api, unwrap } from '@renderer/lib/api'
@@ -157,6 +157,23 @@ export function useLists(lists: ({ kind: ResourceKind } & ListOptions)[]) {
     queries: lists.map(({ kind, ...options }) =>
       listQuery(context, namespaces, kind, options, selectItems),
     ),
+  })
+}
+
+/**
+ * Several lists at once, each as `useList` reads it, made one value by `combine`: a stable one,
+ * for a value that's new only when one of them is.
+ */
+export function useCombinedLists<T>(
+  lists: ({ kind: ResourceKind } & ListOptions)[],
+  combine: (results: UseQueryResult<KubeObject[]>[]) => T,
+): T {
+  const { context, namespaces } = useCluster()
+  return useQueries({
+    queries: lists.map(({ kind, ...options }) =>
+      listQuery(context, namespaces, kind, options, selectItems),
+    ),
+    combine,
   })
 }
 
