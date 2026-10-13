@@ -1374,6 +1374,31 @@ export function widgets(b: Builder): void {
             },
           },
         },
+        // (For the YAML editor's checks: a field of each other kind a schema can say goes there.)
+        port: {
+          'x-kubernetes-int-or-string': true,
+          description: 'The port it listens on: a number, or a port’s name.',
+        },
+        ratio: { type: 'number', description: 'How much of it is in use, from 0 to 1.' },
+        enabled: { type: 'boolean', default: true, description: 'Whether it runs.' },
+        shape: {
+          type: 'string',
+          enum: ['round', 'square', 'oval', 'star', 'heart', 'he\u202Ex'],
+          description: 'Its outline.',
+        },
+        tier: { type: 'integer', enum: [1, 2, 3] },
+        edition: { type: 'string', enum: ['standard'] },
+        legacyColor: { type: 'string', description: 'Deprecated: use color.' },
+        settings: { properties: { verbose: { type: 'boolean' } } },
+        tags: { type: 'array' },
+        notes: {
+          type: 'string',
+          nullable: true,
+          description: Array.from(
+            { length: 20 },
+            (_, i) => `Line ${i + 1} of what the widget's makers wrote about it.`,
+          ).join('\n'),
+        },
       },
     },
   })
