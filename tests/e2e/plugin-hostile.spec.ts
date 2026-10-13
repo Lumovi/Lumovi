@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO } from '../mock-cluster/fixtures/demo.ts'
-import { STAND_IN } from '../mock-cluster/server.ts'
+import { STAND_IN, type RecordedRequest } from '../mock-cluster/server.ts'
 import { holds } from '../holds.ts'
 import { placed } from '../placed.ts'
 import { CONTEXTS, expect, openCluster, panel, row, test } from './fixtures.ts'
@@ -58,6 +58,23 @@ const go = (page: Page, hash: string) =>
     window.location.hash = to
   }, hash)
 const body = (page: Page) => page.locator('[data-plugin-body]')
+/**
+ * What was asked of the cluster about the widget since `before`, but for reads; and which of
+ * those weren't a trial, which changes nothing. How many trials there are is no fact to hold:
+ * Lumovi asks one before its dialog opens, and the dialog asks again (and whose fields the change
+ * would take) once it has been open a quarter of a second, which a slow machine gives it.
+ */
+function askedOfTheWidget(clusters: { demo: { requests: RecordedRequest[] } }, before: number) {
+  const asked = clusters.demo.requests
+    .slice(before)
+    .filter((r) => r.method !== 'GET' && r.path.includes('widgets'))
+  return {
+    asked: asked.length,
+    written: asked
+      .filter((r) => r.query.dryRun !== 'All')
+      .map((r) => `${r.method} ${r.path}?${r.search}`),
+  }
+}
 const events = (page: Page, q: object = {}) =>
   page.evaluate((q) => window.lumovi!.audit.query(q), q).then((p) => p.events)
 
@@ -463,23 +480,40 @@ test('a press of a button that only reads proposes nothing, whatever its code do
   await press('Forge')
   await expect(said).toContainText('outcome 2 refused')
   await expect(page.getByRole('dialog')).toHaveCount(0)
+  // (Neither was asked of the cluster at all, not even as a trial.)
+  expect(askedOfTheWidget(clusters, before)).toEqual({ asked: 0, written: [] })
   // A button that says it changes something proposes, in Lumovi's dialog; the person says no.
   await press('Resize')
   await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 })
   await page.keyboard.press('Escape')
   await expect(said).toContainText('outcome 3 cancelled')
-  // Its press, spent, used again from a button that only reads.
+  // (The dialog is gone and starts nothing more; what its own trial had asked by then has all
+  // arrived once the count of what was asked stands still.)
+  let trials = -1
+  await expect
+    .poll(
+      () => {
+        const now = askedOfTheWidget(clusters, before).asked
+        const still = now === trials
+        trials = now
+        return still
+      },
+      { intervals: [1000], timeout: 15_000 },
+    )
+    .toBe(true)
+  expect(trials).toBeGreaterThan(0)
+  // Its press, spent, used again from a button that only reads: refused, and the cluster is
+  // asked nothing more for it, not even as a trial.
   await press('Again')
   await expect(said).toContainText('outcome 4 refused')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  // Asked of the cluster: the one trial behind Lumovi's dialog, which changes nothing; the
-  // three refused asked nothing, and nothing was written.
-  expect(
-    clusters.demo.requests
-      .slice(before)
-      .filter((r) => r.method !== 'GET' && r.path.includes('widgets'))
-      .map((r) => `${r.method} ${r.path}?${r.search}`),
-  ).toEqual([`PATCH /apis/example.com/v1/namespaces/default/widgets/${CUSTOM.widget}?dryRun=All`])
+  await holds(
+    () => askedOfTheWidget(clusters, before).asked === trials,
+    1000,
+    'a spent press asks the cluster nothing',
+  )
+  // Of all that was asked, every one a trial, which changes nothing: nothing was written.
+  expect(askedOfTheWidget(clusters, before).written).toEqual([])
 })
 
 /**
@@ -627,13 +661,10 @@ test('a page that draws what reads like Lumovi’s dialog draws no dialog, and n
   await body(page).getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(said).toContainText('presses 2, outcome cancelled')
   await expect(dialog).toHaveCount(0)
-  // Asked of the cluster: the one trial behind Lumovi's dialog, which changes nothing.
-  expect(
-    clusters.demo.requests
-      .slice(before)
-      .filter((r) => r.method !== 'GET' && r.path.includes('widgets'))
-      .map((r) => `${r.method} ${r.path}?${r.search}`),
-  ).toEqual([`PATCH /apis/example.com/v1/namespaces/default/widgets/${CUSTOM.widget}?dryRun=All`])
+  // Asked of the cluster: trials only, which change nothing. Nothing was written.
+  const { asked, written } = askedOfTheWidget(clusters, before)
+  expect(asked).toBeGreaterThan(0)
+  expect(written).toEqual([])
 })
 
 /**
