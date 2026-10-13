@@ -3,7 +3,8 @@
  * tiles. No width, gap or position is a plugin's to give: these are Lumovi's. Each takes what its
  * declaration (`@shared/kit/page`) says, as the door hands it: a plugin's texts as `Their`.
  */
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft } from 'lucide-react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { spelled } from '@shared/kit/characters'
 import type { ListDestination, ReachDestination, Their } from '@shared/kit/declare'
 import type {
@@ -146,9 +147,17 @@ export function Pair({ first, children }: PairProps & { children: ReactNode }) {
 }
 
 /**
+ * The least width a split stands side by side in: the list's 300 px, the gap, and room for the
+ * rest (its tiles still two across).
+ */
+const SIDE_BY_SIDE = 640
+
+/**
  * A split: a pick list at its side, 300 px wide, then the rest, which follows what's picked.
  * One row is always picked: the one the list says, or its first. On a phone it's two pages:
- * the list, then what a tap opens, with Back and the picked thing's name in the top bar.
+ * the list, then what a tap opens, with Back and the picked thing's name in the top bar. Given
+ * less than `SIDE_BY_SIDE` (beside a row's panel), it's two pages in its own pane, with Back
+ * above what's picked.
  */
 export function Split({
   list,
@@ -165,6 +174,64 @@ export function Split({
   // What a person picked; until then, or when it's no longer a row, the list's own or its first.
   const [chosen, setChosen] = useState<string>()
   const [opened, setOpened] = useState(false)
+  // Its own width, not the window's: narrow, it's two pages in its pane. Narrowing takes nothing
+  // away from someone using it (what was beside the list stays, with Back: a row they pressed
+  // opened a panel); arriving narrow starts at the list, however it was laid out on the way.
+  const [holder, setHolder] = useState<HTMLDivElement | null>(null)
+  const [narrow, setNarrow] = useState(false)
+  const wasNarrow = useRef<boolean>(undefined)
+  const narrowed = useRef(false)
+  const used = useRef(false)
+  useLayoutEffect(() => {
+    if (!holder) return
+    const measure = () => {
+      const now = holder.clientWidth < SIDE_BY_SIDE
+      if (wasNarrow.current === false && now && used.current) {
+        setOpened(true)
+        narrowed.current = true
+      }
+      wasNarrow.current = now
+      setNarrow(now)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(holder)
+    return () => observer.disconnect()
+  }, [holder])
+  // Narrowed with the picked one's page kept: the row last pressed in it (a table's, as its
+  // panel opened) stays in view, wherever the narrower page puts it.
+  useEffect(() => {
+    if (!narrow || !narrowed.current || !holder) return
+    narrowed.current = false
+    holder.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [narrow, holder])
+  // Back stays in view as the picked one's page scrolls: at the pane's top, with a rule under it
+  // while it stands there (where a phone's top bar is).
+  const [back, setBack] = useState<HTMLDivElement | null>(null)
+  const [stuck, setStuck] = useState(false)
+  useEffect(() => {
+    if (!back) return
+    let pane = back.parentElement
+    while (pane && !['auto', 'scroll'].includes(getComputedStyle(pane).overflowY)) {
+      pane = pane.parentElement
+    }
+    if (!pane) return
+    const look = () =>
+      setStuck(back.getBoundingClientRect().top <= pane.getBoundingClientRect().top + 1)
+    look()
+    pane.addEventListener('scroll', look, { passive: true })
+    return () => pane.removeEventListener('scroll', look)
+  }, [back])
+  // Where the keyboard goes as one page gives way to the other: Back, or the list.
+  const focusNext = useRef<'back' | 'list'>(undefined)
+  useEffect(() => {
+    const to = focusNext.current
+    focusNext.current = undefined
+    if (!to || !holder) return
+    holder
+      .querySelector<HTMLElement>(to === 'back' ? '[data-split-back]' : '[role="listbox"]')
+      ?.focus()
+  })
   const rows = list.rows
   const has = (key: string | undefined) =>
     key !== undefined && rows.some((row) => keyOf(row) === key)
@@ -175,6 +242,7 @@ export function Split({
   const pick = (key: string) => {
     setChosen(key)
     setOpened(true)
+    if (narrow) focusNext.current = 'back'
     const pressed = rows.find((each) => keyOf(each) === key)
     if (key !== picked) onPick?.({ row: pressed?.key ?? NOTHING_WRITTEN })
   }
@@ -197,11 +265,46 @@ export function Split({
       <PickList list={list} onPick={pick} />
     )
   }
+  // Narrow, one page or the other: the list, or Back above what's picked. (Each in its own place
+  // at every width, so what's drawn for the picked one stays as it is when the width changes.)
+  const detail = !narrow || (opened && row !== undefined)
   return (
-    <div className="grid min-w-0 grid-cols-[300px_minmax(0,1fr)] items-start gap-4">
-      <PickList list={list} picked={picked} onPick={pick} />
+    <div
+      ref={setHolder}
+      onPointerDownCapture={() => (used.current = true)}
+      onKeyDownCapture={() => (used.current = true)}
+      className={cn(
+        'min-w-0',
+        narrow ? 'flex flex-col gap-3' : 'grid grid-cols-[300px_minmax(0,1fr)] items-start gap-4',
+      )}
+    >
+      {!(narrow && detail) && <PickList list={list} picked={picked} onPick={pick} />}
+      {narrow && detail && (
+        // (Across the whole pane, its 16 px sides included, so nothing shows past it.)
+        <div
+          ref={setBack}
+          className={cn(
+            'sticky top-0 z-10 -mx-4 border-b bg-surface px-4',
+            stuck ? 'border-line' : 'border-transparent',
+          )}
+        >
+          <button
+            type="button"
+            data-split-back
+            onClick={() => {
+              setOpened(false)
+              focusNext.current = 'list'
+            }}
+            className="flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] text-ink-2 outline-none hover:bg-surface-3/60 focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <ArrowLeft className="size-4 shrink-0 text-ink-3" aria-hidden />
+            <span className="sr-only">Back to </span>
+            <TheirText text={list.title} inline />
+          </button>
+        </div>
+      )}
       {/* With nothing to list, the rest of the page shows nothing. */}
-      {row ? <Stack>{children}</Stack> : <div />}
+      {detail && (row ? <Stack>{children}</Stack> : <div />)}
     </div>
   )
 }

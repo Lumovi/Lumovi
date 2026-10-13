@@ -6,6 +6,7 @@
  */
 import { base64, clusterBuilder, DAY, HOUR, MINUTE, type ContainerInput } from '../builders.ts'
 import type { ClusterFixture } from '../types.ts'
+import { cloudNativePg } from './cloudnative-pg.ts'
 import { demoCluster } from './demo.ts'
 import { release } from './helm.ts'
 
@@ -373,6 +374,8 @@ export function longCluster(now = Date.now()): ClusterFixture {
       },
     ],
   })
+  // A plugin's page that's a split (CloudNativePG's Overview), to walk as every page is.
+  cloudNativePg(b, now)
   const long = b.build()
   return {
     ...demo,
