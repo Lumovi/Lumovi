@@ -164,12 +164,13 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
 
 When CI passes on that commit on `main`, the _Release_ workflow sees a version without a
 release, set by that very commit, and waits. A release made by Lumovi's workflow is signed and
-published only after the maintainer approves that run from his own account (the environment
-`release`, where the signing secrets live, has him as its one required reviewer). A run that
-isn't approved has made nothing, and holds nothing up. Whoever started a run can't be the one
-who approves it, so a release by the workflow always takes two accounts, his own included: a
-release the maintainer has to start himself needs that setting of the environment turned off
-for it, knowingly, by him as the owner. A later commit that finds the version
+published only once it's approved: the environment `release`, where the signing secrets live,
+has two required reviewers, the maintainer's own account and the project's, and whoever started
+a run can't approve it. So every release takes both: one starts it (by the commit that reaches
+`main`, or by hand), and the other approves it. Each job of the run first checks that one of the
+two started it, and that no one else ran it again since; a run a bot started (the workflow's own
+token among them), or one the other account ran again, is refused before anything is built. A
+run that isn't approved has made nothing, and holds nothing up. A later commit that finds the version
 still unreleased starts no release by itself; to release `main` as it is then, run the workflow
 by hand.
 

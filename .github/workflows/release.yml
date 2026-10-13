@@ -12,7 +12,8 @@ name: Release
 #
 # Nothing is signed, attested, pushed or published until the release is approved: every job that
 # does any of it runs in the environment `release`, which holds the signing secrets, takes runs
-# from main alone, and has one required reviewer. The jobs that need it start together, right
+# from main alone, and has two required reviewers, neither of whom can approve a run they started
+# (and each job first checks who started it: below). The jobs that need it start together, right
 # after the version is found, so they wait together and one approval lets them all go. Until
 # then a run has made nothing but the release's notes, kept as a file with the run itself: no
 # draft, no tag, nothing signed, and the job before the approval may only read. A run that's
@@ -51,6 +52,46 @@ jobs:
       sha: ${{ steps.version.outputs.sha }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
+      # Every job's first step, so a job run again by itself asks too: this run was started by one
+      # of the release accounts (the repository's variable RELEASE_ACCOUNTS; none set, and every
+      # run is refused), and run again, if it was, by no one else. The environment's other reviewer
+      # then approves it, never whoever started it. (GitHub judges that by who first started the
+      # run, even when another runs it again, so a run that another ran again is refused here; and
+      # so is one a bot started, the workflow's own token among them, whoever would approve it. For
+      # a run started by CI's on main, CI's run is held to the same.) Which accounts they are is
+      # asked here, so it's never written out in a log: only whether.
+      - &started-by
+        name: Started by a release account, and run by no one else since
+        shell: bash
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGERING: ${{ github.triggering_actor }}
+          EVENT: ${{ github.event_name }}
+          CI_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          CI_TRIGGERING: ${{ github.event.workflow_run.triggering_actor.login }}
+          # (RELEASE_ACCOUNTS: logins, comma-separated, no spaces: a login with a space before it is never matched.)
+          SET: ${{ vars.RELEASE_ACCOUNTS != '' }}
+          ONE_OF_THEM: >-
+            ${{ vars.RELEASE_ACCOUNTS != '' &&
+            contains(format(',{0},', vars.RELEASE_ACCOUNTS), format(',{0},', github.actor)) }}
+        run: |
+          refused=0
+          if [ "$SET" != true ]; then
+            echo "::error::No release accounts are set (the repository's variable RELEASE_ACCOUNTS): no run starts a release."
+            refused=1
+          elif [ "$ONE_OF_THEM" != true ]; then
+            echo "::error::Started by $ACTOR: only the release accounts start a release."
+            refused=1
+          fi
+          if [ "$TRIGGERING" != "$ACTOR" ]; then
+            echo "::error::Started by $ACTOR and run again by $TRIGGERING: only whoever started a release runs it again."
+            refused=1
+          fi
+          if [ "$EVENT" = workflow_run ] && { [ "$CI_ACTOR" != "$ACTOR" ] || [ "$CI_TRIGGERING" != "$ACTOR" ]; }; then
+            echo "::error::CI was started by $CI_ACTOR and run by $CI_TRIGGERING, and this by $ACTOR: one account starts a release."
+            refused=1
+          fi
+          exit "$refused"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -178,6 +219,7 @@ jobs:
       # electron-builder.yml's publisherName.
       WIN_CERTIFICATE_SHA1: 4E6B3A2AEE86A28EABC65C90C1FE1E85D6756FB8
     steps:
+      - *started-by
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.preflight.outputs.sha }}
@@ -408,6 +450,7 @@ jobs:
       IMAGE: ghcr.io/lumovi/lumovi
       CHARTS: ghcr.io/lumovi/charts
     steps:
+      - *started-by
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.preflight.outputs.sha }}
@@ -501,6 +544,8 @@ jobs:
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
             "$CHARTS/lumovi@$DIGEST"
 
+  # Runs only after the approved jobs, and only when they've succeeded: never `always()`,
+  # `!cancelled()` or a `needs` without build and image, or it would publish what wasn't approved.
   publish:
     name: Checksums and publish
     needs: [preflight, build, image]
@@ -516,6 +561,7 @@ jobs:
       SHA: ${{ needs.preflight.outputs.sha }}
       PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
     steps:
+      - *started-by
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.preflight.outputs.sha }}
@@ -573,6 +619,7 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
     steps:
+      - *started-by
       # Published once AUR_SSH_PRIVATE_KEY is set: the key of the AUR account that maintains
       # lumovi-bin.
       - name: Whether it's published
@@ -643,6 +690,7 @@ jobs:
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
     steps:
+      - *started-by
       - name: Wait for the release to be published
         env:
           GH_TOKEN: ${{ github.token }}
