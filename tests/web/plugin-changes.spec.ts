@@ -313,6 +313,17 @@ test('a create shows the object Lumovi sends, its generateName as asked, and its
   expect(text.indexOf('metadata:')).toBeLessThan(text.indexOf('spec:'))
   await expect(shown).toContainText("kubectl create -f - -n default --context demo <<'LUMOVI_EOF'")
   await expect(shown).not.toContainText('.yaml')
+  // However tall the object and its command, the buttons stay in reach: what's between scrolls.
+  await page.setViewportSize({ width: 1280, height: 600 })
+  await expect(shown.getByRole('button', { name: 'Cancel' })).toBeInViewport({ ratio: 1 })
+  await expect(shown.getByRole('button', { name: 'Create' })).toBeInViewport({ ratio: 1 })
+  await expect
+    .poll(() =>
+      shown
+        .locator('[data-proposal-body]')
+        .evaluate((body) => body.scrollHeight > body.clientHeight),
+    )
+    .toBe(true)
   // Confirmed: made, and the cluster names it.
   await expect(shown.getByRole('button', { name: 'Create' })).toBeEnabled()
   await shown.getByRole('button', { name: 'Create' }).click()

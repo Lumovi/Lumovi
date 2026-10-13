@@ -241,163 +241,167 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             </p>
           </header>
 
-          {proposed.fields.length > 0 && (
-            <section
-              aria-label={`Options, in ${whose(by.label)} words`}
-              className="min-h-0 flex-1 overflow-y-auto border-t border-line px-5 py-3"
-            >
-              <p className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-                Options, in {whose(by.label)} words
-              </p>
-              <div className="space-y-3">
-                {proposed.fields.map((field) => (
-                  <FieldInput
-                    key={field.key}
-                    field={field}
-                    value={values[field.key]}
-                    typed={typing[field.key]}
-                    wrong={
-                      fieldWrong(field, values[field.key]) ??
-                      (refusedField === field.key && answer && !answer.ok
-                        ? refusedWords(answer)
-                        : undefined)
-                    }
-                    onChange={(value, raw) => {
-                      setValues((all) => ({ ...all, [field.key]: value }))
-                      if (raw !== undefined) setTyping((all) => ({ ...all, [field.key]: raw }))
-                      setRefused(undefined)
-                    }}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="shrink-0 space-y-2.5 border-t border-line px-5 py-3">
-            {moved && (
-              <p className="bg-warning/10 text-warning-text flex items-start gap-1.5 rounded-lg px-2.5 py-2 text-xs">
-                <TriangleAlert className="mt-px size-3.5 shrink-0" />
-                {apiKind} {target?.name} changed since this was shown. Here is the change again, as
-                it stands now.
-              </p>
-            )}
-            <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
-              {danger ? 'What Lumovi will do' : 'What Lumovi will send'}
-            </p>
-            {change === 'fields' ? (
-              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
-                The change shows here once the options above are filled in.
-              </p>
-            ) : change === 'too-big' ? (
-              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
-                The change comes to more than a plugin may send.
-              </p>
-            ) : change === 'not-allowed' ? (
-              <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
-                With these options, the change would write what no plugin may.
-              </p>
-            ) : (
-              !danger &&
-              answer?.ok && (
-                <div className="max-h-56 overflow-auto rounded-lg">
-                  {proposed.action === 'create' ? (
-                    <DiffView
-                      diff={unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))}
-                      label="The whole object Lumovi will create"
-                    />
-                  ) : (
-                    <DiffView
-                      diff={unifiedDiff(
-                        forDiff(answer.before as KubeObject),
-                        forDiff(answer.after as KubeObject),
-                      )}
-                      label="Changes"
-                    />
-                  )}
-                </div>
-              )
-            )}
-            {answer?.ok && answer.command && (
-              <div className="rounded-lg bg-surface-3/70 px-3 py-2.5">
-                <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
-                  Equivalent command
+          {/* What's asked and what's sent scroll together: the buttons stay in reach, however tall
+              the object sent or the command that reads it. */}
+          <div className="min-h-0 flex-1 overflow-y-auto" data-proposal-body>
+            {proposed.fields.length > 0 && (
+              <section
+                aria-label={`Options, in ${whose(by.label)} words`}
+                className="border-t border-line px-5 py-3"
+              >
+                <p className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                  Options, in {whose(by.label)} words
                 </p>
-                <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
-                  {answer.command}
-                </code>
-              </div>
+                <div className="space-y-3">
+                  {proposed.fields.map((field) => (
+                    <FieldInput
+                      key={field.key}
+                      field={field}
+                      value={values[field.key]}
+                      typed={typing[field.key]}
+                      wrong={
+                        fieldWrong(field, values[field.key]) ??
+                        (refusedField === field.key && answer && !answer.ok
+                          ? refusedWords(answer)
+                          : undefined)
+                      }
+                      onChange={(value, raw) => {
+                        setValues((all) => ({ ...all, [field.key]: value }))
+                        if (raw !== undefined) setTyping((all) => ({ ...all, [field.key]: raw }))
+                        setRefused(undefined)
+                      }}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
-            <Verdict
-              asking={key !== undefined && !answer}
-              answer={answer}
-              refused={refused}
-              under={refusedField !== undefined}
-              options={proposed.fields.length > 0}
-            />
-            {answer?.ok &&
-              answer.takesOver?.map(({ manager }, i, all) =>
-                all.findIndex((other) => other.manager === manager) === i ? (
-                  <p key={manager} className="flex items-start gap-1.5 text-xs text-ink-2">
-                    <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
-                    <span>
-                      It takes over{' '}
-                      {all
-                        .filter((other) => other.manager === manager)
-                        .map((other) => other.field)
-                        .join(', ')}{' '}
-                      from <span className="font-medium">{manager}</span>.
-                    </span>
-                  </p>
-                ) : null,
+
+            <section className="space-y-2.5 border-t border-line px-5 py-3">
+              {moved && (
+                <p className="bg-warning/10 text-warning-text flex items-start gap-1.5 rounded-lg px-2.5 py-2 text-xs">
+                  <TriangleAlert className="mt-px size-3.5 shrink-0" />
+                  {apiKind} {target?.name} changed since this was shown. Here is the change again,
+                  as it stands now.
+                </p>
               )}
-            {danger && answer?.ok && answer.finalizers && (
-              <p className="flex items-start gap-1.5 text-xs text-ink-2">
-                <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
-                {/* Each named, as the cluster's text: what's true of any finalizer, never more. */}
-                <span>
-                  It has the {answer.finalizers.length === 1 ? 'finalizer' : 'finalizers'}{' '}
-                  {/* (The first five, then how many more: a long list can't push the button off.) */}
-                  {answer.finalizers.slice(0, 5).map((name, i, shown) => {
-                    const more = answer.finalizers!.length - shown.length
-                    const last = i === shown.length - 1 && more === 0
-                    return (
-                      <span key={i}>
-                        {i > 0 && (last ? ' and ' : ', ')}
-                        <TheirText text={name} inline className="font-mono" />
-                        {i === shown.length - 1 && more > 0 && ` and ${more} more`}
-                      </span>
-                    )
-                  })}
-                  : what {answer.finalizers.length === 1 ? 'that does' : 'they do'} runs first, and
-                  the cluster deletes it once that’s done.
-                </span>
+              <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                {danger ? 'What Lumovi will do' : 'What Lumovi will send'}
               </p>
-            )}
-            {typeToConfirm !== undefined && (
-              <label className="block">
-                <span className="mb-1.5 block text-xs text-ink-2">
-                  {production && (
-                    <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
-                  )}
-                  Type{' '}
-                  <span className="font-mono font-medium wrap-anywhere text-ink-1 select-all">
-                    {typeToConfirm}
-                  </span>{' '}
-                  to confirm
-                </span>
-                <input
-                  data-type-to-confirm
-                  aria-label={`Type ${typeToConfirm} to confirm`}
-                  value={typed}
-                  onChange={(event) => setTyped(event.target.value)}
-                  onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
-                />
-              </label>
-            )}
-          </section>
+              {change === 'fields' ? (
+                <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                  The change shows here once the options above are filled in.
+                </p>
+              ) : change === 'too-big' ? (
+                <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                  The change comes to more than a plugin may send.
+                </p>
+              ) : change === 'not-allowed' ? (
+                <p className="rounded-lg bg-surface-3/70 px-3 py-2.5 text-xs text-ink-3">
+                  With these options, the change would write what no plugin may.
+                </p>
+              ) : (
+                !danger &&
+                answer?.ok && (
+                  <div className="max-h-56 overflow-auto rounded-lg">
+                    {proposed.action === 'create' ? (
+                      <DiffView
+                        diff={unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))}
+                        label="The whole object Lumovi will create"
+                      />
+                    ) : (
+                      <DiffView
+                        diff={unifiedDiff(
+                          forDiff(answer.before as KubeObject),
+                          forDiff(answer.after as KubeObject),
+                        )}
+                        label="Changes"
+                      />
+                    )}
+                  </div>
+                )
+              )}
+              {answer?.ok && answer.command && (
+                <div className="rounded-lg bg-surface-3/70 px-3 py-2.5">
+                  <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                    Equivalent command
+                  </p>
+                  <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
+                    {answer.command}
+                  </code>
+                </div>
+              )}
+              <Verdict
+                asking={key !== undefined && !answer}
+                answer={answer}
+                refused={refused}
+                under={refusedField !== undefined}
+                options={proposed.fields.length > 0}
+              />
+              {answer?.ok &&
+                answer.takesOver?.map(({ manager }, i, all) =>
+                  all.findIndex((other) => other.manager === manager) === i ? (
+                    <p key={manager} className="flex items-start gap-1.5 text-xs text-ink-2">
+                      <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
+                      <span>
+                        It takes over{' '}
+                        {all
+                          .filter((other) => other.manager === manager)
+                          .map((other) => other.field)
+                          .join(', ')}{' '}
+                        from <span className="font-medium">{manager}</span>.
+                      </span>
+                    </p>
+                  ) : null,
+                )}
+              {danger && answer?.ok && answer.finalizers && (
+                <p className="flex items-start gap-1.5 text-xs text-ink-2">
+                  <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
+                  {/* Each named, as the cluster's text: what's true of any finalizer, never more. */}
+                  <span>
+                    It has the {answer.finalizers.length === 1 ? 'finalizer' : 'finalizers'}{' '}
+                    {/* (The first five, then how many more: a long list can't push the button off.) */}
+                    {answer.finalizers.slice(0, 5).map((name, i, shown) => {
+                      const more = answer.finalizers!.length - shown.length
+                      const last = i === shown.length - 1 && more === 0
+                      return (
+                        <span key={i}>
+                          {i > 0 && (last ? ' and ' : ', ')}
+                          <TheirText text={name} inline className="font-mono" />
+                          {i === shown.length - 1 && more > 0 && ` and ${more} more`}
+                        </span>
+                      )
+                    })}
+                    : what {answer.finalizers.length === 1 ? 'that does' : 'they do'} runs first,
+                    and the cluster deletes it once that’s done.
+                  </span>
+                </p>
+              )}
+              {typeToConfirm !== undefined && (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs text-ink-2">
+                    {production && (
+                      <TriangleAlert className="mr-1.5 inline size-3.5 align-[-2px] text-critical-text" />
+                    )}
+                    Type{' '}
+                    <span className="font-mono font-medium wrap-anywhere text-ink-1 select-all">
+                      {typeToConfirm}
+                    </span>{' '}
+                    to confirm
+                  </span>
+                  <input
+                    data-type-to-confirm
+                    aria-label={`Type ${typeToConfirm} to confirm`}
+                    value={typed}
+                    onChange={(event) => setTyped(event.target.value)}
+                    onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()}
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[13px] text-ink-1 outline-none focus:border-critical focus:ring-3 focus:ring-critical/15"
+                  />
+                </label>
+              )}
+            </section>
+          </div>
 
           <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-3">
             <Button data-cancel onClick={cancel}>
