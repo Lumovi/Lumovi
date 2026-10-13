@@ -44,22 +44,42 @@ export function unifiedDiff(
   }
 }
 
-/** A diff's lines: additions in green, removals in red, the rest folded. */
-export function DiffView({ diff, label }: { diff: { lines: DiffLine[] }; label: string }) {
+/**
+ * A diff's lines: additions in green, removals in red, the rest folded. Where it `wraps` (a
+ * phone's always do), a long line wraps whole: what runs over goes under its own text, set in, the
+ * sign on its first row only, and nothing of it is cut at the edge or scrolls sideways.
+ */
+export function DiffView({
+  diff,
+  label,
+  wraps = false,
+  flush = false,
+}: {
+  diff: { lines: DiffLine[] }
+  label: string
+  wraps?: boolean
+  /** Its holder scrolls it, and has what stands round its lines: these are only the lines. */
+  flush?: boolean
+}) {
   const phone = useLayout() === 'phone'
+  const wrapping = wraps || phone
   return (
     <pre
       aria-label={label}
-      className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] selectable phone:overflow-x-hidden"
+      className={cn(
+        'font-mono text-[12px] leading-[1.7] selectable',
+        !flush && 'min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 phone:overflow-x-hidden',
+        !flush && wraps && 'overflow-x-hidden',
+      )}
     >
       {diff.lines.map((line, i) => (
         <div
           key={i}
           data-change={line.type}
-          // On a phone a long line wraps, and what runs over goes under its own text, two
-          // characters in: past the sign's column and the line's own indent.
+          // What runs over a wrapped line goes under its own text, two characters in: past the
+          // sign's column and the line's own indent.
           style={
-            phone && line.type !== 'gap'
+            wrapping && line.type !== 'gap'
               ? ({
                   '--lead': `${line.text.length - line.text.trimStart().length + 2}ch`,
                 } as CSSProperties)
@@ -67,17 +87,19 @@ export function DiffView({ diff, label }: { diff: { lines: DiffLine[] }; label: 
           }
           className={cn(
             'px-5 whitespace-pre',
-            phone &&
+            wrapping &&
               line.type !== 'gap' &&
-              'pr-4 pl-[calc(1rem+1.5rem+var(--lead))] -indent-[calc(1.5rem+var(--lead))] wrap-anywhere whitespace-pre-wrap',
+              (phone
+                ? 'pr-4 pl-[calc(1rem+1.5rem+var(--lead))] -indent-[calc(1.5rem+var(--lead))] wrap-anywhere whitespace-pre-wrap'
+                : 'pr-5 pl-[calc(1.25rem+1.5rem+var(--lead))] -indent-[calc(1.5rem+var(--lead))] wrap-anywhere whitespace-pre-wrap'),
             line.type === 'added' && 'bg-good/10 text-good-text',
             line.type === 'removed' && 'bg-critical/10 text-critical-text',
             line.type === 'same' && 'text-ink-2',
             line.type === 'gap' && 'my-1 bg-surface-3/60 py-0.5 font-sans text-2xs text-ink-3',
           )}
         >
-          {/* (Not indented as its line is: on a phone the line's negative indent would take the
-              sign out of its column.) */}
+          {/* (Not indented as its line is: a wrapped line's negative indent would take the sign
+              out of its column.) */}
           <span className="mr-3 inline-block w-3 indent-0 text-ink-3 select-none">
             {{ added: '+', removed: '−', same: ' ', gap: '⋯' }[line.type]}
           </span>

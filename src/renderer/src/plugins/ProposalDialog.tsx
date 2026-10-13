@@ -8,11 +8,29 @@
  * is what the cluster was asked. Nothing of the plugin's runs between its press and the confirm.
  *
  * Drawn over Lumovi's own header, where no plugin can draw, on a scrim over the page it came from.
+ *
+ * Where it doesn't all fit, its caption, verdict and buttons stay in view, and three boxes share
+ * the rest by one rule (proposal-heights.ts): the plugin's options first, then the change, then
+ * its command, which folds where the options would have too little. The change's box opens on the
+ * change, keeps a floor of its rows whatever the form's length, wraps a long line whole, and says,
+ * in Lumovi's words under it, how much of the change it shows where it's cut. Where the boxes
+ * can't be measured, nothing is folded or said to be cut: the options scroll, as they did.
  */
 import { useQueryClient } from '@tanstack/react-query'
-import { Info, TriangleAlert } from 'lucide-react'
+import { ChevronRight, Info, TriangleAlert } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import type { KubeObject } from '@shared/api'
 import {
   changedFields,
@@ -37,6 +55,7 @@ import { useProduction } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useMoment } from '@renderer/lib/confirm-moment'
+import { share } from './proposal-heights'
 import { requestBase, useProposals, type ShownProposal } from './proposals'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { TheirText } from './TheirText'
@@ -48,6 +67,229 @@ const LUMOVIS_WORD = {
   scale: 'Scale',
   delete: 'Delete',
 } as const
+
+/**
+ * On each box whose height is set and then read at once (the dialog and its three): never eased.
+ * (Where motion is reduced, Lumovi gives every element a 1 ms transition, and a height read
+ * straight after its most changed would be the old one.)
+ */
+const MEASURED = 'transition-none!'
+/** A box's last lines fade out while there's more of it below. */
+const FADE = '[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]'
+/**
+ * The change's box fades over less: over a further, part-shown row, never over the rows its floor
+ * promises (`LINES_FADE_PX` of it).
+ */
+const LINES_FADE = '[mask-image:linear-gradient(to_bottom,black_calc(100%-0.75rem),transparent)]'
+const LINES_FADE_PX = 12
+/** The change's floor: this many of its rows, whole. */
+const CHANGE_ROWS = 3
+/** The command's floor, in its lines. */
+const COMMAND_LINES = 2
+/** The line under a cut box: the gap over it; and, where it isn't there to be measured, both. */
+const CUT_GAP_PX = 6
+const CUT_LINE_PX = 16 + CUT_GAP_PX
+/** What's under the command's heading while it's open, and not while it's folded (`mb-1`). */
+const COMMAND_GAP_PX = 4
+
+type DiffOf = ReturnType<typeof unifiedDiff>
+const changed = (type: string | undefined) => type === 'added' || type === 'removed'
+
+/**
+ * A change's lines as its box opens on them: from the first changed line, with the one line
+ * before it for place where there is one. No fold of unchanged lines comes first, and never the
+ * object's top where the change is further down.
+ */
+function fromTheChange(diff: DiffOf): DiffOf {
+  const first = diff.lines.findIndex((line) => changed(line.type))
+  if (first <= 0) return diff
+  const from = diff.lines[first - 1]!.type === 'same' ? first - 1 : first
+  return { ...diff, lines: diff.lines.slice(from) }
+}
+
+/** How much of the change its box shows: its changed lines whole in view, of all of them. */
+interface Counted {
+  shown: number
+  all: number
+  /** With none whole in view: the one in part view is the first. */
+  first: boolean
+}
+
+function counted(lines: HTMLElement): Counted {
+  const box = lines.getBoundingClientRect()
+  const rows = [
+    ...lines.querySelectorAll<HTMLElement>('[data-change="added"], [data-change="removed"]'),
+  ].map((row) => row.getBoundingClientRect())
+  // (A line counts only when all its rows are in view.)
+  const shown = rows.filter((row) => row.top >= box.top - 0.5 && row.bottom <= box.bottom + 0.5)
+  const first = rows[0]
+  return {
+    shown: shown.length,
+    all: rows.length,
+    first: first !== undefined && first.bottom > box.top && first.top < box.bottom,
+  }
+}
+
+/**
+ * Where the dialog couldn't be laid out by the rule: whether the change's box shows all it has,
+ * read as plainly as it can be (what it holds against its own height), or that even that can't be
+ * told. It's never silent about a box that may be cut.
+ */
+type Unmeasured = 'cut' | 'whole' | 'unknown'
+function unmeasuredOf(lines: HTMLElement): Unmeasured {
+  const [has, holds] = [lines.scrollHeight, lines.clientHeight]
+  if (!Number.isFinite(has) || !Number.isFinite(holds) || holds <= 0) return 'unknown'
+  return has > holds + 1 ? 'cut' : 'whole'
+}
+const UNMEASURED_WORDS = {
+  cut: 'Scroll to see the rest of the change.',
+  unknown: 'This box may not show all of the change. Scroll it to see the rest.',
+} as const
+
+/** What a cut box says under it, in Lumovi's words. */
+function cutWords({ shown, all, first }: Counted): string {
+  if (shown > 0) return `Shows ${shown} of ${all} changed lines. Scroll to see the rest.`
+  if (all === 1) return 'Shows part of the changed line. Scroll to see the rest.'
+  return `Shows part of ${first ? 'the first' : 'one'} of ${all} changed lines. Scroll to see the rest.`
+}
+
+/**
+ * One of the dialog's boxes, held both ways: as a ref, read where the boxes are measured, and as
+ * state, so that what watches it starts once it's there (the dialog's content is on the page a
+ * drawing after the dialog is).
+ */
+function useBox<Box extends HTMLElement>(): [
+  RefObject<Box | null>,
+  Box | null,
+  (element: Box | null) => void,
+] {
+  const ref = useRef<Box | null>(null)
+  const [element, setElement] = useState<Box | null>(null)
+  const set = useCallback((now: Box | null) => {
+    ref.current = now
+    setElement(now)
+  }, [])
+  return [ref, element, set]
+}
+
+/** Whether a box has more below what it shows: its last lines fade while it does. */
+function useMore(element: HTMLElement | null, of: unknown): boolean {
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    if (!element) return
+    const measure = () =>
+      setMore(element.scrollTop + element.clientHeight < element.scrollHeight - 1)
+    measure()
+    const resized = new ResizeObserver(measure)
+    resized.observe(element)
+    element.addEventListener('scroll', measure, { passive: true })
+    return () => {
+      resized.disconnect()
+      element.removeEventListener('scroll', measure)
+    }
+  }, [element, of])
+  return more
+}
+
+/** How the dialog is laid out, where its boxes could be measured. */
+interface Laid extends Partial<Counted> {
+  /** The height is short: the command folds, and the person can open it. */
+  tight: boolean
+  folded: boolean
+}
+const sameLaid = (a: Laid, b: Laid) =>
+  a.tight === b.tight &&
+  a.folded === b.folded &&
+  a.shown === b.shown &&
+  a.all === b.all &&
+  a.first === b.first
+
+/**
+ * What the three boxes would take with all the room there is, and what the dialog can give
+ * them; or nothing, where any of it can't be measured.
+ */
+function natural(
+  dialog: HTMLElement,
+  options: HTMLElement | null,
+  lines: HTMLElement | null,
+  command: HTMLElement | null,
+  cut: HTMLElement | null,
+):
+  | {
+      room: number
+      options: number
+      change: number
+      changeFloor: number
+      row: number
+      command: number
+      commandFloor: number
+      cutLine: number
+    }
+  | undefined {
+  const most = parseFloat(getComputedStyle(dialog).maxHeight)
+  // (As it would be with all the room there is: nothing shrunk, nothing cut.)
+  dialog.style.maxHeight = 'none'
+  try {
+    for (const box of [options, lines, command]) if (box) box.style.maxHeight = ''
+    const cutLine = cut ? cut.offsetHeight + CUT_GAP_PX : 0
+    const folded = dialog.querySelector('[data-proposal-command-fold][aria-expanded="false"]')
+    // Everything that never scrolls: the dialog, less its three boxes and the line under a cut one.
+    const still =
+      dialog.offsetHeight -
+      (options?.offsetHeight ?? 0) -
+      (lines?.offsetHeight ?? 0) -
+      (command?.offsetHeight ?? 0) -
+      cutLine +
+      (folded ? COMMAND_GAP_PX : 0)
+    let changeFloor = 0
+    let row = 0
+    if (lines) {
+      const rows = [...lines.querySelectorAll<HTMLElement>('[data-change]')]
+      const first = rows.findIndex((each) => changed(each.dataset.change))
+      if (rows.length === 0 || lines.scrollHeight <= 0) return undefined
+      if (first >= 0) {
+        row = parseFloat(getComputedStyle(rows[first]!).lineHeight)
+        if (!(row > 0)) return undefined
+        // Three rows of the change, from the top of the box: the line before the change, where
+        // there's one, comes over them, and what's between two changes is passed, never counted.
+        const top = lines.getBoundingClientRect().top
+        let need = CHANGE_ROWS * row
+        let end = top
+        for (const each of rows.slice(first)) {
+          if (!changed(each.dataset.change)) continue
+          const rect = each.getBoundingClientRect()
+          if (!(rect.height > 0)) return undefined
+          const taken = Math.min(rect.height, need)
+          end = rect.top + taken
+          need -= taken
+          if (need <= 0.5) break
+        }
+        changeFloor = end - top
+        // (More below them: the fade lies over a further row, never over these.)
+        if (changeFloor < lines.scrollHeight - 0.5) changeFloor += LINES_FADE_PX
+        changeFloor = Math.min(Math.ceil(changeFloor), lines.scrollHeight)
+      }
+    }
+    let commandFloor = 0
+    if (command) {
+      const line = parseFloat(getComputedStyle(command).lineHeight)
+      if (!(line > 0)) return undefined
+      commandFloor = Math.ceil(COMMAND_LINES * line)
+    }
+    return {
+      room: most - still,
+      options: options?.scrollHeight ?? 0,
+      change: lines?.scrollHeight ?? 0,
+      changeFloor,
+      row,
+      command: command?.scrollHeight ?? 0,
+      commandFloor,
+      cutLine,
+    }
+  } finally {
+    dialog.style.maxHeight = ''
+  }
+}
 
 export function ProposalDialog(): ReactNode {
   const shown = useProposals((state) => state.shown)
@@ -118,6 +360,137 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
   const answer = tried && tried.key === key && tried.round === round ? tried.answer : undefined
   const live = useMoment(answer?.ok ? `${key}\u0000${round}` : undefined)
 
+  // What the change's box shows: a create's whole object, which is all change; any other, from
+  // its first changed line.
+  const diff = useMemo(() => {
+    if (!answer?.ok || proposed.action === 'delete' || typeof change === 'string') return undefined
+    return proposed.action === 'create'
+      ? unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))
+      : fromTheChange(
+          unifiedDiff(forDiff(answer.before as KubeObject), forDiff(answer.after as KubeObject)),
+        )
+  }, [answer, proposed.action, change])
+
+  // Who gets the height (proposal-heights.ts): each box's most, set here from what the boxes
+  // would take with all the room there is; and how much of the change its box then shows.
+  const sendsId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const [optionsRef, optionsBox, setOptionsBox] = useBox<HTMLDivElement>()
+  const [linesRef, linesBox, setLinesBox] = useBox<HTMLDivElement>()
+  const [commandRef, commandBox, setCommandBox] = useBox<HTMLElement>()
+  const cutRef = useRef<HTMLParagraphElement>(null)
+  const optionsMost = useRef<number>(undefined)
+  const [opened, setOpened] = useState(false)
+  const [laid, setLaid] = useState<Laid>()
+  const [unmeasured, setUnmeasured] = useState<Unmeasured>()
+  const fit = useCallback(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const boxes = [optionsRef.current, linesRef.current, commandRef.current] as const
+    const [options, lines, command] = boxes
+    // (Measured with nothing cut, which takes each box to its top: put back where it was.)
+    const scrolled = boxes.map((box) => box?.scrollTop ?? 0)
+    const sizes = natural(dialog, options, lines, command, cutRef.current)
+    let shared = sizes && share({ ...sizes, opened })
+    // A cut box says so under it: that line's row comes out of what's shared.
+    if (sizes && shared && shared.change < sizes.change) {
+      shared = share({ ...sizes, opened, room: sizes.room - (sizes.cutLine || CUT_LINE_PX) })
+    }
+    if (!sizes || !shared) {
+      // Not measured, or not to be laid out by the rule: the heights it has by itself, with
+      // nothing folded. The options give way first, and the change's box keeps its floor by its
+      // own style; whether it then shows all it has is said under it, as plainly as it's known.
+      boxes.forEach((box, i) => {
+        if (box) box.scrollTop = scrolled[i]!
+      })
+      setLaid(undefined)
+      setUnmeasured(lines ? unmeasuredOf(lines) : undefined)
+      return
+    }
+    setUnmeasured(undefined)
+    let changeHeight = shared.change
+    if (changeHeight < sizes.change && sizes.row > 0) {
+      // Cut at a row's edge and the fade's depth past it: the fade lies over a part-shown row.
+      const over = (changeHeight - LINES_FADE_PX) % sizes.row
+      changeHeight = Math.max(sizes.changeFloor, changeHeight - over)
+    }
+    const most = (box: HTMLElement | null, height: number, whole: number) => {
+      if (box) box.style.maxHeight = height < whole ? `${Math.round(height)}px` : ''
+    }
+    most(options, shared.options, sizes.options)
+    most(lines, changeHeight, sizes.change)
+    if (shared.folded && command) command.style.maxHeight = '0px'
+    else most(command, shared.command, sizes.command)
+    boxes.forEach((box, i) => {
+      if (box) box.scrollTop = scrolled[i]!
+    })
+    // The focused field stays in view where the options' height changed under it.
+    const optionsHeight = options ? Math.round(Math.min(shared.options, sizes.options)) : undefined
+    const focused = document.activeElement
+    if (
+      options &&
+      optionsMost.current !== optionsHeight &&
+      focused instanceof HTMLElement &&
+      options.contains(focused)
+    ) {
+      focused.closest('[data-field]')?.scrollIntoView({ block: 'nearest' })
+    }
+    optionsMost.current = optionsHeight
+    const now: Laid = {
+      tight: shared.tight,
+      folded: shared.folded,
+      ...(lines ? counted(lines) : {}),
+    }
+    setLaid((was) => (was && sameLaid(was, now) ? was : now))
+  }, [opened, optionsRef, linesRef, commandRef])
+  // After every drawing of it: what it holds may have changed (the cluster's answer, a field's
+  // words). Applied twice it's the same, so it settles at once.
+  useLayoutEffect(() => {
+    fit()
+  })
+  useEffect(() => {
+    window.addEventListener('resize', fit)
+    // (And once the page's own fonts are in: a row's height is its font's.)
+    void document.fonts.ready.then(fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [fit])
+  // The count follows the box as the person scrolls it.
+  useEffect(() => {
+    const lines = linesBox
+    if (!lines) return
+    const recount = () =>
+      setLaid((was) => {
+        if (!was) return was
+        const now = { ...was, ...counted(lines) }
+        return sameLaid(was, now) ? was : now
+      })
+    lines.addEventListener('scroll', recount, { passive: true })
+    return () => lines.removeEventListener('scroll', recount)
+  }, [linesBox])
+  const optionsMore = useMore(optionsBox, proposed.fields)
+  const linesMore = useMore(linesBox, diff)
+  const cut = laid?.all !== undefined && laid.all > 0 && laid.shown! < laid.all
+  // What's said under the change's box, where anything is: how much of it shows, counted; or,
+  // where it couldn't be measured, that there's more of it, or that there may be.
+  const under = cut
+    ? cutWords(laid as Counted)
+    : unmeasured === 'cut' || unmeasured === 'unknown'
+      ? UNMEASURED_WORDS[unmeasured]
+      : undefined
+  // Lumovi's own words, on a line of their own and never a row of the box: under it where the
+  // rule laid the dialog out and counted that line's room (6 px under: CUT_GAP_PX, less than the
+  // gap the others keep); over it where nothing was measured.
+  const said = under && (
+    <p
+      ref={cutRef}
+      id={`${sendsId}-cut`}
+      data-proposal-cut
+      className={cn('shrink-0 text-xs text-ink-2', unmeasured === undefined && '-mt-1')}
+    >
+      {under}
+    </p>
+  )
+
   const kind = target?.kind ?? proposed.kind ?? ''
   const apiKind = target ? apiKindOf(target.kind) : (proposed.kind ?? '').split('/')[1]!
   const where = target?.namespace ? `${target.namespace}/${target.name}` : target?.name
@@ -178,6 +551,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/40" />
         <Dialog.Content
+          ref={dialogRef}
           aria-describedby={undefined}
           data-plugin-proposal={by.plugin}
           onOpenAutoFocus={(event) => {
@@ -192,7 +566,10 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
               dialog.querySelector<HTMLElement>('[data-cancel]')
             first?.focus()
           }}
-          className="fixed top-12 left-1/2 z-50 flex max-h-[calc(100vh-96px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
+          className={cn(
+            'fixed top-12 left-1/2 z-50 flex max-h-[calc(100vh-96px)] w-[560px] max-w-[calc(100vw-48px)] -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none',
+            MEASURED,
+          )}
         >
           <header className="shrink-0 px-5 pt-4 pb-3">
             <p className="flex items-center gap-1.5 text-xs text-ink-3">
@@ -216,19 +593,29 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             </p>
           </header>
 
-          {/* When it doesn't all fit: the options scroll first, then the object inside its box. What
-              Lumovi will send's caption and command, the verdict, the cautions and the buttons stay
-              in view, however tall the object. */}
+          {/* When it doesn't all fit, the three boxes share the height (`fit`): the options under
+              their heading, the object in its box, the command in its own. What Lumovi will send's
+              caption, the verdict, the cautions and the buttons stay in view, however tall the
+              object. (Unmeasured, the options give way first and scroll, then the object.) */}
           {proposed.fields.length > 0 && (
             <section
               aria-label={`Options, in ${whose(by.label)} words`}
               data-proposal-options
-              className="min-h-0 shrink-[1000] overflow-y-auto border-t border-line px-5 py-3"
+              className="flex min-h-0 shrink-[1000] flex-col overflow-hidden border-t border-line px-5 py-3"
             >
-              <p className="mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+              <p className="mb-2 shrink-0 text-2xs font-medium tracking-wider text-ink-3 uppercase">
                 Options, in {whose(by.label)} words
               </p>
-              <div className="space-y-3">
+              {/* (A little wider and taller than its fields: a focused field's ring isn't cut.) */}
+              <div
+                ref={setOptionsBox}
+                data-proposal-fields
+                className={cn(
+                  '-mx-1 -my-1 min-h-0 space-y-3 overflow-y-auto px-1 py-1',
+                  MEASURED,
+                  optionsMore && FADE,
+                )}
+              >
                 {proposed.fields.map((field) => (
                   <FieldInput
                     key={field.key}
@@ -252,8 +639,14 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             </section>
           )}
 
-          <section className="flex min-h-0 shrink flex-col gap-2.5 border-t border-line px-5 py-3">
-            <p className="shrink-0 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+          {/* (Where nothing sets the heights, the options give way before this does, and then only
+              the change's box, down to its floor. In a window too short even for that, what's
+              over is cut here, never laid over the buttons.) */}
+          <section className="flex min-h-0 shrink flex-col gap-2.5 overflow-hidden border-t border-line px-5 py-3">
+            <p
+              id={sendsId}
+              className="shrink-0 text-2xs font-medium tracking-wider text-ink-3 uppercase"
+            >
               {danger ? 'What Lumovi will do' : 'What Lumovi will send'}
             </p>
             {change === 'fields' ? (
@@ -269,28 +662,55 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
                 With these options, the change would write what no plugin may.
               </p>
             ) : (
-              !danger &&
-              answer?.ok && (
-                <div data-proposal-object className="min-h-16 shrink overflow-auto rounded-lg">
-                  {proposed.action === 'create' ? (
+              diff && (
+                <>
+                  {/* (Where nothing was measured, the line is over the box: a part cut from its
+                      bottom, in a window too short, keeps its top.) */}
+                  {unmeasured !== undefined && said}
+                  {/* Its box, on the dialog's own ground as Lumovi's other changes are: its lines
+                      scroll inside it, up and down only, and a long line wraps whole. (Its first
+                      row 8 px under the caption: nothing stands between them.) */}
+                  <div
+                    ref={setLinesBox}
+                    data-proposal-object
+                    role="region"
+                    aria-labelledby={sendsId}
+                    aria-describedby={under ? `${sendsId}-cut` : undefined}
+                    tabIndex={0}
+                    className={cn(
+                      '-mt-0.5 shrink overflow-x-hidden overflow-y-auto rounded-lg text-[12px] leading-[1.7] outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                      // Its floor wherever nothing sets its height: three rows (CHANGE_ROWS) of its
+                      // lines' own height, where the change has that many.
+                      diff.lines.length >= CHANGE_ROWS ? 'min-h-[3lh]' : 'min-h-0',
+                      MEASURED,
+                      linesMore && LINES_FADE,
+                    )}
+                  >
                     <DiffView
-                      diff={unifiedDiff('', forDiff((answer.sent ?? answer.after) as KubeObject))}
-                      label="The whole object Lumovi will create"
+                      diff={diff}
+                      label={
+                        proposed.action === 'create'
+                          ? 'The whole object Lumovi will create'
+                          : 'Changes'
+                      }
+                      wraps
+                      flush
                     />
-                  ) : (
-                    <DiffView
-                      diff={unifiedDiff(
-                        forDiff(answer.before as KubeObject),
-                        forDiff(answer.after as KubeObject),
-                      )}
-                      label="Changes"
-                    />
-                  )}
-                </div>
+                  </div>
+                  {unmeasured === undefined && said}
+                </>
               )
             )}
             {answer?.ok && answer.command && (
-              <Command command={answer.command} create={proposed.action === 'create'} />
+              <Command
+                command={answer.command}
+                create={proposed.action === 'create'}
+                box={setCommandBox}
+                element={commandBox}
+                tight={laid?.tight === true}
+                folded={laid?.folded === true}
+                onToggle={() => setOpened(laid?.folded === true)}
+              />
             )}
             <div className="shrink-0">
               <Verdict
@@ -402,7 +822,26 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
  * follows it (a heredoc): that's the object shown above, so it's said in a line, not printed again.
  * Copy copies the whole of it.
  */
-function Command({ command, create }: { command: string; create: boolean }) {
+function Command({
+  command,
+  create,
+  box,
+  element,
+  tight,
+  folded,
+  onToggle,
+}: {
+  command: string
+  create: boolean
+  /** Its box, for the dialog to measure; and the box itself, once it's there. */
+  box: (element: HTMLElement | null) => void
+  element: HTMLElement | null
+  /** The height is short: its heading's row is a button that folds it and opens it in place. */
+  tight: boolean
+  /** Folded to its heading's row: not seen, and still read by a screen reader and copied. */
+  folded: boolean
+  onToggle: () => void
+}) {
   const lines = command.split('\n')
   // (Its end, as the first line names it: LUMOVI_EOF, or LUMOVI_EOF_2 where the object has that line.)
   const end = /<<'(LUMOVI_EOF(?:_\d+)?)'$/.exec(lines[0] ?? '')?.[1]
@@ -412,28 +851,33 @@ function Command({ command, create }: { command: string; create: boolean }) {
     .filter((line, i, all) => i < all.length - 1 || line !== '').length
   // A long change's command scrolls in its own box: while there's more of it below, its last
   // lines fade out.
-  const box = useRef<HTMLElement>(null)
-  const [more, setMore] = useState(false)
-  useEffect(() => {
-    const element = box.current
-    if (!element) return
-    const measure = () =>
-      setMore(element.scrollTop + element.clientHeight < element.scrollHeight - 1)
-    measure()
-    const resized = new ResizeObserver(measure)
-    resized.observe(element)
-    element.addEventListener('scroll', measure, { passive: true })
-    return () => {
-      resized.disconnect()
-      element.removeEventListener('scroll', measure)
-    }
-  }, [command])
+  const more = useMore(element, command)
   return (
     <div className="shrink-0 rounded-lg bg-surface-3/70 px-3 py-2.5">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
-          Equivalent command
-        </p>
+      {/* (Its gap under it is counted in the dialog's heights: COMMAND_GAP_PX.) */}
+      <div className={cn('flex items-center justify-between gap-2', !folded && 'mb-1')}>
+        {tight ? (
+          <button
+            type="button"
+            data-proposal-command-fold
+            aria-expanded={!folded}
+            aria-label={folded ? 'Show the command' : 'Hide the command'}
+            onClick={onToggle}
+            className="-my-1 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <ChevronRight
+              aria-hidden
+              className={cn('size-3 shrink-0 text-ink-3', !folded && 'rotate-90')}
+            />
+            <span className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
+              Equivalent command
+            </span>
+          </button>
+        ) : (
+          <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">
+            Equivalent command
+          </p>
+        )}
         <CopyButton text={command} label="Copy the command" />
       </div>
       {/* (It never pushes the buttons off. A region the keyboard can scroll.) */}
@@ -442,10 +886,11 @@ function Command({ command, create }: { command: string; create: boolean }) {
         data-proposal-command
         role="region"
         aria-label="Equivalent command"
-        tabIndex={0}
+        tabIndex={folded ? -1 : 0}
         className={cn(
           'block max-h-24 overflow-y-auto rounded-sm font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 outline-none selectable focus-visible:ring-2 focus-visible:ring-accent',
-          more && '[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]',
+          MEASURED,
+          more && !folded && FADE,
         )}
       >
         {heredoc ? (
