@@ -34,7 +34,7 @@ npm run dev:server -- --fleet # a fleet of the demo clusters, signed in to as Al
 | `npm run test:e2e`                      | Build with coverage instrumentation and run the e2e suite     |
 | `npm run test:linux`                    | The same, on Linux in Docker, as CI runs it                   |
 | `npm run coverage`                      | The above, plus a coverage report in `coverage/`              |
-| `npm run coverage:check`                | Fail unless every file is loaded, and more than 95% runs      |
+| `npm run coverage:check`                | Fail unless every file is loaded, and more than 90% runs      |
 | `npm run test:durations -- <run id>`    | Record each test's time on CI, which splits CI's shards       |
 | `npm run lint` / `typecheck` / `format` | Static checks                                                 |
 | `npm run plugins:check`                 | Check the plugins of the release `plugins.lock.json` pins     |
@@ -110,7 +110,7 @@ mock clusters and a mock OpenID Connect provider, and drives the page in Chromiu
 in each way and sessions ending, the WebSocket dropping and coming back, shells, logs and
 Helm through the server, and what it answers to anything malformed.
 
-**Coverage is above 95% for statements, branches, functions and lines, measured end-to-end,
+**Coverage is above 90% for statements, branches, functions and lines, measured end-to-end,
 and every source file is loaded by some test.** The
 build is instrumented with Istanbul, and coverage is collected from all three Electron
 processes (main, preload and renderer), the server, and the page in the browser. A few lines only run on one operating system, such
