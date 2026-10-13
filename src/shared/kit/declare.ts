@@ -88,6 +88,12 @@ export interface Part {
    */
   also?: (props: Readonly<Record<string, unknown>>) => string | undefined
   /**
+   * Whether a press may go to the plugin, by what the part was drawn with: what an event carries
+   * can pass its kinds and still name what isn't there to press now (a button that's off, or
+   * gone). Without it, every press its kinds pass may.
+   */
+  heeds?: (props: Readonly<Record<string, unknown>>, event: string, carries: unknown) => boolean
+  /**
    * How many of it one page may have, made and not yet taken away, where that's fewer than any
    * part may: one that's heavy to draw, or reads something of its own for each.
    */

@@ -2,17 +2,29 @@
  * The second-level header of a plugin's page: what's picked, its status, and what can be done
  * with it. At most three buttons show, the one that matters most last and the only filled one;
  * with more, "…" stands before it and holds the rest. On a phone a plugin's buttons that change
- * the cluster aren't offered: one line says where they are.
+ * the cluster aren't offered: one line says where they are. What a button does, where the plugin
+ * says, is under them; and one it says can't be pressed now is off, and says why.
  */
-import { Ellipsis } from 'lucide-react'
+import { Ellipsis, Info } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { createContext, Fragment, useContext } from 'react'
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { spelled } from '@shared/kit/characters'
 import { BUTTONS_SHOWN, type HeaderButton, type HeaderProps } from '@shared/kit/page'
 import { Button } from '@renderer/components/Button'
+import { Tooltip } from '@renderer/components/Tooltip'
+import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { menuContent, menuItem } from '../features/shell/menu-styles'
+import { fitKey, fromFitKey } from './fit-key'
 import { MiddleCut } from './MiddleCut'
 import { keyOf, Pill } from './Table'
 
@@ -22,16 +34,216 @@ export const NamedAbove = createContext(false)
 /** A button's name as a screen reader says it: spelled, and "…" where it asks first. */
 const called = (button: HeaderButton) => `${spelled(button.name.their)}${button.asks ? '…' : ''}`
 
-/** A button's name as it's drawn, the plugin's in pieces: one that asks first ends in "…". */
+/**
+ * A button's name as it's drawn, the plugin's in pieces: one that asks first ends in "…", right
+ * against it (one text, so a button's gap never comes between them).
+ */
 const drawn = (button: HeaderButton) => (
-  <>
+  <span>
     <TheirText text={button.name} inline />
     {button.asks && '…'}
-  </>
+  </span>
 )
 
 /** How many names the phone's line says before "and N more". */
 const NAMED_AT_MOST = 5
+
+/** A header with no buttons: the same none each time it's drawn. */
+const NO_BUTTONS: readonly HeaderButton[] = []
+
+/**
+ * How many characters of its name a header keeps (all of a shorter one): its buttons fold into
+ * "…" first, and where even that leaves less, the name takes a line of its own.
+ */
+const NAME_FLOOR = 12
+/** A button's padding and border, beside its name; and the whole of "…"'s. */
+const BUTTON_EDGES = 26
+const MORE_WIDTH = 34
+
+let canvas: CanvasRenderingContext2D | null | undefined
+
+/** How wide a text is in `element`'s face. */
+function widthIn(element: Element): (text: string) => number {
+  canvas ??= document.createElement('canvas').getContext('2d')
+  const style = getComputedStyle(element)
+  if (canvas) {
+    canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+  }
+  return (text) => (canvas ? canvas.measureText(text).width : 0)
+}
+
+/**
+ * How a desktop header lays out its buttons (`labels`, as each is drawn) beside its name: how
+ * many show, three at most (two, and "…", where it has more), fewer where they'd leave its name
+ * less than its floor, down to the last alone; and whether, with that, the name still hasn't its
+ * floor and takes a line of its own, its status and buttons on the next. The status and the
+ * buttons are never cut; the rest are behind "…".
+ */
+function fitting(
+  header: HTMLElement,
+  name: string,
+  labels: readonly string[],
+): { shown: number; split: boolean } {
+  const most = labels.length > BUTTONS_SHOWN ? BUTTONS_SHOWN - 1 : labels.length
+  const heading = header.querySelector('h2')
+  const button = header.querySelector('[data-buttons] button')
+  if (!heading || !button) return { shown: most, split: false }
+  const status = header.querySelector('[data-status]')?.getBoundingClientRect().width ?? 0
+  const named = widthIn(button)
+  const widths = labels.map((label) => named(label) + BUTTON_EDGES)
+  const needs = (shown: number) => {
+    const folds = shown < labels.length
+    return (
+      widths.slice(-shown).reduce((sum, each) => sum + each, 0) +
+      (folds ? MORE_WIDTH : 0) +
+      8 * (shown - (folds ? 0 : 1))
+    )
+  }
+  const showing = (room: number) => {
+    for (let shown = most; shown > 1; shown--) if (needs(shown) <= room) return shown
+    return 1
+  }
+  const face = widthIn(heading)
+  const floor = Math.min(face('0'.repeat(NAME_FLOOR)), face(name))
+  // (Less the gaps: one after the name, one after a status, and the buttons' own inset.)
+  const beside = header.clientWidth - floor - status - 28
+  if (needs(1) <= beside) return { shown: showing(beside), split: false }
+  // (Under the name: less the gap after a status, and the buttons' inset.)
+  return { shown: showing(header.clientWidth - status - (status ? 18 : 8)), split: true }
+}
+
+type Variant = 'primary' | 'secondary' | 'ghost'
+
+/** A button that's off: as a disabled one looks, its fill, border and text kept, and still. */
+const OFF: Record<Variant, string> = {
+  primary: 'cursor-default opacity-50 hover:bg-accent active:translate-y-0',
+  secondary: 'cursor-default opacity-50 hover:bg-surface-2 active:translate-y-0',
+  ghost: 'cursor-default opacity-50 hover:bg-transparent hover:text-ink-2',
+}
+
+/**
+ * One of a header's buttons. Where the plugin says it can't be pressed now, it's off: in its
+ * place, and found by the keyboard as any other, with why in its tooltip (on hover and on focus)
+ * and in what a screen reader says of it; and a press of it goes nowhere.
+ */
+function Action({
+  button,
+  variant,
+  className,
+  onPress,
+}: {
+  button: HeaderButton
+  variant: Variant
+  className?: string
+  onPress: () => void
+}) {
+  const reason = useId()
+  if (!button.off) {
+    return (
+      <Button variant={variant} className={className} aria-label={called(button)} onClick={onPress}>
+        {drawn(button)}
+      </Button>
+    )
+  }
+  return (
+    <>
+      <Tooltip content={<TheirText text={button.off} inline />}>
+        <Button
+          variant={variant}
+          className={cn(className, OFF[variant])}
+          aria-label={called(button)}
+          aria-disabled="true"
+          aria-describedby={reason}
+        >
+          {drawn(button)}
+        </Button>
+      </Tooltip>
+      {/* (Beside it, not in it: its name is only its own.) */}
+      <span id={reason} hidden>
+        {spelled(button.off.their)}
+      </span>
+    </>
+  )
+}
+
+/**
+ * One of the buttons "…" holds, as Lumovi's own menu draws one. Off, it's dimmed and stays in the
+ * keys' order, said off, with why on a line under its name (two lines at most, whole in its
+ * tooltip): on screen, where nothing needs a pointer to find it. Choosing it does nothing.
+ */
+function Folded({ button, onPress }: { button: HeaderButton; onPress: () => void }) {
+  const reason = useId()
+  if (!button.off) {
+    return (
+      <DropdownMenu.Item className={menuItem} aria-label={called(button)} onSelect={onPress}>
+        {drawn(button)}
+      </DropdownMenu.Item>
+    )
+  }
+  return (
+    <DropdownMenu.Item
+      className={cn(menuItem, 'h-auto flex-col items-start gap-0.5 py-1.5 touch:h-auto')}
+      aria-label={called(button)}
+      aria-disabled="true"
+      aria-describedby={reason}
+      // (Chosen, it does nothing, and the menu stays open.)
+      onSelect={(event) => event.preventDefault()}
+    >
+      <span className="opacity-45">{drawn(button)}</span>
+      <span
+        id={reason}
+        title={spelled(button.off.their)}
+        className="line-clamp-2 max-w-64 text-xs leading-snug text-ink-3"
+      >
+        <TheirText text={button.off} inline />
+      </span>
+    </DropdownMenu.Item>
+  )
+}
+
+/**
+ * What the buttons do, where the plugin says, in their order: quiet, each two lines at most and
+ * whole in its tooltip. On a phone every button's, those it doesn't offer too: what a button
+ * does is said even where it isn't (that deleting a thing deletes what it made, say). Where it
+ * isn't plain which button a note is of (more than one, or a phone's, with no buttons over it),
+ * Lumovi says: the button's name, then the plugin's words.
+ */
+function Notes({
+  buttons,
+  named,
+  className,
+}: {
+  buttons: readonly HeaderButton[]
+  named: boolean
+  className?: string
+}) {
+  const noted = buttons.filter((button) => button.note)
+  if (noted.length === 0) return null
+  const whose = named || noted.length > 1
+  return (
+    <div className={cn('flex flex-col gap-0.5', className)}>
+      {noted.map((button) => (
+        <p
+          key={keyOf(button)}
+          title={`${whose ? `${spelled(button.name.their)}: ` : ''}${spelled(button.note!.their)}`
+            .replace(/\s+/g, ' ')
+            .trim()}
+          className="flex items-start gap-1.5 text-left text-xs leading-[17px] text-ink-2"
+        >
+          <Info aria-hidden className="mt-px size-3.5 shrink-0" />
+          <span className="line-clamp-2 [overflow-wrap:anywhere]">
+            {whose && (
+              <span className="font-medium text-ink-1">
+                <TheirText text={button.name} inline />:{' '}
+              </span>
+            )}
+            <TheirText text={button.note!} inline />
+          </span>
+        </p>
+      ))}
+    </div>
+  )
+}
 
 /**
  * Where a phone's missing buttons are, in Lumovi's words. Each name is the plugin's text inside
@@ -65,8 +277,34 @@ export function PageHeader({
 }) {
   const phone = useLayout() === 'phone'
   const namedAbove = useContext(NamedAbove)
-  const buttons = header.buttons ?? []
+  const buttons = header.buttons ?? NO_BUTTONS
   const press = (button: HeaderButton) => onPress?.({ button: button.key })
+  // How many buttons the desktop's row has room for, measured as it's laid out and whenever its
+  // width changes.
+  const groupRef = useRef<HTMLDivElement>(null)
+  const [fits, setFits] = useState<{ shown: number; split: boolean }>()
+  // (What it's measured by, as one key: a page drawn anew with the same buttons isn't remeasured.)
+  const drawnAs = fitKey(
+    spelled(header.name.their),
+    header.status?.word.their ?? '',
+    buttons.map((button) => `${spelled(button.name.their)}${button.asks ? '…' : ''}`),
+  )
+  useLayoutEffect(() => {
+    const group = groupRef.current
+    if (!group) return
+    const { name, labels } = fromFitKey(drawnAs)
+    const fit = () =>
+      setFits((was) => {
+        const now = fitting(group, name, labels)
+        return was?.shown === now.shown && was.split === now.split ? was : now
+      })
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(group)
+    // Measured again once the page's own fonts are in.
+    void document.fonts.ready.then(fit)
+    return () => observer.disconnect()
+  }, [drawnAs])
   // What it's of, as a screen reader says it: spelled.
   const named = spelled(header.name.their)
   const status = header.status?.level && (
@@ -97,19 +335,18 @@ export function PageHeader({
         {status}
         {detail}
         {elsewhere.length > 0 && <OnALargerScreen buttons={elsewhere} />}
+        <Notes buttons={buttons} named />
         {offered.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {offered.map((button) => (
-              <Button
+              <Action
                 key={keyOf(button)}
+                button={button}
                 // (Filled only if it's the one that matters most of them all: the header's last.)
                 variant={button === buttons.at(-1) ? 'primary' : 'secondary'}
                 className="h-11"
-                aria-label={called(button)}
-                onClick={() => press(button)}
-              >
-                {drawn(button)}
-              </Button>
+                onPress={() => press(button)}
+              />
             ))}
           </div>
         )}
@@ -117,19 +354,24 @@ export function PageHeader({
     )
   }
 
-  // More than fit: the last two keep their places, and "…" between them holds the rest.
-  const folded = buttons.length > BUTTONS_SHOWN ? buttons.slice(0, -2) : []
-  const shown = folded.length ? buttons.slice(-2) : buttons
+  // More than fit: the last ones keep their places, and "…" before the last holds the rest.
+  const shown = buttons.slice(
+    -(fits?.shown ?? (buttons.length > BUTTONS_SHOWN ? 2 : buttons.length)),
+  )
+  const folded = buttons.slice(0, buttons.length - shown.length)
   const variant = (index: number) =>
     index === shown.length - 1 ? 'primary' : index === shown.length - 2 ? 'secondary' : 'ghost'
-  const row = (
-    <div className="flex h-8 items-center gap-2.5">
-      <h2 className="min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
-        <MiddleCut text={header.name} />
-      </h2>
-      {/* The status and the buttons are never cut or wrapped: the name gives way. */}
-      {status}
-      <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+  const heading = (
+    <h2 className="min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
+      <MiddleCut text={header.name} />
+    </h2>
+  )
+  // The status and the buttons are never cut or wrapped: the name gives way, and past its floor,
+  // buttons fold; past that, the name has a line of its own.
+  const rest = (
+    <>
+      {status && <span data-status="">{status}</span>}
+      <div data-buttons="" className="ml-auto flex shrink-0 items-center gap-2 pl-2">
         {shown.map((button, i) => (
           <Fragment key={keyOf(button)}>
             {folded.length > 0 && i === shown.length - 1 && (
@@ -142,31 +384,38 @@ export function PageHeader({
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="end" sideOffset={6} className={menuContent}>
                     {folded.map((more) => (
-                      <DropdownMenu.Item
-                        key={keyOf(more)}
-                        className={menuItem}
-                        aria-label={called(more)}
-                        onSelect={() => press(more)}
-                      >
-                        {drawn(more)}
-                      </DropdownMenu.Item>
+                      <Folded key={keyOf(more)} button={more} onPress={() => press(more)} />
                     ))}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
             )}
-            <Button variant={variant(i)} aria-label={called(button)} onClick={() => press(button)}>
-              {drawn(button)}
-            </Button>
+            <Action button={button} variant={variant(i)} onPress={() => press(button)} />
           </Fragment>
         ))}
       </div>
+    </>
+  )
+  const row = fits?.split ? (
+    <>
+      <div className="flex h-8 items-center">{heading}</div>
+      <div className="flex h-8 items-center gap-2.5">{rest}</div>
+    </>
+  ) : (
+    <div className="flex h-8 items-center gap-2.5">
+      {heading}
+      {rest}
     </div>
   )
   return (
-    <div role="group" aria-label={named} className="flex flex-col gap-1">
+    <div ref={groupRef} role="group" aria-label={named} className="flex flex-col gap-1">
       {row}
-      {detail}
+      {/* Why it's so at the left, under the name; what the buttons do at the right, under them. */}
+      <div className="flex items-start gap-6 empty:hidden">
+        {detail}
+        {/* (At most 480 px, and never past half the header.) */}
+        <Notes buttons={buttons} named={false} className="ml-auto max-w-[min(480px,50%)]" />
+      </div>
     </div>
   )
 }
