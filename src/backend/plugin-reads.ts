@@ -242,7 +242,12 @@ function record(
         : where.kind
   const namespace = resource ? where.namespace : q.namespace
   const who: Record<string, string> = plugin
-    ? { plugin: plugin.name, pluginVersion: plugin.version, pluginDigest: plugin.digest }
+    ? {
+        plugin: plugin.name,
+        pluginVersion: plugin.version,
+        pluginDigest: plugin.digest,
+        ...(plugin.codeDigest === undefined ? {} : { codeDigest: plugin.codeDigest }),
+      }
     : { plugin: q.plugin }
   // How a list was picked, as the cluster was asked: in the history as it was asked for.
   const { fieldSelector, labelSelector } = plugin ? selectors(q) : {}

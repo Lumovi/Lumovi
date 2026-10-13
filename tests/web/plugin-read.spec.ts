@@ -141,5 +141,8 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
       ['Read Widget.example.com for the plugin board', 'refused', null],
       ['Read Widget.example.com for the plugin toys', 'refused', digest],
     ])
-  expect(audited(served, 'plugin.read')[0]?.details?.pluginVersion).toBe('1.2.0')
+  expect(audited(served, 'plugin.read')[0]?.details).toMatchObject({
+    pluginVersion: '1.2.0',
+    codeDigest: HANDED.codeDigest,
+  })
 })
