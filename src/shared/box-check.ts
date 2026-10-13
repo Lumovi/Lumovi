@@ -93,15 +93,24 @@ export const BOX_CHECK_LOOK = 'look'
  */
 export const PAGE_SEES: readonly BoxCheckWay[] = ['broadcast-channel', 'caches', 'indexed-db']
 
-/** The worker's helpers, in both kinds of box: a global's there, and a look under a store's name. */
+/**
+ * The worker's helpers, in both kinds of box: a global's there, and a look under a store's name:
+ * what's found there, and where the box couldn't look (the store, or the look, threw or refused):
+ * a look that couldn't be made is never "nothing found". The server weighs it against what the
+ * other boxes kept. (A store the box hasn't got at all is nothing to find: nothing of it can be
+ * kept either.)
+ */
 const HELPERS = `const has = (name) => typeof self[name] !== 'undefined'
+  const unlooked = new Set()
   const look = async (name) => {
     const found = []
-    try { if (has('caches') && (await caches.keys()).includes(name)) found.push('caches') } catch {}
+    try {
+      if (has('caches') && (await caches.keys()).includes(name)) found.push('caches')
+    } catch { unlooked.add('caches') }
     try {
       // (Opened, a database that isn't there is made: the making is stopped, so nothing is left.)
-      if (has('indexedDB') && await new Promise((done) => { const r = indexedDB.open(name); r.onupgradeneeded = () => { r.transaction.abort(); done(false) }; r.onsuccess = () => { r.result.close(); done(true) }; r.onerror = () => done(false) })) found.push('indexed-db')
-    } catch {}
+      if (has('indexedDB') && await new Promise((done, fail) => { const r = indexedDB.open(name); r.onupgradeneeded = () => { r.transaction.abort(); done(false) }; r.onsuccess = () => { r.result.close(); done(true) }; r.onerror = () => fail(r.error) })) found.push('indexed-db')
+    } catch { unlooked.add('indexed-db') }
     return found
   }`
 
@@ -121,7 +130,7 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
     return `box.then(async ({ post }) => {
   ${HELPERS}
   const found = [...new Set([...(await look(${first})), ...(await look(${second}))])]
-  post(JSON.stringify({ check: ${check}, role: 'later', found }))
+  post(JSON.stringify({ check: ${check}, role: 'later', found, unlooked: [...unlooked] }))
 })`
   }
   const http = JSON.stringify(catcher)
@@ -138,7 +147,7 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
   // The other box, heard: on the channel every box of this check, and Lumovi's own page, listen on.
   const found = new Set()
   let channel
-  try { channel = new BroadcastChannel(${channel}); channel.onmessage = (event) => { if (event.data !== ${me}) found.add('broadcast-channel') } } catch {}
+  try { if (has('BroadcastChannel')) { channel = new BroadcastChannel(${channel}); channel.onmessage = (event) => { if (event.data !== ${me}) found.add('broadcast-channel') } } } catch { unlooked.add('broadcast-channel') }
   const tries = {
     fetch: () => has('fetch') ? fetch(at('fetch'), { mode: 'no-cors' }).then(() => 'reached', () => 'refused') : 'absent',
     'fetch-credentials': () => has('fetch') ? fetch(at('fetch-credentials'), { mode: 'no-cors', credentials: 'include' }).then(() => 'reached', () => 'refused') : 'absent',
@@ -154,7 +163,8 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
     worker: () => has('Worker') ? event((yes, no) => { const w = new Worker(at('worker') + '.js'); w.onmessage = yes; w.onerror = no }) : 'absent',
     'blob-worker': () => has('Worker') && has('Blob') && typeof URL.createObjectURL === 'function' ? event((yes, no) => { const w = new Worker(URL.createObjectURL(new Blob(['fetch(' + JSON.stringify(at('blob-worker')) + ', { mode: "no-cors" }).then(() => postMessage(1), () => {})']))); w.onmessage = yes; w.onerror = no }) : 'absent',
     'shared-worker': () => has('SharedWorker') ? event((yes, no) => { const w = new SharedWorker(at('shared-worker') + '.js'); w.onerror = no; w.port.onmessage = yes }) : 'absent',
-    caches: () => has('caches') ? caches.open(${mine}).then((c) => c.put(new Request(at('caches')), new Response('out'))).then(() => 'sent', () => 'refused') : 'absent',
+    // (Once it's opened, the cache is kept, whether or not what's put in it is: so it's sent.)
+    caches: () => has('caches') ? caches.open(${mine}).then(async (c) => { try { await c.put(new Request(at('caches')), new Response('out')) } catch {} return 'sent' }, () => 'refused') : 'absent',
     'indexed-db': () => has('indexedDB') ? new Promise((done) => { try { const r = indexedDB.open(${mine}); r.onsuccess = () => { r.result.close(); done('sent') }; r.onerror = () => done('refused') } catch { done('refused') } }) : 'absent',
     'broadcast-channel': () => channel ? (() => { try { channel.postMessage(${me}); return 'sent' } catch { return 'refused' } })() : 'absent',
   }
@@ -172,7 +182,7 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
   try { channel && channel.postMessage(${me}) } catch {}
   await new Promise((done) => setTimeout(done, 300))
   for (const what of await look(${other})) found.add(what)
-  post(JSON.stringify({ check: ${check}, role: ${me}, ways, found: [...found] }))
+  post(JSON.stringify({ check: ${check}, role: ${me}, ways, found: [...found], unlooked: [...unlooked] }))
 })`
 }
 
@@ -184,6 +194,8 @@ export interface Reported {
   reached: BoxCheckWay[]
   /** What of another box it found: the other's, or (the later one) what the first two kept. */
   found: Look[]
+  /** Where it couldn't look (a store it has that threw or refused): no pass can rest on those. */
+  unlooked: Look[]
 }
 
 /**
@@ -204,17 +216,22 @@ export function judgeReport(
     return undefined
   }
   if (typeof read !== 'object' || read === null || Array.isArray(read)) return undefined
-  const said = read as { check?: unknown; role?: unknown; ways?: unknown; found?: unknown }
-  if (said.check !== nonce || said.role !== role) return undefined
-  const { found } = said
-  if (
-    !Array.isArray(found) ||
-    !found.every((look) => (LOOKS as readonly unknown[]).includes(look)) ||
-    new Set(found).size !== found.length
-  ) {
-    return undefined
+  const said = read as {
+    check?: unknown
+    role?: unknown
+    ways?: unknown
+    found?: unknown
+    unlooked?: unknown
   }
-  if (role === 'later') return { reached: [], found: found as Look[] }
+  if (said.check !== nonce || said.role !== role) return undefined
+  // Looks, each one of LOOKS and once: what it found, and where it couldn't look.
+  const looks = (value: unknown): value is Look[] =>
+    Array.isArray(value) &&
+    value.every((look) => (LOOKS as readonly unknown[]).includes(look)) &&
+    new Set(value).size === value.length
+  const { found, unlooked } = said
+  if (!looks(found) || !looks(unlooked)) return undefined
+  if (role === 'later') return { reached: [], found, unlooked }
   const { ways } = said
   if (typeof ways !== 'object' || ways === null || Array.isArray(ways)) return undefined
   const all = ways as Record<string, unknown>
@@ -230,7 +247,8 @@ export function judgeReport(
   return {
     ways: out,
     reached: BOX_CHECK_WAYS.filter((way) => out[way] === 'reached'),
-    found: found as Look[],
+    found,
+    unlooked,
   }
 }
 

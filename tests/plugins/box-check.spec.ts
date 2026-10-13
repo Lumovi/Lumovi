@@ -31,12 +31,14 @@ const report = (
   role: 'first' | 'second',
   said: Partial<Record<string, string>> = {},
   found: string[] = [],
+  unlooked: string[] = [],
 ) =>
   JSON.stringify({
     check: nonce,
     role,
     ways: Object.fromEntries(BOX_CHECK_WAYS.map((way) => [way, said[way] ?? 'refused'])),
     found,
+    unlooked,
   })
 /** All three boxes' reports, whole, each having found nothing but what's said. */
 const reports = (
@@ -46,7 +48,7 @@ const reports = (
 ) => ({
   first: report(nonce, 'first', said, found.first),
   second: report(nonce, 'second', said, found.second),
-  later: JSON.stringify({ check: nonce, role: 'later', found: found.later ?? [] }),
+  later: JSON.stringify({ check: nonce, role: 'later', found: found.later ?? [], unlooked: [] }),
 })
 
 test('a check passes when nothing got out, no box found another’s, and every report is whole and in time', async () => {
@@ -62,7 +64,7 @@ test('a check passes when nothing got out, no box found another’s, and every r
       reports(nonce, { beacon: 'absent', 'broadcast-channel': 'sent', caches: 'sent' }),
       [],
     ),
-  ).toEqual({ result: 'passed', out: [], first: true })
+  ).toEqual({ result: 'passed', out: [], first: true, unlooked: [] })
   expect(made.result('session-a')).toBe('passed')
   // Judged once: the nonce isn't judged again.
   expect(made.end('session-a', nonce, reports(nonce), [])).toBeUndefined()
@@ -77,6 +79,7 @@ test('what reaches the catcher with the check’s nonce fails it, whatever the r
     result: 'failed',
     out: ['fetch', 'web-socket'],
     first: true,
+    unlooked: [],
   })
   expect(made.result('s')).toBe('failed')
   // And what a box says reached, or the page heard, fails it too.
@@ -123,13 +126,13 @@ test('what arrives after the check is judged, while its nonce lives, still fails
   let pages = 0
   const unwatch = made.watch('s', () => pages++)
   expect(
-    made.end('s', nonce, reports(nonce, { beacon: 'sent' }), [], (late) => told.push(late)),
+    made.end('s', nonce, reports(nonce, { beacon: 'sent' }), [], [], (late) => told.push(late)),
   ).toMatchObject({ result: 'passed' })
   // A beacon the browser sent on after the report: the pass is a failure now, told once.
   tick(5_000)
   made.caught(nonce, 'beacon')
   expect(made.result('s')).toBe('failed')
-  expect(told).toEqual([{ result: 'failed', out: ['beacon'], first: true }])
+  expect(told).toEqual([{ result: 'failed', out: ['beacon'], first: true, unlooked: [] }])
   expect(pages).toBe(1)
   // More of it changes nothing that's said: it's failed already.
   made.caught(nonce, 'fetch-keepalive')
@@ -138,7 +141,7 @@ test('what arrives after the check is judged, while its nonce lives, still fails
   unwatch()
   // Past the nonce's life, what reaches the catcher is let go: the pass holds.
   const again = made.start('u')
-  made.end('u', again, reports(again), [], (late) => told.push(late))
+  made.end('u', again, reports(again), [], [], (late) => told.push(late))
   expect(made.result('u')).toBe('passed')
   tick(BOX_CHECK_LIMITS.nonceLiveMs + 1)
   made.caught(again, 'beacon')
@@ -164,6 +167,7 @@ test('a browser that let something out stays failed for its session: no later pa
     result: 'failed',
     out: ['beacon'],
     first: false,
+    unlooked: [],
   })
   expect(made.result('s')).toBe('failed')
   // And a check after it, too.
@@ -222,12 +226,15 @@ test('silence, a late report, or one that isn’t whole, is no pass', async () =
   const ways = (JSON.parse(whole.first) as { ways: Record<string, string> }).ways
   const { fetch: _, ...leftOut } = ways
   const first = (said: object) =>
-    JSON.stringify({ check: 'NONCE', role: 'first', found: [], ...said })
+    JSON.stringify({ check: 'NONCE', role: 'first', found: [], unlooked: [], ...said })
   for (const said of [
     { ...whole, first: first({ ways: leftOut }) },
     { ...whole, first: first({ ways: { ...ways, xhr: 'fine' } }) },
     { ...whole, first: first({ ways, found: ['cookies'] }) },
     { ...whole, first: first({ ways, found: ['caches', 'caches'] }) },
+    { ...whole, first: first({ ways, unlooked: undefined }) },
+    { ...whole, first: first({ ways, unlooked: ['cookies'] }) },
+    { ...whole, first: first({ ways, unlooked: 'caches' }) },
     { ...whole, first: whole.second },
     { ...whole, later: JSON.stringify({ check: 'NONCE', role: 'later' }) },
     { ...whole, second: report('another', 'second') },
@@ -237,6 +244,92 @@ test('silence, a late report, or one that isn’t whole, is no pass', async () =
   ]) {
     expect(partial(said), JSON.stringify(said).slice(0, 80)).toBe('failed')
   }
+  // Failed on what it couldn't read, it says whose: nothing is said to have got out.
+  const unread = made.start('unread')
+  expect(made.end('unread', unread, { ...reports(unread), later: 'not json' }, [])).toEqual({
+    result: 'failed',
+    out: [],
+    first: true,
+    unlooked: [],
+    unreadable: ['later'],
+  })
+  const none = made.start('none')
+  expect(made.end('none', none, 'reports', [])?.unreadable).toEqual(['first', 'second', 'later'])
+  // (What got out is said as that, with no word of reading.)
+  const out = made.start('out')
+  expect(made.end('out', out, reports(out, { xhr: 'reached' }), [])).not.toHaveProperty(
+    'unreadable',
+  )
+})
+
+test('a look that couldn’t be made, the page’s or a box’s, is no pass: unfinished, and said where', async () => {
+  const { made } = await checks()
+  // Lumovi's own page couldn't look in its caches or its databases, or listen on the channel.
+  const page = made.start('page')
+  expect(
+    made.end('page', page, reports(page), [], ['caches', 'indexed-db', 'broadcast-channel']),
+  ).toEqual({
+    result: 'unfinished',
+    out: [],
+    first: true,
+    unlooked: ['broadcast-channel', 'caches', 'indexed-db'],
+  })
+  expect(made.result('page')).toBe('unfinished')
+  expect(made.unlooked('page')).toBe(true)
+  // (Only the ways the page looks for are its: anything else it hands up is let go.)
+  const other = made.start('other')
+  expect(made.end('other', other, reports(other), [], ['fetch', 'made-up'])).toMatchObject({
+    result: 'passed',
+    unlooked: [],
+  })
+  expect(made.unlooked('other')).toBe(false)
+  // A box that couldn't look where the other kept something: side by side, or after they closed.
+  const box = made.start('box')
+  const side = reports(box)
+  side.first = report(box, 'first', { 'indexed-db': 'sent', caches: 'sent' })
+  side.second = report(box, 'second', {}, [], ['indexed-db'])
+  side.later = JSON.stringify({ check: box, role: 'later', found: [], unlooked: ['caches'] })
+  expect(made.end('box', box, side, [])).toMatchObject({
+    result: 'unfinished',
+    unlooked: ['indexed-db', 'caches'],
+  })
+  // Where nothing was kept (each box's store refused, as its walls refuse it), there was nothing
+  // to find: a box that couldn't look there is no gap.
+  const walls = made.start('walls')
+  const refused = reports(walls)
+  for (const role of ['first', 'second'] as const) {
+    refused[role] = report(walls, role, {}, [], ['caches', 'indexed-db', 'broadcast-channel'])
+  }
+  refused.later = JSON.stringify({
+    check: walls,
+    role: 'later',
+    found: [],
+    unlooked: ['caches', 'indexed-db'],
+  })
+  expect(made.end('walls', walls, refused, [])).toMatchObject({ result: 'passed', unlooked: [] })
+  // What got out still fails it: a look that wasn't made doesn't hide what was found.
+  const out = made.start('out')
+  expect(made.end('out', out, reports(out, { xhr: 'reached' }), [], ['caches'])).toEqual({
+    result: 'failed',
+    out: ['xhr'],
+    first: true,
+    unlooked: [],
+  })
+  expect(made.unlooked('out')).toBe(false)
+  // And one that's unfinished for silence alone isn't one that couldn't look: it's asked again.
+  const silent = made.start('silent')
+  expect(made.end('silent', silent, null, [])).toMatchObject({ result: 'unfinished', unlooked: [] })
+  expect(made.unlooked('silent')).toBe(false)
+  // Silent, then couldn't look: that's said, once; the same again isn't said again.
+  const then = made.start('silent')
+  expect(made.end('silent', then, reports(then), [], ['caches'])).toMatchObject({
+    result: 'unfinished',
+    first: true,
+  })
+  const same = made.start('silent')
+  expect(made.end('silent', same, reports(same), [], ['caches'])?.first).toBe(false)
+  // (A session that's never been checked, or for other walls, has nothing that couldn't look.)
+  expect(made.unlooked('never')).toBe(false)
 })
 
 test('a result holds for the box’s walls as they were: other walls, and every browser is asked again', async () => {
@@ -286,8 +379,150 @@ test('the boxes’ code tries every way at the catcher, and only there, and look
   expect(later).toContain(JSON.stringify(boxCheckStore('abc', 'first')))
   expect(later).toContain(JSON.stringify(boxCheckStore('abc', 'second')))
   expect(
-    judgeReport(JSON.stringify({ check: 'abc', role: 'later', found: [] }), 'abc', 'later'),
-  ).toEqual({ reached: [], found: [] })
+    judgeReport(
+      JSON.stringify({ check: 'abc', role: 'later', found: [], unlooked: [] }),
+      'abc',
+      'later',
+    ),
+  ).toEqual({ reached: [], found: [], unlooked: [] })
+})
+
+/**
+ * A box's code, run as its worker would with only the globals in `self` (as a box's walls leave
+ * them): its report, as it sends it up.
+ */
+async function ran(nonce: string, role: 'first' | 'second' | 'later', self: object) {
+  const posted: string[] = []
+  let heard: (data: string) => void = () => {}
+  const box = Promise.resolve({
+    post(text: string) {
+      // (Once it says it has kept what it can, it's told to look, as the page tells both.)
+      if (role !== 'later' && text === boxCheckKept(nonce, role)) heard(BOX_CHECK_LOOK)
+      else posted.push(text)
+    },
+    listen: (on: (data: string) => void) => void (heard = on),
+  })
+  // The globals it names, as its worker's: what `self` has, and nothing else.
+  const names = ['caches', 'indexedDB', 'BroadcastChannel'] as const
+  const value = (name: string) => Object.getOwnPropertyDescriptor(self, name)?.value
+  const code = boxCheckCode('https://lumovi.example/box-check/' + nonce, nonce, role)
+  await new Function('box', 'self', ...names, `return ${code}`)(box, self, ...names.map(value))
+  expect(posted).toHaveLength(1)
+  return posted[0]!
+}
+/** A store a box's walls refuse, as an opaque origin's does: even asking for it throws. */
+const refusing = (name: string) => ({
+  get() {
+    throw new DOMException(`${name} is refused here`, 'SecurityError')
+  },
+})
+/** A box's caches, each part as said: what it holds, and whether opening, putting or looking fails. */
+const cachesOf = (said: { open?: 'fails'; put?: 'fails'; keys?: 'fails'; holds?: string[] }) => ({
+  open: async () => {
+    if (said.open) throw new DOMException('no', 'SecurityError')
+    return {
+      put: async () => {
+        if (said.put) throw new DOMException('no', 'QuotaExceededError')
+      },
+    }
+  },
+  keys: async () => {
+    if (said.keys) throw new DOMException('no', 'SecurityError')
+    return said.holds ?? []
+  },
+})
+/** A channel that opens, and is heard by no one. */
+class Channel {
+  onmessage: unknown = null
+  postMessage() {}
+  close() {}
+}
+const ways = (text: string) => (JSON.parse(text) as { ways: Record<string, string> }).ways
+const unlookedIn = (text: string) => (JSON.parse(text) as { unlooked: string[] }).unlooked
+
+test('where a box’s walls refuse every store, its looks can’t be made, and nothing could be kept: it passes', async () => {
+  const { made } = await checks()
+  const nonce = made.start('walls')
+  const walled = {}
+  for (const name of ['caches', 'indexedDB', 'BroadcastChannel']) {
+    Object.defineProperty(walled, name, refusing(name))
+  }
+  const said = {
+    first: await ran(nonce, 'first', walled),
+    second: await ran(nonce, 'second', walled),
+    later: await ran(nonce, 'later', walled),
+  }
+  // Each box couldn't keep, and says so; and couldn't look, and says so too.
+  expect(ways(said.first)).toMatchObject({
+    caches: 'refused',
+    'indexed-db': 'refused',
+    'broadcast-channel': 'absent',
+  })
+  expect(unlookedIn(said.first)).toEqual(['broadcast-channel', 'caches', 'indexed-db'])
+  expect(unlookedIn(said.later)).toEqual(['caches', 'indexed-db'])
+  // Nothing was kept where a look couldn't be made: the check passes.
+  expect(made.end('walls', nonce, said, [])).toMatchObject({ result: 'passed', unlooked: [] })
+})
+
+test('a cache that opened is kept, whether or not what’s put in it is: one the other box finds fails the check', async () => {
+  const { made } = await checks()
+  expect(ways(await ran('abc', 'first', { caches: cachesOf({ put: 'fails' }) })).caches).toBe(
+    'sent',
+  )
+  expect(ways(await ran('abc', 'first', { caches: cachesOf({ open: 'fails' }) })).caches).toBe(
+    'refused',
+  )
+  // The first's cache, opened though its put failed, seen by the second: shared, so failed.
+  const nonce = made.start('shared')
+  const said = {
+    first: await ran(nonce, 'first', { caches: cachesOf({ put: 'fails' }) }),
+    second: await ran(nonce, 'second', {
+      caches: cachesOf({ holds: [boxCheckStore(nonce, 'first')] }),
+    }),
+    later: await ran(nonce, 'later', { caches: cachesOf({}) }),
+  }
+  expect(made.end('shared', nonce, said, [])).toMatchObject({
+    result: 'failed',
+    out: ['caches shared between boxes'],
+  })
+})
+
+test('a box’s look that throws where the other box kept something is no pass: unfinished', async () => {
+  const { made } = await checks()
+  // The first keeps in its caches; the second's look in its own throws.
+  const nonce = made.start('looked')
+  const said = {
+    first: await ran(nonce, 'first', { caches: cachesOf({}) }),
+    second: await ran(nonce, 'second', { caches: cachesOf({ keys: 'fails' }) }),
+    later: await ran(nonce, 'later', { caches: cachesOf({}) }),
+  }
+  expect(ways(said.first).caches).toBe('sent')
+  expect(unlookedIn(said.second)).toEqual(['caches'])
+  expect(made.end('looked', nonce, said, [])).toMatchObject({
+    result: 'unfinished',
+    unlooked: ['caches'],
+  })
+  // A listening box whose channel won't open, while the other's sent on its own: unfinished too.
+  const heard = made.start('heard')
+  const refused = {}
+  Object.defineProperty(refused, 'BroadcastChannel', {
+    value: class {
+      constructor() {
+        throw new DOMException('no', 'SecurityError')
+      }
+    },
+  })
+  const channel = {
+    first: await ran(heard, 'first', refused),
+    second: await ran(heard, 'second', { BroadcastChannel: Channel }),
+    later: await ran(heard, 'later', {}),
+  }
+  expect(ways(channel.first)['broadcast-channel']).toBe('absent')
+  expect(ways(channel.second)['broadcast-channel']).toBe('sent')
+  expect(made.end('heard', heard, channel, [])).toMatchObject({
+    result: 'unfinished',
+    unlooked: ['broadcast-channel'],
+  })
 })
 
 test('a browser is named by what it says of itself, and nothing else of it', () => {

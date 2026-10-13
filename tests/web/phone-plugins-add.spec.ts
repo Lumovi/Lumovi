@@ -38,13 +38,18 @@ test('a plugin’s pages, its tab and its command on a phone: whose they are, sa
   const body = page.locator('[data-plugin-body]')
   // Whose it is, in a line a phone has room for.
   await expect(body).toContainText('From the plugin Toys of the platform team 1.2.0.')
-  await expect(body).not.toContainText('This page is')
+  await expect(body).not.toContainText('This page is', { useInnerText: true })
+  // (Toys comes with no code of its own: its page says so, in its place, as on any screen.)
+  await expect(body.getByTestId('plugin-ended')).toContainText(
+    'Its code isn’t part of this Lumovi.',
+  )
   const tabs = page.getByRole('navigation', { name: 'Toys of the platform team' })
   await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
   await expectNoSidewaysScroll(page, 'a plugin’s page, on a phone')
   await expectFingerSized(page, 'a plugin’s page, on a phone')
-  await tabs.getByRole('link', { name: 'Capacity of every toy, week by week' }).click()
-  await expect(body).toContainText('the page capacity.')
+  const capacity = tabs.getByRole('link', { name: 'Capacity of every toy, week by week' })
+  await capacity.click()
+  await expect(capacity).toHaveAttribute('aria-current', 'page')
 
   // Its entry, in the sidebar the menu opens, goes to its first page.
   await page.getByRole('button', { name: 'Menu' }).click()
@@ -52,7 +57,9 @@ test('a plugin’s pages, its tab and its command on a phone: whose they are, sa
     .getByRole('navigation', { name: 'Resources' })
     .getByRole('link', { name: 'Toys of the platform team', exact: true })
     .click()
-  await expect(body).toContainText('the page overview.')
+  await expect(body.getByTestId('plugin-ended')).toContainText(
+    'Its code isn’t part of this Lumovi.',
+  )
 
   // Its command, its whole name, with whose it is beside it.
   await page.getByRole('button', { name: 'Search' }).click()
@@ -62,7 +69,7 @@ test('a plugin’s pages, its tab and its command on a phone: whose they are, sa
   await expect(command).toContainText('Toys of the platform team')
   await expectNoSidewaysScroll(page, 'a plugin’s command, on a phone')
   await command.click()
-  await expect(body).toContainText('the page capacity.')
+  await expect(capacity).toHaveAttribute('aria-current', 'page')
 
   // Its tab, on an object of its kind.
   await page.goto(

@@ -5,9 +5,12 @@
  * reading it again, as Lumovi's own lists are, while the window shows.
  *
  * What goes down to a plugin's code, as text:
- * - `{ read, objects: [{ token, object, secrets? }] }`: what a read found, each time it's read
- *   again; and of an object of its own kind, for each path its file declares, a token for each
- *   Secret the object names there (`secrets: [{ path, tokens }]`), for its page's parts to show;
+ * - `{ read, objects: [{ token, object, usage?, secrets? }], noUsage?, cut? }`: what a read found,
+ *   each time it's read again; where usage was asked for, each object's (`usage: { cpu, memory }`,
+ *   in cores and bytes), or why none has any (`noUsage`: 'unmeasured', 'not-allowed'); of an
+ *   object of its own kind, for each path its file declares, a token for each Secret the object
+ *   names there (`secrets: [{ path, tokens }]`), for its page's parts to show; and of a list cut
+ *   at Lumovi's limit, a token for how (`cut`), this answer's alone, for a part to name;
  * - `{ read, ended, said }`: the read is over (refused, or what it read is gone): a code, and
  *   Lumovi's sentence for it;
  * - `{ read, failing, said }`: reading it again failed this time; it's tried again.
@@ -18,6 +21,7 @@ import {
   PageReads,
   READ_REFUSED,
   readAsk,
+  type Cut,
   type PluginCount,
   type PluginRead,
   type PluginReadQuery,
@@ -47,6 +51,7 @@ const ENDS: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'not-found',
   'not-allowed',
   'too-many',
+  'not-pickable',
 ])
 
 interface Going {
@@ -58,10 +63,29 @@ interface Going {
   reading: boolean
 }
 
+/**
+ * What Lumovi's own page says of a page's reads, round what its plugin draws and never by it:
+ * decided from Lumovi's answers alone, whatever the plugin's code does with them.
+ */
+export interface ReadNotices {
+  /** A read that had answers is failing now: Lumovi's sentence for why. Its last answer stays. */
+  stale?: string
+  /**
+   * A list cut at Lumovi's limit: how, where one read is; `several`, where more are (each cut at
+   * that limit, `at`, and of no one count).
+   */
+  cut?: Cut & { several?: true }
+}
+
 export class PageReading {
   readonly tokens: Tokens
   readonly #reads: PageReads
   readonly #going = new Map<number, Going>()
+  /** Of the reads going: those failing now, and why; those whose last answer was cut, and how. */
+  readonly #failing = new Map<number, ReadRefusal>()
+  readonly #cut = new Map<number, Cut>()
+  #notices: ReadNotices = {}
+  readonly #heard = new Set<() => void>()
   readonly #context: string
   readonly #plugin: string
   /** What the page's code was handed with: every read names them. */
@@ -106,13 +130,13 @@ export class PageReading {
       for (const [read, going] of this.#going) if (going.list) this.#read(read)
       return undefined
     }
-    if (ask.what !== 'list' && ask.what !== 'object') {
-      // An object's events, its usage: refused with a code (a plugin written for a later Lumovi
-      // doesn't lose its page for asking).
+    if (ask.what === 'events') {
+      // An object's events: refused with a code (a plugin written for a later Lumovi doesn't
+      // lose its page for asking).
       this.#refuse(ask.read, 'not-yet')
       return undefined
     }
-    const { kind, namespace } = ask
+    const { kind, namespace, usage } = ask
     const query: PluginReadQuery = {
       context: this.#context,
       plugin: this.#plugin,
@@ -120,6 +144,9 @@ export class PageReading {
       kind,
       ...(namespace === undefined ? {} : { namespace }),
       ...(ask.what === 'object' ? { name: ask.name } : {}),
+      ...(usage ? { usage } : {}),
+      ...(ask.what === 'list' && ask.fields ? { fields: ask.fields } : {}),
+      ...(ask.what === 'list' && ask.labels ? { labels: ask.labels } : {}),
     }
     this.#going.set(ask.read, {
       query,
@@ -153,6 +180,8 @@ export class PageReading {
       // more. A failure of a read that had answers is said, and it's tried again.
       if (going.last === undefined || ENDS.has(result.refused))
         return this.#refuse(read, result.refused)
+      this.#failing.set(read, result.refused)
+      this.#noticed()
       this.#tell({ read, failing: result.refused, said: READ_REFUSED[result.refused] })
       return this.#again(read, going, going.last.length)
     }
@@ -198,6 +227,19 @@ export class PageReading {
     }
     going.last = refs
     this.#reads.answered(read)
+    this.#failing.delete(read)
+    // A list cut at Lumovi's limit: Lumovi's page says so, and the plugin is handed a token for
+    // how, made anew each answer, which a part it draws from these objects can name. (Both from
+    // the backend's answer alone.)
+    let cut: string | undefined
+    if (result.answer.cut) {
+      this.#cut.set(read, result.answer.cut)
+      cut = this.tokens.cutFor(read, result.answer.cut)
+    } else {
+      this.#cut.delete(read)
+      this.tokens.uncut(read)
+    }
+    this.#noticed()
     if (held > 0 && !this.#heldSaid) {
       this.#heldSaid = true
       console.warn(
@@ -209,8 +251,11 @@ export class PageReading {
       objects: tokens.map((token, i) => ({
         token,
         object: objects[i]!.object,
+        ...(objects[i]!.usage ? { usage: objects[i]!.usage } : {}),
         ...(objects[i]!.secrets ? { secrets: secrets[i] } : {}),
       })),
+      ...(result.answer.noUsage ? { noUsage: result.answer.noUsage } : {}),
+      ...(cut === undefined ? {} : { cut }),
     })
     this.#again(read, going, refs.length)
   }
@@ -241,10 +286,77 @@ export class PageReading {
     if (going) clearTimeout(going.timer)
     this.#going.delete(read)
     this.tokens.ended(read)
+    this.#failing.delete(read)
+    this.#cut.delete(read)
+    this.#noticed()
+  }
+
+  /** What Lumovi's page says of the reads now: the same object until that changes. */
+  get notices(): ReadNotices {
+    return this.#notices
+  }
+
+  /** Hears when what Lumovi's page says of the reads changes. */
+  subscribeNotices(heard: () => void): () => void {
+    this.#heard.add(heard)
+    return () => void this.#heard.delete(heard)
+  }
+
+  /** The person's "Retry": every read that's failing is read again now. */
+  retry(): void {
+    for (const read of this.#failing.keys()) this.#read(read)
+  }
+
+  #noticed(): void {
+    const [failing] = this.#failing.values()
+    const cuts = [...this.#cut.values()]
+    const now: ReadNotices = {
+      ...(failing === undefined ? {} : { stale: READ_REFUSED[failing] }),
+      ...(cuts.length === 1
+        ? { cut: cuts[0]! }
+        : cuts.length > 1
+          ? { cut: { at: Math.max(...cuts.map(({ at }) => at)), several: true as const } }
+          : {}),
+    }
+    if (JSON.stringify(now) === JSON.stringify(this.#notices)) return
+    this.#notices = now
+    for (const heard of this.#heard) heard()
   }
 
   #tell(message: object): void {
     if (!this.#closed) this.#send(JSON.stringify(message))
+  }
+
+  /**
+   * Lumovi's first word to the code of a tab on `object`: the object, read for the plugin as an
+   * object of its own kind is (whole, and only while its file and code are the ones the page was
+   * handed), with a token for it like any it reads; or why not. (Lumovi's own read, not one the
+   * plugin asked for: counted as none of its asks, and its token held until the page goes.)
+   */
+  open(tab: string, object: ObjectRef): void {
+    const query: PluginReadQuery = {
+      context: this.#context,
+      plugin: this.#plugin,
+      ...this.#handed,
+      kind: askedKind(object.kind),
+      ...(object.namespace === undefined ? {} : { namespace: object.namespace }),
+      name: object.name,
+    }
+    void api.kube
+      .pluginRead(query)
+      .catch((): PluginRead => ({ ok: false, refused: 'failed' }))
+      .then((result) => {
+        if (this.#closed) return
+        const [found] = result.ok ? result.answer.objects : []
+        const tokens = found ? this.tokens.hand(OPENED, [object]) : undefined
+        if (!result.ok || !found || tokens === undefined || typeof tokens === 'string') {
+          const refused = result.ok ? 'failed' : result.refused
+          this.#tell({ open: { tab, ended: refused, said: READ_REFUSED[refused] } })
+          if (refused === 'changed') this.#changed()
+          return
+        }
+        this.#tell({ open: { tab, object: { token: tokens[0], object: found.object } } })
+      })
   }
 
   /** The page is gone: nothing more is read for it, and what it kept is no longer counted. */
@@ -252,9 +364,19 @@ export class PageReading {
     if (this.#closed) return
     this.#closed = true
     for (const read of [...this.#going.keys()]) this.#end(read)
+    this.#heard.clear()
     this.#reads.close()
     this.tokens.close()
   }
 }
 
 const key = ({ kind, namespace, name }: ObjectRef) => `${kind}\u0000${namespace ?? ''}\u0000${name}`
+
+/** The read a tab's object is handed by: none a plugin can number (theirs start at 1). */
+const OPENED = 0
+
+/** A kind as Lumovi names it (`Widget.example.com`, `Pod`), as a plugin asks for it (`example.com/Widget`). */
+const askedKind = (kind: string) => {
+  const dot = kind.indexOf('.')
+  return dot < 0 ? `/${kind}` : `${kind.slice(dot + 1)}/${kind.slice(0, dot)}`
+}

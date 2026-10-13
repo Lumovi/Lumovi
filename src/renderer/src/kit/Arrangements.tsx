@@ -5,7 +5,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { spelled } from '@shared/kit/characters'
-import type { Their } from '@shared/kit/declare'
+import type { ListDestination, Their } from '@shared/kit/declare'
 import type {
   PairProps,
   PickList as PickListSaid,
@@ -13,7 +13,6 @@ import type {
   Tile as TileSaid,
   TilesProps,
 } from '@shared/kit/page'
-import type { ObjectRef } from '@shared/kit/table'
 import { VIEW_ICONS } from '@renderer/components/KindIcon'
 import { Tile } from '@renderer/components/Tile'
 import { cn } from '@renderer/lib/cn'
@@ -59,8 +58,8 @@ export function Tiles({
   onOpen,
 }: {
   tiles: readonly TileSaid[]
-  /** Opens the object a tile names: Lumovi's own to do. */
-  go?: (object: ObjectRef) => void
+  /** Opens the list a tile names, as the door made it: Lumovi's own to do. */
+  go?: (list: ListDestination) => void
   onOpen?: TilesProps['onOpen']
 }) {
   const across = Math.max(2, Math.min(4, tiles.length)) as 2 | 3 | 4

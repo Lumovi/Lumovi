@@ -81,6 +81,18 @@ export function endedWords(name: string, end: PageEnd): EndedWords {
         again: false,
       }
     }
+    // A check that couldn't look: said as Lumovi's, with what the person can change; opening the
+    // page again would look again where it can't.
+    if (end.refused === 'check-unlooked') {
+      return {
+        title: 'Lumovi couldn’t check this browser.',
+        why: notHandedWhy('check-unlooked'),
+        still: 'The rest of Lumovi is as it was.',
+        advice:
+          'If this browser blocks storage for this site, allowing it and reloading lets Lumovi check.',
+        again: false,
+      }
+    }
     return {
       title: `${whose(name)} page couldn’t start.`,
       why: notHandedWhy(end.refused),

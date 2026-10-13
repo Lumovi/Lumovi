@@ -8,7 +8,7 @@ import { expect, hoverForTooltip, openCluster, panel, row, test } from './fixtur
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
-/** Where the door draws a plugin's page or tab (a stand-in for it, in the tests' build). */
+/** Where the door draws a plugin's page or tab. */
 const body = (page: Page) => page.locator('[data-plugin-body]')
 const address = (page: Page) => page.evaluate(() => decodeURIComponent(window.location.hash))
 const go = (page: Page, to: string) =>
@@ -80,15 +80,26 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
     /^(Widgets|Databases)/,
   ])
   await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
-  await expect(body(page)).toContainText('This page is from the plugin Toys 1.2.0.')
-  await expect(body(page)).toContainText('Stand-in for the door: the page overview.')
+  await expect(body(page).getByTestId('plugin-whose')).toHaveText(
+    'This page is from the plugin Toys 1.2.0. Lumovi draws it from its own parts; what it shows and says is the plugin’s.\nWhat it may do →',
+    { useInnerText: true },
+  )
+  // What it may do: its entry on the Plugins page, open.
+  await expect(body(page).getByRole('link', { name: 'What it may do →' })).toHaveAttribute(
+    'href',
+    '#/cluster/demo/plugins?plugin=toys',
+  )
+  // (Toys comes with no code of its own: its page says so, in its place.)
+  await expect(body(page).getByTestId('plugin-ended')).toContainText(
+    'Its code isn’t part of this Lumovi.',
+  )
   // Each page's tab says whose it is.
   const capacity = tabs.getByRole('link', { name: 'Capacity' })
   await hoverForTooltip(capacity, 'From the plugin Toys 1.2.0')
   await capacity.click()
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/toys/capacity')
-  await expect(body(page)).toContainText('the page capacity.')
   await expect(capacity).toHaveAttribute('aria-current', 'page')
+  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
   await expect(toys).toHaveClass(/font-medium/)
   // A kind's list keeps the strip, the pages and all, and the entry stays current.
   await tabs.getByRole('link', { name: /^Widgets/ }).click()
@@ -109,7 +120,7 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/toys/overview')
   // The plugin's own address is its first page.
   await go(page, 'plugins/toys')
-  await expect(body(page)).toContainText('the page overview.')
+  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
   await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
 
   // And of one that has no pages at all: the same, and the way to its page of its kinds.
@@ -123,7 +134,7 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   await nav.getByRole('link', { name: 'Board', exact: true }).click()
   await expect(heading(page)).toHaveText('Board')
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/board/today')
-  await expect(body(page)).toContainText('the page today.')
+  await expect(body(page).getByTestId('plugin-whose')).toContainText('Board 1.2.0')
   await expect(page.getByRole('navigation', { name: 'Board' })).toHaveCount(0)
   // One whose kinds aren't here: no entry, and its page's address says why there's nothing.
   await expect(nav.getByRole('link', { name: 'Lab', exact: true })).toHaveCount(0)
@@ -133,11 +144,15 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   await page.getByRole('button', { name: 'Go to Plugins' }).click()
   await expect(heading(page)).toHaveText('Plugins')
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins?plugin=lab')
+  // (Lab's entry shown first: the page has settled on the address it was sent to before the next
+  // is set. Set while it's still opening, the next address can be undone by it.)
+  const adds = page.getByRole('region', { name: 'Adds to Lumovi’s pages' })
+  await expect(adds).toContainText('The page Bench')
 
   // The Plugins page says what each adds, by the names its file gives them; and, once it has
   // asked, that its pages don't run, since this one has no code.
   await go(page, 'plugins?plugin=toys')
-  const adds = page.getByRole('region', { name: 'Adds to Lumovi’s pages' })
+  await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins?plugin=toys')
   const notRun = 'Its pages don’t run here: its code isn’t part of this Lumovi.'
   await expect(adds.getByTestId('plugin-not-handed')).toHaveText(notRun)
   await expect(adds).toContainText(
@@ -163,8 +178,11 @@ test('a plugin’s tab on an object of its kinds, after Lumovi’s own, and comm
   const parts = widget.getByRole('tab', { name: 'Parts' })
   await hoverForTooltip(parts, 'From the plugin Toys 1.2.0')
   await parts.click()
-  await expect(widget.locator('[data-plugin-body]')).toContainText(
-    new RegExp(`the tab parts, on Widget\\S* ${CUSTOM.widget}\\.$`),
+  await expect(widget.locator('[data-plugin-body]').getByTestId('plugin-whose')).toContainText(
+    'Toys 1.2.0',
+  )
+  await expect(widget.locator('[data-plugin-body]').getByTestId('plugin-ended')).toContainText(
+    'Its code isn’t part of this Lumovi.',
   )
   await page.keyboard.press('Escape')
   // Only on the kinds it names.
@@ -187,7 +205,9 @@ test('a plugin’s tab on an object of its kinds, after Lumovi’s own, and comm
   ).toContainText('Open the toys’ capacity')
   await command.click()
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/toys/capacity')
-  await expect(body(page)).toContainText('the page capacity.')
+  await expect(
+    page.getByRole('navigation', { name: 'Toys' }).getByRole('link', { name: 'Capacity' }),
+  ).toHaveAttribute('aria-current', 'page')
   expect(changes()).toBe(before)
 })
 
@@ -203,7 +223,7 @@ test('a plugin taken away while its page or its tab is open: each says so, where
   await sidebar(page).getByRole('link', { name: 'Toys', exact: true }).click()
   const tabs = page.getByRole('navigation', { name: 'Toys' })
   await tabs.getByRole('link', { name: 'Capacity' }).click()
-  await expect(body(page)).toContainText('the page capacity.')
+  await expect(tabs.getByRole('link', { name: 'Capacity' })).toHaveAttribute('aria-current', 'page')
 
   // Gone: its entry, its tabs and its commands go at once; the open page stays, and says so.
   rmSync(join(folder, 'toys.yaml'))
@@ -231,7 +251,7 @@ test('a plugin taken away while its page or its tab is open: each says so, where
   writeFileSync(join(folder, 'toys.yaml'), INCLUDED['toys.yaml'])
   await refresh()
   await sidebar(page).getByRole('link', { name: 'Toys', exact: true }).click()
-  await expect(body(page)).toContainText('the page overview.')
+  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
   // One's own file of its name, in use in its place, takes its pages away too: the page says so,
   // and the entry is that one's, leading to its page of its kinds.
   writeFileSync(join(own, 'toys.yaml'), OWN_TOYS)
@@ -246,7 +266,7 @@ test('a plugin taken away while its page or its tab is open: each says so, where
   rmSync(join(own, 'toys.yaml'))
   await refresh()
   await sidebar(page).getByRole('link', { name: 'Toys', exact: true }).click()
-  await expect(body(page)).toContainText('the page overview.')
+  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
   await tabs.getByRole('link', { name: /^Widgets/ }).click()
   await row(page, 'Widgets', CUSTOM.widget).getByRole('gridcell').nth(1).click()
   const widget = panel(page, 'Widget', CUSTOM.widget)

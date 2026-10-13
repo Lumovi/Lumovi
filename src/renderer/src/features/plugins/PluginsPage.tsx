@@ -404,16 +404,7 @@ function Name({
     <div className="flex gap-3.5">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-2">
         {row.plugin?.place ? (
-          <PluginIcon
-            plugin={{
-              name: row.plugin.name,
-              source: row.plugin.source,
-              version: row.plugin.version,
-              added: row.plugin.added,
-              ...row.plugin.place,
-            }}
-            className="size-4"
-          />
+          <PluginIcon plugin={row.plugin.place} className="size-4" />
         ) : (
           <FileCode2 className="size-4" aria-hidden />
         )}

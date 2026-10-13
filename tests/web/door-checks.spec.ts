@@ -9,6 +9,8 @@ import { createServer, type AddressInfo } from 'node:net'
 import type { JSHandle, Page } from '@playwright/test'
 import {
   choice,
+  cut,
+  destination,
   handler,
   list,
   number,
@@ -79,6 +81,9 @@ const PARTS: Record<string, Part> = {
   },
   /** One a page may have only two of. */
   Badge: { name: 'Badge', holds: 'nothing', props: {}, most: 2 },
+  /** One that holds one thing at most; one that holds two texts, and on the page no fewer. */
+  Frame: { name: 'Frame', holds: ['Label', 'Row'], holdsMost: 1, props: {} },
+  Pair: { name: 'Pair', holds: 'text', holdsMost: 2, holdsLeast: 2, props: {} },
   /** Two a page may have twenty of between them (each naming the ceiling for itself). */
   Card: { name: 'Card', holds: 'nothing', props: {}, counts: CARDS },
   Tag: { name: 'Tag', holds: 'nothing', props: {}, counts: shared('Card and Tag parts', 20) },
@@ -179,8 +184,31 @@ test('a value against its kind', async ({ page, serve }) => {
     ['one of', oneOf(['a', 'b']), ['a'], ['c', 'toString', 1, null]],
     ['time', time, ['2026-10-12T08:30:00Z'], ['yesterday', '2026-13-40T99:00:00Z', 5]],
     ['object', object, ['o_1-A'], ['', 'a b', '../x', 'x'.repeat(65), { kind: 'Pod' }]],
-    ['secret', secret, ['s_1-A'], ['', 'a/b', 5, { name: 'db' }]],
+    ['secret', secret, ['s_1-A'], ['', 'a/b', 'a b', 5, { name: 'db' }]],
+    ['how a read was cut', cut, ['c_1-A'], ['', 'a b', 5000, { at: 5000 }]],
     ['handler', handler('press'), ['h7'], ['() => 1', 7, null]],
+    [
+      'list to open',
+      destination,
+      [
+        { list: 'karpenter.sh/NodePool' },
+        { list: '/Node', labels: ['karpenter.sh/nodepool'] },
+        { list: '/Pod', health: ['critical', 'warning'], labels: ['app=web', 'tier='] },
+      ],
+      [
+        'karpenter.sh/NodePool',
+        {},
+        { list: 'NodePool' },
+        { list: '/Node', path: '/api/v1/nodes' },
+        { list: '/Node', namespace: 'kube-system' },
+        { list: '/Node', health: [] },
+        { list: '/Node', health: ['bad'] },
+        { list: '/Node', health: ['critical', 'critical'] },
+        { list: '/Node', labels: ['a b'] },
+        { list: '/Node', labels: ['a', 'b', 'c', 'd', 'e'] },
+        { list: '/Node', labels: 'app=web' },
+      ],
+    ],
     ['list', list(text(3), 2), [[], ['a', 'b']], [['a', 'b', 'c'], ['long'], 'ab', { 0: 'a' }]],
     [
       'record',
@@ -245,6 +273,37 @@ test('a value against its kind', async ({ page, serve }) => {
       )
       expect(said).toBe(`Part: takes nothing named "${key}"`)
     }
+    // A description itself, where nothing names it: said of "it".
+    expect(
+      await page.evaluate(
+        (kind) =>
+          (window as unknown as Lent).__lumoviDoor.doorChecks.wrongWithFields(
+            { other: 'a' },
+            { label: kind },
+            [],
+            '',
+          ),
+        text(5),
+      ),
+    ).toBe('it: takes nothing named "other"')
+  })
+
+  await test.step('handed over with no swap, what a plugin named is as it named it', async () => {
+    // (What the kit page's own describers are handed: no door, nothing put in anything's place.)
+    const kinds = { of: object, shows: secret, cut, opens: destination, onPress: handler('press') }
+    const written = {
+      of: 'o_1',
+      shows: 's_1',
+      cut: 'c_1',
+      opens: { list: '/Node' },
+      onPress: 'h1',
+    }
+    const said = await page.evaluate(
+      ([written, kinds]) =>
+        (window as unknown as Lent).__lumoviDoor.doorChecks.handedFields(written, kinds),
+      [written, kinds] as const,
+    )
+    expect(said).toEqual(written)
   })
 
   await test.step('a value nested deeper than anything a part takes is refused, not followed', async () => {
@@ -384,6 +443,13 @@ test('a part’s declaration', async ({ page, serve }) => {
         [PARTS] as const,
       ),
     ).toBeUndefined()
+    // One careless part among them is said, as it would be alone.
+    expect(
+      await page.evaluate(
+        ([parts]) => (window as unknown as Lent).__lumoviDoor.doorChecks.wrongWithParts(parts),
+        [{ ...PARTS, Bad: { name: 'two words', holds: 'parts', props: {} } }] as const,
+      ),
+    ).toBe('two words: isn’t a part’s name')
   })
 
   await test.step('a careless one is named', async () => {
@@ -397,6 +463,10 @@ test('a part’s declaration', async ({ page, serve }) => {
       { name: 'A', holds: 'nothing', props: {}, most: 0 },
       { name: 'A', holds: 'nothing', props: {}, most: 1.5 },
       { name: 'A', holds: 'nothing', props: {}, counts: shared('A parts', 0) },
+      { name: 'A', holds: 'parts', props: {}, holdsMost: 0 },
+      { name: 'A', holds: 'text', props: {}, holdsMost: 1.5 },
+      { name: 'A', holds: 'parts', props: {}, holdsLeast: 0 },
+      { name: 'A', holds: 'nothing', props: {}, holdsLeast: 1 },
     ]
     const said = await page.evaluate(
       ([wrong]) =>
@@ -411,6 +481,18 @@ test('a part’s declaration', async ({ page, serve }) => {
       [
         { name: 'A', holds: 'nothing', props: { rows: list(text(3), 0) } },
         'A.rows: a list needs a greatest length',
+      ],
+      [
+        { name: 'A', holds: 'nothing', props: {}, holdsMost: 1 },
+        'A: holds nothing, so it can’t say how many it holds',
+      ],
+      [
+        { name: 'A', holds: ['Label'], props: {}, holdsMost: 0 },
+        'A: how many it holds should be a whole number, 1 or more',
+      ],
+      [
+        { name: 'A', holds: 'parts', props: {}, holdsLeast: 3, holdsMost: 2 },
+        'A: holds 3 at least and 2 at most',
       ],
       [
         { name: 'A', holds: 'nothing', props: { cell: choice('two words', { a: {} }) } },
@@ -957,6 +1039,82 @@ test('a plugin’s page: what stops it', async ({ page, serve }) => {
       'step 8: makes something under a number that isn’t new: 3',
     )
     expect(await (await doorPage(page)).send(...base, ['put', 5, 3])).toEqual({ changed: [1, 5] })
+  })
+
+  await test.step('a part that holds so many holds no more: one more is refused, not left undrawn', async () => {
+    const base: unknown[][] = [
+      ['make', 1, 'Frame', {}],
+      ['make', 2, 'Label', {}],
+      ['make', 3, 'Row', {}],
+      ['make', 4, 'Pair', {}],
+      ['text', 5, 'a'],
+      ['text', 6, 'b'],
+      ['text', 7, 'c'],
+      ['put', 1, 2],
+      ['put', 4, 5],
+      ['put', 4, 6],
+    ]
+    expect(await (await doorPage(page)).send(...base)).toEqual({ changed: [1, 4] })
+    expect(stopped(await (await doorPage(page)).send(...base, ['put', 1, 3]))).toEqual({
+      why: 'not-allowed',
+      what: 'step 11: puts a Row into a Frame, which holds one at most',
+    })
+    expect(stopped(await (await doorPage(page)).send(...base, ['put', 4, 7])).what).toBe(
+      'step 11: puts a text into a Pair, which holds 2 at most',
+    )
+    // What it holds already moves within it; and with one taken away, another goes in.
+    expect(await (await doorPage(page)).send(...base, ['put', 4, 6, 5])).toEqual({
+      changed: [1, 4],
+    })
+    expect(await (await doorPage(page)).send(...base, ['take', 1, 2], ['put', 1, 3])).toEqual({
+      changed: [1, 4],
+    })
+  })
+
+  await test.step('a part that holds so many at least holds them on the page once a commit is whole', async () => {
+    const short = (holds: number) =>
+      `leaves a Pair on the page that holds ${holds}, and a Pair holds 2 at least`
+    const pair: unknown[][] = [
+      ['make', 1, 'Pair', {}],
+      ['text', 2, 'a'],
+      ['text', 3, 'b'],
+    ]
+    // Put together in one commit, one text at a time: whole, it holds two.
+    const { send } = await doorPage(page)
+    expect(await send(...pair, ['put', ROOT, 1], ['put', 1, 2], ['put', 1, 3])).toEqual({
+      changed: [ROOT, 1],
+    })
+    // On the page with one, it's refused, and said as the commit's (no one step is wrong).
+    expect(
+      stopped(await (await doorPage(page)).send(...pair, ['put', 1, 2], ['put', ROOT, 1])),
+    ).toEqual({ why: 'not-allowed', what: short(1) })
+    // One taken away from it on the page, and none put back: refused. One put back: taken.
+    expect(stopped(await send(['take', 1, 2])).what).toBe(short(1))
+    const again = await doorPage(page)
+    await again.send(...pair, ['put', 1, 2], ['put', 1, 3], ['put', ROOT, 1])
+    expect(await again.send(['take', 1, 2], ['text', 4, 'c'], ['put', 1, 4])).toEqual({
+      changed: [1],
+    })
+    // Off the page it's still being put together, over as many commits as it takes, however
+    // deep: under a Stack that isn't on the page either. Put on whole, it's taken.
+    const inStack: unknown[][] = [
+      ['make', 1, 'Stack', {}],
+      ['make', 2, 'Pair', {}],
+      ['put', 1, 2],
+    ]
+    const off = await doorPage(page)
+    expect(await off.send(...inStack)).toEqual({ changed: [1] })
+    expect(await off.send(['text', 3, 'a'], ['put', 2, 3])).toEqual({ changed: [2] })
+    expect(stopped(await (await doorPage(page)).send(...inStack, ['put', ROOT, 1])).what).toBe(
+      short(0),
+    )
+    expect(await off.send(['text', 4, 'b'], ['put', 2, 4], ['put', ROOT, 1])).toEqual({
+      changed: [2, ROOT],
+    })
+    // And taken away whole, with what's short in it, nothing short is left on the page.
+    expect(
+      await off.send(['take', 2, 4], ['take', ROOT, 1], ['make', 5, 'Label', {}], ['put', ROOT, 5]),
+    ).toEqual({ changed: [ROOT] })
   })
 })
 

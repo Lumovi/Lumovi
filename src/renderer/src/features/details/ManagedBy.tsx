@@ -122,16 +122,7 @@ function ManagerIcon({ manager }: { manager: ManagedBy }) {
   const plugin = pluginNamed(manager.view.plugin)
   const className = 'mt-0.5 size-4 shrink-0 text-ink-3'
   return plugin?.place ? (
-    <PluginIcon
-      plugin={{
-        name: plugin.name,
-        source: plugin.source,
-        version: plugin.version,
-        added: plugin.added,
-        ...plugin.place,
-      }}
-      className={className}
-    />
+    <PluginIcon plugin={plugin.place} className={className} />
   ) : (
     <KindIcon kind={manager.kind} className={className} />
   )

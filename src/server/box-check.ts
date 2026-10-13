@@ -33,6 +33,17 @@ export interface Judged {
   out: string[]
   /** Whether it's the session's first such result for the box's walls as they are: said once. */
   first: boolean
+  /**
+   * Where a look couldn't be made (Lumovi's own page's, or a box's): a check that couldn't look
+   * didn't finish, whatever else it found nothing of. (Unfinished for this alone, it isn't offered
+   * again: the same browser couldn't look again.)
+   */
+  unlooked: string[]
+  /**
+   * The boxes whose reports came back in a form Lumovi couldn't read, where that alone failed it:
+   * nothing is known to have got out, and nothing says it did.
+   */
+  unreadable?: BoxCheckRole[]
 }
 
 /** What a page hands back of a check: each box's report, or nothing where one didn't answer. */
@@ -107,15 +118,17 @@ export class BoxChecks {
 
   /**
    * Judges the session's check `nonce`: what its boxes reported (nothing, for one that didn't
-   * answer), and which ways Lumovi's own page found under the check's names, as it never should.
-   * Nothing, for a nonce that isn't the session's check going: it's judged once. `late` is told if
-   * something reaches the catcher of it afterwards, while the nonce lives.
+   * answer), which ways Lumovi's own page found under the check's names, as it never should, and
+   * where that page couldn't look. Nothing, for a nonce that isn't the session's check going: it's
+   * judged once. `late` is told if something reaches the catcher of it afterwards, while the nonce
+   * lives.
    */
   end(
     key: string,
     nonce: string,
     reports: unknown,
     pageHeard: readonly string[],
+    pageUnlooked: readonly string[] = [],
     late: (judged: Judged) => void = () => {},
   ): Judged | undefined {
     const check = this.#checks.get(nonce)
@@ -146,20 +159,53 @@ export class BoxChecks {
         ...(judged.later?.found ?? []).map((look) => FOUND.later[look]),
       ]),
     ]
+    // Where a look couldn't be made: Lumovi's own page's (only the ways it looks for), and a box's
+    // where the box it looked for kept something. (A box's store refused, as a box's walls refuse
+    // it, is one no box kept in: nothing to find there, and nothing can reach a box through it.)
+    const kept = (role: 'first' | 'second', look: Look) => judged[role]?.ways?.[look] === 'sent'
+    const unlooked = [
+      ...new Set([
+        ...PAGE_SEES.filter((way) => pageUnlooked.includes(way)),
+        ...(judged.first?.unlooked ?? []).filter((look) => kept('second', look)),
+        ...(judged.second?.unlooked ?? []).filter((look) => kept('first', look)),
+        ...(judged.later?.unlooked ?? []).filter(
+          (look) => kept('first', look) || kept('second', look),
+        ),
+      ]),
+    ]
     const result: BoxCheckResult =
-      // What got out fails it, whatever was or wasn't said; silence (from any box), or lateness,
-      // is unfinished; a report that isn't whole (a way left out) fails.
+      // What got out fails it, whatever was or wasn't said; silence (from any box), lateness, or a
+      // look that couldn't be made is unfinished; a report that isn't whole (a way left out) fails.
       out.length > 0
         ? 'failed'
         : reports === undefined ||
             reports === null ||
             overdue ||
-            (whole && BOX_CHECK_ROLES.some(missing))
+            (whole && BOX_CHECK_ROLES.some(missing)) ||
+            unlooked.length > 0
           ? 'unfinished'
           : judged.first && judged.second && judged.later
             ? 'passed'
             : 'failed'
-    return this.#keep(key, { result, out })
+    // (Failed with nothing out: a report it couldn't read, which is said as that.)
+    const unreadable = whole
+      ? BOX_CHECK_ROLES.filter((role) => !missing(role) && !judged[role])
+      : [...BOX_CHECK_ROLES]
+    return this.#keep(key, {
+      result,
+      out,
+      unlooked: result === 'unfinished' ? unlooked : [],
+      ...(result === 'failed' && out.length === 0 && { unreadable }),
+    })
+  }
+
+  /**
+   * Whether the session's last result, for the box's walls as they are now, didn't finish because
+   * a look couldn't be made: a check that's no use running again in the same browser.
+   */
+  unlooked(key: string): boolean {
+    const kept = this.#results.get(key)
+    return kept?.policy === this.policy && kept.judged.unlooked.length > 0
   }
 
   /** The session's last result, if there's one for the box's walls as they are now. */
@@ -194,12 +240,12 @@ export class BoxChecks {
   #lateOut(check: Check, way: string): void {
     const kept = this.#results.get(check.key)
     if (kept?.policy === this.policy && kept.judged.result === 'failed') return
-    const judged = this.#keep(check.key, { result: 'failed', out: [way] })
+    const judged = this.#keep(check.key, { result: 'failed', out: [way], unlooked: [] })
     check.late!(judged)
     for (const failed of [...(this.#watching.get(check.key) ?? [])]) failed()
   }
 
-  #keep(key: string, { result, out }: Omit<Judged, 'first'>): Judged {
+  #keep(key: string, { result, out, unlooked, unreadable }: Omit<Judged, 'first'>): Judged {
     const before = this.#results.get(key)
     // A browser that let something out stays failed for its session: no later check, not even
     // one that started before the failure, makes it pass again.
@@ -210,8 +256,12 @@ export class BoxChecks {
     ) {
       return { ...before.judged, first: false }
     }
-    const first = before?.policy !== this.policy || before.judged.result !== result
-    const done = { result, out, first }
+    // (Couldn't look, or not where it couldn't before, is a result of its own: said once, too.)
+    const first =
+      before?.policy !== this.policy ||
+      before.judged.result !== result ||
+      before.judged.unlooked.join() !== unlooked.join()
+    const done = { result, out, first, unlooked, ...(unreadable && { unreadable }) }
     this.#results.delete(key)
     this.#results.set(key, { policy: this.policy, judged: done })
     // (Sessions come and go: the oldest results are let go first, so it stays small.)

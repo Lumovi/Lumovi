@@ -4,7 +4,9 @@
  * Here the plugin is found among those Lumovi has in use, the kind is looked up in what the
  * cluster serves, the plugin's grant is asked of it, the read is made as the person (their
  * cluster's rules and Lumovi's apply), and of what's read the plugin is handed what its file
- * says and nothing else: the page never holds more than the plugin may have.
+ * says and nothing else: the page never holds more than the plugin may have. Where its file
+ * says it reads a kind's usage (nodes', pods'), a read can ask for each object's live usage too,
+ * read with the objects as Lumovi's own pages read it.
  *
  * What isn't made comes back as a code; what the cluster said never does. Each read, made or
  * not, is in the audit history with the plugin's name, version and digest: once a while for the
@@ -17,6 +19,7 @@ import type {
   KubeObject,
   Result,
   SecretValuesQuery,
+  UsageSample,
 } from '@shared/api'
 import { mayCarryCode } from '@shared/plugin-loading'
 import {
@@ -24,11 +27,14 @@ import {
   handedWhole,
   kindAsked,
   picked,
+  pickedRefusal,
   READ_REFUSED,
   readQuery,
   resolvedAs,
   secretsNamed,
+  selectors,
   type HandedObject,
+  type NoUsage,
   type PluginRead,
   type PluginReadQuery,
   type ReadRefusal,
@@ -49,7 +55,7 @@ import { toKubeError } from './kube/errors'
 import type { KubeService } from './kube/service'
 
 export interface PluginReading {
-  kube: Pick<KubeService, 'resource' | 'list' | 'get'>
+  kube: Pick<KubeService, 'resource' | 'list' | 'get' | 'metrics'>
   /** The plugins in use, as the backend reads them now. */
   known: () => Promise<readonly Readonly<KnownPlugin>[]>
   audit: Recorder
@@ -118,16 +124,46 @@ export function pluginReads({ kube, known, audit }: PluginReading) {
     const kind = resolvedAs(resource.group, resource.apiKind)
     const handed = granted(plugin.grant, kind, 'objects')
     if (!handed) return refuse(where, plugin, 'not-granted')
+    // Its usage too, where it's asked for: its file must say it reads it, of a kind the cluster
+    // measures.
+    const measures = q.usage ? MEASURED[`${kind.group}/${kind.kind}`] : undefined
+    if (q.usage && (!measures || !granted(plugin.grant, kind, 'usage'))) {
+      return refuse(where, plugin, 'not-granted')
+    }
+    // A list picked by fields and labels: by those the cluster picks its kind by, and only by
+    // what its file says it reads of its objects.
+    const unpickable = pickedRefusal(kind, handed, q.fields, q.labels)
+    if (unpickable) return refuse(where, plugin, unpickable)
     const within = namespace === undefined ? {} : { namespace }
     const result: Result<KubeList | KubeObject> =
       q.name === undefined
-        ? await kube.list({ context: q.context, kind: resource.kind, ...within })
+        ? await kube.list({ context: q.context, kind: resource.kind, ...within, ...selectors(q) })
         : await kube.get({ context: q.context, kind: resource.kind, ...within, name: q.name })
     if (!result.ok) return refuse(where, plugin, refusalOf(result.error.code))
     const list = q.name === undefined ? (result.data as KubeList) : undefined
-    // More than Lumovi lists at once: never the first of them, as if they were all.
-    if (list?.truncated) return refuse(where, plugin, 'too-many')
+    // More than Lumovi lists at once: the first of them, as Lumovi's own lists have them, said
+    // to be the first (and of how many, where the cluster says). Never as if they were all:
+    // Lumovi's own page says so, whatever the plugin does with it.
+    const cut =
+      list?.truncated === true
+        ? { at: list.items.length, ...(list.total === undefined ? {} : { of: list.total }) }
+        : undefined
     const items = list ? list.items : [result.data as KubeObject]
+    // Usage as Lumovi's own pages read it, as the person: one read for all of them.
+    // Where none is, the objects are handed all the same, said to have none and why: nothing
+    // measures it here, or the person may read the objects and not their usage (as Lumovi's own
+    // pages show them without it).
+    let usage: Map<string, UsageSample> | undefined
+    let noUsage: NoUsage | undefined
+    if (measures) {
+      const measured = await kube.metrics({ context: q.context, target: measures, ...within })
+      if (!measured.ok && refusalOf(measured.error.code) !== 'not-allowed') {
+        return refuse(where, plugin, refusalOf(measured.error.code))
+      }
+      if (!measured.ok) noUsage = 'not-allowed'
+      else if (!measured.data.available) noUsage = 'unmeasured'
+      else usage = new Map(measured.data.items.map((sample) => [which(sample), sample]))
+    }
     const held = { fields: 0 }
     // The Secrets an object of its own kind names, where its file says where: of its own kinds
     // only, and from the object as it was read, before anything of it was picked.
@@ -135,26 +171,46 @@ export function pluginReads({ kube, known, audit }: PluginReading) {
     const declared = handed.whole
       ? (plugin.grant.secrets ?? []).filter((item) => item.kind === id)
       : []
-    const objects = items.map((item): HandedObject => ({
-      ...(item.metadata.namespace === undefined ? {} : { namespace: item.metadata.namespace }),
-      name: item.metadata.name,
-      object: handed.whole
-        ? handedWhole(item)
-        : picked(item, kind, handed.granted, plugin.grant.groups, held),
-      ...(declared.length === 0
-        ? {}
-        : {
-            secrets: declared.map(({ path, steps, keys }) => ({
-              path,
-              keys: [...keys],
-              names: secretsNamed(item, steps),
-            })),
-          }),
-    }))
+    const objects = items.map((item): HandedObject => {
+      const sample = usage?.get(which(item.metadata))
+      return {
+        ...(item.metadata.namespace === undefined ? {} : { namespace: item.metadata.namespace }),
+        name: item.metadata.name,
+        object: handed.whole
+          ? handedWhole(item)
+          : picked(item, kind, handed.granted, plugin.grant.groups, held),
+        ...(sample ? { usage: { cpu: sample.cpu, memory: sample.memory } } : {}),
+        ...(declared.length === 0
+          ? {}
+          : {
+              secrets: declared.map(({ path, steps, keys }) => ({
+                path,
+                keys: [...keys],
+                names: secretsNamed(item, steps),
+              })),
+            }),
+      }
+    })
     record(audit, q, where, plugin)
-    return { ok: true, answer: { kind: resource.kind, objects, held: held.fields } }
+    return {
+      ok: true,
+      answer: {
+        kind: resource.kind,
+        objects,
+        held: held.fields,
+        ...(noUsage && { noUsage }),
+        ...(cut && { cut }),
+      },
+    }
   }
 }
+
+/** The kinds the cluster measures the usage of, as Lumovi reads it: the metrics API's names. */
+const MEASURED: Readonly<Record<string, 'nodes' | 'pods'>> = { '/Node': 'nodes', '/Pod': 'pods' }
+
+/** An object, or its usage, by where it is and its name. */
+const which = ({ namespace, name }: { namespace?: string; name: string }) =>
+  `${namespace ?? ''}\u0000${name}`
 
 /**
  * A read, made or refused, in the audit history: the plugin by its name, version and digest
@@ -179,10 +235,22 @@ function record(
   const who: Record<string, string> = plugin
     ? { plugin: plugin.name, pluginVersion: plugin.version, pluginDigest: plugin.digest }
     : { plugin: q.plugin }
+  // How a list was picked, as the cluster was asked: in the history as it was asked for.
+  const { fieldSelector, labelSelector } = plugin ? selectors(q) : {}
   // A plugin Lumovi has in use: each of its reads apart. One it hasn't (by any name a page cares
   // to send): one entry a while, whatever it was called, so new names can't fill the history.
   const same = plugin
-    ? [q.context, who, where.kind, namespace ?? '', q.name ?? '', refused ?? '']
+    ? [
+        q.context,
+        who,
+        where.kind,
+        namespace ?? '',
+        q.name ?? '',
+        q.usage ?? false,
+        fieldSelector ?? '',
+        labelSelector ?? '',
+        refused ?? '',
+      ]
     : [q.context, refused]
   audit.read(`plugin-read:${JSON.stringify(same)}`, {
     action: 'plugin.read',
@@ -195,7 +263,13 @@ function record(
       ...(namespace === undefined ? {} : { namespace }),
     },
     summary: `Read ${what} for the plugin ${q.plugin}`,
-    details: { ...who, ...(refused === undefined ? {} : { refused }) },
+    details: {
+      ...who,
+      ...(q.usage ? { usage: true } : {}),
+      ...(fieldSelector === undefined ? {} : { fieldSelector }),
+      ...(labelSelector === undefined ? {} : { labelSelector }),
+      ...(refused === undefined ? {} : { refused }),
+    },
   })
 }
 
@@ -206,6 +280,7 @@ const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'not-in-use',
   'not-allowed',
   'too-many',
+  'not-pickable',
 ])
 
 /** What's said when a plugin's page asks for keys of a Secret its file doesn't say it shows. */

@@ -2,8 +2,9 @@
  * The door, for reading: what a plugin's code may ask Lumovi to read from the cluster, and what
  * it's handed. Three things, all plain:
  *
- * - the grammar of an ask (`readAsk`): a list kept up to date, one object, an object's events,
- *   its usage; or the end of one, or a refresh. Anything else stops the plugin;
+ * - the grammar of an ask (`readAsk`): a list kept up to date, or one object (either with its
+ *   objects' live usage, if asked), an object's events; or the end of one, or a refresh. Anything
+ *   else stops the plugin;
  * - the grant's check (`granted`): a plugin's file says what it reads (`spec.reads`), kind by
  *   kind; what isn't said there is refused, where the read is made and never on the page;
  * - the picking (`picked`): of an object of Kubernetes' own, a plugin is handed the fields its
@@ -12,6 +13,7 @@
  * And the counting (`PageReads`): how many lists a page keeps, how fast it asks.
  */
 import type { Step } from './jsonpath'
+import { LABEL_TERM } from './kit/declare'
 import type { Stopped } from './plugin-door'
 import { isCustomGroup, type ResourceKind } from './resources'
 
@@ -72,14 +74,29 @@ export interface SecretsNamed {
   keys: readonly string[]
 }
 
-/** What a plugin's code asks. `read` is the ask's own number: new, as a part's is. */
+/**
+ * What a plugin's code asks. `read` is the ask's own number: new, as a part's is. A list or one
+ * object can be asked for `usage` too: each object is then handed with its live usage, as Lumovi
+ * shows it, read with it (one read for a list's every object, never one each). A list can be of
+ * the objects whose `fields` have these values (`{ 'spec.nodeName': '' }`: pods on no node yet)
+ * and that have these `labels` (terms, as a list's filter writes them): the cluster picks them,
+ * so a page asks for what it shows and no more.
+ */
 export type ReadAsk =
   /** Every object of a kind (in a namespace, or all it may see), kept up to date. */
-  | { read: number; what: 'list'; kind: string; namespace?: string }
+  | {
+      read: number
+      what: 'list'
+      kind: string
+      namespace?: string
+      usage?: true
+      fields?: Readonly<Record<string, string>>
+      labels?: readonly string[]
+    }
   /** One object, kept up to date. */
-  | { read: number; what: 'object'; kind: string; namespace?: string; name: string }
-  /** The events, or the usage, of an object Lumovi handed it: named by Lumovi's token for it. */
-  | { read: number; what: 'events' | 'usage'; of: string }
+  | { read: number; what: 'object'; kind: string; namespace?: string; name: string; usage?: true }
+  /** The events of an object Lumovi handed it: named by Lumovi's token for it. */
+  | { read: number; what: 'events'; of: string }
   /** The end of a read it began. */
   | { stop: number }
   /** Its lists read again from the cluster. */
@@ -91,6 +108,52 @@ const KIND = /^(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?)?\/[A-Z][A-Za-z0-9]{0,6
 const NAME = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/
 /** An object's token, as the door gives them out. */
 const TOKEN = /^[A-Za-z0-9_-]{1,64}$/
+
+/** A field a list is picked by, as a path of field names (`spec.nodeName`). */
+const FIELD_PATH = /^(?=.{3,63}$)[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*){1,3}$/
+/**
+ * The value it has: a name (a node's, say), a word (a phase), or nothing (`spec.nodeName` of a
+ * pod on no node yet). Never a character a selector would read as more than a value.
+ */
+const FIELD_VALUE = /^[A-Za-z0-9._-]{0,253}$/
+/** Fields a list is picked by, and label terms: at most this many of each. */
+export const PICKED_AT_MOST = 4
+
+/**
+ * What's wrong with how a list is picked (its `fields` and `labels`, each as written, or not
+ * said), or nothing: one to four fields, each a path and a value; one to four label terms, each
+ * once. Said by `readAsk`, and by `readQuery` of a page's read in the same words.
+ */
+function pickedProblem(fields: unknown, labels: unknown): string | undefined {
+  if (fields !== undefined) {
+    const entries =
+      typeof fields === 'object' && fields !== null && !Array.isArray(fields)
+        ? Object.entries(fields)
+        : []
+    if (
+      entries.length < 1 ||
+      entries.length > PICKED_AT_MOST ||
+      !entries.every(
+        ([path, value]) =>
+          FIELD_PATH.test(path) && typeof value === 'string' && FIELD_VALUE.test(value),
+      )
+    ) {
+      return `picks a list by fields that aren’t one to ${PICKED_AT_MOST} fields, each with a value`
+    }
+  }
+  if (labels !== undefined) {
+    if (
+      !Array.isArray(labels) ||
+      labels.length < 1 ||
+      labels.length > PICKED_AT_MOST ||
+      new Set(labels).size !== labels.length ||
+      !labels.every((term) => typeof term === 'string' && LABEL_TERM.test(term))
+    ) {
+      return `picks a list by labels that aren’t one to ${PICKED_AT_MOST} label terms, each once`
+    }
+  }
+  return undefined
+}
 
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value > 0
@@ -131,7 +194,8 @@ export function readAsk(message: unknown): ReadAsk | Stopped {
     case 'list':
     case 'object': {
       const one = said.what === 'object'
-      if (!has(said, 'read', 'what', 'kind', 'namespace', ...(one ? ['name'] : []))) {
+      const keys = one ? ['name'] : ['fields', 'labels']
+      if (!has(said, 'read', 'what', 'kind', 'namespace', 'usage', ...keys)) {
         return notAllowed('an ask with something it doesn’t take')
       }
       if (typeof said.kind !== 'string' || !KIND.test(said.kind)) {
@@ -141,16 +205,36 @@ export function readAsk(message: unknown): ReadAsk | Stopped {
       if (namespace !== undefined && (typeof namespace !== 'string' || !NAME.test(namespace))) {
         return notAllowed('asks in a namespace that isn’t one')
       }
-      const within = namespace === undefined ? {} : { namespace }
-      if (!one) return { read, what: 'list', kind: said.kind, ...within }
+      // (Asked for, or not said: nothing else stands for either.)
+      const usage = Object.hasOwn(said, 'usage') ? said.usage : undefined
+      if (usage !== undefined && usage !== true) {
+        return notAllowed('asks for usage with something other than true')
+      }
+      const within = {
+        ...(namespace === undefined ? {} : { namespace }),
+        ...(usage === true ? { usage: true as const } : {}),
+      }
+      if (!one) {
+        const fields = Object.hasOwn(said, 'fields') ? said.fields : undefined
+        const labels = Object.hasOwn(said, 'labels') ? said.labels : undefined
+        const wrong = pickedProblem(fields, labels)
+        if (wrong) return notAllowed(wrong)
+        return {
+          read,
+          what: 'list',
+          kind: said.kind,
+          ...within,
+          ...(fields === undefined ? {} : { fields: { ...(fields as Record<string, string>) } }),
+          ...(labels === undefined ? {} : { labels: [...(labels as string[])] }),
+        }
+      }
       const name = Object.hasOwn(said, 'name') ? said.name : undefined
       if (typeof name !== 'string' || !NAME.test(name)) {
         return notAllowed('asks for an object by a name that isn’t one')
       }
       return { read, what: 'object', kind: said.kind, ...within, name }
     }
-    case 'events':
-    case 'usage': {
+    case 'events': {
       if (!has(said, 'read', 'what', 'of')) {
         return notAllowed('an ask with something it doesn’t take')
       }
@@ -158,7 +242,7 @@ export function readAsk(message: unknown): ReadAsk | Stopped {
       if (typeof of !== 'string' || !TOKEN.test(of)) {
         return notAllowed('asks about an object Lumovi didn’t hand it')
       }
-      return { read, what: said.what as 'events' | 'usage', of }
+      return { read, what: 'events', of }
     }
     default:
       return notAllowed('an ask that isn’t one')
@@ -298,6 +382,54 @@ export function readable(
   if (!steps.every((step) => 'key' in step)) return false
   if (lines.some((line) => isLine(steps, line))) return true
   return ownAnnotation(steps as readonly { key: string }[], groups) === true
+}
+
+/**
+ * The fields a list can be picked by, by kind: those the cluster picks by (its field selectors)
+ * that a plugin can be granted, of Kubernetes' own kinds; and of every kind, its name and its
+ * namespace. A field not here picks nothing, whatever a file grants.
+ */
+export const PICKED_BY: Readonly<Record<string, readonly string[]>> = {
+  '/Pod': ['spec.nodeName', 'status.phase'],
+}
+const PICKED_BY_ANY = ['metadata.name', 'metadata.namespace']
+
+/**
+ * Whether a list of `kind` may be picked by these fields and labels, for a plugin handed its
+ * objects as `handed` says: each field one the cluster picks by, and one its file grants (any,
+ * of its own kinds, which it reads whole); labels only where it may read an object's labels. A
+ * list is never picked by what its plugin couldn't read of its objects. Nothing when it may.
+ */
+export function pickedRefusal(
+  kind: ResolvedKind,
+  handed: Handed,
+  fields: Readonly<Record<string, string>> | undefined,
+  labels: readonly string[] | undefined,
+): 'not-granted' | 'not-pickable' | undefined {
+  const ofKind = Object.hasOwn(PICKED_BY, idOf(kind)) ? PICKED_BY[idOf(kind)]! : []
+  const pickable = [...PICKED_BY_ANY, ...ofKind]
+  const reads = (line: string) =>
+    handed.whole || handed.granted.fields.some(({ steps }) => isLine(steps, line))
+  for (const path of Object.keys(fields ?? {})) {
+    if (!pickable.includes(path)) return 'not-pickable'
+    if (!reads(path)) return 'not-granted'
+  }
+  if (labels !== undefined && !reads('metadata.labels')) return 'not-granted'
+  return undefined
+}
+
+/** How a list is picked, as the cluster takes it: a field selector and a label selector. */
+export function selectors(picked: {
+  fields?: Readonly<Record<string, string>>
+  labels?: readonly string[]
+}): { fieldSelector?: string; labelSelector?: string } {
+  const fields = Object.entries(picked.fields ?? {})
+  return {
+    ...(fields.length === 0
+      ? {}
+      : { fieldSelector: fields.map(([path, value]) => `${path}=${value}`).join(',') }),
+    ...(picked.labels === undefined ? {} : { labelSelector: picked.labels.join(',') }),
+  }
 }
 
 /**
@@ -588,6 +720,18 @@ export interface PluginReadQuery {
   namespace?: string
   /** One object; none for a list. */
   name?: string
+  /** Each object's live usage too, which its file must grant (`usage: true` on its read). */
+  usage?: true
+  /** A list's objects with these values of these fields, which its file must grant. */
+  fields?: Readonly<Record<string, string>>
+  /** A list's objects with these labels: its file must grant an object's labels. */
+  labels?: readonly string[]
+}
+
+/** An object's live usage, as Lumovi shows it: CPU in cores, memory in bytes. */
+export interface HandedUsage {
+  cpu: number
+  memory: number
 }
 
 /** An object handed to a plugin's page: which, and what the plugin may have of it. */
@@ -595,6 +739,8 @@ export interface HandedObject {
   namespace?: string
   name: string
   object: Record<string, unknown>
+  /** Its live usage, where it was asked for and the cluster measures it. */
+  usage?: HandedUsage
   /**
    * The Secrets it names by each path its plugin's file declares for its kind, read from the
    * object as Lumovi read it (never from what the plugin is handed): for the page to make a
@@ -610,7 +756,30 @@ export interface PluginReadAnswer {
   objects: HandedObject[]
   /** How many fields of what its file names were held back: said once, to its author. */
   held: number
+  /**
+   * Where usage was asked for and no object has any: why. (An object can have none where the
+   * rest do: one just started, say.)
+   */
+  noUsage?: NoUsage
+  /**
+   * A list with more objects than Lumovi lists at once (as its own lists have, and say): the
+   * first `at`, which are these, of `of` where the cluster said how many there are. Lumovi's own
+   * page says so whenever a read is cut, in a line its plugin can't hide.
+   */
+  cut?: Cut
 }
+
+/** How a list was cut: the first `at` of it read, of `of` where the cluster said how many. */
+export interface Cut {
+  at: number
+  of?: number
+}
+
+/**
+ * Why a read asked for usage has none: nothing measures it in this cluster (no metrics API), or
+ * the person may read the objects and not their usage.
+ */
+export type NoUsage = 'unmeasured' | 'not-allowed'
 
 /**
  * Why a read for a plugin wasn't made, or failed: a code, and Lumovi's own sentence for it
@@ -629,11 +798,13 @@ export type ReadRefusal =
   | 'not-found'
   /** The person may not read it: the cluster's rules, or Lumovi's. */
   | 'not-allowed'
-  /** More objects than Lumovi hands a page at once. */
+  /** More objects than Lumovi hands a page at once: its share of them, or its plugin's. */
   | 'too-many'
+  /** A list picked by a field the cluster doesn't pick its kind by, or Lumovi doesn't. */
+  | 'not-pickable'
   | 'unreachable'
   | 'failed'
-  /** A read Lumovi doesn't make for a plugin yet: an object's events, or its usage. */
+  /** A read Lumovi doesn't make for a plugin yet: an object's events. */
   | 'not-yet'
   /** The plugin's file or code isn't what the page was handed with: it changed since. */
   | 'changed'
@@ -648,6 +819,7 @@ export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
   'not-allowed': 'Whoever is using Lumovi isn’t allowed to read this.',
   'too-many':
     'There are more of these than Lumovi hands a page at once: ask within one namespace, or for one by name.',
+  'not-pickable': 'Lumovi doesn’t pick objects of this kind by that field.',
   unreachable: 'The cluster didn’t answer.',
   failed: 'Lumovi couldn’t read this.',
   'not-yet': 'Lumovi doesn’t read this for a plugin yet.',
@@ -665,11 +837,15 @@ export type PluginRead =
 export function readQuery(value: unknown): PluginReadQuery | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const q = value as Record<string, unknown>
-  if (!has(q, 'context', 'plugin', 'digest', 'codeDigest', 'kind', 'namespace', 'name')) {
-    return undefined
-  }
+  const keys = ['context', 'plugin', 'digest', 'codeDigest', 'kind', 'namespace', 'name', 'usage']
+  if (!has(q, ...keys, 'fields', 'labels')) return undefined
   const optional = (key: string) => (Object.hasOwn(q, key) ? q[key] : undefined)
   const { namespace, name } = { namespace: optional('namespace'), name: optional('name') }
+  const usage = optional('usage')
+  const { fields, labels } = { fields: optional('fields'), labels: optional('labels') }
+  // (Only a list is picked: one object is named.)
+  const whole = fields === undefined && labels === undefined
+  if (!whole && (name !== undefined || pickedProblem(fields, labels))) return undefined
   const fine =
     typeof q.context === 'string' &&
     q.context !== '' &&
@@ -682,7 +858,8 @@ export function readQuery(value: unknown): PluginReadQuery | undefined {
     typeof q.kind === 'string' &&
     KIND.test(q.kind) &&
     (namespace === undefined || (typeof namespace === 'string' && NAME.test(namespace))) &&
-    (name === undefined || (typeof name === 'string' && NAME.test(name)))
+    (name === undefined || (typeof name === 'string' && NAME.test(name))) &&
+    (usage === undefined || usage === true)
   if (!fine) return undefined
   return {
     context: q.context as string,
@@ -692,6 +869,9 @@ export function readQuery(value: unknown): PluginReadQuery | undefined {
     kind: q.kind as string,
     ...(namespace === undefined ? {} : { namespace: namespace as string }),
     ...(name === undefined ? {} : { name: name as string }),
+    ...(usage === true ? { usage: true as const } : {}),
+    ...(fields === undefined ? {} : { fields: { ...(fields as Record<string, string>) } }),
+    ...(labels === undefined ? {} : { labels: [...(labels as string[])] }),
   }
 }
 

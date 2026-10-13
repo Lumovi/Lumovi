@@ -46,9 +46,14 @@ const READS: readonly string[] = [
   IPC.get,
   IPC.secretValues,
   IPC.pluginRead,
-  // (Whether a plugin's code would be handed: said, never the code. `IPC.pluginCode` is no
-  // phone's: a phone's plugin page says first that it needs a larger screen.)
+  // A plugin's code, and whether it would be handed: on a phone as anywhere, the hand-over's own
+  // answer (`mayHandOver`) gives it or says why not, after the check of this browser's box, which
+  // runs on a phone as on any server's browser. Nothing of them changes a cluster: what a
+  // plugin's page may start on a phone is `mayStart`'s to say, and never a change.
   IPC.pluginHandOver,
+  IPC.pluginCode,
+  IPC.boxCheckStart,
+  IPC.boxCheckEnd,
   IPC.metrics,
   IPC.can,
   IPC.history,

@@ -5,6 +5,9 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  cut,
+  destination,
+  handed,
   handedFields,
   handler,
   list,
@@ -25,6 +28,7 @@ import {
   ON_A_LARGER_SCREEN,
   swapFor,
   Tokens,
+  unnamedLine,
 } from '../../src/shared/plugin-presses.ts'
 
 const POD = { kind: '/Pod', namespace: 'shop', name: 'cart-1' }
@@ -198,7 +202,7 @@ test('an object that leaves a read gives its place back, and its token is no mor
 })
 
 test('a Secret an object names keeps its token while the object names it, and goes with the object', () => {
-  const page = new Tokens({ objects: 0 }, counting())
+  const page = new Tokens({ objects: 0 })
   page.hand(1, [POD, { ...POD, name: 'cart-2' }])
   const db = { ...SECRET, name: 'shop-db', keys: ['password'] }
   const [tls, first] = page.secrets(1, POD, [SECRET, db]) as string[]
@@ -229,7 +233,7 @@ test('a Secret an object names keeps its token while the object names it, and go
 })
 
 test('how many Secrets a page is handed is bounded by refusing, never by taking any back', () => {
-  const page = new Tokens({ objects: 0 }, counting())
+  const page = new Tokens({ objects: 0 })
   const owners = pods(HANDED_LIMITS.secretsAPage / 20 + 1)
   page.hand(1, owners)
   const twenty = (n: number) =>
@@ -326,10 +330,10 @@ test('nothing the door swaps can be required: a part is always written to draw w
   })
   expect(wrongWithPart(ROWS)).toBeUndefined()
   expect(wrongWithPart(part({ opens: object }, ['opens']))).toBe(
-    'A.opens: an object or a Secret can’t be required',
+    'A.opens: an object, a Secret or a list to open can’t be required',
   )
   expect(wrongWithPart(part({ shows: secret }, ['shows']))).toBe(
-    'A.shows: an object or a Secret can’t be required',
+    'A.shows: an object, a Secret or a list to open can’t be required',
   )
   expect(
     wrongWithPart(part({ row: record({ key: text(8), opens: object }, ['key', 'opens']) })),
@@ -377,6 +381,93 @@ test('only a reference the door put in a component’s hands opens anything', ()
   }
   // A token never minted for this page isn't a destination just because it was looked up.
   expect(page.objectOf('made-up')).toBeUndefined()
+})
+
+test('a list to open is one the door made: of a kind its file names, the same each time, opened only so', () => {
+  const page = new Tokens({ objects: 0 })
+  const kinds = new Set(['NodePool.karpenter.sh', 'Node'])
+  const swap = swapFor(page, () => undefined, undefined, kinds)
+  const pools = swap.destination({ list: 'karpenter.sh/NodePool', health: ['critical'] })!
+  expect(pools).toEqual({ to: 'list', kind: 'NodePool.karpenter.sh', health: ['critical'] })
+  expect(Object.isFrozen(pools) && Object.isFrozen(pools.health)).toBe(true)
+  // Said the same way, the same one: a page drawn again hands its part what it had.
+  expect(swap.destination({ list: 'karpenter.sh/NodePool', health: ['critical'] })).toBe(pools)
+  expect(swap.destination({ list: '/Node', labels: ['karpenter.sh/nodepool'] })).toEqual({
+    to: 'list',
+    kind: 'Node',
+    labels: ['karpenter.sh/nodepool'],
+  })
+  // Its levels said in another order: the same one.
+  const both = swap.destination({ list: '/Node', health: ['warning', 'critical'] })
+  expect(swap.destination({ list: '/Node', health: ['critical', 'warning'] })).toBe(both)
+  // A kind its file doesn't name opens nothing, and its author is told which, once a page; nor
+  // does a list another page's door made open anything, or one that only looks like it.
+  const unnamed: string[] = []
+  const telling = swapFor(
+    page,
+    () => undefined,
+    undefined,
+    kinds,
+    (kind) => unnamed.push(kind),
+  )
+  expect(telling.destination({ list: '/Secret' })).toBeUndefined()
+  expect(unnamed).toEqual(['/Secret'])
+  expect([page.unnamedToSay(), page.unnamedToSay()]).toEqual([true, false])
+  expect(unnamedLine('karpenter.sh/NodeClass', 'argo-workflows’')).toBe(
+    'Lumovi opens no list of karpenter.sh/NodeClass for argo-workflows’ page: its file doesn’t name that kind.',
+  )
+  expect(swap.destination({ list: '/Secret' })).toBeUndefined()
+  expect(swapFor(page, () => undefined).destination({ list: '/Node' })).toBeUndefined()
+  expect(page.destinationOf(pools)).toBe(pools)
+  expect(page.destinationOf({ ...pools })).toBeUndefined()
+  expect(new Tokens({ objects: 0 }).destinationOf(pools)).toBeUndefined()
+  // A part's property, as the door hands it: the list it made.
+  expect(handed({ list: 'karpenter.sh/NodePool', health: ['critical'] }, destination, swap)).toBe(
+    pools,
+  )
+  // Past a page's share of them, one more opens nothing (and those made still do).
+  for (let i = 0; i < HANDED_LIMITS.destinationsAPage; i++) {
+    swap.destination({ list: '/Node', labels: [`l${i}`] })
+  }
+  expect(swap.destination({ list: '/Node', labels: ['one-more'] })).toBeUndefined()
+  expect(page.destinationOf(pools)).toBe(pools)
+})
+
+test('how a read was cut is the door’s numbers for its latest answer: a stale, borrowed or ended token says nothing', () => {
+  const page = new Tokens({ objects: 0 })
+  let stale = 0
+  const swap = swapFor(
+    page,
+    () => undefined,
+    () => stale++,
+  )
+  const first = page.cutFor(1, { at: 5000, of: 12345 })
+  expect(swap.cut(first)).toEqual({ at: 5000, of: 12345 })
+  expect(Object.isFrozen(swap.cut(first))).toBe(true)
+  expect(handed(first, cut, swap)).toEqual({ at: 5000, of: 12345 })
+  // Read again and cut again: a new token, and the one before it says nothing any more, so a
+  // part still naming it (drawn from the answer before) has no cut to say.
+  const second = page.cutFor(1, { at: 5000 })
+  expect(second).not.toBe(first)
+  expect(swap.cut(first)).toBeUndefined()
+  expect(swap.cut(second)).toEqual({ at: 5000 })
+  // Another read's token is that read's: ending one leaves the other.
+  const other = page.cutFor(2, { at: 5000, of: 7000 })
+  // A token of another page's, or one made up: nothing, whatever it looks like.
+  const elsewhere = new Tokens({ objects: 0 }).cutFor(1, { at: 5000, of: 99999 })
+  expect(swap.cut(elsewhere)).toBeUndefined()
+  expect(swap.cut('cut-1')).toBeUndefined()
+  // Answered whole: the read's token is no more. Ended, likewise; and every one with the page.
+  page.uncut(1)
+  expect(swap.cut(second)).toBeUndefined()
+  expect(swap.cut(other)).toEqual({ at: 5000, of: 7000 })
+  const third = page.cutFor(1, { at: 5000 })
+  page.ended(1)
+  expect(swap.cut(third)).toBeUndefined()
+  page.close()
+  expect(swap.cut(other)).toBeUndefined()
+  // (Each one not held is said to its author as any token not held is, once a page.)
+  expect(stale).toBe(6)
 })
 
 test('what a component was handed opens nothing once its read has ended, or its page has gone', () => {

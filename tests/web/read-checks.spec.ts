@@ -16,10 +16,12 @@ import {
   type kindAsked,
   type PageReads,
   type picked,
+  type pickedRefusal,
   type readable,
   type readAsk,
   type readQuery,
   type secretsNamed,
+  type selectors,
   type Grant,
   type Granted,
 } from '../../src/shared/plugin-reads.ts'
@@ -32,10 +34,12 @@ interface ReadChecks {
   kindAsked: typeof kindAsked
   PageReads: typeof PageReads
   picked: typeof picked
+  pickedRefusal: typeof pickedRefusal
   readable: typeof readable
   readAsk: typeof readAsk
   readQuery: typeof readQuery
   secretsNamed: typeof secretsNamed
+  selectors: typeof selectors
 }
 /** The page's window, as the stage lends it. */
 type Lent = { __lumoviDoor: { doorChecks: ReadChecks } }
@@ -73,6 +77,10 @@ function checksIn(page: Page) {
       call<ReturnType<typeof kindAsked>>('kindAsked', args),
     secretsNamed: (...args: Parameters<typeof secretsNamed>) =>
       call<ReturnType<typeof secretsNamed>>('secretsNamed', args),
+    pickedRefusal: (...args: Parameters<typeof pickedRefusal>) =>
+      call<ReturnType<typeof pickedRefusal>>('pickedRefusal', args),
+    selectors: (...args: Parameters<typeof selectors>) =>
+      call<ReturnType<typeof selectors>>('selectors', args),
   }
 }
 
@@ -166,7 +174,28 @@ test('an ask is one of five things, each with exactly its own words', async ({ p
     { read: 3, what: 'object', kind: 'apps/Deployment', namespace: 'shop', name: 'cart' },
     { read: 4, what: 'object', kind: '/Node', name: 'ip-10-0-1-5.eu-west-1.compute.internal' },
     { read: 5, what: 'events', of: 'o_17' },
-    { read: 6, what: 'usage', of: 'o_17' },
+    { read: 6, what: 'list', kind: '/Node', usage: true },
+    { read: 7, what: 'object', kind: '/Pod', namespace: 'shop', name: 'cart-7d9f', usage: true },
+    // A list picked by its objects' fields and labels: pods on no node yet; nodes of a pool.
+    { read: 8, what: 'list', kind: '/Pod', fields: { 'spec.nodeName': '' } },
+    {
+      read: 9,
+      what: 'list',
+      kind: '/Node',
+      labels: ['karpenter.sh/nodepool', 'karpenter.sh/capacity-type=spot'],
+    },
+    {
+      read: 10,
+      what: 'list',
+      kind: '/Pod',
+      namespace: 'shop',
+      usage: true,
+      fields: {
+        'status.phase': 'Pending',
+        'spec.nodeName': 'ip-10-0-1-5.eu-west-1.compute.internal',
+      },
+      labels: ['app'],
+    },
     { stop: 3 },
     { refresh: true },
   ]
@@ -216,6 +245,43 @@ test('anything else stops the plugin: a word too many, a kind or a name that isn
     { read: 1, what: 'events', of: { kind: 'Secret', name: 'a' } },
     { read: 1, what: 'events', of: '../o_1' },
     { read: 1, what: 'usage', of: 'o_1', kind: '/Node' },
+    { read: 1, what: 'usage', of: 'o_1' },
+    { read: 1, what: 'list', kind: '/Node', usage: false },
+    { read: 1, what: 'object', kind: '/Node', name: 'a', usage: 'yes' },
+    // One object is named, never picked.
+    {
+      read: 1,
+      what: 'object',
+      kind: '/Pod',
+      namespace: 'a',
+      name: 'b',
+      fields: { 'spec.nodeName': '' },
+    },
+    { read: 1, what: 'object', kind: '/Node', name: 'a', labels: ['app'] },
+    // Fields: one to four, each a path of field names and a value a selector reads as a value.
+    { read: 1, what: 'list', kind: '/Pod', fields: {} },
+    { read: 1, what: 'list', kind: '/Pod', fields: 'spec.nodeName=' },
+    {
+      read: 1,
+      what: 'list',
+      kind: '/Pod',
+      fields: { 'a.b': '', 'a.c': '', 'a.d': '', 'a.e': '', 'a.f': '' },
+    },
+    { read: 1, what: 'list', kind: '/Pod', fields: { spec: '' } },
+    { read: 1, what: 'list', kind: '/Pod', fields: { 'spec.node-name': '' } },
+    { read: 1, what: 'list', kind: '/Pod', fields: { 'Spec.nodeName': '' } },
+    { read: 1, what: 'list', kind: '/Pod', fields: { [`spec.${'n'.repeat(60)}`]: '' } },
+    { read: 1, what: 'list', kind: '/Pod', fields: { 'spec.nodeName': 'a,status.phase=Running' } },
+    { read: 1, what: 'list', kind: '/Pod', fields: { 'status.phase': '!Running' } },
+    { read: 1, what: 'list', kind: '/Pod', fields: { 'status.phase': 1 } },
+    // Labels: one to four terms, each once, as a list's filter writes them.
+    { read: 1, what: 'list', kind: '/Node', labels: [] },
+    { read: 1, what: 'list', kind: '/Node', labels: 'app' },
+    { read: 1, what: 'list', kind: '/Node', labels: ['a', 'b', 'c', 'd', 'e'] },
+    { read: 1, what: 'list', kind: '/Node', labels: ['app', 'app'] },
+    { read: 1, what: 'list', kind: '/Node', labels: ['!app'] },
+    { read: 1, what: 'list', kind: '/Node', labels: ['app in (a,b)'] },
+    { read: 1, what: 'list', kind: '/Node', labels: [7] },
     { stop: 1, read: 2 },
     { stop: '1' },
     { refresh: 1 },
@@ -307,6 +373,47 @@ test('what a file doesn’t say is refused: by kind, and by what’s read of it'
   for (const group of ['x.kubernetes.io', 'kubernetes.io', 'k8s.io']) {
     expect(await granted(named, resolvedAs(group, 'Thing'), 'objects'), group).toBeUndefined()
   }
+})
+
+test('a list is picked by fields the cluster picks its kind by, and only by what the plugin reads of it', async ({
+  page,
+  serve,
+}) => {
+  const { granted, pickedRefusal, selectors } = checksIn(await opened(page, serve))
+  const pods = (await granted(GRANT, POD, 'objects'))!
+  const nodes = (await granted(GRANT, NODE, 'objects'))!
+  const own = (await granted(GRANT, NODE_POOL, 'objects'))!
+  // Pods on no node yet: a field the cluster picks pods by, which its file grants.
+  expect(await pickedRefusal(POD, pods, { 'spec.nodeName': '' }, undefined)).toBeUndefined()
+  expect(await pickedRefusal(POD, pods, { 'metadata.name': 'cart' }, undefined)).toBeUndefined()
+  // A phase the cluster picks by, which its file doesn't grant; labels it can't read.
+  expect(await pickedRefusal(POD, pods, { 'status.phase': 'Pending' }, undefined)).toBe(
+    'not-granted',
+  )
+  expect(await pickedRefusal(POD, pods, undefined, ['app'])).toBe('not-granted')
+  // A field the cluster doesn't pick by, granted or not.
+  expect(await pickedRefusal(NODE, nodes, { 'status.capacity': '4' }, undefined)).toBe(
+    'not-pickable',
+  )
+  expect(await pickedRefusal(POD, pods, { 'spec.hostname': 'a' }, undefined)).toBe('not-pickable')
+  // Labels where it reads an object's labels.
+  expect(await pickedRefusal(NODE, nodes, undefined, ['karpenter.sh/nodepool'])).toBeUndefined()
+  // Its own kinds, read whole: picked by their name and namespace, and any labels; no other
+  // field, since the cluster picks a tool's kinds by no other.
+  expect(
+    await pickedRefusal(NODE_POOL, own, { 'metadata.namespace': 'a', 'metadata.name': 'b' }, ['x']),
+  ).toBeUndefined()
+  expect(await pickedRefusal(NODE_POOL, own, { 'spec.weight': '1' }, undefined)).toBe(
+    'not-pickable',
+  )
+  // As the cluster is asked: a field selector and a label selector.
+  expect(
+    await selectors({
+      fields: { 'spec.nodeName': '', 'status.phase': 'Pending' },
+      labels: ['a', 'b=c'],
+    }),
+  ).toEqual({ fieldSelector: 'spec.nodeName=,status.phase=Pending', labelSelector: 'a,b=c' })
+  expect(await selectors({})).toEqual({})
 })
 
 test('a plugin that claims every kind of a group reads each of them whole, and no other group’s', async ({
@@ -415,6 +522,15 @@ test('a read the backend takes from Lumovi’s page has exactly its keys, each o
       namespace: 'shop',
       name: 'cart-7d9f',
     },
+    { context: 'demo', plugin: 'karpenter', ...handed, kind: '/Node', usage: true },
+    {
+      context: 'demo',
+      plugin: 'karpenter',
+      ...handed,
+      kind: '/Pod',
+      fields: { 'spec.nodeName': '' },
+      labels: ['app=cart'],
+    },
   ]
   for (const query of fine) expect(await readQuery(query), JSON.stringify(query)).toEqual(query)
   // (Left out, and said as nothing, are the same. Made in the page, so the key is there, said as
@@ -437,6 +553,8 @@ test('a read the backend takes from Lumovi’s page has exactly its keys, each o
     'demo',
     [fine[0]],
     { ...fine[0], also: 1 },
+    { ...fine[0], usage: false },
+    { ...fine[0], usage: 'yes' },
     { ...fine[0], context: '' },
     { ...fine[0], digest: undefined },
     { ...fine[0], codeDigest: 'sha256:abc' },
@@ -452,6 +570,13 @@ test('a read the backend takes from Lumovi’s page has exactly its keys, each o
     { ...fine[0], name: '..' },
     { ...fine[0], name: 'cart%2F..' },
     { ...fine[0], name: ['cart'] },
+    // Picked by the same rules as an ask, and only a list.
+    { ...fine[1], fields: { 'spec.nodeName': '' } },
+    { ...fine[1], labels: ['app'] },
+    { ...fine[0], fields: { 'spec.nodeName': 'a,b' } },
+    { ...fine[0], fields: [] },
+    { ...fine[0], labels: ['!app'] },
+    { ...fine[0], labels: [] },
   ]
   for (const query of wrong) expect(await readQuery(query), JSON.stringify(query)).toBeUndefined()
   // (And one whose name every object has, read in the page as the door reads what it's sent.)
@@ -1217,13 +1342,13 @@ test('a page’s reads are counted: lists kept, everything kept, asks in a secon
   const fast = await reads.page(await reads.plugin())
   await reads.later(1000)
   for (let i = 1; i <= READ_LIMITS.asksASecond; i++) {
-    expect(await reads.take(fast, { read: i, what: 'usage', of: 'o_1' })).toBeUndefined()
+    expect(await reads.take(fast, { read: i, what: 'events', of: 'o_1' })).toBeUndefined()
     await reads.answered(fast, i)
   }
   await reads.later(-5000)
-  expect(await reads.take(fast, { read: 11, what: 'usage', of: 'o_1' })).toBeUndefined()
-  for (let i = 12; i <= 20; i++) await reads.take(fast, { read: i, what: 'usage', of: 'o_1' })
-  expect(await reads.take(fast, { read: 21, what: 'usage', of: 'o_1' })).toEqual({
+  expect(await reads.take(fast, { read: 11, what: 'events', of: 'o_1' })).toBeUndefined()
+  for (let i = 12; i <= 20; i++) await reads.take(fast, { read: i, what: 'events', of: 'o_1' })
+  expect(await reads.take(fast, { read: 21, what: 'events', of: 'o_1' })).toEqual({
     why: 'too-much',
     what: 'asks in a second: more than 10',
   })
@@ -1234,7 +1359,7 @@ test('a page’s reads are counted: lists kept, everything kept, asks in a secon
   for (let second = 0; second < 2; second++) {
     await reads.later(1000)
     for (let i = 0; i < 10; i++) {
-      expect(await reads.take(slow, { read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
+      expect(await reads.take(slow, { read: ++asked, what: 'events', of: 'o_1' })).toBeUndefined()
     }
   }
   await reads.later(1000)
@@ -1242,9 +1367,9 @@ test('a page’s reads are counted: lists kept, everything kept, asks in a secon
   await reads.answered(slow, 999)
   await reads.answered(slow, 1)
   await reads.refused(slow, 2)
-  expect(await reads.take(slow, { read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
-  expect(await reads.take(slow, { read: ++asked, what: 'usage', of: 'o_1' })).toBeUndefined()
-  expect(await reads.take(slow, { read: asked + 1, what: 'usage', of: 'o_1' })).toEqual({
+  expect(await reads.take(slow, { read: ++asked, what: 'events', of: 'o_1' })).toBeUndefined()
+  expect(await reads.take(slow, { read: ++asked, what: 'events', of: 'o_1' })).toBeUndefined()
+  expect(await reads.take(slow, { read: asked + 1, what: 'events', of: 'o_1' })).toEqual({
     why: 'too-much',
     what: 'asks not yet answered: more than 20',
   })
@@ -1258,11 +1383,11 @@ test('a number is new once; and ending a read that’s already ended does nothin
   const plugin = await reads.plugin()
   const at = await reads.page(plugin)
   expect(await reads.take(at, { read: 5, what: 'list', kind: '/Node' })).toBeUndefined()
-  expect(await reads.take(at, { read: 5, what: 'usage', of: 'o_1' })).toMatchObject({
+  expect(await reads.take(at, { read: 5, what: 'events', of: 'o_1' })).toMatchObject({
     why: 'not-allowed',
   })
   expect(
-    await reads.take(await reads.page(plugin), { read: 7, what: 'usage', of: 'o_1' }),
+    await reads.take(await reads.page(plugin), { read: 7, what: 'events', of: 'o_1' }),
   ).toBeUndefined()
   // Lumovi refused it; the plugin's own tidying ends it before it has heard: nothing to do.
   const tidy = await reads.page(await reads.plugin())

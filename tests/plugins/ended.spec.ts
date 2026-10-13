@@ -64,8 +64,19 @@ test('a page that couldn’t start offers no opening again, and says only what�
 test('a page whose browser failed Lumovi’s check after its code was handed says so, and isn’t opened again', () => {
   expect(endedWords('Karpenter', { why: 'check-failed' })).toEqual({
     title: 'Lumovi stopped Karpenter’s page.',
-    why: 'Lumovi checked this browser and found that a plugin’s code could get out of its box here, so it doesn’t run plugins’ code in this browser. Another browser may pass the check.',
+    why: 'Lumovi checked this browser and it didn’t pass, so it doesn’t run plugins’ code in this browser. Another browser may pass the check.',
     still: 'The rest of Lumovi is as it was.',
+    again: false,
+  })
+})
+
+test('a browser Lumovi couldn’t check is said as Lumovi’s, with what the person can change, and isn’t opened again', () => {
+  expect(endedWords('Karpenter', { why: 'not-handed', refused: 'check-unlooked' })).toEqual({
+    title: 'Lumovi couldn’t check this browser.',
+    why: 'Before handing a plugin its code, Lumovi checks that this browser keeps each plugin in a box of its own. Here it can’t look in the places a box might keep things, so no plugin’s code runs in this browser.',
+    still: 'The rest of Lumovi is as it was.',
+    advice:
+      'If this browser blocks storage for this site, allowing it and reloading lets Lumovi check.',
     again: false,
   })
 })

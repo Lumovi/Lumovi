@@ -5,14 +5,7 @@
  *
  * Its parts are the stage's own, as plain as parts can be; Lumovi's real ones come with the kit.
  */
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import {
   choice,
@@ -33,7 +26,7 @@ import { inPieces, shortInPieces, spelled } from '@shared/kit/characters'
 import { tableProblem } from '@shared/kit/table'
 import { placed } from '@shared/plugin-box'
 import { DoorPage } from '@shared/plugin-door'
-import { notHandedLine, type PluginCode } from '@shared/plugin-hand-over'
+import { notHandedLine } from '@shared/plugin-hand-over'
 import { changeProblem, parsePlugin } from '@shared/plugins'
 import { asks } from '@shared/plugin-asks'
 import { settle } from '@shared/plugin-loading'
@@ -44,18 +37,22 @@ import {
   kindAsked,
   PageReads,
   picked,
+  pickedRefusal,
   readable,
   readAsk,
   readQuery,
   resolvedAs,
   secretsNamed,
+  selectors,
 } from '@shared/plugin-reads'
 import type { PageEnd } from '@shared/plugin-ended'
 import { cn } from '@renderer/lib/cn'
+import { elsewhere, linesAt, removeAt, renameAt, setAt } from '@renderer/lib/yaml-edit'
 import { codeOf } from './box-check'
-import { openPage, type KitPart, type OpenPage } from './page'
+import { KIT_PARTS } from './kit'
+import { Opened } from './opened'
+import type { KitPart } from './page'
 import { PluginFrame } from './PluginFrame'
-import { PluginSurface } from './Surface'
 import { TheirText } from './TheirText'
 
 const stack = {
@@ -153,6 +150,8 @@ const PARTS: Record<string, KitPart> = {
       throw new Error('a fault in a part of Lumovi’s own')
     },
   },
+  // Lumovi's own Table, for what's said with it (how a read was cut).
+  Table: KIT_PARTS.Table!,
 }
 
 interface Shown {
@@ -192,85 +191,13 @@ function Stage({ shown }: { shown: Shown }) {
           {null}
         </PluginFrame>
       ) : (
-        <Opened key={opened} shown={shown} onAgain={again} />
+        <Opened
+          key={opened}
+          shown={{ ...shown, context: shown.context ?? '', parts: PARTS }}
+          onAgain={again}
+        />
       )}
     </div>
-  )
-}
-
-/**
- * The page, opened once for as long as this is shown: opening it again makes this anew. With the
- * test's own code, as it's given; without, the plugin's code as Lumovi hands it over (or why
- * not), which is the only way a page outside the tests is ever given any.
- */
-function Opened({ shown, onAgain }: { shown: Shown; onAgain: () => void }): ReactNode {
-  const [handed, setHanded] = useState<PluginCode | undefined>(() =>
-    shown.code === undefined
-      ? undefined
-      : { ok: true, code: shown.code, digest: '', codeDigest: '' },
-  )
-  useEffect(() => {
-    if (shown.code !== undefined) return
-    let here = true
-    void codeOf(shown.plugin).then((answer) => here && setHanded(answer))
-    return () => void (here = false)
-  }, [shown])
-  if (handed === undefined) return null
-  if (!handed.ok) {
-    return (
-      <PluginFrame
-        name={shown.name}
-        version={shown.version}
-        end={{ why: 'not-handed', refused: handed.refused }}
-        onAgain={onAgain}
-        onFault={() => undefined}
-      >
-        {null}
-      </PluginFrame>
-    )
-  }
-  return (
-    <Running
-      shown={shown}
-      code={handed.code}
-      handed={shown.code === undefined ? handed : undefined}
-      onAgain={onAgain}
-    />
-  )
-}
-
-function Running({
-  shown,
-  code,
-  handed,
-  onAgain,
-}: {
-  shown: Shown
-  code: string
-  handed?: { digest: string; codeDigest: string }
-  onAgain: () => void
-}): ReactNode {
-  const [page] = useState<OpenPage>(() =>
-    openPage({
-      plugin: shown.plugin,
-      context: shown.context ?? '',
-      code,
-      ...(handed ? { handed: { digest: handed.digest, codeDigest: handed.codeDigest } } : {}),
-      parts: PARTS,
-    }),
-  )
-  useEffect(() => () => page.close(), [page])
-  const end = useSyncExternalStore(page.subscribe, () => page.end)
-  return (
-    <PluginFrame
-      name={shown.name}
-      version={shown.version}
-      end={end}
-      onAgain={onAgain}
-      onFault={page.fault}
-    >
-      <PluginSurface page={page} />
-    </PluginFrame>
   )
 }
 
@@ -321,11 +248,13 @@ export const stage = {
     kindAsked,
     PageReads,
     picked,
+    pickedRefusal,
     readable,
     readAsk,
     readQuery,
     resolvedAs,
     secretsNamed,
+    selectors,
     Tokens,
     swapFor,
     callOf,
@@ -335,4 +264,9 @@ export const stage = {
     asks,
     settle,
   },
+  /**
+   * The edits Create's form makes to YAML text, for the tests to try yaml-edit.spec's cases in
+   * this built page, as with the door's: what's measured of them is then what ran in a page.
+   */
+  yamlChecks: { setAt, removeAt, renameAt, elsewhere, linesAt },
 }

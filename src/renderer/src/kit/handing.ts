@@ -6,12 +6,14 @@
 import {
   handedFields,
   type CutRef,
+  type ListDestination,
   type Part,
   type PropsOf,
   type Swap,
   type WrittenProps,
 } from '@shared/kit/declare'
 import type { ObjectRef } from '@shared/kit/table'
+import { kindFor } from '@shared/resources'
 
 const OBJECTS = new Map<string, ObjectRef>()
 /** The token each object was given: one an object, however often it's written. */
@@ -41,6 +43,17 @@ export const KIT_SWAP: Swap = {
   secret: () => undefined,
   // (A token it doesn't hold, made up, says nothing.)
   cut: (made) => (Object.hasOwn(KIT_CUTS, made) ? KIT_CUTS[made] : undefined),
+  // A list a part here opens, as a door would make it (of any kind: this page names them all).
+  destination: (said) =>
+    Object.freeze({
+      to: 'list',
+      kind: kindFor(
+        said.list.startsWith('/') ? 'v1' : `${said.list.slice(0, said.list.lastIndexOf('/'))}/v1`,
+        said.list.slice(said.list.lastIndexOf('/') + 1),
+      ),
+      ...(said.health ? { health: said.health as ListDestination['health'] } : {}),
+      ...(said.labels ? { labels: said.labels } : {}),
+    }),
   handler: () => undefined,
 }
 

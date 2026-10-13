@@ -11,6 +11,7 @@ import type { Page } from '@playwright/test'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import { READ_LIMITS, READ_REFUSED } from '../../src/shared/plugin-reads.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
+import { DEMO } from '../mock-cluster/fixtures/demo.ts'
 import { expect, openCluster, test } from './fixtures.ts'
 
 const TOYS = `apiVersion: lumovi.dev/v1beta1
@@ -84,11 +85,38 @@ async function tokens(page: Page, read: number): Promise<Map<string, string>> {
   )
 }
 
-function included(): string {
+function included(file = TOYS): string {
   const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
-  writeFileSync(join(folder, 'toys.yaml'), TOYS)
+  writeFileSync(join(folder, 'toys.yaml'), file)
   return folder
 }
+
+/**
+ * A test plugin's code that asks `asks` and shows each read's objects in a Field of its own:
+ * each by its name with its usage (CPU in cores, memory in GiB) or a dash, and whether the
+ * cluster measures any; or how the read ended.
+ */
+const usageReading = (...asks: object[]) => `box.then(({ post, listen }) => {
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  commit([['make', 1, 'Stack', {}], ['put', 0, 1]])
+  const fields = new Map()
+  let next = 100
+  const show = (read, value) => {
+    let id = fields.get(read)
+    const props = { name: 'read ' + read, value: value.slice(0, 4000) }
+    if (id === undefined) {
+      fields.set(read, (id = next++))
+      commit([['make', id, 'Field', props], ['put', 1, id]])
+    } else commit([['change', id, props]])
+  }
+  const used = (o) => o.usage ? o.usage.cpu.toFixed(2) + ':' + (o.usage.memory / 2 ** 30).toFixed(2) : '-'
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.objects) show(said.read, '|' + said.objects.map((o) => o.object.metadata.name + ':' + used(o)).sort().join('|') + '|' + (said.noUsage ? ' none measured' : ''))
+    else if (said.ended) show(said.read, 'ended ' + said.ended)
+  })
+  for (const ask of ${JSON.stringify(asks)}) post(JSON.stringify(ask))
+})`
 
 test('a plugin’s page reads its own kind through the door: each object with a token, kept up to date', async ({
   launch,
@@ -127,6 +155,150 @@ test('a plugin’s page reads its own kind through the door: each object with a 
   await expect(ended(page)).toHaveCount(0)
 })
 
+test('a plugin’s page reads nodes with their live usage, read with them, where its file says it reads usage', async ({
+  launch,
+}) => {
+  const folder = included(
+    `${TOYS}  reads:\n    - { group: '', kind: Node, fields: [metadata.name], usage: true }\n`,
+  )
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await show(
+    page,
+    folder,
+    usageReading(
+      { read: 1, what: 'list', kind: '/Node', usage: true },
+      { read: 2, what: 'object', kind: '/Node', name: DEMO.nodes.worker1, usage: true },
+      // (Its file says it reads no pod.)
+      { read: 3, what: 'list', kind: '/Pod', namespace: 'shop', usage: true },
+    ),
+  )
+  // Each node with its own usage, as Lumovi's Nodes page shows it; one that isn't reporting has
+  // none, and the read answers all the same.
+  await expect(field(page, 1)).toContainText(
+    `|${DEMO.nodes.controlPlane}:1.33:7.39|${DEMO.nodes.worker1}:6.49:19.15|${DEMO.nodes.worker2}:3.56:29.20|${DEMO.nodes.worker3}:-|`,
+  )
+  await expect(field(page, 1)).not.toContainText('none measured')
+  await expect(field(page, 2)).toContainText(`|${DEMO.nodes.worker1}:6.49:19.15|`)
+  await expect(field(page, 3)).toContainText('ended not-granted')
+  await expect(ended(page)).toHaveCount(0)
+})
+
+test('a plugin’s page reads a list picked by its objects’ fields, as the cluster picks them, and by no field it may not', async ({
+  launch,
+}) => {
+  const folder = included(
+    `${TOYS}  reads:\n    - { group: '', kind: Pod, fields: [metadata.name, metadata.namespace, spec.nodeName] }\n`,
+  )
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  const data = { what: 'list', kind: '/Pod', namespace: 'data' }
+  await show(
+    page,
+    folder,
+    reading(
+      // Its pods on no node yet: the one the scheduler couldn't place, and none of the rest.
+      { read: 1, ...data, fields: { 'spec.nodeName': '' } },
+      // A field the cluster picks pods by, which its file doesn't grant; one it doesn't pick by.
+      { read: 2, ...data, fields: { 'status.phase': 'Pending' } },
+      { read: 3, ...data, fields: { 'spec.hostname': 'x' } },
+    ),
+  )
+  await expect(field(page, 1)).toContainText('|redis-1=')
+  await expect(field(page, 1)).not.toContainText('redis-0')
+  await expect(field(page, 1)).not.toContainText('postgres-0')
+  await expect(field(page, 2)).toContainText(`ended not-granted: ${READ_REFUSED['not-granted']}`)
+  await expect(field(page, 3)).toContainText(`ended not-pickable: ${READ_REFUSED['not-pickable']}`)
+  await expect(ended(page)).toHaveCount(0)
+})
+
+test('a page whose read was cut, or is failing, has Lumovi say so above it, whatever its code draws', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = included(
+    `${TOYS}  reads:\n    - { group: '', kind: Node, fields: [metadata.name] }\n`,
+  )
+  const { page } = await launch({
+    env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder, LUMOVI_MAX_LIST_ITEMS: '2' },
+  })
+  await openCluster(page)
+  await show(page, folder, reading({ read: 1, what: 'list', kind: '/Node' }))
+  // The first two of the cluster's four nodes, handed as Lumovi's own lists have them: and said,
+  // by Lumovi, above the page, where its code can't draw.
+  await expect(field(page, 1)).toContainText(`|${DEMO.nodes.controlPlane}=`)
+  expect((await tokens(page, 1)).size).toBe(2)
+  await expect(page.getByTestId('plugin-cut')).toHaveText(
+    'Some of what this page shows is from the first 2 of 4 of a list: the cluster has more than Lumovi reads at once.',
+  )
+  // Failing now: its last answer stays, and Lumovi says so above it, with a way to read it again.
+  // (Lumovi's own page under the stage reads nodes too, and says so of its own.)
+  const stale = page
+    .getByTestId('plugin-stage')
+    .getByRole('status')
+    .filter({ hasText: 'Couldn’t refresh' })
+  const mend = clusters.demo.fail('/api/v1/nodes', { status: 500 })
+  await expect(stale).toContainText(READ_REFUSED.failed, { timeout: 15_000 })
+  await expect(field(page, 1)).toContainText('failing failed')
+  mend()
+  await stale.getByRole('button', { name: 'Retry' }).click()
+  await expect(stale).toHaveCount(0)
+  await expect(field(page, 1)).toContainText(`|${DEMO.nodes.controlPlane}=`)
+  await expect(page.getByTestId('plugin-cut')).toBeVisible()
+  await expect(ended(page)).toHaveCount(0)
+})
+
+/**
+ * A test plugin's code that lists nodes and draws three Tables of them, each naming a cut: the
+ * token its read's latest answer came with; the first answer's, kept; and one it made up. (It
+ * lists pods too, cut as well, and draws nothing of them.)
+ */
+const CUTS = `box.then(({ post, listen }) => {
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  let first
+  let made = false
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.read !== 1 || !said.objects) return
+    if (first === undefined) first = said.cut
+    const rows = said.objects.map((o) => ({ key: o.token, lead: { name: o.object.metadata.name }, cells: [] }))
+    const table = (title, cut) => ({ title, columns: [], headings: false, rows, ...(cut ? { cut } : {}) })
+    const tables = [['Now', said.cut], ['Before', first], ['Made up', 'made-up']]
+    commit(made
+      ? tables.map(([title, cut], i) => ['change', 2 + i, table(title, cut)])
+      : [['make', 1, 'Stack', {}], ['put', 0, 1], ...tables.flatMap(([title, cut], i) => [['make', 2 + i, 'Table', table(title, cut)], ['put', 1, 2 + i]])])
+    made = true
+  })
+  post(JSON.stringify({ read: 1, what: 'list', kind: '/Node' }))
+  post(JSON.stringify({ read: 2, what: 'list', kind: '/Pod' }))
+})`
+
+test('a cut is said with the door’s numbers only where a part names its read’s latest token: never a stale or a made-up one', async ({
+  launch,
+}) => {
+  const folder = included(
+    `${TOYS}  reads:\n    - { group: '', kind: Node, fields: [metadata.name] }\n    - { group: '', kind: Pod, fields: [metadata.name, metadata.namespace] }\n`,
+  )
+  const { page } = await launch({
+    env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder, LUMOVI_MAX_LIST_ITEMS: '2' },
+  })
+  await openCluster(page)
+  await show(page, folder, CUTS)
+  const line = 'These are from the first 2 of 4 Lumovi read.'
+  const table = (name: string) => page.getByRole('region', { name: `${name} table` })
+  await expect(table('Now')).toContainText(line)
+  await expect(table('Made up')).toBeVisible()
+  await expect(table('Made up')).not.toContainText('Lumovi read')
+  // Read again: its latest answer's token says it; the first answer's says nothing any more.
+  await expect(table('Before')).not.toContainText('Lumovi read', { timeout: 15_000 })
+  await expect(table('Now')).toContainText(line)
+  // And Lumovi's own line above the page, whatever the parts say: of two reads cut, of no one
+  // count.
+  await expect(page.getByTestId('plugin-cut')).toHaveText(
+    'Some of what this page shows is from the first 2 of a list: the cluster has more than Lumovi reads at once.',
+  )
+})
+
 test('a read the plugin ends is read no more; a refresh reads its own lists again, and one too soon isn’t made', async ({
   launch,
   clusters,
@@ -163,6 +335,90 @@ test('a read the plugin ends is read no more; a refresh reads its own lists agai
   await expect(field(page, 2)).toContainText('objects')
   // Read 1's list once, and read 2's object: the refresh found no list of its own going.
   expect(widgets()).toBe(1)
+  await expect(ended(page)).toHaveCount(0)
+})
+
+/**
+ * A test plugin's code that asks `asks` (then a refresh, once they're asked) and shows each
+ * read's answer: its objects' names, and why none has usage where none has; or how it ended.
+ */
+const answering = (...asks: object[]) => `box.then(({ post, listen }) => {
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  commit([['make', 1, 'Stack', {}], ['put', 0, 1]])
+  const fields = new Map()
+  let next = 100
+  const show = (read, value) => {
+    let id = fields.get(read)
+    const props = { name: 'read ' + read, value: value.slice(0, 4000) }
+    if (id === undefined) {
+      fields.set(read, (id = next++))
+      commit([['make', id, 'Field', props], ['put', 1, id]])
+    } else commit([['change', id, props]])
+  }
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.objects) show(said.read, '|' + said.objects.map((o) => o.object.metadata.name).sort().join('|') + '|' + (said.noUsage ? ' none measured: ' + said.noUsage : ''))
+    else if (said.ended) show(said.read, 'ended ' + said.ended)
+  })
+  for (const ask of ${JSON.stringify(asks)}) post(JSON.stringify(ask))
+  post(JSON.stringify({ refresh: true }))
+})`
+
+test('a read the cluster refuses ends in Lumovi’s words; usage it doesn’t measure, or the person may not read, is said', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = included(
+    `${TOYS}  reads:\n    - { group: '', kind: Node, fields: [metadata.name], usage: true }\n    - { group: '', kind: Pod, fields: [metadata.name, metadata.namespace, metadata.labels, spec.nodeName], usage: true }\n`,
+  )
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  // What the cluster answers, path by path.
+  const metrics = '/apis/metrics.k8s.io/v1beta1'
+  clusters.demo.fail(`${metrics}/nodes`, { status: 403 })
+  clusters.demo.fail(`${metrics}/namespaces/data/pods`, { status: 500 })
+  clusters.demo.fail(`${metrics}/namespaces/shop/pods`, { status: 503 })
+  clusters.demo.fail('/api/v1/namespaces/batch/pods', { status: 401 })
+  clusters.demo.fail('/api/v1/namespaces/legacy/pods', { status: 403 })
+  const pods = (namespace: string) => ({ what: 'list', kind: '/Pod', namespace, usage: true })
+  await show(
+    page,
+    folder,
+    answering(
+      // The person may read the nodes and not their usage: handed all the same, said why.
+      { read: 1, what: 'list', kind: '/Node', usage: true },
+      // The metrics API failing outright: the read with usage fails, as Lumovi's own would.
+      { read: 2, ...pods('data') },
+      // No metrics there: none measured.
+      { read: 3, ...pods('shop') },
+      // Its own kind's usage: nothing measures a tool's kind.
+      { read: 4, what: 'list', kind: 'example.com/Widget', usage: true },
+      // Not signed in, and not allowed: each not allowed, in Lumovi's words.
+      { read: 5, ...pods('batch') },
+      { read: 6, ...pods('legacy') },
+      // An object that isn't there.
+      { read: 7, what: 'object', kind: '/Node', name: 'no-such-node' },
+      // Picked by a label its file grants; and one object kept going while lists are refreshed.
+      {
+        read: 8,
+        what: 'list',
+        kind: '/Pod',
+        namespace: 'data',
+        labels: ['app.kubernetes.io/name=redis'],
+      },
+      { read: 9, what: 'object', kind: '/Node', name: DEMO.nodes.worker1 },
+    ),
+  )
+  await expect(field(page, 1)).toContainText('none measured: not-allowed')
+  await expect(field(page, 1)).toContainText(`|${DEMO.nodes.worker1}|`)
+  await expect(field(page, 2)).toContainText('ended failed')
+  await expect(field(page, 3)).toContainText('none measured: unmeasured')
+  await expect(field(page, 4)).toContainText('ended not-granted')
+  await expect(field(page, 5)).toContainText('ended not-allowed')
+  await expect(field(page, 6)).toContainText('ended not-allowed')
+  await expect(field(page, 7)).toContainText('ended not-found')
+  await expect(field(page, 8)).toHaveText(/\|redis-0\|redis-1\|/)
+  await expect(field(page, 9)).toContainText(`|${DEMO.nodes.worker1}|`)
   await expect(ended(page)).toHaveCount(0)
 })
 

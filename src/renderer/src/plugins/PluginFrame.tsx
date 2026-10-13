@@ -1,16 +1,56 @@
 /**
  * What's Lumovi's round a plugin's page, and never the plugin's: the strip that says whose the
- * page is, and what stands in the page's place once it has ended. Both are outside what a
- * plugin's code describes: nothing it sends can draw here, cover this or scroll it away.
+ * page is, what Lumovi says of the page's reads (one failing, a list cut at Lumovi's limit), and
+ * what stands in the page's place once it has ended. All are outside what a plugin's code
+ * describes: nothing it sends can draw here, cover this or scroll it away.
  */
-import { Plug } from 'lucide-react'
+import { Info, Plug } from 'lucide-react'
 import { Component, useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { endedWords, type PageEnd } from '@shared/plugin-ended'
 import { Button } from '@renderer/components/Button'
+import { StaleNotice } from '@renderer/components/States'
+import type { ReadNotices } from './reads'
 import { TheirText } from './TheirText'
 
-/** The strip above a plugin's page: whose it is. It stays while the page scrolls under it. */
-export function WhoseStrip({ name, version }: { name: string; version: string }) {
+const count = (value: number) => value.toLocaleString('en-US')
+
+/**
+ * What Lumovi says of a page some of whose reads were cut at its limit, in its own words: of how
+ * many, where one read was and the cluster said.
+ */
+export function cutWords(cut: NonNullable<ReadNotices['cut']>): string {
+  const of = !cut.several && cut.of !== undefined ? ` of ${count(cut.of)}` : ''
+  return `Some of what this page shows is from the first ${count(cut.at)}${of} of a list: the cluster has more than Lumovi reads at once.`
+}
+
+/** Lumovi's line under the strip while any read of the page is cut, as a list's own line is. */
+function CutLine({ cut }: { cut: NonNullable<ReadNotices['cut']> }) {
+  return (
+    <p
+      role="note"
+      data-testid="plugin-cut"
+      className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-5 py-1.5 text-xs text-ink-2"
+    >
+      <Info className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+      <span className="min-w-0 flex-1">{cutWords(cut)}</span>
+    </p>
+  )
+}
+
+/**
+ * The strip above a plugin's page: whose it is, and (where it's given `asks`) the way to what it
+ * may do, its entry on the Plugins page. It stays while the page scrolls under it.
+ */
+export function WhoseStrip({
+  name,
+  version,
+  asks,
+}: {
+  name: string
+  version: string
+  asks?: string
+}) {
   return (
     <div
       data-testid="plugin-whose"
@@ -26,6 +66,14 @@ export function WhoseStrip({ name, version }: { name: string; version: string })
           . Lumovi draws it from its own parts; what it shows and says is the plugin’s.
         </span>
       </span>
+      {asks !== undefined && (
+        <Link
+          to={asks}
+          className="flex shrink-0 items-center rounded-md px-1.5 font-medium whitespace-nowrap text-ink-1 outline-none hover:bg-surface-3 focus-visible:bg-surface-3 phone:h-11"
+        >
+          What it may do →
+        </Link>
+      )}
     </div>
   )
 }
@@ -95,14 +143,21 @@ export function PluginFrame({
   name,
   version,
   end,
+  notices = {},
+  onRetry = () => undefined,
   onAgain,
   onFault,
+  asks,
   children,
 }: {
   name: string
   version: string
   /** Why the page ended, once it has. */
   end?: PageEnd
+  /** What Lumovi says of the page's reads: decided from its own answers, never the plugin's. */
+  notices?: ReadNotices
+  /** The person's "Retry" of the reads that are failing. */
+  onRetry?: () => void
   /** Opens the page again: on the person's press. */
   onAgain: () => void
   /**
@@ -110,6 +165,8 @@ export function PluginFrame({
    * its worker with it). The picture alone going would leave a plugin's code running unseen.
    */
   onFault: () => void
+  /** Where the strip's "What it may do" goes: the plugin's entry on the Plugins page. */
+  asks?: string
   children: ReactNode
 }) {
   // (A boundary that caught something stays so until it's made anew.)
@@ -120,7 +177,11 @@ export function PluginFrame({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <WhoseStrip name={name} version={version} />
+      <WhoseStrip name={name} version={version} {...(asks === undefined ? {} : { asks })} />
+      {!end && notices.stale !== undefined && (
+        <StaleNotice error={{ message: notices.stale }} onRetry={onRetry} />
+      )}
+      {!end && notices.cut && <CutLine cut={notices.cut} />}
       <div className="min-h-0 flex-1 overflow-auto">
         {end ? (
           <EndedPage name={name} end={end} onAgain={again} />

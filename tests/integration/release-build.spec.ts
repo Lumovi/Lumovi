@@ -34,6 +34,8 @@ const TESTS_ONLY = [
   // And the stage a test plugin's page is drawn on, with the door's checks it lends the tests.
   '__lumoviDoor',
   'doorChecks',
+  // And the edits Create's form makes to YAML text, which it lends them too.
+  'yamlChecks',
 ]
 
 const PLUGIN = `
@@ -89,13 +91,19 @@ test('a build made as a release’s carries nothing the tests’ build adds for 
   expect(existsSync(resolve(RENDERER_MAPS)), RENDERER_MAPS).toBe(false)
 })
 
-test('a release’s pages hold no way to hand a plugin’s box any code', () => {
-  // The piece of a page that opens a box is in the tests' build alone so far: a release's
-  // pages name the box's address in one place, the policy that says what a page may frame.
+test('a release’s pages open a plugin’s box only where they take its code through the hand-over', () => {
+  // A release's pages name the box's address where the policy says what a page may frame, and
+  // in what opens a plugin's page: and that is where its code is taken, through the one call
+  // that hands it over (`pluginCode`, the backend's `mayHandOver`), and nowhere else. (The
+  // tests' stage, which can be given code of its own, is in none of them: TESTS_ONLY, above.)
   const pages = resolve('out', 'renderer')
-  const naming = readdirSync(pages, { recursive: true, encoding: 'utf8' })
-    .filter((file) => /\.(js|mjs|cjs|html)$/.test(file))
-    .filter((file) => readFileSync(join(pages, file), 'utf8').includes('lumovi-plugin'))
-  expect(naming).toEqual(['index.html'])
-  expect(readFileSync(join(pages, 'index.html'), 'utf8')).toContain('frame-src lumovi-plugin:')
+  const read = (file: string) => readFileSync(join(pages, file), 'utf8')
+  const files = readdirSync(pages, { recursive: true, encoding: 'utf8' }).filter((file) =>
+    /\.(js|mjs|cjs|html)$/.test(file),
+  )
+  const naming = files.filter((file) => read(file).includes('lumovi-plugin'))
+  expect(read('index.html')).toContain('frame-src lumovi-plugin:')
+  const opening = naming.filter((file) => file !== 'index.html')
+  expect(opening.length).toBeGreaterThan(0)
+  for (const file of opening) expect(read(file), file).toContain('kube:plugin-code')
 })

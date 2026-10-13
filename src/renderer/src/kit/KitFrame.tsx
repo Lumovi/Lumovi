@@ -22,7 +22,7 @@ import { table, type WrittenTable } from '@shared/kit/table'
 import { Pair, Split, Stack, Tiles } from './Arrangements'
 import { Card } from './Card'
 import { Counts } from './Counts'
-import { handedAs, token } from './handing'
+import { handedAs } from './handing'
 import { PageHeader } from './PageHeader'
 import { Table } from './Table'
 
@@ -113,7 +113,7 @@ function described(pick: WrittenPick): {
             ? 'All ready'
             : `${Number(under[5]) - Number(under[0])} not ready`,
         level: pick.status!.level,
-        opens: token({ kind: 'Pod', name: `${name}-1`, namespace: 'shop' }),
+        opens: { list: '/Pod', labels: ['cnpg.io/cluster'] },
       },
       {
         key: 'primary',
@@ -220,6 +220,7 @@ const KARPENTER_TILES: WrittenTile[] = [
     value: { kind: 'figure', text: '3/3' },
     detail: 'All ready',
     level: 'healthy',
+    opens: { list: 'karpenter.sh/NodePool' },
   },
   {
     key: 'nodes',
@@ -228,8 +229,15 @@ const KARPENTER_TILES: WrittenTile[] = [
     value: { kind: 'figure', text: '17/20' },
     detail: '3 still starting',
     level: 'progressing',
+    opens: { list: '/Node', labels: ['karpenter.sh/nodepool'] },
   },
-  { key: 'launching', icon: 'rocket', label: 'Launching', value: { kind: 'figure', text: '2' } },
+  {
+    key: 'launching',
+    icon: 'rocket',
+    label: 'Launching',
+    value: { kind: 'figure', text: '2' },
+    opens: { list: 'karpenter.sh/NodeClaim', health: ['progressing'] },
+  },
   {
     key: 'replacing',
     icon: 'refresh-cw',
@@ -237,6 +245,7 @@ const KARPENTER_TILES: WrittenTile[] = [
     value: { kind: 'figure', text: '1' },
     detail: 'Drifted',
     level: 'warning',
+    opens: { list: 'karpenter.sh/NodeClaim' },
   },
 ]
 

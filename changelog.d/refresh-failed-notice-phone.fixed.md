@@ -1,0 +1,1 @@
+- On a phone, a failed refresh's notice shows its whole reason, on as many lines as it takes.

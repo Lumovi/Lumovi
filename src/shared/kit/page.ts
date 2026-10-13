@@ -10,17 +10,17 @@
  * holds one part under a title, and counts (shares of a whole, as bars).
  *
  * Between a plugin and the components stands the door: every text a plugin wrote reaches them as
- * a `Their`, drawn in pieces; what a tile opens is, as a plugin says it, a token Lumovi gave it
- * with an object it read; and what a person presses is a handler, called with what its event
- * carries.
+ * a `Their`, drawn in pieces; what a tile opens is, as a plugin says it, a list of Lumovi's own
+ * (a kind its file names, filtered by health or labels), which the door makes; and what a person
+ * presses is a handler, called with what its event carries.
  */
 import { VIEW_ICON_NAMES } from '../plugins'
 import {
   cut,
+  destination,
   handler,
   list,
   number,
-  object,
   oneOf,
   record,
   text,
@@ -91,8 +91,11 @@ const tile = record(
     /** One line under the value, with a dot in a level where one is given. */
     detail: line,
     level: oneOf(HEALTHS),
-    /** The object it opens. A tile with one is pressed whole. */
-    opens: object,
+    /**
+     * The list it opens: a kind its plugin's file names, filtered to the levels or labels said,
+     * as a headline opens what's behind it. A tile with one is pressed whole.
+     */
+    opens: destination,
   },
   // (No value: still reading, or nothing to count. Its icon and label, the value's space kept.)
   ['key', 'label'],
@@ -104,7 +107,7 @@ export const tiles = {
   holds: 'nothing',
   props: {
     tiles: list(tile, FRAME_LIMITS.tiles.most),
-    /** Pressed a tile that opens something (Lumovi opens the object itself). */
+    /** Pressed a tile that opens something (Lumovi opens the list itself). */
     onOpen: handler('open'),
   },
   required: ['tiles'],
@@ -284,7 +287,7 @@ export interface FrameCarries {
   pick: { row: string }
   /** Pressed one of the header's buttons: its key. */
   press: { button: string }
-  /** Pressed a tile that opens something (Lumovi opens the object itself): the tile's key. */
+  /** Pressed a tile that opens something (Lumovi opens the list itself): the tile's key. */
   openTile: { tile: string }
 }
 

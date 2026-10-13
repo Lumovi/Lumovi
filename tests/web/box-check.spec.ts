@@ -13,6 +13,7 @@ import { chromium, firefox, webkit, type Page } from '@playwright/test'
 import type { NotHanded, PluginCode } from '../../src/shared/plugin-hand-over.ts'
 import { audited, DEMO_TOKEN, expect, freePort, signIn, test, type Served } from './fixtures.ts'
 import { as } from './fleet.ts'
+import { PHONE, signInNarrow } from './phone.ts'
 
 const TOYS = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
@@ -214,6 +215,160 @@ test('a check whose worker never answers doesn’t pass: it didn’t finish, and
     { timeout: 40_000 },
   )
   await expect(ended.getByRole('button', { name: 'Open it again' })).toBeVisible()
+  // And the Plugins page says it in toys' entry: not yet.
+  await page.goto(`${server.url}cluster/demo/plugins?plugin=toys`)
+  await expect(page.getByTestId('plugin-not-handed')).toHaveText(
+    'Its pages don’t run here yet: Lumovi’s check of this browser didn’t finish in time.',
+  )
+})
+
+test('what a box could only keep, found in Lumovi’s own page’s stores, fails the check: it got out', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  // As if the boxes' stores had landed in Lumovi's own origin: its page finds them there, by the
+  // names the check gives them (a database's by the check's own channel's name, as it's made).
+  await page.addInitScript(() => {
+    let channel = ''
+    const Broadcast = window.BroadcastChannel
+    window.BroadcastChannel = class extends Broadcast {
+      constructor(name: string) {
+        super(name)
+        if (name.startsWith('lumovi-box-check-')) channel = name
+      }
+    }
+    const has = caches.has.bind(caches)
+    caches.has = (name: string) =>
+      name.startsWith('lumovi-box-check-') ? Promise.resolve(true) : has(name)
+    const databases = indexedDB.databases.bind(indexedDB)
+    indexedDB.databases = async () => [
+      ...(await databases()),
+      ...(channel ? [{ name: `${channel}-first`, version: 1 }] : []),
+    ]
+  })
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('check-failed')
+  const [failed] = audited(server, 'plugin.box-check')
+  expect(failed?.outcome).toBe('failure')
+  expect(failed?.details?.ways).toEqual(expect.arrayContaining(['caches', 'indexed-db']))
+  expect(audited(server, 'plugin.code')).toEqual([])
+})
+
+test('a page that can’t look where a box might leave word is unfinished, and the audit names caches, indexed-db, broadcast-channel', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  // (Lumovi's own page without them, as a browser that blocks this site's storage has it, until
+  // the person allows it: the boxes, each in a worker of its own, are as they were.)
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('allowed')) return
+    for (const name of ['BroadcastChannel', 'caches', 'indexedDB']) {
+      Object.defineProperty(window, name, { value: undefined, configurable: true })
+    }
+  })
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('check-unlooked')
+  const [unlooked] = audited(server, 'plugin.box-check')
+  expect(unlooked?.outcome).toBe('failure')
+  expect(unlooked?.details?.unlooked).toEqual(['broadcast-channel', 'caches', 'indexed-db'])
+  expect(unlooked?.summary).toBe(
+    'Lumovi couldn’t check this browser: it can’t look in its Cache Storage, IndexedDB or broadcast channels',
+  )
+  expect(audited(server, 'plugin.code')).toEqual([])
+  // Asked again, it isn't checked again: this browser can't look, as it is.
+  expect(await codeOf(page)).toBe('check-unlooked')
+  expect(audited(server, 'plugin.box-check')).toHaveLength(1)
+  // Its page says why in Lumovi's words, and what the person can change; it offers no "Open it
+  // again", which would look again where it can't.
+  await showToys(page)
+  const ended = page.getByTestId('plugin-ended')
+  await expect(ended).toContainText('Lumovi couldn’t check this browser.')
+  await expect(ended).toContainText(
+    'Here it can’t look in the places a box might keep things, so no plugin’s code runs in this browser.',
+  )
+  await expect(ended).toContainText(
+    'If this browser blocks storage for this site, allowing it and reloading lets Lumovi check.',
+  )
+  await expect(ended.getByRole('button', { name: 'Open it again' })).toHaveCount(0)
+  // The Plugins page says it in toys' entry, and checks nothing itself.
+  await page.goto(`${server.url}cluster/demo/plugins?plugin=toys`)
+  await expect(page.getByTestId('plugin-not-handed')).toHaveText(
+    'Its pages don’t run here: Lumovi couldn’t check this browser.',
+  )
+  expect(audited(server, 'plugin.box-check')).toHaveLength(1)
+  // Allowed, and the page loaded again: Lumovi checks again, and this time it passes.
+  await page.evaluate(() => sessionStorage.setItem('allowed', 'yes'))
+  await page.reload()
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('handed')
+  expect(audited(server, 'plugin.box-check').map((event) => event.outcome)).toEqual([
+    'failure',
+    'success',
+  ])
+})
+
+test('a look the page has but that throws is no look either: unfinished, and said where', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  // Lumovi's own page has its stores, but looking in them throws (as storage that's refused can).
+  await page.addInitScript(() => {
+    caches.has = () => Promise.reject(new DOMException('refused', 'SecurityError'))
+    indexedDB.databases = () => Promise.reject(new DOMException('refused', 'SecurityError'))
+  })
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('check-unlooked')
+  const [unlooked] = audited(server, 'plugin.box-check')
+  expect(unlooked?.details?.unlooked).toEqual(['caches', 'indexed-db'])
+  expect(server.log()).toContain(
+    'it can’t look in this browser’s Cache Storage or IndexedDB. This browser isn’t handed any plugin’s code.',
+  )
+  expect(audited(server, 'plugin.code')).toEqual([])
+})
+
+test('a channel the page can’t open is a look not made: unfinished, and said where', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await page.addInitScript(() => {
+    window.BroadcastChannel = class {
+      constructor() {
+        throw new DOMException('refused', 'SecurityError')
+      }
+    } as unknown as typeof BroadcastChannel
+  })
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('check-unlooked')
+  const [unlooked] = audited(server, 'plugin.box-check')
+  expect(unlooked?.details?.unlooked).toEqual(['broadcast-channel'])
+  expect(unlooked?.summary).toBe(
+    'Lumovi couldn’t check this browser: it can’t look in its broadcast channels',
+  )
+})
+
+test('where no check is asked for, no code is handed: the answer stands as it was', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  // A server that starts no check (as one with no box would answer).
+  await page.evaluate(() => {
+    const api = (window as unknown as { lumovi: { kube: { boxCheckStart: () => unknown } } }).lumovi
+    api.kube.boxCheckStart = () => Promise.resolve(undefined)
+  })
+  expect(await codeOf(page)).toBe('not-checked')
+  expect(audited(server, 'plugin.box-check')).toEqual([])
+  expect(audited(server, 'plugin.code')).toEqual([])
 })
 
 test('what reaches the server of a check after it passed fails it: a page already handed code ends', async ({
@@ -235,7 +390,7 @@ test('what reaches the server of a check after it passed fails it: a page alread
   const ended = page.getByTestId('plugin-ended')
   await expect(ended).toContainText('Lumovi stopped Toys’ page.')
   await expect(ended).toContainText(
-    'Lumovi checked this browser and found that a plugin’s code could get out of its box here',
+    'Lumovi checked this browser and it didn’t pass, so it doesn’t run plugins’ code in this browser.',
   )
   await expect(ended.getByRole('button', { name: 'Open it again' })).toHaveCount(0)
   expect(
@@ -276,4 +431,24 @@ test('behind a sign-in proxy, a pass is its page’s alone: another browser, or 
   await page.waitForFunction(() => '__lumoviDoor' in window)
   expect(await handOver(page)).toBe('not-checked')
   expect(audited(server, 'plugin.box-check').map((event) => event.outcome)).toEqual(['success'])
+})
+
+test('on a phone the box is checked as in any browser: one that passes is handed code, one that fails isn’t', async ({
+  serve,
+  page,
+}) => {
+  // (A phone's page changes nothing through a plugin, but runs its code: the hand-over decides,
+  // after the same check.)
+  await page.setViewportSize(PHONE)
+  const held = await served(serve)
+  await signInNarrow(page, `${held.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('handed')
+  expect(audited(held, 'plugin.box-check').map((event) => event.outcome)).toEqual(['success'])
+  // With one of the box's walls taken away on purpose: it fails, and no code is handed.
+  const open = await served(serve, { LUMOVI_TEST_BOX_WALL_OFF: 'connect-src' })
+  await signInNarrow(page, `${open.url}cluster/demo/pods`, DEMO_TOKEN)
+  await page.waitForFunction(() => '__lumoviDoor' in window)
+  expect(await codeOf(page)).toBe('check-failed')
+  expect(audited(open, 'plugin.code')).toEqual([])
 })

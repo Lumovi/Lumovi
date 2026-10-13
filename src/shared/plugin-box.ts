@@ -273,11 +273,16 @@ self.box = new Promise((ready) => {
     }
     ready(Object.freeze({ post: (text) => port.postMessage(text), listen: (hear) => { heard.push(hear) } }))
   }
-})
+});
 `
 
-/** The text a worker is made from: Lumovi's first lines, then the plugin's own. */
-export const workerText = (plugin: string): string => `${WORKER_FIRST_LINES}\n${plugin}`
+/**
+ * The text a worker is made from: Lumovi's first lines, then the plugin's own. (Each of Lumovi's
+ * statements ends with its semicolon, and the plugin's code starts on a statement of its own:
+ * code that starts with a parenthesis, as a bundler's does, is never read as a call of the line
+ * before it.)
+ */
+export const workerText = (plugin: string): string => `${WORKER_FIRST_LINES};\n${plugin}`
 
 /** A box as it's placed: its plugin, and the process its frame is in. */
 export interface BoxPlace {
