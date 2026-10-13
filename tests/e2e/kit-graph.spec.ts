@@ -164,18 +164,43 @@ test('the filter: matches by name or kind, the cards above a match kept for cont
   await expect(graph.locator('svg path[opacity="0.55"]')).toHaveCount(2)
   // What was typed is bold in a name it's found in.
   await field.fill('cart')
-  await expect(card(graph, /^Deployment cart,/).locator('b')).toHaveText('cart')
+  await expect(card(graph, /^Deployment cart,/).locator('[aria-hidden] b')).toHaveText('cart')
   await expect(
     card(graph, /^Pod cart-6c9d7f5b44-w4nq7/)
-      .locator('b')
+      .locator('[aria-hidden] b')
       .first(),
   ).toHaveText('cart')
   // Found in the middle of a name: bold there, the rest as it is.
   await field.fill('front')
-  await expect(card(graph, /^Deployment storefront,/).locator('b')).toHaveText('front')
+  await expect(card(graph, /^Deployment storefront,/).locator('[aria-hidden] b')).toHaveText(
+    'front',
+  )
   await expect(
     card(graph, /^Deployment storefront,/).locator('[aria-hidden] > [data-their-text]'),
   ).toHaveText('storefront')
+  // A name with just the room it takes in its own weight: with what was typed bold in it, it's
+  // wider, so it's cut, never run past its end.
+  await field.fill('')
+  const storefront = card(graph, /^Deployment storefront,/)
+  const name = storefront.locator('span:has(> span.invisible)')
+  const drawn = storefront.locator('[aria-hidden] > [data-their-text]')
+  await expect(drawn).toHaveText('storefront')
+  await name.evaluate((span) => {
+    span.style.width = `${span.querySelector('.invisible')!.getBoundingClientRect().width + 0.3}px`
+    span.style.flex = 'none'
+  })
+  await field.fill('front')
+  await expect(drawn).toContainText('…')
+  await expect(storefront.locator('[aria-hidden] b')).toHaveText('front')
+  await expect
+    .poll(() =>
+      name.evaluate(
+        (span) =>
+          span.querySelector('[aria-hidden] > [data-their-text]')!.getBoundingClientRect().width -
+          span.getBoundingClientRect().width,
+      ),
+    )
+    .toBeLessThanOrEqual(0.5)
   // Nothing matches: said with what was typed, the switch kept, and a way back.
   await field.fill('orders')
   await expect(part).toContainText('Nothing matches “orders”.')
@@ -234,7 +259,7 @@ test('past the ceiling it’s listed, saying why; nothing to draw is said in the
   // (Its end, which a cut keeps.)
   await field.fill('west')
   const payments = card(marked, /^Deployment payments/)
-  await expect(payments.locator('b').first()).toHaveText('west')
+  await expect(payments.locator('[aria-hidden] b').first()).toHaveText('west')
   await expect(payments.locator('[aria-hidden] [data-mark]').first()).toBeAttached()
   await field.fill('gate')
   const izmir = card(marked, /^Deployment İzmir-gateway/)

@@ -27,14 +27,19 @@ export function tooltip(text: string): string {
 
 let canvas: CanvasRenderingContext2D | null | undefined
 
-/** How wide a text is as `element` sets it (in capitals, where it's set in them: a heading). */
-function widthIn(element: HTMLElement): (text: string) => number {
+/**
+ * How wide a text is as `element` sets it (in capitals, where it's set in them: a heading); all of
+ * it `bold`, where what a filter found is set in bold somewhere in it: a little wider than it may
+ * be, so it's cut a letter early rather than run past its end.
+ */
+function widthIn(element: HTMLElement, bold = false): (text: string) => number {
   canvas ??= document.createElement('canvas').getContext('2d')
   const style = getComputedStyle(element)
   const spacing = Number.parseFloat(style.letterSpacing) || 0
   const upper = style.textTransform === 'uppercase'
   if (canvas) {
-    canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+    const weight = bold ? '700' : style.fontWeight
+    canvas.font = `${style.fontStyle} ${weight} ${style.fontSize} ${style.fontFamily}`
   }
   return (text) =>
     (canvas ? canvas.measureText(upper ? text.toUpperCase() : text).width : 0) +
@@ -225,7 +230,7 @@ export function MiddleCut({
           Number.parseFloat(style.marginRight)
         )
       })
-      const next = middleCutPieces(all, span.clientWidth, widthIn(span), marks, end)
+      const next = middleCutPieces(all, span.clientWidth, widthIn(span, Boolean(bold)), marks, end)
       setCut((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next))
     }
     fit()
@@ -234,16 +239,18 @@ export function MiddleCut({
     // Measured again once the page's own fonts are in.
     void document.fonts.ready.then(fit)
     return () => observer.disconnect()
-  }, [all, end])
+    // (And again whenever what's bold changes: it's drawn wider.)
+  }, [all, end, bold])
   return (
     <span
       ref={element}
       title={cut && tip ? tooltip(written) : undefined}
       className={cn('relative block min-w-0 overflow-hidden whitespace-nowrap', className)}
     >
-      {/* All of it, unseen: how wide it would like to be, and how wide each of its marks is. */}
+      {/* All of it, unseen, as it's drawn whole (what was found in bold): how wide it would like
+          to be, and how wide each of its marks is. */}
       <span ref={whole} className="invisible">
-        <TheirText pieces={all} inline />
+        {bold ? <Bolded pieces={all} bold={bold} /> : <TheirText pieces={all} inline />}
       </span>
       {/* All of it for a screen reader, its marks spelled. */}
       <span className="sr-only">{spelled(written)}</span>
