@@ -55,3 +55,33 @@ test('at 1024 a header keeps twelve characters of its name: its buttons fold fir
     Math.abs(ordersName.y + ordersName.height / 2 - (ordersStatus.y + ordersStatus.height / 2)),
   ).toBeLessThan(4)
 })
+
+test('at 1024 a table keeps its name at a floor: its columns give way whole, the last first and its status last, and what they say is in the row’s tooltip', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signIn(page, `${served.url}cluster/demo/kit`, DEMO_TOKEN)
+  const certificates = page.getByRole('grid', { name: 'Certificates' })
+  // Two tables side by side: no room for Renews and Age beside a readable name. They give way
+  // whole, the last first; the status stays.
+  await expect(certificates.getByRole('columnheader')).toHaveText(['Name', 'Status'])
+  const api = certificates.getByRole('row').filter({ hasText: 'api-tls' })
+  await expect(api.getByRole('gridcell')).toHaveCount(2)
+  // The name keeps its floor rather than shrinking with every column.
+  expect((await placed(api.getByRole('gridcell').first())).width).toBeGreaterThanOrEqual(160)
+  // What the columns that gave way say: read after the row, and in its tooltip when pointed at.
+  await expect(api).toHaveAccessibleDescription(/Renews\s*in \d+d\s*Age\s*\d+d/)
+  await api.hover()
+  await expect(page.getByRole('tooltip')).toContainText(/Renews\s*in \d+d/)
+  await expect(page.getByRole('tooltip')).toContainText(/Age\s*\d+d/)
+  // Wider, they're all there again, and no row has anything to say of them.
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await expect(certificates.getByRole('columnheader')).toHaveText([
+    'Name',
+    'Status',
+    'Renews',
+    'Age',
+  ])
+  await expect(api).not.toHaveAttribute('aria-describedby', /away/)
+})

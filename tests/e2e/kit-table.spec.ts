@@ -28,14 +28,11 @@ test('a table’s rows: what each is called, columns from one scale, and a name 
   await kit(page)
   // Named for a screen reader: the table, its headings (said even where none show), each cell.
   const pools = page.getByRole('grid', { name: 'Node pools' })
-  await expect(pools.getByRole('columnheader')).toHaveText([
-    'Name',
-    'Nodes',
-    'CPU',
-    'Status',
-    'Age',
-  ])
+  // (At this width, in a card beside another, Age gives way beside the name's floor: what it says
+  // is read after each row.)
+  await expect(pools.getByRole('columnheader')).toHaveText(['Name', 'Nodes', 'CPU', 'Status'])
   const general = pools.getByRole('row').filter({ hasText: 'general' })
+  await expect(general).toHaveAccessibleDescription(/Age\s*41d/)
   await expect(general).toContainText('On demand and spot')
   await expect(general).toContainText('7 nodes')
   await expect(general.getByRole('meter', { name: 'CPU: 24 of 64 cores' })).toBeVisible()
@@ -51,7 +48,7 @@ test('a table’s rows: what each is called, columns from one scale, and a name 
         .slice(1)
         .map((row) =>
           [...row.children]
-            .slice(0, 5)
+            .slice(0, 4)
             .map((cell) => Math.round(cell.getBoundingClientRect().left)),
         ),
     )
