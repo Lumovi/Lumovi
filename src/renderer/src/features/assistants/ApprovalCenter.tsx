@@ -33,6 +33,7 @@ import { apiKindOf } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
+import { CommandWords } from '@renderer/components/CommandWords'
 import { MOD_KEY } from '@renderer/components/Kbd'
 import { APPROVE_MOMENT_MS } from '@renderer/lib/confirm-moment'
 import { sheetBody, sheetFrame, SheetGrabber, sheetHeader } from '@renderer/components/Sheet'
@@ -433,8 +434,8 @@ function ApprovalDialog({
               <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
                 Equivalent command
               </p>
-              <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
-                {proposal.command}
+              <code className="block font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 selectable">
+                <CommandWords text={proposal.command} />
               </code>
               <span className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                 <CopyButton text={proposal.command} label="Copy command" />

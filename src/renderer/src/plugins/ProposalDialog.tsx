@@ -29,6 +29,7 @@ import { whose } from '@shared/plugins'
 import { apiKindOf } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
+import { CommandWords } from '@renderer/components/CommandWords'
 import { TYPE_TO_DELETE } from '@renderer/features/actions/DeleteDialog'
 import { forDiff } from '@renderer/features/assistants/ApprovalCenter'
 import { refreshAfterChange } from '@renderer/hooks/change'
@@ -473,13 +474,13 @@ function Command({ command, create }: { command: string; create: boolean }) {
         aria-label="Equivalent command"
         tabIndex={0}
         className={cn(
-          'block max-h-24 overflow-y-auto rounded-sm font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 outline-none selectable focus-visible:ring-2 focus-visible:ring-accent',
+          'block max-h-24 overflow-y-auto rounded-sm font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 outline-none selectable focus-visible:ring-2 focus-visible:ring-accent',
           more && '[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]',
         )}
       >
         {heredoc ? (
           <>
-            {lines[0]}
+            <CommandWords text={lines[0] ?? ''} />
             {'\n'}
             <span className="font-sans text-ink-3 select-none">
               the object above, {objectLines} {objectLines === 1 ? 'line' : 'lines'}
@@ -488,7 +489,7 @@ function Command({ command, create }: { command: string; create: boolean }) {
             {end}
           </>
         ) : (
-          command
+          <CommandWords text={command} />
         )}
       </code>
     </div>

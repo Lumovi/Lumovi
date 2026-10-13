@@ -26,6 +26,7 @@ import {
 } from 'react'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
+import { CommandWords } from '@renderer/components/CommandWords'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { useList, useListResponse } from '@renderer/hooks/queries'
 import { useProduction, useReadOnly } from '@renderer/hooks/settings'
@@ -558,8 +559,8 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
                     <p className="mb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
                       Equivalent command
                     </p>
-                    <code className="block font-mono text-xs leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-2 selectable">
-                      {command}
+                    <code className="block font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 selectable">
+                      <CommandWords text={command} />
                     </code>
                     <span className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                       <CopyButton text={command} label="Copy command" />
