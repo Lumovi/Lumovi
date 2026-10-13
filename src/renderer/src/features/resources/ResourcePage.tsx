@@ -21,14 +21,14 @@ import {
 import { useGo } from '@renderer/hooks/go'
 import { usePluginOf } from '@renderer/hooks/plugins'
 import { useOpenObject } from '@renderer/hooks/open-object'
+import { useUpdateParams } from '@renderer/hooks/update-params'
 import { objectKey, useListResponse, useListTotals, useMetrics } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
-import { useUpdateParams } from '@renderer/hooks/update-params'
 import { usePlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
 import { namespacesParam, readOf, scopeOf } from '@renderer/lib/namespaces'
 import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
-import { fieldValue, viewFor } from '@renderer/lib/plugins'
+import { fieldValue, listedPlugins, viewFor } from '@renderer/lib/plugins'
 import { pinnable } from '@renderer/lib/marks'
 import { isWorkloadType } from '@renderer/lib/workloads'
 import { useManagers } from '@renderer/hooks/managers'
@@ -47,6 +47,7 @@ import {
   type CellContext,
 } from './columns'
 import { SearchInput } from '@renderer/components/SearchInput'
+import { atOne, atOneEmpty, AtOneNote, clearAtOne, nameSelector } from './AtOne'
 import { useListColumns } from './ColumnsMenu'
 import { useListState } from './list-state'
 import {
@@ -117,10 +118,14 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     ? columnsFor(kind, { showNamespace, hasHealth: hasHealth(kind) })
     : undefined
   const [state, update] = useListState(builtinColumns?.defaultSort ?? 'status')
+  // At one object, where a plugin's page opened it so: that one alone, read where it is.
+  const at = atOne(params, kind, listedPlugins())
+  const updateParams = useUpdateParams()
+  const clearAt = () => updateParams(clearAtOne, { replace: true })
   const gridRef = useRef<HTMLDivElement>(null)
   const phone = useLayout() === 'phone'
   // Rows picked for bulk actions, for this list only.
-  const scopeKey = `${kind}/${namespacesParam(namespaces) ?? null}`
+  const scopeKey = `${kind}/${namespacesParam(namespaces) ?? null}/${at ? `${at.namespace ?? ''}/${at.name}` : ''}`
   const [picked, setPicked] = useState<{ scope: string; keys: ReadonlySet<string> }>({
     scope: scopeKey,
     keys: new Set(),
@@ -128,10 +133,18 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   if (picked.scope !== scopeKey) setPicked({ scope: scopeKey, keys: new Set() })
   const labelsRef = useRef<LabelSelectorHandle>(null)
 
-  const query = {
-    namespace: resource.namespaced ? undefined : null,
-    labelSelector: state.labels || undefined,
-  }
+  const query = at
+    ? {
+        // (In its own namespace, whichever are picked: the page that opened it said where it is.
+        // Named without one, by hand, it's looked for where the list looks.)
+        namespace: resource.namespaced ? at.namespace : null,
+        fieldSelector: nameSelector(at.name),
+        labelSelector: state.labels || undefined,
+      }
+    : {
+        namespace: resource.namespaced ? undefined : null,
+        labelSelector: state.labels || undefined,
+      }
   const response = useListResponse(kind, query)
   const list = { ...response, data: response.data?.items }
   const totals = useListTotals(kind, query)
@@ -189,7 +202,6 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const shown = chosen.columns
   // The saved views: what the list shows now, and the one it was opened as (the address says).
   const go = useGo()
-  const updateParams = useUpdateParams()
   const current = viewOfList({
     name: '',
     kind,
@@ -240,6 +252,16 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     body = <TableSkeleton columns={shown} label={`Loading ${noun}`} />
   } else if (!list.data) {
     body = <ErrorState error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
+  } else if (items.length === 0 && at) {
+    body = (
+      <>
+        {notice}
+        <EmptyState
+          icon={kindIcon(kind)}
+          title={atOneEmpty(at, resource.apiKind, resource.namespaced, scope)}
+        />
+      </>
+    )
   } else if (items.length === 0) {
     body = (
       <>
@@ -373,6 +395,15 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           onFilter={(q) => update({ q })}
           onArrowDown={() => gridRef.current?.focus()}
           after={chosen.button(rows)}
+        />
+      )}
+
+      {at && (
+        <AtOneNote
+          at={at}
+          apiKind={resource.apiKind}
+          namespaced={resource.namespaced}
+          onClear={clearAt}
         />
       )}
 

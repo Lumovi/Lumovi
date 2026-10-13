@@ -21,17 +21,34 @@ export function kindPath(context: string, kind: ResourceKind): string {
     : `${clusterPath(context)}/r/${encodeURIComponent(kind)}`
 }
 
+/** What a list at one object names in its address: the name, its namespace, and whose page. */
+export const AT_ONE = { name: 'name', namespace: 'ns', plugin: 'plugin' } as const
+
 /**
  * A kind's list, filtered as a list keeps its filters in the address (`?health=critical,warning`,
- * `?labels=karpenter.sh/nodepool`): what a part of a plugin's page opens, from what the door made.
+ * `?labels=karpenter.sh/nodepool`, `?name=storefront&ns=shop&plugin=argo-cd`): what a part of a
+ * plugin's page opens, from what the door made.
  */
 export function listPath(
   context: string,
-  list: { kind: ResourceKind; health?: readonly string[]; labels?: readonly string[] },
+  list: {
+    kind: ResourceKind
+    health?: readonly string[]
+    labels?: readonly string[]
+    name?: string
+    namespace?: string
+    /** Whose page opened it: said beside a list at one object. */
+    plugin?: string
+  },
 ): string {
   const filters = new URLSearchParams()
   if (list.health) filters.set('health', list.health.join(','))
   if (list.labels) filters.set('labels', list.labels.join(','))
+  if (list.name !== undefined) {
+    filters.set(AT_ONE.name, list.name)
+    if (list.namespace !== undefined) filters.set(AT_ONE.namespace, list.namespace)
+    if (list.plugin !== undefined) filters.set(AT_ONE.plugin, list.plugin)
+  }
   const query = filters.toString()
   return query ? `${kindPath(context, list.kind)}?${query}` : kindPath(context, list.kind)
 }

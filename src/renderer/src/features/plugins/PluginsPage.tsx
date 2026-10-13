@@ -25,11 +25,12 @@ import { apiKindOf, type ResourceDefinition, type ResourceKind } from '@shared/r
 import { PluginIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, Loading } from '@renderer/components/States'
+import { Tooltip } from '@renderer/components/Tooltip'
 import { usePlugins } from '@renderer/hooks/plugins'
 import { useResources } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { useLayout } from '@renderer/lib/layout'
+import { useLayout, useTouch } from '@renderer/lib/layout'
 import { ASKED_PLUGIN } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 
@@ -564,7 +565,7 @@ function WhatItAsks({ plugin, names }: { plugin: Plugin; names: Names }) {
         {LUMOVI_TEST_BUILD && (
           <section aria-label="Adds to Lumovi’s pages">
             <h3 className={heading}>Adds to Lumovi’s pages</h3>
-            <Adds name={plugin.name} added={plugin.added} names={names} />
+            <Adds name={plugin.name} added={plugin.added} opens={plugin.opens} names={names} />
           </section>
         )}
       </div>
@@ -683,8 +684,50 @@ function MayChange({ asked, names }: { asked: Asks; names: Names }) {
   )
 }
 
+/** How many kinds the line of the lists a plugin's pages open names, before "and N more kinds". */
+const OPENS_NAMED = 8
+
+/**
+ * Which of Lumovi's lists its pages may open, in its file's order: past eight, how many more,
+ * and every one in its tooltip (under a finger, where nothing hovers, every one in the line).
+ */
+function Opens({ kinds, names }: { kinds: ResourceKind[]; names: Names }) {
+  const touch = useTouch()
+  if (kinds.length === 0) return null
+  const plurals = kinds.map(names.plural)
+  const more = plurals.length - OPENS_NAMED
+  return (
+    <p data-plugin-opens="">
+      Its pages may open Lumovi’s lists of{' '}
+      {more > 0 && !touch ? (
+        <>
+          {plurals.slice(0, OPENS_NAMED).join(', ')} and{' '}
+          <Tooltip content={listed(plurals)}>
+            <span tabIndex={0} className="underline decoration-dotted underline-offset-2">
+              {more} more {more === 1 ? 'kind' : 'kinds'}
+            </span>
+          </Tooltip>
+        </>
+      ) : (
+        listed(plurals)
+      )}
+      .
+    </p>
+  )
+}
+
 /** What a plugin adds to Lumovi's pages: how many of each, then each by the name its file gives. */
-function Adds({ name, added, names }: { name: string; added: Plugin['added']; names: Names }) {
+function Adds({
+  name,
+  added,
+  opens,
+  names,
+}: {
+  name: string
+  added: Plugin['added']
+  opens: ResourceKind[]
+  names: Names
+}) {
   const { pages, tabs, commands } = added
   // Whether its code would be handed to this window or browser: where not, it says why.
   const handOver = useQuery({
@@ -726,6 +769,7 @@ function Adds({ name, added, names }: { name: string; added: Plugin['added']; na
           </li>
         ))}
       </ul>
+      <Opens kinds={opens} names={names} />
     </div>
   )
 }

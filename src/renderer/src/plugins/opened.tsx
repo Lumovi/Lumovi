@@ -35,6 +35,8 @@ export interface Opening {
   parts: Readonly<Record<string, KitPart>>
   /** Every kind its file names, as Lumovi names them: what its parts may open a list of. */
   kinds?: readonly string[]
+  /** Those its file says its pages open (`spec.opens`): what its parts may open at one object. */
+  opens?: readonly string[]
   /** Lumovi's own open of what a press named: an object, or a list the door made. */
   open?: (to: Destination) => void
   /**
@@ -113,6 +115,7 @@ function Running({
       ...(handed ? { handed: { digest: handed.digest, codeDigest: handed.codeDigest } } : {}),
       parts: shown.parts,
       ...(shown.kinds ? { kinds: shown.kinds } : {}),
+      ...(shown.opens ? { opens: shown.opens } : {}),
       ...(shown.opening ? { opening: shown.opening } : {}),
       ...(shown.open ? { open: shown.open } : {}),
       ...(shown.propose && handed

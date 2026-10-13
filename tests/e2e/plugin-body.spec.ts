@@ -8,7 +8,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { CONTEXTS, expect, openCluster, panel, test } from './fixtures.ts'
 
@@ -91,15 +91,60 @@ const TILES = `(() => {
 })()
 `
 
+/** Toys, whose pages open Lumovi's lists of ten of Kubernetes' own kinds. */
+const TOYS_OPENS = `${TOYS}  opens:
+${[
+  'apps/Deployment',
+  'apps/StatefulSet',
+  'apps/DaemonSet',
+  '/Service',
+  '/ConfigMap',
+  'networking.k8s.io/Ingress',
+  'batch/Job',
+  'batch/CronJob',
+  '/Pod',
+  '/Secret',
+]
+  .map((id) => `    - { group: "${id.split('/')[0]}", kind: ${id.split('/')[1]} }`)
+  .join('\n')}
+`
+
+/**
+ * Toys' code with tiles that open a list at one object: a Deployment that's there, one that
+ * isn't, and one of its own widgets, whose list its file doesn't say its pages open at one name.
+ */
+const AT_ONE = `box.then(({ post, listen }) => {
+  listen((text) => {
+    if (!JSON.parse(text).open) return
+    const tile = (key, label, opens) => ({ key, label, value: { kind: 'figure', text: '1' }, opens })
+    post(JSON.stringify({ commit: [
+      ['make', 1, 'Tiles', { tiles: [
+        tile('storefront', 'Storefront', { list: 'apps/Deployment', name: 'storefront', namespace: 'shop' }),
+        tile('gone', 'Gone', { list: 'apps/Deployment', name: 'gone', namespace: 'shop' }),
+        tile('widget', 'One widget', { list: 'example.com/Widget', name: '${CUSTOM.widget}' }),
+      ] }],
+      ['put', 0, 1],
+    ] }))
+  })
+})
+`
+
 const body = (page: Page) => page.locator('[data-plugin-body]')
+/** What's said of an element where it's read: its text, without what's hidden from that. */
+const read = (locator: Locator) =>
+  locator.evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement
+    for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove()
+    return copy.textContent
+  })
 const go = (page: Page, hash: string) =>
   page.evaluate((to) => {
     window.location.hash = to
   }, hash)
 
-function included(code = CODE): string {
+function included(code = CODE, file = TOYS): string {
   const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
-  writeFileSync(join(folder, 'toys.yaml'), TOYS)
+  writeFileSync(join(folder, 'toys.yaml'), file)
   writeFileSync(join(folder, 'toys.js'), code)
   return folder
 }
@@ -155,6 +200,77 @@ test('a tile opens a list of a kind its plugin’s file names, filtered as it sa
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
     .toBe(`#/cluster/${CONTEXTS.demo}/r/Widget.example.com`)
+})
+
+test('a tile opens Lumovi’s list at one object, of a kind its file says its pages open, and the list says so until it’s cleared', async ({
+  launch,
+}) => {
+  const { page } = await launch({
+    env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included(AT_ONE, TOYS_OPENS) },
+  })
+  const said: string[] = []
+  page.on('console', (message) => said.push(message.text()))
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  // Its own widget at one name: its file doesn't say its pages open that, so the tile opens nothing.
+  await expect(body(page).getByRole('region', { name: 'Storefront' })).toBeVisible()
+  await expect(
+    body(page).getByRole('region', { name: 'One widget' }).getByRole('button'),
+  ).toHaveCount(0)
+  await expect
+    .poll(() => said.filter((line) => line.includes('at one name')))
+    .toEqual([
+      'Lumovi opens no list of example.com/Widget at one name for the plugin toys’ page: its file doesn’t name that kind under spec.opens.',
+    ])
+
+  // Pressed, the Deployment's: Lumovi's own list of Deployments, of that one alone, in its namespace.
+  await body(page).getByRole('region', { name: 'Storefront' }).getByRole('button').click()
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toBe(`#/cluster/${CONTEXTS.demo}/deployments?name=storefront&ns=shop&plugin=toys`)
+  const note = page.getByTestId('list-at-one')
+  await expect.poll(() => read(note)).toContain('name storefront · namespace shop')
+  await expect(note).toContainText(
+    'Opened from Toys’ page: only this one is shown. Clear the filter to see every Deployment.',
+  )
+  const grid = page.getByRole('grid', { name: 'Deployments' })
+  await expect(grid.getByRole('row').filter({ hasText: 'storefront' })).toHaveCount(1)
+  await expect(grid.getByRole('row').filter({ hasText: 'checkout' })).toHaveCount(0)
+  // Cleared: every Deployment again, and nothing said of a filter.
+  await note.getByRole('button', { name: 'Clear the filter and show every Deployment' }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toBe(`#/cluster/${CONTEXTS.demo}/deployments`)
+  await expect(note).toHaveCount(0)
+  await expect(grid.getByRole('row').filter({ hasText: 'checkout' })).toHaveCount(1)
+
+  // One that isn't there, or that the person can't see: said so.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
+  await body(page).getByRole('region', { name: 'Gone' }).getByRole('button').click()
+  await expect(page.getByText('No Deployment gone in shop that you can see')).toBeVisible()
+
+  // An address naming a plugin whose file doesn't open the kind: whose page it was isn't said; and
+  // a kind without namespaces has none in its chip.
+  await go(page, `#/cluster/${CONTEXTS.demo}/nodes?name=gone&ns=shop&plugin=toys`)
+  await expect.poll(() => read(note)).toContain('name gone')
+  await expect(note).not.toContainText('namespace')
+  await expect(note).toContainText('Only this one is shown. Clear the filter to see every Node.')
+  await expect(note).not.toContainText('Toys')
+  await expect(page.getByText('No Node gone that you can see')).toBeVisible()
+  // A kind with namespaces named without one, by hand: looked for where the list looks, and said.
+  await go(page, `#/cluster/${CONTEXTS.demo}/deployments?name=gone`)
+  await expect(page.getByText('No Deployment gone in this cluster that you can see')).toBeVisible()
+
+  // The Plugins page says which lists its pages may open: eight by name, the rest in a tooltip.
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins?plugin=toys`)
+  const opens = page.locator('[data-plugin-opens]')
+  await expect(opens).toHaveText(
+    'Its pages may open Lumovi’s lists of Deployments, StatefulSets, DaemonSets, Services, ConfigMaps, Ingresses, Jobs, CronJobs and 2 more kinds.',
+  )
+  await opens.getByText('2 more kinds').hover()
+  await expect(page.getByRole('tooltip')).toHaveText(
+    'Deployments, StatefulSets, DaemonSets, Services, ConfigMaps, Ingresses, Jobs, CronJobs, Pods and Secrets',
+  )
 })
 
 test('a plugin’s tab is handed the object it’s on, read for it as its own kind', async ({

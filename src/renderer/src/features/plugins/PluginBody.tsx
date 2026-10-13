@@ -41,7 +41,8 @@ export function PluginBody({
   // Lumovi's own as the door made it, and only what this screen may start.
   const open = (to: Destination) => {
     if (mayStart('opens', layout) !== true) return
-    if (to.to === 'list') void navigate(listPath(context, to))
+    // (A list at one object says whose page opened it.)
+    if (to.to === 'list') void navigate(listPath(context, { ...to, plugin: plugin.name }))
     else openObject(to.object.kind, to.object.name, to.object.namespace)
   }
   return (
@@ -56,6 +57,7 @@ export function PluginBody({
           opening: page !== undefined ? { page } : { tab, object },
           parts: KIT_PARTS,
           kinds: plugin.named,
+          opens: plugin.opens,
           open,
           // A change its page proposes, in Lumovi's own dialog: on the cluster it's open on, the
           // person's to confirm.

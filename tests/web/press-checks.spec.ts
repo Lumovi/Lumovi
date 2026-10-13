@@ -606,6 +606,73 @@ test('presses: what a part is handed, and what opens anything', async ({ page, s
     expect(HANDED_LIMITS.destinationsAPage).toBe(1000)
   })
 
+  await test.step('a list at one object is opened only of a kind its file says its pages open, and only as the door made it', async () => {
+    const said = await page.evaluate(() => {
+      const { Tokens, swapFor } = (window as unknown as Lent).__lumoviDoor.doorChecks
+      const tokens = new Tokens({ objects: 0 })
+      const kinds = new Set(['Deployment', 'Node', 'Application.argoproj.io'])
+      const unnamed: [string, string | undefined][] = []
+      const swap = swapFor(
+        tokens,
+        () => undefined,
+        undefined,
+        kinds,
+        (kind, by) => unnamed.push([kind, by]),
+        new Set(['Deployment', 'Node']),
+      )
+      const one = swap.destination({
+        list: 'apps/Deployment',
+        name: 'storefront',
+        namespace: 'shop',
+      })
+      return {
+        one,
+        frozen: Object.isFrozen(one),
+        opens: tokens.destinationOf(one) === one,
+        again:
+          swap.destination({ list: 'apps/Deployment', name: 'storefront', namespace: 'shop' }) ===
+          one,
+        elsewhere:
+          swap.destination({ list: 'apps/Deployment', name: 'storefront', namespace: 'web' }) ===
+          one,
+        node: swap.destination({ list: '/Node', name: 'ip-10-0-1-5' }),
+        whole: swap.destination({ list: 'apps/Deployment' }),
+        own: swap.destination({
+          list: 'argoproj.io/Application',
+          name: 'storefront',
+          namespace: 'argocd',
+        }),
+        noNamespace: swap.destination({ list: 'apps/Deployment', name: 'storefront' }),
+        nodeInOne: swap.destination({ list: '/Node', name: 'ip-10-0-1-5', namespace: 'shop' }),
+        unnamed,
+        // Told nothing of what it opens: no list at one object.
+        untold: swapFor(tokens, () => undefined, undefined, kinds).destination({
+          list: 'apps/Deployment',
+          name: 'storefront',
+          namespace: 'shop',
+        }),
+      }
+    })
+    expect(said).toEqual({
+      one: { to: 'list', kind: 'Deployment', name: 'storefront', namespace: 'shop' },
+      frozen: true,
+      opens: true,
+      again: true,
+      elsewhere: false,
+      node: { to: 'list', kind: 'Node', name: 'ip-10-0-1-5' },
+      whole: { to: 'list', kind: 'Deployment' },
+      own: undefined,
+      noNamespace: undefined,
+      nodeInOne: undefined,
+      unnamed: [
+        ['argoproj.io/Application', 'opens'],
+        ['apps/Deployment', 'namespace'],
+        ['/Node', 'namespace'],
+      ],
+      untold: undefined,
+    })
+  })
+
   await test.step('how a read was cut is the door’s numbers for its latest answer: a stale, borrowed or ended token says nothing', async () => {
     const said = await page.evaluate(() => {
       const { Tokens, swapFor } = (window as unknown as Lent).__lumoviDoor.doorChecks

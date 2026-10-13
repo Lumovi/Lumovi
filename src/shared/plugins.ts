@@ -250,6 +250,13 @@ export interface Plugin {
    * its file says none.
    */
   changes: ChangesKind[]
+  /**
+   * Kubernetes' own kinds whose lists in Lumovi its pages may open (`spec.opens`), as Lumovi names
+   * them: at one object by its name, as well as whole. Never read, never changed: opening one is
+   * the person's press, and the list is Lumovi's own, read as the person. Nothing, where its file
+   * says none.
+   */
+  opens: ResourceKind[]
 }
 
 /** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
@@ -292,11 +299,14 @@ export const SHOWS_SECRETS_LIMITS = { items: 10, keys: 20 } as const
 /** How many of its kinds a file may say its pages propose changes to. */
 export const CHANGES_LIMITS = { kinds: 20 } as const
 
+/** How many of Kubernetes' own kinds a file may say its pages open lists of. */
+export const OPENS_LIMITS = { kinds: 20 } as const
+
 /** How many of each a plugin may add, and how long a title or a command's name may be. */
 export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as const
 
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
-export type ListedPlugin = Pick<Plugin, 'name' | 'source' | 'version' | 'added'> &
+export type ListedPlugin = Pick<Plugin, 'name' | 'source' | 'version' | 'added' | 'opens'> &
   PluginPlace & {
     /** Every kind its file names (`namedKinds`): what its pages may open a list of. */
     named: ResourceKind[]
@@ -1009,6 +1019,34 @@ function changesProblems(changes: unknown, own: ReadonlySet<ResourceKind>): stri
     } else if (new Set(item.actions).size !== item.actions.length) {
       problems.push(`${at}.actions: each once`)
     }
+  })
+  return problems
+}
+
+/**
+ * What's wrong with what a file says its pages open lists of: Kubernetes' own kinds that Lumovi
+ * has a list of (its own kinds' lists its pages open already), each once, as their group has them.
+ */
+function opensProblems(opens: unknown): string[] {
+  const shaped = check(opens, { list: namedKind, nonEmpty: true }, 'spec.opens', 'an item')
+  if (Array.isArray(opens) && opens.length > OPENS_LIMITS.kinds) {
+    shaped.push(`spec.opens: holds ${opens.length}, and a file says ${OPENS_LIMITS.kinds} at most`)
+  }
+  if (shaped.length) return shaped
+  const problems: string[] = []
+  const said = new Set<ResourceKind>()
+  ;(opens as NamedKind[]).forEach((item, i) => {
+    const at = `spec.opens[${i}]`
+    const id = kindId(item)
+    const builtin = builtinResource(id)
+    if (!builtin || builtin.group !== (item.group ?? '')) {
+      problems.push(
+        `${at}: ${item.group ?? ''}/${item.kind} isn’t a kind Lumovi has a list of: a page opens Lumovi’s lists of Kubernetes’ own kinds`,
+      )
+      return
+    }
+    if (said.has(id)) problems.push(`${at}: ${item.group ?? ''}/${item.kind} is said once`)
+    said.add(id)
   })
   return problems
 }
@@ -1841,6 +1879,7 @@ function readPlugin(
     reads,
     showsSecrets,
     changes,
+    opens,
     ...place
   } = doc.spec as Record<string, unknown>
   // (With pages of its own, a place in the sidebar needs no kinds: its pages are its tabs.)
@@ -1955,6 +1994,13 @@ function readPlugin(
       `${source}: spec.changes: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they propose`,
     )
   }
+  if (opens !== undefined && !carriesCode) {
+    problems.push(
+      `${source}: spec.opens: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say what they open`,
+    )
+  } else if (opens !== undefined) {
+    problems.push(...opensProblems(opens).map((problem) => `${source}: ${problem}`))
+  }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
     // reads the object through the door, by the door's reading rules for that kind and that
@@ -2062,6 +2108,7 @@ function readPlugin(
       reads: readsOf(reads),
       showsSecrets: showsSecretsOf(showsSecrets),
       changes: changesOf(changes),
+      opens: ((opens ?? []) as NamedKind[]).map(kindId),
     },
     problems: [],
   }
@@ -2097,11 +2144,12 @@ export function ownKinds(plugin: Pick<Plugin, 'place' | 'views'>): string[] {
 
 /**
  * Every kind a plugin's file names, as Lumovi names it (`NodePool.karpenter.sh`, `Node`): under
- * its place, in a view, of Kubernetes' own that it shows, and those its code reads. A list its
- * page opens is of one of these and of no other. (A view of `*.group` names no one kind.)
+ * its place, in a view, of Kubernetes' own that it shows, those its code reads, and those whose
+ * lists its pages open. A list its page opens is of one of these and of no other. (A view of
+ * `*.group` names no one kind.)
  */
 export function namedKinds(
-  plugin: Pick<Plugin, 'place' | 'views' | 'shows' | 'reads'>,
+  plugin: Pick<Plugin, 'place' | 'views' | 'shows' | 'reads' | 'opens'>,
 ): ResourceKind[] {
   const read = Object.keys(plugin.reads).map((id) => {
     const slash = id.lastIndexOf('/')
@@ -2113,6 +2161,7 @@ export function namedKinds(
     ...plugin.views.flatMap((view) => view.kinds),
     ...plugin.shows,
     ...read,
+    ...plugin.opens,
   ]
   return [...new Set(kinds.filter((kind) => !kind.startsWith('*.')))]
 }

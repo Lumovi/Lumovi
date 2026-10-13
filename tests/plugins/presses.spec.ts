@@ -434,6 +434,68 @@ test('a list to open is one the door made: of a kind its file names, the same ea
   expect(page.destinationOf(pools)).toBe(pools)
 })
 
+test('a list at one object is opened only of a kind its file says its pages open, and only as the door made it', () => {
+  const page = new Tokens({ objects: 0 })
+  const kinds = new Set(['Deployment', 'Node', 'Application.argoproj.io'])
+  const opens = new Set(['Deployment', 'Node'])
+  const unnamed: [string, string | undefined][] = []
+  const swap = swapFor(
+    page,
+    () => undefined,
+    undefined,
+    kinds,
+    (kind, by) => unnamed.push([kind, by]),
+    opens,
+  )
+  const one = swap.destination({ list: 'apps/Deployment', name: 'storefront', namespace: 'shop' })!
+  expect(one).toEqual({ to: 'list', kind: 'Deployment', name: 'storefront', namespace: 'shop' })
+  expect(Object.isFrozen(one)).toBe(true)
+  expect(page.destinationOf(one)).toBe(one)
+  // Said the same way, the same one; in another namespace, another.
+  expect(swap.destination({ list: 'apps/Deployment', name: 'storefront', namespace: 'shop' })).toBe(
+    one,
+  )
+  expect(
+    swap.destination({ list: 'apps/Deployment', name: 'storefront', namespace: 'web' }),
+  ).not.toBe(one)
+  // A kind without namespaces is named without one.
+  expect(swap.destination({ list: '/Node', name: 'ip-10-0-1-5' })).toEqual({
+    to: 'list',
+    kind: 'Node',
+    name: 'ip-10-0-1-5',
+  })
+  // The whole list of a kind it opens, as of any kind its file names.
+  expect(swap.destination({ list: 'apps/Deployment' })).toEqual({ to: 'list', kind: 'Deployment' })
+  // Its own kind at one name isn't among those it opens: nothing, and its author is told why.
+  expect(
+    swap.destination({ list: 'argoproj.io/Application', name: 'storefront', namespace: 'argocd' }),
+  ).toBeUndefined()
+  // One of a kind with namespaces without its own, or one without with one: nothing, and why.
+  expect(swap.destination({ list: 'apps/Deployment', name: 'storefront' })).toBeUndefined()
+  expect(
+    swap.destination({ list: '/Node', name: 'ip-10-0-1-5', namespace: 'shop' }),
+  ).toBeUndefined()
+  expect(unnamed).toEqual([
+    ['argoproj.io/Application', 'opens'],
+    ['apps/Deployment', 'namespace'],
+    ['/Node', 'namespace'],
+  ])
+  expect(unnamedLine('argoproj.io/Application', 'argo-cd’s', 'opens')).toBe(
+    'Lumovi opens no list of argoproj.io/Application at one name for argo-cd’s page: its file doesn’t name that kind under spec.opens.',
+  )
+  expect(unnamedLine('apps/Deployment', 'argo-cd’s', 'namespace')).toBe(
+    'Lumovi opens no list of apps/Deployment at one name for argo-cd’s page: a name of that kind goes with its namespace where the kind has them, and with none where it hasn’t.',
+  )
+  // Told nothing of what it opens, a page opens no list at one object.
+  expect(
+    swapFor(page, () => undefined, undefined, kinds).destination({
+      list: 'apps/Deployment',
+      name: 'storefront',
+      namespace: 'shop',
+    }),
+  ).toBeUndefined()
+})
+
 test('how a read was cut is the door’s numbers for its latest answer: a stale, borrowed or ended token says nothing', () => {
   const page = new Tokens({ objects: 0 })
   let stale = 0

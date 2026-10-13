@@ -167,7 +167,7 @@ const NOTHING: Added = { pages: [], tabs: [], commands: [] }
 export function listedPlugins(): ListedPlugin[] {
   const listed = (plugins: Iterable<Plugin>) =>
     [...plugins].flatMap((plugin) => {
-      const { name, source, version, place, added } = plugin
+      const { name, source, version, place, added, opens } = plugin
       return place
         ? [
             {
@@ -176,6 +176,7 @@ export function listedPlugins(): ListedPlugin[] {
               version,
               ...place,
               named: namedKinds(plugin),
+              opens,
               // (Its pages, tabs and commands are drawn by the door, and offered in the tests' build
               // alone so far. When a release offers them, a plugin whose code isn't part of that
               // Lumovi has none of them offered at all: never a page that couldn't start.)
