@@ -5,6 +5,7 @@
  */
 import type { KubeError, LogStreamRequest, Result } from '@shared/api'
 import { kubectl } from '@shared/kubectl'
+import { READ_REFUSED } from '@shared/plugin-reads'
 import { whose } from '@shared/plugins'
 import { outcomeOf } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
@@ -36,7 +37,7 @@ interface Dependencies {
 }
 
 /** Why a plugin's page is shown no logs, where its organization says so. */
-export const LOGS_OFF = 'Your organization’s policy doesn’t let plugins show containers’ logs.'
+export const LOGS_OFF = READ_REFUSED['logs-off']
 
 export class LogStreams {
   readonly #streams = new Map<string, () => void>()

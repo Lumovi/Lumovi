@@ -266,10 +266,11 @@ export interface Plugin {
   links: Reach[]
   /**
    * Whether its pages show containers' logs (`spec.logs: shown`): Lumovi reads them as the
-   * person and draws them in its own log view, and the plugin's code never holds a line. None,
-   * where its file says nothing.
+   * person and draws them in its own log view, and the plugin's code never holds a line. Or
+   * whether its code reads them too (`read`), of Pods its file reads: once an ask, never a
+   * follow, within Lumovi's limits. None, where its file says nothing.
    */
-  logs?: 'shown'
+  logs?: 'shown' | 'read'
 }
 
 /** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
@@ -2049,8 +2050,8 @@ function readPlugin(
     problems.push(
       `${source}: spec.logs: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they show logs`,
     )
-  } else if (logs !== undefined && logs !== 'shown') {
-    problems.push(`${source}: spec.logs: should be shown, not ${describe(logs)}`)
+  } else if (logs !== undefined && logs !== 'shown' && logs !== 'read') {
+    problems.push(`${source}: spec.logs: should be shown or read, not ${describe(logs)}`)
   }
   if (problems.length === 0) {
     // A tab is on the plugin's own kinds only: ones it claims, in a group of its own (its code
@@ -2072,6 +2073,12 @@ function readPlugin(
         ...readsProblems(reads, (groups ?? []) as string[], own).map(
           (problem) => `${source}: ${problem}`,
         ),
+      )
+    }
+    // Its code reads the logs of pods it was handed: of Pods, which its file reads.
+    if (logs === 'read' && problems.length === 0 && !Object.hasOwn(readsOf(reads), '/Pod')) {
+      problems.push(
+        `${source}: spec.logs: read needs Pods in spec.reads: its code reads the logs only of pods it was handed`,
       )
     }
     // What its pages show of Secrets: named by objects of its own kinds.
@@ -2161,7 +2168,7 @@ function readPlugin(
       changes: changesOf(changes),
       opens: ((opens ?? []) as NamedKind[]).map(kindId),
       links: [...((links ?? []) as Reach[])],
-      ...(logs === 'shown' ? { logs: 'shown' as const } : {}),
+      ...(logs === 'shown' || logs === 'read' ? { logs: logs as 'shown' | 'read' } : {}),
     },
     problems: [],
   }

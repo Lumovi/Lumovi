@@ -225,6 +225,41 @@ test('one of Lumovi’s own is updated, says what’s new, goes back to the one 
   ])
 })
 
+test('an update whose code reads the logs its pages only showed asks again: in red, first under New in', async ({
+  launch,
+  downloads,
+}) => {
+  const logs = (level: string) => `  reads: [{ group: '', kind: Pod, fields: [metadata.name] }]
+  pages: [{ id: overview, title: Overview }]
+  logs: ${level}
+`
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'toys.yaml'), file('toys', 'Toys', 'Widget', '1.2.0', logs('shown')))
+  writeFileSync(join(folder, 'toys.js'), 'box.then(() => {})\n')
+  downloads.pluginStore = release(1, {
+    ...plugin('toys', 'Toys', 'Widget', '1.3.0', logs('read')),
+    code: 'box.then(() => {})\n',
+  })
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, pluginsPage)
+  await row(page, 'Toys').getByRole('button', { name: 'Update…' }).click()
+  const added = dialog(page).getByRole('region', { name: 'New in 1.3.0' })
+  const asks = added.locator('[data-ask]')
+  await expect(asks.first()).toHaveAttribute('data-ask', 'logs')
+  await expect(asks.first()).toHaveAttribute('data-red', '')
+  await expect(asks.first()).toHaveText(
+    'Its code reads containers’ logs: what they print, which can hold tokens and personal data, reaches its code.' +
+      'Of pods its page shows, one container at a time: at most its last 500 lines or hour, as you, within your access.',
+  )
+  await expect(asks.first()).toHaveClass(/text-critical-text/)
+  // (Reading them is a step up from showing them: nothing of it is gone.)
+  await expect(added.locator('[data-ask]')).toHaveCount(1)
+  await expect(dialog(page).getByRole('region', { name: 'No longer' })).toHaveCount(0)
+  await dialog(page).getByRole('button', { name: 'Update to 1.3.0' }).click()
+  await expect(page.getByText('Updated Toys to 1.3.0.')).toBeVisible()
+})
+
 test('an installed copy whose files changed isn’t used: Lumovi’s own is, and the page says why', async ({
   launch,
   downloads,

@@ -16,6 +16,7 @@ import {
 } from '@shared/kit/shown'
 import type { PluginVia } from '@shared/api'
 import { DOOR_LIMITS } from '@shared/plugin-door'
+import { READ_REFUSED } from '@shared/plugin-reads'
 import { whose } from '@shared/plugins'
 import type { ObjectRef } from '@shared/kit/table'
 import { apiKindOf } from '@shared/resources'
@@ -473,7 +474,7 @@ export function LogsShown({
   if (off) {
     return (
       <ShownCard title={shown.title} by={by} them>
-        <Said refused>Your organization’s policy doesn’t let plugins show containers’ logs.</Said>
+        <Said refused>{READ_REFUSED['logs-off']}</Said>
       </ShownCard>
     )
   }

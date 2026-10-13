@@ -48,6 +48,8 @@ const READS: readonly string[] = [
   IPC.get,
   IPC.secretValues,
   IPC.pluginRead,
+  // A pod's logs, read once for a plugin's code: a read, as a phone's own logs are.
+  IPC.pluginLogs,
   // A plugin's code, and whether it would be handed: on a phone as anywhere, the hand-over's own
   // answer (`mayHandOver`) gives it or says why not, after the check of this browser's box, which
   // runs on a phone as on any server's browser. Nothing of them changes a cluster: what a

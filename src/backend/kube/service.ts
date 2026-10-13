@@ -770,6 +770,7 @@ export class KubeService {
       if (q.container) params.set('container', q.container)
       if (q.previous) params.set('previous', 'true')
       if (q.sinceSeconds) params.set('sinceSeconds', String(q.sinceSeconds))
+      if (q.timestamps) params.set('timestamps', 'true')
       const path = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/pods/${encodeURIComponent(q.pod)}/log`
       return this.#request(q.context, `${path}?${params}`, {})
     })

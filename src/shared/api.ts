@@ -43,7 +43,7 @@ import type { AppCommand } from './navigation'
 import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
-import type { PluginRead, PluginReadQuery } from './plugin-reads'
+import type { PluginLogs, PluginLogsQuery, PluginRead, PluginReadQuery } from './plugin-reads'
 import type { Installed, InstalledRecord, StoreCheck } from './plugin-store'
 import type { ResourceDefinition, ResourceKind } from './resources'
 import type { SponsorCard } from './sponsor'
@@ -972,6 +972,8 @@ export interface PodLogsQuery {
   sinceSeconds?: number
   /** At most so many bytes, from the start of the lines asked for. */
   limitBytes: number
+  /** Each line with the time it was written, first (`kubectl logs --timestamps`). */
+  timestamps?: boolean
 }
 
 export interface ChangeRequest {
@@ -1235,6 +1237,8 @@ export interface LumoviApi {
      * the cluster said.
      */
     pluginRead(query: PluginReadQuery): Promise<PluginRead>
+    /** A pod's logs, once, for a plugin's code its file lets read them (`spec.logs: read`). */
+    pluginLogs(query: PluginLogsQuery): Promise<PluginLogs>
     /**
      * A plugin's code, for its page's box: the only way any plugin's code reaches a page, and
      * only where the backend's `mayHandOver` says this page may have it.
@@ -1608,6 +1612,7 @@ export const IPC = {
   get: 'kube:get',
   secretValues: 'kube:secret-values',
   pluginRead: 'kube:plugin-read',
+  pluginLogs: 'kube:plugin-logs',
   pluginChange: 'kube:plugin-change',
   pluginCode: 'kube:plugin-code',
   pluginHandOver: 'kube:plugin-hand-over',

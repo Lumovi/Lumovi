@@ -41,6 +41,12 @@ const SECRET = `  showsSecrets:
 /** What its pages show besides: containers' logs. */
 const LOGS = `  logs: shown
 `
+/** Containers' logs of the pods it reads: shown on its pages, or read by its code too. */
+const PODS_LOGS = (
+  logs: 'shown' | 'read',
+) => `  reads: [{ group: '', kind: Pod, fields: [metadata.name] }]
+  logs: ${logs}
+`
 /** What it asks besides: a link to Pods by name. */
 const LINKS = `  views:
     - kinds: [{ group: example.com, kind: Widget }]
@@ -138,6 +144,17 @@ test('refused, with nothing written, where it isn’t what was agreed, needs a n
   const logged = installer({ latest: () => released({ toys: file('1.3.0', '1.0.0', LOGS) }) })
   await expect(logged.installed.install('toys', '1.3.0', agreed(file('1.3.0')))).rejects.toThrow(
     'What it asks isn’t what you were shown',
+  )
+  // (Its code reading them is more than its pages showing them: agreed to as shown, refused.)
+  const reading = installer({
+    latest: () => released({ toys: file('1.3.0', '1.0.0', PODS_LOGS('read')) }),
+  })
+  await expect(
+    reading.installed.install('toys', '1.3.0', agreed(file('1.3.0', '1.0.0', PODS_LOGS('shown')))),
+  ).rejects.toThrow('What it asks isn’t what you were shown')
+  // (As read, it's what was agreed.)
+  expect(agreed(file('1.3.0', '1.0.0', PODS_LOGS('read')))).not.toBe(
+    agreed(file('1.3.0', '1.0.0', PODS_LOGS('shown'))),
   )
   await expect(made.installed.install('toys', '1.9.0', '')).rejects.toThrow(
     'Lumovi-plugins release 9.1.0 doesn’t have toys 1.9.0',

@@ -51,15 +51,21 @@ const release = (version: string) => (
 
 function Line({ line, gone = false }: { line: AskLine; gone?: boolean }) {
   const Icon = line.icon
+  // (Red where it's asked; one no longer asked is struck, as any.)
+  const red = line.red && !gone
   return (
     <li
       data-ask={line.key}
+      {...(red ? { 'data-red': '' } : {})}
       className={cn(
         'flex gap-2.5 py-1.5 text-[13px] leading-[19px]',
-        gone ? 'text-ink-3' : 'text-ink-1',
+        gone ? 'text-ink-3' : red ? 'text-critical-text' : 'text-ink-1',
       )}
     >
-      <Icon className="mt-0.5 size-[15px] shrink-0 text-ink-3" aria-hidden />
+      <Icon
+        className={cn('mt-0.5 size-[15px] shrink-0', red ? 'text-critical-text' : 'text-ink-3')}
+        aria-hidden
+      />
       <span className="min-w-0 flex-1">
         <span className={cn(gone && 'line-through decoration-line-strong')}>{line.text}</span>
         {line.note && <span className="mt-0.5 block text-xs text-ink-3">{line.note}</span>}
@@ -228,7 +234,8 @@ export function StoreDialog({
     note = 'Nothing changes until you press Install.'
   } else {
     const { added, gone, same } = compared(is.inUse.granted, is.granted)
-    const newLines = askLines(added, names, tool)
+    // (What's new and red comes first, before even its code.)
+    const newLines = askLines(added, names, tool).sort((a, b) => Number(!!b.red) - Number(!!a.red))
     const goneLines = askLines(gone, names, tool)
     const sameLines = askLines(same, names, tool)
     // (Code is new whatever it asks: said wherever the one offered has some, but going back

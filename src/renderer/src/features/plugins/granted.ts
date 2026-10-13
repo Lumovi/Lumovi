@@ -44,7 +44,7 @@ export const grantedOf = (plugin: Plugin, code: boolean): Granted => ({
  * How much of containers' logs each way gives, least first: a step up is new, as a new field is.
  * Each way is said here (TypeScript holds it), so a new one is never compared as nothing.
  */
-const LOGS = { shown: 1 } as const satisfies Record<NonNullable<Plugin['logs']>, number>
+const LOGS = { shown: 1, read: 2 } as const satisfies Record<NonNullable<Plugin['logs']>, number>
 const logsLevel = (logs: Plugin['logs']) => (logs === undefined ? 0 : LOGS[logs])
 
 /** What's in `a` and not in `b`, in `a`'s order. */

@@ -1447,7 +1447,7 @@ test('a plugin’s pages link to Lumovi’s own places only as its file says', (
 })
 
 test('a plugin’s pages show containers’ logs only as its file says, and only as Lumovi reads them', () => {
-  const plugin = (logs: string | undefined, carriesCode = true) =>
+  const plugin = (logs: string | undefined, carriesCode = true, reads?: string) =>
     parsePlugin(
       [
         'apiVersion: lumovi.dev/v1beta1',
@@ -1459,6 +1459,7 @@ test('a plugin’s pages show containers’ logs only as its file says, and only
         '  groups: [argoproj.io]',
         '  views:',
         '    - kinds: [{ group: argoproj.io, kind: Application }]',
+        ...(reads === undefined ? [] : [`  reads: ${reads}`]),
         ...(logs === undefined ? [] : [`  logs: ${logs}`]),
       ].join('\n'),
       'probe.yaml',
@@ -1471,9 +1472,24 @@ test('a plugin’s pages show containers’ logs only as its file says, and only
   expect(plugin('shown', false).problems).toEqual([
     'probe.yaml: spec.logs: only a plugin that comes with Lumovi has pages of its own yet, so only its file can say they show logs',
   ])
-  // Its code never reads them here: Lumovi shows them, and that's all.
-  expect(plugin('read').problems).toEqual(['probe.yaml: spec.logs: should be shown, not a string'])
-  expect(plugin('[shown]').problems).toEqual(['probe.yaml: spec.logs: should be shown, not a list'])
+  // Its code reads them only of pods it reads, and was handed.
+  const pods = "[{ group: '', kind: Pod, fields: [metadata.name] }]"
+  expect(plugin('read', true, pods).problems).toEqual([])
+  expect(plugin('read', true, pods).plugin!.logs).toBe('read')
+  for (const reads of [undefined, "[{ group: '', kind: Node, fields: [metadata.name] }]"]) {
+    expect(plugin('read', true, reads).problems, reads).toEqual([
+      'probe.yaml: spec.logs: read needs Pods in spec.reads: its code reads the logs only of pods it was handed',
+    ])
+  }
+  // (A file whose reads are wrong is told that first.)
+  expect(plugin('read', true, 'pods').problems).toHaveLength(1)
+  expect(plugin('read', true, 'pods').problems[0]).toMatch(/^probe\.yaml: spec\.reads/)
+  expect(plugin('write', true, pods).problems).toEqual([
+    'probe.yaml: spec.logs: should be shown or read, not a string',
+  ])
+  expect(plugin('[shown]').problems).toEqual([
+    'probe.yaml: spec.logs: should be shown or read, not a list',
+  ])
 })
 
 test('a plugin’s pages show a Secret an object of its own kind names, by a path and keys its file declares', () => {

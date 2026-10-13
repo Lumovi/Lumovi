@@ -50,7 +50,7 @@ const GRANT: Grant = {
   },
 }
 
-test('an ask is one of five things, each with exactly its own words', () => {
+test('an ask is one of six things, each with exactly its own words', () => {
   const asks: unknown[] = [
     { read: 1, what: 'list', kind: '/Node' },
     { read: 2, what: 'list', kind: 'karpenter.sh/NodePool', namespace: 'kube-system' },
@@ -79,6 +79,18 @@ test('an ask is one of five things, each with exactly its own words', () => {
       },
       labels: ['app'],
     },
+    // A pod's logs, once: its last lines, or those of its last seconds, or its previous instance's.
+    { read: 11, what: 'logs', pod: 'o_17', container: 'envoy' },
+    {
+      read: 12,
+      what: 'logs',
+      pod: 'o_17',
+      container: 'app',
+      tail: 500,
+      since: 3600,
+      previous: true,
+    },
+    { read: 13, what: 'logs', pod: 'o_17', container: 'app', tail: 1 },
     { stop: 3 },
     { refresh: true },
   ]
@@ -152,6 +164,21 @@ test('anything else stops the plugin: a word too many, a kind or a name that isn
     { read: 1, what: 'list', kind: '/Node', labels: ['!app'] },
     { read: 1, what: 'list', kind: '/Node', labels: ['app in (a,b)'] },
     { read: 1, what: 'list', kind: '/Node', labels: [7] },
+    // Logs: of a pod by its token, a container by its name, within Lumovi's limits; never a follow.
+    { read: 1, what: 'logs', pod: 'o_1' },
+    { read: 1, what: 'logs', container: 'app' },
+    { read: 1, what: 'logs', pod: { kind: 'Pod', name: 'a' }, container: 'app' },
+    { read: 1, what: 'logs', pod: 'shop/cart-1', container: 'app' },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'App' },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'a'.repeat(64) },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', tail: 501 },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', tail: 0 },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', tail: 1.5 },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', since: 3601 },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', since: '1h' },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', previous: false },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', follow: true },
+    { read: 1, what: 'logs', pod: 'o_1', container: 'app', namespace: 'kube-system' },
     { stop: 1, read: 2 },
     { stop: '1' },
     { refresh: 1 },
@@ -1052,6 +1079,15 @@ test('a number is new once; and ending a read that’s already ended does nothin
     why: 'not-allowed',
     what: 'ends a read it never asked for',
   })
+  // A pod's logs are answered once, and then over: kept by the page, and the plugin, no longer.
+  const counted = { lists: 0, kept: 0 }
+  const logs = new PageReads(counted, () => clock.now)
+  expect(logs.take({ read: 1, what: 'logs', pod: 'o_1', container: 'app' })).toBeUndefined()
+  expect(counted).toEqual({ lists: 0, kept: 1 })
+  logs.over(1)
+  expect(counted).toEqual({ lists: 0, kept: 0 })
+  // (Its code's ending it after: messages cross.)
+  expect(logs.take({ stop: 1 })).toBeUndefined()
 })
 
 test('a refresh too soon isn’t made, and doesn’t stop the plugin; but it’s one of its second’s asks', () => {

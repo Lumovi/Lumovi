@@ -1206,6 +1206,19 @@ function Adds({
   )
 }
 
+/** Under its logs line, where the organization's policy turns plugins' logs off. */
+function LogsLocked() {
+  return (
+    <p className="mt-2 flex gap-1.5 text-xs leading-[18px] text-ink-2">
+      <Lock className="mt-0.5 size-[13px] shrink-0 text-ink-3" aria-hidden />
+      <span>
+        Turned off by your organization’s policy (
+        <code className="font-mono text-ink-1">pluginLogs: off</code>): Lumovi reads no logs for it.
+      </span>
+    </p>
+  )
+}
+
 function MayRead({
   asked,
   names,
@@ -1218,11 +1231,22 @@ function MayRead({
   /** What its pages do with containers' logs, as its file says. */
   logs?: Plugin['logs']
 }) {
-  const logsOff = useSettings().data?.managed?.pluginLogsOff === true
   const kinds = ({ kinds, templated }: Asks['related']) =>
     kinds.length > 0 ? listed(kinds.map(names.plural)) : templated ? 'kinds its objects name' : ''
+  // (The desktop app's policy: a server has none.)
+  const logsOff = useSettings().data?.managed?.pluginLogsOff === true
   return (
     <div className="space-y-2">
+      {/* What its code is handed that can hold anything at all: first, and red; quiet where the
+          organization's policy turns it off. (From its file's own asks, never from a list of
+          plugins Lumovi knows.) */}
+      {logs === 'read' && (
+        <div data-red-line="logs">
+          <p className={logsOff ? 'text-ink-2' : 'text-critical-text'}>{LOGS_LINE.read.text}</p>
+          <p className="text-xs leading-[18px] text-ink-3">{LOGS_LINE.read.note}</p>
+          {logsOff && <LogsLocked />}
+        </div>
+      )}
       <p>Its own kinds’ objects: its columns, status and details are fields of the object shown.</p>
       {asked.shows.length > 0 && (
         <p>{listed(asked.shows.map(names.plural))}, which it shows and can’t change.</p>
@@ -1272,19 +1296,11 @@ function MayRead({
           by labels and annotations the workload carries under {tool}’s own groups.
         </p>
       )}
-      {logs !== undefined && (
+      {/* Shown on its pages: Lumovi reads and draws them (read: said first, above). */}
+      {logs === 'shown' && (
         <div>
-          <p>{LOGS_LINE[logs]}</p>
-          {logsOff && (
-            <p className="mt-1 flex gap-1.5">
-              <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
-              <span>
-                Turned off by your organization’s policy (
-                <code className="font-mono text-xs text-ink-1">pluginLogs: off</code>): Lumovi reads
-                no logs for it.
-              </span>
-            </p>
-          )}
+          <p>{LOGS_LINE.shown.text}</p>
+          {logsOff && <LogsLocked />}
         </div>
       )}
       {/* Each true of it: no logs, no Secret's value (where the lines above don't say it), and

@@ -11,6 +11,9 @@
  *   object of its own kind, for each path its file declares, a token for each Secret the object
  *   names there (`secrets: [{ path, tokens }]`), for its page's parts to show; and of a list cut
  *   at Lumovi's limit, a token for how (`cut`), this answer's alone, for a part to name;
+ * - `{ read, lines: [{ time?, text }], cut? }`: a pod's logs, once, where its file says its code
+ *   reads them: its last lines, oldest first, each with when it was written; `cut`, where Lumovi
+ *   kept only the last of them. The read is over;
  * - `{ read, ended, said }`: the read is over (refused, or what it read is gone): a code, and
  *   Lumovi's sentence for it;
  * - `{ read, failing, said }`: reading it again failed this time; it's tried again.
@@ -23,8 +26,10 @@ import {
   readAsk,
   type Cut,
   type PluginCount,
+  type PluginLogs,
   type PluginRead,
   type PluginReadQuery,
+  type ReadAsk,
   type ReadRefusal,
 } from '@shared/plugin-reads'
 import { Tokens, type PluginHanded } from '@shared/plugin-presses'
@@ -44,6 +49,7 @@ const countOf = (plugin: string) => {
 const ENDS: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'changed',
   'code-off',
+  'logs-off',
   'not-yet',
   'not-granted',
   'not-in-use',
@@ -82,6 +88,8 @@ export class PageReading {
   readonly tokens: Tokens
   readonly #reads: PageReads
   readonly #going = new Map<number, Going>()
+  /** Asks for a pod's logs not yet answered: each is answered once. */
+  readonly #logs = new Set<number>()
   /** Of the reads going: those failing now, and why; those whose last answer was cut, and how. */
   readonly #failing = new Map<number, ReadRefusal>()
   readonly #cut = new Map<number, Cut>()
@@ -135,6 +143,10 @@ export class PageReading {
       // An object's events: refused with a code (a plugin written for a later Lumovi doesn't
       // lose its page for asking).
       this.#refuse(ask.read, 'not-yet')
+      return undefined
+    }
+    if (ask.what === 'logs') {
+      this.#readLogs(ask)
       return undefined
     }
     const { kind, namespace, usage } = ask
@@ -261,6 +273,34 @@ export class PageReading {
     this.#again(read, going, refs.length)
   }
 
+  /** A pod's logs, once: the backend checks the plugin's file says its code reads them. */
+  #readLogs({ read, pod: token, container, tail, since, previous }: LogsAsk): void {
+    // (A token that's no pod's, or no longer held: as a read of what isn't there.)
+    const pod = this.tokens.podOf(token)
+    if (!pod?.namespace) return this.#refuse(read, 'not-found')
+    this.#logs.add(read)
+    void api.kube
+      .pluginLogs({
+        context: this.#context,
+        plugin: this.#plugin,
+        ...this.#handed,
+        namespace: pod.namespace,
+        pod: pod.name,
+        container,
+        ...(tail === undefined ? {} : { tail }),
+        ...(since === undefined ? {} : { since }),
+        ...(previous ? { previous } : {}),
+      })
+      .catch((): PluginLogs => ({ ok: false, refused: 'failed' }))
+      .then((result) => {
+        // (Ended by its code meanwhile, or the page is gone: nobody's asking.)
+        if (this.#closed || !this.#logs.delete(read)) return
+        if (!result.ok) return this.#refuse(read, result.refused)
+        this.#reads.over(read)
+        this.#tell({ read, lines: result.lines, ...(result.cut ? { cut: true } : {}) })
+      })
+  }
+
   /** Reads it again in a while: a list as often as Lumovi's own list of as many. */
   #again(read: number, going: Going, count: number): void {
     going.timer = setTimeout(
@@ -286,6 +326,7 @@ export class PageReading {
     const going = this.#going.get(read)
     if (going) clearTimeout(going.timer)
     this.#going.delete(read)
+    this.#logs.delete(read)
     this.tokens.ended(read)
     this.#failing.delete(read)
     this.#cut.delete(read)
@@ -370,6 +411,8 @@ export class PageReading {
     this.tokens.close()
   }
 }
+
+type LogsAsk = Extract<ReadAsk, { what: 'logs' }>
 
 const key = ({ kind, namespace, name }: ObjectRef) => `${kind}\u0000${namespace ?? ''}\u0000${name}`
 
