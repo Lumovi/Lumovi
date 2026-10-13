@@ -53,6 +53,7 @@
     "kind:down": "node tests/integration/cluster.ts down",
     "test:integration": "npm run build && playwright test -c playwright.integration.config.ts",
     "plugins:check": "playwright test -c playwright.plugins.config.ts",
+    "plugin-kit": "cross-env LUMOVI_PLUGIN_KIT=write playwright test -c playwright.plugins.config.ts declared-one-source",
     "crds": "node scripts/crds.ts",
     "test:kind": "npm run kind:up && npm run test:integration",
     "package": "npm run build && electron-builder --dir",
