@@ -315,7 +315,7 @@ test('every plugin on one page: what’s in use on this cluster, and what each a
   // Each once: its name and version, the kinds it shows (three at most, then how many more),
   // whether this cluster has it, and where it came from.
   const flux = table.getByRole('row').filter({ hasText: /^Flux/ })
-  await expect(flux).toContainText('1.0.0')
+  await expect(flux).toContainText('1.1.0')
   await expect(flux).toContainText(/Kustomizations, HelmReleases, \S+ and 4 more kinds/)
   await expect(flux).toContainText('On this cluster: in the sidebar')
   await expect(flux).toContainText('came with this Lumovi')

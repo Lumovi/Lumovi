@@ -730,6 +730,14 @@ export function Table({
   ]
   // (The lead column's heading: the plugin's, where its rows aren't things with names.)
   const leading: ReactNode = leadHeading?.their ? <TheirText text={leadHeading} inline /> : 'Name'
+  // A heading's whole words, as its tooltip: cut short in a narrow column, it's still read whole.
+  // (Spelled: a title can't draw a mark.)
+  const tipOf = (column: number) =>
+    column === NAME
+      ? leadHeading?.their
+        ? spelled(leadHeading.their)
+        : 'Name'
+      : spelled(said(columns[column]?.name))
   const nameOf = (column: number): ReactNode =>
     column === NAME ? leading : <TheirText text={columns[column]?.name} inline />
   // How many show, each group's own `shows` at most, of how many there are.
@@ -920,13 +928,14 @@ export function Table({
                 <button
                   type="button"
                   onClick={() => sortBy(NAME)}
+                  title={tipOf(NAME)}
                   className={cn(
                     HEADING,
                     'flex min-w-0 items-center gap-1 hover:text-ink-1',
                     sort?.column === NAME && 'text-ink-1',
                   )}
                 >
-                  {leading}
+                  <span className="truncate">{leading}</span>
                   {sort?.column === NAME &&
                     (sort.down ? (
                       <ArrowDown className="size-3 shrink-0" />
@@ -935,7 +944,9 @@ export function Table({
                     ))}
                 </button>
               ) : (
-                <span className={HEADING}>{leading}</span>
+                <span title={tipOf(NAME)} className={cn(HEADING, 'truncate')}>
+                  {leading}
+                </span>
               )}
             </span>
             {columns.map((column, c) => {
@@ -952,6 +963,7 @@ export function Table({
                     <button
                       type="button"
                       onClick={() => sortBy(c)}
+                      title={tipOf(c)}
                       className={cn(
                         HEADING,
                         'flex min-w-0 items-center gap-1 hover:text-ink-1',
@@ -969,7 +981,7 @@ export function Table({
                         ))}
                     </button>
                   ) : (
-                    <span className={cn(HEADING, 'truncate')}>
+                    <span title={tipOf(c)} className={cn(HEADING, 'truncate')}>
                       <TheirText text={column.name} inline />
                     </span>
                   )}

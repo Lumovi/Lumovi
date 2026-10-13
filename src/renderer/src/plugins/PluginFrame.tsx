@@ -55,15 +55,16 @@ export function WhoseStrip({
   return (
     <div
       data-testid="plugin-whose"
-      className="flex min-h-9 shrink-0 items-center gap-2 border-b border-line bg-surface-2 py-1.5 pr-2 pl-4 text-[12px] leading-[18px] text-ink-2"
+      className="@container flex min-h-9 shrink-0 items-center gap-2 border-b border-line bg-surface-2 py-1.5 pr-2 pl-4 text-[12px] leading-[18px] text-ink-2"
     >
       <Plug className="size-3.5 shrink-0 text-ink-3" aria-hidden />
-      {/* (A long name wraps; it's never cut.) */}
+      {/* (A long name wraps; it's never cut. Narrow, as beside an open panel, it's said as on a
+      phone.) */}
       <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        <span className="phone:hidden">This page is from the plugin </span>
-        <span className="hidden phone:inline">From the plugin </span>
+        <span className="@max-[40rem]:hidden phone:hidden">This page is from the plugin </span>
+        <span className="hidden @max-[40rem]:inline phone:inline">From the plugin </span>
         <b className="font-semibold text-ink-1">{name}</b> {version}
-        <span className="phone:hidden">
+        <span className="@max-[40rem]:hidden phone:hidden">
           . Lumovi draws it from its own parts; what it shows and says is the plugin’s.
         </span>
       </span>
