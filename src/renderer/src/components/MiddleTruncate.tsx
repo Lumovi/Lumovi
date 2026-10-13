@@ -48,10 +48,18 @@ export function middleCut(
  */
 export function MiddleTruncate({ text, className }: { text: string; className?: string }) {
   const element = useRef<HTMLSpanElement>(null)
+  const whole = useRef<HTMLSpanElement>(null)
   const [shown, setShown] = useState(text)
   useLayoutEffect(() => {
     const span = element.current!
-    const fit = () => setShown(middleCut(text, span.clientWidth, widthIn(span)))
+    const fit = () =>
+      setShown(
+        // Whole where it's laid out whole: told by what draws it, not by measuring, which can
+        // come out a pixel wider (Windows, zoomed out). Where it fits, its room is its own width.
+        whole.current!.getBoundingClientRect().width <= span.getBoundingClientRect().width + 0.5
+          ? text
+          : middleCut(text, span.clientWidth, widthIn(span)),
+      )
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(span)
@@ -66,7 +74,9 @@ export function MiddleTruncate({ text, className }: { text: string; className?: 
       className={cn('relative block min-w-0 overflow-hidden whitespace-nowrap', className)}
     >
       {/* All of it, unseen: what a screen reader reads, and how wide it would like to be. */}
-      <span className="text-transparent">{text}</span>
+      <span ref={whole} className="text-transparent">
+        {text}
+      </span>
       <span aria-hidden className="absolute inset-0 select-none">
         {shown}
       </span>
