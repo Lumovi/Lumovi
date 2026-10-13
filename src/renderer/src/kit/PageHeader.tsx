@@ -25,7 +25,7 @@ import { BUTTONS_SHOWN, filledLast, type HeaderButton, type HeaderProps } from '
 import { Button } from '@renderer/components/Button'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
-import { useLayout } from '@renderer/lib/layout'
+import { useLayout, useTouch } from '@renderer/lib/layout'
 import { offered, REACH_ICONS, reachTip } from '@renderer/plugins/reach'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { menuContent, menuItem } from '../features/shell/menu-styles'
@@ -236,7 +236,7 @@ function Folded({ button, onPress }: { button: HeaderButton; onPress: () => void
       <span
         id={reason}
         title={spelled(button.off.their)}
-        className="line-clamp-2 max-w-64 text-xs leading-snug text-ink-3"
+        className="line-clamp-2 max-w-64 text-xs leading-snug text-ink-3 touch:line-clamp-none"
       >
         <TheirText text={button.off} inline />
       </span>
@@ -250,40 +250,59 @@ function Folded({ button, onPress }: { button: HeaderButton; onPress: () => void
  * does is said even where it isn't (that deleting a thing deletes what it made, say). Where it
  * isn't plain which button a note is of (more than one, or a phone's, with no buttons over it),
  * Lumovi says: the button's name, then the plugin's words.
+ *
+ * Under a finger nothing hovers, so what a tooltip holds for a pointer is on the page: each line
+ * wraps whole, and why a button here (`drawn`) is off stands with them, before what it does, in a
+ * line that says so: the button's name, Lumovi's "is off", then the plugin's reason.
  */
 function Notes({
   buttons,
+  drawn,
   named,
   className,
 }: {
   buttons: readonly HeaderButton[]
+  /** The buttons drawn as buttons here: one that's off says why in its tooltip, to a pointer. */
+  drawn: readonly HeaderButton[]
   named: boolean
   className?: string
 }) {
-  const noted = buttons.filter((button) => button.note)
-  if (noted.length === 0) return null
-  const whose = named || noted.length > 1
+  const touch = useTouch()
+  const lines = buttons.flatMap((button) => [
+    ...(touch && button.off && drawn.includes(button)
+      ? [{ key: `${keyOf(button)} off`, button, text: button.off, off: true }]
+      : []),
+    ...(button.note ? [{ key: keyOf(button), button, text: button.note, off: false }] : []),
+  ])
+  if (lines.length === 0) return null
+  const whose = named || lines.length > 1
   return (
     <div className={cn('flex flex-col gap-0.5', className)}>
-      {noted.map((button) => (
-        <p
-          key={keyOf(button)}
-          title={`${whose ? `${spelled(button.name.their)}: ` : ''}${spelled(button.note!.their)}`
-            .replace(/\s+/g, ' ')
-            .trim()}
-          className="flex items-start gap-1.5 text-left text-xs leading-[17px] text-ink-2"
-        >
-          <Info aria-hidden className="mt-px size-3.5 shrink-0" />
-          <span className="line-clamp-2 [overflow-wrap:anywhere]">
-            {whose && (
-              <span className="font-medium text-ink-1">
-                <TheirText text={button.name} inline />:{' '}
-              </span>
-            )}
-            <TheirText text={button.note!} inline />
-          </span>
-        </p>
-      ))}
+      {lines.map(({ key, button, text, off }) => {
+        // (Why one is off always names it: nothing else says which, or that it's a reason.)
+        const before = off ? ' is off: ' : whose ? ': ' : undefined
+        return (
+          <p
+            key={key}
+            data-off-reason={off ? '' : undefined}
+            title={`${before ? `${spelled(button.name.their)}${before}` : ''}${spelled(text.their)}`
+              .replace(/\s+/g, ' ')
+              .trim()}
+            className="flex items-start gap-1.5 text-left text-xs leading-[17px] text-ink-2"
+          >
+            <Info aria-hidden className="mt-px size-3.5 shrink-0" />
+            <span className="line-clamp-2 [overflow-wrap:anywhere] touch:line-clamp-none">
+              {before && (
+                <span className="font-medium text-ink-1">
+                  <TheirText text={button.name} inline />
+                  {before}
+                </span>
+              )}
+              <TheirText text={text} inline />
+            </span>
+          </p>
+        )
+      })}
     </div>
   )
 }
@@ -381,7 +400,7 @@ export function PageHeader({
     <p
       // (Whole in its tooltip, spelled: a line is 500 characters at most.)
       title={spelled(why.their).replace(/\s+/g, ' ').trim()}
-      className="line-clamp-2 max-w-[640px] text-[13px] leading-5 [overflow-wrap:anywhere] text-ink-2"
+      className="line-clamp-2 max-w-[640px] text-[13px] leading-5 [overflow-wrap:anywhere] text-ink-2 touch:line-clamp-none"
     >
       <TheirText text={why} inline />
     </p>
@@ -400,7 +419,7 @@ export function PageHeader({
         {status}
         {detail}
         {elsewhere.length > 0 && <OnALargerScreen buttons={elsewhere} />}
-        <Notes buttons={buttons} named />
+        <Notes buttons={buttons} drawn={here} named />
         {here.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {here.map((button) => (
@@ -480,7 +499,12 @@ export function PageHeader({
       <div className="flex items-start gap-6 empty:hidden">
         {detail}
         {/* (At most 480 px, and never past half the header.) */}
-        <Notes buttons={ordered} named={false} className="ml-auto max-w-[min(480px,50%)]" />
+        <Notes
+          buttons={ordered}
+          drawn={shown}
+          named={false}
+          className="ml-auto max-w-[min(480px,50%)]"
+        />
       </div>
     </div>
   )

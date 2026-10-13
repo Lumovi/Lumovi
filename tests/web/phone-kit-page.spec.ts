@@ -1,6 +1,6 @@
 /** A page's frame from the kit on a phone: the list is the page; what's picked is a page of its own. */
 import type { Locator } from '@playwright/test'
-import { DEMO_TOKEN, expect, test } from './fixtures.ts'
+import { DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
 import { expectFingerSized, expectNoSidewaysScroll, PHONE, signInNarrow } from './phone.ts'
 
 test.use({ viewport: PHONE, hasTouch: true, isMobile: true })
@@ -217,4 +217,83 @@ test('on a phone, a row’s line under its name wraps to two lines, and where th
   // Not cut: only its line, nothing to tap.
   await expect(short.locator('[data-under]')).toHaveText('Streaming')
   await expect(short.getByRole('button', { name: 'Streaming' })).toHaveCount(0)
+})
+
+/** Whether a line shows all of itself: nothing of it past its own box. */
+const whole = (line: Locator) =>
+  line.evaluate((shown) => shown.scrollHeight <= shown.clientHeight + 1)
+
+test('under a finger no tooltip holds the rest, so a card’s about and a header’s lines wrap whole', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/kit/frame`, DEMO_TOKEN)
+  // A card's about as long as one may be, 240 characters: all of it on the page, its last word too.
+  const about = page
+    .getByRole('region', { name: 'Karpenter’s overview' })
+    .getByRole('region', { name: 'Node mix' })
+    .locator('[data-about]')
+  await about.scrollIntoViewIfNeeded()
+  expect((await about.innerText()).length).toBe(240)
+  await expect(about).toHaveCSS('-webkit-line-clamp', 'none')
+  expect(await whole(about)).toBe(true)
+  const last = await about.evaluate((line) => {
+    const texts = document.createTreeWalker(line, NodeFilter.SHOW_TEXT)
+    let node: Node | null = null
+    for (let next = texts.nextNode(); next; next = texts.nextNode()) node = next
+    const said = node!.textContent!
+    const word = document.createRange()
+    word.setStart(node!, said.lastIndexOf(' ') + 1)
+    word.setEnd(node!, said.length)
+    const [box, line_] = [word.getBoundingClientRect(), line.getBoundingClientRect()]
+    return [word.toString(), box.height > 0 && box.bottom <= line_.bottom + 1]
+  })
+  expect(last).toEqual(['times.', true])
+  // A header's why, and what its buttons do: each whole, however many lines that takes.
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const list = page.getByRole('region', { name: 'Clusters' }).first()
+  await list.getByRole('listitem').filter({ hasText: 'orders-db' }).getByRole('button').tap()
+  const orders = page.getByRole('group', { name: 'orders-db' })
+  const notes = orders.locator('p:has(svg) > span')
+  await expect(notes).toHaveCount(2)
+  for (const note of await notes.all()) {
+    await expect(note).toHaveCSS('-webkit-line-clamp', 'none')
+    expect(await whole(note)).toBe(true)
+  }
+  await expectNoSidewaysScroll(page, 'a header’s notes, whole on a phone')
+})
+
+test.describe('under a finger at a desktop’s width', () => {
+  test.use({ viewport: { width: 1280, height: 800 }, hasTouch: true, isMobile: false })
+
+  test('why a button is off stands under the buttons, as what one does: nothing hovers to say it', async ({
+    page,
+    serve,
+  }) => {
+    const served = await serve()
+    await signIn(page, `${served.url}cluster/demo/kit/frame`, DEMO_TOKEN)
+    await page
+      .getByRole('listbox', { name: 'Clusters' })
+      .getByRole('option')
+      .filter({ hasText: 'orders-db' })
+      .tap()
+    const orders = page.getByRole('group', { name: 'orders-db' })
+    // Its last button is off: said under the buttons, in a line that says it's why, before what
+    // that button does.
+    await expect(orders.getByRole('button', { name: 'Back up now…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    const reason = orders.locator('[data-off-reason]')
+    await expect(reason).toHaveText('Back up now is off: A backup is running.')
+    await expect(orders.getByRole('paragraph')).toHaveText([
+      /^Switch over: /,
+      'Back up now is off: A backup is running.',
+      /^Back up now: /,
+    ])
+    for (const line of await orders.locator('p:has(svg) > span').all()) {
+      expect(await whole(line)).toBe(true)
+    }
+  })
 })
