@@ -147,3 +147,56 @@ test('what a person is told where code isn’t handed', () => {
     'Its pages don’t run here: Lumovi couldn’t check this browser.',
   )
 })
+
+test('a switch that turns code off is asked before any browser: the organization’s, the server’s, then the person’s', () => {
+  const on: HandOverTo = { host: 'desktop', switches: { chosen: {} } }
+  expect(mayHandOver(plugin(), on)).toBe(true)
+  // The person's own: off for this plugin, and only this one.
+  const theirs = (chosen: Record<string, boolean>): HandOverTo => ({
+    host: 'desktop',
+    switches: { chosen },
+  })
+  expect(mayHandOver(plugin(), theirs({ karpenter: false }))).toBe('turned-off')
+  expect(mayHandOver(plugin(), theirs({ 'argo-cd': false }))).toBe(true)
+  expect(mayHandOver(plugin(), theirs({ karpenter: true }))).toBe(true)
+  // A server's: none, or only those it names; ahead of the person's, and of the browser's check.
+  const served = (only: string[], chosen = {}): HandOverTo => ({
+    host: 'server',
+    held: true,
+    check: 'passed',
+    switches: { serverOnly: only, chosen },
+  })
+  expect(mayHandOver(plugin(), served([]))).toBe('off-on-server')
+  expect(mayHandOver(plugin(), served(['argo-cd']))).toBe('off-on-server-for-it')
+  expect(mayHandOver(plugin(), served(['karpenter']))).toBe(true)
+  expect(mayHandOver(plugin(), served(['karpenter'], { karpenter: false }))).toBe('turned-off')
+  expect(mayHandOver(plugin(), served([], { karpenter: true }))).toBe('off-on-server')
+  // Off by a switch, a browser that hasn't been checked is never asked about.
+  expect(
+    mayHandOver(plugin(), { host: 'server', held: true, switches: { serverOnly: [], chosen: {} } }),
+  ).toBe('off-on-server')
+  // The organization's policy: before all, whatever the person chose.
+  expect(
+    mayHandOver(plugin(), {
+      host: 'desktop',
+      switches: { policyOff: true, chosen: { karpenter: true } },
+    }),
+  ).toBe('off-by-policy')
+  // (What the plugin is still comes first: none, or none with code, says so whatever's switched.)
+  expect(mayHandOver(plugin({ code: undefined }), theirs({ karpenter: false }))).toBe('no-code')
+  expect(mayHandOver(undefined, theirs({ karpenter: false }))).toBe('not-in-use')
+})
+
+test('what a person is told where a switch turned its code off', () => {
+  expect(notHandedWhy('turned-off')).toBe('You turned off its code.')
+  expect(notHandedLine('turned-off')).toBe('Its pages don’t run: you turned off its code.')
+  expect(notHandedLine('off-on-server')).toBe(
+    'Its pages don’t run here: this server doesn’t run plugins’ code.',
+  )
+  expect(notHandedLine('off-on-server-for-it')).toBe(
+    'Its pages don’t run here: this server doesn’t run this plugin’s code.',
+  )
+  expect(notHandedLine('off-by-policy')).toBe(
+    'Its pages don’t run: your organization’s policy doesn’t let plugins run code.',
+  )
+})

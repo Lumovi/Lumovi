@@ -13,25 +13,30 @@ import {
   SearchX,
   TriangleAlert,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { asks, type Asks } from '@shared/plugin-asks'
 import type { ChangeAction } from '@shared/plugin-changes'
-import { notHandedLine } from '@shared/plugin-hand-over'
+import { codeOff, notHandedLine } from '@shared/plugin-hand-over'
 import type { Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
 import { apiKindOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
 import { PluginIcon } from '@renderer/components/KindIcon'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, Loading } from '@renderer/components/States'
+import { Switch } from '@renderer/components/Switch'
 import { Tooltip } from '@renderer/components/Tooltip'
+import { LockedBadge } from '@renderer/features/access/parts'
 import { usePlugins } from '@renderer/hooks/plugins'
+import { useSettings } from '@renderer/hooks/settings'
+import { switchesOf } from '@renderer/plugins/code-switches'
+import { toast } from '@renderer/state/toasts'
 import { useResources } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
-import { ASKED_PLUGIN } from '@renderer/lib/routes'
+import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 
 /** A line of the list: one of Lumovi's plugins, or a file of the folder. */
@@ -101,6 +106,8 @@ export function PluginsPage() {
   const [params, setParams] = useSearchParams()
   const named = params.get(ASKED_PLUGIN)
   const asked = named !== null && PLUGIN_NAME.test(named) ? named : undefined
+  // And whether its "Run its code" takes the focus: where "Open Plugins" on its page came here.
+  const atSwitch = (plugin: Plugin) => asked === plugin.name && params.get(AT_SWITCH) === '1'
   // What a person opened or closed by hand, and the name the address had then (`instead`):
   // their choice holds while the address names none, and gives way when it names another.
   const [byHand, setByHand] = useState<{ key?: string; instead?: string }>()
@@ -201,7 +208,7 @@ export function PluginsPage() {
         </button>
         <Opening />
         <Card row={selected} names={names} directory={plugins.directory} />
-        <WhatItAsks plugin={selected.plugin} names={names} />
+        <WhatItAsks plugin={selected.plugin} names={names} focus={atSwitch(selected.plugin)} />
       </div>
     )
   }
@@ -331,7 +338,11 @@ export function PluginsPage() {
                   {opened === row.key && row.plugin && (
                     <tr>
                       <td colSpan={3} className="border-b border-line bg-surface-2/60 p-0">
-                        <WhatItAsks plugin={row.plugin} names={names} />
+                        <WhatItAsks
+                          plugin={row.plugin}
+                          names={names}
+                          focus={atSwitch(row.plugin)}
+                        />
                       </td>
                     </tr>
                   )}
@@ -356,6 +367,9 @@ export function PluginsPage() {
 
 /** What a plugin is, said once at the top: in Lumovi's words, and true of every one of them. */
 function Opening() {
+  // (Where the organization's policy names the plugins allowed, the others aren't here: said so,
+  // without naming them.)
+  const allowedOnly = useSettings().data?.managed?.pluginsAllowed !== undefined
   return (
     <p className="m-5 flex gap-2.5 rounded-xl bg-surface-2 px-4 py-3 text-[13px] leading-relaxed text-ink-2 phone:m-4">
       <Info className="mt-0.5 size-4 shrink-0 text-ink-3" />
@@ -368,6 +382,11 @@ function Opening() {
         {HOST === 'yours'
           ? 'yours are your own files.'
           : 'this server’s are files its administrator put there.'}
+        {allowedOnly && (
+          <span data-plugins-allowed-only className="mt-1.5 block">
+            Your organization’s policy allows only some plugins here: the others aren’t shown.
+          </span>
+        )}
       </span>
     </p>
   )
@@ -436,9 +455,31 @@ function Name({
             {more > 0 && ` and ${more} more ${more === 1 ? 'kind' : 'kinds'}`}
           </p>
         )}
+        {LUMOVI_TEST_BUILD && row.plugin && <CodeOffLine plugin={row.plugin} />}
       </div>
     </div>
   )
+}
+
+/**
+ * Under a plugin's name, where a switch turned its code off: why its pages don't run, quietly
+ * (a choice, not a fault). Nothing where its code runs, or where it has none.
+ */
+function CodeOffLine({ plugin }: { plugin: Plugin }) {
+  const settings = useSettings().data
+  const handOver = useQuery({
+    queryKey: ['plugin-hand-over', plugin.name],
+    queryFn: () => api.kube.pluginHandOver(plugin.name),
+    enabled: plugin.added.pages.length + plugin.added.tabs.length > 0,
+  })
+  if (!settings || handOver.data === undefined) return null
+  if (handOver.data === 'no-code' || handOver.data === 'not-in-use') return null
+  const off = codeOff(plugin.name, switchesOf(settings))
+  return off ? (
+    <p data-plugin-code-off={plugin.name} className="mt-0.5 text-ink-3">
+      {notHandedLine(off)}
+    </p>
+  ) : null
 }
 
 /** Whether it's in use on this cluster, and if not, why. */
@@ -545,90 +586,212 @@ function Card({ row, names, directory }: { row: Row; names: Names; directory: st
   )
 }
 
+/** What a plugin's code does, from its file: what it draws, what it reads as you, and whether it proposes. */
+function codeDoes(plugin: Plugin, names: Names): string {
+  const { pages, tabs } = plugin.added
+  const draws = [
+    ...pages.map((page) => `its ${page.title.toLowerCase()}`),
+    ...tabs.map((tab) => `a tab on ${listed(tab.kinds.map(names.plural))}`),
+  ]
+  const reads = asks(plugin).reads.map((read) => names.plural(read.kind))
+  return [
+    draws.length > 0 && `Draws ${listed(draws)}.`,
+    `It reads ${reads.length > 0 ? listed(reads) : 'only its own kinds'} as you, and ${
+      plugin.changes.length > 0 ? 'proposes changes, each one you confirm.' : 'changes nothing.'
+    }`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/**
+ * "Run its code": the person's own switch of a plugin's code, first in its opened entry. Locked
+ * off where the server or the organization's policy turned it off: then it says whose it is.
+ */
+/** Whether a plugin's entry has "Run its code": only where its code is part of this Lumovi. */
+function useHasCode(plugin: Plugin): boolean {
+  const settings = useSettings().data
+  const handOver = useQuery({
+    queryKey: ['plugin-hand-over', plugin.name],
+    queryFn: () => api.kube.pluginHandOver(plugin.name),
+    enabled: LUMOVI_TEST_BUILD,
+  })
+  return (
+    LUMOVI_TEST_BUILD &&
+    settings !== undefined &&
+    handOver.data !== undefined &&
+    handOver.data !== 'no-code' &&
+    handOver.data !== 'not-in-use'
+  )
+}
+
+function CodeSwitch({ plugin, names, focus }: { plugin: Plugin; names: Names; focus: boolean }) {
+  const settings = useSettings().data
+  const queryClient = useQueryClient()
+  if (!useHasCode(plugin) || !settings) return null
+  const switches = switchesOf(settings)
+  const off = codeOff(plugin.name, switches)
+  const locked =
+    off === 'off-by-policy' || off === 'off-on-server' || off === 'off-on-server-for-it'
+  const on = !off
+  const line = `plugin-code-line-${plugin.name}`
+  const change = async (next: boolean) => {
+    try {
+      const updated = await api.app.setPluginCode(plugin.name, next)
+      queryClient.setQueryData(['settings'], updated)
+      void queryClient.invalidateQueries({ queryKey: ['plugin-hand-over', plugin.name] })
+    } catch (error) {
+      toast({ tone: 'error', title: (error as Error).message })
+    }
+  }
+  const control = `plugin-code-${plugin.name}`
+  return (
+    // A hairline above; the row grows with its line; the label and its switch read as one, in the
+    // entry's text column, and the whole of that line is the place to press (44 px on a phone).
+    <div
+      data-plugin-code-switch={plugin.name}
+      className="border-t border-line pt-3 pr-5 pb-1 pl-[4.75rem] text-[13px] phone:px-4"
+    >
+      <div className="max-w-[44rem]">
+        <div className="flex min-h-8 items-center gap-3 phone:min-h-11">
+          <label
+            htmlFor={control}
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-2 self-stretch font-medium text-ink-1"
+          >
+            Run its code
+            {(off === 'off-on-server' || off === 'off-on-server-for-it') && <LockedBadge />}
+          </label>
+          <Switch
+            id={control}
+            label="Run its code"
+            checked={on}
+            locked={locked}
+            describedBy={line}
+            autoFocus={focus}
+            onCheckedChange={(next) => void change(next)}
+          />
+        </div>
+        <p id={line} className="text-ink-2">
+          {off === 'off-by-policy' ? (
+            <span className="flex gap-1.5">
+              <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
+              Turned off by your organization’s policy.
+            </span>
+          ) : locked ? (
+            'Turned off on this server.'
+          ) : (
+            codeDoes(plugin, names)
+          )}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 /** What a plugin asks for, in three parts: what it may change, what it reads, and its actions. */
-function WhatItAsks({ plugin, names }: { plugin: Plugin; names: Names }) {
+function WhatItAsks({
+  plugin,
+  names,
+  focus = false,
+}: {
+  plugin: Plugin
+  names: Names
+  /** Whether its switch takes the focus: where "Open Plugins" on its page came here. */
+  focus?: boolean
+}) {
   const asked = asks(plugin)
   const heading = 'mb-2 text-2xs font-medium tracking-wider text-ink-3 uppercase'
+  // (Under "Run its code", the next heading 12 px under its line.)
+  const switched = useHasCode(plugin)
   return (
-    <div className="grid grid-cols-2 gap-x-10 gap-y-6 py-5 pr-5 pl-[4.75rem] text-[13px] text-ink-2 phone:grid-cols-1 phone:px-4">
-      <div className="space-y-5">
-        <section aria-label="May change and create">
-          <h3 className={heading}>May change and create</h3>
-          <MayChange asked={asked} names={names} />
-        </section>
-        <section aria-label="May read">
-          <h3 className={heading}>May read</h3>
-          <MayRead asked={asked} names={names} tool={plugin.place?.label ?? plugin.name} />
-        </section>
-        {/* (Its pages, tabs and commands are drawn by the door, and taken only in the tests'
-            build until it's in: a release says nothing of them yet.) */}
-        {LUMOVI_TEST_BUILD && (
-          <section aria-label="Adds to Lumovi’s pages">
-            <h3 className={heading}>Adds to Lumovi’s pages</h3>
-            <Adds name={plugin.name} added={plugin.added} opens={plugin.opens} names={names} />
+    <>
+      {/* (With its pages, which the tests' build alone offers so far.) */}
+      {LUMOVI_TEST_BUILD && <CodeSwitch plugin={plugin} names={names} focus={focus} />}
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-x-10 gap-y-6 pr-5 pb-5 pl-[4.75rem] text-[13px] text-ink-2 phone:grid-cols-1 phone:px-4',
+          switched ? 'pt-3' : 'pt-5',
+        )}
+      >
+        <div className="space-y-5">
+          <section aria-label="May change and create">
+            <h3 className={heading}>May change and create</h3>
+            <MayChange asked={asked} names={names} />
           </section>
-        )}
-      </div>
-      <section aria-label="Its actions, and what each sends">
-        <h3 className={heading}>Its actions, and what each sends</h3>
-        {asked.actions.length === 0 ? (
-          <p>It has no actions.</p>
-        ) : (
-          <>
-            <ul className="space-y-3">
-              {asked.actions.map((action, i) => (
-                <li
-                  key={i}
-                  className="grid grid-cols-[9rem_1fr] gap-3 phone:grid-cols-1 phone:gap-1.5"
-                >
-                  <div>
-                    <p className="font-medium text-ink-1">{action.name}</p>
-                    <p className="text-xs text-ink-3">
-                      {action.kinds.length === asked.kinds.length && asked.kinds.length > 1
-                        ? `on all ${asked.kinds.length} kinds`
-                        : `on ${listed(action.kinds.map(names.plural))}`}
-                      {action.status && ', to its status'}
-                    </p>
-                    {/* Both grey, told apart by their words and their weight, never by a colour. */}
-                    <span
-                      className={cn(
-                        'mt-1 inline-block rounded bg-surface-3 px-1.5 py-0.5 text-2xs',
-                        action.runs === 'asks' ? 'text-ink-3' : 'font-medium text-ink-1',
+          <section aria-label="May read">
+            <h3 className={heading}>May read</h3>
+            <MayRead asked={asked} names={names} tool={plugin.place?.label ?? plugin.name} />
+          </section>
+          {/* (Its pages, tabs and commands are drawn by the door, and taken only in the tests'
+            build until it's in: a release says nothing of them yet.) */}
+          {LUMOVI_TEST_BUILD && (
+            <section aria-label="Adds to Lumovi’s pages">
+              <h3 className={heading}>Adds to Lumovi’s pages</h3>
+              <Adds name={plugin.name} added={plugin.added} opens={plugin.opens} names={names} />
+            </section>
+          )}
+        </div>
+        <section aria-label="Its actions, and what each sends">
+          <h3 className={heading}>Its actions, and what each sends</h3>
+          {asked.actions.length === 0 ? (
+            <p>It has no actions.</p>
+          ) : (
+            <>
+              <ul className="space-y-3">
+                {asked.actions.map((action, i) => (
+                  <li
+                    key={i}
+                    className="grid grid-cols-[9rem_1fr] gap-3 phone:grid-cols-1 phone:gap-1.5"
+                  >
+                    <div>
+                      <p className="font-medium text-ink-1">{action.name}</p>
+                      <p className="text-xs text-ink-3">
+                        {action.kinds.length === asked.kinds.length && asked.kinds.length > 1
+                          ? `on all ${asked.kinds.length} kinds`
+                          : `on ${listed(action.kinds.map(names.plural))}`}
+                        {action.status && ', to its status'}
+                      </p>
+                      {/* Both grey, told apart by their words and their weight, never by a colour. */}
+                      <span
+                        className={cn(
+                          'mt-1 inline-block rounded bg-surface-3 px-1.5 py-0.5 text-2xs',
+                          action.runs === 'asks' ? 'text-ink-3' : 'font-medium text-ink-1',
+                        )}
+                      >
+                        {action.runs === 'asks' ? 'asks first' : 'runs at once'}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      {action.creates !== undefined && (
+                        <p className="mb-1 text-xs text-ink-3">Creates</p>
                       )}
-                    >
-                      {action.runs === 'asks' ? 'asks first' : 'runs at once'}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    {action.creates !== undefined && (
-                      <p className="mb-1 text-xs text-ink-3">Creates</p>
-                    )}
-                    {action.json && <p className="mb-1 text-xs text-ink-3">A JSON patch</p>}
-                    <pre className="overflow-x-auto rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs leading-5 text-ink-1 selectable">
-                      {action.patch ?? action.creates}
-                    </pre>
-                    {action.undo !== undefined && (
-                      <>
-                        {/* (Sent too, later, when Undo is pressed: the other half of the action.) */}
-                        <p className="mt-2 mb-1 text-xs text-ink-3">Undo sends:</p>
-                        <pre className="overflow-x-auto rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs leading-5 text-ink-1 selectable">
-                          {action.undo}
-                        </pre>
-                      </>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 flex gap-2 text-ink-3">
-              <Info className="mt-0.5 size-3.5 shrink-0" />
-              An action that asks first shows this and its kubectl command before anything is sent.
-              One that runs at once sends it when its button is pressed.
-            </p>
-          </>
-        )}
-      </section>
-    </div>
+                      {action.json && <p className="mb-1 text-xs text-ink-3">A JSON patch</p>}
+                      <pre className="overflow-x-auto rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs leading-5 text-ink-1 selectable">
+                        {action.patch ?? action.creates}
+                      </pre>
+                      {action.undo !== undefined && (
+                        <>
+                          {/* (Sent too, later, when Undo is pressed: the other half of the action.) */}
+                          <p className="mt-2 mb-1 text-xs text-ink-3">Undo sends:</p>
+                          <pre className="overflow-x-auto rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs leading-5 text-ink-1 selectable">
+                            {action.undo}
+                          </pre>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 flex gap-2 text-ink-3">
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                An action that asks first shows this and its kubectl command before anything is
+                sent. One that runs at once sends it when its button is pressed.
+              </p>
+            </>
+          )}
+        </section>
+      </div>
+    </>
   )
 }
 

@@ -51,11 +51,14 @@ function byKind(views: View[]): Map<ResourceKind, View> {
 /**
  * Lumovi's own: the plugins it comes with, and the views it keeps for Kubernetes' kinds that
  * have no page (`own`: written as a plugin's file is, and no plugin of anyone's: never counted
- * or listed). Returns anything wrong with them (there should be nothing).
+ * or listed). Returns anything wrong with them (there should be nothing). `allowed`: whether a
+ * plugin may be there at all, by its name, as the organization's policy says (one that may not
+ * isn't: none of its views, no place).
  */
 export function loadShippedPlugins(
   files: Record<string, string>,
   own: Record<string, string> = {},
+  allowed: (name: string) => boolean = () => true,
 ): string[] {
   shipped.clear()
   shippedPlugins.clear()
@@ -75,7 +78,7 @@ export function loadShippedPlugins(
   for (const [path, text] of Object.entries(files)) {
     // (Lumovi's own: the ones whose files may carry code.)
     const parsed = parsePlugin(text, fileName(path), { lumovisOwn: ownKinds, carriesCode: true })
-    if (parsed.plugin) read.push(parsed.plugin)
+    if (parsed.plugin && allowed(parsed.plugin.name)) read.push(parsed.plugin)
     problems.push(...parsed.problems)
   }
   const lost = clashes(read)

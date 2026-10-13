@@ -222,6 +222,12 @@ spec:
               value: {{ .Values.helm.artifactHubUrl | quote }}
             - name: LUMOVI_PLUGINS_DIR
               value: /etc/lumovi/plugins
+            - name: LUMOVI_PLUGIN_CODE
+              {{- if kindIs "slice" .Values.pluginCode }}
+              value: {{ join "," .Values.pluginCode | quote }}
+              {{- else }}
+              value: {{ ternary "on" "off" .Values.pluginCode | quote }}
+              {{- end }}
             - name: LUMOVI_NODE_SHELL
               value: {{ ternary "on" "off" .Values.nodeShell.enabled | quote }}
             - name: LUMOVI_NODE_SHELL_NAMESPACE

@@ -53,11 +53,15 @@ import { isRefusal } from './audit/describe'
 import type { Recorder } from './audit/recorder'
 import { toKubeError } from './kube/errors'
 import type { KubeService } from './kube/service'
+import { ALL_CODE_ON, codeOff } from '@shared/plugin-hand-over'
+import type { HandOverTo } from './plugin-code'
 
 export interface PluginReading {
   kube: Pick<KubeService, 'resource' | 'list' | 'get' | 'metrics'>
   /** The plugins in use, as the backend reads them now. */
   known: () => Promise<readonly Readonly<KnownPlugin>[]>
+  /** Where the page that asks is, now: what turns plugins' code off there. */
+  to?: () => HandOverTo
   audit: Recorder
 }
 
@@ -79,7 +83,7 @@ function refusalOf(code: KubeErrorCode): ReadRefusal {
 }
 
 /** Reads for plugins' pages: one call a read, as `IPC.pluginRead` takes it. */
-export function pluginReads({ kube, known, audit }: PluginReading) {
+export function pluginReads({ kube, known, audit, to }: PluginReading) {
   return async function read(query: unknown): Promise<PluginRead> {
     // (Lumovi's own page sends these: one that isn't one, or names no plugin a file could name,
     // is no plugin's read, and isn't recorded: nothing a page wrote reaches the history but a
@@ -105,6 +109,11 @@ export function pluginReads({ kube, known, audit }: PluginReading) {
     // that came before it (or a plugin that has no code at all).
     if (q.digest !== plugin.digest || q.codeDigest !== plugin.codeDigest) {
       return refuse({ kind: named }, plugin, 'changed')
+    }
+    // And never for code that's turned off (by the person, the server or the organization), as
+    // nothing is handed it or proposed for it: whatever a page of it that's still open asks.
+    if (codeOff(plugin.name, to?.().switches ?? ALL_CODE_ON)) {
+      return refuse({ kind: named }, plugin, 'code-off')
     }
     let resource: ResourceDefinition
     try {
@@ -276,6 +285,7 @@ function record(
 /** What's not allowed, rather than what failed: by the plugin's file, the cluster or Lumovi. */
 const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'changed',
+  'code-off',
   'not-granted',
   'not-in-use',
   'not-allowed',
@@ -318,10 +328,15 @@ function namedByOf(value: unknown): SecretNamedBy | undefined {
  * names this Secret by that item's path. A read that fails that is refused, and in the history
  * with the plugin.
  */
+/** What a person is told where the organization's policy lets no plugin show what's in a Secret. */
+export const SECRETS_OFF = 'Your organization’s policy doesn’t let plugins show what’s in Secrets.'
+
 export async function secretsAskedFor(
   query: unknown,
   known: () => Promise<readonly Readonly<KnownPlugin>[]>,
   kube: Pick<KubeService, 'resource' | 'get'>,
+  /** The organization's policy lets no plugin's page show a Secret's keys. */
+  secretsOff = false,
 ): Promise<
   | { query: unknown; plugin?: Readonly<KnownPlugin> }
   | { refused: KubeError; recorded?: { query: SecretValuesQuery; plugin: Readonly<KnownPlugin> } }
@@ -343,6 +358,8 @@ export async function secretsAskedFor(
   if (!plugin || !mayCarryCode(plugin.origin)) {
     return { refused: { code: 'not-allowed', message: READ_REFUSED['not-in-use'] } }
   }
+  // (None shows a Secret's keys, by the organization's policy: nothing of it is read.)
+  if (secretsOff) return { refused: { code: 'not-allowed', message: SECRETS_OFF } }
   const { context, namespace, name: secret, keys } = rest
   const namedBy = namedByOf(said)
   if (

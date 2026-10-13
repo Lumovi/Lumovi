@@ -361,6 +361,10 @@ test('the server says what’s wrong with its configuration, and stops', async (
       'LUMOVI_URL must be an http or https URL.',
     ],
     [{ LUMOVI_SEC_FETCH_SITE: 'maybe' }, 'LUMOVI_SEC_FETCH_SITE must be on or off, not "maybe".'],
+    [
+      { LUMOVI_PLUGIN_CODE: 'karpenter, Not A Name' },
+      'LUMOVI_PLUGIN_CODE must be on, off, or plugins’ names separated by commas: karpenter, Not A Name',
+    ],
     [{ LUMOVI_NODE_SHELL: 'maybe' }, 'LUMOVI_NODE_SHELL must be on or off, not "maybe".'],
     [{ LUMOVI_METRICS_STACK: 'yes' }, 'LUMOVI_METRICS_STACK must be on or off, not "yes".'],
     [

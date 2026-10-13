@@ -94,6 +94,14 @@ export function pluginAsksPath(context: string, name: string): string {
   return `${pluginsPath(context)}?${ASKED_PLUGIN}=${encodeURIComponent(name)}`
 }
 
+/** That the plugin's row opens at its switch, focused: where "Open Plugins" goes from its page. */
+export const AT_SWITCH = 'switch'
+
+/** The page of every plugin, with this one's row opened and its "Run its code" switch focused. */
+export function pluginSwitchPath(context: string, name: string): string {
+  return `${pluginAsksPath(context, name)}&${AT_SWITCH}=1`
+}
+
 /** A plugin's page: its kinds, all together and a tab each. */
 export function pluginPath(context: string, name: string): string {
   return `${clusterPath(context)}/plugins/${encodeURIComponent(name)}`

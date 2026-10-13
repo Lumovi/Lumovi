@@ -239,6 +239,11 @@ helm:
 #       ...
 plugins: {}
 
+# Whether plugins' own code runs on this server: true (the default), false, or a list of the
+# plugins whose code may run ([karpenter, argo-cd]). Off for a plugin, its pages and tabs drawn by
+# its code aren't offered, and no browser is checked for them; its kinds, lists and actions stay.
+pluginCode: true
+
 serviceAccount:
   create: true
   # The chart's fullname unless set.

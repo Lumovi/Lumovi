@@ -50,6 +50,7 @@ import type { AddedClusters } from './fleet/added'
 import type { PeopleMarks } from './marks'
 import { checkChartUrl } from './network'
 import { log } from './log'
+import type { PluginCodeStore } from './plugin-code'
 
 /**
  * A page's preferences: the server's, the same for everyone on it (its clusters' settings, which
@@ -65,6 +66,8 @@ class PagePreferences implements SettingsAccess {
     private readonly user: SessionUser,
     /** The clusters the server shows: only theirs are set (what's kept is kept small). */
     private readonly configs: ClusterConfigs,
+    /** Each person's choices of whose plugins' code runs, and the plugins whose code the server lets run. */
+    private readonly code: { store: PluginCodeStore; only?: string[] },
   ) {}
 
   get(): Settings {
@@ -72,6 +75,8 @@ class PagePreferences implements SettingsAccess {
     const mayChange = !this.clusters.whyNot(this.user)
     // For those who may set it: what's to look at, changed outside Lumovi.
     const outside = mayChange ? this.clusters.changedOutside() : {}
+    // (Its choices of plugins' code, where it made any: as the desktop app says them.)
+    const chosen = this.code.store.get(this.user.name)
     return {
       // The browser keeps the theme itself.
       theme: 'system',
@@ -84,7 +89,26 @@ class PagePreferences implements SettingsAccess {
       ...(Object.keys(outside).length ? { changedOutside: outside } : {}),
       ...(this.readOnlyAll ? { readOnlyAll: true } : {}),
       ...(this.nodeShells.off ? { nodeShellsOff: true } : {}),
+      ...(Object.keys(chosen).length ? { pluginCode: { ...chosen } } : {}),
+      ...(this.code.only ? { pluginCodeOnServer: [...this.code.only] } : {}),
     }
+  }
+
+  pluginCode(): Readonly<Record<string, boolean>> {
+    return this.code.store.get(this.user.name)
+  }
+
+  async setPluginCode(plugin: string, on: boolean): Promise<Settings> {
+    // (Off on the server, for everyone or for this plugin: nothing on a page turns it on.)
+    if (on && this.code.only && !this.code.only.includes(plugin)) {
+      throw new Error(
+        this.code.only.length === 0
+          ? 'This server doesn’t run plugins’ code.'
+          : 'This server doesn’t run this plugin’s code.',
+      )
+    }
+    await this.code.store.set(this.user.name, plugin, on)
+    return this.get()
   }
 
   nodeShell(context: string): NodeShellSetting | null {
@@ -161,6 +185,8 @@ export interface ConnectionOptions {
   clusters: ClusterSettings
   /** Everyone's pins and saved views: the page's person's are theirs alone. */
   marks?: PeopleMarks
+  /** Each person's choices of whose plugins' code runs. */
+  pluginCode: PluginCodeStore
   /** A fleet's: the clusters its admins connect from the Fleet page. */
   joins?: Joins
   /** A fleet's: its clusters' names, labels and groups, as its admins set them on its page. */
@@ -309,6 +335,7 @@ export class PageConnection {
       added,
       sponsor,
       transfers,
+      pluginCode,
       refusing = () => undefined,
     }: ConnectionOptions,
   ) {
@@ -324,6 +351,7 @@ export class PageConnection {
       clusters,
       identity.user,
       configs,
+      { store: pluginCode, ...(config.pluginCode ? { only: config.pluginCode } : {}) },
     )
     const isReadOnly = (context: string) => preferences.readOnly(context)
     const ready = Promise.resolve()
@@ -432,6 +460,11 @@ export class PageConnection {
       // they are. A server without a box has no check, and hands code to no one.)
       handOverTo: () => ({
         host: 'server',
+        // Off on the server, for everyone or for some; and this person's own.
+        switches: {
+          ...(config.pluginCode ? { serverOnly: config.pluginCode } : {}),
+          chosen: pluginCode.get(identity.user.name),
+        },
         held,
         check: checks?.result(checkKey),
         unlooked: checks?.unlooked(checkKey) ?? false,

@@ -5,7 +5,12 @@
  * otherwise it's shown (`ProposalDialog`) and the page is told only what became of it.
  */
 import { create } from 'zustand'
-import type { PageProposal, PluginChangeRequest, ProposalOutcome } from '@shared/plugin-changes'
+import {
+  PROPOSALS_OFF,
+  type PageProposal,
+  type PluginChangeRequest,
+  type ProposalOutcome,
+} from '@shared/plugin-changes'
 import { mayStart } from '@shared/plugin-presses'
 import { whose } from '@shared/plugins'
 import { api } from '@renderer/lib/api'
@@ -100,7 +105,9 @@ export async function proposeChange(
           ? `Pick one namespace to make the new ${kind} in, then try again.`
           : checked.refused === 'not-allowed'
             ? `You may not make ${whose(by.label)} change here.`
-            : undefined
+            : checked.refused === 'off-by-policy'
+              ? PROPOSALS_OFF
+              : undefined
     if (said) toast({ tone: 'info', title: said })
     return 'refused'
   }

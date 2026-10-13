@@ -23,6 +23,65 @@ export type NotHanded =
    * blocks them, or throws): it didn't finish, and won't in this browser as it is.
    */
   | 'check-unlooked'
+  /** The person turned this plugin's code off, on the Plugins page. */
+  | 'turned-off'
+  /** On a server: its administrator turned plugins' code off (LUMOVI_PLUGIN_CODE=off). */
+  | 'off-on-server'
+  /** On a server: its administrator lets only some plugins' code run, and not this one's. */
+  | 'off-on-server-for-it'
+  /** The desktop app's: the organization's policy lets no plugin run code (`plugins: no-code`). */
+  | 'off-by-policy'
+
+/**
+ * What turns a plugin's code off, wherever it's decided: kept by the backend, read each time it's
+ * asked, never what a page says.
+ */
+export interface CodeSwitches {
+  /** The organization's policy lets no plugin run code (the desktop app's). */
+  policyOff?: true
+  /**
+   * A server's administrator: the plugins whose code may run (LUMOVI_PLUGIN_CODE's names; none,
+   * where it's off). Unset: every plugin's may.
+   */
+  serverOnly?: readonly string[]
+  /** The organization's policy lets no plugin's page propose a change (the desktop app's). */
+  proposalsOff?: true
+  /** The organization's policy lets no plugin's page show what's in a Secret (the desktop app's). */
+  secretsOff?: true
+  /** This person's own choices, by plugin: on, or off. A plugin they haven't chosen for is as `CODE_ON` says. */
+  chosen: Readonly<Record<string, boolean>>
+}
+
+/**
+ * Whether a plugin's code that comes with Lumovi runs before its person has said: it does. What
+ * it may read and do is on the Plugins page, and nobody is asked; the person turns it off there.
+ */
+export const CODE_ON = true
+
+/** Nothing turned off, nobody's choice made. */
+export const ALL_CODE_ON: CodeSwitches = { chosen: {} }
+
+/** Whether this person's own switch has a plugin's code on: their choice, or the default. */
+export const chosenOn = (plugin: string, chosen: Readonly<Record<string, boolean>>): boolean =>
+  Object.hasOwn(chosen, plugin) ? chosen[plugin] === true : CODE_ON
+
+/**
+ * Whether a plugin's code is off by a switch, and whose: the organization's first, then the
+ * server's, then the person's own (what's locked is said before what the person could turn on).
+ */
+export function codeOff(
+  plugin: string,
+  switches: CodeSwitches,
+):
+  | Extract<NotHanded, 'turned-off' | 'off-on-server' | 'off-on-server-for-it' | 'off-by-policy'>
+  | undefined {
+  if (switches.policyOff) return 'off-by-policy'
+  const only = switches.serverOnly
+  if (only && only.length === 0) return 'off-on-server'
+  if (only && !only.includes(plugin)) return 'off-on-server-for-it'
+  if (!chosenOn(plugin, switches.chosen)) return 'turned-off'
+  return undefined
+}
 
 /** What `pluginCode` answers: the code and what it's known by, or why not. */
 export type PluginCode =
@@ -47,6 +106,11 @@ const WHY: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
     'Lumovi’s check of this browser didn’t finish in time, so it doesn’t run plugins’ code here yet. Open the page again to check again.',
   'check-unlooked':
     'Before handing a plugin its code, Lumovi checks that this browser keeps each plugin in a box of its own. Here it can’t look in the places a box might keep things, so no plugin’s code runs in this browser.',
+  'turned-off': 'You turned off its code.',
+  'off-on-server': 'This server doesn’t run plugins’ code. Whoever runs Lumovi can turn it on.',
+  'off-on-server-for-it':
+    'This server doesn’t run this plugin’s code. Whoever runs Lumovi can turn it on.',
+  'off-by-policy': 'Your organization’s policy doesn’t let plugins run code.',
 }
 
 /** Why not, as one sentence of Lumovi's: what a page's place says after its title. */
@@ -61,11 +125,25 @@ const LINE: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
   'check-failed': 'Lumovi’s check of this browser didn’t pass.',
   'check-unfinished': 'Lumovi’s check of this browser didn’t finish in time.',
   'check-unlooked': 'Lumovi couldn’t check this browser.',
+  'turned-off': 'you turned off its code.',
+  'off-on-server': 'this server doesn’t run plugins’ code.',
+  'off-on-server-for-it': 'this server doesn’t run this plugin’s code.',
+  'off-by-policy': 'your organization’s policy doesn’t let plugins run code.',
 }
+
+/** Where its code is off by a switch: the place in place of its page says so, not that it failed. */
+export const SWITCHED_OFF: ReadonlySet<NotHanded> = new Set([
+  'turned-off',
+  'off-on-server',
+  'off-on-server-for-it',
+  'off-by-policy',
+])
 
 /**
  * Why not, as the Plugins page says it in a plugin's entry: "Its pages don’t run here: this
- * server doesn’t offer plugins that run code to this browser."
+ * server doesn’t offer plugins that run code to this browser." ("…don’t run: you turned off its
+ * code", where it's off wherever the person is.)
  */
 export const notHandedLine = (refused: Exclude<NotHanded, 'not-in-use'>): string =>
-  `Its pages don’t run here${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}`
+  // (Off by the person or by their organization: off anywhere, not only here.)
+  `Its pages don’t run${refused === 'turned-off' || refused === 'off-by-policy' ? '' : ' here'}${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}`

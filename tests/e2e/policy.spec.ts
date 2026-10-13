@@ -139,7 +139,12 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       // default kubeconfig (kubeconfig-files.spec.ts).
       kubectlOff: true,
       kubeconfigFilesLocked: true,
-      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, network.`,
+      // And no plugins at all, nor any plugin's code, proposal or Secret (plugin-code-switch.spec.ts).
+      pluginsOff: true,
+      pluginCodeOff: true,
+      pluginProposalsOff: true,
+      pluginSecretsOff: true,
+      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, network.`,
     },
   })
   await openCluster(page)
@@ -211,6 +216,15 @@ test('a policy with a value of the wrong kind can’t be used, and says which', 
       'readOnly must be true, false, or a list of cluster names (with * for any).',
     ],
     [policyFile({ updates: 'never' }), 'updates must be true or false.'],
+    [
+      policyFile({ plugins: ['off', 'no-code'] }),
+      'plugins must be "off", "bundled" or "no-code", or a list of the last two.',
+    ],
+    [
+      policyFile({ pluginsAllowed: ['Not A Name'] }),
+      'pluginsAllowed must be a list of plugins’ names.',
+    ],
+    [policyFile({ pluginSecrets: 'hidden' }), 'pluginSecrets must be "off".'],
   ])
 })
 

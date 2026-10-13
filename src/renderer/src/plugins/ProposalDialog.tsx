@@ -19,6 +19,7 @@ import {
   fieldAt,
   fieldWrong,
   filled,
+  PROPOSALS_OFF,
   startingValues,
   type Field,
   type FieldValue,
@@ -91,6 +92,8 @@ function refusedWords(answer: PluginChangeAnswer & { ok: false }): string {
       return 'This cluster is read-only in Lumovi: nothing is changed here.'
     case 'not-allowed':
       return 'You may not make this change here.'
+    case 'off-by-policy':
+      return PROPOSALS_OFF
     case 'no-scale':
       return 'This kind has no scale to set.'
     case 'no-namespace':
