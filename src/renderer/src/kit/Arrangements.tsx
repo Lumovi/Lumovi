@@ -17,6 +17,7 @@ import { VIEW_ICONS } from '@renderer/components/KindIcon'
 import { Tile } from '@renderer/components/Tile'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
+import { TILE_ROW, tileSpan } from '@renderer/lib/tile-rows'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { useUi } from '@renderer/state/ui'
 import { NamedAbove } from './PageHeader'
@@ -27,8 +28,6 @@ import { counted, keyOf, NOTHING_WRITTEN, when } from './Table'
 export function Stack({ children }: { children: ReactNode }) {
   return <div className="flex min-w-0 flex-col gap-4">{children}</div>
 }
-
-const ACROSS = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' } as const
 
 /** A moment as Lumovi says it ("3h", "in 4m"), kept current as time goes on. */
 function Moment({ time }: { time: string }) {
@@ -75,44 +74,44 @@ export function Tiles({
 }) {
   const across = Math.max(2, Math.min(4, tiles.length)) as 2 | 3 | 4
   return (
-    <div className={cn('grid min-w-0 gap-4 phone:grid-cols-2 phone:gap-3', ACROSS[across])}>
-      {tiles.map((tile, index) => (
-        <div
-          // (By its place too: whatever keys it was given, a row draws.)
-          key={`${index}:${keyOf(tile)}`}
-          className={cn(
-            'min-w-0',
-            tiles.length % 2 === 1 && index === tiles.length - 1 && 'phone:col-span-2',
-          )}
-        >
-          <Tile
-            icon={tile.icon && VIEW_ICONS[tile.icon]}
-            label={tile.label}
-            value={valueOf(tile)}
-            words={tile.value?.kind === 'words' && !tile.cut}
-            detail={
-              // (Counted from a cut read, the line under is Lumovi's, never the plugin's.)
-              tile.cut ? (
-                `Counted from the first ${counted(tile.cut.at)} Lumovi read.`
-              ) : tile.detail?.their ? (
-                <TheirText text={tile.detail} inline />
-              ) : undefined
-            }
-            // (A cut's line is Lumovi's saying where the count stops, not a level: no dot.)
-            status={tile.cut ? undefined : tile.level}
-            wraps={tile.cut !== undefined}
-            cut
-            onOpen={
-              tile.opens
-                ? () => {
-                    go?.(tile.opens!)
-                    onOpen?.({ tile: tile.key })
-                  }
-                : undefined
-            }
-          />
-        </div>
-      ))}
+    // (Laid out as Lumovi's own rows of tiles are: by the width it's given, not the window's.)
+    <div className="@container min-w-0">
+      <div className={cn('grid min-w-0 gap-4 phone:gap-3', TILE_ROW[across])}>
+        {tiles.map((tile, index) => (
+          <div
+            // (By its place too: whatever keys it was given, a row draws.)
+            key={`${index}:${keyOf(tile)}`}
+            className={cn('min-w-0', tileSpan(index, tiles.length))}
+          >
+            <Tile
+              icon={tile.icon && VIEW_ICONS[tile.icon]}
+              label={tile.label}
+              value={valueOf(tile)}
+              words={tile.value?.kind === 'words' && !tile.cut}
+              detail={
+                // (Counted from a cut read, the line under is Lumovi's, never the plugin's.)
+                tile.cut ? (
+                  `Counted from the first ${counted(tile.cut.at)} Lumovi read.`
+                ) : tile.detail?.their ? (
+                  <TheirText text={tile.detail} inline />
+                ) : undefined
+              }
+              // (A cut's line is Lumovi's saying where the count stops, not a level: no dot.)
+              status={tile.cut ? undefined : tile.level}
+              wraps={tile.cut !== undefined}
+              cut
+              onOpen={
+                tile.opens
+                  ? () => {
+                      go?.(tile.opens!)
+                      onOpen?.({ tile: tile.key })
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
