@@ -36,6 +36,8 @@ import { useResources } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
+import { CODE_PAGES } from '@renderer/lib/code-pages'
+import { PLUGIN_PAGES } from './integrations'
 import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 
@@ -62,9 +64,6 @@ type Filter = 'all' | 'here' | 'yours' | 'unused'
 const HOST = api.host === 'desktop' ? 'yours' : 'server'
 const label = (plugin: Plugin) => plugin.place?.label ?? plugin.name
 const inUse = (row: Row) => row.state === 'in-use' || row.state === 'in-place-of'
-
-/** Set by the build: true only in the build the tests run. */
-declare const LUMOVI_TEST_BUILD: boolean
 
 /** "Pods and Jobs", "Pods, Jobs and Secrets". */
 function listed(names: string[]): string {
@@ -373,12 +372,29 @@ function Opening() {
   return (
     <p className="m-5 flex gap-2.5 rounded-xl bg-surface-2 px-4 py-3 text-[13px] leading-relaxed text-ink-2 phone:m-4">
       <Info className="mt-0.5 size-4 shrink-0 text-ink-3" />
-      <span>
-        A plugin teaches Lumovi a tool’s kinds: their columns, status, details and actions. Plugins
-        are data. They can’t run code, and they change objects only with the patches and the objects
-        they spell out, each shown here. A plugin has no access of its own: what it reads and
-        changes, it does as you, and the cluster refuses what you may not do. Lumovi’s come inside
-        Lumovi;{' '}
+      <span data-plugins-opening>
+        {CODE_PAGES ? (
+          // (Where Lumovi offers pages drawn by plugins' code, said so, and of whose.)
+          <>
+            A plugin teaches Lumovi a tool’s kinds: their columns, status, details and actions. Its
+            actions change objects only with the patches and the objects they spell out, each shown
+            here.{' '}
+            {HOST === 'yours' ? 'A plugin of yours' : 'A plugin this server’s administrator added'}{' '}
+            is data, and runs no code. The ones Lumovi comes with may also add pages drawn by their
+            own code, in a sealed box: it reads only what its file says it may, and any change it
+            proposes waits for you in Lumovi’s own dialog. A plugin has no access of its own: what
+            it reads and changes, it does as you, and the cluster refuses what you may not do.
+            Lumovi’s come inside Lumovi;{' '}
+          </>
+        ) : (
+          <>
+            A plugin teaches Lumovi a tool’s kinds: their columns, status, details and actions.
+            Plugins are data. They can’t run code, and they change objects only with the patches and
+            the objects they spell out, each shown here. A plugin has no access of its own: what it
+            reads and changes, it does as you, and the cluster refuses what you may not do. Lumovi’s
+            come inside Lumovi;{' '}
+          </>
+        )}
         {HOST === 'yours'
           ? 'yours are your own files.'
           : 'this server’s are files its administrator put there.'}
@@ -455,7 +471,7 @@ function Name({
             {more > 0 && ` and ${more} more ${more === 1 ? 'kind' : 'kinds'}`}
           </p>
         )}
-        {LUMOVI_TEST_BUILD && row.plugin && <CodeOffLine plugin={row.plugin} />}
+        {CODE_PAGES && row.plugin && <CodeOffLine plugin={row.plugin} />}
       </div>
     </div>
   )
@@ -477,7 +493,10 @@ function CodeOffLine({ plugin }: { plugin: Plugin }) {
   const off = codeOff(plugin.name, switchesOf(settings))
   return off ? (
     <p data-plugin-code-off={plugin.name} className="mt-0.5 text-ink-3">
-      {notHandedLine(off)}
+      {notHandedLine(
+        off,
+        PLUGIN_PAGES[plugin.name] ? (plugin.place?.label ?? plugin.name) : undefined,
+      )}
     </p>
   ) : null
 }
@@ -614,10 +633,10 @@ function useHasCode(plugin: Plugin): boolean {
   const handOver = useQuery({
     queryKey: ['plugin-hand-over', plugin.name],
     queryFn: () => api.kube.pluginHandOver(plugin.name),
-    enabled: LUMOVI_TEST_BUILD,
+    enabled: CODE_PAGES,
   })
   return (
-    LUMOVI_TEST_BUILD &&
+    CODE_PAGES &&
     settings !== undefined &&
     handOver.data !== undefined &&
     handOver.data !== 'no-code' &&
@@ -705,8 +724,8 @@ function WhatItAsks({
   const switched = useHasCode(plugin)
   return (
     <>
-      {/* (With its pages, which the tests' build alone offers so far.) */}
-      {LUMOVI_TEST_BUILD && <CodeSwitch plugin={plugin} names={names} focus={focus} />}
+      {/* (With its pages, where Lumovi offers code pages.) */}
+      {CODE_PAGES && <CodeSwitch plugin={plugin} names={names} focus={focus} />}
       <div
         className={cn(
           'grid grid-cols-2 gap-x-10 gap-y-6 pr-5 pb-5 pl-[4.75rem] text-[13px] text-ink-2 phone:grid-cols-1 phone:px-4',
@@ -722,12 +741,19 @@ function WhatItAsks({
             <h3 className={heading}>May read</h3>
             <MayRead asked={asked} names={names} tool={plugin.place?.label ?? plugin.name} />
           </section>
-          {/* (Its pages, tabs and commands are drawn by the door, and taken only in the tests'
-            build until it's in: a release says nothing of them yet.) */}
-          {LUMOVI_TEST_BUILD && (
+          {/* (Its pages, tabs and commands are drawn by the door: said where Lumovi offers them.) */}
+          {CODE_PAGES && (
             <section aria-label="Adds to Lumovi’s pages">
               <h3 className={heading}>Adds to Lumovi’s pages</h3>
-              <Adds name={plugin.name} added={plugin.added} opens={plugin.opens} names={names} />
+              <Adds
+                name={plugin.name}
+                added={plugin.added}
+                opens={plugin.opens}
+                names={names}
+                {...(PLUGIN_PAGES[plugin.name]
+                  ? { standsIn: plugin.place?.label ?? plugin.name }
+                  : {})}
+              />
             </section>
           )}
         </div>
@@ -804,8 +830,8 @@ const PROPOSES: Record<ChangeAction, string> = {
 }
 
 function MayChange({ asked, names }: { asked: Asks; names: Names }) {
-  // (Its pages run in the tests' build alone so far: a release says nothing of what they propose.)
-  const proposes = LUMOVI_TEST_BUILD && asked.changes.length > 0 && (
+  // (Where Lumovi offers its pages: elsewhere, nothing of what they'd propose is said.)
+  const proposes = CODE_PAGES && asked.changes.length > 0 && (
     <p data-plugin-proposes="">
       Its pages may propose to{' '}
       {listed(
@@ -885,11 +911,14 @@ function Adds({
   added,
   opens,
   names,
+  standsIn,
 }: {
   name: string
   added: Plugin['added']
   opens: ResourceKind[]
   names: Names
+  /** Its label, where Lumovi shows a page of its own in place of its code's. */
+  standsIn?: string
 }) {
   const { pages, tabs, commands } = added
   // Whether its code would be handed to this window or browser: where not, it says why.
@@ -914,7 +943,7 @@ function Adds({
   return (
     <div className="space-y-2">
       <p>Adds {listed(parts)}.</p>
-      {notHanded && <p data-testid="plugin-not-handed">{notHandedLine(notHanded)}</p>}
+      {notHanded && <p data-testid="plugin-not-handed">{notHandedLine(notHanded, standsIn)}</p>}
       <ul className="space-y-1">
         {pages.map((page) => (
           <li key={`page:${page.id}`}>

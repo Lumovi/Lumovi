@@ -9,7 +9,14 @@ const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources'
 const tile = (page: Page, label: string) => page.getByRole('region', { name: label })
 const list = (page: Page, label: string) => page.getByRole('list', { name: label })
 
+/**
+ * Karpenter's overview as Lumovi draws it itself: where its plugin's code is turned off (its own
+ * page drawn by its code is karpenter-code.spec.ts's).
+ */
 async function openKarpenter(page: Page, context: string = CONTEXTS.demo) {
+  await page.evaluate(() => window.lumovi!.app.setPluginCode('karpenter', false))
+  // (Read again by the page, as a press of its switch would have it.)
+  await page.reload()
   await openCluster(page, context)
   await sidebar(page).getByRole('link', { name: 'Karpenter', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Karpenter')

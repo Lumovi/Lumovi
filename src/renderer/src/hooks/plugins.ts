@@ -15,6 +15,8 @@ import {
   type Plugin,
 } from '@renderer/lib/plugins'
 import SHIPPED from 'virtual:lumovi-plugins'
+import CODED from 'virtual:lumovi-plugins/coded'
+import { setCodedPlugins } from '@renderer/lib/code-pages'
 import { useResources } from './resources'
 
 /**
@@ -33,6 +35,8 @@ const OWN = import.meta.glob<string>('../views/*.yaml', {
   import: 'default',
   eager: true,
 })
+// (Which of them came with their code: only theirs are offered pages, in a release.)
+setCodedPlugins(CODED)
 let shippedProblems = loadShippedPlugins(SHIPPED, OWN)
 
 /** Set by the build: true only in the build the tests run. */

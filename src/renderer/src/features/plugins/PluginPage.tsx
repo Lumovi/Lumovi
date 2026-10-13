@@ -1,5 +1,6 @@
 import { Info, Plug, SearchX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useParams, useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { kindOf } from '@shared/resources'
@@ -16,8 +17,12 @@ import { StatusPill } from '@renderer/components/Status'
 import { Button } from '@renderer/components/Button'
 import { useGo } from '@renderer/hooks/go'
 import { useOpenPluginPage, useServedPlugins, type ServedPlugin } from '@renderer/hooks/plugins'
+import { useSettings } from '@renderer/hooks/settings'
+import { switchesOf } from '@renderer/plugins/code-switches'
+import { codeOff } from '@shared/plugin-hand-over'
 import { listedPlugins, type ListedPlugin } from '@renderer/lib/plugins'
 import { useOpenObject } from '@renderer/hooks/open-object'
+import { handOverOf } from '@renderer/plugins/box-check'
 import { useList, useListResponses } from '@renderer/hooks/queries'
 import { useResources } from '@renderer/hooks/resources'
 import type { KubeApiError } from '@renderer/lib/api'
@@ -57,10 +62,33 @@ export function PluginPage() {
   const { name, page } = useParams() as { name: string; page?: string }
   const { context } = useCluster()
   const resources = useResources()
-  const served = useServedPlugins().find(({ plugin }) => plugin.name === name)
+  const offered = useServedPlugins().find(({ plugin }) => plugin.name === name)
   // What was shown here while this was open: if the plugin stops being in use, its title stays
   // and Lumovi says so in place of its tabs, until the person goes elsewhere.
   const [shown, setShown] = useState<{ context: string; plugin: ListedPlugin }>()
+  // Where Lumovi has a page of its own for it (Karpenter's overview): that page in place of its
+  // code's wherever its code isn't handed over, whatever the reason (turned off, or a browser
+  // Lumovi's check didn't find keeps it apart), rather than only saying so. Asked as its page
+  // would ask, the check first where it's due; a switch turned off is known at once.
+  const integration =
+    PLUGIN_PAGES[name] !== undefined &&
+    offered !== undefined &&
+    offered.plugin.added.pages.length > 0
+  const settings = useSettings().data
+  const off = settings === undefined ? undefined : codeOff(name, switchesOf(settings))
+  const handOver = useQuery({
+    queryKey: ['plugin-hand-over', name, 'checked', off ?? 'on'],
+    queryFn: () => handOverOf(name),
+    enabled: integration && off === undefined,
+  })
+  const asking = integration && off === undefined && handOver.isPending
+  const builtIn =
+    integration && (off !== undefined || handOver.isError || (handOver.data ?? true) !== true)
+  // (Then as if it had no pages of its own: its tabs and its address are Lumovi's page's.)
+  const served =
+    offered && builtIn
+      ? { ...offered, plugin: { ...offered.plugin, added: { pages: [], tabs: [], commands: [] } } }
+      : offered
   // (By its name and version: what's listed is made anew each time it's read.)
   const withPages = served && served.plugin.added.pages.length > 0 ? served : undefined
   if (
@@ -77,9 +105,11 @@ export function PluginPage() {
     useOpenPluginPage.setState({ open: shown })
     return () => useOpenPluginPage.setState({ open: undefined })
   }, [shown])
+  if (asking) return <Loading label={`Opening ${offered.plugin.label}…`} />
   if (withPages) return <PluginPages served={withPages} page={page} />
-  // (Its pages went, while this was open: it isn't in use, or one without pages is in its place.)
-  if (shown?.context === context && shown.plugin.name === name) {
+  // (Its pages went, while this was open: it isn't in use, or one without pages is in its place.
+  // Not where Lumovi's own page stands in: that's shown.)
+  if (shown?.context === context && shown.plugin.name === name && !builtIn) {
     return (
       <EmptyState
         icon={Plug}
@@ -103,8 +133,9 @@ export function PluginPage() {
       </EmptyState>
     )
   }
-  // An address to a page of one that has no pages at all: Lumovi's "no such page".
-  if (served && page !== undefined) {
+  // An address to a page of one that has no pages at all: Lumovi's "no such page". (Not where
+  // Lumovi's own page stands in for its code's: its address is that page's.)
+  if (served && page !== undefined && !builtIn) {
     return (
       <EmptyState
         icon={SearchX}

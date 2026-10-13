@@ -199,4 +199,11 @@ test('what a person is told where a switch turned its code off', () => {
   expect(notHandedLine('off-by-policy')).toBe(
     'Its pages don’t run: your organization’s policy doesn’t let plugins run code.',
   )
+  // Where Lumovi has a page of its own for it: that it shows that instead.
+  expect(notHandedLine('turned-off', 'Karpenter')).toBe(
+    'Its pages don’t run: you turned off its code. Lumovi shows its own overview of Karpenter instead.',
+  )
+  expect(notHandedLine('check-failed', 'Karpenter')).toBe(
+    'Its pages don’t run here: Lumovi’s check of this browser didn’t pass. Lumovi shows its own overview of Karpenter instead.',
+  )
 })

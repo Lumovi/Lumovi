@@ -32,6 +32,7 @@ import {
   type ViewInput,
 } from '@shared/plugins'
 import { apiGroupOf, type ResourceKind } from '@shared/resources'
+import { offersPages } from './code-pages'
 import type { Status } from './health'
 
 export * from '@shared/plugins'
@@ -157,10 +158,7 @@ export function includedPlugins(): Plugin[] {
   return [...shippedPlugins.values()]
 }
 
-/** Set by the build: true only in the build the tests run. */
-declare const LUMOVI_TEST_BUILD: boolean
-
-/** What a plugin adds to nothing: what a plugin adds in a release build until the door draws it. */
+/** What a plugin adds to nothing: a plugin whose pages aren't offered here. */
 const NOTHING: Added = { pages: [], tabs: [], commands: [] }
 
 /**
@@ -180,10 +178,10 @@ export function listedPlugins(): ListedPlugin[] {
               ...place,
               named: namedKinds(plugin),
               opens,
-              // (Its pages, tabs and commands are drawn by the door, and offered in the tests' build
-              // alone so far. When a release offers them, a plugin whose code isn't part of that
-              // Lumovi has none of them offered at all: never a page that couldn't start.)
-              added: LUMOVI_TEST_BUILD ? added : NOTHING,
+              // (Its pages, tabs and commands are drawn by the door, and offered where Lumovi offers
+              // code pages: only for a plugin whose code is part of this Lumovi, never a page that
+              // couldn't start.)
+              added: offersPages(name) ? added : NOTHING,
             },
           ]
         : []

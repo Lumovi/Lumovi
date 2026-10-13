@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { mayCarryCode, type PluginFile } from '../../src/shared/plugin-loading.ts'
 import { knownPlugins, readIncluded, type KnownPlugin } from '../../src/shared/plugins-known.ts'
+import { offered } from '../../src/renderer/src/lib/code-pages.ts'
 import {
   includedPlugins,
   loadShippedPlugins,
@@ -26,6 +27,7 @@ import {
 } from '../../src/renderer/src/lib/plugins.ts'
 import {
   cacheEntry,
+  codedPlugins,
   pluginsAndCode,
   readLock,
   releaseFiles,
@@ -515,4 +517,19 @@ spec:
   writeFileSync(join(stand, 'toys.js'), `${code}// changed\n`)
   expect(await filesMark({ path: folder }, env)).not.toBe(before)
   delete (globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD
+})
+
+test('a release offers the pages of exactly Lumovi’s own with code beside them, by name; with its flag off, none; the tests’ build, every one', () => {
+  loadShippedPlugins(SHIPPED, texts(OWN))
+  const names = includedPlugins().map(({ name }) => name)
+  // The build's list: each one a plugin Lumovi has.
+  const coded = new Set(codedPlugins(CODE))
+  expect(coded.size).toBeGreaterThan(0)
+  for (const name of coded) expect(names).toContain(name)
+  const offeredBy = (release: boolean, tests = false) =>
+    names.filter((name) => offered({ tests, release, coded }, name))
+  expect(offeredBy(true)).toEqual(names.filter((name) => coded.has(name)))
+  expect(offeredBy(false)).toEqual([])
+  expect(offeredBy(false, true)).toEqual(names)
+  expect(offeredBy(true, true)).toEqual(names)
 })
