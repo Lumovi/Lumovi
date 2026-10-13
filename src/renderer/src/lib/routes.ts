@@ -102,6 +102,14 @@ export function pluginSwitchPath(context: string, name: string): string {
   return `${pluginAsksPath(context, name)}&${AT_SWITCH}=1`
 }
 
+/** Where the Plugins page's Developer mode switch is focused (the desktop app's). */
+export const AT_DEVELOPER_MODE = 'developer-mode'
+
+/** The page of every plugin, its Developer mode switch focused. */
+export function developerModePath(context: string): string {
+  return `${pluginsPath(context)}?${AT_DEVELOPER_MODE}=1`
+}
+
 /** A plugin's page: its kinds, all together and a tab each. */
 export function pluginPath(context: string, name: string): string {
   return `${clusterPath(context)}/plugins/${encodeURIComponent(name)}`

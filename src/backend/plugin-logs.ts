@@ -24,7 +24,7 @@ import { PLUGIN_NAME, whose } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
 import type { Recorder } from './audit/recorder'
 import type { KubeService } from './kube/service'
-import type { HandOverTo } from './plugin-code'
+import { runsCode, type HandOverTo } from './plugin-code'
 import { REFUSED, refusalOf } from './plugin-reads'
 
 interface PluginLogReading {
@@ -79,7 +79,11 @@ export function pluginLogs({ kube, known, audit, to }: PluginLogReading) {
     }
     const plugin = (await known()).find((p) => p.name === q.plugin)
     // (A plugin without code has no page that could ask.)
-    if (!plugin || !mayCarryCode(plugin.origin) || plugin.codeDigest === undefined) {
+    if (
+      !plugin ||
+      !(to ? runsCode(plugin, to()) : mayCarryCode(plugin.origin)) ||
+      plugin.codeDigest === undefined
+    ) {
       return refuse(undefined, 'not-in-use')
     }
     if (q.digest !== plugin.digest || q.codeDigest !== plugin.codeDigest) {

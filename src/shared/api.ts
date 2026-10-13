@@ -159,7 +159,52 @@ export interface Settings {
    * the copy before it (src/main/plugins-installed.ts).
    */
   pluginsInstalled?: Record<string, InstalledRecord>
+  /**
+   * The desktop app's: Developer mode, which lets plugins in the person's own folder run their
+   * code, each once they've agreed to it. Off unless turned on.
+   */
+  pluginDeveloperMode?: boolean
+  /**
+   * The desktop app's: what the person agreed to run of each of their own plugins' code, by name
+   * (src/main/plugins-agreed.ts).
+   */
+  pluginsAgreed?: Record<string, AgreedRecord>
 }
+
+/**
+ * What a person agreed to run of one of their own plugins' code: what its file asked then
+ * (`asksOf`'s text), its code's digest, its file, and when.
+ */
+export interface AgreedRecord {
+  asks: string
+  code: string
+  file: string
+  at: string
+}
+
+/** Why one of a person's own plugins' code waits: never agreed to, its code changed, or its asks. */
+export type Waiting = 'first' | 'code' | 'asks'
+
+/** One of a person's own plugins with code, as it stands against what they agreed to. */
+export interface OwnCode {
+  standing: Waiting | 'agreed'
+  /** What its file asks now (`asksOf`'s text): what an agreement agrees to. */
+  asks: string
+  /** Its code's digest, as Lumovi read it now. */
+  code: string
+  /** What was agreed to before, where anything was: what "New in" is worked out from. */
+  agreed?: string
+}
+
+/**
+ * Whether the organization's policy keeps Developer mode off: said so, or by keeping plugins to
+ * Lumovi's own, to none, or to no code.
+ */
+export const developerModeLocked = (managed: ManagedSettings | undefined): boolean =>
+  managed?.pluginDeveloperModeOff === true ||
+  managed?.pluginsOff === true ||
+  managed?.pluginsBundledOnly === true ||
+  managed?.pluginCodeOff === true
 
 /** What a company's policy sets on a computer (the desktop app's), locked; not stored. */
 export interface ManagedSettings {
@@ -203,6 +248,8 @@ export interface ManagedSettings {
   pluginStoreOff?: true
   /** No plugin may talk to a server in the cluster. */
   pluginServersOff?: true
+  /** Developer mode stays off: no plugin of a person's own runs code. */
+  pluginDeveloperModeOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1567,6 +1614,20 @@ export interface LumoviApi {
     /** Removes one installed that doesn't come with Lumovi. */
     remove(name: string): Promise<void>
   }
+  /**
+   * The desktop app's: Developer mode, and what the person agrees to run of their own plugins'
+   * code (src/main/plugins-agreed.ts).
+   */
+  ownCode?: {
+    /** Turns it on or off: never on while the organization's policy keeps it off. */
+    developerMode(on: boolean): Promise<Settings>
+    /** One of their own plugins with code, as it stands against what they agreed to. */
+    standing(name: string): Promise<OwnCode | undefined>
+    /** Agrees to run its code as they were shown it: what its file asks, and its code's digest. */
+    agree(name: string, asks: string, code: string): Promise<void>
+    /** In Developer mode, their plugins folder changed: read the plugins again. */
+    onChange(listener: () => void): () => void
+  }
 }
 
 /** Channel names, shared so the page and what answers it cannot drift apart. */
@@ -1593,6 +1654,10 @@ export const IPC = {
   pluginInstall: 'plugins:install',
   pluginGoBack: 'plugins:go-back',
   pluginRemove: 'plugins:remove',
+  pluginDeveloperMode: 'plugins:developer-mode',
+  pluginOwnCode: 'plugins:own-code',
+  pluginAgree: 'plugins:agree',
+  pluginsChanged: 'plugins:changed',
   marks: 'marks:get',
   setMarks: 'marks:set',
   contexts: 'kube:contexts',

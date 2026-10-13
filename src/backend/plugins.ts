@@ -1,19 +1,26 @@
 /**
  * The user's own plugins: YAML files in ~/.lumovi/plugins (or the folder in
- * LUMOVI_PLUGINS_DIR). They are read whenever the page asks, so changes show
- * up on the next refresh; the page checks and applies them.
+ * LUMOVI_PLUGINS_DIR), and on the desktop a folder for each one with code
+ * (`<name>/plugin.yaml` and `<name>/plugin.js`). They are read whenever the page
+ * asks, so changes show up on the next refresh; the page checks and applies them.
+ * A folder's code is opened only in Developer mode.
  */
 import { createHash } from 'node:crypto'
 import { constants, type Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { LocalPlugins } from '@shared/api'
+import { PLUGIN_NAME } from '@shared/plugins'
 
 /** Set by the build: true only in the build the tests run. */
 declare const LUMOVI_TEST_BUILD: boolean
 
 const MAX_FILES = 200
 const MAX_BYTES = 256 * 1024
+/** The most a plugin's code of one's own may be: a built page, larger than any file. */
+const CODE_MAX_BYTES = 2 * 1024 * 1024
+/** What a plugin's own folder holds that's read: its file, and in Developer mode its code. */
+const IN_FOLDER = { file: 'plugin.yaml', code: 'plugin.js' } as const
 /** How long one file's reading may take: a folder's file is small and near. */
 const READ_MS = 5_000
 
@@ -36,19 +43,85 @@ export type ReadFile = LocalPlugins['files'][number] & {
 export const digestOf = (bytes: Uint8Array) =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 
+/**
+ * How a person's folder is read: on the desktop, with each plugin's own folder (`folders`); and
+ * in Developer mode, the code in them (`code`). Neither, a server's: its files alone.
+ */
+export interface OwnReading {
+  folders?: boolean
+  code?: boolean
+}
+
 /** The folder's files, and in the tests' build its stand-ins for Lumovi's own, as they were read. */
 export async function readFiles(
   { path }: { path: string },
   env: NodeJS.ProcessEnv = process.env,
-): Promise<{ files: ReadFile[]; included?: ReadFile[]; includedCode?: ReadFile[] }> {
-  const own = { files: await filesIn(path) }
+  reading: OwnReading = {},
+): Promise<{
+  files: ReadFile[]
+  /** A plugin folder's code (`<name>/plugin.js`), read only in Developer mode. */
+  code?: ReadFile[]
+  included?: ReadFile[]
+  includedCode?: ReadFile[]
+}> {
+  const files = [...(await filesIn(path)), ...(reading.folders ? await folderFiles(path) : [])]
+  // (Not in Developer mode: not one `.js` of a person's is opened.)
+  const own =
+    reading.folders && reading.code ? { files, code: await folderCode(path, files) } : { files }
   const included = includedFolder(env)
-  // (The stand-ins' code, beside their files: `toys.js` beside `toys.yaml`. A folder's own files
-  // carry no code, so nothing of the kind is read from it.)
+  // (The stand-ins' code, beside their files: `toys.js` beside `toys.yaml`.)
   return included
     ? { ...own, included: await filesIn(included), includedCode: await filesIn(included, CODE) }
     : own
 }
+
+/** The plugin folders in a person's folder, by name, in order: each named as a plugin may be. */
+async function foldersListed(path: string): Promise<string[]> {
+  let entries: Dirent[]
+  try {
+    entries = await readdir(path, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return (
+    entries
+      // (Links too: a developer links their build's output folder in.)
+      .filter(
+        (entry) => (entry.isDirectory() || entry.isSymbolicLink()) && PLUGIN_NAME.test(entry.name),
+      )
+      .map((entry) => entry.name)
+      .sort()
+      .slice(0, MAX_FILES)
+  )
+}
+
+/** Each plugin folder's file (`<name>/plugin.yaml`): a folder without one isn't a plugin's. */
+async function folderFiles(path: string): Promise<ReadFile[]> {
+  const read = await Promise.all(
+    (await foldersListed(path)).map((folder) => {
+      const name = `${folder}/${IN_FOLDER.file}`
+      return within(READ_MS, name, fileRead(join(path, folder, IN_FOLDER.file), name, false))
+    }),
+  )
+  // (Nothing else in a folder is read: one with no plugin's file in it is left alone, unsaid.)
+  return read.filter((file) => file.error !== NOT_THERE)
+}
+
+/** The code beside each plugin folder's file that was read (`<name>/plugin.js`), if there's any. */
+async function folderCode(path: string, files: ReadFile[]): Promise<ReadFile[]> {
+  const read = await Promise.all(
+    files
+      .filter((file) => !file.error && file.name.endsWith(`/${IN_FOLDER.file}`))
+      .map((file) => {
+        const name = file.name.replace(IN_FOLDER.file, IN_FOLDER.code)
+        return within(READ_MS, name, fileRead(join(path, name), name, false, CODE_MAX_BYTES))
+      }),
+  )
+  return read.filter((file) => file.error !== NOT_THERE)
+}
+
+/** What's said of a file that isn't there (and isn't a link that leads nowhere). */
+const NOT_THERE = 'It isn’t there.'
 
 /** A plugin's file, and the code that comes beside one of Lumovi's own. */
 const YAML = /\.ya?ml$/i
@@ -71,6 +144,7 @@ function includedFolder(env: NodeJS.ProcessEnv): string | undefined {
 export async function filesMark(
   { path }: { path: string },
   env: NodeJS.ProcessEnv = process.env,
+  reading: OwnReading = {},
 ): Promise<string> {
   const included = includedFolder(env)
   const folders = [
@@ -80,28 +154,43 @@ export async function filesMark(
   const marks = await Promise.all(
     folders.map(async ({ folder, names }) =>
       Promise.all(
-        ((await listed(folder, names)) ?? []).map(async ({ name }) => {
-          try {
-            const s = await stat(join(folder, name), { bigint: true })
-            return [name, s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':')
-          } catch (error) {
-            return `${name}:${(error as NodeJS.ErrnoException).code ?? 'unreadable'}`
-          }
-        }),
+        ((await listed(folder, names)) ?? []).map(({ name }) => markOf(join(folder, name), name)),
       ),
     ),
   )
-  return JSON.stringify(marks)
+  // Each plugin's own folder: its file, and in Developer mode its code.
+  const inFolders = reading.folders
+    ? await Promise.all(
+        (await foldersListed(path)).flatMap((folder) =>
+          [IN_FOLDER.file, ...(reading.code ? [IN_FOLDER.code] : [])].map((file) =>
+            markOf(join(path, folder, file), `${folder}/${file}`),
+          ),
+        ),
+      )
+    : []
+  return JSON.stringify(reading.folders ? [...marks, inFolders] : marks)
+}
+
+/** One file's mark: its name, and of what it is its device, number, size and times. */
+async function markOf(path: string, name: string): Promise<string> {
+  try {
+    const s = await stat(path, { bigint: true })
+    return [name, s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':')
+  } catch (error) {
+    return `${name}:${(error as NodeJS.ErrnoException).code ?? 'unreadable'}`
+  }
 }
 
 export async function readPlugins(
   directory: { path: string; shown: string },
   env: NodeJS.ProcessEnv = process.env,
+  reading: Pick<OwnReading, 'folders'> = {},
 ): Promise<LocalPlugins> {
   // (The page gets what it always has: names, texts, and why one couldn't be read.)
   const page = (files: ReadFile[]) =>
     files.map(({ name, text, error }) => ({ name, text, ...(error ? { error } : {}) }))
-  const read = await readFiles(directory, env)
+  // (Never their code: that's handed over, as Lumovi's own is.)
+  const read = await readFiles(directory, env, { folders: reading.folders === true })
   return {
     directory: directory.shown,
     files: page(read.files),
@@ -165,7 +254,12 @@ function within(ms: number, name: string, reading: Promise<ReadFile>): Promise<R
  * a plain file is refused before a byte is read, the open never waits for a pipe's other end,
  * and no more than the limit and one byte is ever read.
  */
-async function fileRead(path: string, name: string, link: boolean): Promise<ReadFile> {
+async function fileRead(
+  path: string,
+  name: string,
+  link: boolean,
+  max = MAX_BYTES,
+): Promise<ReadFile> {
   try {
     // Checked and read through one open file, so it can't be swapped in between. (Opened
     // without waiting: a pipe nobody writes to would otherwise hold the open for ever.)
@@ -173,17 +267,17 @@ async function fileRead(path: string, name: string, link: boolean): Promise<Read
     try {
       const stat = await file.stat()
       if (!stat.isFile()) return { name, text: '', error: 'It isn’t a file.' }
-      const tooLarge = { name, text: '', error: `It’s larger than ${MAX_BYTES / 1024} KB.` }
-      if (stat.size > MAX_BYTES) return tooLarge
+      const tooLarge = { name, text: '', error: `It’s larger than ${max / 1024} KB.` }
+      if (stat.size > max) return tooLarge
       // One read: the text that's checked and the digest are of the same bytes.
-      const room = Buffer.alloc(MAX_BYTES + 1)
+      const room = Buffer.alloc(max + 1)
       let read = 0
       while (read < room.length) {
         const { bytesRead } = await file.read(room, read, room.length - read, read)
         if (bytesRead === 0) break
         read += bytesRead
       }
-      if (read > MAX_BYTES) return tooLarge
+      if (read > max) return tooLarge
       const bytes = room.subarray(0, read)
       let text: string
       try {
@@ -211,7 +305,7 @@ async function fileRead(path: string, name: string, link: boolean): Promise<Read
         code === 'ENOENT'
           ? link
             ? 'It isn’t there: a link to a file that’s gone.'
-            : 'It isn’t there.'
+            : NOT_THERE
           : code === 'EACCES' || code === 'EPERM'
             ? 'Lumovi isn’t allowed to read it.'
             : 'It couldn’t be read.',

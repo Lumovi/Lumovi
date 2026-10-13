@@ -28,7 +28,7 @@ import { PLUGIN_NAME, whose } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
 import type { Recorded, Recorder } from './audit/recorder'
 import type { KubeService } from './kube/service'
-import type { HandOverTo } from './plugin-code'
+import { runsCode, type HandOverTo } from './plugin-code'
 import { refusalOf } from './plugin-reads'
 
 interface PluginServerAsking {
@@ -74,7 +74,11 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
     if (switches.serversOff) return refuse('servers-off')
     const found = (await known()).find((p) => p.name === q.plugin)
     // (A plugin without code has no page that could ask.)
-    if (!found || !mayCarryCode(found.origin) || found.codeDigest === undefined) {
+    if (
+      !found ||
+      !(to ? runsCode(found, to()) : mayCarryCode(found.origin)) ||
+      found.codeDigest === undefined
+    ) {
       return refuse('not-in-use')
     }
     const plugin = (asked.plugin = found)

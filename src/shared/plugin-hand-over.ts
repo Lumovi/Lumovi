@@ -31,6 +31,17 @@ export type NotHanded =
   | 'off-on-server-for-it'
   /** The desktop app's: the organization's policy lets no plugin run code (`plugins: no-code`). */
   | 'off-by-policy'
+  /** The desktop app's: one of the person's own, while Developer mode is off. */
+  | 'developer-mode-off'
+  /** The desktop app's: one of the person's own, where the organization's policy keeps it off. */
+  | 'developer-mode-locked'
+  /**
+   * The desktop app's: one of the person's own, whose code waits for them to agree to what it may
+   * do: never agreed to, its code changed since, or what it asks.
+   */
+  | 'waiting-first'
+  | 'waiting-code'
+  | 'waiting-asks'
 
 /**
  * What turns a plugin's code off, wherever it's decided: kept by the backend, read each time it's
@@ -115,6 +126,11 @@ const WHY: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
   'off-on-server-for-it':
     'This server doesn’t run this plugin’s code. Whoever runs Lumovi can turn it on.',
   'off-by-policy': 'Your organization’s policy doesn’t let plugins run code.',
+  'developer-mode-off': 'Developer mode is off.',
+  'developer-mode-locked': 'Your organization’s policy keeps Developer mode off.',
+  'waiting-first': 'Its code waits for you to agree to what it may do.',
+  'waiting-code': 'Its code changed since you agreed. It waits for you.',
+  'waiting-asks': 'It asks for more than when you agreed. It waits for you.',
 }
 
 /** Why not, as one sentence of Lumovi's: what a page's place says after its title. */
@@ -133,7 +149,19 @@ const LINE: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
   'off-on-server': 'this server doesn’t run plugins’ code.',
   'off-on-server-for-it': 'this server doesn’t run this plugin’s code.',
   'off-by-policy': 'your organization’s policy doesn’t let plugins run code.',
+  'developer-mode-off': 'Developer mode is off.',
+  'developer-mode-locked': 'your organization’s policy keeps Developer mode off.',
+  'waiting-first': 'its code waits for you to agree to what it may do.',
+  'waiting-code': 'its code changed since you agreed, and waits for you.',
+  'waiting-asks': 'it asks for more than when you agreed, and waits for you.',
 }
+
+/** The desktop app's: one of the person's own whose code waits for them to agree. */
+export const WAITING: ReadonlySet<NotHanded> = new Set([
+  'waiting-first',
+  'waiting-code',
+  'waiting-asks',
+])
 
 /** Where its code is off by a switch: the place in place of its page says so, not that it failed. */
 export const SWITCHED_OFF: ReadonlySet<NotHanded> = new Set([
@@ -141,6 +169,8 @@ export const SWITCHED_OFF: ReadonlySet<NotHanded> = new Set([
   'off-on-server',
   'off-on-server-for-it',
   'off-by-policy',
+  'developer-mode-off',
+  'developer-mode-locked',
 ])
 
 /**
@@ -154,5 +184,5 @@ export const notHandedLine = (
   standsIn?: string,
 ): string =>
   // (Off by the person or by their organization: off anywhere, not only here.)
-  `Its pages don’t run${refused === 'turned-off' || refused === 'off-by-policy' ? '' : ' here'}${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}` +
+  `Its pages don’t run${refused === 'turned-off' || refused === 'off-by-policy' || refused === 'developer-mode-off' || refused === 'developer-mode-locked' ? '' : ' here'}${refused === 'check-unfinished' ? ' yet' : ''}: ${LINE[refused]}` +
   (standsIn === undefined ? '' : ` Lumovi shows its own overview of ${standsIn} instead.`)

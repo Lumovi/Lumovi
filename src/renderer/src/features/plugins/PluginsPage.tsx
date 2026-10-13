@@ -14,13 +14,14 @@ import {
   SearchX,
   TriangleAlert,
 } from 'lucide-react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Fragment, useContext, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { developerModeLocked } from '@shared/api'
 import { asks, type Asks } from '@shared/plugin-asks'
-import { codeOff, notHandedLine } from '@shared/plugin-hand-over'
+import { codeOff, notHandedLine, notHandedWhy, WAITING } from '@shared/plugin-hand-over'
 import type { PluginServer } from '@shared/plugin-server'
-import type { Loaded } from '@shared/plugin-loading'
+import { folderOf, type Loaded } from '@shared/plugin-loading'
 import { plain, PLUGIN_NAME, type Plugin } from '@shared/plugins'
 import { apiKindOf, type ResourceDefinition, type ResourceKind } from '@shared/resources'
 import { PluginIcon } from '@renderer/components/KindIcon'
@@ -42,7 +43,7 @@ import { linksLine, LOGS_LINE, proposesLine } from './proposes'
 import { ServerPaths, serverSays, ServerWhere } from './server-line'
 import { PLUGIN_PAGES } from './integrations'
 import type { Reach } from '@shared/kit/declare'
-import { ASKED_PLUGIN, AT_SWITCH } from '@renderer/lib/routes'
+import { ASKED_PLUGIN, AT_DEVELOPER_MODE, AT_SWITCH } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
 import type { InstalledNotUsed, InstalledPlugin } from '@shared/plugin-store'
@@ -57,6 +58,7 @@ import {
   usePluginStore,
   type Offer,
 } from './store'
+import { AgreeFrom, useAgree, useOwnChanges } from './own-code'
 import { InstalledMenu, useStoreActions } from './store-actions'
 
 /**
@@ -111,7 +113,7 @@ function listed(names: string[]): string {
 }
 
 /** How a kind is named: as the cluster does where it serves it, else as the file does. */
-function useKindNames() {
+export function useKindNames() {
   const resources = useResources().data ?? []
   const served = new Map<ResourceKind, ResourceDefinition>(resources.map((r) => [r.kind, r]))
   const bare = (kind: ResourceKind) =>
@@ -158,6 +160,30 @@ export function PluginsPage() {
     ownFiles: plugins?.ownFiles ?? {},
     ownCoded: plugins?.ownCoded ?? new Set(),
   })
+  // Agreeing to run the code of the person's own plugins (Developer mode): from their rows. Which
+  // of their own with pages of their own (in folders of their own) wait for them, now.
+  const agree = useAgree({ names, directory: plugins?.directory ?? '' })
+  useOwnChanges()
+  const ownWithPages = (plugins?.files ?? []).flatMap(({ file, plugin, state }) =>
+    plugin &&
+    state !== 'not-in-use' &&
+    folderOf(file) !== undefined &&
+    plugin.added.pages.length + plugin.added.tabs.length > 0
+      ? [plugin.name]
+      : [],
+  )
+  const handOvers = useQueries({
+    queries: ownWithPages.map((name) => ({
+      queryKey: ['plugin-hand-over', name],
+      queryFn: () => api.kube.pluginHandOver(name),
+    })),
+  })
+  const waiting = new Set(
+    ownWithPages.filter((_, index) => {
+      const answer = handOvers[index]?.data
+      return answer !== undefined && answer !== true && WAITING.has(answer)
+    }),
+  )
   // The address may name a plugin to open (a link to what it asks for). A name only: anything
   // that isn't one, or that no plugin here has, opens nothing.
   const [params, setParams] = useSearchParams()
@@ -274,7 +300,8 @@ export function PluginsPage() {
       row.offer !== undefined ||
       row.state === 'not-here' ||
       row.installed !== undefined ||
-      row.notUsed !== undefined,
+      row.notUsed !== undefined ||
+      (row.plugin !== undefined && row.origin === 'yours' && waiting.has(row.plugin.name)),
   )
   const columns = offers ? 4 : 3
   // What the filter draws from: the page's own list, or (Not here yet) what this Lumovi lacks.
@@ -311,6 +338,12 @@ export function PluginsPage() {
             onClick={() => actions.install(offer, release.version)}
           >
             Install…
+          </Button>
+        )}
+        {/* One of the person's own whose code waits for them: what it may do, to agree to. */}
+        {row.origin === 'yours' && waiting.has(plugin.name) && agree.ask && (
+          <Button className="h-7 px-2.5 text-xs" onClick={() => void agree.ask!(plugin)}>
+            See what it may do…
           </Button>
         )}
         {/* (And where its installed copy isn't used: going back to Lumovi's own clears it.) */}
@@ -365,199 +398,267 @@ export function PluginsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* (On a phone it's the first thing on a plugin's own page, not above the list.) */}
-        {!phone && <Opening />}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3 phone:px-4">
-          <span data-plugins-count className="text-[13px] text-ink-2 tabular-nums">
-            {HOST === 'yours' ? (
-              // Each row once, by what its source line says: as Lumovi came, installed, or yours.
-              <>
-                {comes} {comes === 1 ? 'comes' : 'come'} with Lumovi
-                {installed > 0 && `, ${installed} installed`}
-                {own > 0 && `, ${own} of yours`}
-              </>
-            ) : (
-              <>
-                {plugins.included.length} from Lumovi
-                {own > 0 && `, ${own} from this server`}
-              </>
-            )}
-          </span>
-          <div
-            role="group"
-            aria-label="Which plugins"
-            // (The one thing here that scrolls sideways on a narrow page, and says so.)
-            data-scrolls-sideways
-            className="flex max-w-full [scrollbar-width:none] gap-0.5 overflow-x-auto rounded-lg bg-surface-2 p-0.5"
-          >
-            {offered.map(([key, text, matches]) => {
-              const button = (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={active[0] === key}
-                  onClick={() => setFilter(key)}
-                  className={cn(
-                    'h-8 shrink-0 rounded-md px-2.5 text-[13px] whitespace-nowrap text-ink-2 phone:h-11 phone:px-2 phone:text-xs',
-                    active[0] === key && 'bg-surface font-medium text-ink-1 shadow-sm',
-                  )}
-                >
-                  {text} <span className="tabular-nums">{rows.filter(matches).length}</span>
-                </button>
-              )
-              return FOUND.includes(key) && keptFrom ? (
-                <Tooltip key={key} content={keptFrom}>
-                  {button}
-                </Tooltip>
+    <AgreeFrom.Provider value={agree.ask && ((plugin) => void agree.ask!(plugin))}>
+      <div className="flex h-full flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* (On a phone it's the first thing on a plugin's own page, not above the list.) */}
+          {!phone && <Opening />}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3 phone:px-4">
+            <span data-plugins-count className="text-[13px] text-ink-2 tabular-nums">
+              {HOST === 'yours' ? (
+                // Each row once, by what its source line says: as Lumovi came, installed, or yours.
+                <>
+                  {comes} {comes === 1 ? 'comes' : 'come'} with Lumovi
+                  {installed > 0 && `, ${installed} installed`}
+                  {own > 0 && `, ${own} of yours`}
+                </>
               ) : (
-                button
-              )
-            })}
-          </div>
-          <div className="flex-1" />
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            // Down goes from the search to the first plugin.
-            onArrowDown={() => document.querySelector<HTMLElement>('[data-plugin-row]')?.focus()}
-            placeholder="Search plugins"
-            className="w-60 phone:w-full"
-          />
-          {/* (A row of its own, at its right: so nothing moves as a check ends.) */}
-          {store.there && (
-            <div className="flex basis-full justify-end">
-              <StoreLine store={store} />
-            </div>
-          )}
-        </div>
-        {plugins.shipped.length > 0 && (
-          // (Never in a release: what's wrong with one of Lumovi's own is found when it's built.)
-          <ul
-            aria-label="Problems with Lumovi’s plugins"
-            className="space-y-0.5 border-b border-line bg-warn/8 px-5 py-2.5 font-mono text-xs text-ink-2 phone:px-4"
-          >
-            {plugins.shipped.map((problem) => (
-              <li key={problem} className="break-words">
-                {problem}
-              </li>
-            ))}
-          </ul>
-        )}
-        {shown.length === 0 ? (
-          <EmptyState icon={SearchX} title="Nothing matches">
-            No plugin here matches.
-          </EmptyState>
-        ) : phone ? (
-          <ul aria-label="Plugins">
-            {shown.map((row) => (
-              <li key={row.key} className="border-b border-line">
-                <button
-                  type="button"
-                  disabled={!row.plugin}
-                  onClick={() => setOpened(row.key)}
-                  className="block w-full text-left"
-                >
-                  <Card row={row} names={names} directory={plugins.directory} />
-                </button>
-                <Problems row={row} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <table
-            aria-label="Plugins"
-            className="w-full table-fixed border-separate border-spacing-0 text-[13px]"
-          >
-            <thead className="text-left text-2xs font-medium tracking-wider text-ink-3 uppercase">
-              <tr>
-                <th
-                  className={cn(
-                    'border-b border-line py-2 pr-3 pl-[4.75rem] font-medium',
-                    offers ? 'w-[34%]' : 'w-[38%]',
-                  )}
-                >
-                  Plugin
-                </th>
-                <th
-                  className={cn(
-                    'border-b border-line py-2 pr-3 font-medium',
-                    offers ? 'w-[26%]' : 'w-[34%]',
-                  )}
-                >
-                  On {context}
-                </th>
-                <th className="border-b border-line py-2 pr-5 font-medium">From</th>
-                {offers && (
-                  <th className="w-44 border-b border-line py-2 pr-5 font-medium">
-                    <span className="sr-only">Newer</span>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((row) => (
-                <Fragment key={row.key}>
-                  <tr
-                    ref={row.key === askedRow?.key ? intoView : undefined}
-                    data-state={row.state}
+                <>
+                  {plugins.included.length} from Lumovi
+                  {own > 0 && `, ${own} from this server`}
+                </>
+              )}
+            </span>
+            <div
+              role="group"
+              aria-label="Which plugins"
+              // (The one thing here that scrolls sideways on a narrow page, and says so.)
+              data-scrolls-sideways
+              className="flex max-w-full [scrollbar-width:none] gap-0.5 overflow-x-auto rounded-lg bg-surface-2 p-0.5"
+            >
+              {offered.map(([key, text, matches]) => {
+                const button = (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active[0] === key}
+                    onClick={() => setFilter(key)}
                     className={cn(
-                      'scroll-mt-10 align-top',
-                      row.state === 'replaced' && 'text-ink-3',
+                      'h-8 shrink-0 rounded-md px-2.5 text-[13px] whitespace-nowrap text-ink-2 phone:h-11 phone:px-2 phone:text-xs',
+                      active[0] === key && 'bg-surface font-medium text-ink-1 shadow-sm',
                     )}
                   >
-                    <td className="border-b border-line py-3 pr-3 pl-5">
-                      <Name
-                        row={row}
-                        names={names}
-                        expanded={opened === row.key}
-                        onToggle={() => setOpened(opened === row.key ? undefined : row.key)}
-                      />
-                    </td>
-                    <td className="border-b border-line py-3 pr-3">
-                      <OnCluster row={row} />
-                    </td>
-                    <td className="border-b border-line py-3 pr-5">
-                      <From row={row} directory={plugins.directory} />
-                    </td>
-                    {offers && <td className="border-b border-line py-3 pr-5">{end(row)}</td>}
-                  </tr>
-                  {row.problems.length > 0 && (
-                    <tr>
-                      <td colSpan={columns} className="border-b border-line p-0">
-                        <Problems row={row} />
-                      </td>
-                    </tr>
+                    {text} <span className="tabular-nums">{rows.filter(matches).length}</span>
+                  </button>
+                )
+                return FOUND.includes(key) && keptFrom ? (
+                  <Tooltip key={key} content={keptFrom}>
+                    {button}
+                  </Tooltip>
+                ) : (
+                  button
+                )
+              })}
+            </div>
+            <div className="flex-1" />
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              // Down goes from the search to the first plugin.
+              onArrowDown={() => document.querySelector<HTMLElement>('[data-plugin-row]')?.focus()}
+              placeholder="Search plugins"
+              className="w-60 phone:w-full"
+            />
+            {/* (A row of its own, at its right: so nothing moves as a check ends.) */}
+            {store.there && (
+              <div className="flex basis-full justify-end">
+                <StoreLine store={store} />
+              </div>
+            )}
+          </div>
+          {plugins.shipped.length > 0 && (
+            // (Never in a release: what's wrong with one of Lumovi's own is found when it's built.)
+            <ul
+              aria-label="Problems with Lumovi’s plugins"
+              className="space-y-0.5 border-b border-line bg-warn/8 px-5 py-2.5 font-mono text-xs text-ink-2 phone:px-4"
+            >
+              {plugins.shipped.map((problem) => (
+                <li key={problem} className="break-words">
+                  {problem}
+                </li>
+              ))}
+            </ul>
+          )}
+          {shown.length === 0 ? (
+            <EmptyState icon={SearchX} title="Nothing matches">
+              No plugin here matches.
+            </EmptyState>
+          ) : phone ? (
+            <ul aria-label="Plugins">
+              {shown.map((row) => (
+                <li key={row.key} className="border-b border-line">
+                  <button
+                    type="button"
+                    disabled={!row.plugin}
+                    onClick={() => setOpened(row.key)}
+                    className="block w-full text-left"
+                  >
+                    <Card row={row} names={names} directory={plugins.directory} />
+                  </button>
+                  <Problems row={row} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <table
+              aria-label="Plugins"
+              className="w-full table-fixed border-separate border-spacing-0 text-[13px]"
+            >
+              <thead className="text-left text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                <tr>
+                  <th
+                    className={cn(
+                      'border-b border-line py-2 pr-3 pl-[4.75rem] font-medium',
+                      offers ? 'w-[34%]' : 'w-[38%]',
+                    )}
+                  >
+                    Plugin
+                  </th>
+                  <th
+                    className={cn(
+                      'border-b border-line py-2 pr-3 font-medium',
+                      offers ? 'w-[26%]' : 'w-[34%]',
+                    )}
+                  >
+                    On {context}
+                  </th>
+                  <th className="border-b border-line py-2 pr-5 font-medium">From</th>
+                  {offers && (
+                    <th className="w-44 border-b border-line py-2 pr-5 font-medium">
+                      <span className="sr-only">Newer</span>
+                    </th>
                   )}
-                  {opened === row.key && row.plugin && (
-                    <tr>
-                      <td colSpan={columns} className="border-b border-line bg-surface-2/60 p-0">
-                        <WhatItAsks
-                          plugin={row.plugin}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((row) => (
+                  <Fragment key={row.key}>
+                    <tr
+                      ref={row.key === askedRow?.key ? intoView : undefined}
+                      data-state={row.state}
+                      className={cn(
+                        'scroll-mt-10 align-top',
+                        row.state === 'replaced' && 'text-ink-3',
+                      )}
+                    >
+                      <td className="border-b border-line py-3 pr-3 pl-5">
+                        <Name
+                          row={row}
                           names={names}
-                          focus={atSwitch(row.plugin)}
+                          expanded={opened === row.key}
+                          onToggle={() => setOpened(opened === row.key ? undefined : row.key)}
                         />
                       </td>
+                      <td className="border-b border-line py-3 pr-3">
+                        <OnCluster row={row} />
+                      </td>
+                      <td className="border-b border-line py-3 pr-5">
+                        <From row={row} directory={plugins.directory} />
+                      </td>
+                      {offers && <td className="border-b border-line py-3 pr-5">{end(row)}</td>}
                     </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        )}
+                    {row.problems.length > 0 && (
+                      <tr>
+                        <td colSpan={columns} className="border-b border-line p-0">
+                          <Problems row={row} />
+                        </td>
+                      </tr>
+                    )}
+                    {opened === row.key && row.plugin && (
+                      <tr>
+                        <td colSpan={columns} className="border-b border-line bg-surface-2/60 p-0">
+                          <WhatItAsks
+                            plugin={row.plugin}
+                            names={names}
+                            focus={atSwitch(row.plugin)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <footer className="flex shrink-0 items-start gap-2 border-t border-line px-5 py-2.5 text-xs text-ink-3 phone:px-4">
+          <Info className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {shown.length} of {drawnFrom.length} shown.{' '}
+            {HOST === 'yours' ? 'Yours go in' : 'This server’s are in'}{' '}
+            <span className="font-mono break-all text-ink-2 selectable">{plugins.directory}</span>.
+            One with the name of one of Lumovi’s is used in its place, all of it.
+            <DeveloperModeLine />
+          </span>
+          <DeveloperMode />
+        </footer>
+        {actions.dialog}
+        {agree.dialog}
       </div>
-      <footer className="flex shrink-0 items-start gap-2 border-t border-line px-5 py-2.5 text-xs text-ink-3 phone:px-4">
-        <Info className="mt-0.5 size-3.5 shrink-0" />
-        <span className="min-w-0">
-          {shown.length} of {drawnFrom.length} shown.{' '}
-          {HOST === 'yours' ? 'Yours go in' : 'This server’s are in'}{' '}
-          <span className="font-mono break-all text-ink-2 selectable">{plugins.directory}</span>.
-          One with the name of one of Lumovi’s is used in its place, all of it.
+    </AgreeFrom.Provider>
+  )
+}
+
+/**
+ * The desktop app's: Developer mode, at the end of the footer's folder line whatever filter is
+ * picked, which lets plugins in the person's own folder run their code once they've agreed to it.
+ * Locked off by the organization's policy. (A server has none: its plugins are its administrator's.)
+ */
+function DeveloperMode() {
+  const settings = useSettings().data
+  const queryClient = useQueryClient()
+  // ("Open Plugins" from a page of the person's own while it's off: here, focused.)
+  const [params] = useSearchParams()
+  if (!api.ownCode || !settings) return null
+  const locked = developerModeLocked(settings.managed)
+  const on = settings.pluginDeveloperMode === true && !locked
+  const change = async (next: boolean) => {
+    try {
+      const updated = await api.ownCode!.developerMode(next)
+      queryClient.setQueryData(['settings'], updated)
+      // (Off, their pages close at once; on, what they agreed to runs again.)
+      await queryClient.invalidateQueries({ queryKey: ['plugins'] })
+      await queryClient.invalidateQueries({ queryKey: ['plugin-hand-over'] })
+    } catch (error) {
+      toast({ tone: 'error', title: (error as Error).message })
+    }
+  }
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <Switch
+        id="plugins-developer-mode"
+        label="Developer mode"
+        checked={on}
+        locked={locked}
+        describedBy="plugins-developer-mode-line"
+        autoFocus={params.get(AT_DEVELOPER_MODE) === '1'}
+        onCheckedChange={(next) => void change(next)}
+      />
+      <label
+        htmlFor="plugins-developer-mode"
+        className={cn('font-medium text-ink-1', locked && 'opacity-50')}
+      >
+        Developer mode
+      </label>
+    </span>
+  )
+}
+
+/** What Developer mode is, always under the folder line: or why it's off, where policy keeps it. */
+function DeveloperModeLine() {
+  const settings = useSettings().data
+  if (!api.ownCode || !settings) return null
+  return (
+    <span id="plugins-developer-mode-line" className="mt-0.5 block">
+      {developerModeLocked(settings.managed) ? (
+        <span className="flex gap-1.5">
+          <Lock className="mt-0.5 size-3 shrink-0" aria-hidden />
+          Turned off by your organization’s policy.
         </span>
-      </footer>
-      {actions.dialog}
-    </div>
+      ) : (
+        'Run code from plugins in your own folder. Only turn this on for plugins you wrote or trust as much as Lumovi.'
+      )}
+    </span>
   )
 }
 
@@ -707,6 +808,22 @@ function CodeOffLine({ plugin }: { plugin: Plugin }) {
   })
   if (!settings || handOver.data === undefined) return null
   if (handOver.data === 'no-code' || handOver.data === 'not-in-use') return null
+  // One of the person's own: off while Developer mode is (kept off by the policy or not), or
+  // waiting for them to agree.
+  if (handOver.data === 'developer-mode-off' || handOver.data === 'developer-mode-locked') {
+    return (
+      <p data-plugin-code-off={plugin.name} className="mt-0.5 text-ink-3">
+        {notHandedLine('developer-mode-off')}
+      </p>
+    )
+  }
+  if (handOver.data !== true && WAITING.has(handOver.data)) {
+    return (
+      <p data-plugin-waiting={plugin.name} className="mt-0.5 text-ink-3">
+        {notHandedWhy(handOver.data)}
+      </p>
+    )
+  }
   const off = codeOff(plugin.name, switchesOf(settings))
   return off ? (
     <p data-plugin-code-off={plugin.name} className="mt-0.5 text-ink-3">
@@ -897,12 +1014,32 @@ function useHasCode(plugin: Plugin): boolean {
 function CodeSwitch({ plugin, names, focus }: { plugin: Plugin; names: Names; focus: boolean }) {
   const settings = useSettings().data
   const queryClient = useQueryClient()
+  // One of the person's own: whether Developer mode, or what they agreed to, stops its code.
+  const yours = folderOf(plugin.source) !== undefined
+  const handOver = useQuery({
+    queryKey: ['plugin-hand-over', plugin.name],
+    queryFn: () => api.kube.pluginHandOver(plugin.name),
+    enabled: yours,
+  })
+  const agree = useContext(AgreeFrom)
   if (!useHasCode(plugin) || !settings) return null
   const switches = switchesOf(settings)
   const off = codeOff(plugin.name, switches)
+  // (Stopped by something other than the person's own switch: off and locked, as the policy's,
+  // with why under it; once that clears, their own setting again.)
+  const answer = yours ? handOver.data : undefined
+  const gate =
+    answer === 'developer-mode-off' ||
+    answer === 'developer-mode-locked' ||
+    (answer !== undefined && answer !== true && answer !== 'not-in-use' && WAITING.has(answer))
+      ? answer
+      : undefined
   const locked =
-    off === 'off-by-policy' || off === 'off-on-server' || off === 'off-on-server-for-it'
-  const on = !off
+    gate !== undefined ||
+    off === 'off-by-policy' ||
+    off === 'off-on-server' ||
+    off === 'off-on-server-for-it'
+  const on = !off && gate === undefined
   const line = `plugin-code-line-${plugin.name}`
   const change = async (next: boolean) => {
     try {
@@ -941,7 +1078,18 @@ function CodeSwitch({ plugin, names, focus }: { plugin: Plugin; names: Names; fo
           />
         </div>
         <p id={line} className="text-ink-2">
-          {off === 'off-by-policy' ? (
+          {gate === 'developer-mode-off' ? (
+            notHandedLine('developer-mode-off')
+          ) : gate !== undefined && gate !== 'developer-mode-locked' ? (
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {notHandedWhy(gate)}
+              {agree && (
+                <Button className="h-7 px-2.5 text-xs" onClick={() => agree(plugin)}>
+                  See what it may do…
+                </Button>
+              )}
+            </span>
+          ) : off === 'off-by-policy' || gate === 'developer-mode-locked' ? (
             <span className="flex gap-1.5">
               <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
               Turned off by your organization’s policy.
@@ -1169,8 +1317,14 @@ function Adds({
     queryFn: () => api.kube.pluginHandOver(name),
     enabled: pages.length + tabs.length > 0,
   })
+  // (One of the person's own, off with Developer mode or waiting for them: its row says so.)
   const notHanded =
-    handOver.data !== undefined && handOver.data !== true && handOver.data !== 'not-in-use'
+    handOver.data !== undefined &&
+    handOver.data !== true &&
+    handOver.data !== 'not-in-use' &&
+    handOver.data !== 'developer-mode-off' &&
+    handOver.data !== 'developer-mode-locked' &&
+    !WAITING.has(handOver.data)
       ? handOver.data
       : undefined
   const counted = (count: number, one: string, many: string) =>

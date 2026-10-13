@@ -39,6 +39,16 @@ export interface Offering {
 export const offered = ({ tests, release, coded }: Offering, plugin: string): boolean =>
   tests || (release && coded.has(plugin))
 
+/**
+ * The desktop app's: the person's own plugins with code (each in a folder of its own), whose
+ * pages are offered as Lumovi's own are. Whether their code runs is Developer mode's and the
+ * person's to say, as their pages open.
+ */
+let own: ReadonlySet<string> = new Set()
+export function setOwnPlugins(names: readonly string[]): void {
+  own = new Set(names)
+}
+
 /** Whether `plugin`'s pages, tabs and commands are offered here. */
 export const offersPages = (plugin: string): boolean =>
-  offered({ tests: TESTS, release: IN_A_RELEASE, coded }, plugin)
+  offered({ tests: TESTS, release: IN_A_RELEASE, coded: new Set([...coded, ...own]) }, plugin)

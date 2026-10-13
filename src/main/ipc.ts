@@ -31,6 +31,8 @@ import { SavedFiles } from './saved-files'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
 import type { PluginStore } from './plugin-store'
+import type { AgreedPlugins } from './plugins-agreed'
+import type { PluginsWatch } from './plugins-watch'
 import { InstallError, type InstalledPlugins } from './plugins-installed'
 import type { Updates } from './updates'
 
@@ -51,6 +53,10 @@ interface Dependencies extends Backend {
   pluginStore: PluginStore
   /** What's installed from it. */
   installed: InstalledPlugins
+  /** What the person agreed to run of their own plugins' code. */
+  agreed: AgreedPlugins
+  /** Their plugins folder, watched in Developer mode. */
+  pluginsWatch: PluginsWatch
   sponsor: SponsorSource
   /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
   auditLog: AuditLog
@@ -83,6 +89,8 @@ export function registerIpc(deps: Dependencies): void {
     updates,
     pluginStore,
     installed,
+    agreed,
+    pluginsWatch,
     sponsor,
     rendererUrl,
     problems,
@@ -264,6 +272,18 @@ export function registerIpc(deps: Dependencies): void {
       typeof name === 'string'
         ? installed.remove(name)
         : Promise.reject(new InstallError('Lumovi didn’t understand what to remove.')),
+    // Developer mode, and agreeing to run a person's own plugin's code: checked here, as the main
+    // process reads that plugin now.
+    [IPC.pluginDeveloperMode]: (on) => {
+      if (typeof on !== 'boolean')
+        return Promise.reject(new Error('Lumovi didn’t understand that.'))
+      const updated = settings.setPluginDeveloperMode(on)
+      // (Their folder watched while it's on, as the page reads them again.)
+      pluginsWatch.set(settings.pluginDeveloperMode())
+      return updated
+    },
+    [IPC.pluginOwnCode]: (name) => agreed.ownCode(name),
+    [IPC.pluginAgree]: (name, asks, code) => agreed.agree(name, asks, code),
     [IPC.sponsorCard]: () => sponsor.card(),
     // Terminals on this computer, besides the cluster's shells (each ignores the other's).
     [IPC.terminalOpen]: (id, request) =>

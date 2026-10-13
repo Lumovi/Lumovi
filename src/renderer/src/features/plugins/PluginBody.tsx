@@ -7,18 +7,28 @@
  * The page is the cluster's: another cluster's is another page, opened anew (its code handed
  * again, its reads made again, its tokens new), never this one carried over.
  */
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { ObjectRef } from '@shared/kit/table'
 import type { ReachDestination } from '@shared/kit/declare'
 import { mayStart, type Destination } from '@shared/plugin-presses'
 import type { ListedPlugin } from '@shared/plugins'
+import { PluginIcon } from '@renderer/components/KindIcon'
 import { useOpenObject } from '@renderer/hooks/open-object'
+import { usePlugins } from '@renderer/hooks/plugins'
 import { api } from '@renderer/lib/api'
 import { useLayout } from '@renderer/lib/layout'
-import { codeOff } from '@shared/plugin-hand-over'
+import { codeOff, WAITING, type NotHanded } from '@shared/plugin-hand-over'
+import { folderOf } from '@shared/plugin-loading'
 import { useSettings } from '@renderer/hooks/settings'
-import { formatRef, listPath, pluginAsksPath, pluginSwitchPath } from '@renderer/lib/routes'
+import {
+  developerModePath,
+  formatRef,
+  listPath,
+  pluginAsksPath,
+  pluginSwitchPath,
+} from '@renderer/lib/routes'
 import { switchesOf } from '@renderer/plugins/code-switches'
 import { PluginFrame } from '@renderer/plugins/PluginFrame'
 import { KIT_PARTS } from '@renderer/plugins/kit'
@@ -27,6 +37,8 @@ import { proposeChange } from '@renderer/plugins/proposals'
 import { offered } from '@renderer/plugins/reach'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
+import { useAgree, useOwnChanges } from './own-code'
+import { useKindNames } from './PluginsPage'
 
 /** Lumovi's parts, but for the Logs part: for a plugin whose file says nothing of logs. */
 const WITHOUT_LOGS = Object.fromEntries(
@@ -54,6 +66,23 @@ export function PluginBody({
   // its code never asked for. Turned on again, the page is opened anew, as "Open it again" does.
   const settings = useSettings().data
   const off = settings === undefined ? undefined : codeOff(plugin.name, switchesOf(settings))
+  // One of the person's own (its own folder, Developer mode): whether its code waits for them,
+  // asked before anything of it is. Agreed, its page is opened anew.
+  const yours = folderOf(plugin.source) !== undefined
+  const handOver = useQuery({
+    queryKey: ['plugin-hand-over', plugin.name],
+    queryFn: () => api.kube.pluginHandOver(plugin.name),
+    enabled: yours,
+  })
+  const plugins = usePlugins().data
+  const agree = useAgree({
+    names: useKindNames(),
+    directory: plugins?.directory ?? '',
+    onAgreed: () => setAgain((n) => n + 1),
+  })
+  const own = plugins?.files.find((file) => file.plugin?.name === plugin.name)?.plugin
+  // (Its folder changed, in Developer mode: its page is made anew with what changed.)
+  const changes = useOwnChanges()
   const which = page !== undefined ? `page ${page}` : `tab ${tab} ${formatRef(object)}`
   // What a press may open, where the door says: an object's own page in Lumovi, or a list of
   // Lumovi's own as the door made it, and only what this screen may start.
@@ -82,7 +111,50 @@ export function PluginBody({
     openObject(object.kind, object.name, object.namespace)
     showTab(formatRef(object), to.at, to.container, to.at === 'shell' ? via : undefined)
   }
-  if (settings === undefined) return null
+  if (settings === undefined || (yours && handOver.data === undefined)) return null
+  // Off with Developer mode (or kept off by the organization's policy): a setting, said so.
+  if (
+    yours &&
+    (handOver.data === 'developer-mode-off' || handOver.data === 'developer-mode-locked')
+  ) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
+        <PluginFrame
+          name={plugin.label}
+          version={plugin.version}
+          end={{ why: 'not-handed', refused: handOver.data }}
+          plugins={developerModePath(context)}
+          onAgain={() => undefined}
+          onFault={() => undefined}
+        >
+          {null}
+        </PluginFrame>
+      </div>
+    )
+  }
+  const waiting = yours && handOver.data !== true && WAITING.has(handOver.data!)
+  if (waiting) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
+        <PluginFrame
+          name={plugin.label}
+          version={plugin.version}
+          yours
+          asks={pluginAsksPath(context, plugin.name)}
+          end={{ why: 'not-handed', refused: handOver.data as NotHanded }}
+          waiting={{
+            icon: <PluginIcon plugin={plugin} className="size-5" />,
+            ...(own && agree.ask ? { onAgree: () => void agree.ask!(own) } : {}),
+          }}
+          onAgain={() => undefined}
+          onFault={() => undefined}
+        >
+          {null}
+        </PluginFrame>
+        {agree.dialog}
+      </div>
+    )
+  }
   if (off) {
     return (
       <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
@@ -102,11 +174,12 @@ export function PluginBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
       <Opened
-        key={`${context}\u0000${which}\u0000${again}`}
+        key={`${context}\u0000${which}\u0000${again}\u0000${yours ? changes : 0}`}
         shown={{
           plugin: plugin.name,
           name: plugin.label,
           version: plugin.version,
+          yours,
           context,
           opening: page !== undefined ? { page } : { tab, object },
           // (Its Logs part only where its file says its pages show logs, or its code reads them:

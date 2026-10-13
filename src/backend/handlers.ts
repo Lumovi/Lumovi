@@ -319,7 +319,10 @@ export function handlers({
         }
       },
       [IPC.plugins]: async () => {
-        const read = await readPlugins(pluginsDirectory)
+        // (A person's own plugins in folders of their own: the desktop app's alone.)
+        const read = await readPlugins(pluginsDirectory, process.env, {
+          folders: handOverTo().host === 'desktop',
+        })
         // (Lumovi's own only, or none, by the organization's policy: a person's folder isn't read,
         // and none installed from Lumovi-plugins is used.)
         const managed = settings.get().managed
@@ -352,6 +355,7 @@ export function handlers({
           knownPlugins,
           kube,
           handOverTo().switches?.secretsOff === true,
+          handOverTo,
         )
         if ('refused' in asked) {
           const refused = { ok: false as const, error: asked.refused }

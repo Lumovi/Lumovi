@@ -11,7 +11,8 @@
  * a digest beside something a page did has to say which reading it names.
  */
 import { clashes, ownKinds, parsePlugin, type ChangesKind, type Plugin } from './plugins'
-import { settle, type Origin, type PluginFile } from './plugin-loading'
+import { folderOf, settle, type Origin, type PluginFile } from './plugin-loading'
+import { asksOf } from './plugin-store'
 import type { Grant } from './plugin-reads'
 import type { PluginServer } from './plugin-server'
 import type { ResourceKind } from './resources'
@@ -88,6 +89,11 @@ export interface KnownPlugin {
   /** `sha256:` and the hex of its code's bytes (its text as UTF-8): what every read names. */
   codeDigest?: string
   /**
+   * A person's own plugin with code: what its file asks, as one text (`asksOf`), to hold against
+   * what they agreed to.
+   */
+  asks?: string
+  /**
    * What its pages may propose to change, from its file (`spec.changes`): its own kinds, and how.
    * Only one with code proposes anything; none, where its file says none.
    */
@@ -154,7 +160,9 @@ export function knownPlugins(
   digest: (text: string) => string,
   /**
    * The code that comes with Lumovi's own plugins, by its file's name: beside a plugin's file,
-   * named as it is (`karpenter.js` beside `karpenter.yaml`). A folder's files carry none.
+   * named as it is (`karpenter.js` beside `karpenter.yaml`). And in Developer mode a person's own
+   * with code, in its folder (`toys/plugin.js` beside `toys/plugin.yaml`). A folder's files carry
+   * none.
    */
   codes: Readonly<Record<string, string>> = {},
   /** Which of `included` were installed from the store: their origin is `installed`. */
@@ -196,20 +204,38 @@ export function knownPlugins(
         ...(plugin.server !== undefined && { server: plugin.server }),
       }
     }),
-    ...settled.files.flatMap(({ file, plugin, state }) =>
-      state === 'not-in-use' || !plugin
-        ? []
-        : [
-            {
-              name: plugin.name,
-              version: plugin.version,
-              origin,
-              file,
-              digest: digestOfFile(file),
-              grant: grantOf(plugin),
-            },
-          ],
-    ),
+    ...settled.files.flatMap(({ file, plugin, state }) => {
+      if (state === 'not-in-use' || !plugin) return []
+      const base = {
+        name: plugin.name,
+        version: plugin.version,
+        origin,
+        file,
+        digest: digestOfFile(file),
+        grant: grantOf(plugin),
+      }
+      // A file of the folder is data. One of a person's own with code (in its own folder) is
+      // held as Lumovi's own are, its code with it where it was read (in Developer mode alone).
+      if (folderOf(file) === undefined) return [base]
+      const codeFile = file.replace(/plugin\.yaml$/, 'plugin.js')
+      const code = Object.hasOwn(codes, codeFile) ? codes[codeFile] : undefined
+      return [
+        {
+          ...base,
+          ...(code === undefined
+            ? {}
+            : { code, codeDigest: digest(code), asks: asksOf(plugin, true) }),
+          changes: Object.freeze(
+            plugin.changes.map(({ kind, actions }) =>
+              Object.freeze({ kind, actions: [...actions] }),
+            ),
+          ),
+          ...(plugin.place?.label !== undefined && { label: plugin.place.label }),
+          ...(plugin.logs !== undefined && { logs: plugin.logs }),
+          ...(plugin.server !== undefined && { server: plugin.server }),
+        },
+      ]
+    }),
   ]
   // (What's answered can't be changed by whoever asked: the same answer may be given again, to
   // whoever asks next.)

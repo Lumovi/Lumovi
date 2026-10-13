@@ -27,7 +27,15 @@ import type { Recorder } from './audit/recorder'
  * session is held to Lumovi's own page and whether it passed the box's check.
  */
 export type HandOverTo =
-  | { host: 'desktop'; switches?: CodeSwitches }
+  | {
+      host: 'desktop'
+      switches?: CodeSwitches
+      /**
+       * One of the person's own plugins: whether its code may run, as Developer mode and what
+       * they agreed to say (none: none of theirs runs code).
+       */
+      own?: (plugin: Readonly<KnownPlugin>) => true | NotHanded
+    }
   | {
       host: 'server'
       /** What turns plugins' code off for this person on this server, now. */
@@ -44,7 +52,13 @@ export function mayHandOver(
   plugin: Readonly<KnownPlugin> | undefined,
   to: HandOverTo,
 ): true | NotHanded {
-  if (!plugin || !mayCarryCode(plugin.origin)) return 'not-in-use'
+  if (!plugin) return 'not-in-use'
+  if (plugin.origin === 'yours') {
+    // A person's own: on the desktop alone, as Developer mode and what they agreed to say.
+    if (to.host !== 'desktop' || !to.own) return 'not-in-use'
+    const own = to.own(plugin)
+    if (own !== true) return own
+  } else if (!mayCarryCode(plugin.origin)) return 'not-in-use'
   if (plugin.code === undefined || plugin.codeDigest === undefined) return 'no-code'
   // (Before any browser's check: code that's turned off is never asked about, nor handed.)
   const off = codeOff(plugin.name, to.switches ?? ALL_CODE_ON)
@@ -63,6 +77,16 @@ export function mayHandOver(
           ? 'check-unlooked'
           : 'check-unfinished'
         : 'not-checked'
+}
+
+/**
+ * Whether a plugin's code is code Lumovi runs at all (whatever switch turns it off now): Lumovi's
+ * own and those installed; and a person's own on the desktop, in Developer mode, as they agreed
+ * to it. What that code asks of the cluster is held to this, as its hand-over is.
+ */
+export function runsCode(plugin: Readonly<KnownPlugin>, to: HandOverTo): boolean {
+  if (plugin.origin !== 'yours') return mayCarryCode(plugin.origin)
+  return to.host === 'desktop' && to.own?.(plugin) === true
 }
 
 export interface CodeHandOver {

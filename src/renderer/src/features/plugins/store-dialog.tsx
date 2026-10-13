@@ -1,7 +1,8 @@
 /**
  * The one dialog for installing a plugin from Lumovi-plugins, updating one, going back to one,
- * and removing one: what it may do in the Plugins page's own lines, an update's new ones first,
- * and one button. Nothing is written without it; Escape and Cancel leave everything as it was.
+ * and removing one; and for agreeing to run the code of one of a person's own (Developer mode):
+ * what it may do in the Plugins page's own lines, an update's new ones first, and one button.
+ * Nothing is written without it; Escape and Cancel leave everything as it was.
  */
 import {
   ChevronDown,
@@ -15,7 +16,8 @@ import {
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
-import type { Plugin } from '@shared/plugins'
+import type { Waiting } from '@shared/api'
+import { whose, type Plugin } from '@shared/plugins'
 import { Button } from '@renderer/components/Button'
 import { PluginIcon } from '@renderer/components/KindIcon'
 import { SheetGrabber, sheetFrame, sheetFooter, sheetHeader } from '@renderer/components/Sheet'
@@ -41,6 +43,18 @@ export type StoreDialogIs =
   | { kind: 'update'; plugin: Plugin; granted: Granted; release: string; inUse: InUse }
   | { kind: 'back'; plugin: Plugin; granted: Granted; release: string; inUse: InUse }
   | { kind: 'remove'; plugin: Plugin; version: string }
+  /**
+   * One of the person's own, its code waiting for them: what it asks now, its file's path, why
+   * it waits, and what they agreed to before (none, the first time).
+   */
+  | {
+      kind: 'agree'
+      plugin: Plugin
+      granted: Granted
+      path: string
+      waiting: Waiting
+      agreed?: Granted
+    }
 
 const label = (plugin: Plugin) => plugin.place?.label ?? plugin.name
 
@@ -185,7 +199,12 @@ export function StoreDialog({
         ? `Update ${tool} to ${plugin.version}?`
         : is.kind === 'back'
           ? `Go back to ${tool} ${plugin.version}?`
-          : `Remove ${tool}?`
+          : is.kind === 'agree'
+            ? // (Only its code changed: said so. Otherwise asked as the first time.)
+              is.waiting === 'code'
+              ? `${whose(tool)} code changed`
+              : `Run ${whose(tool)} code?`
+            : `Remove ${tool}?`
   const button =
     is.kind === 'install'
       ? `Install ${plugin.version}`
@@ -193,7 +212,9 @@ export function StoreDialog({
         ? `Update to ${plugin.version}`
         : is.kind === 'back'
           ? `Go back to ${plugin.version}`
-          : 'Remove'
+          : is.kind === 'agree'
+            ? 'Run its code'
+            : 'Remove'
 
   let body: ReactNode
   let note: ReactNode
@@ -216,12 +237,17 @@ export function StoreDialog({
           <span>
             <span className="font-semibold text-ink-1">{refused.line}</span> (
             <code className="font-mono text-xs text-ink-1">{refused.key}</code>).{' '}
-            {is.kind === 'install' ? 'Nothing is installed.' : `${is.inUse.version} stays in use.`}
+            {is.kind === 'install' || is.kind === 'agree'
+              ? 'Nothing is installed.'
+              : `${is.inUse.version} stays in use.`}
           </span>
         </p>
       </div>
     )
-  } else if (is.kind === 'install') {
+  } else if (
+    is.kind === 'install' ||
+    (is.kind === 'agree' && (is.waiting === 'first' || !is.agreed))
+  ) {
     body = (
       <Part title="What it may do">
         <ul>
@@ -231,9 +257,14 @@ export function StoreDialog({
         </ul>
       </Part>
     )
-    note = 'Nothing changes until you press Install.'
+    note =
+      is.kind === 'agree'
+        ? 'Its code doesn’t run until you press Run its code.'
+        : 'Nothing changes until you press Install.'
   } else {
-    const { added, gone, same } = compared(is.inUse.granted, is.granted)
+    // (Against what's in use; or for one of the person's own, what they agreed to before.)
+    const before = is.kind === 'agree' ? is.agreed! : is.inUse.granted
+    const { added, gone, same } = compared(before, is.granted)
     // (What's new and red comes first, before even its code.)
     const newLines = askLines(added, names, tool).sort((a, b) => Number(!!b.red) - Number(!!a.red))
     const goneLines = askLines(gone, names, tool)
@@ -267,7 +298,7 @@ export function StoreDialog({
           </Part>
         )}
         <div className="border-t border-line px-5 py-3.5">
-          {codeChanged && (
+          {codeChanged && is.kind === 'update' && (
             <CodeChanged name={plugin.name} from={is.inUse.release} to={is.release} />
           )}
           <AsBefore
@@ -277,7 +308,10 @@ export function StoreDialog({
         </div>
       </>
     )
-    note = `Nothing changes until you press ${is.kind === 'update' ? 'Update' : 'Go back'}.`
+    note =
+      is.kind === 'agree'
+        ? 'Its code doesn’t run until you press Run its code.'
+        : `Nothing changes until you press ${is.kind === 'update' ? 'Update' : 'Go back'}.`
   }
 
   return (
@@ -321,6 +355,12 @@ export function StoreDialog({
                 <p className="mt-0.5 text-xs text-ink-3">
                   Its pages and lists go, and nothing in your cluster changes.
                 </p>
+              ) : is.kind === 'agree' ? (
+                <p className="mt-0.5 text-xs leading-4 text-ink-3">
+                  From your own folder,{' '}
+                  <span className="font-mono font-medium text-ink-2 selectable">{is.path}</span>.
+                  Nobody but you vouches for it: what it reads and changes, it does as you.
+                </p>
               ) : (
                 <>
                   <p className="mt-0.5 text-xs leading-4 text-ink-3">
@@ -358,7 +398,7 @@ export function StoreDialog({
           >
             {note && !refused && <span className="mr-auto text-xs text-ink-3">{note}</span>}
             <Button variant="ghost" data-cancel onClick={onClose} disabled={pending}>
-              {refused ? 'Close' : 'Cancel'}
+              {refused ? 'Close' : is.kind === 'agree' ? 'Not now' : 'Cancel'}
             </Button>
             {!refused && (
               <Button
