@@ -178,7 +178,10 @@ test('a CRD of one’s own, end to end', async ({ page }) => {
   await expect(sidebar(page).getByRole('link', { name: 'Gadgets' })).toHaveCount(0, {
     timeout: 60_000,
   })
-  expect(kubectl(['get', 'crd', '-o', 'name'])).not.toContain(CRD)
+  // (A CRD being deleted is listed until its finalizer has cleared its objects.)
+  await expect
+    .poll(() => kubectl(['get', 'crd', '-o', 'name']), { timeout: 60_000 })
+    .not.toContain(CRD)
 })
 
 test('the Prometheus operator’s kinds, through Lumovi’s views of them', async ({ page }) => {
