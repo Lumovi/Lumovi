@@ -151,7 +151,9 @@ export const choice = <
   by: By,
   of: Of,
   optional: O = {} as O,
-) => ({ kind: 'choice', by, of, optional }) as const
+  // (Its type taken from what's written alone: inside a record's fields, a choice left to its
+  // default would otherwise take the fields' own wide type, and hand every value as maybe missing.)
+) => ({ kind: 'choice', by, of, optional: optional as NoInfer<O> }) as const
 
 /** An object in the cluster as a part of Lumovi's is handed it: never what a plugin wrote. */
 export interface ObjectRef {

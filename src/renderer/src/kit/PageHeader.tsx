@@ -72,6 +72,17 @@ export function PageHeader({
   const status = header.status?.level && (
     <Pill level={header.status.level} word={header.status.word} className="shrink-0" />
   )
+  // Why it's so, where the plugin says: under the name and its word, two lines at most.
+  const why = header.status?.detail
+  const detail = why && (
+    <p
+      // (Whole in its tooltip, spelled: a line is 500 characters at most.)
+      title={spelled(why.their).replace(/\s+/g, ' ').trim()}
+      className="line-clamp-2 max-w-[640px] text-[13px] leading-5 [overflow-wrap:anywhere] text-ink-2"
+    >
+      <TheirText text={why} inline />
+    </p>
+  )
 
   if (phone) {
     const offered = buttons.filter((button) => !button.changes)
@@ -84,6 +95,7 @@ export function PageHeader({
           </h2>
         )}
         {status}
+        {detail}
         {elsewhere.length > 0 && <OnALargerScreen buttons={elsewhere} />}
         {offered.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -110,8 +122,8 @@ export function PageHeader({
   const shown = folded.length ? buttons.slice(-2) : buttons
   const variant = (index: number) =>
     index === shown.length - 1 ? 'primary' : index === shown.length - 2 ? 'secondary' : 'ghost'
-  return (
-    <div role="group" aria-label={named} className="flex h-8 items-center gap-2.5">
+  const row = (
+    <div className="flex h-8 items-center gap-2.5">
       <h2 className="min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
         <MiddleCut text={header.name} />
       </h2>
@@ -149,6 +161,12 @@ export function PageHeader({
           </Fragment>
         ))}
       </div>
+    </div>
+  )
+  return (
+    <div role="group" aria-label={named} className="flex flex-col gap-1">
+      {row}
+      {detail}
     </div>
   )
 }

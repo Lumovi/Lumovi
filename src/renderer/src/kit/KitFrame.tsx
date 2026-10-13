@@ -99,7 +99,11 @@ function described(pick: WrittenPick): {
   return {
     header: {
       name,
-      status: pick.status,
+      // (Where it says why: the line under its name and word.)
+      status:
+        name === LONGEST
+          ? { ...pick.status!, detail: 'No instance can be promoted: all three lost their storage' }
+          : pick.status,
       buttons: name === 'sessions-db' ? EVERY_BUTTON : BUTTONS.slice(-few),
     },
     tiles: [
@@ -126,7 +130,8 @@ function described(pick: WrittenPick): {
         key: 'backup',
         icon: 'timer',
         label: 'Last backup',
-        value: { kind: 'figure', text: '3h' },
+        // (A moment: Lumovi says how long ago, never the plugin.)
+        value: { kind: 'time', time: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() },
         detail: 'Completed',
         level: 'healthy',
       },

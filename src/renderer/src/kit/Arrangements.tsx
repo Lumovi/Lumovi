@@ -21,7 +21,7 @@ import { TheirText } from '@renderer/plugins/TheirText'
 import { useUi } from '@renderer/state/ui'
 import { NamedAbove } from './PageHeader'
 import { PickList, standing } from './PickList'
-import { counted, keyOf, NOTHING_WRITTEN } from './Table'
+import { counted, keyOf, NOTHING_WRITTEN, when } from './Table'
 
 /** One under another, 16 px apart: what a page is when nothing else is said. */
 export function Stack({ children }: { children: ReactNode }) {
@@ -30,6 +30,16 @@ export function Stack({ children }: { children: ReactNode }) {
 
 const ACROSS = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' } as const
 
+/** A moment as Lumovi says it ("3h", "in 4m"), kept current as time goes on. */
+function Moment({ time }: { time: string }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(timer)
+  }, [])
+  return <>{when(time, now)}</>
+}
+
 /**
  * A tile's value: the plugin's figure or words; with a cut read under it, the figure and a "+"
  * (said "4,980 or more"); with none, its space kept (no dash: it's still reading, or there's
@@ -37,7 +47,8 @@ const ACROSS = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' } as const
  */
 function valueOf(tile: TileSaid): ReactNode | Their {
   if (!tile.value) return '\u00a0'
-  if (!tile.cut) return tile.value.text
+  if (tile.value.kind === 'time') return <Moment time={tile.value.time} />
+  if (!tile.cut || tile.value.kind !== 'figure') return tile.value.text
   return (
     <>
       <span aria-hidden>

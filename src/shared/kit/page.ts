@@ -16,6 +16,7 @@
  */
 import { VIEW_ICON_NAMES } from '../plugins'
 import {
+  choice,
   cut,
   destination,
   handler,
@@ -24,6 +25,7 @@ import {
   oneOf,
   record,
   text,
+  time,
   yesOrNo,
   type Part,
   type PropsOf,
@@ -78,10 +80,12 @@ const tile = record(
     /** What the value is of. Cut at its end where it doesn't fit. */
     label: name,
     /**
-     * The value: a `figure` is set large ("2/3", "17.2", "3h"); `words` (a name, "Never", "Off")
-     * are set smaller on the same line and lose their middle where they don't fit.
+     * The value: a `figure` is set large ("2/3", "17.2"); `words` (a name, "Never", "Off") are set
+     * smaller on the same line and lose their middle where they don't fit; a `time` (RFC 3339) is
+     * said by Lumovi as how long ago, or how soon ("3h", "in 4m"), set as a figure and kept
+     * current: never the plugin's words.
      */
-    value: record({ kind: oneOf(['figure', 'words'] as const), text: name }, ['kind', 'text']),
+    value: choice('kind', { figure: { text: name }, words: { text: name }, time: { time } }),
     /**
      * Its figure is counted from a read cut at Lumovi's limit: the token the door answered that
      * read with. Lumovi draws a "+" after the figure, and says so in the line under, from the
@@ -143,7 +147,11 @@ export const header = {
   holds: 'nothing',
   props: {
     name,
-    status,
+    /**
+     * Its level and word, at the name's right; and, where it says why, one line under them:
+     * the plugin's, wrapped to two lines, then cut at its end and whole in its tooltip.
+     */
+    status: record({ level: oneOf(HEALTHS), word: name, detail: line }, ['level', 'word']),
     buttons: list(button, FRAME_LIMITS.buttons),
     /** Pressed one of its buttons. */
     onPress: handler('press'),

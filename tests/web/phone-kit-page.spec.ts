@@ -1,4 +1,5 @@
 /** A page's frame from the kit on a phone: the list is the page; what's picked is a page of its own. */
+import type { Locator } from '@playwright/test'
 import { DEMO_TOKEN, expect, test } from './fixtures.ts'
 import { expectFingerSized, expectNoSidewaysScroll, PHONE, signInNarrow } from './phone.ts'
 
@@ -38,9 +39,19 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
   const header = page.getByRole('group', { name: LONGEST })
   await expect(header.getByRole('heading')).toHaveCount(0)
   await expect(header).toContainText('Unrecoverable')
+  // Why, under its status pill.
+  const why = header.getByRole('paragraph').filter({ hasText: 'No instance can be promoted' })
+  await expect(why).toHaveText('No instance can be promoted: all three lost their storage')
+  // (Both measured until they're laid out: one that isn't yet fails, rather than reads as 0.)
+  const below = async (upper: Locator, lower: Locator) => {
+    const [over, under] = [await upper.boundingBox(), await lower.boundingBox()]
+    expect(over && under).toBeTruthy()
+    return over!.y + over!.height <= under!.y + 1
+  }
+  await expect.poll(() => below(header.locator('[data-health]'), why)).toBe(true)
   // A plugin's buttons that change the cluster aren't offered: one line says where they are,
   // naming the first four of five-or-more… here four change, so all four are named.
-  await expect(header.getByRole('paragraph')).toHaveText(
+  await expect(header.getByRole('paragraph').filter({ hasText: 'larger screen' })).toHaveText(
     'Open Lumovi on a larger screen to use Hibernate, Restart, Switch over and Back up now.',
   )
   // One that only reads stays, a finger's size.
