@@ -352,9 +352,24 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             {danger && answer?.ok && answer.finalizers && (
               <p className="flex items-start gap-1.5 text-xs text-ink-2">
                 <Info className="mt-px size-3.5 shrink-0 text-ink-3" />
-                {answer.finalizers.length === 1
-                  ? 'It has a finalizer: the cluster deletes it once that’s done.'
-                  : 'It has finalizers: the cluster deletes it once they’re done.'}
+                {/* Each named, as the cluster's text: what's true of any finalizer, never more. */}
+                <span>
+                  It has the {answer.finalizers.length === 1 ? 'finalizer' : 'finalizers'}{' '}
+                  {/* (The first five, then how many more: a long list can't push the button off.) */}
+                  {answer.finalizers.slice(0, 5).map((name, i, shown) => {
+                    const more = answer.finalizers!.length - shown.length
+                    const last = i === shown.length - 1 && more === 0
+                    return (
+                      <span key={i}>
+                        {i > 0 && (last ? ' and ' : ', ')}
+                        <TheirText text={name} inline className="font-mono" />
+                        {i === shown.length - 1 && more > 0 && ` and ${more} more`}
+                      </span>
+                    )
+                  })}
+                  : what {answer.finalizers.length === 1 ? 'that does' : 'they do'} runs first, and
+                  the cluster deletes it once that’s done.
+                </span>
               </p>
             )}
             {typeToConfirm !== undefined && (
