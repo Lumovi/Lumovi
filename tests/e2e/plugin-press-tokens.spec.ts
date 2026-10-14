@@ -6,7 +6,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { demoWithCloudNativePg } from '../mock-cluster/fixtures/cloudnative-pg.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
@@ -17,9 +17,11 @@ const go = (page: Page, hash: string) =>
     window.location.hash = to
   }, hash)
 
-/** Presses a header button of a plugin's page, and its proposal opens in Lumovi's dialog. */
-async function proposes(page: Page, name: string) {
-  await page.locator('[data-plugin-body]').getByRole('button', { name, exact: true }).click()
+/** Presses a header button of a plugin's page (or its menu's), and its proposal opens in Lumovi's dialog. */
+async function proposes(page: Page, name: string, press?: Locator) {
+  await (
+    press ?? page.locator('[data-plugin-body]').getByRole('button', { name, exact: true })
+  ).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog, name).toBeVisible({ timeout: 15_000 })
   await page.keyboard.press('Escape')
@@ -29,12 +31,19 @@ async function proposes(page: Page, name: string) {
 test('Argo CD’s Refresh, Sync and Delete, on an Application, still propose', async ({ launch }) => {
   const { page } = await launch()
   await openCluster(page)
-  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/argo-cd/overview`)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/argo-cd/applications`)
   const applications = page.getByRole('grid', { name: 'Applications' })
   await applications.getByRole('row').filter({ hasText: 'storefront' }).first().click()
   await page.waitForFunction(() => window.location.hash.includes('open='))
-  await page.getByRole('complementary').getByRole('tab', { name: 'Argo CD' }).click()
-  for (const name of ['Refresh…', 'Sync…', 'Delete…']) await proposes(page, name)
+  const opened = page.getByRole('complementary')
+  await opened.getByRole('tab', { name: 'Argo CD' }).click()
+  const header = opened.locator('[data-plugin-body]')
+  for (const name of ['Refresh…', 'Sync…']) {
+    await proposes(page, name, header.getByRole('button', { name, exact: true }))
+  }
+  // Delete…, in its header's menu.
+  await header.getByRole('button', { name: 'More for storefront' }).click()
+  await proposes(page, 'Delete…', page.getByRole('menuitem', { name: 'Delete…', exact: true }))
 })
 
 test('CloudNativePG’s Back up now still proposes', async ({ launch }) => {

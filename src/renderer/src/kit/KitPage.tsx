@@ -423,6 +423,29 @@ const INSTANCES: Written = {
   ],
 }
 
+/**
+ * A heading its column cuts, beside one that fits: a text column narrower than its words, as a
+ * table too narrow for it has one.
+ */
+const REPOSITORIES: Written = {
+  title: 'Repositories',
+  headings: true,
+  columns: [
+    { name: 'Repository and path', kind: 'text' },
+    { name: 'Sync', kind: 'status' },
+  ],
+  rows: [
+    {
+      key: 'payments',
+      lead: { name: 'payments' },
+      cells: [
+        { kind: 'text', text: 'apps/payments · github.com/example/deploy' },
+        { kind: 'status', level: 'healthy', word: 'Synced' },
+      ],
+    },
+  ],
+}
+
 type WrittenLead = NonNullable<WrittenRow['lead']>
 
 /** A name with words beside it, or a line under it, as design's frame has them. */
@@ -873,6 +896,9 @@ function Tables() {
                 <Table {...handed(down(lead))} />
               </div>
             ))}
+          </div>
+          <div data-fits="heading" style={{ width: 460 }} className="max-w-full">
+            <Table {...handed(REPOSITORIES)} />
           </div>
         </div>
         <div className="col-span-full">
