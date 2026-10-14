@@ -703,7 +703,9 @@
       "refreshEveryMs": 10000,
       "logLines": 500,
       "logSeconds": 3600,
-      "logBytes": 65536
+      "logBytes": 65536,
+      "differentAWhile": 200,
+      "whileMs": 600000
     },
     "frame": {
       "tiles": { "least": 2, "most": 4 },

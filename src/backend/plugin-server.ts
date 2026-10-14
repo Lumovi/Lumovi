@@ -26,9 +26,10 @@ import {
 } from '@shared/plugin-server'
 import { PLUGIN_NAME, whose } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
-import type { Recorded, Recorder } from './audit/recorder'
+import type { Recorded } from './audit/recorder'
 import type { KubeService } from './kube/service'
 import { runsCode, type HandOverTo } from './plugin-code'
+import type { Place, PluginHistory } from './plugin-history'
 import { refusalOf } from './plugin-reads'
 
 interface PluginServerAsking {
@@ -37,7 +38,8 @@ interface PluginServerAsking {
   known: () => Promise<readonly Readonly<KnownPlugin>[]>
   /** Where the page that asks is, now: what turns plugins' code, and their servers, off there. */
   to?: () => HandOverTo
-  audit: Recorder
+  /** The history, and an ask's place in it: taken before anything is made of the ask. */
+  audit: PluginHistory
 }
 
 /** Whether an object of `kind` (as Lumovi names kinds) is one of a plugin's own. */
@@ -66,9 +68,11 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
     } = {
       where: { namespace: q.in.namespace },
     }
+    // (Where what comes of the ask is written: until its plugin is known, nobody's ask.)
+    let write: Place['record'] = (key, input) => audit.unknown(key, input)
     const refuse = (refused: ServerRefusal, status?: number): PluginServerAnswer => {
       const { plugin, where, path, listed } = asked
-      record(audit, q, plugin, where, {
+      record(write, q, plugin, where, {
         refused,
         ...(listed ? { listed } : {}),
         ...(path === undefined ? {} : { path }),
@@ -89,6 +93,12 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
       return refuse('not-in-use')
     }
     const plugin = (asked.plugin = found)
+    // Its place among the different reads a while allows, before anything is made of it.
+    const place = audit.take(plugin, q.context, JSON.stringify(['server', q.in, q.path, q.with]))
+    if ('refused' in place) {
+      return { ok: false, refused: place.refused, said: serverSaid(place.refused, place) }
+    }
+    write = (key, input) => place.record(key, input)
     if (q.digest !== plugin.digest || q.codeDigest !== plugin.codeDigest) return refuse('changed')
     if (codeOff(plugin.name, switches)) return refuse('code-off')
     const server = plugin.server
@@ -147,7 +157,7 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
       return refuse('not-json', answer.status)
     }
     if (!shallow(json)) return refuse('not-json', answer.status)
-    record(audit, q, plugin, asked.where, {
+    record(write, q, plugin, asked.where, {
       listed: true,
       path,
       status: answer.status,
@@ -201,7 +211,7 @@ const asServer = (refused: string): ServerRefusal =>
   refused === 'not-allowed' || refused === 'unreachable' ? refused : 'failed'
 
 function record(
-  audit: Recorder,
+  write: Place['record'],
   q: PluginServerQuery,
   plugin: Readonly<KnownPlugin> | undefined,
   where: ServerWhere,
@@ -265,15 +275,14 @@ function record(
       ...(refused === undefined ? {} : { refused }),
     },
   }
-  // A plugin Lumovi has in use: every ask that was made. One that was refused or failed: one
-  // entry a while for that plugin and that refusal, however often it asks and whatever it asks
-  // for. One Lumovi hasn't in use (by any name a page cares to send): one a while, whatever it
-  // was called. So neither asks nor names can fill the history.
-  if (plugin && refused === undefined) audit.record(entry)
-  else {
-    audit.read(
-      `plugin-server:${JSON.stringify([q.context, ...(plugin ? [plugin.name] : []), refused])}`,
-      entry,
-    )
-  }
+  // A plugin Lumovi has in use: an ask that was made is one entry a while for the same Service
+  // and path, as a page asks again to keep what it shows up to date. One that was refused or
+  // failed: one entry a while for that plugin and that refusal, however often it asks and
+  // whatever it asks for. One Lumovi hasn't in use (by any name a page cares to send): one a
+  // while, whatever it was called. So neither asks nor names can fill the history.
+  const same =
+    plugin && refused === undefined
+      ? [q.context, plugin.name, q.in.namespace, where.name, path]
+      : [q.context, ...(plugin ? [plugin.name] : []), refused]
+  write(`plugin-server:${JSON.stringify(same)}`, entry)
 }

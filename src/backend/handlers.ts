@@ -46,6 +46,7 @@ import { readPlugins } from './plugins'
 import { pluginChanges } from './plugin-changes'
 import { pluginCodes, type HandOverTo } from './plugin-code'
 import { PLUGIN_NAME } from '@shared/plugins'
+import { pluginHistory, type PluginHistory } from './plugin-history'
 import { pluginLogs } from './plugin-logs'
 import { pluginServer } from './plugin-server'
 import { pluginReads, secretsAskedFor } from './plugin-reads'
@@ -82,6 +83,11 @@ export interface Backend {
   handOverTo: () => HandOverTo
   /** The audit log, as the page's person records to it. */
   audit: Recorder
+  /**
+   * What plugins' pages add to it, under their ceiling: made by whoever stops it, so that what
+   * wasn't listed is said as Lumovi stops or the page's connection ends.
+   */
+  pluginHistory?: PluginHistory
   /** A server's: where the page's person's pins and saved views are kept. */
   marks?: MarksAccess
   /** The desktop app's: the plugins installed from Lumovi-plugins, as they're read now. */
@@ -108,6 +114,7 @@ export function handlers({
   knownPlugins,
   handOverTo,
   audit,
+  pluginHistory: listed = pluginHistory(audit),
   marks,
   installedPlugins,
 }: Backend): Handlers {
@@ -375,9 +382,15 @@ export function handlers({
         }
         return result
       },
-      [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit, to: handOverTo }),
-      [IPC.pluginLogs]: pluginLogs({ kube, known: knownPlugins, audit, to: handOverTo }),
-      [IPC.pluginServer]: pluginServer({ kube, known: knownPlugins, audit, to: handOverTo }),
+      // (A plugin's code chooses what these read: what they add to the history has a ceiling.)
+      [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit: listed, to: handOverTo }),
+      [IPC.pluginLogs]: pluginLogs({ kube, known: knownPlugins, audit: listed, to: handOverTo }),
+      [IPC.pluginServer]: pluginServer({
+        kube,
+        known: knownPlugins,
+        audit: listed,
+        to: handOverTo,
+      }),
       [IPC.pluginChange]: pluginChanges({ kube, known: knownPlugins, to: handOverTo, audit }),
       ...(() => {
         const codes = pluginCodes({ known: knownPlugins, to: handOverTo, audit })

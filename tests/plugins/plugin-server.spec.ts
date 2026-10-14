@@ -334,7 +334,11 @@ function stage(
   }
   const audit: Recorded[] = []
   /** How each entry was kept: by a key, once a while; or with none, every time. */
-  const keys: (string | undefined)[] = []
+  const keys: string[] = []
+  const kept = (key: string, input: Recorded) => {
+    keys.push(key)
+    audit.push(input)
+  }
   const ask = pluginServer({
     kube: {
       get: async (q) => {
@@ -355,16 +359,12 @@ function stage(
     },
     known: async () => known,
     to: () => ({ host: 'desktop', switches: options.switches ?? { chosen: {} } }),
+    // (What it's asked to write, each with what makes it the same entry, and a place for every
+    // ask: what a plugin's pages are held to has tests of its own, in plugin-history.)
     audit: {
-      user: 'me',
-      record: (input) => {
-        keys.push(undefined)
-        audit.push(input)
-      },
-      read: (key, input) => {
-        keys.push(key)
-        audit.push(input)
-      },
+      take: () => ({ record: kept }),
+      unknown: kept,
+      stop: () => undefined,
     },
   })
   return { ask, asked, audit, keys }
@@ -495,13 +495,23 @@ test('a path as a page wrote it is in no entry until its file lists it, and refu
   expect(await failing.ask(ASK)).toMatchObject({ ok: false, refused: 'no-service' })
   expect(failing.audit[0]!.details?.listed).toBe(ASK.path)
   expect(failing.keys).toEqual([`plugin-server:${JSON.stringify(['demo', 'toys', 'no-service'])}`])
-  // An ask that's made is in the history every time, with the path as its file lists it.
+  // An ask that's made is one entry a while for the same Service and path, as a page asks again
+  // to keep what it shows up to date; with the path as its file lists it.
   const made = stage()
   expect(await made.ask(ASK)).toMatchObject({ ok: true })
   expect(await made.ask(ASK)).toMatchObject({ ok: true })
-  expect(made.keys).toEqual([undefined, undefined])
+  const same = `plugin-server:${JSON.stringify(['demo', 'toys', 'default', 'toys-api', ASK.path])}`
+  expect(made.keys).toEqual([same, same])
   expect(made.audit.map((entry) => entry.details?.listed)).toEqual([ASK.path, ASK.path])
   expect(made.audit[0]!.summary).toContain(`for ${ASK.path}, for the plugin`)
+  // Another path of its Service, or the same path filled with another object's name: its own.
+  const filled = { ...ASK, path: '/api/v1/widgets/{widget}/history' }
+  for (const name of ['w1', 'w2', 'w1']) {
+    expect(await made.ask({ ...filled, with: { widget: { ...WIDGET, name } } })).toMatchObject({
+      ok: true,
+    })
+  }
+  expect(new Set(made.keys).size).toBe(3)
 })
 
 test('the Service by its name, or the one with its labels, and a port it declares: or Lumovi’s sentence why not', async () => {
