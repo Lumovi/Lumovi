@@ -43,7 +43,7 @@ import type { Recorder } from '../audit/recorder'
 import type { KubeService } from '../kube/service'
 import { addsSecretReads, NamespaceLabels } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
-import { findProblems } from './problems'
+import { errorLines, findProblems, MAX_PROBLEMS, type Failing, type Problems } from './problems'
 import { age, changesOf, describeStatus, involved, readable, row, statusOf, yaml } from './present'
 
 /** What a tool's call comes with: its signal, and a way to tell its caller how it's going. */
@@ -112,6 +112,8 @@ export const FIELD_MANAGER = 'lumovi'
 const MAX_ITEMS = 500
 const MAX_LOG_LINES = 2_000
 const MAX_LOG_BYTES = 256 * 1024
+/** Failing containers whose last run find_problems reads the last error lines of. */
+const MAX_LAST_RUNS = 10
 const WAIT = approvalTime()
 
 const cluster = z
@@ -402,6 +404,33 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     }
     return definition.namespaced ? namespace : undefined
   }
+
+  /** A container's logs went to the assistant: who read which, a while at a time. */
+  const logsRead = (
+    cluster: string,
+    namespace: string,
+    pod: string,
+    container: string | undefined,
+    tailLines: number,
+    previous: boolean,
+  ) =>
+    t.audit.read(`logs:${cluster}/${namespace}/${pod}/${container ?? ''}/${previous}`, {
+      action: 'logs.read',
+      outcome: 'success',
+      cluster,
+      target: { kind: 'Pod', name: pod, namespace },
+      summary: `Read the logs of Pod ${pod}${container ? ` (${container})` : ''}${previous ? ', from before it restarted' : ''}`,
+      command: kubectl(
+        cluster,
+        namespace,
+        'logs',
+        pod,
+        ...(container ? ['-c', container] : []),
+        `--tail=${tailLines}`,
+        ...(previous ? ['--previous'] : []),
+      ),
+      details: { tailLines, previous },
+    })
 
   // ——— Reading ———
 
@@ -699,23 +728,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           limitBytes: MAX_LOG_BYTES,
         }),
       )
-      t.audit.read(`logs:${cluster}/${namespace}/${pod}/${container ?? ''}/${previous === true}`, {
-        action: 'logs.read',
-        outcome: 'success',
-        cluster,
-        target: { kind: 'Pod', name: pod, namespace },
-        summary: `Read the logs of Pod ${pod}${container ? ` (${container})` : ''}${previous ? ', from before it restarted' : ''}`,
-        command: kubectl(
-          cluster,
-          namespace,
-          'logs',
-          pod,
-          ...(container ? ['-c', container] : []),
-          `--tail=${tailLines}`,
-          ...(previous ? ['--previous'] : []),
-        ),
-        details: { tailLines, previous: previous === true },
-      })
+      logsRead(cluster, namespace, pod, container, tailLines, previous === true)
       return text(logs || '(No log lines.)')
     },
   )
@@ -734,7 +747,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       const where = namespace ? `${namespace} in ${cluster}` : cluster
       const hidden = namespace && (await access(cluster, namespace)).visibility.value === 'hidden'
       const found = hidden
-        ? { problems: [], warnings: [], unchecked: [] }
+        ? ({ problems: [], warnings: [], unchecked: [], more: 0 } satisfies Problems)
         : await findProblems(kube, cluster, namespace, Date.now())
       // Nothing in a namespace that's hidden: it isn't there.
       const decide = accessIn(cluster)
@@ -753,6 +766,50 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       }
       found.problems = await shown(found.problems)
       found.warnings = await shown(found.warnings)
+      // The worst first, so many: past them, how many more.
+      found.more = Math.max(0, found.problems.length - MAX_PROBLEMS)
+      found.problems = found.problems.slice(0, MAX_PROBLEMS)
+      // Why a container fails, in its own words: the last error lines of its run before its last
+      // restart, for the first so many, where the person's AI permissions let assistants read
+      // logs. Each read is in the audit history, as get_logs's are.
+      let lastRuns = 0
+      let notRead = 0
+      for (const problem of found.problems) {
+        const containers = problem.containers as Failing[] | undefined
+        if (!containers) continue
+        const namespace = String(problem.namespace)
+        const pod = String(problem.object).slice('Pod/'.length)
+        const logs = (await decide(namespace)).logs
+        for (const failing of containers) {
+          // (A container that never ran has no run to read: an image that can't be pulled, say.)
+          if (failing.restarts === 0 && !failing.lastRun) continue
+          if (logs.value === 'off') {
+            failing.lastLinesNot = `Lumovi doesn’t let AI assistants read logs in ${namespace}: ${because(logs.from)}.`
+            continue
+          }
+          if (lastRuns >= MAX_LAST_RUNS) {
+            notRead++
+            continue
+          }
+          lastRuns++
+          const previous = failing.restarts > 0
+          const read = await kube.podLogs({
+            context: cluster,
+            namespace,
+            pod,
+            container: failing.container,
+            previous,
+            tailLines: 200,
+            limitBytes: 64 * 1024,
+          })
+          if (!read.ok) {
+            failing.lastLinesNot = `Its last run’s logs couldn’t be read: ${read.error.message}`
+            continue
+          }
+          failing.lastLines = errorLines(read.data)
+          logsRead(cluster, namespace, pod, failing.container, 200, previous)
+        }
+      }
       if (!found.problems.length && !found.warnings.length && !found.unchecked.length) {
         return text(
           `Nothing is wrong in ${where}: no unhealthy objects, and no warnings in the last hour.`,
@@ -761,6 +818,16 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       return text(
         yaml({
           ...(found.problems.length ? { problems: found.problems } : {}),
+          ...(found.more
+            ? {
+                moreProblems: `${found.more} more, less severe, left out: list_resources finds them by kind.`,
+              }
+            : {}),
+          ...(notRead
+            ? {
+                lastLinesNotRead: `${notRead} more failing containers’ last lines aren’t read here: get_logs with previous reads them.`,
+              }
+            : {}),
           ...(found.warnings.length ? { warningsInTheLastHour: found.warnings } : {}),
           ...(found.unchecked.length ? { couldNotCheck: found.unchecked } : {}),
         }),

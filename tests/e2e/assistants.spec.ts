@@ -430,6 +430,17 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
   expect(shop.text).toContain('ImagePullBackOff (critical)')
   expect(shop.text).toContain('warningsInTheLastHour:')
   expect(shop.text).not.toContain('Node/')
+  // Why a container fails, without another call: how its last run ended, and that run's last
+  // error lines (each read in the history, as get_logs's are). One that never ran has none.
+  expect(shop.text).toMatch(
+    /containers:\n\s+- container: app\n\s+restarts: 14\n\s+now: "?CrashLoopBackOff: back-off 5m0s/,
+  )
+  expect(shop.text).toMatch(/lastRun:\n\s+exitCode: 1\n\s+reason: Error\n\s+ended: \d+m ago/)
+  expect(shop.text).toContain('missing PAYMENTS_API_KEY')
+  expect(shop.text).toContain(
+    'panic: runtime error: invalid memory address or nil pointer dereference',
+  )
+  expect(shop.text).not.toContain('starting checkout service')
   const everywhere = await call(client, 'find_problems', { cluster: 'demo' })
   expect(everywhere.text).toContain(`object: Node/${DEMO.nodes.worker3}`)
   const quiet = await call(client, 'find_problems', { cluster: 'sandbox', namespace: 'nowhere' })
