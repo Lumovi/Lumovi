@@ -531,13 +531,18 @@ test('a gateway that passes Lumovi’s own page on and cuts off what a box’s r
     expect(await codeOf(page)).toBe('check-unreached')
     expect(audited(server, 'plugin.code')).toEqual([])
     // The control came as a box's requests come, and was cut off as they were: nothing of
-    // either reached the server, and so nothing is said of the box.
+    // either reached the server, and so nothing is said of the box. Each of its three once,
+    // and no more. (Asked at once, they reach the gateway in the network's order: read by way.)
     const control = front.asked.filter((each) =>
       ['origin', 'no-origin', 'socket'].includes(each.way),
     )
-    expect(control.map(({ by, way, origin, cut }) => ({ by, way, origin, cut }))).toEqual([
-      { by: 'http', way: 'origin', origin: 'null', cut: true },
+    expect(
+      control
+        .map(({ by, way, origin, cut }) => ({ by, way, origin, cut }))
+        .sort((a, b) => a.way.localeCompare(b.way)),
+    ).toEqual([
       { by: 'http', way: 'no-origin', origin: undefined, cut: true },
+      { by: 'http', way: 'origin', origin: 'null', cut: true },
       { by: 'socket', way: 'socket', origin: 'null', cut: true },
     ])
     for (const each of control.filter((one) => one.by === 'http')) {
