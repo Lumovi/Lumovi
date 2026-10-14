@@ -1,8 +1,24 @@
-import { Tooltip as TooltipPrimitive } from 'radix-ui'
-import { useState, type ReactNode } from 'react'
+import { Slot, Tooltip as TooltipPrimitive } from 'radix-ui'
+import { isValidElement, useState, type ComponentProps, type ReactNode } from 'react'
 import { useTouch } from '@renderer/lib/layout'
 
 export const TooltipProvider = TooltipPrimitive.Provider
+
+/**
+ * What a tooltip is on, with Radix's handlers, its ref and its state: and where it says what it
+ * is itself (its own `aria-describedby`, the tooltip's words among them), that alone. Radix adds
+ * the open tooltip to what it's on, which would have those words read twice.
+ */
+function On({ 'aria-describedby': tooltip, children, ...props }: ComponentProps<typeof Slot.Root>) {
+  const own =
+    isValidElement<{ 'aria-describedby'?: string }>(children) &&
+    children.props['aria-describedby'] !== undefined
+  return (
+    <Slot.Root {...props} {...(own ? {} : { 'aria-describedby': tooltip })}>
+      {children}
+    </Slot.Root>
+  )
+}
 
 /** A tooltip's look: what anything that says a short thing beside what it's about draws. */
 export const TIP =
@@ -46,7 +62,9 @@ export function Tooltip({
             onOpenChange: (open: boolean) => setHovered(open && (when?.() ?? true)),
           })}
     >
-      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Trigger asChild>
+        <On>{children}</On>
+      </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content side={side} sideOffset={6} className={TIP}>
           {content}
