@@ -402,6 +402,11 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
   })
   expect(events.text).toContain(`object: Pod/${crashing}`)
   expect(events.text).toContain('reason: BackOff')
+  // When it began beside when it was last seen; and a back-off beside how often the pod has
+  // restarted.
+  expect(events.text).toMatch(
+    /- last: \d+s ago\n {2}first: 44m ago\n {2}type: Warning\n {2}reason: BackOff\n(?:.*\n)*? {2}count: 58\n {2}podRestarts: 14\n/,
+  )
   const warnings = await call(client, 'get_events', {
     cluster: 'demo',
     warningsOnly: true,

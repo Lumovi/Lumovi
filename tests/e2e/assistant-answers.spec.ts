@@ -7,7 +7,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { fitted, levelOf, linesOf } from '../../src/backend/mcp/log-lines.ts'
-import { fieldsOf, withoutLongAnnotations } from '../../src/backend/mcp/present.ts'
+import { fieldsOf, resolvedBy, withoutLongAnnotations } from '../../src/backend/mcp/present.ts'
 import type { KubeObject } from '../../src/shared/api.ts'
 
 test('a line’s level is what the log says: a structured field, or a word of its own at its start', () => {
@@ -58,7 +58,7 @@ test('more lines than an answer holds: the first and the last, what was left out
   expect(shown.at(-1)).toMatch(/^line 5000 /)
   const said = shown.find((line) => line.startsWith('… '))!
   const [, leftOut, first, last, of, askFrom] =
-    /^… (\d+) lines left out here \(lines (\d+) to (\d+) of (\d+)\): ask again with from: (\d+) for them\.$/.exec(
+    /^… (\d+) lines left out here \(lines (\d+) to (\d+) of (\d+)\): ask again with from: (\d+), and the same tailLines, match and level, for them \(a log that has grown since numbers its lines anew\)\.$/.exec(
       said,
     )!
   expect(Number(of)).toBe(5_000)
@@ -115,4 +115,41 @@ test('only the fields asked for, a list followed into each item, and a path that
   expect(fieldsOf(pod, ['metadata.annotations'])['metadata.annotations']).toEqual(
     pod.metadata.annotations,
   )
+})
+
+test('a warning a later event says is over is resolved: scheduled, pulled, ready again; a back-off never is', () => {
+  const event = (reason: string, type: string, at: number, name = 'web-0') =>
+    ({
+      apiVersion: 'v1',
+      kind: 'Event',
+      metadata: { name: `${name}.${reason}`, namespace: 'shop' },
+      involvedObject: { kind: 'Pod', name, namespace: 'shop' },
+      reason,
+      type,
+      lastTimestamp: new Date(at).toISOString(),
+    }) as unknown as KubeObject
+  const seen = (e: KubeObject) => Date.parse(String(e.lastTimestamp))
+  const failed = event('FailedScheduling', 'Warning', 1_000)
+  const scheduled = event('Scheduled', 'Normal', 2_000)
+  expect(resolvedBy(failed, [failed, scheduled], seen)).toBe(scheduled)
+  // Not by what came before it, nor about another object, nor by an event that doesn't say so.
+  expect(resolvedBy(failed, [event('Scheduled', 'Normal', 500), failed], seen)).toBeUndefined()
+  expect(resolvedBy(failed, [event('Scheduled', 'Normal', 2_000, 'web-1')], seen)).toBeUndefined()
+  expect(resolvedBy(failed, [event('Pulled', 'Normal', 2_000)], seen)).toBeUndefined()
+  // A "Failed" is over once its image is pulled only where it was a failure to pull: one that
+  // fails to start (a missing key) fails again right after "Pulled", every time.
+  const pull = {
+    ...event('Failed', 'Warning', 1_000),
+    message: 'Failed to pull image "db:17": not found',
+  }
+  const pulled = event('Pulled', 'Normal', 2_000)
+  expect(resolvedBy(pull as KubeObject, [pull as KubeObject, pulled], seen)).toBe(pulled)
+  const config = {
+    ...event('Failed', 'Warning', 3_000),
+    message: 'Error: couldn’t find key PAYMENTS_API_KEY in Secret shop/payments',
+  } as KubeObject
+  expect(resolvedBy(config, [config, event('Pulled', 'Normal', 4_000)], seen)).toBeUndefined()
+  // A container started after a back-off is still the one that keeps crashing.
+  const backOff = event('BackOff', 'Warning', 1_000)
+  expect(resolvedBy(backOff, [backOff, event('Started', 'Normal', 2_000)], seen)).toBeUndefined()
 })
