@@ -66,6 +66,7 @@ import { InstalledPlugins } from './plugins-installed'
 import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
 import SHIPPED from 'virtual:lumovi-plugins'
+import { WarningNotices } from './warning-notices'
 import { createMainWindow, rendererUrl, windowState } from './window'
 import { Windows } from './windows'
 
@@ -513,6 +514,24 @@ if (stdio) {
     // Notifications of changes waiting, kept (one let go can't be clicked) until the person
     // comes to Lumovi, when they've done their job (each window, as it's focused: see wire).
     const notices = new Set<Notification>()
+    // New warnings in the clusters whose settings ask for them, while Lumovi runs: a click
+    // brings Lumovi to the object, or to the namespace's warnings.
+    const warnings = new WarningNotices({
+      kube,
+      clusters: () => settings.get().clusters ?? {},
+      name: (context) => settings.get().clusters?.[context]?.name ?? context,
+      tell: ({ title, body, cluster, opens }) => {
+        const notice = new Notification({ title, body: `${body}\n${cluster}` })
+        notice.on('click', () => {
+          reveal()
+          // (The window in front opens it: the others stay where they are.)
+          windows.front()?.webContents.send(IPC.command, `open:${opens}`)
+        })
+        notices.add(notice)
+        notice.show()
+      },
+    })
+    warnings.start()
     const assistants = new Assistants({
       settings,
       kube,
@@ -684,6 +703,7 @@ if (stdio) {
       send,
       windows,
       newWindow,
+      warningNotices: (context) => warnings.state(context),
       openMenu: (x, y) => popupMenu(windows.front()!, x, y),
     })
     // Node shells' pods are deleted as their shells end: quitting waits for that (a few
@@ -698,6 +718,7 @@ if (stdio) {
       void files.cancelAll()
       pluginsWatch.set(false)
       void assistants.stop()
+      warnings.stop()
       pluginsListed.stop()
       void auditLog.close()
       // And a download stopped by quitting has what was saved of it removed first.

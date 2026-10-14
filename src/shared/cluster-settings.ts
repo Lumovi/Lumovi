@@ -22,7 +22,14 @@ export interface ClusterSettings {
   production?: boolean
   /** Left out of the clusters page's list, which counts it (shown from its footer). */
   hidden?: boolean
+  /** Tells of new Warning events in the namespaces it watches, while Lumovi runs. */
+  notify?: boolean
+  /** The namespaces it watches for them; all of them, unless set. */
+  watch?: string[]
 }
+
+/** How many namespaces a cluster may watch for warnings by name. */
+export const MOST_WATCHED = 20
 
 /** The data colors there are. */
 export const CLUSTER_COLORS = 8
@@ -92,12 +99,25 @@ export function checkedClusterSettings(value: unknown): ClusterSettings {
     }
     if (labels.length > 0) kept.labels = Object.fromEntries(labels) as Record<string, string>
   }
-  for (const key of ['production', 'hidden'] as const) {
+  for (const key of ['production', 'hidden', 'notify'] as const) {
     const flag = given[key]
     if (flag === undefined || flag === null) continue
     if (typeof flag !== 'boolean') throw new Error(`Whether it’s ${key} is true or false`)
-    // Hidden only when it is; production either way (set by hand, over the guess).
+    // Hidden and notify only when they are; production either way (set by hand, over the guess).
     if (key === 'production' || flag) kept[key] = flag
+  }
+  if (given.watch !== undefined && given.watch !== null) {
+    if (!Array.isArray(given.watch)) throw new Error('The namespaces it watches are a list')
+    if (given.watch.length > MOST_WATCHED) {
+      throw new Error(`It watches at most ${MOST_WATCHED} namespaces by name`)
+    }
+    for (const name of given.watch) {
+      if (typeof name !== 'string' || !NAMESPACE.test(name)) {
+        throw new Error(`“${String(name)}” isn’t a namespace’s name`)
+      }
+    }
+    // (None named is all of them.)
+    if (given.watch.length > 0) kept.watch = [...new Set(given.watch as string[])]
   }
   return kept
 }

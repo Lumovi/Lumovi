@@ -66,3 +66,5 @@ export type AppCommand =
   | 'clear-terminal'
   | 'assistants'
   | `go:${NavTarget}`
+  /** A place in Lumovi, by its path: where a notification was about. */
+  | `open:${string}`

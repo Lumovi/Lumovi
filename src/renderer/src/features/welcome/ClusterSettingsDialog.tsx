@@ -12,13 +12,20 @@ import {
   Lock,
   Minus,
   Pencil,
+  Plus,
   SquareTerminal,
   Trash2,
   X,
 } from 'lucide-react'
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import { managedReadOnly, type KubeconfigFiles } from '@shared/api'
-import { CLUSTER_COLORS, parseLabel, type ClusterSettings } from '@shared/cluster-settings'
+import { spelled } from '@shared/kit/characters'
+import {
+  CLUSTER_COLORS,
+  MOST_WATCHED,
+  parseLabel,
+  type ClusterSettings,
+} from '@shared/cluster-settings'
 import { Button } from '@renderer/components/Button'
 import { Switch } from '@renderer/components/Switch'
 import { useSettings } from '@renderer/hooks/settings'
@@ -79,6 +86,9 @@ export function ClusterSettingsDialog({
   const [production, setProduction] = useState(stored.production)
   const [readOnly, setReadOnly] = useState(!!settings?.readOnly?.includes(context.name))
   const [hidden, setHidden] = useState(!!stored.hidden)
+  const [notify, setNotify] = useState(!!stored.notify)
+  // The namespaces it watches for warnings: all of them, where none are named.
+  const [watch, setWatch] = useState(stored.watch)
   const [error, setError] = useState<string>()
   const [saving, setSaving] = useState(false)
 
@@ -91,6 +101,15 @@ export function ClusterSettingsDialog({
     retry: false,
   })
 
+  // How its notifications stand: the credential plugin a look starts, and a pause (signing in
+  // failed), as the main process has them.
+  const notices = useQuery({
+    queryKey: ['warning-notices', context.name],
+    queryFn: () => api.app.warningNotices!(context.name),
+    enabled: !!api.app.warningNotices,
+  })
+  const { signsInWith, pausedAt } = notices.data ?? {}
+
   const save = async () => {
     setSaving(true)
     setError(undefined)
@@ -102,6 +121,7 @@ export function ClusterSettingsDialog({
       ...(namespace.trim() ? { namespace: namespace.trim() } : {}),
       ...(production !== undefined ? { production } : {}),
       ...(hidden ? { hidden } : {}),
+      ...(notify ? { notify, ...(watch?.length ? { watch } : {}) } : {}),
     }
     const result = await api.app.setCluster!(context.name, next)
     if (!result.ok) {
@@ -236,6 +256,34 @@ export function ClusterSettingsDialog({
           onChange={setHidden}
         />
       </div>
+
+      <div className="my-4 border-t border-line" />
+
+      <Toggle
+        title="Notify me of new warnings"
+        line="While Lumovi is open, it checks these namespaces’ warnings every 30 seconds, as you, and tells you of new ones."
+        checked={notify}
+        onChange={(on) => {
+          setNotify(on)
+          // Turned on, it starts at the namespace the cluster opens in; all, where that's all.
+          const opensIn = namespace.trim() || context.namespace
+          if (on && !stored.notify && watch === undefined && opensIn) setWatch([opensIn])
+        }}
+      />
+      {notify && <WatchField names={namespaces.data ?? []} watch={watch} onChange={setWatch} />}
+      {notify && (
+        <p className="mt-3 ml-12 text-xs text-ink-3">
+          Each new Warning event, once per object and reason in 10 minutes. Several at once come as
+          one: “5 new warnings in shop”.
+          {signsInWith &&
+            ` Signing in (${spelled(signsInWith)}) runs as it checks, as when you open the cluster.`}
+        </p>
+      )}
+      {notify && pausedAt !== undefined && (
+        <p className="mt-2 ml-12 text-xs font-medium text-ink-2">
+          {`Paused at ${new Date(pausedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}: signing in failed. Open the cluster to sign in again, and notifications go on.`}
+        </p>
+      )}
 
       <Connection
         cluster={cluster}
@@ -428,7 +476,104 @@ function LabelsField({
   )
 }
 
-function Toggle({
+/**
+ * The namespaces a cluster watches for warnings: all of them, or these, as chips; Add opens a
+ * list to filter, with a check by each, so several can be picked without closing it.
+ */
+export function WatchField({
+  names,
+  watch,
+  onChange,
+}: {
+  names: string[]
+  watch?: string[]
+  onChange: (watch?: string[]) => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [filter, setFilter] = useState('')
+  const these = watch !== undefined
+  const shown = names.filter((name) => name.includes(filter.trim().toLowerCase()))
+  const radio = 'flex items-center gap-2 text-[13px] text-ink-1'
+  return (
+    <fieldset className="mt-3 ml-12 space-y-2">
+      <legend className="mb-1.5 text-xs font-medium text-ink-2">Namespaces to watch</legend>
+      <label className={radio}>
+        <input type="radio" name="watch" checked={!these} onChange={() => onChange(undefined)} />
+        All namespaces
+      </label>
+      <label className={radio}>
+        <input type="radio" name="watch" checked={these} onChange={() => onChange(watch ?? [])} />
+        These namespaces
+      </label>
+      {these && (
+        <div className="flex flex-wrap items-center gap-1.5 pl-6">
+          {watch.map((name) => (
+            <span
+              key={name}
+              className="flex h-6 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2 text-xs text-ink-1"
+            >
+              {name}
+              <button
+                type="button"
+                aria-label={`Stop watching ${name}`}
+                onClick={() => onChange(watch.filter((each) => each !== name))}
+                className="grid size-4 place-items-center rounded-full text-ink-3 hover:bg-surface-3 hover:text-ink-1"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            aria-expanded={adding}
+            onClick={() => setAdding(!adding)}
+            className="flex h-6 items-center gap-1 rounded-full border border-dashed border-line-strong px-2 text-xs text-ink-2 hover:text-ink-1"
+          >
+            <Plus className="size-3" /> Add
+          </button>
+        </div>
+      )}
+      {these && adding && (
+        <div
+          role="group"
+          aria-label="Namespaces"
+          className="ml-6 rounded-lg border border-line bg-surface-2 p-1.5"
+        >
+          <input
+            type="search"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="Filter namespaces"
+            aria-label="Filter namespaces"
+            className="mb-1 h-7 w-full rounded-md border border-line bg-surface px-2 text-xs text-ink-1 outline-none placeholder:text-ink-3 focus:border-accent"
+          />
+          <ul className="max-h-44 overflow-auto">
+            {shown.map((name) => {
+              const on = watch.includes(name)
+              return (
+                <li key={name}>
+                  <label className="flex items-center gap-2 rounded px-1.5 py-1 text-[13px] text-ink-1 hover:bg-surface-3">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      disabled={!on && watch.length >= MOST_WATCHED}
+                      onChange={() =>
+                        onChange(on ? watch.filter((each) => each !== name) : [...watch, name])
+                      }
+                    />
+                    {name}
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+    </fieldset>
+  )
+}
+
+export function Toggle({
   title,
   line,
   checked,

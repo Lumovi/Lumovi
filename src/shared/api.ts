@@ -58,6 +58,14 @@ import type { SponsorCard } from './sponsor'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 
+/** The desktop app's: how a cluster's notifications of new warnings stand, for its settings. */
+export interface WarningNoticesState {
+  /** The credential plugin a look starts, where its user signs in through one. */
+  signsInWith?: string
+  /** When signing in failed, where they're paused until it answers in Lumovi. */
+  pausedAt?: number
+}
+
 export interface AppInfo {
   name: string
   version: string
@@ -1314,6 +1322,8 @@ export interface LumoviApi {
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     /** The desktop app's: how a cluster shows in Lumovi (all of it: what's left out is unset). */
     setCluster?(context: string, settings: ClusterSettings): Promise<Result<Settings>>
+    /** The desktop app's: how a cluster's notifications of new warnings stand. */
+    warningNotices?(context: string): Promise<WarningNoticesState>
     setMetricsSource(context: string, setting: MetricsSourceSetting): Promise<Settings>
     /** Where `context`'s node shells run; NODE_SHELL_DEFAULTS (or the server's) to reset. */
     setNodeShell(context: string, setting: NodeShellSetting | null): Promise<Settings>
@@ -1757,6 +1767,7 @@ export const IPC = {
   setTheme: 'app:set-theme',
   setReadOnly: 'app:set-read-only',
   setCluster: 'app:set-cluster',
+  warningNotices: 'app:warning-notices',
   setMetricsSource: 'app:set-metrics-source',
   setNodeShell: 'app:set-node-shell',
   setPluginCode: 'app:set-plugin-code',

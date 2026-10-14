@@ -57,6 +57,8 @@ export function Commands() {
   const pendingGo = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const run = (command: AppCommand) => {
+    // (Where a notification was about: the app opens it, whatever screen is shown.)
+    if (command.startsWith('open:')) return
     if (command.startsWith('go:')) {
       if (context) goTo(targetPath(context, command.slice(3) as NavTarget))
       return

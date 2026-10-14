@@ -32,6 +32,7 @@ const api: LumoviApi = {
     setTheme: (theme) => invoke(IPC.setTheme, theme),
     setReadOnly: (context, readOnly) => invoke(IPC.setReadOnly, context, readOnly),
     setCluster: (context, settings) => invoke(IPC.setCluster, context, settings),
+    warningNotices: (context) => invoke(IPC.warningNotices, context),
     setMetricsSource: (context, setting) => invoke(IPC.setMetricsSource, context, setting),
     setNodeShell: (context, setting) => invoke(IPC.setNodeShell, context, setting),
     setPluginCode: (plugin, on) => invoke(IPC.setPluginCode, plugin, on),
