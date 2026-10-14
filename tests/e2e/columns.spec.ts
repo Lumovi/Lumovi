@@ -623,6 +623,8 @@ test('Download CSV saves every row the filters let through: whole values, times 
     2_000,
     'a cancelled save says nothing',
   )
+  // Nor writes anything: the first file is as it was.
+  expect(readFileSync(file, 'utf8')).toBe(text)
 })
 
 test('only a file Lumovi saved is shown in the file manager, by a token: the page never learns where it is', async ({
