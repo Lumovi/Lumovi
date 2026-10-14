@@ -320,8 +320,14 @@ test('a field in error is said under it as it’s typed, with its lines marked',
     await field(page, name).fill(before)
     await expect(form(page).getByRole('alert'), name).toHaveCount(0)
   }
-  // Typed in the YAML, it's said the same.
-  await editor(page).getByText('replicas: 2').click()
+  // Typed in the YAML, it's said the same. (On that line: a click as the form's last alert goes
+  // can land where the YAML was a moment before, so it's clicked till the cursor's there.)
+  await expect(async () => {
+    await editor(page).getByText('replicas: 2').click()
+    await expect(dialog(page).locator('.cm-activeLine')).toHaveText('  replicas: 2', {
+      timeout: 1_000,
+    })
+  }).toPass({ timeout: 15_000 })
   await page.keyboard.press('End')
   await page.keyboard.type('x')
   await expect(form(page).getByRole('alert')).toHaveText('A whole number, 0 or more.')

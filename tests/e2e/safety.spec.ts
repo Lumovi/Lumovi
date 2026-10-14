@@ -120,10 +120,14 @@ test.describe('deleting', () => {
     await page.keyboard.press('ControlOrMeta+Backspace')
     await expect(dialog(page)).toContainText(`Delete ${DEMO.services.grafana}?`)
     await page.keyboard.press('Escape')
+    await expect(dialog(page)).toHaveCount(0)
     await page.keyboard.press('Control+Backspace')
     await expect(dialog(page)).toContainText(`Delete ${DEMO.services.grafana}?`)
     // An unready dialog ignores Enter.
     await page.keyboard.press('Escape')
+    // (Gone before the rest: while one's there no key does anything, and as it goes it gives focus
+    // back to what opened it, which would take it from the field below.)
+    await expect(dialog(page)).toHaveCount(0)
     // Other keys, and typing in fields, do nothing.
     await page.keyboard.press('Backspace')
     await page.keyboard.press('ControlOrMeta+j')

@@ -530,12 +530,18 @@ test('logs searched on a phone: the toggles and steps a row of their own, a sinc
   const sheet = page.getByRole('dialog', { name: 'Show' })
   await expectAPhonesPage(page, 'a since from a sheet', async () => {
     // (Turned, the logs are drawn again with it closed: it's opened again. On its side it's a
-    // popover by its button, not a sheet.)
-    if (!(await page.getByLabel('Since', { exact: true }).isVisible())) {
-      await detail.getByRole('button', { name: 'Show', exact: true }).click()
-      await page.getByRole('option', { name: 'Since…' }).click()
-    }
-    await expect(page.getByLabel('Since', { exact: true })).toBeVisible()
+    // popover by its button, not a sheet. And it's drawn again a moment after the turn, so the
+    // field the other way up can still be there as this looks: what's looked for is this way
+    // up's, upright the sheet's, and it's opened until it's there.)
+    const { width, height } = page.viewportSize()!
+    const since = (height > width ? sheet : page).getByLabel('Since', { exact: true })
+    await expect(async () => {
+      if (!(await since.isVisible())) {
+        await detail.getByRole('button', { name: 'Show', exact: true }).click()
+        await page.getByRole('option', { name: 'Since…' }).click({ timeout: 2_000 })
+      }
+      await expect(since).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 20_000 })
   })
   await sheet.getByRole('button', { name: '2h' }).click()
   await expect(sheet.getByText(/^From .*, 2 hours ago, your time \(UTC.*\)\.$/)).toBeVisible()

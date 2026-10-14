@@ -112,12 +112,24 @@ test('the palette opens a new window too: on the start screen, the size of the o
       (await app.browserWindow(each)).evaluate((win) => win.getBounds()),
     ),
   )
+  // Just below it, where its display has room for that; on one no wider than the window (a
+  // macOS runner's is 1024 points, Lumovi's least width), the system keeps it on the screen.
+  const area = await app.evaluate(
+    ({ screen }, bounds) => screen.getDisplayMatching(bounds).workArea,
+    first!,
+  )
+  const room =
+    first!.x + 24 + first!.width <= area.x + area.width &&
+    first!.y + 24 + first!.height <= area.y + area.height
   expect(next).toMatchObject({
-    x: first!.x + 24,
-    y: first!.y + 24,
+    ...(room ? { x: first!.x + 24, y: first!.y + 24 } : {}),
     width: first!.width,
     height: first!.height,
   })
+  if (!room) {
+    expect(next!.x).toBeGreaterThanOrEqual(area.x)
+    expect(next!.x + next!.width).toBeLessThanOrEqual(area.x + area.width)
+  }
 })
 
 test('the windows open again where they were', async ({ launch }) => {
@@ -133,10 +145,16 @@ test('the windows open again where they were', async ({ launch }) => {
 
   const again = await launch({ userDataDir })
   await expect.poll(() => windowCount(again.app)).toBe(2)
-  // The second where it was: beside the first, not on it.
+  // Each where it was as Lumovi quit, as it kept it. (Where a display had no room for the second
+  // just below the first, the system put it where that was: there, too.)
   const bounds = await again.app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows().map((win) => win.getBounds()),
+    BrowserWindow.getAllWindows()
+      .map((win) => ({ id: win.id, ...win.getBounds() }))
+      .sort((a, b) => a.id - b.id),
   )
-  expect(bounds[1]!.x).not.toBe(bounds[0]!.x)
+  for (const [i, kept] of (settings.windows as { x: number; y: number }[]).entries()) {
+    expect(Math.abs(bounds[i]!.x - kept.x), `window ${i + 1}'s x`).toBeLessThanOrEqual(2)
+    expect(Math.abs(bounds[i]!.y - kept.y), `window ${i + 1}'s y`).toBeLessThanOrEqual(2)
+  }
   await again.close()
 })
