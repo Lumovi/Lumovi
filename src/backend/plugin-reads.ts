@@ -24,6 +24,7 @@ import type {
 import { mayCarryCode } from '@shared/plugin-loading'
 import {
   granted,
+  namesAsSpelled,
   handedWhole,
   kindAsked,
   picked,
@@ -102,19 +103,32 @@ export function pluginReads({ kube, known, audit, to }: PluginReading) {
     const asked = kindAsked(q.kind)
     const named: ResourceKind = kindFor(asked.group ? `${asked.group}/v1` : 'v1', asked.kind)
     const plugin = (await known()).find((p) => p.name === q.plugin)
-    // Only a plugin whose code Lumovi may run has code that reads.
+    // Only a plugin whose code Lumovi may run has code that reads. (No kind in its entry: what
+    // a page asked for in a name Lumovi doesn't have in use is nobody's file's to name.)
     if (!plugin || !(to ? runsCode(plugin, to()) : mayCarryCode(plugin.origin))) {
-      return refuse({ kind: named }, undefined, 'not-in-use')
+      return refuse(undefined, undefined, 'not-in-use')
     }
+    // Its file first, by the kind as the page wrote it, before anything else is said of the
+    // ask and before the cluster is asked anything: a kind its file doesn't name is refused in
+    // one way, whether or not the cluster serves it and wherever it lives. (Asked of the
+    // cluster first, the answers would differ, and a plugin's code could tell from them what
+    // else is installed there. And every refusal after this one is of a kind its file names:
+    // none writes a kind of the page's own choosing into the history.)
+    const names = namesAsSpelled(plugin.grant, asked)
+    if (!names) return refuse(undefined, plugin, 'not-granted')
+    // What's said of the kind until the cluster has resolved it: the kind, where its file names
+    // it itself; where the file claims its group whole, the group, as the kind's word is still
+    // the page's.
+    const unresolved = names === 'kind' ? { kind: named } : { group: asked.group }
     // And only the code, and the file, its page was handed: never a grant read since, for code
     // that came before it (or a plugin that has no code at all).
     if (q.digest !== plugin.digest || q.codeDigest !== plugin.codeDigest) {
-      return refuse({ kind: named }, plugin, 'changed')
+      return refuse(unresolved, plugin, 'changed')
     }
     // And never for code that's turned off (by the person, the server or the organization), as
     // nothing is handed it or proposed for it: whatever a page of it that's still open asks.
     if (codeOff(plugin.name, to?.().switches ?? ALL_CODE_ON)) {
-      return refuse({ kind: named }, plugin, 'code-off')
+      return refuse(unresolved, plugin, 'code-off')
     }
     let resource: ResourceDefinition
     try {
@@ -122,18 +136,19 @@ export function pluginReads({ kube, known, audit, to }: PluginReading) {
     } catch (error) {
       const { code } = toKubeError(error)
       const refused = code === 'not-found' ? 'no-such-kind' : refusalOf(code)
-      return refuse({ kind: named }, plugin, refused)
+      return refuse(unresolved, plugin, refused)
     }
     // Where it is, by what the cluster serves: a kind that's in no namespace is read in none,
     // whatever was asked; one object of a kind that is needs its namespace.
     const namespace = resource.namespaced ? q.namespace : undefined
     const where = { kind: resource.kind, resource, namespace }
+    // Its file again, by the kind as the cluster resolved it: what's handed is what that says.
+    const kind = resolvedAs(resource.group, resource.apiKind)
+    const handed = granted(plugin.grant, kind, 'objects')
+    if (!handed) return refuse(undefined, plugin, 'not-granted')
     if (resource.namespaced && q.name !== undefined && namespace === undefined) {
       return refuse(where, plugin, 'needs-namespace')
     }
-    const kind = resolvedAs(resource.group, resource.apiKind)
-    const handed = granted(plugin.grant, kind, 'objects')
-    if (!handed) return refuse(where, plugin, 'not-granted')
     // Its usage too, where it's asked for: its file must say it reads it, of a kind the cluster
     // measures.
     const measures = q.usage ? MEASURED[`${kind.group}/${kind.kind}`] : undefined
@@ -230,18 +245,18 @@ const which = ({ namespace, name }: { namespace?: string; name: string }) =>
 function record(
   audit: Recorder,
   q: PluginReadQuery,
-  where: { kind: ResourceKind; resource?: ResourceDefinition; namespace?: string },
+  /**
+   * Where it read, as Lumovi resolved it. Before the cluster resolved anything: the kind as its
+   * file names it, or the group its file claims whole. Nothing, for a kind its file doesn't name.
+   */
+  where:
+    | { kind: ResourceKind; resource: ResourceDefinition; namespace?: string }
+    | { kind: ResourceKind }
+    | { group: string }
+    | undefined,
   plugin: Readonly<KnownPlugin> | undefined,
   refused?: ReadRefusal,
 ): void {
-  const { resource } = where
-  const what =
-    q.name !== undefined
-      ? `${resource?.apiKind ?? where.kind} ${q.name}`
-      : resource
-        ? pluralLabel(resource.apiKind, resource.plural)
-        : where.kind
-  const namespace = resource ? where.namespace : q.namespace
   const who: Record<string, string> = plugin
     ? {
         plugin: plugin.name,
@@ -250,23 +265,73 @@ function record(
         ...(plugin.codeDigest === undefined ? {} : { codeDigest: plugin.codeDigest }),
       }
     : { plugin: q.plugin }
+  // A kind its file doesn't name, or a plugin Lumovi hasn't in use (by any name a page cares to
+  // send): the entry says that and no more. Nothing the page wrote is in it but the plugin's
+  // name (not the kind, not an object's name), and it's one entry a while whatever was asked
+  // for.
+  if (!where || !plugin) {
+    const why = refused ?? 'not-granted'
+    audit.read(
+      `plugin-read:${JSON.stringify(plugin ? [q.context, who, 'a kind its file doesn’t name'] : [q.context, why])}`,
+      {
+        action: 'plugin.read',
+        outcome: 'refused',
+        error: READ_REFUSED[why],
+        cluster: q.context,
+        summary: plugin
+          ? `Asked to read a kind its file doesn’t name, for the plugin ${q.plugin}`
+          : `Asked to read for the plugin ${q.plugin}, which isn’t in use`,
+        details: { ...who, refused: why },
+      },
+    )
+    return
+  }
+  // Refused before the cluster resolved the kind (the plugin changed, its code is off, the
+  // cluster doesn't serve the kind or didn't say): the entry holds no word the page chose. The
+  // kind, where its file names it itself; a kind of its group, where the file claims the group
+  // whole. No namespace, no name and no pick, in the entry or in what makes it the same entry.
+  if (!('resource' in where)) {
+    const why = refused ?? 'failed'
+    const named = 'kind' in where
+    audit.read(
+      `plugin-read:${JSON.stringify([q.context, who, named ? where.kind : { group: where.group }, why])}`,
+      {
+        action: 'plugin.read',
+        outcome: REFUSED.has(why) ? 'refused' : 'failure',
+        error: READ_REFUSED[why],
+        cluster: q.context,
+        ...(named ? { target: { kind: where.kind } } : {}),
+        summary: named
+          ? `Read ${where.kind} for the plugin ${q.plugin}`
+          : `Asked to read a kind of ${where.group} for the plugin ${q.plugin}`,
+        details: { ...who, refused: why },
+      },
+    )
+    return
+  }
+  const { resource, namespace } = where
+  const what =
+    q.name !== undefined
+      ? `${resource.apiKind} ${q.name}`
+      : pluralLabel(resource.apiKind, resource.plural)
   // How a list was picked, as the cluster was asked: in the history as it was asked for.
-  const { fieldSelector, labelSelector } = plugin ? selectors(q) : {}
-  // A plugin Lumovi has in use: each of its reads apart. One it hasn't (by any name a page cares
-  // to send): one entry a while, whatever it was called, so new names can't fill the history.
-  const same = plugin
-    ? [
-        q.context,
-        who,
-        where.kind,
-        namespace ?? '',
-        q.name ?? '',
-        q.usage ?? false,
-        fieldSelector ?? '',
-        labelSelector ?? '',
-        refused ?? '',
-      ]
-    : [q.context, refused]
+  const { fieldSelector, labelSelector } = selectors(q)
+  // Each of its reads apart. One that was refused or failed: one entry a while for its kind (the
+  // cluster's own by now), whatever namespace, name or pick the page wrote, so none of them can
+  // fill the history. The entry keeps the first's.
+  const same =
+    refused !== undefined
+      ? [q.context, who, where.kind, refused]
+      : [
+          q.context,
+          who,
+          where.kind,
+          namespace ?? '',
+          q.name ?? '',
+          q.usage ?? false,
+          fieldSelector ?? '',
+          labelSelector ?? '',
+        ]
   audit.read(`plugin-read:${JSON.stringify(same)}`, {
     action: 'plugin.read',
     outcome: refused === undefined ? 'success' : REFUSED.has(refused) ? 'refused' : 'failure',

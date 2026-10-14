@@ -423,6 +423,26 @@ export function granted(
 }
 
 /**
+ * Whether a plugin's file names a kind at all, by the kind as a page spelled it: asked before
+ * the cluster is, and only ever a reason to refuse. A spelling its file doesn't name is refused
+ * in one way whatever the cluster serves, so a refusal tells a plugin's code nothing of the
+ * cluster. What's handed is still decided by `granted`, of the kind as resolved: a spelling
+ * that passes here has let nothing through.
+ *
+ * And how it names it: the kind itself (`'kind'`: the spelling is then the file's own, letter
+ * for letter), or only its group, claimed whole (`'group'`: the kind's word is still the
+ * page's, and is nobody's to write down until the cluster has said what it is).
+ */
+export function namesAsSpelled(
+  grant: Grant,
+  spelled: { group: string; kind: string },
+): 'kind' | 'group' | undefined {
+  if (granted(grant, spelled as ResolvedKind, 'objects') === undefined) return undefined
+  const id = `${spelled.group}/${spelled.kind}`
+  return grant.own.includes(id) || Object.hasOwn(grant.reads, id) ? 'kind' : 'group'
+}
+
+/**
  * Of Kubernetes' own kinds, what a plugin's file can be granted at all: for each kind a plugin's
  * code may read, the fields, and nothing that isn't here. A list of what may be read, not of
  * what may not: taking things out of an object can't be finished (the next tool writes its own

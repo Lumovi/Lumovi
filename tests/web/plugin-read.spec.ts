@@ -14,7 +14,7 @@ import { audited, DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
 
 /**
  * A stand-in for one of Lumovi's own: its code may read Widgets, its own kind, and of Nodes
- * their names and labels.
+ * their names and labels. (Gizmos are its own too, and this cluster serves none.)
  */
 const TOYS = `apiVersion: lumovi.dev/v1beta1
 kind: Plugin
@@ -24,7 +24,7 @@ spec:
   needs: { lumovi: 1.0.0 }
   groups: [example.com]
   label: Toys
-  kinds: [{ group: example.com, kind: Widget }]
+  kinds: [{ group: example.com, kind: Widget }, { group: example.com, kind: Gizmo }]
   pages: [{ id: overview, title: Overview }]
   reads:
     - { group: '', kind: Node, fields: [metadata.name, metadata.labels] }
@@ -97,11 +97,14 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
     expect((object.metadata as { name: string }).name).toBe(name)
   }
 
-  // What isn't granted; what isn't there; what isn't a plugin whose code runs.
+  // What its file doesn't name: one answer, whether the cluster serves it (a Pod, a Database)
+  // or not, and however it's spelled. What isn't there; what isn't a plugin whose code runs.
   for (const [query, refused] of [
     [{ plugin: 'toys', kind: '/Pod' }, 'not-granted'],
     [{ plugin: 'toys', kind: '/Secret', namespace: 'default' }, 'not-granted'],
-    [{ plugin: 'toys', kind: 'core/Secret' }, 'no-such-kind'],
+    [{ plugin: 'toys', kind: 'core/Secret' }, 'not-granted'],
+    [{ plugin: 'toys', kind: 'example.com/Database' }, 'not-granted'],
+    [{ plugin: 'toys', kind: 'example.com/Gizmo' }, 'no-such-kind'],
     [{ plugin: 'toys', kind: 'example.com/Widget', name: CUSTOM.widget }, 'needs-namespace'],
     [
       { plugin: 'toys', kind: 'example.com/Widget', namespace: 'default', name: 'nowhere' },
@@ -132,13 +135,13 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
       ['Read Widgets for the plugin toys', 'success', digest],
       [`Read Widget ${CUSTOM.widget} for the plugin toys`, 'success', digest],
       ['Read Nodes for the plugin toys', 'success', digest],
-      ['Read Pods for the plugin toys', 'refused', digest],
-      ['Read Secrets for the plugin toys', 'refused', digest],
-      ['Read Secret.core for the plugin toys', 'failure', digest],
+      // (Kinds its file doesn't name: one entry a while, with none of them in it.)
+      ['Asked to read a kind its file doesn’t name, for the plugin toys', 'refused', digest],
+      ['Read Gizmo.example.com for the plugin toys', 'failure', digest],
       [`Read Widget ${CUSTOM.widget} for the plugin toys`, 'failure', digest],
       ['Read Widget nowhere for the plugin toys', 'failure', digest],
-      // (Plugins not in use: one entry a while, whatever they're called.)
-      ['Read Widget.example.com for the plugin board', 'refused', null],
+      // (Plugins not in use: one entry a while, whatever they're called and whatever they ask.)
+      ['Asked to read for the plugin board, which isn’t in use', 'refused', null],
       ['Read Widget.example.com for the plugin toys', 'refused', digest],
     ])
   expect(audited(served, 'plugin.read')[0]?.details).toMatchObject({

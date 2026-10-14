@@ -102,15 +102,20 @@ function stage(
     get?: (q: GetQuery) => Result<KubeObject>
     metrics?: (q: MetricsQuery) => Result<MetricsSnapshot>
   } = {},
+  /** Which plugins' code is turned off, by name: none unless said. */
+  off: Record<string, false> = {},
 ) {
   const asked: { list: ListQuery[]; get: GetQuery[]; metrics?: MetricsQuery[] } = {
     list: [],
     get: [],
   }
+  /** The kinds the cluster was asked whether it serves. */
+  const lookedUp: string[] = []
   const audit: { key: string; input: Recorded }[] = []
   const read = pluginReads({
     kube: {
       resource: async (context, kind) => {
+        lookedUp.push(kind)
         if (context === 'gone')
           throw Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:6443'), {
             code: 'ECONNREFUSED',
@@ -144,6 +149,7 @@ function stage(
       },
     },
     known: async () => known,
+    to: () => ({ host: 'desktop', switches: { chosen: off } }),
     audit: {
       user: 'me',
       record: () => undefined,
@@ -160,6 +166,7 @@ function stage(
           : query,
       ),
     asked,
+    lookedUp,
     audit,
   }
 }
@@ -237,7 +244,7 @@ test('one object of a kind that’s in a namespace is asked for in one; a list m
 })
 
 test('what its file doesn’t grant isn’t read, however the kind is spelled', async () => {
-  const { read, asked, audit } = stage()
+  const { read, asked, lookedUp, audit } = stage()
   const asking = (kind: string, name?: string) =>
     read({
       context: 'demo',
@@ -251,15 +258,45 @@ test('what its file doesn’t grant isn’t read, however the kind is spelled', 
   expect(await asking('/Secret', 'db')).toEqual({ ok: false, refused: 'not-granted' })
   // A kind of its group it doesn't claim.
   expect(await asking('karpenter.sh/NodeClaim')).toEqual({ ok: false, refused: 'not-granted' })
-  // Spellings that name no kind the cluster serves.
-  for (const kind of ['core/Secret', 'v1/Secret', 'karpenter.sh/Nodepool', 'apps/Pod']) {
-    expect(await asking(kind), kind).toEqual({ ok: false, refused: 'no-such-kind' })
+  // And kinds its file doesn't name are refused in the one way, whatever the cluster serves:
+  // one it serves (a Deployment, an Application), one it doesn't, a spelling that names none,
+  // and one object of a namespaced kind asked for without its namespace. The answer says
+  // nothing of the cluster.
+  for (const kind of [
+    'apps/Deployment',
+    'argoproj.io/Application',
+    'nowhere.example/Thing',
+    'core/Secret',
+    'v1/Secret',
+    'karpenter.sh/Nodepool',
+    'apps/Pod',
+  ]) {
+    expect(await asking(kind), kind).toEqual({ ok: false, refused: 'not-granted' })
   }
-  expect(asked).toEqual({ list: [], get: [] })
-  // Each refused, in the audit history.
   expect(
-    audit.slice(0, 4).map(({ input }) => [input.outcome, input.error, input.details?.refused]),
-  ).toEqual(Array(4).fill(['refused', READ_REFUSED['not-granted'], 'not-granted']))
+    await read({ context: 'demo', plugin: 'karpenter', kind: 'apps/Deployment', name: 'web' }),
+  ).toEqual({ ok: false, refused: 'not-granted' })
+  // Refused by its file alone: the cluster wasn't asked whether it serves any of them, nor
+  // for anything else.
+  expect(lookedUp).toEqual([])
+  expect(asked).toEqual({ list: [], get: [] })
+  // In the audit history: one entry a while for all of them (the same key), which says a kind
+  // its file doesn't name and carries nothing a page wrote, not the kind and not a name.
+  expect(new Set(audit.map(({ key }) => key)).size).toBe(1)
+  for (const { input } of audit) {
+    expect([input.outcome, input.error, input.details?.refused]).toEqual([
+      'refused',
+      READ_REFUSED['not-granted'],
+      'not-granted',
+    ])
+    expect(input.summary).toBe(
+      'Asked to read a kind its file doesn’t name, for the plugin karpenter',
+    )
+    expect(input.target).toBeUndefined()
+    expect(JSON.stringify(input)).not.toMatch(
+      /Deployment|Application|Thing|Secret|Node|web|shop|db/,
+    )
+  }
 })
 
 test('a plugin that isn’t in use, or whose code Lumovi doesn’t run, reads nothing', async () => {
@@ -307,12 +344,164 @@ test('plugins not in use, by however many names, are one entry a while in the hi
   expect(new Set(audit.map(({ key }) => key)).size).toBe(1)
   expect(audit[0]?.input).toMatchObject({
     outcome: 'refused',
-    summary: 'Read NodePool.karpenter.sh for the plugin p0',
+    summary: 'Asked to read for the plugin p0, which isn’t in use',
     details: { plugin: 'p0', refused: 'not-in-use' },
   })
+  expect(audit[0]?.input.target).toBeUndefined()
   // In another cluster, an entry of its own.
   await read({ context: 'other', plugin: 'p0', kind: 'karpenter.sh/NodePool' })
   expect(new Set(audit.map(({ key }) => key)).size).toBe(2)
+})
+
+test('no refusal writes a kind of the page’s own choosing into the history: a plugin not in use, one that changed, one whose code is off', async () => {
+  const hostile = ['nowhere.example/Thing', 'apps/Deployment', 'argoproj.io/Application', '/Secret']
+  const said = (audit: { key: string; input: Recorded }[]) => JSON.stringify(audit)
+  // Not in use: no kind in its entry at all, and one entry a while however many kinds.
+  const unused = stage([])
+  for (const kind of [...hostile, 'karpenter.sh/NodePool']) {
+    expect(await unused.read({ context: 'demo', plugin: 'karpenter', kind }), kind).toEqual({
+      ok: false,
+      refused: 'not-in-use',
+    })
+  }
+  expect(new Set(unused.audit.map(({ key }) => key)).size).toBe(1)
+  expect(said(unused.audit)).not.toMatch(/Thing|nowhere|Deployment|Application|Secret|NodePool/)
+  // Changed since its page was handed its code, or its code turned off: its file is asked
+  // first, so a kind it doesn't name is refused as that and nothing more is said of it; a kind
+  // it does name is refused for what it is, and that kind is its file's own.
+  for (const [refused, staged, handed] of [
+    ['changed', stage(), { digest: `sha256:${'b'.repeat(64)}`, codeDigest: CODE }],
+    ['code-off', stage([plugin()], {}, { karpenter: false }), {}],
+  ] as const) {
+    for (const kind of hostile) {
+      expect(
+        await staged.read({ context: 'demo', plugin: 'karpenter', kind, ...handed }),
+        `${refused}: ${kind}`,
+      ).toEqual({ ok: false, refused: 'not-granted' })
+    }
+    expect(new Set(staged.audit.map(({ key }) => key)).size, refused).toBe(1)
+    expect(said(staged.audit), refused).not.toMatch(/Thing|nowhere|Deployment|Application|Secret/)
+    expect(
+      await staged.read({
+        context: 'demo',
+        plugin: 'karpenter',
+        kind: 'karpenter.sh/NodePool',
+        ...handed,
+      }),
+      refused,
+    ).toEqual({ ok: false, refused })
+    expect(staged.audit.at(-1)!.input.summary, refused).toBe(
+      'Read NodePool.karpenter.sh for the plugin karpenter',
+    )
+    expect(staged.lookedUp, refused).toEqual([])
+    expect(staged.asked, refused).toEqual({ list: [], get: [] })
+  }
+})
+
+test('a refusal before the cluster has resolved a kind holds no word of the page’s: not a kind of a group its file claims whole, not a namespace, a name or a pick', async () => {
+  // Every word here is the page's own to choose: none may reach the history.
+  const WORDS = /Zzzz|Evil|EVILTEXTOFMYOWN|team-|mine-|pick-|zone=/
+  const asks = (kinds: string[]) =>
+    kinds.flatMap((kind, n) => [
+      { kind, namespace: `team-${n}`, name: `mine-${n}` },
+      { kind, namespace: `team-${n}x`, fields: { 'metadata.name': `pick-${n}` } },
+      { kind, labels: [`zone=${n}`] },
+    ])
+  const changed = { digest: `sha256:${'b'.repeat(64)}`, codeDigest: CODE }
+  const through = (known: KnownPlugin) =>
+    [
+      ['no-such-kind', stage([known]), {}],
+      ['changed', stage([known]), changed],
+      ['code-off', stage([known], {}, { karpenter: false }), {}],
+      ['unreachable', stage([known]), { context: 'gone' }],
+    ] as const
+
+  // A file that claims a group whole names none of its kinds: a kind of it is the page's word
+  // until the cluster says what it is. The entry says a kind of that group, and it's one entry
+  // a while however many the page spells.
+  const whole = plugin({ grant: { ...GRANT, own: ['karpenter.sh/*'] } })
+  const spelled = ['Zzzz', 'Evil1', 'Evil2', 'EVILTEXTOFMYOWN'].map((k) => `karpenter.sh/${k}`)
+  for (const [refused, staged, also] of through(whole)) {
+    for (const ask of asks(spelled)) {
+      expect(
+        await staged.read({ context: 'demo', plugin: 'karpenter', ...ask, ...also }),
+        `${refused}: ${JSON.stringify(ask)}`,
+      ).toEqual({ ok: false, refused })
+    }
+    expect(new Set(staged.audit.map(({ key }) => key)).size, refused).toBe(1)
+    expect(JSON.stringify(staged.audit), refused).not.toMatch(WORDS)
+    for (const { input } of staged.audit) {
+      expect(input.summary, refused).toBe(
+        'Asked to read a kind of karpenter.sh for the plugin karpenter',
+      )
+      expect(input.target, refused).toBeUndefined()
+      expect(input.details, refused).toEqual({
+        plugin: 'karpenter',
+        pluginVersion: '1.0.0',
+        pluginDigest: FILE,
+        codeDigest: CODE,
+        refused,
+      })
+    }
+    expect(staged.asked, refused).toEqual({ list: [], get: [] })
+  }
+
+  // A kind its file names itself is in the entry, as the file's own word: with no namespace, no
+  // name and no pick, and one entry a while for the kind wherever the page says it looks.
+  const named = plugin({ grant: { ...GRANT, own: ['karpenter.sh/Gone'] } })
+  for (const [refused, staged, also] of through(named)) {
+    for (const ask of asks(['karpenter.sh/Gone'])) {
+      expect(
+        await staged.read({ context: 'demo', plugin: 'karpenter', ...ask, ...also }),
+        `${refused}: ${JSON.stringify(ask)}`,
+      ).toEqual({ ok: false, refused })
+    }
+    expect(new Set(staged.audit.map(({ key }) => key)).size, refused).toBe(1)
+    expect(JSON.stringify(staged.audit), refused).not.toMatch(WORDS)
+    for (const { input } of staged.audit) {
+      expect([input.summary, input.target], refused).toEqual([
+        'Read Gone.karpenter.sh for the plugin karpenter',
+        { kind: 'Gone.karpenter.sh' },
+      ])
+    }
+  }
+})
+
+test('a read the cluster refuses, of a kind it resolved, is one entry a while for the kind: the first’s namespace and name are in it, and no other’s', async () => {
+  const { read, audit } = stage([plugin()], {
+    list: () => ({ ok: false, error: { code: 'forbidden', message: 'no' } }),
+    get: () => ({ ok: false, error: { code: 'not-found', message: 'no' } }),
+  })
+  const widget = { context: 'demo', plugin: 'karpenter', kind: 'karpenter.sh/Widget' }
+  for (let n = 0; n < 50; n++) {
+    expect(await read({ ...widget, namespace: `team-${n}` })).toEqual({
+      ok: false,
+      refused: 'not-allowed',
+    })
+    expect(await read({ ...widget, namespace: `team-${n}`, name: `mine-${n}` })).toEqual({
+      ok: false,
+      refused: 'not-found',
+    })
+    expect(await read({ ...widget, name: `mine-${n}` })).toEqual({
+      ok: false,
+      refused: 'needs-namespace',
+    })
+  }
+  // One a refusal: three keys for the hundred and fifty.
+  expect(new Set(audit.map(({ key }) => key)).size).toBe(3)
+  expect(audit.slice(0, 3).map(({ input }) => [input.summary, input.target])).toEqual([
+    ['Read Widgets for the plugin karpenter', { kind: 'Widget.karpenter.sh', namespace: 'team-0' }],
+    [
+      'Read Widget mine-0 for the plugin karpenter',
+      { kind: 'Widget.karpenter.sh', name: 'mine-0', namespace: 'team-0' },
+    ],
+    [
+      'Read Widget mine-0 for the plugin karpenter',
+      { kind: 'Widget.karpenter.sh', name: 'mine-0' },
+    ],
+  ])
+  // (Which of them the history keeps is the recorder's: the first of a key, for a while.)
+  for (const { key } of audit) expect(key).not.toMatch(/team-|mine-/)
 })
 
 test('a read is made only for the code and the file its page was handed: anything since is changed', async () => {
