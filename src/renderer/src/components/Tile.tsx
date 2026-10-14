@@ -30,6 +30,7 @@ export function Tile({
   wraps = false,
   onOpen,
   opensTip,
+  also,
 }: {
   icon?: LucideIcon
   label: Said
@@ -48,6 +49,11 @@ export function Tile({
   onOpen?: () => void
   /** Where it opens, in Lumovi's words, where that's one of Lumovi's own places for an object. */
   opensTip?: string
+  /**
+   * A part of its line that opens a place of its own ("3 alerts firing"), after what the line
+   * says: the tile still opens its place, everywhere but there.
+   */
+  also?: { text: string; onOpen: () => void }
 }) {
   const body = (
     <>
@@ -90,10 +96,50 @@ export function Tile({
       >
         {status && <StatusDot health={status} className={cn(wraps && 'mt-1')} />}
         {cut && !wraps ? <span className="min-w-0 truncate">{detail}</span> : detail}
+        {also && (
+          <>
+            <span aria-hidden>·</span>
+            <button
+              type="button"
+              onClick={also.onOpen}
+              className="pointer-events-auto relative z-10 shrink-0 rounded font-medium text-accent-strong hover:underline focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none touch:finger"
+            >
+              {also.text}
+            </button>
+          </>
+        )}
       </div>
     </>
   )
   const box = 'rounded-xl border border-line bg-surface-2 p-4 text-left shadow-panel'
+  // Two places to open: the tile's own, a button over the whole of it (first, as the keys come),
+  // and its line's, above that. (A button can't hold another.)
+  if (onOpen && also) {
+    const said = (part: unknown) =>
+      typeof part === 'string' || typeof part === 'number' ? String(part) : ''
+    return (
+      <section
+        aria-label={typeof label === 'string' ? label : spelled(label.their)}
+        className="h-full animate-rise"
+      >
+        <div
+          className={cn(
+            'group relative flex h-full w-full flex-col transition-colors hover:border-line-strong hover:bg-surface-3/40',
+            box,
+          )}
+        >
+          <button
+            type="button"
+            onClick={onOpen}
+            title={opensTip}
+            aria-label={[said(label), said(value), said(detail)].filter(Boolean).join(' ')}
+            className="absolute inset-0 rounded-xl focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          />
+          <div className="pointer-events-none relative flex h-full flex-col">{body}</div>
+        </div>
+      </section>
+    )
+  }
   return (
     <section
       aria-label={typeof label === 'string' ? label : spelled(label.their)}

@@ -105,6 +105,7 @@ const api: LumoviApi = {
     test: (context, service) => invoke(IPC.usageTest, context, service),
     range: (query) => invoke(IPC.usageRange, query),
     instant: (query) => invoke(IPC.usageInstant, query),
+    alerts: (context) => invoke(IPC.usageAlerts, context),
   },
   metricsStack: {
     status: (context) => invoke(IPC.metricsStackStatus, context),

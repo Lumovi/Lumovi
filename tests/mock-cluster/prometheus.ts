@@ -379,6 +379,7 @@ export function prometheusApi(
   params: URLSearchParams,
   pods: PodSource[],
   all: KubeObject[],
+  rules?: () => unknown[],
 ): Response {
   const now = Date.now() / 1000
   if (path === '/api/v1/status/buildinfo') {
@@ -389,6 +390,12 @@ export function prometheusApi(
           body: 'unsupported path requested: "/api/v1/status/buildinfo"',
           contentType: 'text/plain',
         }
+  }
+  // Its alerting rules with their alerts. (VictoriaMetrics serves them only through vmalert.)
+  if (path === '/api/v1/rules') {
+    return flavor === 'prometheus'
+      ? json(200, { status: 'success', data: { groups: rules?.() ?? [] } })
+      : badData('missing -vmalert.proxyURL flag')
   }
   if (path !== '/api/v1/query' && path !== '/api/v1/query_range') {
     return { status: 404, body: '404 page not found', contentType: 'text/plain' }

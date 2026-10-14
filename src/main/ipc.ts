@@ -1,3 +1,4 @@
+import { opensExternally } from '@shared/external'
 import { writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import {
@@ -140,9 +141,7 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.openExternal]: async (url) => {
       // Only hand web links to the OS (plain HTTP only for forwarded ports on this machine);
       // never file:// or custom protocol handlers.
-      const allowed =
-        typeof url === 'string' &&
-        (url.startsWith('https://') || /^http:\/\/localhost:\d+(\/|$)/.test(url))
+      const allowed = opensExternally(url)
       if (allowed) await shell.openExternal(url)
       return allowed
     },

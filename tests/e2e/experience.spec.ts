@@ -51,7 +51,7 @@ test.describe('keyboard shortcuts', () => {
 
     // An unknown second key cancels the sequence; so does waiting too long.
     await page.keyboard.press('g')
-    await page.keyboard.press('z')
+    await page.keyboard.press('q')
     await page.keyboard.press('p')
     await expect(heading(page)).toHaveText('Overview')
     await page.keyboard.press('g')
@@ -499,7 +499,10 @@ test.describe('overview', () => {
       'true',
     )
     await page.keyboard.press('Meta+1')
-    await page.getByRole('region', { name: 'Warnings', exact: true }).getByRole('button').click()
+    await page
+      .getByRole('region', { name: 'Warnings', exact: true })
+      .getByRole('button', { name: /^Warnings/ })
+      .click()
     await expect(heading(page)).toHaveText('Events')
     await page.keyboard.press('Meta+1')
     await page.getByRole('region', { name: 'Nodes ready' }).getByRole('button').click()

@@ -1583,6 +1583,7 @@ export const LUMOVIS_COMMANDS = [
   'Overview',
   'Workloads',
   'Metrics',
+  'Alerts',
   'Right-sizing',
   'Helm releases',
   'API resources',

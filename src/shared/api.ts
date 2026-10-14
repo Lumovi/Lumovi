@@ -413,6 +413,35 @@ export interface InstantResult {
   results: { id: string; series: { labels: Record<string, string>; value: number | null }[] }[]
 }
 
+/** An alert Prometheus holds: one an instance of an alerting rule, firing or pending. */
+export interface PrometheusAlert {
+  /** Its rule's name (`alertname`). */
+  name: string
+  state: 'firing' | 'pending'
+  /** When its condition began to hold (milliseconds), or none where Prometheus didn't say. */
+  activeAt?: number
+  /** Its value when last evaluated, as Prometheus writes it. */
+  value?: string
+  /** Every label, `alertname` and `severity` among them, as Prometheus has them. */
+  labels: Record<string, string>
+  /** Its rule's annotations: `summary`, `description`, `runbook_url`, and any other. */
+  annotations: Record<string, string>
+  /** How long its condition must hold before it fires (seconds), and its rule's group. */
+  for: number
+  group: string
+}
+
+/** The alerts Prometheus holds, from its alerting rules, and how many of those rules there are. */
+export interface PrometheusAlerts {
+  alerts: PrometheusAlert[]
+  /** Its alerting rules, by severity (none where the rule says none): to count the quiet ones. */
+  rules: { name: string; severity?: string; active: boolean }[]
+  /** Where they came from, as the Metrics page reads it. */
+  service: MetricsService
+  /** When they were read (milliseconds). */
+  at: number
+}
+
 export interface KubeContext {
   name: string
   cluster: string
@@ -1321,6 +1350,8 @@ export interface LumoviApi {
     test(context: string, service: MetricsService): Promise<Result<HistorySource>>
     range(query: RangeQuery): Promise<Result<RangeResult>>
     instant(query: InstantQuery): Promise<Result<InstantResult>>
+    /** The alerts the source holds, firing and pending, with its alerting rules. */
+    alerts(context: string): Promise<Result<PrometheusAlerts>>
   }
   /** A metrics stack of Lumovi's own, where a cluster has no history. */
   metricsStack: {
@@ -1808,6 +1839,7 @@ export const IPC = {
   usageTest: 'usage:test',
   usageRange: 'usage:range',
   usageInstant: 'usage:instant',
+  usageAlerts: 'usage:alerts',
   metricsStackStatus: 'metrics-stack:status',
   metricsStackInstall: 'metrics-stack:install',
   metricsStackUninstall: 'metrics-stack:uninstall',

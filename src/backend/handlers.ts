@@ -460,6 +460,7 @@ export function handlers({
       [IPC.usageTest]: (context, service) => usage.test(context, service),
       [IPC.usageRange]: (query) => usage.range(query),
       [IPC.usageInstant]: (query) => usage.instant(query),
+      [IPC.usageAlerts]: (context) => usage.alerts(context),
 
       [IPC.terminalOpen]: (id, request) => terminals.open(id, request),
       [IPC.logsStart]: (id, request) => logs.start(id, request),

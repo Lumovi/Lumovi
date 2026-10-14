@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react'
 import type { KubeObject, UsageSample } from '@shared/api'
 import type { ResourceKind } from '@shared/resources'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
-import { useLayout } from '@renderer/lib/layout'
+import { useLayout, useTouch } from '@renderer/lib/layout'
 import { Button } from '@renderer/components/Button'
 import { Card } from '@renderer/components/Card'
 import { KIND_ICONS } from '@renderer/components/KindIcon'
@@ -15,7 +15,7 @@ import { StackedBar } from '@renderer/components/StackedBar'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { HEALTH_STYLE, StatusDot, StatusPill } from '@renderer/components/Status'
 import { useGo } from '@renderer/hooks/go'
-import { timesOf, useHistorySource, useUsageRange } from '@renderer/hooks/history'
+import { timesOf, useAlerts, useHistorySource, useUsageRange } from '@renderer/hooks/history'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useContexts, useList, useMetrics, useVersion } from '@renderer/hooks/queries'
 import { useNodeUsage } from '@renderer/hooks/usage'
@@ -24,7 +24,8 @@ import { namedNamespaces } from '@renderer/lib/namespaces'
 import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, hostOf, percent, pluralize } from '@renderer/lib/format'
 import { rateWindow, usageQuery } from '@renderer/lib/promql'
-import { clusterPath, metricsPath } from '@renderer/lib/routes'
+import { alertsPath, clusterPath, metricsPath } from '@renderer/lib/routes'
+import { inNamespaces, SEVERITY_LEVEL, severityOf } from '@renderer/lib/alerts'
 import {
   HEALTH_RANK,
   nodeStatus,
@@ -207,6 +208,8 @@ export function Tile({
   status?: Health
   /** Path within the cluster, e.g. `pods?health=critical`. */
   to: string
+  /** A part of its line that opens a place of its own. */
+  also?: { text: string; onOpen: () => void }
 }) {
   const { context } = useCluster()
   const go = useGo()
@@ -275,20 +278,49 @@ function WorkloadsTile({ workloads, loaded }: { workloads: Status[]; loaded: boo
   )
 }
 
+const firingWords = (n: number) => `${n} ${n === 1 ? 'alert' : 'alerts'} firing`
+
+/**
+ * Warning events in the last hour; and, where the cluster's Prometheus is found, the alerts it
+ * has firing under the header's namespaces (none of severity none, which fire on purpose), a
+ * link to them, with the worse of the two levels. None firing adds nothing.
+ */
 function WarningsTile({ events, asOf }: { events?: KubeObject[]; asOf: number }) {
+  const { context, namespaces } = useCluster()
+  const go = useGo()
+  const alerts = useAlerts()
+  const touch = useTouch()
   if (!events) return <Tile icon={KIND_ICONS.Event} label="Warnings" to="events?health=warning" />
   const since = asOf - HOUR
   const recent = events.filter(
     (e) => e.type === 'Warning' && Date.parse(lastSeen(e)) > since,
   ).length
+  const firing = (alerts.data?.alerts ?? []).filter(
+    (alert) =>
+      alert.state === 'firing' && severityOf(alert) !== 'none' && inNamespaces(alert, namespaces),
+  )
+  const levels: Health[] = [
+    recent ? 'warning' : 'healthy',
+    ...firing.map((alert) => SEVERITY_LEVEL[severityOf(alert)]),
+  ]
   return (
     <Tile
       icon={KIND_ICONS.Event}
       label="Warnings"
       value={recent}
-      status={recent ? 'warning' : 'healthy'}
-      detail="In the last hour"
+      status={levels.reduce((worst, level) =>
+        HEALTH_RANK[level] < HEALTH_RANK[worst] ? level : worst,
+      )}
       to="events?health=warning"
+      // (Under a finger, one place a tile: the alerts said, the sidebar's Alerts a tap away.)
+      {...(firing.length === 0
+        ? { detail: 'In the last hour' }
+        : touch
+          ? { detail: `In the last hour · ${firingWords(firing.length)}` }
+          : {
+              detail: 'In the last hour',
+              also: { text: firingWords(firing.length), onOpen: () => go(alertsPath(context)) },
+            })}
     />
   )
 }

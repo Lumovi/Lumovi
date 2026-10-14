@@ -1361,7 +1361,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         const pod = store$.get('Pod', usage.namespace, usage.name)
         return pod ? [{ pod, containers: usage.containers }] : []
       })
-      return prometheusApi(backend.flavor, match[3] ?? '/', params, sources, pods)
+      return prometheusApi(backend.flavor, match[3] ?? '/', params, sources, pods, backend.rules)
     }
     if (name === 'grafana') {
       return {
