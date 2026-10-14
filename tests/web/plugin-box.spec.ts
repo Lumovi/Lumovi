@@ -830,29 +830,38 @@ for (const [name, browsers] of [
       }
     })
 
-    if (name === 'Chromium') {
-      test('with the box’s wall taken away, what leaves asked for its host’s name first, and Chromium’s log names it: the tests can tell', async ({
-        serve,
-      }) => {
-        const { page, done, named } = await pageIn(serve, {
-          LUMOVI_TEST_BOX_WALL_OFF: 'connect-src',
-        })
-        try {
-          catchers.reset()
-          const context = catchers.context('fetch-other', undefined, true)
-          expect(await inWorker(page, 'free', 'fetch-other', context)).toBe('answered')
-          expect(gotOut('fetch-other', catchers.caught())).toContain('a request to another host')
-          expect((await named!()).lookedUp).toEqual(['fetch-other'])
-        } finally {
-          await done()
-        }
+    test('with the box’s wall taken away, what its code asks for leaves, and is caught: the tests can tell', async ({
+      serve,
+    }) => {
+      // In every engine: the same ways, from the same worker, with the one wall a server has
+      // taken away in the tests' build (`connect-src`). What gets out then is caught, so a list
+      // that's empty with the wall in place is the wall's doing and not the catchers' miss.
+      // It is the control for the ways that wall holds, the requests. The ways judged by what
+      // the code saw of them (text made into code, a way back to what was taken away) have no
+      // run without their wall on a server: they rest on that judging alone.
+      const { page, done, named } = await pageIn(serve, {
+        LUMOVI_TEST_BOX_WALL_OFF: 'connect-src',
       })
-    }
+      try {
+        const { out, saw } = await tryAll('worker', page, catchers, {
+          only: 'request',
+          named: !!named,
+        })
+        await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
+        console.log(`${name}, with the wall taken away, got out: ${JSON.stringify(out)}`)
+        expect(out['fetch-other']).toContain('a request to another host')
+        expect(Object.keys(out).length).toBeGreaterThan(3)
+        // (In Chromium its own log names what it asked for, too: each host that got out.)
+        if (named) expect((await named()).lookedUp).toContain('fetch-other')
+      } finally {
+        await done()
+      }
+    })
 
     test('the catchers are within this browser’s reach: the tests can tell', async ({ serve }) => {
-      // (That nothing reaches them from a box means something only if something can. With the
-      // box's policy taken away, what leaves is shown where each wall can be taken away by
-      // itself: the desktop's tests. Here: the same addresses, asked from a page that's free to.)
+      // (That nothing reaches them from a box means something only if something can: shown
+      // above with the box's wall taken away, and on the desktop with each of its walls taken
+      // away by itself. Here: the same addresses, asked from a page that's free to.)
       const { free, done, named } = await pageIn(serve)
       try {
         const context = catchers.context('fetch-other', undefined, !!named) as {
