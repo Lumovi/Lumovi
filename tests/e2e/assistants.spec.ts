@@ -422,6 +422,40 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
     sinceSeconds: 1,
   })
   expect(silent.text).toBe('(No log lines.)')
+  // Only the lines that matter: of a level and above (a stack's lines with their error), or
+  // with a text in them; and said so where none is.
+  const errors = await call(client, 'get_logs', {
+    cluster: 'demo',
+    namespace: 'shop',
+    pod: crashing,
+    level: 'error',
+  })
+  expect(errors.text.split('\n').slice(0, 3)).toEqual([
+    expect.stringContaining('missing PAYMENTS_API_KEY'),
+    'panic: runtime error: invalid memory address or nil pointer dereference',
+    expect.stringMatching(/^\[signal SIGSEGV: segmentation violation/),
+  ])
+  // (The panic's stack goes with it: those lines say no level of their own.)
+  expect(errors.text).toContain('goroutine 1 [running]:')
+  expect(errors.text).not.toMatch(/retrying|connecting to postgres/)
+  const declined = await call(client, 'get_logs', {
+    cluster: 'demo',
+    namespace: 'shop',
+    pod: DEMO.pods.checkout[2]!,
+    match: 'Payment Declined',
+  })
+  expect(declined.text.split('\n').length).toBeGreaterThan(0)
+  for (const line of declined.text.split('\n')) expect(line).toContain('payment declined')
+  const nowhere = await call(client, 'get_logs', {
+    cluster: 'demo',
+    namespace: 'shop',
+    pod: crashing,
+    match: 'no such words',
+    level: 'warn',
+  })
+  expect(nowhere.text).toMatch(
+    /^\(None of its last \d+ lines has “no such words” in it and is warn or above\.\)$/,
+  )
 
   // What's wrong, in a namespace or the whole cluster.
   const shop = await call(client, 'find_problems', { cluster: 'demo', namespace: 'shop' })
