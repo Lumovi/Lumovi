@@ -81,7 +81,7 @@ test('a plugin’s page on a server reads what its file grants, each object hand
         .sort(),
     )
     .toEqual([
-      'Read Nodes for the plugin toys: refused',
+      'Asked to read a kind its file doesn’t name, for the plugin toys: refused',
       'Read Widgets for the plugin toys: success',
     ])
   // What they rest on: the check of this browser's box passed, and then its code was handed over.
