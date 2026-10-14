@@ -59,7 +59,7 @@ async function native(app: ElectronApplication, keyCode: string, modifiers: stri
 const SHELL = { SHELL: '/bin/sh' }
 const REPORT = resolve('tests/e2e/terminal/kubeconfig.mjs')
 
-const dock = (page: Page) => page.getByRole('region', { name: 'Terminal', exact: true })
+const dock = (page: Page) => page.getByRole('region', { name: 'Tabs below', exact: true })
 /** What the shown terminal shows. */
 const screen = (page: Page) =>
   dock(page).getByRole('tabpanel').getByRole('region').locator('.xterm-rows')
@@ -259,10 +259,10 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
   const { page, userDataDir } = await launch({ env: SHELL })
   await openCluster(page)
   // ⌃` opens it, with a terminal for the cluster that's open.
-  const bar = dock(page).getByRole('button', { name: 'Terminal', exact: true })
+  const bar = dock(page).getByRole('button', { name: /^(Show|Hide) the tabs below$/ })
   await page.keyboard.press('Control+Backquote')
   await expect(bar).toHaveAttribute('aria-expanded', 'true')
-  const tabs = dock(page).getByRole('tablist', { name: 'Terminals' })
+  const tabs = dock(page).getByRole('tablist', { name: 'Tabs below' })
   await expect(tabs.getByRole('tab')).toHaveText(['demo'])
   // Its kubectl is the newest of the cluster's minor version (v1.34.1's), first on its PATH.
   await shows(
@@ -345,11 +345,13 @@ test('a terminal on this computer, with kubectl pointed at the cluster', async (
 test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
   const { page, app } = await launch({ env: SHELL })
   await openCluster(page)
-  // Always there, a thin bar: it opens with a click.
-  const bar = dock(page).getByRole('button', { name: 'Terminal', exact: true })
+  // Always there, a thin bar: its Terminal opens one with a click.
+  const bar = dock(page).getByRole('button', { name: /^(Show|Hide) the tabs below$/ })
   await expect(bar).toHaveAttribute('aria-expanded', 'false')
-  await bar.click()
-  const tabs = dock(page).getByRole('tablist', { name: 'Terminals' })
+  await dock(page)
+    .getByRole('button', { name: /^Open a terminal/ })
+    .click()
+  const tabs = dock(page).getByRole('tablist', { name: 'Tabs below' })
   await expect(tabs.getByRole('tab')).toHaveText(['demo'])
   await expect(bar).toHaveAttribute('aria-expanded', 'true')
   await ready(page)
@@ -488,7 +490,7 @@ test('the dock’s size, and terminals for every cluster', async ({ launch }) =>
   await openCluster(page)
   await page.keyboard.press('ControlOrMeta+k')
   await page.getByRole('option', { name: /^New terminal/ }).click()
-  const bar = dock(page).getByRole('button', { name: 'Terminal', exact: true })
+  const bar = dock(page).getByRole('button', { name: /^(Show|Hide) the tabs below$/ })
   await expect(bar).toHaveAttribute('aria-expanded', 'true')
   // It has focus: typing goes there.
   await ready(page)
@@ -497,7 +499,7 @@ test('the dock’s size, and terminals for every cluster', async ({ launch }) =>
   await expect(screen(page)).toContainText('typed-42')
 
   // Taller with the keyboard; maximized and back.
-  const resize = dock(page).getByRole('separator', { name: 'Resize the terminal' })
+  const resize = dock(page).getByRole('separator', { name: 'Resize the tabs below' })
   const height = async () => (await dock(page).boundingBox())!.height
   const before = await height()
   await resize.focus()
@@ -506,9 +508,9 @@ test('the dock’s size, and terminals for every cluster', async ({ launch }) =>
   await expect.poll(height).toBeGreaterThan(before + 40)
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Home')
-  await dock(page).getByRole('button', { name: 'Maximize the terminal' }).click()
+  await dock(page).getByRole('button', { name: 'Maximize the tabs below' }).click()
   await expect.poll(height).toBeGreaterThan(before * 1.5)
-  await dock(page).getByRole('button', { name: 'Restore the terminal' }).click()
+  await dock(page).getByRole('button', { name: 'Restore the tabs below' }).click()
   // Dragged: as tall as it may be at most.
   const box = (await resize.boundingBox())!
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -520,12 +522,10 @@ test('the dock’s size, and terminals for every cluster', async ({ launch }) =>
   await expect.poll(height).toBeLessThanOrEqual(Math.ceil(shared * 0.85) + 1)
   await expect.poll(height).toBeGreaterThan(before)
   // The size is kept for next time.
-  await dock(page)
-    .getByRole('button', { name: /^Hide the terminal/ })
-    .click()
+  await dock(page).getByRole('button', { name: 'Hide the tabs below' }).click()
   await expect(bar).toHaveAttribute('aria-expanded', 'false')
   // (Its button, still there, keeps focus.)
-  await expect(dock(page).getByRole('button', { name: /^Show the terminal/ })).toBeFocused()
+  await expect(dock(page).getByRole('button', { name: 'Show the tabs below' })).toBeFocused()
   await page.keyboard.press('Control+Backquote')
   await expect.poll(height).toBeGreaterThan(before)
 
@@ -1153,7 +1153,7 @@ test('a terminal waits for neither a cluster that doesn’t answer nor a long do
 
   // A kubectl that takes long: the terminal starts with yours, and the next has it.
   downloads.delayMs = 11_000
-  const tabs = dock(page).getByRole('tablist', { name: 'Terminals' })
+  const tabs = dock(page).getByRole('tablist', { name: 'Tabs below' })
   await dock(page)
     .getByRole('button', { name: /^New terminal/ })
     .click()

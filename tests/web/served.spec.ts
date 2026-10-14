@@ -83,7 +83,7 @@ test('what only the desktop app does isn’t there', async ({ page, serve }) => 
   await expect(page.getByRole('button', { name: /terminal/i })).toHaveCount(0)
   await page.keyboard.press('Control+Backquote')
   await page.keyboard.press('Control+Shift+Backquote')
-  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Tabs below', exact: true })).toHaveCount(0)
 
   // Browsers keep ⌘N and ⌘1…6 for themselves.
   await expect(page.getByRole('button', { name: 'Create…', exact: true })).toBeVisible()

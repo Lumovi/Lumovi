@@ -1298,10 +1298,11 @@ export interface LumoviApi {
       listener: (plugin: string, over: 'memory' | 'processor' | 'shared') => void,
     ): () => void
     /**
-     * Says whether a terminal on this computer has focus: its ⌘ keys are then its own
-     * (⌘T, ⌘W…), not the menu's.
+     * Says whether a terminal on this computer has focus: its ⌘ keys are then its own (⌘T,
+     * ⌘W…), not the menu's. `below`: something else in the tabs below has it, whose ⌘W closes
+     * the tab shown.
      */
-    setTerminalFocus(focused: boolean): void
+    setTerminalFocus(focused: boolean | 'below'): void
     /**
      * Opens the app's menu at a point of the page (its CSS pixels), for a window without a menu
      * bar (Windows', Linux's); done once it closes.

@@ -17,12 +17,16 @@ const KEYS: Record<string, AppCommand> = {
 }
 
 export class TerminalKeys {
-  /** The pages (by their id) where a terminal has focus. */
-  #focused = new Set<number>()
+  /**
+   * The pages (by their id) where a terminal has focus, or something else in the tabs below
+   * (whose ⌘W alone is theirs: it closes the tab shown).
+   */
+  #focused = new Map<number, 'terminal' | 'below'>()
 
-  /** What a page says: whether a terminal of its has focus now. */
+  /** What a page says: whether a terminal of its has focus now, or something else below. */
   focus(page: number, focused: unknown): void {
-    if (focused === true) this.#focused.add(page)
+    if (focused === true) this.#focused.set(page, 'terminal')
+    else if (focused === 'below') this.#focused.set(page, 'below')
     else this.#focused.delete(page)
   }
 
@@ -31,8 +35,9 @@ export class TerminalKeys {
    * menu's), if it's one.
    */
   command(page: number, input: Input): AppCommand | undefined {
+    const focused = this.#focused.get(page)
     if (
-      !this.#focused.has(page) ||
+      !focused ||
       process.platform !== 'darwin' ||
       input.type !== 'keyDown' ||
       !input.meta ||
@@ -42,6 +47,7 @@ export class TerminalKeys {
     ) {
       return undefined
     }
-    return KEYS[input.key.toLowerCase()]
+    const command = KEYS[input.key.toLowerCase()]
+    return focused === 'terminal' || command === 'close-terminal' ? command : undefined
   }
 }
