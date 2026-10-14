@@ -18,7 +18,19 @@ import {
   type Page,
 } from '@playwright/test'
 import { BOX_LIMITS, workerText } from '../../src/shared/plugin-box.ts'
-import { gotOut, nameFor, startCatchers, type Catchers } from '../e2e/plugin-box/catchers.ts'
+import {
+  notStopped,
+  THE_FIRST_LINES_STOP,
+  THE_POLICY_ALLOWS,
+  trierByItsChild,
+} from '../e2e/plugin-box/first-lines.ts'
+import {
+  gotOut,
+  keeping,
+  nameFor,
+  startCatchers,
+  type Catchers,
+} from '../e2e/plugin-box/catchers.ts'
 import { namedIn } from '../e2e/plugin-box/net-log.ts'
 import { featuresOf, unsealed } from '../e2e/plugin-box/sealed.ts'
 import { notRefused } from '../e2e/plugin-box/worked.ts'
@@ -201,17 +213,20 @@ interface Kept {
 }
 type OnPage = { __boxes: Record<string, Kept> }
 
-/** Opens a test plugin's box on the page and waits until its worker says it's ready. */
-async function open(page: Page, as: string, code: string) {
+/**
+ * Opens a test plugin's box on the page and waits until its worker says it's ready. `bare`: with
+ * nothing taken away by the worker's first lines.
+ */
+async function open(page: Page, as: string, code: string, bare = false) {
   await page.waitForFunction(() => '__lumoviBox' in window)
   await page.evaluate(
-    ({ as, code }) => {
+    ({ as, code, bare }) => {
       const w = window as unknown as {
-        __lumoviBox: { openBox(options: object): Kept['box'] }
+        __lumoviBox: Record<'openBox' | 'openBoxBare', (options: object) => Kept['box']>
         __boxes?: Record<string, Kept>
       }
       const kept = { heard: [] as string[], ended: undefined as unknown }
-      const box = w.__lumoviBox.openBox({
+      const box = w.__lumoviBox[bare ? 'openBoxBare' : 'openBox']({
         plugin: 'ways',
         code,
         heard: (text: string) => kept.heard.push(text),
@@ -219,7 +234,7 @@ async function open(page: Page, as: string, code: string) {
       })
       ;(w.__boxes ??= {})[as] = Object.assign(kept, { box })
     },
-    { as, code },
+    { as, code, bare },
   )
   await expect
     .poll(() => page.evaluate((as) => (window as unknown as OnPage).__boxes[as]!.heard[0], as), {
@@ -318,6 +333,8 @@ box.then(({ post, listen }) => {
   })
   post('ready')
 })`
+/** A test plugin whose worker makes one of its own from text, which tries the ways. */
+const TRIER_BY_ITS_CHILD = trierByItsChild(WAYS)
 const IDLE = `box.then(({ post }) => post('ready'))`
 /**
  * A plugin's code that reads its box's policy off the event a refusal raises (where a browser
@@ -343,9 +360,18 @@ const READS_ITS_POLICY = `box.then(async ({ post, listen }) => {
   })
 })`
 
-/** One way, tried in a box's worker: what the plugin's code saw of it. */
-async function inWorker(page: Page, as: string, id: string, context: object): Promise<string> {
-  await open(page, as, TRIER)
+/**
+ * One way, tried in a box's worker: what the plugin's code saw of it. `bare`: in a worker with
+ * nothing taken away by its first lines; `byItsChild`: in a worker that one made from text.
+ */
+async function inWorker(
+  page: Page,
+  as: string,
+  id: string,
+  context: object,
+  { bare = false, byItsChild = false } = {},
+): Promise<string> {
+  await open(page, as, byItsChild ? TRIER_BY_ITS_CHILD : TRIER, bare)
   await page.evaluate(
     ({ as, id, context }) =>
       (window as unknown as OnPage).__boxes[as]!.box.post({ attempt: id, context }),
@@ -402,14 +428,15 @@ async function onPage(page: Page, as: string, id: string, context: object): Prom
 const GROUPS = [...new Set(ALL.map((way) => way.group))].filter((group) => group !== 'pair')
 
 /**
- * Every way of `where` (of one group, if `only` is given), one after another: which got
- * something out, and, from the worker, after which of them the box's own document was no longer
- * as Lumovi serves it. `named`, the other host goes by each try's own name: for a browser whose
+ * Every way of `where` (of one group, or the ways named, if `only` is given), one after another:
+ * which got something out, and, from a worker, after which of them the box's own document was no
+ * longer as Lumovi serves it. `bare`: from a worker with nothing taken away by its first lines;
+ * `child`: from a worker that one made from text. `named`, the other host goes by each try's own name: for a browser whose
  * log of its network is read after. `awaited` is what's known to get out, by way: waited for,
  * so that it's seen with its own try and never with the next.
  */
 async function tryAll(
-  where: 'worker' | 'page',
+  where: 'worker' | 'page' | 'bare' | 'child',
   page: Page,
   catchers: Catchers,
   {
@@ -418,7 +445,7 @@ async function tryAll(
     awaited = {},
     box,
   }: {
-    only?: string
+    only?: string | readonly string[]
     named?: boolean
     awaited?: Record<string, string>
     /** The box's own address, for the ways that ask its host: what serves it judges those. */
@@ -432,11 +459,14 @@ async function tryAll(
   })
   // (Two frames of one plugin's at once, on the page, for what one can leave for the other: in
   // the worker only; the box's own page is no plugin's.)
+  const inAWorker = where !== 'page'
+  const from = { bare: where === 'bare' || where === 'child', byItsChild: where === 'child' }
   const ways = ALL.filter(
     (way) =>
-      (way.group !== 'pair' || where === 'worker') &&
-      (only === undefined || way.group === only) &&
-      (where === 'page' || !way.needsDom),
+      (way.group !== 'pair' || inAWorker) &&
+      (only === undefined ||
+        (typeof only === 'string' ? way.group === only : only.includes(way.id))) &&
+      (!inAWorker || !way.needsDom),
   )
   // (A way that asks the person something is answered no, at once.)
   page.on('dialog', (dialog) => void dialog.dismiss().catch(() => undefined))
@@ -446,7 +476,7 @@ async function tryAll(
   // A box's own document as Lumovi serves it, its worker running: read from one that tries
   // nothing. A plugin's code is in the worker, and no way it tries may leave a mark on it.
   let served = ''
-  if (where === 'worker') {
+  if (inAWorker) {
     await open(page, 'served', IDLE)
     served = await documentOf(page)
     expect(served).toContain('<script>')
@@ -455,8 +485,9 @@ async function tryAll(
     expect(await documentOf(page)).toBe(served.replace('<body', '<body data-marked=""'))
     await close(page, 'served')
   }
+  const kept = keeping(catchers)
   for (const [n, { id, group }] of ways.entries()) {
-    catchers.reset()
+    kept.next()
     // (No way has longer than this, whatever it does to its frame.)
     const within = (tried: Promise<string>) =>
       Promise.race([tried, pause(20_000).then(() => 'took too long')]).catch(
@@ -464,16 +495,18 @@ async function tryAll(
       )
     if (group === 'pair') {
       // Two boxes of one plugin alive together: what one can leave for the other.
-      const first = within(inWorker(page, `${where}-${n}-first`, id, told(id, 'first')))
+      const first = within(inWorker(page, `${where}-${n}-first`, id, told(id, 'first'), from))
       await pause(300)
-      const second = await within(inWorker(page, `${where}-${n}-second`, id, told(id, 'second')))
+      const second = await within(
+        inWorker(page, `${where}-${n}-second`, id, told(id, 'second'), from),
+      )
       saw[id] = `first: ${await first} / second: ${second}`
       await close(page, `${where}-${n}-first`).catch(() => undefined)
       await close(page, `${where}-${n}-second`).catch(() => undefined)
     } else {
       saw[id] = await within(
-        where === 'worker'
-          ? inWorker(page, `${where}-${n}`, id, told(id))
+        inAWorker
+          ? inWorker(page, `${where}-${n}`, id, told(id), from)
           : onPage(page, `${where}-${n}`, id, told(id)),
       )
     }
@@ -484,9 +517,9 @@ async function tryAll(
         .catch(() => undefined)
     }
     await pause(group === 'port' ? 600 : 350)
-    const got = gotOut(id, catchers.caught())
+    const got = kept.read(id)
     if (got) out[id] = got
-    if (where === 'worker') {
+    if (inAWorker) {
       const now = await documentOf(page)
       // (A box that was ended has no document left to read.)
       if (now.startsWith('<') && now !== served) changed[id] = now.slice(0, 400)
@@ -495,7 +528,8 @@ async function tryAll(
     // (A way that took the page itself somewhere has ended this run: said, not hidden.)
     if (page.isClosed()) break
   }
-  return { tried: ways.length, out, saw, changed }
+  // (What the catchers saw that no try answered for: come late, or naming none of them.)
+  return { tried: ways.length, out, saw, changed, unowned: await kept.end() }
 }
 
 /**
@@ -580,6 +614,15 @@ const NOT_HELD_ON_THE_PAGE: Record<string, string[]> = {
  * from another site or from no origin at all, which is how a box and its worker ask; and
  * anything under the box's folder but the box's document as Lumovi's page loads it. A way to
  * the box's own host reaches no stand-in elsewhere: what serves the box is its only judge.
+ *
+ * Lumovi's own check of a browser's box asks in a box's shape too, by design: a frame's
+ * document under the box's folder, and asks of the check's catcher from no origin. They aren't
+ * left out here, and mustn't be by a request's shape: a plugin's worker can ask those same
+ * addresses, and the catcher answers anyone, so a judge that skipped them would be blind to a
+ * box that did. What keeps them apart is the window: no check runs inside one this judges (the
+ * boxes here are opened by the test's own hand, which asks for none). A test that hands code
+ * through the door starts its window after the session's check has passed; failing that, it
+ * leaves out that check's own asks by its nonce, and nothing wider.
  */
 const askedByABox = (arrived: readonly Arrived[]) =>
   arrived
@@ -591,6 +634,14 @@ const askedByABox = (arrived: readonly Arrived[]) =>
           !(how === 'GET /plugin-box/box.html' && site === 'same-origin')),
     )
     .map(({ how }) => how)
+
+/**
+ * The browsers that make no worker from a worker's own text in a box, whatever its policy
+ * allows: with the first lines gone, a plugin's code that tries gets an error's event there.
+ * (Seen, not promised: the day one of them makes it, the test for it says so, and that worker
+ * is then tried as the others' are.)
+ */
+const MAKES_NO_WORKER_FROM_A_WORKER = ['WebKit']
 
 /** The name a test itself asks for, which a log that was kept holds. */
 const ASKED = 'asked-by-the-test'
@@ -875,13 +926,16 @@ for (const [name, browsers] of [
       const { page, done, named, arrived, box } = await pageIn(serve)
       try {
         const loaded = arrived.length
-        const { tried, out, saw, changed } = await tryAll('worker', page, catchers, {
+        const { tried, out, saw, changed, unowned } = await tryAll('worker', page, catchers, {
           named: !!named,
           box,
         })
         await test.info().attach('saw', { body: JSON.stringify({ out, changed, saw }, null, 2) })
         expect(tried).toBeGreaterThan(40)
         expect(out).toEqual({})
+        // Nor did anything arrive that no try answered for: between two of them, or after the
+        // last.
+        expect(unowned).toEqual([])
         // Nor did anything of it reach the server that serves the box, which no stand-in
         // elsewhere would see: its own address asked for with something added, as a script or
         // as anything else. From first to last the server was asked for the box's document by
@@ -898,6 +952,46 @@ for (const [name, browsers] of [
         // its host's name is asked for. The log holds no try's name, in a resolver's event or
         // any other.
         if (named) expect(await named()).toEqual({ lookedUp: [], anywhere: [] })
+      } finally {
+        await done()
+      }
+    })
+
+    test('a worker with nothing taken away by its first lines: the box’s policy stops what they stop, and a worker it makes from text lets nothing out', async ({
+      serve,
+    }) => {
+      const { page, done, arrived, box } = await pageIn(serve)
+      try {
+        const loaded = arrived.length
+        // What the first lines stop, with them gone: the policy by itself.
+        const stopped = await tryAll('bare', page, catchers, { only: THE_FIRST_LINES_STOP, box })
+        await test.info().attach('saw', { body: JSON.stringify(stopped.saw, null, 2) })
+        console.log(`${name}, a worker without its first lines saw: ${JSON.stringify(stopped.saw)}`)
+        expect(stopped.tried).toBe(THE_FIRST_LINES_STOP.length)
+        expect(stopped.out).toEqual({})
+        expect(stopped.unowned).toEqual([])
+        // Each stopped as this engine stops it: none imported, none made, and none that
+        // tried nothing.
+        expect(notStopped(name, stopped.saw)).toEqual([])
+        const made = await tryAll('bare', page, catchers, { only: [THE_POLICY_ALLOWS], box })
+        expect(made.out).toEqual({})
+        if (MAKES_NO_WORKER_FROM_A_WORKER.includes(name)) {
+          // Here the browser itself makes none in a box, whatever the policy allows: there's no
+          // child to try anything from.
+          expect(made.saw).toEqual({ [THE_POLICY_ALLOWS]: 'error event: ' })
+        } else {
+          // A worker from text is made, as the policy allows, and its own request refused.
+          expect(made.saw).toEqual({ [THE_POLICY_ALLOWS]: 'ran: fetch refused' })
+          // And every request there is, tried from such a child: under its maker's policy.
+          const child = await tryAll('child', page, catchers, { only: 'request', box })
+          await test.info().attach('its child saw', { body: JSON.stringify(child.saw, null, 2) })
+          expect(child.tried).toBeGreaterThan(5)
+          expect(child.out).toEqual({})
+          expect(child.unowned).toEqual([])
+          expect(notRefused(child.saw)).toEqual([])
+        }
+        // Nor was the server that serves the box asked for anything by any of them.
+        expect(askedByABox(arrived.slice(loaded))).toEqual([])
       } finally {
         await done()
       }
@@ -984,8 +1078,19 @@ for (const [name, browsers] of [
         expect(askedByABox(arrived.slice(loaded))).toContain(
           'GET /plugin-box/box.html?d=SECRET-fetch-box-document',
         )
-        // (In Chromium its own log names what it asked for, too: each host that got out.)
-        if (named) expect((await named()).lookedUp).toContain('fetch-other')
+        // A try from a worker that a worker made from text is a live one too: its request
+        // leaves. (Where the browser makes such a worker in a box at all.)
+        if (!MAKES_NO_WORKER_FROM_A_WORKER.includes(name)) {
+          const child = await tryAll('child', page, catchers, { only: ['fetch-other'] })
+          expect(child.out['fetch-other']).toContain('a request to another host')
+        }
+        // (In Chromium its own log names what it asked for, too: each host that got out, and
+        // the one nothing answers at, which no catcher could see.)
+        if (named) {
+          const { lookedUp } = await named()
+          expect(lookedUp).toContain('fetch-other')
+          expect(lookedUp).toContain('fetch-refused-lookup')
+        }
       } finally {
         await done()
       }
@@ -1056,18 +1161,24 @@ for (const [name, browsers] of [
         try {
           // (Where an engine's list is exact, what's known to get out is waited for.)
           const exactly = Object.entries(EXACTLY_ON_THE_PAGE[name] ?? {})
-          const { out, saw } = await tryAll('page', page, catchers, {
+          const { out, saw, unowned } = await tryAll('page', page, catchers, {
             only: group,
             named: !!named,
             awaited: Object.fromEntries(exactly.map(([id, { out }]) => [id, out])),
           })
           const log = named ? await named() : undefined
-          await test.info().attach('saw', { body: JSON.stringify({ out, log, saw }, null, 2) })
+          await test.info().attach('saw', {
+            body: JSON.stringify({ out, unowned, log, saw }, null, 2),
+          })
           if (Object.keys(out).length) {
             console.log(`${name}, on the box’s own page, got out: ${JSON.stringify(out)}`)
           }
           expect(
             Object.keys(out).filter((id) => !NOT_HELD_ON_THE_PAGE[name]!.includes(id)),
+          ).toEqual([])
+          // (Come late or not: nothing but what's named.)
+          expect(
+            unowned.filter((what) => !NOT_HELD_ON_THE_PAGE[name]!.some((id) => what.includes(id))),
           ).toEqual([])
           if (log) {
             // In Chromium, whose log says what else a way did: exactly what's known of this

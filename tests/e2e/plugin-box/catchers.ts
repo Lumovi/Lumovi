@@ -118,3 +118,53 @@ export function gotOut(id: string, caught: Caught): string {
   if (caught.packets > 0) parts.push('a UDP packet')
   return parts.join('; ')
 }
+
+/**
+ * A run of tries, with nothing of what's caught lost between them. Each try's catch is read a
+ * moment after it and cleared before the next: so whatever comes after a reading, and a request
+ * that comes with a try and doesn't name it (another's come late, or nobody's), would be no
+ * try's to answer for. Kept here instead, in words, each with the try it came with or after;
+ * and after the last try there's a wait and one more look.
+ */
+export function keeping(catchers: Catchers) {
+  const unowned: string[] = []
+  let last: { id: string; read: Caught } | undefined
+  const said = (hit: Caught['http'][number]) => `${hit.method} ${hit.server} ${hit.path}`
+  /** What came since the last try was read. */
+  const since = () => {
+    if (!last) return
+    const { id, read } = last
+    const now = catchers.caught()
+    for (const hit of now.http.slice(read.http.length)) unowned.push(`after ${id}: ${said(hit)}`)
+    if (now.connections > read.connections) unowned.push(`after ${id}: a connection`)
+    if (now.packets > read.packets) unowned.push(`after ${id}: a UDP packet`)
+    last = undefined
+  }
+  return {
+    /** Before a try: what came since the last was read is kept, and the catchers cleared. */
+    next(): void {
+      since()
+      catchers.reset()
+    },
+    /** A try's catch, read: what of it got out (`gotOut`); a request that doesn't name it is kept. */
+    read(id: string): string {
+      const now = catchers.caught()
+      const read = { http: [...now.http], connections: now.connections, packets: now.packets }
+      for (const hit of read.http) {
+        if (!hit.path.includes(id)) unowned.push(`with ${id}: ${said(hit)}`)
+      }
+      last = { id, read }
+      return gotOut(id, read)
+    },
+    /**
+     * After the last try: a wait, one more look, and everything no try answered for. (A wait
+     * of a fixed length sees what comes within it and no later, as the moment after each try
+     * does. Chromium's own log of its network, read once it has closed, has no such end.)
+     */
+    async end(waitMs = 1_000): Promise<string[]> {
+      await new Promise((done) => setTimeout(done, waitMs))
+      since()
+      return unowned
+    },
+  }
+}

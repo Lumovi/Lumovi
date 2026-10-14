@@ -8,7 +8,13 @@
  * In the tests' build only, so far (`main.tsx`): nothing in Lumovi shows a plugin's page yet, and
  * a release build has none of this.
  */
-import { BOX_LIMITS, boxAddress, workerText, type BoxNotice } from '@shared/plugin-box'
+import {
+  BOX_LIMITS,
+  boxAddress,
+  workerText,
+  workerTextBare,
+  type BoxNotice,
+} from '@shared/plugin-box'
 import { PATHS } from '@shared/server'
 import { api } from '@renderer/lib/api'
 
@@ -48,7 +54,19 @@ export interface BoxOptions {
 }
 
 /** Opens a plugin's box and starts its worker. */
-export function openBox({ plugin, code, heard, ended, into = document.body }: BoxOptions): Box {
+export const openBox = (options: BoxOptions): Box => opened(options, workerText)
+
+/**
+ * In the tests' build alone (`main.tsx`): a box whose worker has the channel and none of what
+ * the first lines take away, so that what they stop is tried against the box's policy alone.
+ */
+export const openBoxBare = (options: BoxOptions): Box => opened(options, workerTextBare)
+
+function opened(
+  { plugin, code, heard, ended, into = document.body }: BoxOptions,
+  /** The worker's text, from the plugin's code. */
+  text: (code: string) => string,
+): Box {
   // On the desktop a box has an address of its plugin's own, so a process of its own. A server
   // has one address for every plugin's box: which process a frame is in is the browser's to
   // say there, and the box itself is all that keeps plugins apart.
@@ -116,7 +134,7 @@ export function openBox({ plugin, code, heard, ended, into = document.body }: Bo
     if ((event.data as { box?: unknown } | null)?.box !== 'ready') return
     removeEventListener('message', ready)
     clearTimeout(waiting)
-    frame.contentWindow!.postMessage({ text: workerText(code) }, '*', [channel.port2])
+    frame.contentWindow!.postMessage({ text: text(code) }, '*', [channel.port2])
     pings = setInterval(ping, BOX_LIMITS.pingEveryMs)
   }
   addEventListener('message', ready)
