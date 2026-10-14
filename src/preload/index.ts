@@ -26,6 +26,11 @@ const api: LumoviApi = {
     newWindow: () => invoke(IPC.newWindow),
     keepBelow: (below) => ipcRenderer.send(IPC.keepBelow, below),
     restored: () => invoke(IPC.restored),
+    moveToWindow: (tab) => invoke(IPC.moveToWindow, tab),
+    movedTab: () => invoke(IPC.movedTab),
+    putBack: (tab) => invoke(IPC.putBack, tab),
+    onTabReturned: (listener) => subscribe(IPC.tabReturned, listener),
+    adoptShell: (id) => ipcRenderer.send(IPC.adoptShell, id),
   },
   app: {
     info: () => invoke(IPC.appInfo),

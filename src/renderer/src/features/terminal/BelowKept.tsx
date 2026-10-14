@@ -5,6 +5,7 @@
  * one that signs in through a program (that waits for a press, on the start screen).
  */
 import { useEffect } from 'react'
+import { movedTabOf } from '@shared/moved-tab'
 import { api } from '@renderer/lib/api'
 import { useDock } from './dock'
 
@@ -16,6 +17,17 @@ export function BelowKept() {
     let gone = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let unsubscribe: (() => void) | undefined
+    // A tab put back below here, from a window of its own: shown, on a cluster's page (where the
+    // tabs below are). Not one that waits to be read: that's for when its cluster's opened.
+    const returned = api.desktop!.onTabReturned((given) => {
+      const tab = movedTabOf(given)
+      if (!tab) return
+      useDock.getState().receive(tab)
+      const waiting = tab.kind === 'kept' && tab.waiting
+      if (!waiting && !window.location.hash.startsWith('#/cluster/')) {
+        window.location.hash = `#/cluster/${encodeURIComponent(tab.context)}`
+      }
+    })
     void (async () => {
       const [{ page, below }, contexts] = await Promise.all([
         api.desktop!.restored(),
@@ -41,6 +53,7 @@ export function BelowKept() {
       gone = true
       clearTimeout(timer)
       unsubscribe?.()
+      returned()
     }
   }, [])
   return null

@@ -5,8 +5,10 @@
  * terminal's tab ends its shell.
  */
 import { create } from 'zustand'
+import type { MovedTab } from '@shared/api'
+import { api } from '@renderer/lib/api'
 import type { ObjectRef } from '@renderer/lib/routes'
-import { TerminalSession } from './session'
+import { TerminalSession, type HandedShell } from './session'
 
 export interface TerminalTab {
   session: TerminalSession
@@ -89,6 +91,18 @@ interface Dock {
   setKeptState(id: string, state: Pick<KeptTab, 'deletedAt' | 'unreachableSince'>): void
   /** Ends a terminal, or lets a kept object go; hidden once the last one is gone. */
   close(id: string): void
+  /**
+   * Moves a tab into a window of its own: a terminal's shell goes on there, running. (Only a
+   * terminal whose shell is open: one that ended has nothing to take.)
+   */
+  moveOut(id: string): void
+  /**
+   * A tab taken from here, to go to another page: a terminal's shell with it, running (its
+   * terminal here let go of, not ended). None for a terminal whose shell isn't open.
+   */
+  take(id: string): MovedTab | undefined
+  /** A tab come here from a window of its own (or into one), shown: its running shell taken on. */
+  receive(tab: MovedTab): void
   /** Closes every tab but this one. */
   closeOthers(id: string): void
   /** Names a terminal; an empty name goes back to its cluster's. */
@@ -127,8 +141,8 @@ interface Dock {
   paste(context: string, text: string): void
 }
 
-const tabFor = (context: string, namespace?: string): TerminalTab => ({
-  session: new TerminalSession({ target: 'local', context, namespace }),
+const tabFor = (context: string, namespace?: string, handed?: HandedShell): TerminalTab => ({
+  session: new TerminalSession({ target: 'local', context, namespace }, handed),
   context,
   namespace,
 })
@@ -142,6 +156,24 @@ export const useDock = create<Dock>()((set, get) => {
   const isTerminal = (id: string | null) => get().tabs.some((tab) => tab.session.id === id)
   const show = (id: string) => {
     if (isTerminal(id)) lastTerminal = id
+  }
+  /** A tab gone from here (its shell ended, or gone on elsewhere): the next one shown. */
+  const forget = (id: string) => {
+    const { order, active } = get()
+    if (lastTerminal === id) lastTerminal = null
+    const index = order.indexOf(id)
+    const rest = order.filter((each) => each !== id)
+    // The neighbour takes its place: the one after it, or before it at the end.
+    const next = rest[Math.min(index, rest.length - 1)] ?? null
+    if (active === id && next) show(next)
+    set((dock) => ({
+      tabs: dock.tabs.filter((tab) => tab.session.id !== id),
+      kept: dock.kept.filter((each) => each.id !== id),
+      order: rest,
+      active: active === id ? next : active,
+      open: dock.open && rest.length > 0,
+      focus: dock.focus + 1,
+    }))
   }
   return {
     tabs: [],
@@ -195,22 +227,68 @@ export const useDock = create<Dock>()((set, get) => {
       }))
     },
     close(id) {
-      const { order, active } = get()
       get()
         .tabs.find((tab) => tab.session.id === id)
         ?.session.dispose()
-      if (lastTerminal === id) lastTerminal = null
-      const index = order.indexOf(id)
-      const rest = order.filter((each) => each !== id)
-      // The neighbour takes its place: the one after it, or before it at the end.
-      const next = rest[Math.min(index, rest.length - 1)] ?? null
-      if (active === id && next) show(next)
+      forget(id)
+    },
+    moveOut(id) {
+      const tab = get().take(id)
+      // (Not moved after all: it's back here, its shell with it.)
+      if (tab) api.desktop!.moveToWindow(tab).catch(() => get().receive(tab))
+    },
+    take(id) {
+      const terminal = get().tabs.find((tab) => tab.session.id === id)
+      const kept = get().kept.find((each) => each.id === id)
+      let tab: MovedTab
+      if (terminal) {
+        if (terminal.quit || terminal.session.phase.state !== 'open') return undefined
+        const { context, namespace, title } = terminal
+        tab = {
+          kind: 'terminal',
+          context,
+          ...(namespace ? { namespace } : {}),
+          ...(title ? { title } : {}),
+          shell: terminal.session.handOver(),
+        }
+      } else if (kept) {
+        const { context, object, tab: on, waiting } = kept
+        tab = { kind: 'kept', context, object, tab: on, ...(waiting ? { waiting } : {}) }
+      } else return undefined
+      forget(id)
+      return tab
+    },
+    receive(tab) {
+      if (tab.kind === 'kept') {
+        const there = get().keptOf(tab.context, tab.object as ObjectRef)
+        if (there) return get().select(there.id)
+        const kept: KeptTab = {
+          id: crypto.randomUUID(),
+          context: tab.context,
+          object: tab.object as ObjectRef,
+          tab: tab.tab,
+          ...(tab.waiting ? { waiting: true } : {}),
+        }
+        return set((dock) => ({
+          kept: [...dock.kept, kept],
+          order: [...dock.order, kept.id],
+          active: kept.id,
+          open: true,
+        }))
+      }
+      // (Its shell running, taken on; else ended, its name and place kept for a new one.)
+      const terminal: TerminalTab = {
+        ...tabFor(tab.context, tab.namespace, tab.shell),
+        ...(tab.title ? { title: tab.title } : {}),
+        ...(tab.shell ? {} : { quit: true as const }),
+      }
+      if (tab.shell) terminal.session.start()
+      lastTerminal = terminal.session.id
       set((dock) => ({
-        tabs: dock.tabs.filter((tab) => tab.session.id !== id),
-        kept: dock.kept.filter((each) => each.id !== id),
-        order: rest,
-        active: active === id ? next : active,
-        open: dock.open && rest.length > 0,
+        tabs: [...dock.tabs, terminal],
+        order: [...dock.order, terminal.session.id],
+        active: terminal.session.id,
+        open: true,
         focus: dock.focus + 1,
       }))
     },

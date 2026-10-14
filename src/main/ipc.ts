@@ -9,6 +9,7 @@ import {
   shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type WebContents,
 } from 'electron'
 import {
   IPC,
@@ -74,6 +75,10 @@ interface Dependencies extends Backend {
   send: (channel: string, ...args: unknown[]) => void
   /** Opens another window. */
   newWindow: () => void
+  /** Moves a page's tab below into a window of its own (checked there: it's only data). */
+  moveTab: (page: WebContents, tab: unknown) => void
+  /** Puts a window of one tab's tab back below (checked there): see `desktop.putBack`. */
+  putBack: (page: WebContents, tab: unknown) => { here?: true }
   /** How a cluster's notifications of new warnings stand. */
   warningNotices: (context: string) => WarningNoticesState
   /** Opens the app's menu at a point of the page; done once it closes. */
@@ -122,6 +127,8 @@ export function registerIpc(deps: Dependencies): void {
     send,
     openMenu,
     newWindow,
+    moveTab,
+    putBack,
     windows,
   } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
@@ -481,6 +488,18 @@ export function registerIpc(deps: Dependencies): void {
   ipcMain.handle(IPC.restored, (event: IpcMainInvokeEvent) => {
     if (!trusted(event)) throw new Error(`Blocked ${IPC.restored} from an untrusted frame`)
     return windows.takeRestored(event.sender) ?? {}
+  })
+  // A tab below, to a window of its own and back: the page's own, with its running shell.
+  const bySender = (channel: string, handler: (page: WebContents, ...args: unknown[]) => unknown) =>
+    ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      if (!trusted(event)) throw new Error(`Blocked ${channel} from an untrusted frame`)
+      return handler(event.sender, ...args)
+    })
+  bySender(IPC.moveToWindow, (page, tab) => moveTab(page, tab))
+  bySender(IPC.movedTab, (page) => windows.takeTab(page))
+  bySender(IPC.putBack, (page, tab) => putBack(page, tab))
+  ipcMain.on(IPC.adoptShell, (event: IpcMainEvent, id: unknown) => {
+    if (trusted(event) && typeof id === 'string') windows.adopt(id, event.sender)
   })
   // Whether a page's terminal has focus is that page's own: its window's ⌘ keys follow it.
   const focusing = new Set<number>()

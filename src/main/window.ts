@@ -34,7 +34,7 @@ function applyTitleBarColors(win: BrowserWindow): void {
 }
 
 const DEFAULT_SIZE = { width: 1440, height: 920 }
-/** The least a window of Lumovi's is. */
+/** The least a window of Lumovi's own pages is. */
 const MIN_SIZE = { width: 1024, height: 640 }
 
 function overlaps(a: Rectangle, b: Rectangle): boolean {
@@ -43,31 +43,40 @@ function overlaps(a: Rectangle, b: Rectangle): boolean {
 
 /**
  * Where a window opens: where it was kept, if that's still on a connected display (monitors come
- * and go), else the size Lumovi opens at, centred on the main display. Either way wholly on its
- * display, as small as that needs (down to Lumovi's least): never with its top above the screen's
- * edge, whatever the system would do with that.
+ * and go), else its size (Lumovi's, or a window of one tab's), centred over what it opens over or
+ * on the main display. Either way wholly on its display, as small as that needs (down to its
+ * least): never with its top above the screen's edge, whatever the system would do with that.
  */
-function restorableBounds(saved: WindowState | undefined): Partial<Rectangle> {
+function restorableBounds(saved: WindowState | undefined, shape?: WindowShape): Rectangle {
+  const least = shape ? { width: shape.minWidth, height: shape.minHeight } : MIN_SIZE
   const display = saved && screen.getAllDisplays().find((d) => overlaps(d.workArea, saved))
-  if (saved && display) return onto(saved, display.workArea)
-  const area = screen.getPrimaryDisplay().workArea
-  const width = Math.min(DEFAULT_SIZE.width, area.width)
-  const height = Math.min(DEFAULT_SIZE.height, area.height)
+  if (saved && display) return onto(saved, display.workArea, least)
+  const size = shape ?? DEFAULT_SIZE
+  const over = shape?.over
+  const area = (over ? screen.getDisplayMatching(over) : screen.getPrimaryDisplay()).workArea
+  const around = over ?? area
+  const width = Math.min(size.width, area.width)
+  const height = Math.min(size.height, area.height)
   return onto(
     {
       width,
       height,
-      x: area.x + Math.round((area.width - width) / 2),
-      y: area.y + Math.round((area.height - height) / 2),
+      x: around.x + Math.round((around.width - width) / 2),
+      y: around.y + Math.round((around.height - height) / 2),
     },
     area,
+    least,
   )
 }
 
-/** `box` moved (and made smaller, down to Lumovi's least) to be wholly on `area`. */
-function onto(box: Rectangle, area: Rectangle): Rectangle {
-  const width = Math.max(MIN_SIZE.width, Math.min(box.width, area.width))
-  const height = Math.max(MIN_SIZE.height, Math.min(box.height, area.height))
+/** `box` moved (and made smaller, down to `least`) to be wholly on `area`. */
+function onto(
+  box: Rectangle,
+  area: Rectangle,
+  least: { width: number; height: number },
+): Rectangle {
+  const width = Math.max(least.width, Math.min(box.width, area.width))
+  const height = Math.max(least.height, Math.min(box.height, area.height))
   const within = (start: number, size: number, from: number, room: number) =>
     Math.max(from, Math.min(start, from + room - size))
   return {
@@ -95,20 +104,51 @@ export function cascaded(at: WindowState, by: number): WindowState {
   }
 }
 
+/**
+ * A window of one tab made a window of Lumovi's own pages: their size, centred on where it was,
+ * within its display.
+ */
+export function asMainWindow(win: BrowserWindow): void {
+  const at = win.getBounds()
+  const area = screen.getDisplayMatching(at).workArea
+  const width = Math.min(DEFAULT_SIZE.width, area.width)
+  const height = Math.min(DEFAULT_SIZE.height, area.height)
+  const within = (start: number, size: number, from: number, room: number) =>
+    Math.max(from, Math.min(Math.round(start), from + room - size))
+  win.setMinimumSize(MIN_SIZE.width, MIN_SIZE.height)
+  win.setBounds({
+    width,
+    height,
+    x: within(at.x + (at.width - width) / 2, width, area.x, area.width),
+    y: within(at.y + (at.height - height) / 2, height, area.y, area.height),
+  })
+}
+
 /** Where a window is, to open it there again. */
 export function windowState(win: BrowserWindow): WindowState {
   return { ...win.getNormalBounds(), maximized: win.isMaximized() }
+}
+
+/** A window's own size where it isn't Lumovi's main page (a window of one tab), and over what. */
+export interface WindowShape {
+  width: number
+  height: number
+  minWidth: number
+  minHeight: number
+  /** The window it opens over, centred on it. */
+  over?: Rectangle
 }
 
 export function createMainWindow(
   url: string,
   saved: WindowState | undefined,
   onSaveState: (state: WindowState) => void,
+  shape?: WindowShape,
 ): BrowserWindow {
   const win = new BrowserWindow({
-    ...restorableBounds(saved),
-    minWidth: MIN_SIZE.width,
-    minHeight: MIN_SIZE.height,
+    ...restorableBounds(saved, shape),
+    minWidth: shape?.minWidth ?? MIN_SIZE.width,
+    minHeight: shape?.minHeight ?? MIN_SIZE.height,
     show: false,
     title: 'Lumovi',
     backgroundColor: chrome().color,

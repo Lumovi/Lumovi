@@ -38,6 +38,7 @@ import { clusterPath } from './lib/routes'
 import { useSession } from './state/session'
 import { SETTINGS_CHANGED } from './web/api'
 import { BelowKept } from './features/terminal/BelowKept'
+import { TabWindow } from './features/terminal/TabWindow'
 import { basename } from './web/session'
 
 /** Set by the build: true only in the build the tests run. */
@@ -94,6 +95,8 @@ const routes: RouteObject[] = [
         ),
       },
       { path: '/your-access', element: <YourAccessPage /> },
+      // The desktop app's: a tab below, in a window of its own.
+      ...(api.desktop ? [{ path: '/tab', element: <TabWindow /> }] : []),
       {
         path: '/cluster/:context',
         element: <ClusterLayout />,
