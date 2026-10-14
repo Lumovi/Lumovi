@@ -115,6 +115,8 @@ const MAX_LOG_LINES = 2_000
 const MAX_LOG_BYTES = 256 * 1024
 /** The most of a log an answer holds, in characters: past it, its first and last lines. */
 const ANSWER_CHARS = 48_000
+/** How long list_clusters waits for each cluster to answer: past it, it's said not to. */
+const ANSWER_WITHIN_MS = 3_000
 /** Failing containers whose last run find_problems reads the last error lines of. */
 const MAX_LAST_RUNS = 10
 const WAIT = approvalTime()
@@ -442,19 +444,46 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     {
       title: 'List clusters',
       description:
-        'The clusters Lumovi can show (the kubeconfig’s contexts), which is the current one, each one’s default namespace, and what assistants may do there, as the person’s AI permissions say: whether changes are asked about (ask), made without asking (allow) or refused (never; a read-only cluster takes none); whether Secrets show their values, only their keys, or are hidden; which env values are hidden (sensitive ones, or all); whether logs may be read; and the rules that say otherwise in some of its namespaces (where several apply, the strictest wins).',
+        'The clusters Lumovi can show (the kubeconfig’s contexts), which is the current one, each one’s default namespace, and what assistants may do there, as the person’s AI permissions say: whether changes are asked about (ask), made without asking (allow) or refused (never; a read-only cluster takes none); whether Secrets show their values, only their keys, or are hidden; which env values are hidden (sensitive ones, or all); whether logs may be read; and the rules that say otherwise in some of its namespaces (where several apply, the strictest wins). And whether each answered just now, so one that’s down can be left alone.',
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    () => {
+    async () => {
       const { currentContext, error } = kube.contexts()
       if (error) return failed(`Lumovi can’t read the kubeconfig: ${error}`)
       const policy = t.policy()
       const shown = visibleContexts()
+      // Each asked at once, for its version, and waited for so long at most. Not one that signs
+      // in through a credential plugin: that can open a browser or ask in a terminal, and a
+      // question about every cluster never starts one.
+      const answers = await Promise.all(
+        shown.map((c) => {
+          const plugin = kube.credentialPlugin(c.name)
+          if (plugin) {
+            return `not asked: it needs sign-in through a credential plugin (${plugin}), which a check of every cluster doesn’t start`
+          }
+          return Promise.race([
+            kube
+              .version(c.name)
+              .then((v) =>
+                v.ok
+                  ? `yes, in ${v.data.latencyMs} ms (Kubernetes ${v.data.gitVersion})`
+                  : `no: ${v.error.message}`,
+              ),
+            new Promise<string>((done) =>
+              setTimeout(
+                () => done(`no answer within ${ANSWER_WITHIN_MS / 1000} s`),
+                ANSWER_WITHIN_MS,
+              ).unref(),
+            ),
+          ])
+        }),
+      )
       return text(
         yaml({
           ...(shown.some((c) => c.name === currentContext) ? { current: currentContext } : {}),
-          clusters: shown.map((c) => ({
+          clusters: shown.map((c, i) => ({
             ...clusterForAssistant(policy, c, Boolean(kube.isReadOnly(c.name))),
+            answers: answers[i],
             ...(t.access
               ? {
                   access:

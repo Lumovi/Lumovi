@@ -287,6 +287,13 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
   expect(clusters.text).toContain('  - name: demo\n')
   expect(clusters.text).toMatch(/name: large\n.*\n.*\n\s+changes: read-only/)
   expect(clusters.text).toMatch(/name: sandbox\n.*\n\s+changes: ask/)
+  // Whether each answered just now: one that's down is said to be, with why, so it's left alone.
+  expect(clusters.text).toMatch(
+    /name: demo\n(?:.*\n)*?\s+answers: yes, in \d+ ms \(Kubernetes v\d+\.\d+\.\d+\)\n/,
+  )
+  expect(clusters.text).toMatch(
+    new RegExp(`name: ${CONTEXTS.offline}\\n(?:.*\\n)*?\\s+answers: "?no(?::| answer within)`),
+  )
 
   const kinds = await call(client, 'list_kinds', { cluster: 'demo' })
   expect(kinds.text).toContain('- kind: Deployment\n  apiVersion: apps/v1\n  namespaced: true')
@@ -1844,4 +1851,56 @@ test('An unanswered change expires, and is forgotten a while after', async ({ la
     .poll(() => call(client, 'wait_for_change', { id }).then(({ text }) => text))
     .toBe(`No change with id “${id}” is waiting: it was answered a while ago, or never asked for.`)
   await client.close()
+})
+
+test('asked whether every cluster answers, Lumovi starts no credential plugin: a cluster that signs in through one is said to need sign-in, and isn’t asked', async ({
+  launch,
+  clusters,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-sign-in-'))
+  // A plugin that would prompt (a browser, a terminal): each time it's started, a line.
+  const marker = join(dir, 'started')
+  const plugin = join(dir, 'prompting-login')
+  writeFileSync(plugin, `#!/bin/sh\necho started >> '${marker}'\nsleep 30\n`, { mode: 0o755 })
+  const starts = () =>
+    existsSync(marker) ? readFileSync(marker, 'utf8').split('\n').length - 1 : 0
+  const kubeconfig = writeKubeconfig(dir, {
+    currentContext: 'demo',
+    clusters: [{ name: 'demo', server: clusters.demo.url, caPem: clusters.demo.caPem }],
+    users: [
+      { name: 'u', token: DEMO_TOKEN },
+      { name: 'sso', exec: { command: plugin } },
+    ],
+    contexts: [
+      { name: 'demo', cluster: 'demo', user: 'u' },
+      { name: 'sso', cluster: 'demo', user: 'sso' },
+    ],
+  })
+  const { page } = await launch({ env: { KUBECONFIG: kubeconfig } })
+  await openCluster(page)
+  const client = await connect(await turnOn(page))
+  // (Lumovi's own list of clusters, on its start screen, is the person's to look at: what it
+  // started is counted once it has stood still for a second, and the question adds nothing.)
+  let before = -1
+  await expect
+    .poll(
+      async () => {
+        const now = starts()
+        const still = now === before
+        before = now
+        return still
+      },
+      { intervals: [1_000], timeout: 20_000 },
+    )
+    .toBe(true)
+  const listed = await call(client, 'list_clusters')
+  expect(listed.text).toMatch(/name: demo\n(?:.*\n)*?\s+answers: yes, in \d+ ms/)
+  expect(listed.text).toMatch(
+    /name: sso\n(?:.*\n)*?\s+answers: "?not asked: it needs sign-in through a credential plugin \(prompting-login\), which a check of every cluster doesn’t start/,
+  )
+  // Asked twice, it started the plugin neither time.
+  await call(client, 'list_clusters')
+  await new Promise((done) => setTimeout(done, 1_000))
+  expect(starts()).toBe(before)
+  await leave(client)
 })
