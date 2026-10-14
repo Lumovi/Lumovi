@@ -3,7 +3,7 @@
  * fewest words, and never a Secret's values.
  */
 import { stringify } from 'yaml'
-import type { KubeObject } from '@shared/api'
+import type { KubeObject, Revision } from '@shared/api'
 import {
   containerStatuses,
   conventionalStatus,
@@ -323,4 +323,65 @@ export function resolvedBy(
       )
     })
     .sort((a, b) => seen(b) - seen(a))[0]
+}
+
+/** The digest an image resolved to, as a container's imageID says it: sha256:…, or nothing. */
+export const digestOf = (imageID: string | undefined) => /sha256:[0-9a-f]+/.exec(imageID ?? '')?.[0]
+
+/**
+ * A workload's rollouts as an assistant reads them, as `revisions` lists them: when each was
+ * made and why, whether it runs now, and each container's image with the digest its pods pulled.
+ * Where none of its pods is left, it says so: an old one's digests went with them. Without
+ * `pods` (they couldn't be listed), its images alone.
+ */
+export function rollouts(
+  revisions: readonly Revision[],
+  pods: readonly KubeObject[] | undefined,
+  now: number,
+) {
+  return revisions.map((r) => {
+    const own = (pods ?? []).filter((pod) =>
+      r.pods.values.includes(pod.metadata.labels?.[r.pods.label] ?? ''),
+    )
+    const statuses: { name: string; imageID?: string }[] = own.flatMap((pod) => [
+      ...((pod.status?.initContainerStatuses ?? []) as { name: string; imageID?: string }[]),
+      ...containerStatuses(pod),
+    ])
+    const spec = r.template.spec as { initContainers?: Named[]; containers?: Named[] }
+    return {
+      revision: r.revision,
+      made: `${r.createdAt} (${age(r.createdAt, now)} ago)`,
+      ...(r.current ? { current: true } : {}),
+      ...(r.changeCause ? { changeCause: r.changeCause } : {}),
+      ...(pods ? { pods: own.length } : {}),
+      containers: [...(spec.initContainers ?? []), ...(spec.containers ?? [])].map((c) => {
+        if (!pods) return { name: c.name, image: c.image }
+        const digests = [
+          ...new Set(
+            statuses
+              .filter((s) => s.name === c.name)
+              .map((s) => digestOf(s.imageID))
+              .filter((d): d is string => d !== undefined),
+          ),
+        ]
+        return {
+          name: c.name,
+          image: c.image,
+          ...(own.length === 0
+            ? { digest: 'no pod of it is left to say' }
+            : digests.length === 0
+              ? { digest: 'none of its pods has pulled it yet' }
+              : digests.length === 1
+                ? { digest: digests[0] }
+                : // (A tag that moved between its pods' pulls.)
+                  { digests }),
+        }
+      }),
+    }
+  })
+}
+
+interface Named {
+  name: string
+  image?: string
 }

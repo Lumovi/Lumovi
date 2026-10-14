@@ -381,6 +381,13 @@ const ASKED_OF_EACH_TOOL: Record<string, Record<string, unknown>> = {
   },
   get_events: { cluster: CONTEXTS.demo },
   get_logs: { cluster: CONTEXTS.demo, namespace: 'shop', pod: DEMO.pods.cart },
+  get_rollout_history: {
+    cluster: CONTEXTS.demo,
+    kind: 'deployment',
+    namespace: 'shop',
+    name: DEMO.deployments.cart,
+  },
+  find_in_clusters: { match: 'cart' },
   find_problems: { cluster: CONTEXTS.demo },
   apply_manifest: {
     cluster: CONTEXTS.demo,

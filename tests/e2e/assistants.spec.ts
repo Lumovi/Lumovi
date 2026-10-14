@@ -6,6 +6,7 @@
  * the bridge Claude Desktop starts.
  */
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer, request } from 'node:http'
 import { createServer, type AddressInfo } from 'node:net'
@@ -271,6 +272,8 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
     'get_resource',
     'get_events',
     'get_logs',
+    'get_rollout_history',
+    'find_in_clusters',
     'find_problems',
     'apply_manifest',
     'scale',
@@ -513,7 +516,7 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
   expect(everywhere.text).toContain(`object: Node/${DEMO.nodes.worker3}`)
   const quiet = await call(client, 'find_problems', { cluster: 'sandbox', namespace: 'nowhere' })
   expect(quiet.text).toBe(
-    'Nothing is wrong in nowhere in sandbox: no unhealthy objects, and no warnings in the last hour.',
+    'Nothing is wrong in nowhere in sandbox: no unhealthy objects, no warnings in the last hour, and no risky config.',
   )
   const offline = await call(client, 'find_problems', { cluster: CONTEXTS.offline })
   expect(offline.text).toMatch(/^couldNotCheck:\n\s+- "?Node: /)
@@ -540,6 +543,190 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
   })
   expect(missing.error).toBe(true)
   expect(missing.text).toContain('not found')
+  await client.close()
+})
+
+test('An assistant reads a workload’s rollouts with the digests its pods pulled, finds where something is in every cluster, and hears of config that could hurt data', async ({
+  page,
+  clusters,
+}) => {
+  await openCluster(page)
+  const client = await connect(await turnOn(page))
+  const digest = (image: string) => `sha256:${createHash('sha256').update(image).digest('hex')}`
+
+  // A Deployment's rollouts, the newest first: why each was made, which runs now, and what its
+  // images resolved to (an old one's pods are gone, and its digests with them).
+  const storefront = await call(client, 'get_rollout_history', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.storefront,
+  })
+  expect(storefront.text).toMatch(
+    /^object: Deployment\/storefront\nnamespace: shop\nrollouts:\n {2}- revision: 4\n {4}made: \S+Z \(\d+d ago\)\n {4}current: true\n {4}changeCause: "Release v3\.8\.2: faster product search"\n {4}pods: 3\n/,
+  )
+  expect(storefront.text).toContain(
+    `- name: app\n        image: ghcr.io/acme/storefront:v3.8.2\n        digest: ${digest('ghcr.io/acme/storefront:v3.8.2')}\n`,
+  )
+  expect(storefront.text).toMatch(
+    /- revision: 3\n {4}made: .*\n {4}changeCause: Release v3\.7\.4\n {4}pods: 0\n {4}containers:\n(?:.*\n)*? {6}- name: app\n {8}image: ghcr\.io\/acme\/storefront:v3\.7\.4\n {8}digest: no pod of it is left to say\n/,
+  )
+  // Only its own pods: one of another workload's with the same hash lends it nothing.
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Pod',
+    metadata: {
+      name: 'not-storefront',
+      namespace: 'shop',
+      labels: {
+        app: 'not-storefront',
+        'pod-template-hash': DEMO.replicaSets.storefront.slice('storefront-'.length),
+      },
+      creationTimestamp: new Date().toISOString(),
+    },
+    spec: { containers: [{ name: 'app', image: 'ghcr.io/acme/storefront:v3.8.2' }] },
+    status: {
+      phase: 'Running',
+      containerStatuses: [
+        {
+          name: 'app',
+          ready: true,
+          restartCount: 0,
+          imageID: `ghcr.io/acme/storefront@${digest('elsewhere')}`,
+        },
+      ],
+    },
+  })
+  const own = await call(client, 'get_rollout_history', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.storefront,
+  })
+  expect(own.text).toMatch(/- revision: 4\n(?: {4}.*\n)*? {4}pods: 3\n/)
+  expect(own.text).not.toContain(digest('elsewhere'))
+  // Its pods can't be listed: its rollouts all the same, without digests, and why.
+  const noPods = clusters.demo.fail('/api/v1/namespaces/shop/pods', { status: 403 })
+  const unlisted = await call(client, 'get_rollout_history', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.storefront,
+  })
+  noPods()
+  expect(unlisted.error).toBe(false)
+  expect(unlisted.text).toMatch(/\ndigestsUnknown: "?its pods can’t be listed: /)
+  expect(unlisted.text).toContain('image: ghcr.io/acme/storefront:v3.8.2\n')
+  expect(unlisted.text).not.toContain('digest:')
+  expect(unlisted.text).not.toContain('pods: ')
+  // A StatefulSet's, from its ControllerRevisions.
+  const postgres = await call(client, 'get_rollout_history', {
+    cluster: 'demo',
+    kind: 'sts',
+    namespace: 'data',
+    name: 'postgres',
+  })
+  expect(postgres.text).toMatch(/- revision: 2\n {4}made: .*\n {4}current: true\n {4}pods: 3\n/)
+  expect(postgres.text).toContain(`digest: ${digest('postgres:17.6-alpine')}\n`)
+  expect(postgres.text).toMatch(
+    /- revision: 1\n(?:.*\n)*? {8}image: postgres:17\.5-alpine\n {8}digest: no pod of it is left to say/,
+  )
+  const newest = await call(client, 'get_rollout_history', {
+    cluster: 'demo',
+    kind: 'deploy',
+    namespace: 'shop',
+    name: DEMO.deployments.storefront,
+    limit: 1,
+  })
+  expect(newest.text).toContain('older: "1 older, left out: ask with a larger limit."\n')
+  expect(newest.text).not.toContain('revision: 3')
+  expect(
+    await call(client, 'get_rollout_history', {
+      cluster: 'demo',
+      kind: 'pod',
+      namespace: 'shop',
+      name: DEMO.pods.cart[0]!,
+    }),
+  ).toEqual({
+    error: true,
+    text: 'Pods keep no rollout history: Deployments, StatefulSets and DaemonSets do.',
+  })
+
+  // Where something is, in every cluster at once: each cluster that couldn't be looked in says
+  // why, and one that signs in through a credential plugin isn't asked.
+  const found = await call(client, 'find_in_clusters', { match: 'POSTGRES' })
+  expect(found.text).toMatch(/^found:\n {2}- cluster: demo\n {4}items:\n/)
+  expect(found.text).toMatch(
+    /- kind: StatefulSet\n {8}name: postgres\n {8}namespace: data\n {8}health: /,
+  )
+  expect(found.text).toMatch(/- kind: Service\n {8}name: postgres\n {8}namespace: data\n/)
+  expect(found.text).toMatch(/\nnothingIn:\n {2}- sandbox\n/)
+  expect(found.text).toMatch(
+    new RegExp(
+      `\\nnotAsked:\\n {2}- cluster: ${CONTEXTS.execMissing}\\n {4}why: it needs sign-in through a credential plugin`,
+    ),
+  )
+  expect(found.text).toMatch(
+    new RegExp(`\\ncouldNotLook:\\n(?:.*\\n)*? {2}- cluster: ${CONTEXTS.offline}\\n {4}why: `),
+  )
+  const inData = await call(client, 'find_in_clusters', { namespace: 'data', kind: 'namespace' })
+  expect(inData.text).toMatch(
+    /^found:\n {2}- cluster: demo\n {4}items:\n {6}- kind: Namespace\n {8}name: data\n/,
+  )
+  const labelled = await call(client, 'find_in_clusters', {
+    labelSelector: 'app.kubernetes.io/name=redis',
+  })
+  expect(labelled.text).toMatch(
+    /^found:\n {2}- cluster: demo\n {4}items:\n {6}- kind: StatefulSet\n {8}name: redis\n {8}namespace: data\n(?: {8}.*\n)*nothingIn:/,
+  )
+  // (A cluster that's down says so once, not for each kind it was asked for.)
+  expect(labelled.text).toMatch(
+    new RegExp(
+      `\\n {2}- cluster: ${CONTEXTS.offline}\\n {4}why: "?connect ECONNREFUSED [\\d.:]+"?\\n`,
+    ),
+  )
+  const first = await call(client, 'find_in_clusters', { match: 'storefront', limit: 1 })
+  expect(first.text).toMatch(
+    /^found:\n {2}- cluster: demo\n {4}items:\n {6}- kind: \w+\n(?: {8}.*\n)+ {4}more: "?More than 1 here: ask for less, or a larger limit\."?\n/,
+  )
+  expect(await call(client, 'find_in_clusters', {})).toEqual({
+    error: true,
+    text: 'Say what to find: a text in a name (match), a labelSelector, or a namespace.',
+  })
+
+  // A workload that keeps data, on an image whose tag moves and is pulled at every start.
+  clusters.sandbox.upsert({
+    apiVersion: 'apps/v1',
+    kind: 'StatefulSet',
+    metadata: {
+      name: 'notes-db',
+      namespace: 'default',
+      creationTimestamp: new Date().toISOString(),
+    },
+    spec: {
+      replicas: 0,
+      serviceName: 'notes-db',
+      selector: { matchLabels: { app: 'notes-db' } },
+      template: {
+        metadata: { labels: { app: 'notes-db' } },
+        spec: {
+          containers: [
+            { name: 'db', image: 'postgres:latest', imagePullPolicy: 'Always' },
+            { name: 'backup', image: 'ghcr.io/acme/backup:2.4.0', imagePullPolicy: 'Always' },
+          ],
+        },
+      },
+      volumeClaimTemplates: [
+        { metadata: { name: 'data' }, spec: { accessModes: ['ReadWriteOnce'] } },
+      ],
+    },
+    status: { replicas: 0 },
+  })
+  const risky = await call(client, 'find_problems', { cluster: 'sandbox', namespace: 'default' })
+  expect(risky.text).toMatch(
+    /riskyConfig:\n {2}- object: StatefulSet\/notes-db\n {4}namespace: default\n {4}containers:\n {6}- container: db\n {8}image: postgres:latest\n {8}tag: latest\n {4}why: "?It keeps data in volume claims/,
+  )
+  expect(risky.text).not.toContain('backup')
   await client.close()
 })
 
@@ -1880,7 +2067,7 @@ test('An unanswered change expires, and is forgotten a while after', async ({ la
   await client.close()
 })
 
-test('asked whether every cluster answers, Lumovi starts no credential plugin: a cluster that signs in through one is said to need sign-in, and isn’t asked', async ({
+test('asked whether every cluster answers, or where something is in each, Lumovi starts no credential plugin: a cluster that signs in through one is said to need sign-in, and isn’t asked', async ({
   launch,
   clusters,
 }) => {
@@ -1927,6 +2114,16 @@ test('asked whether every cluster answers, Lumovi starts no credential plugin: a
   )
   // Asked twice, it started the plugin neither time.
   await call(client, 'list_clusters')
+  await new Promise((done) => setTimeout(done, 1_000))
+  expect(starts()).toBe(before)
+  // Asked twice where something is in every cluster, it doesn't start it either.
+  for (const _ of [1, 2]) {
+    const found = await call(client, 'find_in_clusters', { match: 'storefront' })
+    expect(found.text).toMatch(/^found:\n {2}- cluster: demo\n/)
+    expect(found.text).toMatch(
+      /\nnotAsked:\n {2}- cluster: sso\n {4}why: it needs sign-in through a credential plugin \(prompting-login\), which a look in every cluster doesn’t start\n/,
+    )
+  }
   await new Promise((done) => setTimeout(done, 1_000))
   expect(starts()).toBe(before)
   await leave(client)

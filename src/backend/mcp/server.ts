@@ -7,7 +7,7 @@ import { registerTools, type ToolContext } from './tools'
 
 /** What an assistant is told about Lumovi when it connects. */
 export const INSTRUCTIONS = `Lumovi shows Kubernetes clusters: the contexts of the user's kubeconfig. Start with list_clusters.
-To see what's wrong, find_problems is the quickest; then get_resource, get_events and get_logs on what it finds.
+To see what's wrong, find_problems is the quickest; then get_resource, get_events and get_logs on what it finds, and get_rollout_history for what changed. find_in_clusters says which cluster has something.
 Changes (apply_manifest, scale, restart, delete_resource) are shown to the user in Lumovi with the diff they make and their kubectl command, and made only if the user approves them (unless their cluster lets assistants change it without asking). The call waits for the answer up to a minute; if it says it's still waiting, call wait_for_change with the id it gives, until the user answers. Say in reason what's wrong and how the change helps, and tell the user to look at Lumovi. A rejection may come with a note: follow it. Read-only clusters take no changes, and some take none from assistants.
 Secret values are never shown.`
 

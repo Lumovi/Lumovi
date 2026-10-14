@@ -1058,6 +1058,8 @@ export interface Revision {
   changeCause?: string
   /** Whether it is what the workload runs now. */
   current: boolean
+  /** How its pods are told from the others: a label (its hash), and the values that mean it. */
+  pods: { label: string; values: string[] }
 }
 
 /**

@@ -3,7 +3,8 @@
  * and volume claims whose health is a warning or critical, with Lumovi's
  * reasons, and the warnings Kubernetes reported in the last hour. For a pod,
  * why each of its failing containers fails: how its last run ended, and (read
- * by the tool, where logs may be) the last error lines of that run.
+ * by the tool, where logs may be) the last error lines of that run. And the
+ * workloads whose config could hurt their data, healthy as they may be.
  */
 import type { KubeObject } from '@shared/api'
 import { eventCount, lastSeen } from '@shared/events'
@@ -26,10 +27,16 @@ const HOUR = 3_600_000
 const MAX_WARNINGS = 20
 /** Problems shown, the worst first: past them, how many more. */
 export const MAX_PROBLEMS = 100
+/** Workloads with risky config shown: past them, how many more. */
+export const MAX_RISKY = 20
+/** Workloads whose config find_problems reads for what could hurt their data. */
+const WORKLOADS: readonly BuiltinKind[] = ['Deployment', 'StatefulSet', 'DaemonSet']
 
 export interface Problems {
   problems: Record<string, unknown>[]
   warnings: Record<string, unknown>[]
+  /** Workloads, healthy or not, whose config could hurt their data. */
+  risky: Record<string, unknown>[]
   /** Kinds that couldn't be looked at, and why. */
   unchecked: string[]
   /** Problems past those shown. */
@@ -107,6 +114,59 @@ export function errorLines(logs: string, most = 5): string[] {
   return (failures.length ? failures : lines).slice(-most).map((line) => cut(line, 300))
 }
 
+/**
+ * How an image's tag moves, where it does: none (so latest), latest, or a major version alone
+ * (16, v2, 16-alpine). Nothing for one that names a version, or a digest.
+ */
+export function floatingTag(image: string): string | undefined {
+  if (image.includes('@')) return undefined
+  const colon = image.lastIndexOf(':')
+  const tag = colon > image.lastIndexOf('/') ? image.slice(colon + 1) : ''
+  if (tag === '') return 'no tag, so latest'
+  if (tag === 'latest') return 'latest'
+  if (/^v?\d{1,3}(?:-[a-z][\w.-]*)?$/i.test(tag)) return 'a major version alone'
+  return undefined
+}
+
+interface Container {
+  name: string
+  image?: string
+  imagePullPolicy?: string
+}
+
+/**
+ * A workload that keeps data (a volume claim) and runs an image whose tag moves, pulled again
+ * whenever a pod starts (imagePullPolicy Always, as it is unless said for latest): what
+ * find_problems warns of, with the containers that do. Nothing for one that doesn't.
+ */
+export function riskyConfig(kind: string, workload: KubeObject): Record<string, unknown> | null {
+  const spec = workload.spec?.template?.spec as
+    | {
+        containers?: Container[]
+        initContainers?: Container[]
+        volumes?: { persistentVolumeClaim?: unknown }[]
+      }
+    | undefined
+  const keepsData =
+    Boolean((workload.spec?.volumeClaimTemplates as unknown[] | undefined)?.length) ||
+    Boolean(spec?.volumes?.some((volume) => volume.persistentVolumeClaim))
+  if (!spec || !keepsData) return null
+  const containers = [...(spec.initContainers ?? []), ...(spec.containers ?? [])].flatMap((c) => {
+    const tag = c.image ? floatingTag(c.image) : undefined
+    const always =
+      c.imagePullPolicy === 'Always' ||
+      (c.imagePullPolicy === undefined && tag !== undefined && tag !== 'a major version alone')
+    return tag && always ? [{ container: c.name, image: c.image, tag }] : []
+  })
+  if (!containers.length) return null
+  return {
+    object: `${kind}/${workload.metadata.name}`,
+    ...(workload.metadata.namespace ? { namespace: workload.metadata.namespace } : {}),
+    containers,
+    why: 'It keeps data in volume claims, and its image’s tag can move to a newer version, pulled whenever a pod starts: so a restart can run a newer version on the same data, without anyone choosing it. A tag that names one version, or a digest, holds it to that.',
+  }
+}
+
 export async function findProblems(
   kube: KubeService,
   context: string,
@@ -120,6 +180,7 @@ export async function findProblems(
     ...kinds.map((kind) => kube.list({ context, kind, namespace })),
   ])
   const found: { rank: number; problem: Record<string, unknown> }[] = []
+  const risky: Record<string, unknown>[] = []
   const unchecked: string[] = []
   lists.forEach((list, i) => {
     const kind = kinds[i]!
@@ -128,6 +189,8 @@ export async function findProblems(
       return
     }
     for (const object of list.data.items) {
+      const config = WORKLOADS.includes(kind) ? riskyConfig(kind, object) : null
+      if (config) risky.push(config)
       const status = statusOf(kind, object)!
       if (status.health !== 'critical' && status.health !== 'warning') continue
       const failing = kind === 'Pod' ? failingContainers(object, now) : []
@@ -148,6 +211,7 @@ export async function findProblems(
   return {
     problems: sorted,
     warnings: events.ok ? recentWarnings(events.data.items, now) : [],
+    risky,
     unchecked,
     more: 0,
   }

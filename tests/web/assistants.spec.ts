@@ -87,6 +87,17 @@ test('assistants sign in as the person, and read what they may', async ({
   })
   expect(errors.text.split('\n')[0]).toContain('missing PAYMENTS_API_KEY')
   expect(clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
+  const history = await call(client, 'get_rollout_history', {
+    cluster: 'demo',
+    kind: 'Deployment',
+    namespace: 'shop',
+    name: DEMO.deployments.storefront,
+  })
+  expect(history.text).toMatch(/^object: Deployment\/storefront\nnamespace: shop\nrollouts:\n/)
+  expect(clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
+  const found = await call(client, 'find_in_clusters', { match: 'storefront' })
+  expect(found.text).toMatch(/^found:\n {2}- cluster: demo\n/)
+  expect(clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
 
   // Her assistants, by the names they give.
   await page.goto(`${served.url}cluster/demo`)
@@ -142,6 +153,8 @@ test('assistants sign in as the person, and read what they may', async ({
     ['List resources', 'success', 'demo'],
     ['Find problems', 'success', 'demo'],
     [`Get logs: Pod ${DEMO.pods.checkout[0]!}`, 'success', 'demo'],
+    [`Get rollout history: Deployment ${DEMO.deployments.storefront}`, 'success', 'demo'],
+    ['Find in every cluster', 'success', undefined],
   ])
   expect(tools[1]).toMatchObject({
     category: 'assistant',

@@ -28,13 +28,21 @@ import {
   type AiTarget,
 } from '@shared/ai-permissions'
 import { cappedByAccess, type AccessDecision } from '@shared/access'
-import type { ChangeRequest, KubeError, KubeErrorCode, KubeObject, Result } from '@shared/api'
+import type {
+  ChangeRequest,
+  KubeError,
+  KubeErrorCode,
+  KubeObject,
+  Result,
+  RolloutKind,
+} from '@shared/api'
 import type { ChangeProposal, ProposalOutcome } from '@shared/assistants'
 import type { AuditApproval, AuditDetail, AuditOutcome } from '@shared/audit'
 import { kubectl, objectArg } from '@shared/kubectl'
 import {
   isBuiltinKind,
   kindFor,
+  type BuiltinKind,
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
@@ -44,7 +52,14 @@ import type { KubeService } from '../kube/service'
 import { addsSecretReads, NamespaceLabels } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
 import { fitted, LEVELS, linesOf } from './log-lines'
-import { errorLines, findProblems, MAX_PROBLEMS, type Failing, type Problems } from './problems'
+import {
+  errorLines,
+  findProblems,
+  MAX_PROBLEMS,
+  MAX_RISKY,
+  type Failing,
+  type Problems,
+} from './problems'
 import {
   age,
   changesOf,
@@ -53,6 +68,7 @@ import {
   involved,
   readable,
   resolvedBy,
+  rollouts,
   row,
   statusOf,
   withoutLongAnnotations,
@@ -131,6 +147,21 @@ const ANSWER_CHARS = 48_000
 const ANSWER_WITHIN_MS = 3_000
 /** Failing containers whose last run find_problems reads the last error lines of. */
 const MAX_LAST_RUNS = 10
+/** How long find_in_clusters waits for each cluster: past it, it's said not to have answered. */
+const FIND_WITHIN_MS = 5_000
+/** The most find_in_clusters lists of one cluster's. */
+const MAX_FOUND = 100
+/** What find_in_clusters looks through, unless asked for a kind: places, and what runs there. */
+const FOUND_KINDS: readonly BuiltinKind[] = [
+  'Namespace',
+  'Deployment',
+  'StatefulSet',
+  'DaemonSet',
+  'CronJob',
+  'Service',
+]
+/** Workloads that keep a rollout history. */
+const ROLLOUT_KINDS: readonly RolloutKind[] = ['Deployment', 'StatefulSet', 'DaemonSet']
 const WAIT = approvalTime()
 
 const cluster = z
@@ -883,11 +914,239 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
   )
 
   server.registerTool(
+    'get_rollout_history',
+    {
+      title: 'Get rollout history',
+      description:
+        'A Deployment’s, StatefulSet’s or DaemonSet’s rollouts, the newest first: when each was made and why (its change cause), which one runs now, and each container’s image with the digest its pods pulled (where a pod of it is left: an old one’s digests went with its pods). What changed, and when, if something broke after a rollout.',
+      inputSchema: {
+        cluster,
+        kind: kind.describe('Deployment, StatefulSet or DaemonSet.'),
+        namespace: z.string().min(1),
+        name: z.string().min(1),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('The newest so many: 10 unless given.'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ cluster, kind, namespace, name, limit = 10 }) => {
+      const definition = await resolveKind(cluster, kind)
+      if (!ROLLOUT_KINDS.includes(definition.kind as RolloutKind)) {
+        return failed(
+          `${definition.label} keep no rollout history: Deployments, StatefulSets and DaemonSets do.`,
+        )
+      }
+      await inNamespace(cluster, namespace, `${definition.plural} "${name}" not found`)
+      const revisions = data(
+        await kube.history({
+          context: cluster,
+          kind: definition.kind as RolloutKind,
+          namespace,
+          name,
+        }),
+      )
+      const shown = revisions.slice(0, limit)
+      // Its own pods, to say what each rollout's images resolved to: those its selector picks
+      // (each revision then takes those its hash labels). Where they can't be listed, the
+      // rollouts are still said, without digests.
+      const workload = data(
+        await kube.get({ context: cluster, kind: definition.kind, namespace, name }),
+      )
+      const selector = Object.entries(
+        (workload.spec?.selector?.matchLabels ?? {}) as Record<string, string>,
+      )
+        .map(([key, value]) => `${key}=${value}`)
+        .join(',')
+      const listed = shown.length
+        ? await kube.list({
+            context: cluster,
+            kind: 'Pod',
+            namespace,
+            labelSelector: selector || undefined,
+          })
+        : undefined
+      const pods = listed?.ok ? listed.data.items : undefined
+      return text(
+        yaml({
+          object: `${definition.kind}/${name}`,
+          namespace,
+          ...(revisions.length ? {} : { rollouts: 'none kept' }),
+          ...(revisions.length > limit
+            ? { older: `${revisions.length - limit} older, left out: ask with a larger limit.` }
+            : {}),
+          ...(listed && !listed.ok
+            ? { digestsUnknown: `its pods can’t be listed: ${listed.error.message}` }
+            : {}),
+          ...(shown.length ? { rollouts: rollouts(shown, pods, Date.now()) } : {}),
+        }),
+      )
+    },
+  )
+
+  server.registerTool(
+    'find_in_clusters',
+    {
+      title: 'Find in every cluster',
+      description: `Where something is, in every cluster at once: objects whose name has a text in it, or with labels, or in a namespace. Namespaces, Deployments, StatefulSets, DaemonSets, CronJobs and Services, or one kind. Each cluster is given ${FIND_WITHIN_MS / 1000} seconds and says if it didn’t answer; one that signs in through a credential plugin isn’t asked, as with list_clusters.`,
+      inputSchema: {
+        match: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Objects whose name has this text in it, in any case.'),
+        labelSelector: z.string().optional().describe('As kubectl’s -l takes it: app=web,tier!=db'),
+        namespace: z
+          .string()
+          .optional()
+          .describe('Only in this namespace, in each cluster that has it.'),
+        kind: kind
+          .optional()
+          .describe(
+            'Only this kind, in each cluster that serves it (a custom resource’s too); else namespaces, Deployments, StatefulSets, DaemonSets, CronJobs and Services.',
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_FOUND)
+          .optional()
+          .describe(`At most this many in each cluster: 20 unless given, ${MAX_FOUND} at most.`),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ match, labelSelector, namespace, kind, limit = 20 }) => {
+      if (!match && !labelSelector && !namespace) {
+        return failed(
+          'Say what to find: a text in a name (match), a labelSelector, or a namespace.',
+        )
+      }
+      const { error } = kube.contexts()
+      if (error) return failed(`Lumovi can’t read the kubeconfig: ${error}`)
+      const wanted = match?.toLowerCase()
+      const now = Date.now()
+      /** What a cluster has of it, and the kinds it couldn't list. */
+      const findIn = async (context: string) => {
+        const definitions = kind
+          ? [await resolveKind(context, kind)]
+          : FOUND_KINDS.map((k) => ({ kind: k, namespaced: k !== 'Namespace' }))
+        const decide = accessIn(context)
+        // (A namespace asked for is found as itself; nothing else outside one is in it.)
+        const looked = definitions.filter(
+          (d) => !namespace || d.namespaced || d.kind === 'Namespace',
+        )
+        const lists = await Promise.all(
+          looked.map((d) =>
+            kube.list({
+              context,
+              kind: d.kind,
+              namespace: d.namespaced ? namespace : undefined,
+              labelSelector,
+            }),
+          ),
+        )
+        const found: Record<string, unknown>[] = []
+        const notListed: { kind: string; why: string }[] = []
+        for (const [i, d] of looked.entries()) {
+          const list = lists[i]!
+          if (!list.ok) {
+            notListed.push({ kind: d.kind, why: list.error.message })
+            continue
+          }
+          for (const item of list.data.items) {
+            // (One past the limit says there are more: the rest aren't looked at.)
+            if (found.length > limit) break
+            const { name, namespace: theirs } = item.metadata
+            if (wanted && !name.toLowerCase().includes(wanted)) continue
+            if (namespace && d.kind === 'Namespace' && name !== namespace) continue
+            const scope = d.kind === 'Namespace' ? name : theirs
+            if (scope !== undefined) {
+              const decision = await decide(scope)
+              if (decision.visibility.value === 'hidden') continue
+              if (d.kind === 'Secret' && decision.secrets.value === 'hidden') continue
+            }
+            const status = statusOf(d.kind, item)
+            found.push({
+              kind: d.kind,
+              name,
+              ...(theirs ? { namespace: theirs } : {}),
+              ...(status ? { health: describeStatus(status) } : {}),
+              age: age(item.metadata.creationTimestamp!, now),
+            })
+          }
+        }
+        // Where every kind failed alike (the cluster is down, say), it's said once.
+        const whys = new Set(notListed.map((n) => n.why))
+        if (notListed.length === looked.length && whys.size === 1) throw new Error([...whys][0])
+        const said = notListed.map((n) => `${n.kind}: ${n.why}`)
+        if (notListed.length === looked.length) throw new Error(said.join('; '))
+        return { found, notListed: said }
+      }
+      const shown = visibleContexts()
+      const asked = await Promise.all(
+        shown.map((c) => {
+          const plugin = kube.credentialPlugin(c.name)
+          if (plugin) {
+            return {
+              notAsked: `it needs sign-in through a credential plugin (${plugin}), which a look in every cluster doesn’t start`,
+            }
+          }
+          return Promise.race([
+            findIn(c.name).catch((e: Error) => ({ couldNotLook: e.message })),
+            new Promise<{ couldNotLook: string }>((done) =>
+              setTimeout(
+                () => done({ couldNotLook: `no answer within ${FIND_WITHIN_MS / 1000} s` }),
+                FIND_WITHIN_MS,
+              ).unref(),
+            ),
+          ])
+        }),
+      )
+      const found: Record<string, unknown>[] = []
+      const nothingIn: string[] = []
+      const notAsked: Record<string, string>[] = []
+      const couldNotLook: Record<string, string>[] = []
+      asked.forEach((answer, i) => {
+        const context = shown[i]!.name
+        if ('notAsked' in answer) notAsked.push({ cluster: context, why: answer.notAsked })
+        else if ('couldNotLook' in answer)
+          couldNotLook.push({ cluster: context, why: answer.couldNotLook })
+        else if (!answer.found.length && !answer.notListed.length) nothingIn.push(context)
+        else {
+          found.push({
+            cluster: context,
+            ...(answer.found.length ? { items: answer.found.slice(0, limit) } : {}),
+            ...(answer.found.length > limit
+              ? {
+                  more: `More than ${limit} here: ask for less, or a larger limit.`,
+                }
+              : {}),
+            ...(answer.notListed.length ? { couldNotList: answer.notListed } : {}),
+          })
+        }
+      })
+      return text(
+        yaml({
+          ...(found.length ? { found } : {}),
+          ...(nothingIn.length ? { nothingIn } : {}),
+          ...(notAsked.length ? { notAsked } : {}),
+          ...(couldNotLook.length ? { couldNotLook } : {}),
+        }),
+      )
+    },
+  )
+
+  server.registerTool(
     'find_problems',
     {
       title: 'Find problems',
       description:
-        'What’s wrong in a cluster, or one namespace, in one call: nodes, pods, workloads, jobs and volume claims whose health is a warning or critical, with Lumovi’s reasons, and the last hour’s warning events, the most frequent first. The place to start when asked what’s wrong.',
+        'What’s wrong in a cluster, or one namespace, in one call: nodes, pods, workloads, jobs and volume claims whose health is a warning or critical, with Lumovi’s reasons; for a failing pod, how each failing container’s last run ended and its last error lines; the last hour’s warning events, the most frequent first; and workloads that keep data in volume claims while their image’s tag can move (latest, none, or a major version alone) and is pulled at every start. The place to start when asked what’s wrong.',
       inputSchema: { cluster, namespace: z.string().optional() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -896,7 +1155,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       const where = namespace ? `${namespace} in ${cluster}` : cluster
       const hidden = namespace && (await access(cluster, namespace)).visibility.value === 'hidden'
       const found = hidden
-        ? ({ problems: [], warnings: [], unchecked: [], more: 0 } satisfies Problems)
+        ? ({ problems: [], warnings: [], risky: [], unchecked: [], more: 0 } satisfies Problems)
         : await findProblems(kube, cluster, namespace, Date.now())
       // Nothing in a namespace that's hidden: it isn't there.
       const decide = accessIn(cluster)
@@ -915,9 +1174,12 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       }
       found.problems = await shown(found.problems)
       found.warnings = await shown(found.warnings)
+      found.risky = await shown(found.risky)
       // The worst first, so many: past them, how many more.
       found.more = Math.max(0, found.problems.length - MAX_PROBLEMS)
       found.problems = found.problems.slice(0, MAX_PROBLEMS)
+      const moreRisky = Math.max(0, found.risky.length - MAX_RISKY)
+      found.risky = found.risky.slice(0, MAX_RISKY)
       // Why a container fails, in its own words: the last error lines of its run before its last
       // restart, for the first so many, where the person's AI permissions let assistants read
       // logs. Each read is in the audit history, as get_logs's are.
@@ -959,9 +1221,14 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           logsRead(cluster, namespace, pod, failing.container, 200, previous)
         }
       }
-      if (!found.problems.length && !found.warnings.length && !found.unchecked.length) {
+      if (
+        !found.problems.length &&
+        !found.warnings.length &&
+        !found.risky.length &&
+        !found.unchecked.length
+      ) {
         return text(
-          `Nothing is wrong in ${where}: no unhealthy objects, and no warnings in the last hour.`,
+          `Nothing is wrong in ${where}: no unhealthy objects, no warnings in the last hour, and no risky config.`,
         )
       }
       return text(
@@ -978,6 +1245,8 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
               }
             : {}),
           ...(found.warnings.length ? { warningsInTheLastHour: found.warnings } : {}),
+          ...(found.risky.length ? { riskyConfig: found.risky } : {}),
+          ...(moreRisky ? { moreRiskyConfig: `${moreRisky} more workloads like these.` } : {}),
           ...(found.unchecked.length ? { couldNotCheck: found.unchecked } : {}),
         }),
       )

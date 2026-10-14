@@ -104,6 +104,7 @@ const ROLLOUT_KINDS: readonly RolloutKind[] = ['Deployment', 'StatefulSet', 'Dae
 const REVISION = 'deployment.kubernetes.io/revision'
 const CHANGE_CAUSE = 'kubernetes.io/change-cause'
 const TEMPLATE_HASH = 'pod-template-hash'
+const REVISION_HASH = 'controller-revision-hash'
 
 interface ListResponse {
   items: KubeObject[]
@@ -707,13 +708,14 @@ export class KubeService {
         const current = owner.metadata.annotations?.[REVISION]
         revisions = items.filter(owned).map((rs) => {
           // ReplicaSets always label their pods, and Deployments number their rollouts.
-          const { [TEMPLATE_HASH]: _hash, ...labels } = rs.spec.template.metadata.labels
+          const { [TEMPLATE_HASH]: hash, ...labels } = rs.spec.template.metadata.labels
           return {
             revision: Number(rs.metadata.annotations![REVISION]),
             createdAt: rs.metadata.creationTimestamp!,
             template: { ...rs.spec.template, metadata: { ...rs.spec.template.metadata, labels } },
             changeCause: changeCause(rs),
             current: rs.metadata.annotations![REVISION] === current,
+            pods: { label: TEMPLATE_HASH, values: [String(hash)] },
           }
         })
       } else {
@@ -738,6 +740,13 @@ export class KubeService {
               q.kind === 'StatefulSet'
                 ? item.metadata.name === owner.status?.updateRevision
                 : Number(item.revision) === newest,
+            // A StatefulSet's pods carry the revision's name; a DaemonSet's, its hash.
+            pods: {
+              label: REVISION_HASH,
+              values: [item.metadata.name, item.metadata.labels?.[REVISION_HASH]].filter(
+                (value): value is string => Boolean(value),
+              ),
+            },
           }
         })
       }
