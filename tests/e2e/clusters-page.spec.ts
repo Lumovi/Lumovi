@@ -409,7 +409,8 @@ console.log(JSON.stringify({ apiVersion: 'client.authentication.k8s.io/v1', kind
   await expect(page.getByRole('dialog', { name: 'demo-2 is ready' })).toBeVisible()
   expect(existsSync(ran)).toBe(true)
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).last().click()
-  await expect(clusterOption(page, 'demo-2')).toContainText(DEMO.gitVersion)
+  // (It signs in through a program: the start screen says so rather than asking it.)
+  await expect(clusterOption(page, 'demo-2')).toContainText('Signs in when opened')
 
   // A server that doesn't answer: why, and added anyway.
   const offline = readFileSync(kubeconfigFor('vpn-only', clusters.offlineUrl, undefined), 'utf8')

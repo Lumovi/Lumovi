@@ -470,7 +470,12 @@ test.describe('login shell PATH and proxy', () => {
       `PATH="${bin}:$PATH"; HTTPS_PROXY="${proxy.url}"; export PATH HTTPS_PROXY; eval "$2"`,
     )
     const { page, app } = await launch({ env: { SHELL: shell, KUBECONFIG: kubeconfig } })
-    await expect(clusterOption(page, 'via-plugin')).toContainText(DEMO.gitVersion)
+    // (Not asked on the start screen: opened, it signs in.)
+    await expect(clusterOption(page, 'via-plugin')).toContainText('Signs in when opened')
+    await clusterOption(page, 'via-plugin').click()
+    await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText(
+      DEMO.gitVersion,
+    )
     expect(await app.evaluate(() => process.env.PATH)).toContain(bin)
     expect(await app.evaluate(() => process.env.HTTPS_PROXY)).toBe(proxy.url)
     expect(proxy.seen).toContain(`CONNECT cluster.test:${clusters.demo.port}`)

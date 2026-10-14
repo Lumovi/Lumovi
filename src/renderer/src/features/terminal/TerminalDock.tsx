@@ -249,7 +249,9 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
   const phase = usePhase(tab.session)
   const dock = useDock.getState()
   const [renaming, setRenaming] = useState(false)
+  // (One whose shell ended as Lumovi quit says so: "ended", where a shell that exited says that.)
   const ended = phase.state === 'ended' || phase.state === 'failed'
+  const word = tab.quit ? 'ended' : ended ? 'exited' : undefined
   const id = tab.session.id
   // Renamed, it's shown (its name is edited where it's selected).
   const rename = () => {
@@ -273,7 +275,7 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
             <button
               type="button"
               role="tab"
-              aria-label={`${tabName(tab)}${ended ? ', exited' : ''}`}
+              aria-label={`${tabName(tab)}${word ? `, ${word}` : ''}`}
               id={`terminal-tab-${id}`}
               aria-selected={selected}
               aria-controls={`terminal-${id}`}
@@ -288,12 +290,12 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
               <SquareTerminal
                 className={cn(
                   'size-3.5',
-                  ended ? 'text-ink-3' : selected ? 'text-ink-1' : 'text-ink-2',
+                  word ? 'text-ink-3' : selected ? 'text-ink-1' : 'text-ink-2',
                 )}
               />
               <span className="max-w-48 truncate font-medium">{tab.title ?? tab.context}</span>
               {!tab.title && tab.namespace && <span className="text-ink-3">{tab.namespace}</span>}
-              {ended && <span className="text-ink-3 italic">exited</span>}
+              {word && <span className="text-ink-3 italic">{word}</span>}
             </button>
           )}
           <button
@@ -394,8 +396,9 @@ function Keys({ keys }: { keys: string[] }) {
 function Panel({ tab, shown }: { tab: TerminalTab; shown: boolean }) {
   const phase = usePhase(tab.session)
   const dock = useDock.getState()
-  const ended =
-    phase.state === 'failed'
+  const ended = tab.quit
+    ? 'The shell ended when Lumovi quit.'
+    : phase.state === 'failed'
       ? phase.error
       : phase.state === 'ended'
         ? `The shell exited with code ${phase.exit.code}.`
@@ -413,12 +416,19 @@ function Panel({ tab, shown }: { tab: TerminalTab; shown: boolean }) {
         label={`Terminal ${tabName(tab)}`}
         owned={false}
         dimmed={Boolean(ended)}
+        idle={tab.quit}
       >
         {ended && (
           <TerminalNotice
+            {...(tab.quit
+              ? {
+                  detail:
+                    'A terminal’s shell can’t outlive Lumovi. Its name, cluster and namespace are kept for a new one.',
+                }
+              : {})}
             actions={
               <Button variant="primary" onClick={() => dock.restart(tab.session.id)}>
-                <RotateCw /> Restart
+                <RotateCw /> {tab.quit ? 'Start a new shell' : 'Restart'}
               </Button>
             }
           >

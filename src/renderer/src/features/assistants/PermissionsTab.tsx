@@ -8,7 +8,7 @@
  */
 import { notifyManager, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, CircleAlert, Lock, Plus, Search, Server, ShieldCheck, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { stringify } from 'yaml'
 import {
@@ -35,7 +35,8 @@ import { Button } from '@renderer/components/Button'
 import { api } from '@renderer/lib/api'
 import { Loading } from '@renderer/components/States'
 import { useContexts } from '@renderer/hooks/queries'
-import { readOnlyIn, useSettings } from '@renderer/hooks/settings'
+import { readOnlyIn, useClusterName, useSettings } from '@renderer/hooks/settings'
+import { TheirText } from '@renderer/plugins/TheirText'
 import { cn } from '@renderer/lib/cn'
 import { Card, Segmented } from './PageParts'
 import { useNamespaceIndex, type IndexedNamespace, type NamespaceIndex } from './namespaces'
@@ -336,6 +337,7 @@ function Stats({
   readOnly: (cluster: string) => boolean
 }) {
   const counts = tally(decided, readOnly)
+  const clusterName = useClusterName()
   const stats = [
     {
       value: counts.seen,
@@ -361,6 +363,27 @@ function Stats({
       {index.counting.length > 0 && (
         <p className="mt-2 text-xs text-ink-3">
           Counting the namespaces in {index.counting.join(', ')}…
+        </p>
+      )}
+      {/* (Listed, each would start the program it signs in through: only when asked.) */}
+      {index.waiting.length > 0 && (
+        <p className="mt-2 text-xs text-ink-3">
+          Not counted yet:{' '}
+          {index.waiting.map((context, i) => (
+            <Fragment key={context}>
+              {i > 0 && ', '}
+              <TheirText inline text={clusterName(context)} />
+            </Fragment>
+          ))}
+          , which {index.waiting.length === 1 ? 'signs' : 'sign'} in when opened.{' '}
+          <button
+            type="button"
+            onClick={index.countAll}
+            title="Signs in to each now, which may open a browser or ask in a terminal."
+            className="font-medium text-accent-strong hover:underline"
+          >
+            Count them
+          </button>
         </p>
       )}
       {index.failed.length > 0 && (

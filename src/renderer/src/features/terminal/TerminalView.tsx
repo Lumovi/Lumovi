@@ -39,6 +39,7 @@ export function TerminalView({
   owned = true,
   focusWhenOpen = false,
   dimmed,
+  idle = false,
   children,
 }: {
   session: TerminalSession
@@ -49,20 +50,22 @@ export function TerminalView({
   focusWhenOpen?: boolean
   /** Faded, once its shell has ended (with a notice over it, saying so). */
   dimmed: boolean
+  /** Its shell isn't started: one that ended as Lumovi quit, until a new one's asked for. */
+  idle?: boolean
   children?: ReactNode
 }) {
   const host = useRef<HTMLDivElement>(null)
   const phase = usePhase(session)
 
   useEffect(() => {
-    session.start()
+    if (!idle) session.start()
     const detach = session.attach(host.current!)
     const release = owned ? session.hold() : undefined
     return () => {
       detach()
       release?.()
     }
-  }, [session, owned])
+  }, [session, owned, idle])
 
   const open = phase.state === 'open'
   useEffect(() => {

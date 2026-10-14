@@ -247,8 +247,9 @@ async function shows(page: Page, text: string, timeout = FIRST.timeout) {
 }
 
 /** Opens the terminal of the open cluster, and waits for its shell. */
+/** A new terminal (⌃⇧`): never one Lumovi opened again, ended, from before it last quit. */
 async function terminal(page: Page) {
-  await page.keyboard.press('Control+Backquote')
+  await page.keyboard.press('Control+Shift+Backquote')
   await ready(page)
 }
 

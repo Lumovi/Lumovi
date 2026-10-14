@@ -253,12 +253,30 @@ if (stdio) {
     // them; each window's own events are listened to once all there is to tell them is (wire).
     const windows = new Windows()
     let quitting = false
+    /** Where a window is and what it shows: its place, its page's address, what it has below. */
+    const keptOf = (win: BrowserWindow): WindowState => {
+      const page = new URL(win.webContents.getURL()).hash
+      const below = windows.belowOf(win)
+      return {
+        ...windowState(win),
+        ...(page.startsWith('#/') ? { page } : {}),
+        ...(below !== undefined ? { below } : {}),
+      }
+    }
     const makeWindow = (saved?: WindowState) => {
-      const win = createMainWindow(url, saved, (state) => {
+      // (Where its page was, an address of the app's own, never another page, is handed to the
+      // page: it opens on the start screen and goes there itself, unless that would read a
+      // cluster that signs in through a program before anyone asks.)
+      const page =
+        typeof saved?.page === 'string' && /^#\/[^#]{0,2047}$/.test(saved.page)
+          ? saved.page
+          : undefined
+      const win = createMainWindow(url, saved, () => {
         // (Quitting, every window is kept, below; else the last closing keeps itself alone.)
-        if (!quitting && windows.all().length === 1) settings.update({ windows: [state] })
+        if (!quitting && windows.all().length === 1) settings.update({ windows: [keptOf(win)] })
       })
       windows.add(win)
+      windows.restore(win, { page, below: saved?.below })
       return win
     }
     const saved = settings.get().windows ?? []
@@ -266,7 +284,7 @@ if (stdio) {
     app.on('before-quit', () => {
       quitting = true
       const open = windows.all()
-      if (open.length) settings.update({ windows: open.map(windowState) })
+      if (open.length) settings.update({ windows: open.map(keptOf) })
     })
     /** What every window hears: what's the app's own, not one page's stream. */
     const send = (channel: string, ...args: unknown[]) => windows.toAll(channel, ...args)

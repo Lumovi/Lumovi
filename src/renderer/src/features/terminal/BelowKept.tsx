@@ -1,0 +1,47 @@
+/**
+ * What this window has below, kept for when Lumovi opens it again: read back once as the page
+ * starts, then said to the main process as it changes (a little after, not at every keystroke).
+ * And the window goes back to where its page was: never a cluster gone from the kubeconfig, nor
+ * one that signs in through a program (that waits for a press, on the start screen).
+ */
+import { useEffect } from 'react'
+import { api } from '@renderer/lib/api'
+import { useDock } from './dock'
+
+/** How long a change waits before it's said, others after it said with it. */
+const SAY_AFTER_MS = 300
+
+export function BelowKept() {
+  useEffect(() => {
+    let gone = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let unsubscribe: (() => void) | undefined
+    void (async () => {
+      const [{ page, below }, contexts] = await Promise.all([
+        api.desktop!.restored(),
+        api.kube.contexts().catch(() => undefined),
+      ])
+      if (gone) return
+      const known = new Map((contexts?.contexts ?? []).map((c) => [c.name, c]))
+      // Where it was: gone to, where that's a cluster still there, and one that doesn't sign in
+      // through a program (that waits for a press, from the start screen). Else the start screen.
+      const at = page && /^#\/cluster\/([^/?]+)/.exec(page)?.[1]
+      const cluster = at ? known.get(decodeURIComponent(at)) : undefined
+      if (page && (!at || (cluster && !cluster.signsInWith))) window.location.replace(page)
+      // (A cluster that signs in through a program: its tabs wait to be shown before they read.)
+      useDock.getState().restore(below, (context) => Boolean(known.get(context)?.signsInWith))
+      const say = () => api.desktop!.keepBelow(useDock.getState().snapshot())
+      say()
+      unsubscribe = useDock.subscribe(() => {
+        clearTimeout(timer)
+        timer = setTimeout(say, SAY_AFTER_MS)
+      })
+    })()
+    return () => {
+      gone = true
+      clearTimeout(timer)
+      unsubscribe?.()
+    }
+  }, [])
+  return null
+}

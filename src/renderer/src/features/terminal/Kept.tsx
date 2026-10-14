@@ -15,7 +15,8 @@ import { KindIcon } from '@renderer/components/KindIcon'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { ErrorState, Loading } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
-import { useObject } from '@renderer/hooks/queries'
+import { Tooltip } from '@renderer/components/Tooltip'
+import { useContexts, useObject } from '@renderer/hooks/queries'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useClusterName } from '@renderer/hooks/settings'
 import { usePlugins } from '@renderer/hooks/plugins'
@@ -29,6 +30,7 @@ import { ActionBar } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { DetailTabs } from '../details/DetailPanel'
 import { menuContent, menuItem } from '../shell/menu-styles'
+import { TheirText } from '@renderer/plugins/TheirText'
 import { useDock, type KeptTab } from './dock'
 import { keptState } from './kept-state'
 
@@ -56,8 +58,9 @@ export function KeptTabButton({ kept, selected }: { kept: KeptTab; selected: boo
   const clusterName = useClusterName()
   const tabName = TAB_NAMES[kept.tab]
   const elsewhere = kept.context !== context
-  const state =
-    kept.deletedAt !== undefined
+  const state = kept.waiting
+    ? 'not read yet'
+    : kept.deletedAt !== undefined
       ? 'deleted'
       : kept.unreachableSince !== undefined
         ? 'unreachable'
@@ -73,32 +76,53 @@ export function KeptTabButton({ kept, selected }: { kept: KeptTab; selected: boo
               : 'text-ink-2 hover:bg-surface-3/60 hover:text-ink-1',
           )}
         >
-          <button
-            type="button"
-            role="tab"
-            aria-label={[
-              keptName(kept),
-              tabName,
-              elsewhere ? `on ${clusterName(kept.context)}` : undefined,
-              state,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-            id={`terminal-tab-${kept.id}`}
-            aria-selected={selected}
-            aria-controls={`terminal-${kept.id}`}
-            onClick={() => dock.select(kept.id)}
-            className="flex h-full min-w-0 items-center gap-1.5 rounded-md pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          <Tooltip
+            content={
+              <>
+                {[
+                  `${keptName(kept)}${kept.object.namespace ? ` in ${kept.object.namespace}` : ''}`,
+                  `on ${clusterName(kept.context)}`,
+                ].join(', ')}
+                {' · '}
+                {tabName ?? 'Overview'}
+                {kept.waiting && (
+                  <span className="mt-0.5 block text-ink-3">
+                    Not read yet: its cluster signs in through a program, so Lumovi reads it when
+                    you show it or open that cluster.
+                  </span>
+                )}
+              </>
+            }
           >
-            <KindIcon
-              kind={kept.object.kind}
-              className={cn('size-3.5 shrink-0', selected ? 'text-ink-1' : 'text-ink-2')}
-            />
-            <MiddleTruncate text={kept.object.name} className="max-w-48 font-medium" />
-            {tabName && <span className="shrink-0 text-ink-3">{tabName}</span>}
-            {elsewhere && <span className="shrink-0 text-ink-3">{clusterName(kept.context)}</span>}
-            {state && <span className="shrink-0 text-ink-3 italic">{state}</span>}
-          </button>
+            <button
+              type="button"
+              role="tab"
+              aria-label={[
+                keptName(kept),
+                tabName,
+                elsewhere ? `on ${clusterName(kept.context)}` : undefined,
+                state,
+              ]
+                .filter(Boolean)
+                .join(', ')}
+              id={`terminal-tab-${kept.id}`}
+              aria-selected={selected}
+              aria-controls={`terminal-${kept.id}`}
+              onClick={() => dock.select(kept.id)}
+              className="flex h-full min-w-0 items-center gap-1.5 rounded-md pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <KindIcon
+                kind={kept.object.kind}
+                className={cn('size-3.5 shrink-0', selected ? 'text-ink-1' : 'text-ink-2')}
+              />
+              <MiddleTruncate text={kept.object.name} className="max-w-48 font-medium" />
+              {tabName && <span className="shrink-0 text-ink-3">{tabName}</span>}
+              {elsewhere && (
+                <span className="shrink-0 text-ink-3">{clusterName(kept.context)}</span>
+              )}
+              {state && <span className="shrink-0 text-ink-3 italic">{state}</span>}
+            </button>
+          </Tooltip>
           <button
             type="button"
             aria-label={`Close ${keptName(kept)}`}
@@ -157,6 +181,14 @@ function OpenInPanelItem({ kept }: { kept: KeptTab }) {
 /** A kept object, at the size of the tabs below: read in its own cluster. */
 export function KeptPanel({ kept, shown }: { kept: KeptTab; shown: boolean }) {
   const open = useOpenInPanel(kept)
+  // Waiting (its cluster signs in through a program): read once it's picked (see `dock.select`),
+  // asked for here, or its cluster's opened in this window, which asks what the cluster's pages
+  // would. Shown as Lumovi opens isn't asking: it says so instead, and waits.
+  const { context } = useCluster()
+  const waiting = kept.waiting === true
+  useEffect(() => {
+    if (waiting && kept.context === context) useDock.getState().read(kept.id)
+  }, [waiting, context, kept.context, kept.id])
   // (Its own cluster's, whichever the window shows: everything under it reads that one.)
   const scope: ClusterState = {
     context: kept.context,
@@ -173,9 +205,48 @@ export function KeptPanel({ kept, shown }: { kept: KeptTab; shown: boolean }) {
       hidden={!shown}
       className="absolute inset-0 flex flex-col"
     >
-      <ClusterContext.Provider value={scope}>
-        <KeptDetail kept={kept} onOpen={open} />
-      </ClusterContext.Provider>
+      {waiting ? (
+        <NotReadYet kept={kept} />
+      ) : (
+        <ClusterContext.Provider value={scope}>
+          <KeptDetail kept={kept} onOpen={open} />
+        </ClusterContext.Provider>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A kept object that waits to be read, its cluster signing in through a program: which, and the
+ * press that reads it (and so may sign in). `focused`: where it's all a window has.
+ */
+export function NotReadYet({ kept, focused = false }: { kept: KeptTab; focused?: boolean }) {
+  const clusterName = useClusterName()
+  // (The program's name, as the kubeconfig gives it: read, never run.)
+  const program = useContexts().data?.contexts.find((c) => c.name === kept.context)?.signsInWith
+  return (
+    <div className="grid h-full place-items-center p-4">
+      <div
+        role="status"
+        className="max-w-md space-y-1.5 rounded-xl border border-line-strong bg-surface-2 px-4 py-3 text-[13px] text-ink-2 shadow-pop"
+      >
+        <p className="font-medium text-ink-1">Not read yet</p>
+        <p className="text-pretty">
+          {/* (Both a kubeconfig's: spelled, so none can turn the line round or hide in it.) */}
+          <TheirText inline text={clusterName(kept.context)} /> signs in through{' '}
+          {program ? <TheirText inline text={program} /> : 'a program'}, so Lumovi reads this when
+          you ask.
+        </p>
+        <div className="flex flex-wrap gap-2 pt-1.5">
+          <Button
+            variant="primary"
+            autoFocus={focused}
+            onClick={() => useDock.getState().read(kept.id)}
+          >
+            Read it now
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

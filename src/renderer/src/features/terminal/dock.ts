@@ -15,6 +15,8 @@ export interface TerminalTab {
   namespace?: string
   /** What it's called, once renamed. */
   title?: string
+  /** Its shell ended when Lumovi quit: kept, with its name and where, for a new one. */
+  quit?: true
 }
 
 /** An object kept open below: in its cluster, on one of its tabs, which it keeps as it's shown. */
@@ -28,7 +30,28 @@ export interface KeptTab {
   deletedAt?: number
   /** Since when its cluster hasn't answered (Lumovi tries again on its own). */
   unreachableSince?: number
+  /**
+   * Opened again as Lumovi did, on a cluster that signs in through a program: not read until
+   * someone picks it, asks with Read it now, or opens its cluster in this window. (Shown as Lumovi
+   * opens, because it was when it quit, isn't asking: nothing opens a browser by itself.)
+   */
+  waiting?: true
 }
+
+/** What a window has below, as it keeps it for when Lumovi opens it again. */
+export interface BelowSnapshot {
+  open: boolean
+  maximized: boolean
+  /** The tab shown, by its place among them. */
+  shown?: number
+  tabs: (
+    | { kind: 'terminal'; context: string; namespace?: string; title?: string }
+    | { kind: 'kept'; context: string; object: ObjectRef; tab: string }
+  )[]
+}
+
+/** The most tabs a window opens again with. */
+const RESTORED_MOST = 50
 
 /** What a tab says: its own name, or its cluster (and namespace). */
 export function tabName(tab: TerminalTab): string {
@@ -76,7 +99,7 @@ interface Dock {
   refocus(): void
   /** Starts the shell again, in the same tab. */
   restart(id: string): void
-  /** Shows a tab (opening the tabs below, from its bar). */
+  /** Shows a tab (opening the tabs below, from its bar): a kept object waiting reads, asked for. */
   select(id: string): void
   /**
    * A terminal: the last one shown is shown (opening the tabs below), or one is opened for
@@ -85,6 +108,16 @@ interface Dock {
   toggle(context: string, namespace?: string): void
   /** Shows the tabs below, on the tab last shown, or hides them. */
   toggleOpen(): void
+  /** What this window has below, to keep for when Lumovi opens it again. */
+  snapshot(): BelowSnapshot
+  /**
+   * Opens with what the window had below as Lumovi last closed (`kept`, checked here: it's
+   * only data). Terminals come back ended, their names and places kept; kept objects come back
+   * as just opened, waiting where their cluster signs in through a program (`signsIn`).
+   */
+  restore(kept: unknown, signsIn: (context: string) => boolean): void
+  /** A waiting kept object may now be read. */
+  read(id: string): void
   setMaximized(maximized: boolean): void
   setPanelTab(panelTab: { ref: string; tab: string } | undefined): void
   /**
@@ -224,7 +257,15 @@ export const useDock = create<Dock>()((set, get) => {
     },
     select(id) {
       show(id)
-      set((dock) => ({ active: id, open: true, focus: dock.focus + 1 }))
+      // (Picked, a kept object that waits to be read is asked for: it reads now.)
+      set((dock) => ({
+        active: id,
+        open: true,
+        focus: dock.focus + 1,
+        kept: dock.kept.map((each) =>
+          each.id === id && each.waiting ? { ...each, waiting: undefined } : each,
+        ),
+      }))
     },
     toggle(context, namespace) {
       const { open, active, tabs } = get()
@@ -245,6 +286,84 @@ export const useDock = create<Dock>()((set, get) => {
     },
     setMaximized(maximized) {
       set({ maximized })
+    },
+    snapshot() {
+      const { tabs, kept, order, active, open, maximized } = get()
+      const shown = active ? order.indexOf(active) : -1
+      return {
+        open,
+        maximized,
+        ...(shown >= 0 ? { shown } : {}),
+        tabs: order.flatMap((id): BelowSnapshot['tabs'] => {
+          const terminal = tabs.find((tab) => tab.session.id === id)
+          if (terminal) {
+            const { context, namespace, title } = terminal
+            return [{ kind: 'terminal', context, namespace, title }]
+          }
+          const object = kept.find((each) => each.id === id)
+          if (!object) return []
+          return [{ kind: 'kept', context: object.context, object: object.object, tab: object.tab }]
+        }),
+      }
+    },
+    restore(saved, signsIn) {
+      const text = (value: unknown) =>
+        typeof value === 'string' && value.length > 0 && value.length <= 253 ? value : undefined
+      const { tabs: given, open, maximized, shown } = (saved ?? {}) as Partial<BelowSnapshot>
+      if (!Array.isArray(given) || get().order.length > 0) return
+      const terminals: TerminalTab[] = []
+      const objects: KeptTab[] = []
+      const order: string[] = []
+      for (const each of given.slice(0, RESTORED_MOST) as Record<string, unknown>[]) {
+        const context = text(each?.context)
+        if (!context) continue
+        if (each.kind === 'terminal') {
+          // (Its shell isn't started again by itself: it runs the person's profile.)
+          const namespace = text(each.namespace)
+          const title = text(each.title)
+          const tab: TerminalTab = {
+            ...tabFor(context, namespace),
+            ...(title ? { title } : {}),
+            quit: true,
+          }
+          terminals.push(tab)
+          order.push(tab.session.id)
+        } else if (each.kind === 'kept') {
+          const object = each.object as Partial<ObjectRef> | undefined
+          const kind = text(object?.kind)
+          const name = text(object?.name)
+          // (Never on a shell, a pod's or a node's: shown, that would start one, or a node's debug
+          // pod, before anyone asks. On its overview instead.)
+          const saved = text(each.tab) ?? 'overview'
+          const tab = saved === 'shell' ? 'overview' : saved
+          if (!kind || !name) continue
+          const namespace = text(object?.namespace)
+          const one: KeptTab = {
+            id: crypto.randomUUID(),
+            context,
+            object: { kind: kind as ObjectRef['kind'], name, ...(namespace ? { namespace } : {}) },
+            tab,
+            ...(signsIn(context) ? { waiting: true as const } : {}),
+          }
+          objects.push(one)
+          order.push(one.id)
+        }
+      }
+      if (order.length === 0) return
+      const active = (typeof shown === 'number' && order[shown]) || order.at(-1)!
+      set({
+        tabs: terminals,
+        kept: objects,
+        order,
+        active,
+        open: open === true,
+        maximized: maximized === true,
+      })
+    },
+    read(id) {
+      set((dock) => ({
+        kept: dock.kept.map((each) => (each.id === id ? { ...each, waiting: undefined } : each)),
+      }))
     },
     setPanelTab(panelTab) {
       set({ panelTab })

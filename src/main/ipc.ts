@@ -473,6 +473,15 @@ export function registerIpc(deps: Dependencies): void {
   for (const [channel, handler] of Object.entries({ ...shared.send, ...desktopSend })) {
     on(channel, handler)
   }
+  // What a page has below is its window's: kept as it says, and given back to it once (with where
+  // it was) as Lumovi opens that window again.
+  ipcMain.on(IPC.keepBelow, (event: IpcMainEvent, below: unknown) => {
+    if (trusted(event)) windows.keepBelow(event.sender, below)
+  })
+  ipcMain.handle(IPC.restored, (event: IpcMainInvokeEvent) => {
+    if (!trusted(event)) throw new Error(`Blocked ${IPC.restored} from an untrusted frame`)
+    return windows.takeRestored(event.sender) ?? {}
+  })
   // Whether a page's terminal has focus is that page's own: its window's ⌘ keys follow it.
   const focusing = new Set<number>()
   ipcMain.on(IPC.terminalFocus, (event: IpcMainEvent, focused: unknown) => {
