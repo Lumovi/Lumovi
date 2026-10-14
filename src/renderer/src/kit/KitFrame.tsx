@@ -19,10 +19,12 @@ import {
   type WrittenPickList,
   type WrittenTiles,
 } from '@shared/kit/page'
+import { graph as graphPart } from '@shared/kit/graph'
 import { table, type WrittenTable } from '@shared/kit/table'
 import { Pair, Split, Stack, Tiles } from './Arrangements'
 import { Card } from './Card'
 import { Counts } from './Counts'
+import { Graph } from './Graph'
 import { handedAs, token } from './handing'
 import { PageHeader } from './PageHeader'
 import { Steps } from './Steps'
@@ -464,6 +466,53 @@ const READS: WrittenTable = {
   ],
 }
 
+/** A graph as a plugin writes it. */
+type WrittenGraph = WrittenProps<typeof graphPart>
+
+/**
+ * An application's resources, here: its Deployment out of sync (marked), and every card opening
+ * its object, by its token, or (its Service, which the plugin didn't read) going to Lumovi's own
+ * list at it; or (`remote`) on another cluster, where its cards are context and open nothing.
+ */
+const resources = (remote: boolean): WrittenGraph => {
+  const card = (
+    key: string,
+    kind: string,
+    name: string,
+    level: 'healthy' | 'progressing',
+    word: string,
+    more: Record<string, unknown> = {},
+  ) => ({
+    key,
+    kind,
+    name,
+    status: { level, word },
+    cells: [],
+    ...(remote
+      ? { context: true }
+      : kind === 'Service'
+        ? { goes: { list: '/Service', name, namespace: 'shop' } }
+        : { opens: token({ kind, name, namespace: 'shop' }) }),
+    ...more,
+  })
+  return {
+    title: remote ? 'Resources on prod-us' : 'Resources',
+    legend: { solid: 'Manages', marked: 'Out of sync' },
+    columns: [],
+    nodes: [
+      card('app', 'Application', 'orders', 'progressing', 'Progressing'),
+      card('job', 'Job', 'orders-migrate', 'healthy', 'Complete', { beside: 'PreSync' }),
+      card('dep', 'Deployment', 'orders', 'progressing', 'Progressing', { marked: true }),
+      card('svc', 'Service', 'orders', 'healthy', 'Healthy'),
+    ],
+    edges: [
+      { from: 'app', to: 'job' },
+      { from: 'app', to: 'dep' },
+      { from: 'app', to: 'svc' },
+    ],
+  }
+}
+
 /** What a run of steps, or a row's button, is refused for. */
 const REFUSED_NOW: (string | undefined)[] = [
   refusal(stepsPart, SYNCING),
@@ -477,6 +526,19 @@ const REFUSED_NOW: (string | undefined)[] = [
     })),
   }),
   refusal(table, history(false)),
+  refusal(graphPart, resources(false)),
+  refusal(graphPart, resources(true)),
+  refusal(graphPart, {
+    ...resources(true),
+    nodes: [
+      {
+        ...resources(true).nodes![0]!,
+        opens: token({ kind: 'Pod', name: 'x', namespace: 'shop' }),
+      },
+    ],
+    edges: [],
+  }),
+  refusal(graphPart, { ...resources(false), legend: { solid: 'Manages' } }),
   refusal(table, {
     ...history(false),
     columns: [...history(false).columns!, { name: 'Again', kind: 'button' }],
@@ -674,9 +736,11 @@ export function KitFrame() {
             <Card {...handedAs({ title: 'This sync' }, cardPart)}>
               <Steps {...handedAs(FAILED, stepsPart)} />
             </Card>
+            <Graph {...handedAs(resources(false), graphPart)} go={said('go')} />
+            <Graph {...handedAs(resources(true), graphPart)} go={said('go')} />
             <Table {...handedAs(history(false), table)} onPress={said('row press')} />
             <Table
-              {...handedAs({ ...history(true), title: 'History, auto-sync on' }, table)}
+              {...handedAs({ ...history(true), title: 'History, synced by itself' }, table)}
               onPress={said('row press')}
             />
             <Table {...handedAs(READS, table)} onPress={said('row press')} />

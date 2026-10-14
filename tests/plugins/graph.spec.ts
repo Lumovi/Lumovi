@@ -331,3 +331,62 @@ test('5,000 cards and 10,000 lines, loops among them, are listed and filtered in
   const fewerLines = lines.filter((line) => +line.from.slice(1) < 300 && +line.to.slice(1) < 300)
   timed('300 cards: ordered for the picture', () => orderRows(fewer, fewerLines))
 })
+
+test('a marked card needs the legend to say what a mark is; one shown for context opens nothing', () => {
+  const card = (key: string, more: Record<string, unknown> = {}) => ({
+    key,
+    name: key,
+    cells: [],
+    ...more,
+  })
+  const said = (written: unknown) =>
+    wrongWithFields(written, graph.props, graph.required, 'Graph') ??
+    graph.also(written as Readonly<Record<string, unknown>>)
+  const of = (nodes: unknown[], legend?: Record<string, string>) => ({
+    title: 'Resources',
+    columns: [],
+    nodes,
+    edges: [],
+    ...(legend ? { legend } : {}),
+  })
+  expect(said(of([card('a', { marked: true })], { marked: 'Out of sync' }))).toBeUndefined()
+  expect(
+    said(of([card('a', { context: true, marked: true })], { marked: 'Out of sync' })),
+  ).toBeUndefined()
+  expect(said(of([card('a'), card('b', { marked: true })]))).toBe(
+    'Card 2 is marked, and the legend doesn’t say what a mark is: give it legend.marked.',
+  )
+  expect(said(of([card('a', { context: true, opens: 'object-1' })]))).toBe(
+    'Card 1 is shown for context and opens something: one shown for context opens nothing.',
+  )
+  expect(said(of([card('a', { marked: 'yes' })]))).toMatch(/^Graph\.nodes\[0\]\.marked: /)
+})
+
+test('a card goes somewhere as a Table’s row does, where the plugin holds no token for it: never with opens, an icon or as context', () => {
+  const card = (key: string, more: Record<string, unknown> = {}) => ({
+    key,
+    name: key,
+    cells: [],
+    ...more,
+  })
+  const said = (written: unknown) =>
+    wrongWithFields(written, graph.props, graph.required, 'Graph') ??
+    graph.also(written as Readonly<Record<string, unknown>>)
+  const of = (nodes: unknown[]) => ({ title: 'Resources', columns: [], nodes, edges: [] })
+  const goes = { list: 'apps/Deployment', name: 'orders', namespace: 'shop' }
+  expect(said(of([card('a', { goes })]))).toBeUndefined()
+  expect(said(of([card('a', { goes: { object: 'object-1', at: 'logs' } })]))).toBeUndefined()
+  expect(said(of([card('a', { goes, opens: 'object-1' })]))).toBe(
+    'Card 1 opens an object and goes to a list: a card does one or the other.',
+  )
+  expect(said(of([card('a', { goes, icon: 'box' })]))).toBe(
+    'Card 1 goes somewhere and names an icon: one that goes has its kind’s own.',
+  )
+  expect(said(of([card('a', { goes, context: true })]))).toBe(
+    'Card 1 is shown for context and opens something: one shown for context opens nothing.',
+  )
+  // As the door writes any destination: a kind, as group/Kind.
+  expect(said(of([card('a', { goes: { list: 'Deployment' } })]))).toMatch(
+    /^Graph\.nodes\[0\]\.goes\.list: /,
+  )
+})

@@ -84,7 +84,11 @@ function finished(tops: readonly Building[]): DrawnRow[] {
 }
 
 /** The graph's table: its rows, in its shape's order, nesting as deep as the lines go. */
-export function tableOf<C extends Card, L extends Line>(shape: Shape<C, L>): DrawnRow[] {
+export function tableOf<C extends Card, L extends Line>(
+  shape: Shape<C, L>,
+  /** What a marked card is, in the plugin's words: said beside its row's name. */
+  marked?: Their,
+): DrawnRow[] {
   const { rows, lines, back } = shape
   // Where each card is in the picture: by its row, then left to right; the worst first among equals.
   const place = new Map<string, number>()
@@ -144,9 +148,15 @@ export function tableOf<C extends Card, L extends Line>(shape: Shape<C, L>): Dra
     const building: Building = {
       row: {
         key: node.key,
-        lead: { level: node.status?.level, name: node.name, under: joined(node.kind, label) },
+        lead: {
+          level: node.status?.level,
+          name: node.name,
+          under: joined(node.kind, label),
+          ...(node.marked && marked?.their ? { beside: marked } : {}),
+        },
         cells: node.cells,
-        opens: node.opens,
+        // (One shown for context opens nothing, in the table as in the picture.)
+        ...(node.context ? {} : { opens: node.opens, goes: node.goes }),
       },
       rows: [],
     }
