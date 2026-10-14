@@ -72,6 +72,7 @@ import { MARK_CLASS, Pieces, TheirText } from '@renderer/plugins/TheirText'
 import { InCard } from './Card'
 import { CARD, HEADING, Lead, leadIsCut, said } from './Lead'
 import { FilterBar, StartFilters } from './FilterBar'
+import { TickedRows, tickKey } from './Ticks'
 import { tooltip } from './MiddleCut'
 
 /** A row of one line, one with a line under its name, and each line of a note. */
@@ -475,6 +476,7 @@ export function Table({
   onPress,
   filters,
   search: searchable,
+  ticks,
   bare: bareSaid,
   startOpen = false,
 }: Omit<TableProps, 'rows'> & {
@@ -684,7 +686,33 @@ export function Table({
     [sizes, columns, laidOut],
   )
   const gone = columns.flatMap((_, c) => (kept.includes(c) ? [] : [c]))
-  const template = [`minmax(${LEAST.lead}px,1.4fr)`, ...kept.map((c) => sizes[c]!.track)].join(' ')
+  // Ticks, where the page keeps them and this isn't a phone (nothing is picked there): Lumovi's
+  // own, by the objects the rows open.
+  const tickPlace = useContext(TickedRows)
+  const ticking = ticks === true && !phone && tickPlace !== undefined
+  const tickable = (row: DrawnRow) => (row.opens && !row.again ? row.opens : undefined)
+  const isTicked = (row: DrawnRow) => {
+    const object = tickable(row)
+    return object !== undefined && tickPlace!.ticked.has(tickKey(object))
+  }
+  /** Ticks rows, or lets them go, in one change of the page's ticks. */
+  const tickRows = (rows: readonly DrawnRow[], on: boolean) => {
+    if (!tickPlace) return
+    const next = new Map(tickPlace.ticked)
+    for (const row of rows) {
+      const object = tickable(row)
+      if (!object) continue
+      if (on) next.set(tickKey(object), object)
+      else next.delete(tickKey(object))
+    }
+    tickPlace.set(next)
+  }
+  const tick = (row: DrawnRow, on: boolean) => tickRows([row], on)
+  const template = [
+    ...(ticking ? ['20px'] : []),
+    `minmax(${LEAST.lead}px,1.4fr)`,
+    ...kept.map((c) => sizes[c]!.track),
+  ].join(' ')
 
   const active = useMemo(
     () => (activeKey === undefined ? -1 : lines.findIndex((line) => line.key === activeKey)),
@@ -846,6 +874,11 @@ export function Table({
     End: () => move(lines.length - 1, -1),
     PageDown: () => move(active + PAGE_JUMP, 1),
     PageUp: () => move(active - PAGE_JUMP, -1),
+    // Space ticks the active row, where rows tick.
+    ' ': () => {
+      const line = rowAt(active)
+      if (ticking && line) tick(line.row, !isTicked(line.row))
+    },
     // (A row with a button opens nothing: Enter presses its button, unless it's off.)
     Enter: () => {
       const line = rowAt(active)
@@ -1100,6 +1133,11 @@ export function Table({
             )}
             style={{ gridTemplateColumns: template }}
           >
+            {ticking && (
+              <span role="columnheader" className="flex items-center">
+                <TickAll rows={lines} tickable={tickable} isTicked={isTicked} tickRows={tickRows} />
+              </span>
+            )}
             <span
               role="columnheader"
               aria-sort={
@@ -1229,6 +1267,21 @@ export function Table({
                       'group-focus-visible/table:ring-2 group-focus-visible/table:ring-accent',
                   )}
                 >
+                  {ticking && (
+                    <span role="gridcell" className="flex items-center">
+                      {tickable(row) && (
+                        <input
+                          type="checkbox"
+                          tabIndex={-1}
+                          aria-label={`Select ${spelled(row.lead.name.their)}`}
+                          checked={isTicked(row)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => tick(row, event.target.checked)}
+                          className="size-3.5 accent-[var(--accent)]"
+                        />
+                      )}
+                    </span>
+                  )}
                   <span
                     role="gridcell"
                     style={{ paddingLeft: Math.min(line.depth, DEEPEST) * INDENT }}
@@ -1646,6 +1699,39 @@ const METER = {
   warn: { fill: 'bg-warn', track: 'bg-warn/20' },
   critical: { fill: 'bg-critical', track: 'bg-critical/20' },
 } as const
+
+/**
+ * The box in the headings: every row shown that can be ticked, ticked or let go at once; a dash
+ * while only some are.
+ */
+function TickAll({
+  rows,
+  tickable,
+  isTicked,
+  tickRows,
+}: {
+  rows: readonly Line[]
+  tickable: (row: DrawnRow) => unknown
+  isTicked: (row: DrawnRow) => boolean
+  tickRows: (rows: readonly DrawnRow[], on: boolean) => void
+}) {
+  const shown = rows.flatMap((line) => (line.is === 'row' && tickable(line.row) ? [line.row] : []))
+  const some = shown.filter(isTicked).length
+  const all = shown.length > 0 && some === shown.length
+  return (
+    <input
+      type="checkbox"
+      aria-label="Select every row shown"
+      checked={all}
+      ref={(box) => {
+        if (box) box.indeterminate = some > 0 && !all
+      }}
+      disabled={shown.length === 0}
+      onChange={() => tickRows(shown, !all)}
+      className="size-3.5 accent-[var(--accent)]"
+    />
+  )
+}
 
 /** Since when a status has gone on, where it says (a moment Lumovi counts from), or nothing. */
 function sinceOf(cell: TableCell): number | undefined {

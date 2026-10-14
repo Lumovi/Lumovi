@@ -37,6 +37,12 @@ export const PLUGIN_SINCE = {
     server: 'next',
     /** A page's `takes`: the kind whose tab it stands in. */
     takes: 'next',
+    /** A view's action done to ticked rows (`bulk`), and how its work ends (`ends`). */
+    bulk: 'next',
+    ends: 'next',
+    /** An action's input that's a switch, or a choice of labelled values. */
+    switch: 'next',
+    choices: 'next',
   },
   /** What a view's action can say beyond what it first took. */
   action: {
@@ -113,5 +119,6 @@ export const PLUGIN_SINCE = {
     'Table.filters': 'next',
     'Table.search': 'next',
     'Table.rows[].facets': 'next',
+    'Table.ticks': 'next',
   },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>

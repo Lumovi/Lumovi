@@ -20,7 +20,7 @@ import {
   type WrittenTiles,
 } from '@shared/kit/page'
 import { graph as graphPart } from '@shared/kit/graph'
-import { table, type WrittenTable } from '@shared/kit/table'
+import { table, type ObjectRef, type WrittenTable } from '@shared/kit/table'
 import { Pair, Split, Stack, Tiles } from './Arrangements'
 import { Card } from './Card'
 import { Counts } from './Counts'
@@ -28,6 +28,7 @@ import { Graph } from './Graph'
 import { handedAs, token } from './handing'
 import { PageHeader } from './PageHeader'
 import { Steps } from './Steps'
+import { TickedRows } from './Ticks'
 import { Table } from './Table'
 
 /** A header's button, and a tile, as a plugin writes them. */
@@ -533,6 +534,7 @@ const APPS: WrittenTable = {
     { key: 'labels', name: 'Labels', more: true },
   ],
   search: true,
+  ticks: true,
   rows: (
     [
       ['checkout', 'shop', 'healthy', 'Synced', 'in-cluster', ['team=shop']],
@@ -544,6 +546,10 @@ const APPS: WrittenTable = {
   ).map(([name, project, level, sync, cluster, labels]) => ({
     key: name,
     lead: { level, name, beside: project },
+    // (Ticked by the object it opens.)
+    ...(name === 'reports'
+      ? {}
+      : { opens: token({ kind: 'Application.argoproj.io', name, namespace: 'argocd' }) }),
     cells: [
       { kind: 'text' as const, text: sync },
       name === 'storefront'
@@ -664,6 +670,8 @@ const REFUSED: (string | undefined)[] = [
 ]
 
 export function KitFrame() {
+  // The page's ticks, as a plugin's page keeps them: Lumovi's alone.
+  const [ticked, setTicked] = useState<ReadonlyMap<string, ObjectRef>>(new Map())
   const [which, setWhich] = useState('38 clusters')
   const [events, setEvents] = useState<string[]>([])
   // What the "plugin" last described the rest of the page for.
@@ -802,11 +810,16 @@ export function KitFrame() {
         </section>
         {/* Argo CD's application: where a sync is, and History, whose rows roll back. */}
         <section aria-label="Argo CD’s list">
+          <p aria-label="Ticked" className="pb-2 font-mono text-xs text-ink-3">
+            {[...ticked.values()].map((each) => each.name).join(', ') || 'Nothing ticked'}
+          </p>
           <Stack>
             <Card {...handedAs({ title: 'By state' }, cardPart)}>
               <Counts {...handedAs(BY_STATE, countsPart)} go={said('go')} />
             </Card>
-            <Table {...handedAs(APPS, table)} />
+            <TickedRows.Provider value={{ ticked, set: setTicked }}>
+              <Table {...handedAs(APPS, table)} />
+            </TickedRows.Provider>
           </Stack>
         </section>
         <section aria-label="Argo CD’s application">

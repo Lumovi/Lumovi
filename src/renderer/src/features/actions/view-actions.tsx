@@ -14,6 +14,7 @@ import {
 } from '@renderer/hooks/change'
 import { useGo } from '@renderer/hooks/go'
 import { resourceFor } from '@renderer/hooks/resources'
+import { Switch } from '@renderer/components/Switch'
 import { cn } from '@renderer/lib/cn'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { formatRef, kindPath } from '@renderer/lib/routes'
@@ -122,25 +123,29 @@ export async function judgedNow(
   context: string,
   inputs: InputValues = {},
   now = Date.now(),
-): Promise<{ ok: true; version: string } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true; version: string; object: KubeObject }
+  | { ok: false; message: string; object?: KubeObject }
+> {
   const read = await api.kube.get({ context, ...target(object), name: object.metadata.name })
   if (!read.ok) return { ok: false, message: read.error.message }
   const fresh = read.data
+  // (Refused, it says what it read too: what's busy already is said as that, not as a change.)
   if (action.when !== undefined && !holds(action.when, fresh)) {
-    return { ok: false, message: notSent(action, object) }
+    return { ok: false, message: notSent(action, object), object: fresh }
   }
   const at = (from: KubeObject, path: string) => JSON.stringify(jsonPath(from, path))
   if ((action.same ?? []).some((path) => at(object, path) !== at(fresh, path))) {
-    return { ok: false, message: notSent(action, object) }
+    return { ok: false, message: notSent(action, object), object: fresh }
   }
   // What it would send now, filled from what's there now, is what the person read, or nothing.
   const filled = (from: KubeObject) =>
     JSON.stringify([action.patch, action.undo].map((p) => p && renderPatch(p, from, now, inputs)))
   const version = fresh.metadata.resourceVersion
   if (filled(fresh) !== filled(object) || !version) {
-    return { ok: false, message: changedSince(object) }
+    return { ok: false, message: changedSince(object), object: fresh }
   }
-  return { ok: true, version }
+  return { ok: true, version, object: fresh }
 }
 
 /** A file's line as filled from an object: what the object holds can't make it two. */
@@ -224,12 +229,35 @@ export function viewActionIcon(action: ViewAction) {
   return action.icon ? VIEW_ICONS[action.icon] : Zap
 }
 
-/** The value an input starts with: its default, or a choice's first option. */
-function initial(input: ViewInput, object: KubeObject): string {
+/**
+ * The value an input starts with, as it's typed or picked: its default, or a choice's first
+ * option; a switch's `true` or `false`; a labelled choice's place among its choices.
+ */
+export function initial(input: ViewInput, object: KubeObject): string {
+  if (input.type === 'switch') return input.default === 'true' ? 'true' : 'false'
+  if (input.type === 'choice' && input.choices) return '0'
   const value = input.default ? render(input.default, object) : ''
   if (input.type === 'number') return String(Number(value) || 0)
   return value || (input.type === 'choice' ? (inputOptions(input, object)[0] ?? '') : '')
 }
+
+/**
+ * What an input gives its templates, from what's typed or picked: a number, yes or no, a
+ * labelled choice's value as it is, or the text.
+ */
+export function inputValue(input: ViewInput, typed: string): unknown {
+  if (input.type === 'number') return typed === '' ? '' : Number(typed)
+  if (input.type === 'switch') return typed === 'true'
+  if (input.type === 'choice' && input.choices) return input.choices[Number(typed)]?.value ?? ''
+  return typed
+}
+
+/** Whether an input has what it needs: a text that starts empty may stay so. */
+export const inputReady = (input: ViewInput, typed: string) =>
+  input.type === 'switch' ||
+  (input.type === 'choice' && input.choices !== undefined) ||
+  typed.trim() !== '' ||
+  (input.type === 'text' && input.default === '')
 
 /**
  * A view's action that asks first: with the view's own words, the values it
@@ -247,14 +275,11 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
     Object.fromEntries((action.inputs ?? []).map((input) => [input.name, initial(input, object)])),
   )
   const inputs: InputValues = Object.fromEntries(
-    (action.inputs ?? []).map(({ name, type }) => {
-      const value = typed[name]!
-      return [name, type === 'number' && value !== '' ? Number(value) : value]
-    }),
+    (action.inputs ?? []).map((input) => [input.name, inputValue(input, typed[input.name]!)]),
   )
   // Chosen once, so what's shown is what's created: a name, and the time templates say.
   const [once] = useState(() => ({ suffix: nameSuffix(), now: Date.now() }))
-  const ready = Object.values(typed).every((value) => value.trim() !== '')
+  const ready = (action.inputs ?? []).every((input) => inputReady(input, typed[input.name]!))
 
   const { request, meta, created } = action.create
     ? createChange(action, object, context, inputs, once, go)
@@ -329,7 +354,7 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
 }
 
 /** A value an action asks for: text, a number, or one of a few choices. */
-function InputField({
+export function InputField({
   input,
   object,
   value,
@@ -340,6 +365,48 @@ function InputField({
   value: string
   onChange: (value: string) => void
 }) {
+  if (input.type === 'switch') {
+    return (
+      <label className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-ink-2">{input.label}</span>
+        <Switch
+          label={input.label}
+          checked={value === 'true'}
+          onCheckedChange={(on) => onChange(on ? 'true' : 'false')}
+        />
+      </label>
+    )
+  }
+  // Labelled choices: the person picks a label, and its value is what's filled in.
+  if (input.type === 'choice' && input.choices) {
+    return (
+      <div role="radiogroup" aria-label={input.label}>
+        <p className="mb-1.5 text-xs font-medium text-ink-2">{input.label}</p>
+        <div className="space-y-1">
+          {input.choices.map((choice, index) => (
+            <label
+              key={index}
+              className={cn(
+                'flex cursor-default items-center gap-3 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                value === String(index)
+                  ? 'border-accent bg-accent-soft/60 text-ink-1'
+                  : 'border-line text-ink-2',
+              )}
+            >
+              <input
+                type="radio"
+                name={input.name}
+                checked={value === String(index)}
+                onChange={() => onChange(String(index))}
+                className="accent-[var(--accent)]"
+              />
+              {choice.label}
+            </label>
+          ))}
+        </div>
+      </div>
+    )
+  }
   if (input.type === 'choice') {
     const options = inputOptions(input, object)
     return (

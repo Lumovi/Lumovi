@@ -16,6 +16,7 @@
         "search",
         "shows",
         "state",
+        "ticks",
         "title"
       ],
       "required": ["columns", "headings", "rows", "title"],
@@ -349,6 +350,7 @@
           "max": 8
         },
         "search": { "kind": "yes-or-no" },
+        "ticks": { "kind": "yes-or-no" },
         "onOpen": { "kind": "handler", "event": "open" },
         "onRetry": { "kind": "handler", "event": "retry" },
         "onPress": { "kind": "handler", "event": "press" }

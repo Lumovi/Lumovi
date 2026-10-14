@@ -764,9 +764,9 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'spec.views[1].actions[5]: {{ input.missing }} isn’t one of its inputs',
     'spec.views[1].actions[6].inputs: should not be empty',
     'spec.views[1].actions[7].inputs[0]: "two words" should be letters, digits and _, like replicas',
-    'spec.views[1].actions[7].inputs[1]: a choice needs options, or a path to read them from',
-    'spec.views[1].actions[7].inputs[2]: only a choice has options',
-    'spec.views[1].actions[7].inputs[3]: a choice needs options, or a path to read them from',
+    'spec.views[1].actions[7].inputs[1]: a choice needs one of options, choices, or a path to read them from',
+    'spec.views[1].actions[7].inputs[2]: only a choice has options or choices',
+    'spec.views[1].actions[7].inputs[3]: a choice needs one of options, choices, or a path to read them from',
   ]) {
     await expectProblem(page, problem)
   }
