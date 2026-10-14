@@ -747,17 +747,28 @@ test('beside a panel at 1440, a row of tiles keeps its words at the top, and a l
   const tiles = ['Healthy', 'Out of sync', 'Last sync failed'].map((name) =>
     page.getByRole('region', { name, exact: true }),
   )
-  // One height, and in each its label and its figure at the same height: the spare under the line.
-  const tops = await Promise.all(
+  // In each, its label and its figure at the same height from its own top (the spare under the
+  // line); and tiles that stand in one row are one height. (Measured from each tile's top: where
+  // scroll bars always show, the row is a little narrower, and three can stand two and one.)
+  const placed = await Promise.all(
     tiles.map((tile) =>
       tile.evaluate((el) => {
-        const top = (selector: string) =>
-          Math.round(el.querySelector(selector)!.getBoundingClientRect().top)
-        return [Math.round(el.getBoundingClientRect().height), top('span'), top('.text-\\[28px\\]')]
+        const box = el.getBoundingClientRect()
+        const from = (selector: string) =>
+          Math.round(el.querySelector(selector)!.getBoundingClientRect().top - box.top)
+        return {
+          row: Math.round(box.top),
+          height: Math.round(box.height),
+          words: [from('span'), from('.text-\\[28px\\]')].join(),
+        }
       }),
     ),
   )
-  expect(new Set(tops.map((at) => at.join())).size).toBe(1)
+  expect(new Set(placed.map((at) => at.words)).size).toBe(1)
+  for (const row of new Set(placed.map((at) => at.row))) {
+    const heights = placed.filter((at) => at.row === row).map((at) => at.height)
+    expect(new Set(heights).size, `the row at ${row}`).toBe(1)
+  }
   // Healthy's line, two parts: each whole on a line of its own, broken only between them.
   const parts = await tiles[0]!
     .locator('[data-part]')
@@ -769,5 +780,10 @@ test('beside a panel at 1440, a row of tiles keeps its words at the top, and a l
       ]),
     )
   expect(parts.map(([text]) => text)).toEqual(['1 degraded', '1 progressing'])
-  expect(parts[1]![1]).toBeGreaterThan(parts[0]![1] as number)
+  // Each part whole, never broken inside; three across, the line is too long for one and breaks
+  // between them. (Two and one, the tiles are wide enough for it on one.)
+  for (const [text, , lines] of parts) expect(lines, String(text)).toBe(1)
+  if (new Set(placed.map((at) => at.row)).size === 1) {
+    expect(parts[1]![1]).toBeGreaterThan(parts[0]![1] as number)
+  }
 })

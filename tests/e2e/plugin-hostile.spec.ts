@@ -1219,7 +1219,10 @@ test('a plugin’s page that asks to read more different things than a while all
     timeout: 200_000,
   })
   await expect(said).toContainText(
-    /told … Lumovi lists, so it can read nothing new for (10|9) more minutes\./,
+    // (The page shows the message's last 61 characters: with 9 minutes left it's a character
+    // shorter, and the slice starts at the space before "Lumovi". The words and the numbers are
+    // whole either way.)
+    /told …\s+Lumovi lists, so it can read nothing new for (10|9) more minutes\./,
   )
   await expect(page.getByTestId('plugin-ended')).toHaveCount(0)
   // The cluster was asked for each read that had a place, as the person, and for none of the
