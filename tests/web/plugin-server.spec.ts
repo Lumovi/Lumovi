@@ -88,15 +88,12 @@ test('a server asks a plugin’s tool’s server as the person, and only where t
         event.details?.plugin,
       ]),
     )
+    // (One entry: the ask that was made. The same ask again, refused, wasn't a read, and an ask
+    // that was made is in the history as made.)
     .toEqual([
       [
         'Asked the Service toys-api in default for /api/v1/status, for the plugin Toys’ page',
         'success',
-        'toys',
-      ],
-      [
-        'Asked the Service toys-api in default for /api/v1/status, for the plugin Toys’ page',
-        'refused',
         'toys',
       ],
     ])

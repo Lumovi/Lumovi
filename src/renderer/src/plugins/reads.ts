@@ -25,6 +25,7 @@ import type { Stopped } from '@shared/plugin-door'
 import {
   PageReads,
   READ_REFUSED,
+  readRefused,
   readAsk,
   type Cut,
   type PluginCount,
@@ -234,10 +235,14 @@ export class PageReading {
       // A read's first answer that's a refusal ends it; so does what's gone, or not allowed any
       // more. A failure of a read that had answers is said, and it's tried again.
       if (going.last === undefined || ENDS.has(result.refused))
-        return this.#refuse(read, result.refused)
+        return this.#refuse(read, result.refused, result.minutes)
       this.#failing.set(read, result.refused)
       this.#noticed()
-      this.#tell({ read, failing: result.refused, said: READ_REFUSED[result.refused] })
+      this.#tell({
+        read,
+        failing: result.refused,
+        said: readRefused(result.refused, result.minutes),
+      })
       return this.#again(read, going, going.last.length)
     }
     const { kind, objects, held } = result.answer
@@ -337,7 +342,7 @@ export class PageReading {
       .then((result) => {
         // (Ended by its code meanwhile, or the page is gone: nobody's asking.)
         if (this.#closed || !this.#logs.delete(read)) return
-        if (!result.ok) return this.#refuse(read, result.refused)
+        if (!result.ok) return this.#refuse(read, result.refused, result.minutes)
         this.#reads.over(read)
         this.#tell({ read, lines: result.lines, ...(result.cut ? { cut: true } : {}) })
       })
@@ -406,10 +411,10 @@ export class PageReading {
     )
   }
 
-  #refuse(read: number, refused: ReadRefusal): void {
+  #refuse(read: number, refused: ReadRefusal, minutes?: number): void {
     this.#end(read)
     this.#reads.refused(read)
-    this.#tell({ read, ended: refused, said: READ_REFUSED[refused] })
+    this.#tell({ read, ended: refused, said: readRefused(refused, minutes) })
     // (A page whose plugin changed under it ends: its code is not the plugin's any more.)
     if (refused === 'changed') this.#changed()
   }
@@ -487,7 +492,8 @@ export class PageReading {
         const tokens = found ? this.tokens.hand(OPENED, [object]) : undefined
         if (!result.ok || !found || tokens === undefined || typeof tokens === 'string') {
           const refused = result.ok ? 'failed' : result.refused
-          this.#tell({ open: { tab, ended: refused, said: READ_REFUSED[refused] } })
+          const said = readRefused(refused, result.ok ? undefined : result.minutes)
+          this.#tell({ open: { tab, ended: refused, said } })
           if (refused === 'changed') this.#changed()
           return
         }

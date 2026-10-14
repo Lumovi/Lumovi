@@ -150,10 +150,12 @@ function stage(
     },
     known: async () => known,
     to: () => ({ host: 'desktop', switches: { chosen: off } }),
+    // (What it's asked to write, each with what makes it the same entry, and a place for every
+    // ask: what a plugin's pages are held to has tests of its own, in plugin-history.)
     audit: {
-      user: 'me',
-      record: () => undefined,
-      read: (key, input) => void audit.push({ key, input }),
+      take: () => ({ record: (key, input) => void audit.push({ key, input }) }),
+      unknown: (key, input) => void audit.push({ key, input }),
+      stop: () => undefined,
     },
   })
   return {

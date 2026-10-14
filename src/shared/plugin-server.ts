@@ -190,6 +190,8 @@ export type ServerRefusal =
   | 'not-found'
   /** Its file doesn't list the path. */
   | 'not-listed'
+  /** Its pages have made as many different reads as a while allows: this would be one more. */
+  | 'too-many-reads'
   /** No Service by that name there; or, by labels, none has them. */
   | 'no-service'
   /** More than one Service there has its labels. */
@@ -220,7 +222,20 @@ export interface ServerWhere {
   port?: string | number
   byLabels?: boolean
   status?: number
+  /** Past the different reads a while allows: how long is left of the while, in minutes. */
+  minutes?: number
 }
+
+/**
+ * What a page is told of a read past the different reads a while allows, an ask of its server
+ * among them (`READ_LIMITS.differentAWhile`): with how long is left of the while. (Here, where a
+ * read's sentences and a server ask's both reach it.)
+ */
+export const tooManyReads = (minutes: number): string =>
+  `Lumovi lists everything a plugin’s page reads. This page has read more different things in ten minutes than Lumovi lists, so it can read nothing new for ${minutes <= 1 ? 'another minute' : `${minutes} more minutes`}.`
+
+/** (A while, in minutes: what's left of it where nothing says.) */
+const TEN_MINUTES = 10
 
 /** Lumovi's sentence for a failure: never what the server or the cluster said. */
 export function serverSaid(refused: ServerRefusal, where: ServerWhere = {}): string {
@@ -240,6 +255,8 @@ export function serverSaid(refused: ServerRefusal, where: ServerWhere = {}): str
       return 'There’s no such object.'
     case 'not-listed':
       return 'This plugin’s file doesn’t list that path.'
+    case 'too-many-reads':
+      return tooManyReads(where.minutes ?? TEN_MINUTES)
     case 'no-service':
       return where.byLabels
         ? `No Service in ${where.namespace} has those labels.`
@@ -274,6 +291,7 @@ export const SERVER_REFUSED: ReadonlySet<ServerRefusal> = new Set<ServerRefusal>
   'not-granted',
   'not-listed',
   'not-allowed',
+  'too-many-reads',
 ])
 
 const isObject = (value: unknown): value is ServerObject => {

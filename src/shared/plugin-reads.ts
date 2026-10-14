@@ -15,7 +15,7 @@
 import type { Step } from './jsonpath'
 import { LABEL_TERM } from './kit/declare'
 import type { Stopped } from './plugin-door'
-import { SERVER_LIMITS } from './plugin-server'
+import { SERVER_LIMITS, tooManyReads } from './plugin-server'
 import { isCustomGroup, type ResourceKind } from './resources'
 
 /**
@@ -45,6 +45,16 @@ export const READ_LIMITS = {
   logLines: 500,
   logSeconds: 3600,
   logBytes: 64 * 1024,
+  /**
+   * Different reads a plugin's pages make in a while, in one cluster: objects, logs and asks of
+   * its server together. Everything a plugin's code reads as the person is in the audit history,
+   * and a history lists only so much: so past them a new read is refused until the while ends
+   * (`too-many-reads`: a refusal, never a stop, and what the page already reads goes on). The
+   * same read again is none of them. Twice what a plugin may keep going, so a page that keeps
+   * all it may has as many again for what's read once.
+   */
+  differentAWhile: 200,
+  whileMs: 10 * 60_000,
 } as const
 
 /** What a plugin's file says it reads of one kind (the file checker makes these). */
@@ -949,6 +959,8 @@ export type ReadRefusal =
   | 'logs-off'
   /** The plugin's file or code isn't what the page was handed with: it changed since. */
   | 'changed'
+  /** Its pages have made as many different reads as a while allows: this would be one more. */
+  | 'too-many-reads'
 
 /** What a plugin's code is told, with the code, of a read that wasn't made. */
 export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
@@ -967,7 +979,18 @@ export const READ_REFUSED: Readonly<Record<ReadRefusal, string>> = {
   changed: 'This plugin changed since its page was opened.',
   'code-off': 'This plugin’s code is turned off.',
   'logs-off': 'Your organization’s policy doesn’t let plugins show or read containers’ logs.',
+  // (With the whole of a while to go: `readRefused` says how long is really left.)
+  'too-many-reads': tooManyReads(READ_LIMITS.whileMs / 60_000),
 }
+
+/**
+ * Lumovi's sentence for a read that wasn't made. `minutes`: how long is left of the while, for
+ * a read past the different ones a while allows.
+ */
+export const readRefused = (refused: ReadRefusal, minutes?: number): string =>
+  refused === 'too-many-reads' && minutes !== undefined
+    ? tooManyReads(minutes)
+    : READ_REFUSED[refused]
 
 /**
  * A pod's logs a plugin's code asks for, once (`spec.logs: read`), as Lumovi's own page sends it
@@ -994,7 +1017,7 @@ export interface LogLine {
 }
 
 export type PluginLogs =
-  { ok: true; lines: LogLine[]; cut?: true } | { ok: false; refused: ReadRefusal }
+  { ok: true; lines: LogLine[]; cut?: true } | { ok: false; refused: ReadRefusal; minutes?: number }
 
 /** A plugin's ask for logs as the backend takes it from a page, or nothing: exactly its keys. */
 export function logsQuery(value: unknown): PluginLogsQuery | undefined {
@@ -1021,7 +1044,9 @@ export function logsQuery(value: unknown): PluginLogsQuery | undefined {
 export const SECRETS_OFF = 'Your organization’s policy doesn’t let plugins show what’s in Secrets.'
 
 export type PluginRead =
-  { ok: true; answer: PluginReadAnswer } | { ok: false; refused: ReadRefusal }
+  | { ok: true; answer: PluginReadAnswer }
+  /** (`minutes`: for `too-many-reads`, how long is left of the while.) */
+  | { ok: false; refused: ReadRefusal; minutes?: number }
 
 /**
  * A read as the backend takes it from a page, or nothing: exactly its keys, each of its kind, by

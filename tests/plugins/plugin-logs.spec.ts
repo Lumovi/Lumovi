@@ -72,10 +72,12 @@ function stage(
     },
     known: async () => known,
     to: () => ({ host: 'desktop', switches }),
+    // (What it's asked to write, each with what makes it the same entry, and a place for every
+    // ask: what a plugin's pages are held to has tests of its own, in plugin-history.)
     audit: {
-      user: 'me',
-      record: () => undefined,
-      read: (key, input) => void audit.push({ key, input }),
+      take: () => ({ record: (key, input) => void audit.push({ key, input }) }),
+      unknown: (key, input) => void audit.push({ key, input }),
+      stop: () => undefined,
     },
   })
   return { read, asked, audit }
@@ -265,6 +267,50 @@ test('lines too long for one read: asked again for fewer, so the newest are the 
   // 500 lines, then as many as came whole (no more than half), which fit; one entry.
   expect(asked.map((q) => q.tailLines)).toEqual([500, 129])
   expect(audit).toHaveLength(1)
+})
+
+test('a logs read that was refused or failed is written without the container its code named, and is one entry a while for the pod', async () => {
+  // (The pod is Lumovi's word, by a token; the container is the code's own.)
+  const named = ['evil-0', 'evil-1', 'text-of-my-own']
+  const failing = (code: 'not-found' | 'forbidden') =>
+    stage([plugin()], () => ({
+      ok: false,
+      error: { code, message: 'container evil-0 is not valid for pod cart-7d9f' },
+    }))
+  for (const [refused, staged, also] of [
+    ['changed', stage(), { digest: `sha256:${'b'.repeat(64)}` }],
+    ['code-off', stage([plugin()], undefined, { chosen: { toys: false } }), {}],
+    ['logs-off', stage([plugin()], undefined, { logsOff: true, chosen: {} }), {}],
+    ['not-granted', stage([plugin({ logs: undefined })]), {}],
+    ['not-found', failing('not-found'), {}],
+    ['not-allowed', failing('forbidden'), {}],
+  ] as const) {
+    for (const container of named) {
+      expect(await staged.read({ ...ASK, container, ...also }), refused).toEqual({
+        ok: false,
+        refused,
+      })
+    }
+    expect(new Set(staged.audit.map(({ key }) => key)).size, refused).toBe(1)
+    expect(JSON.stringify(staged.audit), refused).not.toMatch(/evil|text-of-my-own/)
+    for (const { input } of staged.audit) {
+      expect(input.summary, refused).toBe(
+        'Read the logs of Pod cart-7d9f, for the plugin Toys’ code',
+      )
+      // (No kubectl line either: without the container it isn't the read that was asked for.)
+      expect([input.command, input.details?.container], refused).toEqual([undefined, undefined])
+      expect(input.details?.refused, refused).toBe(refused)
+    }
+  }
+  // Its previous instance's, refused: said so, and apart from its running one's.
+  const both = stage([plugin({ logs: undefined })])
+  await both.read(ASK)
+  await both.read({ ...ASK, previous: true })
+  expect(both.audit.map(({ input }) => input.summary)).toEqual([
+    'Read the logs of Pod cart-7d9f, for the plugin Toys’ code',
+    'Read the logs of Pod cart-7d9f, from before it restarted, for the plugin Toys’ code',
+  ])
+  expect(new Set(both.audit.map(({ key }) => key)).size).toBe(2)
 })
 
 test('logs read for plugins are recorded once a while for the same container, and unknown plugins’ as one', async () => {

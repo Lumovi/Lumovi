@@ -23,6 +23,7 @@ import type { AuditActor } from '@shared/audit'
 import { auditHandlers } from '@backend/audit/handlers'
 import type { AuditLog } from '@backend/audit/log'
 import { recorder, type Recorder } from '@backend/audit/recorder'
+import { pluginHistory } from '@backend/plugin-history'
 import { handlers, type Handler } from '@backend/handlers'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { plugins } from '@backend/plugins-known'
@@ -483,6 +484,8 @@ export class PageConnection {
     const checkKey = session ?? `page:${randomUUID()}`
     // A check that fails after it was judged ends what this page shows of plugins' code.
     const unwatch = checks?.watch(checkKey, () => this.emit(IPC.boxCheckFailed))
+    // What plugins' pages add to the history, counted for this page: said when it goes.
+    const pluginsListed = pluginHistory(recording)
     const shared = handlers({
       kube,
       helm,
@@ -509,6 +512,7 @@ export class PageConnection {
         unreached: checks?.unreached(checkKey) ?? false,
       }),
       audit: recording,
+      pluginHistory: pluginsListed,
       // (Only of a cluster the server shows this person: another's name is no key of theirs.)
       marks: marks?.of(identity.user, (context) => {
         if (!configs.load().contexts.some((c) => c.name === context)) {
@@ -672,6 +676,7 @@ export class PageConnection {
         unlisten()
         unsponsor()
         unwatch?.()
+        pluginsListed.stop()
         // (A page's own check goes with it; a session's is kept for its other pages.)
         if (!session) checks?.forget(checkKey)
         auditing.stop()

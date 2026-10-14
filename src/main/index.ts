@@ -9,6 +9,7 @@ import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
 import icon from '../../build/icon.png?asset'
 import { AuditLog } from '@backend/audit/log'
 import { recorder } from '@backend/audit/recorder'
+import { pluginHistory } from '@backend/plugin-history'
 import { FileStore, MemoryStore, type AuditStore } from '@backend/audit/store'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { HelmService } from '@backend/helm/service'
@@ -185,6 +186,8 @@ if (stdio) {
           : { kubeUser: kube.contexts().contexts.find((c) => c.name === cluster)?.user }),
       })
     const audit = recorder(auditLog, actor('ui'))
+    // What plugins' pages add to the history, counted: said as Lumovi quits.
+    const pluginsListed = pluginHistory(audit)
     const usage = new UsageHistory(kube, (context) => settings.metricsSource(context))
     // The helm Lumovi ships with, next to it (a build from source has none: helm on the PATH).
     const shipped = join(
@@ -554,6 +557,7 @@ if (stdio) {
       }),
       rendererUrl: url,
       audit,
+      pluginHistory: pluginsListed,
       auditLog,
       send,
       openMenu: (x, y) => popupMenu(win, x, y),
@@ -594,6 +598,7 @@ if (stdio) {
       closeStreams()
       pluginsWatch.set(false)
       void assistants.stop()
+      pluginsListed.stop()
       void auditLog.close()
       // And a download stopped by quitting has what was saved of it removed first.
       if (waited || (!terminals.cleaning && !files.active)) return

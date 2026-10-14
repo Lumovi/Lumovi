@@ -52,11 +52,11 @@ import {
   type ResourceKind,
 } from '@shared/resources'
 import { isRefusal } from './audit/describe'
-import type { Recorder } from './audit/recorder'
 import { toKubeError } from './kube/errors'
 import type { KubeService } from './kube/service'
 import { ALL_CODE_ON, codeOff } from '@shared/plugin-hand-over'
 import { runsCode, type HandOverTo } from './plugin-code'
+import type { Place, PluginHistory } from './plugin-history'
 
 export interface PluginReading {
   kube: Pick<KubeService, 'resource' | 'list' | 'get' | 'metrics'>
@@ -64,7 +64,8 @@ export interface PluginReading {
   known: () => Promise<readonly Readonly<KnownPlugin>[]>
   /** Where the page that asks is, now: what turns plugins' code off there. */
   to?: () => HandOverTo
-  audit: Recorder
+  /** The history, and an ask's place in it: taken before anything is made of the ask. */
+  audit: PluginHistory
 }
 
 /** What a failure the cluster's, or Lumovi's, is to a plugin: a code and nothing it said. */
@@ -92,12 +93,14 @@ export function pluginReads({ kube, known, audit, to }: PluginReading) {
     // plugin's name.)
     const q = readQuery(query)
     if (!q || !PLUGIN_NAME.test(q.plugin)) return { ok: false, refused: 'failed' }
+    // (Where what comes of the ask is written: until its plugin is known, nobody's read.)
+    let write: Place['record'] = (key, input) => audit.unknown(key, input)
     const refuse = (
       where: Parameters<typeof record>[2],
       plugin: Readonly<KnownPlugin> | undefined,
       refused: ReadRefusal,
     ): PluginRead => {
-      record(audit, q, where, plugin, refused)
+      record(write, q, where, plugin, refused)
       return { ok: false, refused }
     }
     const asked = kindAsked(q.kind)
@@ -108,6 +111,16 @@ export function pluginReads({ kube, known, audit, to }: PluginReading) {
     if (!plugin || !(to ? runsCode(plugin, to()) : mayCarryCode(plugin.origin))) {
       return refuse(undefined, undefined, 'not-in-use')
     }
+    // Its place among the different reads a while allows, before anything is made of it: a read
+    // is in the history or it isn't made, and past what the history lists there's no place.
+    // (The ask as the page wrote it, for the count alone: none of it is written anywhere.)
+    const place = audit.take(
+      plugin,
+      q.context,
+      JSON.stringify(['read', q.kind, q.namespace, q.name, q.usage, q.fields, q.labels]),
+    )
+    if ('refused' in place) return { ok: false, ...place }
+    write = (key, input) => place.record(key, input)
     // Its file first, by the kind as the page wrote it, before anything else is said of the
     // ask and before the cluster is asked anything: a kind its file doesn't name is refused in
     // one way, whether or not the cluster serves it and wherever it lives. (Asked of the
@@ -216,7 +229,7 @@ export function pluginReads({ kube, known, audit, to }: PluginReading) {
             }),
       }
     })
-    record(audit, q, where, plugin)
+    record(write, q, where, plugin)
     return {
       ok: true,
       answer: {
@@ -243,7 +256,7 @@ const which = ({ namespace, name }: { namespace?: string; name: string }) =>
  * same read again within a while is one entry.
  */
 function record(
-  audit: Recorder,
+  write: Place['record'],
   q: PluginReadQuery,
   /**
    * Where it read, as Lumovi resolved it. Before the cluster resolved anything: the kind as its
@@ -271,7 +284,7 @@ function record(
   // for.
   if (!where || !plugin) {
     const why = refused ?? 'not-granted'
-    audit.read(
+    write(
       `plugin-read:${JSON.stringify(plugin ? [q.context, who, 'a kind its file doesn’t name'] : [q.context, why])}`,
       {
         action: 'plugin.read',
@@ -293,7 +306,7 @@ function record(
   if (!('resource' in where)) {
     const why = refused ?? 'failed'
     const named = 'kind' in where
-    audit.read(
+    write(
       `plugin-read:${JSON.stringify([q.context, who, named ? where.kind : { group: where.group }, why])}`,
       {
         action: 'plugin.read',
@@ -332,7 +345,7 @@ function record(
           fieldSelector ?? '',
           labelSelector ?? '',
         ]
-  audit.read(`plugin-read:${JSON.stringify(same)}`, {
+  write(`plugin-read:${JSON.stringify(same)}`, {
     action: 'plugin.read',
     outcome: refused === undefined ? 'success' : REFUSED.has(refused) ? 'refused' : 'failure',
     ...(refused === undefined ? {} : { error: READ_REFUSED[refused] }),
@@ -362,6 +375,7 @@ export const REFUSED: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'not-in-use',
   'not-allowed',
   'too-many',
+  'too-many-reads',
   'not-pickable',
 ])
 
