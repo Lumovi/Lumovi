@@ -3,7 +3,7 @@
  * not), its box and the door, and what Lumovi draws round it. Opening it again makes this anew.
  * Lumovi's own pages of a plugin (`PluginBody`) open one here, and so does the tests' stage.
  */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { ObjectRef, Reach } from '@shared/kit/declare'
 import type { PageProposal, ProposalOutcome } from '@shared/plugin-changes'
 import type { PluginCode } from '@shared/plugin-hand-over'
@@ -112,8 +112,15 @@ function Running({
   handed?: { digest: string; codeDigest: string }
   onAgain: () => void
 }): ReactNode {
-  const [page] = useState<OpenPage>(() =>
-    openPage({
+  // Opened and closed in one effect, with what it was first shown with: what's shown is made
+  // anew to be opened again. (Never as the component's first state: React, checking a page in
+  // development, runs an effect's cleanup and then the effect again, and the page kept would be
+  // the one just closed: its box there, and nothing drawn.)
+  const first = useRef({ shown, code, handed })
+  const [page, setPage] = useState<OpenPage>()
+  useEffect(() => {
+    const { shown, code, handed } = first.current
+    const opened = openPage({
       plugin: shown.plugin,
       by: { plugin: shown.plugin, name: shown.name, version: shown.version },
       context: shown.context,
@@ -128,9 +135,23 @@ function Running({
       ...(shown.propose && handed
         ? { propose: (proposal: PageProposal) => shown.propose!(proposal, handed) }
         : {}),
-    }),
-  )
-  useEffect(() => () => page.close(), [page])
+    })
+    setPage(opened)
+    return () => opened.close()
+  }, [])
+  return page ? <Showing page={page} shown={shown} onAgain={onAgain} /> : null
+}
+
+/** A page that's open: what Lumovi draws of it, and its end when it has one. */
+function Showing({
+  page,
+  shown,
+  onAgain,
+}: {
+  page: OpenPage
+  shown: Opening
+  onAgain: () => void
+}): ReactNode {
   const end = useSyncExternalStore(page.subscribe, () => page.end)
   const notices = useSyncExternalStore(page.subscribeNotices, () => page.notices)
   return (
