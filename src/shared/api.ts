@@ -1193,6 +1193,19 @@ export interface ContainerShellRequest {
 }
 
 /**
+ * Attached to the main process of one of a pod's containers (`kubectl attach -it`): what it
+ * prints, and what's typed, where its stdin is open and stays open after a session. Detaching
+ * leaves it running.
+ */
+export interface ContainerAttachRequest {
+  target: 'attach'
+  context: string
+  namespace: string
+  pod: string
+  container: string
+}
+
+/**
  * A shell on a node, through a short-lived privileged pod there (as
  * `kubectl debug node` makes): in the node's own namespaces, as root on the
  * node, or in the pod itself, with the node's files under /host (for nodes
@@ -1213,7 +1226,8 @@ export interface LocalShellRequest {
   namespace?: string
 }
 
-export type ShellRequest = ContainerShellRequest | NodeShellRequest | LocalShellRequest
+export type ShellRequest =
+  ContainerShellRequest | ContainerAttachRequest | NodeShellRequest | LocalShellRequest
 
 /** Where a context's node shells run: the namespace of their pods, and its image. */
 export interface NodeShellSetting {

@@ -173,6 +173,16 @@ function forward(socket: WebSocket, pod: KubeObject, port: number) {
   }
 }
 
+/** A container's main process, as the mock keeps it while it's attached to. */
+export interface MainProcess {
+  /** How many sessions have attached to it. */
+  sessions: number
+  /** The lines it was sent. */
+  received: string[]
+  /** Whether each session asked to send it input. */
+  stdin: boolean[]
+}
+
 export interface StreamContext {
   /** The stored pod, if there is one. */
   pod(namespace: string, name: string): KubeObject | undefined
@@ -185,7 +195,7 @@ export interface StreamContext {
   admit(
     req: http.IncomingMessage,
     socket: Duplex,
-    subresource: 'exec' | 'portforward',
+    subresource: 'exec' | 'portforward' | 'attach',
   ): boolean | number
 }
 
@@ -207,14 +217,14 @@ export function streamingEndpoints(context: StreamContext) {
   const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? '/', 'http://mock')
     const match = url.pathname.match(
-      /^\/api\/v1\/namespaces\/([^/]+)\/pods\/([^/]+)\/(exec|portforward)$/,
+      /^\/api\/v1\/namespaces\/([^/]+)\/pods\/([^/]+)\/(exec|portforward|attach)$/,
     )
     if (!match) return reject(socket, 404, 'the server could not find the requested resource')
     const [, namespace, name, subresource] = match as unknown as [
       string,
       string,
       string,
-      'exec' | 'portforward',
+      'exec' | 'portforward' | 'attach',
     ]
     const admitted = context.admit(req, socket, subresource)
     if (admitted === false) return
@@ -227,6 +237,12 @@ export function streamingEndpoints(context: StreamContext) {
 
   const shells = new Set<WebSocket>()
   const tunnels = new Set<WebSocket>()
+  /**
+   * Containers' main processes, attached to: each lives on however its sessions end, and says
+   * back each line it's sent. By `namespace/pod/container`.
+   */
+  const mains = new Map<string, MainProcess>()
+  const attached = new Set<WebSocket>()
   // What `tar` reads and writes in the containers (`kubectl cp`, over exec).
   const files = containerFiles()
   const serve = (
@@ -236,7 +252,7 @@ export function streamingEndpoints(context: StreamContext) {
     url: URL,
     namespace: string,
     name: string,
-    subresource: 'exec' | 'portforward',
+    subresource: 'exec' | 'portforward' | 'attach',
   ) => {
     const pod = context.pod(namespace, name)
     if (!pod) return reject(socket, 404, `pods "${name}" not found`)
@@ -268,6 +284,34 @@ export function streamingEndpoints(context: StreamContext) {
         400,
         `unable to upgrade connection: container not found ("${container}")`,
       )
+    }
+    if (subresource === 'attach') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        const key = `${namespace}/${name}/${container}`
+        const main = mains.get(key) ?? { sessions: 0, received: [], stdin: [] }
+        mains.set(key, main)
+        main.sessions++
+        const stdin = url.searchParams.get('stdin') === 'true'
+        main.stdin.push(stdin)
+        attached.add(ws)
+        ws.on('close', () => attached.delete(ws))
+        ws.send(frame(STDOUT, `${container} is running (session ${main.sessions})\r\n`))
+        let line = ''
+        ws.on('message', (data: Buffer) => {
+          if (data[0] !== 0 || !stdin) return
+          for (const character of data.subarray(1).toString()) {
+            if (character === '\r' || character === '\n') {
+              main.received.push(line)
+              ws.send(frame(STDOUT, `\r\n${container} read: ${line}\r\n`))
+              line = ''
+            } else {
+              line += character
+              ws.send(frame(STDOUT, character))
+            }
+          }
+        })
+      })
+      return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       const image: string = status.image
@@ -343,6 +387,10 @@ export function streamingEndpoints(context: StreamContext) {
   return {
     upgrade,
     shells: () => shells.size,
+    /** A container's main process, as attaching has found it: or none, never attached to. */
+    main: (namespace: string, pod: string, container: string) =>
+      mains.get(`${namespace}/${pod}/${container}`),
+    attached: () => attached.size,
     tunnels: () => tunnels.size,
     files,
     /** Ends every open stream, e.g. when the cluster is reset. */

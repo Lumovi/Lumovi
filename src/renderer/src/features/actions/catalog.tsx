@@ -11,6 +11,7 @@ import {
   HardDrive,
   History,
   LogOut,
+  MonitorDot,
   PackageMinus,
   Play,
   RotateCw,
@@ -93,6 +94,8 @@ export interface Action {
   editor?: boolean
   /** Opens this tab of the detail panel instead of a dialog. */
   tab?: string
+  /** The Shell tab's: attached to a container's process, rather than a shell in it. */
+  how?: 'attach'
   /** Doesn't change the cluster (port forwarding), so it works on read-only clusters too. */
   safe?: boolean
 }
@@ -189,6 +192,17 @@ export const ACTIONS: readonly Action[] = [
     access: can('create', 'exec'),
     primary: true,
     tab: 'shell',
+  },
+  {
+    // To a container's main process (`kubectl attach -it`), on the Shell tab.
+    id: 'attach',
+    label: 'Attach',
+    icon: MonitorDot,
+    kinds: ['Pod'],
+    when: running,
+    access: can('create', 'attach'),
+    tab: 'shell',
+    how: 'attach',
   },
   {
     // On the node itself, through a pod Lumovi starts there: the tab says what it takes.
