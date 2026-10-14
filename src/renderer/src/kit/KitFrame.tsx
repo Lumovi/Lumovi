@@ -513,6 +513,79 @@ const resources = (remote: boolean): WrittenGraph => {
   }
 }
 
+/**
+ * Argo CD's applications, as its Applications page lists them: filtered by health (the rows' own
+ * levels), sync, operation and project, and under More filters by cluster, namespace and labels;
+ * one syncing, with how long.
+ */
+const APPS: WrittenTable = {
+  title: 'Applications',
+  headings: true,
+  columns: [
+    { name: 'Sync', kind: 'text' },
+    { name: 'Operation', kind: 'status' },
+  ],
+  filters: [
+    { key: 'health', name: 'Health', level: true },
+    { key: 'sync', name: 'Sync' },
+    { key: 'project', name: 'Project' },
+    { key: 'cluster', name: 'Cluster', more: true },
+    { key: 'labels', name: 'Labels', more: true },
+  ],
+  search: true,
+  rows: (
+    [
+      ['checkout', 'shop', 'healthy', 'Synced', 'in-cluster', ['team=shop']],
+      ['storefront', 'shop', 'progressing', 'Out of sync', 'in-cluster', ['team=shop', 'tier=web']],
+      ['payments', 'payments', 'healthy', 'Synced', 'prod-us', ['team=payments']],
+      ['legacy-batch', 'batch', 'critical', 'Out of sync', 'prod-us', []],
+      ['reports', 'data', 'warning', 'Unknown', 'in-cluster', ['team=data']],
+    ] as const
+  ).map(([name, project, level, sync, cluster, labels]) => ({
+    key: name,
+    lead: { level, name, beside: project },
+    cells: [
+      { kind: 'text' as const, text: sync },
+      name === 'storefront'
+        ? {
+            kind: 'status' as const,
+            level: 'progressing' as const,
+            word: 'Syncing',
+            since: new Date(Date.now() - 65_000).toISOString(),
+          }
+        : { kind: 'none' as const },
+    ],
+    facets: [
+      { filter: 'sync', value: sync },
+      { filter: 'project', value: project },
+      { filter: 'cluster', value: cluster },
+      ...labels.map((label) => ({ filter: 'labels', value: label })),
+    ],
+  })),
+}
+
+/** By state: each count opens the Applications page, filtered to it. */
+const BY_STATE: WrittenCounts = {
+  groups: [
+    {
+      title: 'Sync',
+      rows: [
+        {
+          value: 'Synced',
+          count: 31,
+          opens: { page: 'applications', filters: { sync: ['Synced'] } },
+        },
+        {
+          value: 'Out of sync',
+          count: 6,
+          opens: { page: 'applications', filters: { sync: ['Out of sync'] } },
+        },
+        { value: 'Unknown', count: 1 },
+      ],
+    },
+  ],
+}
+
 /** What a run of steps, or a row's button, is refused for. */
 const REFUSED_NOW: (string | undefined)[] = [
   refusal(stepsPart, SYNCING),
@@ -728,6 +801,14 @@ export function KitFrame() {
           </Stack>
         </section>
         {/* Argo CD's application: where a sync is, and History, whose rows roll back. */}
+        <section aria-label="Argo CD’s list">
+          <Stack>
+            <Card {...handedAs({ title: 'By state' }, cardPart)}>
+              <Counts {...handedAs(BY_STATE, countsPart)} go={said('go')} />
+            </Card>
+            <Table {...handedAs(APPS, table)} />
+          </Stack>
+        </section>
         <section aria-label="Argo CD’s application">
           <Stack>
             <Card {...handedAs({ title: 'Now', note: 'step 3 of 5' }, cardPart)}>

@@ -37,9 +37,11 @@ export type Kind =
    * A list of Lumovi's own a part opens: one kind, with a health filter or a label selector, as a
    * plugin writes it (`{ list: 'karpenter.sh/NodePool', health: ['critical'] }`). Or one of
    * Lumovi's own places for an object the page was handed, where its file says its pages link
-   * to it (`{ object: <token>, at: 'shell', container: 'postgres' }`). The part is handed a
-   * destination the door made (`ListDestination`, `ReachDestination`), never the plugin's words;
-   * no address, path, namespace or field selector is any part of it.
+   * to it (`{ object: <token>, at: 'shell', container: 'postgres' }`). Or one of its plugin's
+   * own pages, with its table's filters set (`{ page: 'applications', filters: { sync: ['Out of
+   * sync'] } }`). The part is handed a destination the door made (`ListDestination`,
+   * `ReachDestination`, `PageDestination`), never the plugin's words; no address, path,
+   * namespace or field selector is any part of it.
    */
   | { kind: 'destination' }
   /** A handler: when it's called, the plugin is told, with what the part's event says. */
@@ -218,8 +220,8 @@ export interface Swap {
    * pages link to, or an object that place isn't for.
    */
   destination(
-    said: WrittenDestination | WrittenReach,
-  ): ListDestination | ReachDestination | undefined
+    said: WrittenDestination | WrittenReach | WrittenPage,
+  ): ListDestination | ReachDestination | PageDestination | undefined
   handler(handle: string, event: string): ((carries: unknown) => void) | undefined
 }
 
@@ -269,6 +271,45 @@ export interface WrittenReach {
   container?: string
   port?: number
 }
+
+/**
+ * One of a plugin's own pages, as a part is handed it: made by the door, frozen, and opened by
+ * `go`, with the filters of its table set as said. The page is one its plugin's file names; the
+ * filters' keys and values are the plugin's words, which only a table of that page's that names
+ * them takes (a key no table names sets nothing).
+ */
+export interface PageDestination {
+  to: 'page'
+  /** The page's id, as its plugin's file names it. */
+  page: string
+  /** Each filter's key, and the values set in it: in pairs, never an object keyed by them. */
+  filters: readonly (readonly [string, readonly string[]])[]
+  /** What its table's search starts with. */
+  search?: string
+}
+
+/** Anywhere a part's press can go: a list of Lumovi's own, one of its places, or a plugin's page. */
+export type Going = ListDestination | ReachDestination | PageDestination
+
+/** One of its own pages to open, as a plugin writes it. */
+export interface WrittenPage {
+  page: string
+  filters?: Readonly<Record<string, readonly string[]>>
+  search?: string
+}
+
+/** How much a link to a plugin's own page may set. */
+export const PAGE_LINK_LIMITS = {
+  /** Filters, the values in one, and the characters of a key, a value and a search. */
+  filters: 8,
+  values: 20,
+  key: 40,
+  value: 253,
+  search: 200,
+} as const
+
+/** A page's id, as a plugin's file has one: lowercase letters, digits and hyphens. */
+const PAGE_ID = /^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
 /** A list to open, as a plugin writes it. */
 export interface WrittenDestination {
@@ -336,13 +377,59 @@ function reachProblem(said: Record<string, unknown>, where: string): string | un
   return undefined
 }
 
+/** What's wrong with a link to one of the plugin's own pages, as it wrote it, or nothing. */
+function pageLinkProblem(said: Record<string, unknown>, where: string): string | undefined {
+  const most = PAGE_LINK_LIMITS
+  for (const key of Object.keys(said)) {
+    if (!['page', 'filters', 'search'].includes(key)) {
+      return `${where}: takes nothing named ${quotedBack(key)}`
+    }
+  }
+  if (typeof said.page !== 'string' || !PAGE_ID.test(said.page)) {
+    return `${where}.page: should be the id of one of the plugin’s pages`
+  }
+  if (Object.hasOwn(said, 'search')) {
+    if (typeof said.search !== 'string' || said.search.length > most.search) {
+      return `${where}.search: should be a text of ${most.search} characters at most`
+    }
+  }
+  if (!Object.hasOwn(said, 'filters')) return undefined
+  const filters = said.filters
+  if (typeof filters !== 'object' || filters === null || Array.isArray(filters)) {
+    return `${where}.filters: should be each filter’s key with its values, as { key: [values] }`
+  }
+  const entries = Object.entries(filters)
+  if (entries.length < 1 || entries.length > most.filters) {
+    return `${where}.filters: should set one to ${most.filters} filters`
+  }
+  for (const [key, values] of entries) {
+    if (key.length < 1 || key.length > most.key) {
+      return `${where}.filters: a key should be 1 to ${most.key} characters`
+    }
+    const here = `${where}.filters.${quotedBack(key)}`
+    if (
+      !Array.isArray(values) ||
+      values.length < 1 ||
+      values.length > most.values ||
+      new Set(values).size !== values.length ||
+      !values.every(
+        (value) => typeof value === 'string' && value.length >= 1 && value.length <= most.value,
+      )
+    ) {
+      return `${here}: should be one to ${most.values} different values, each a text of ${most.value} characters at most`
+    }
+  }
+  return undefined
+}
+
 /** What's wrong with a list to open, or a link, as a plugin wrote it, or nothing. */
 function destinationProblem(value: unknown, where: string): string | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return `${where}: should be a list to open, as { list: group/Kind }, or a place for an object, as { object, at }`
+    return `${where}: should be a list to open, as { list: group/Kind }, a place for an object, as { object, at }, or one of the plugin’s pages, as { page }`
   }
   const said = value as Record<string, unknown>
   if (Object.hasOwn(said, 'object')) return reachProblem(said, where)
+  if (Object.hasOwn(said, 'page')) return pageLinkProblem(said, where)
   for (const key of Object.keys(said)) {
     if (!['list', 'health', 'labels', 'name', 'namespace'].includes(key)) {
       return `${where}: takes nothing named ${quotedBack(key)}`
@@ -706,7 +793,7 @@ export type ValueOf<K, P extends Part = Part> = K extends { kind: 'text' }
         : K extends { kind: 'cut' }
           ? CutRef
           : K extends { kind: 'destination' }
-            ? ListDestination | ReachDestination
+            ? ListDestination | ReachDestination | PageDestination
             : K extends { kind: 'handler'; event: infer E }
               ? (carries: CarriedBy<P, E>) => void
               : K extends { kind: 'number' }
@@ -779,7 +866,7 @@ export type WrittenOf<K> = K extends { kind: 'text' }
         : K extends { kind: 'cut' }
           ? string
           : K extends { kind: 'destination' }
-            ? WrittenDestination | WrittenReach
+            ? WrittenDestination | WrittenReach | WrittenPage
             : K extends { kind: 'handler' }
               ? string
               : K extends { kind: 'number' }

@@ -21,7 +21,7 @@ import {
   type ReactNode,
 } from 'react'
 import { spelled } from '@shared/kit/characters'
-import type { ListDestination, ReachDestination } from '@shared/kit/declare'
+import type { Going } from '@shared/kit/declare'
 import { BUTTONS_SHOWN, filledLast, type HeaderButton, type HeaderProps } from '@shared/kit/page'
 import { BusyButton, Elapsed } from '@renderer/components/Busy'
 import { Button } from '@renderer/components/Button'
@@ -412,7 +412,7 @@ export function PageHeader({
   held?: string
   onPress?: HeaderProps['onPress']
   /** Lumovi's own open of where a button goes: never told to the plugin. */
-  go?: (to: ListDestination | ReachDestination) => void
+  go?: (to: Going) => void
 }) {
   const layout = useLayout()
   const phone = layout === 'phone'

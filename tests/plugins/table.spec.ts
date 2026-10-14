@@ -118,7 +118,7 @@ test('a table is checked as the door checks one, and refused where it says more 
     // A list it goes to is one the door makes: never a path or an address the plugin wrote.
     [
       { rows: [{ ...row, goes: '/cluster/demo/deployments?name=web' }] },
-      'Table.rows[0].goes: should be a list to open, as { list: group/Kind }, or a place for an object, as { object, at }',
+      'Table.rows[0].goes: should be a list to open, as { list: group/Kind }, a place for an object, as { object, at }, or one of the plugin’s pages, as { page }',
     ],
     [
       { rows: [{ ...row, rows: [{ ...row, rows: [row] }] }] },
@@ -284,4 +284,48 @@ test('a row’s button: in a table’s one button column, on a table’s own row
       ],
     }),
   ).toBe('Row 1, cell 2 is a status, and its column takes a button.')
+})
+
+test('a table’s bar: filters each with a key of their own, and a row’s values only for filters it has, never a level’s', () => {
+  const of = (filters: unknown[], facets: unknown[]) => ({
+    title: 'Applications',
+    headings: false,
+    columns: [],
+    filters,
+    search: true,
+    rows: [{ key: 'a', lead: { name: 'a' }, cells: [], facets }],
+  })
+  const SYNC = { key: 'sync', name: 'Sync' }
+  const HEALTH = { key: 'health', name: 'Health', level: true }
+  expect(said(of([SYNC, HEALTH], [{ filter: 'sync', value: 'Synced' }]))).toBeUndefined()
+  expect(said(of([SYNC, SYNC], []))).toBe('Filters 1 and 2 have the same key.')
+  expect(said(of([SYNC], [{ filter: 'project', value: 'shop' }]))).toBe(
+    'Row 1, value 1 is for a filter the table hasn’t: name it under filters.',
+  )
+  expect(said(of([SYNC, HEALTH], [{ filter: 'health', value: 'healthy' }]))).toBe(
+    'Row 1, value 1 is for filter 2, which goes by the rows’ own levels: a row gives no value for it.',
+  )
+  expect(
+    said(
+      of(
+        Array.from({ length: 9 }, (_, i) => ({ key: `f${i}`, name: 'F' })),
+        [],
+      ),
+    ),
+  ).toMatch(/^Table\.filters: /)
+  // A status that says since when: a moment.
+  expect(
+    said({
+      title: 'Ops',
+      headings: false,
+      columns: [{ name: 'Operation', kind: 'status' }],
+      rows: [
+        {
+          key: 'a',
+          lead: { name: 'a' },
+          cells: [{ kind: 'status', level: 'progressing', word: 'Syncing', since: 'soon' }],
+        },
+      ],
+    }),
+  ).toMatch(/^Table\.rows\[0\]\.cells\[0\]\.since: /)
 })

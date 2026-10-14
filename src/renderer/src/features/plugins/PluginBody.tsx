@@ -8,8 +8,8 @@
  * again, its reads made again, its tokens new), never this one carried over.
  */
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 import type { ObjectRef } from '@shared/kit/table'
 import type { ReachDestination } from '@shared/kit/declare'
 import { mayStart, type Destination } from '@shared/plugin-presses'
@@ -18,6 +18,8 @@ import { PluginIcon } from '@renderer/components/KindIcon'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { usePlugins } from '@renderer/hooks/plugins'
 import { api } from '@renderer/lib/api'
+import { startFromState } from '@renderer/lib/table-filters'
+import { StartFilters } from '@renderer/kit/FilterBar'
 import { useLayout } from '@renderer/lib/layout'
 import { codeOff, WAITING, type NotHanded } from '@shared/plugin-hand-over'
 import { folderOf } from '@shared/plugin-loading'
@@ -27,6 +29,7 @@ import {
   formatRef,
   listPath,
   pluginAsksPath,
+  pluginPagePath,
   pluginSwitchPath,
 } from '@renderer/lib/routes'
 import { switchesOf } from '@renderer/plugins/code-switches'
@@ -59,6 +62,14 @@ export function PluginBody({
   const layout = useLayout()
   const openObject = useOpenObject()
   const navigate = useNavigate()
+  // What a link of its own that opened this page set its tables' filters to: anew for each
+  // opening (each navigation is its own), so a new link sets them again.
+  const location = useLocation()
+  const startFilters = useMemo(
+    () => startFromState(location.state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [location.key],
+  )
   const { start, showTab } = useActionsUi.getState()
   // Opened again by the person ("Open it again"): made anew, as a change of cluster makes it.
   const [again, setAgain] = useState(0)
@@ -91,7 +102,12 @@ export function PluginBody({
     // (A list at one object says whose page opened it.)
     if (to.to === 'list') void navigate(listPath(context, { ...to, plugin: plugin.name }))
     else if (to.to === 'reach') reach(to)
-    else openObject(to.object.kind, to.object.name, to.object.namespace)
+    // One of its own pages, its tables' filters set as the door made them.
+    else if (to.to === 'page') {
+      void navigate(pluginPagePath(context, plugin.name, to.page), {
+        state: { filters: to.filters, ...(to.search !== undefined ? { search: to.search } : {}) },
+      })
+    } else openObject(to.object.kind, to.object.name, to.object.namespace)
   }
   // One of Lumovi's own places for an object the page was handed, opened as Lumovi opens it:
   // the person does there what they do (a shell waits for their Start), and the audit says
@@ -173,41 +189,44 @@ export function PluginBody({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
-      <Opened
-        key={`${context}\u0000${which}\u0000${again}\u0000${yours ? changes : 0}`}
-        shown={{
-          plugin: plugin.name,
-          name: plugin.label,
-          version: plugin.version,
-          yours,
-          context,
-          opening: page !== undefined ? { page } : { tab, object },
-          // (Its Logs part only where its file says its pages show logs, or its code reads them:
-          // elsewhere the door knows no such part, and a page that names it is stopped.)
-          parts: plugin.logs ? KIT_PARTS : WITHOUT_LOGS,
-          kinds: plugin.named,
-          opens: plugin.opens,
-          links: plugin.links,
-          open,
-          // A change its page proposes, in Lumovi's own dialog: on the cluster it's open on, the
-          // person's to confirm.
-          propose: (proposal, handed) =>
-            proposeChange(
-              {
-                plugin: plugin.name,
-                label: plugin.label,
-                version: plugin.version,
-                ...handed,
-                context,
-                ...(namespace && { namespace }),
-              },
-              proposal,
-              layout,
-            ),
-          asks: pluginAsksPath(context, plugin.name),
-        }}
-        onAgain={() => setAgain((n) => n + 1)}
-      />
+      <StartFilters.Provider value={startFilters}>
+        <Opened
+          key={`${context}\u0000${which}\u0000${again}\u0000${yours ? changes : 0}`}
+          shown={{
+            plugin: plugin.name,
+            name: plugin.label,
+            version: plugin.version,
+            yours,
+            context,
+            opening: page !== undefined ? { page } : { tab, object },
+            // (Its Logs part only where its file says its pages show logs, or its code reads them:
+            // elsewhere the door knows no such part, and a page that names it is stopped.)
+            parts: plugin.logs ? KIT_PARTS : WITHOUT_LOGS,
+            kinds: plugin.named,
+            opens: plugin.opens,
+            links: plugin.links,
+            pages: plugin.added.pages.map((each) => each.id),
+            open,
+            // A change its page proposes, in Lumovi's own dialog: on the cluster it's open on, the
+            // person's to confirm.
+            propose: (proposal, handed) =>
+              proposeChange(
+                {
+                  plugin: plugin.name,
+                  label: plugin.label,
+                  version: plugin.version,
+                  ...handed,
+                  context,
+                  ...(namespace && { namespace }),
+                },
+                proposal,
+                layout,
+              ),
+            asks: pluginAsksPath(context, plugin.name),
+          }}
+          onAgain={() => setAgain((n) => n + 1)}
+        />
+      </StartFilters.Provider>
     </div>
   )
 }

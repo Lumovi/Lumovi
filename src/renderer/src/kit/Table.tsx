@@ -45,7 +45,7 @@ import {
 } from 'react'
 import type { Health } from '@shared/health'
 import { inPieces, spelled, type Piece } from '@shared/kit/characters'
-import type { ListDestination, ReachDestination, Their } from '@shared/kit/declare'
+import type { Going, Their } from '@shared/kit/declare'
 import {
   COLUMN_KINDS,
   type ObjectRef,
@@ -59,8 +59,10 @@ import {
 } from '@shared/kit/table'
 import { Popover } from 'radix-ui'
 import { Button } from '@renderer/components/Button'
+import { Elapsed } from '@renderer/components/Busy'
 import { Sheet } from '@renderer/components/Sheet'
 import { HEALTH_STYLE } from '@renderer/components/Status'
+import { filtering, keptRows, menusOf, startOf } from '@renderer/lib/table-filters'
 import { TIP, Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
@@ -69,6 +71,7 @@ import { offered, reachTip } from '@renderer/plugins/reach'
 import { MARK_CLASS, Pieces, TheirText } from '@renderer/plugins/TheirText'
 import { InCard } from './Card'
 import { CARD, HEADING, Lead, leadIsCut, said } from './Lead'
+import { FilterBar, StartFilters } from './FilterBar'
 import { tooltip } from './MiddleCut'
 
 /** A row of one line, one with a line under its name, and each line of a note. */
@@ -470,6 +473,8 @@ export function Table({
   onOpen,
   onRetry,
   onPress,
+  filters,
+  search: searchable,
   bare: bareSaid,
   startOpen = false,
 }: Omit<TableProps, 'rows'> & {
@@ -479,7 +484,7 @@ export function Table({
    * Opens the object a row names, or the list it goes to: Lumovi's own to do, never the plugin's
    * (and not declared).
    */
-  go?: (to: ObjectRef | ListDestination | ReachDestination) => void
+  go?: (to: ObjectRef | Going) => void
   /** Its rows alone, inside a part that's its own card and says its title and count (Graph). */
   bare?: boolean
   /** Rows that hold rows start open: where a filter has kept what's inside them (Graph). */
@@ -532,17 +537,35 @@ export function Table({
 
   /** What the table is called where a mark can't be drawn: what a screen reader says. */
   const named = spelled(title.their)
+  // The bar's filters and search, Lumovi's alone: set as the page was opened where a link to it
+  // said so, and never told to the plugin.
+  const start = useContext(StartFilters)
+  const [{ chosen, search }, setFiltered] = useState(() => startOf(filters ?? [], start))
+  // (A new link to the page, while it's open: what it sets, again.)
+  const startedWith = useRef(start)
+  useEffect(() => {
+    if (startedWith.current === start) return
+    startedWith.current = start
+    setFiltered(startOf(filters ?? [], start))
+  }, [start, filters])
+  const menus = useMemo(() => menusOf(rows, filters ?? []), [rows, filters])
+  const matching = useMemo(
+    () => keptRows(rows, filters ?? [], chosen, search),
+    [rows, filters, chosen, search],
+  )
+  const narrowed = filtering(chosen, search)
+  const hasBar = (filters?.length ?? 0) > 0 || searchable === true
   // Rows that follow each other with the same group stand under one heading.
   const groups = useMemo(() => {
     const out: { by: string; name?: Their; rows: DrawnRow[] }[] = []
-    for (const row of rows) {
+    for (const row of matching) {
       const by = row.group?.their ?? ''
       const last = out.at(-1)
       if (last && last.by === by) last.rows.push(row)
       else out.push({ by, name: row.group, rows: [row] })
     }
     return out
-  }, [rows])
+  }, [matching])
   const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
   /** Whether any of its rows hold rows. */
   const nests = groups.some((group) => group.rows.some((row) => row.rows?.length))
@@ -861,8 +884,9 @@ export function Table({
     column === NAME ? leading : <TheirText text={columns[column]?.name} inline />
   // How many show, each group's own `shows` at most, of how many there are.
   const showing = groups.reduce((sum, group, g) => sum + Math.min(limitOf(g), group.rows.length), 0)
-  const count =
-    total === 0
+  const count = narrowed
+    ? `${counted(total)} of ${counted(rows.length)}`
+    : total === 0
       ? undefined
       : showing < total
         ? `${counted(showing)} of ${counted(total)}`
@@ -900,12 +924,49 @@ export function Table({
     <ShowAll count={total} onShow={() => showWhole(0)} />
   )
 
+  const bar = hasBar && !state && rows.length > 0 && (
+    <FilterBar
+      title={named}
+      menus={menus}
+      chosen={chosen}
+      onChosen={(next) => setFiltered((was) => ({ ...was, chosen: next }))}
+      searchable={searchable === true}
+      search={search}
+      onSearch={(next) => setFiltered((was) => ({ ...was, search: next }))}
+      phone={phone}
+    />
+  )
+  // Nothing kept: said so in Lumovi's words, with the way back.
+  if (narrowed && total === 0 && !state) {
+    return (
+      // (Named as it was with its rows, so it's the same region while its filters change.)
+      <section
+        aria-label={bare ? undefined : phone ? named : `${named} table`}
+        className={cn(!phone && !bare && CARD)}
+      >
+        {!bare && heading}
+        {bar}
+        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+          <p className="text-[13px] text-ink-2">Nothing here matches these filters.</p>
+          <button
+            type="button"
+            onClick={() => setFiltered({ chosen: new Map(), search: '' })}
+            className="h-8 rounded-lg border border-line px-3 text-[13px] text-ink-1 hover:bg-surface-3 phone:h-11"
+          >
+            Clear filters
+          </button>
+        </div>
+      </section>
+    )
+  }
+
   if (total === 0 || state) {
     return (
       // (Bare in a card too while it reads, or has nothing: the card says the title, once.)
       <section aria-label={bare ? undefined : named} className={cn(!phone && !bare && CARD)}>
         {!bare && heading}
         {ceiling}
+        {bar}
         <Nothing state={state ?? { is: 'empty' }} of={title} onRetry={() => onRetry?.({})} />
       </section>
     )
@@ -964,6 +1025,7 @@ export function Table({
       <section aria-label={bare ? undefined : named} className="min-w-0">
         {!bare && heading}
         {ceiling}
+        {bar}
         {cards}
         {more}
         {sorting && (
@@ -1006,6 +1068,7 @@ export function Table({
     <section aria-label={bare ? undefined : `${named} table`} className={cn(!bare && CARD)}>
       {!bare && heading}
       {ceiling}
+      {bar}
       <div className="flex flex-col px-2 pb-3">
         <div
           ref={gridRef}
@@ -1584,6 +1647,13 @@ const METER = {
   critical: { fill: 'bg-critical', track: 'bg-critical/20' },
 } as const
 
+/** Since when a status has gone on, where it says (a moment Lumovi counts from), or nothing. */
+function sinceOf(cell: TableCell): number | undefined {
+  if (cell.kind !== 'status' || !cell.since) return undefined
+  const at = Date.parse(cell.since)
+  return Number.isFinite(at) ? at : undefined
+}
+
 /** A row's button, where it has one. */
 type ButtonCell = Extract<TableCell, { kind: 'button' }>
 function buttonOf(row: Omit<TableRow, 'rows'>): ButtonCell | undefined {
@@ -1681,8 +1751,17 @@ function Cell({
           —
         </span>
       )
-    case 'status':
-      return <Pill level={cell.level} word={cell.word} />
+    case 'status': {
+      // (How long, after the word, where it says since when: Lumovi's count, never the plugin's.)
+      const since = sinceOf(cell)
+      return (
+        <Pill
+          level={cell.level}
+          word={cell.word}
+          {...(since !== undefined ? { after: <Elapsed since={since} /> } : {})}
+        />
+      )
+    }
     case 'meter': {
       const { used, of } = cell
       const ratio = of && used !== undefined ? Math.max(0, Math.min(1, used / of)) : undefined
@@ -1832,6 +1911,7 @@ function Card({
             full: fullOf(cellAt(row, c)),
             // (A meter at its warning or critical line says so, as a status does.)
             level: meterLevel(cellAt(row, c)),
+            since: sinceOf(cellAt(row, c)),
           },
         ],
   )
@@ -1882,6 +1962,11 @@ function Card({
                 />
               ) : (
                 <Words text={fact.said} />
+              )}
+              {fact.since !== undefined && (
+                <span className="ml-1 tabular-nums">
+                  <Elapsed since={fact.since} />
+                </span>
               )}
             </dd>
           </div>

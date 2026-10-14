@@ -9,7 +9,7 @@
 import { Check, LoaderCircle, X } from 'lucide-react'
 import { useRef } from 'react'
 import { spelled } from '@shared/kit/characters'
-import type { ListDestination, ReachDestination } from '@shared/kit/declare'
+import type { Going } from '@shared/kit/declare'
 import type { Step, StepsProps } from '@shared/kit/page'
 import type { ObjectRef } from '@shared/kit/table'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -43,7 +43,7 @@ export function Steps({
   go,
 }: StepsProps & {
   /** Opens what it waits on: Lumovi's own to do, never the plugin's (and not declared). */
-  go?: (to: ObjectRef | ListDestination | ReachDestination) => void
+  go?: (to: ObjectRef | Going) => void
 }) {
   const phone = useLayout() === 'phone'
   const opens = waiting?.opens

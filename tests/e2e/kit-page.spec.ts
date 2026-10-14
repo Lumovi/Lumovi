@@ -629,3 +629,71 @@ test('a graph’s marked card stands out, said in the legend’s words; one show
     'go {"to":"list","kind":"Service"}',
   )
 })
+
+test('a table’s bar: a search, filters of the rows’ values with how many have each, chips that come off, and nothing kept said so', async ({
+  page,
+}) => {
+  await frame(page)
+  const apps = page.getByRole('region', { name: 'Applications table', exact: true })
+  const rows = () => apps.getByRole('row').filter({ hasNot: page.getByRole('columnheader') })
+  await expect(rows()).toHaveCount(5)
+  // A running operation says how long, in Lumovi's count.
+  await expect(apps.getByRole('row').filter({ hasText: 'storefront' })).toContainText(
+    /Syncing\s*1m 0[5-9]s/,
+  )
+  // A filter's menu: its values, how many have each; either within, the count above the rows.
+  await apps.getByRole('button', { name: 'Sync', exact: true }).click()
+  await expect(page.getByRole('menuitemcheckbox')).toHaveText([
+    /^Synced\s*2$/,
+    /^Out of sync\s*2$/,
+    /^Unknown\s*1$/,
+  ])
+  await page.getByRole('menuitemcheckbox', { name: /^Out of sync/ }).click()
+  await page.getByRole('menuitemcheckbox', { name: /^Unknown/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(rows()).toHaveCount(3)
+  await expect(apps.getByRole('heading', { level: 3 })).toContainText('3 of 5')
+  // All across filters: health, the rows' own levels in Lumovi's words.
+  await apps.getByRole('button', { name: 'Health', exact: true }).click()
+  await expect(page.getByRole('menuitemcheckbox')).toHaveText([
+    /^Failing/,
+    /^Warning/,
+    /^In progress/,
+    /^Healthy/,
+  ])
+  await page.getByRole('menuitemcheckbox', { name: /^Failing/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(rows()).toHaveText([/legacy-batch/])
+  // What's set, as chips: one comes off by its ×.
+  await apps.getByRole('button', { name: 'Take off Health: Failing' }).click()
+  await expect(rows()).toHaveCount(3)
+  // More filters: those the plugin put there, each under its name.
+  await apps.getByRole('button', { name: 'More filters' }).click()
+  await expect(page.getByRole('menu')).toContainText('Cluster')
+  await page.getByRole('menuitemcheckbox', { name: /^prod-us/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(rows()).toHaveText([/legacy-batch/])
+  // Typed: in a name or the word beside it. Nothing kept: said so, with the way back.
+  await apps.getByRole('textbox', { name: 'Search Applications' }).fill('shop')
+  await expect(apps).toContainText('Nothing here matches these filters.')
+  await apps.getByRole('button', { name: 'Clear filters' }).last().click()
+  await expect(apps.getByRole('textbox', { name: 'Search Applications' })).toHaveValue('')
+  await expect(rows()).toHaveCount(5)
+  await apps.getByRole('textbox', { name: 'Search Applications' }).fill('SHOP')
+  await expect(rows()).toHaveText([/checkout/, /storefront/])
+  // None of it is told to the plugin.
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(0)
+})
+
+test('a count that opens: Lumovi opens where it says, the plugin’s own page with its filters set', async ({
+  page,
+}) => {
+  await frame(page)
+  const counts = page.getByRole('region', { name: 'Argo CD’s list' })
+  await counts.getByRole('button', { name: /^Out of sync/ }).click()
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'go {"to":"page","page":"applications","filters":[["sync",["Out of sync"]]]}',
+  )
+  // One without a destination is no button.
+  await expect(counts.getByRole('button', { name: /^Unknown/ })).toHaveCount(0)
+})

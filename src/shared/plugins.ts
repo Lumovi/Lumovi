@@ -346,7 +346,11 @@ export interface ShowsSecret {
  * and no destination carries anything beyond a page's id.
  */
 export interface Added {
-  pages: { id: string; title: string }[]
+  /**
+   * Its pages. One that `takes` a kind of its own (as Lumovi names it) stands in that kind's
+   * tab in the plugin's place: Lumovi's own list of the kind stays where Lumovi lists every kind.
+   */
+  pages: { id: string; title: string; takes?: ResourceKind }[]
   tabs: { id: string; title: string; kinds: ResourceKind[] }[]
   commands: { name: string; page: string }[]
 }
@@ -1316,7 +1320,11 @@ function showsSecretsOf(shows: unknown): ShowsSecret[] {
 }
 
 const PAGE_SHAPE: Shape = {
-  fields: { id: { shape: 'string', required: true }, title: { shape: 'string', required: true } },
+  fields: {
+    id: { shape: 'string', required: true },
+    title: { shape: 'string', required: true },
+    takes: namedKind,
+  },
 }
 const TAB_SHAPE: Shape = {
   fields: {
@@ -1505,7 +1513,7 @@ function addedProblems(
   }
   if (problems.length) return problems
 
-  const pages = (added.pages ?? []) as { id: string; title: string }[]
+  const pages = (added.pages ?? []) as { id: string; title: string; takes?: unknown }[]
   const tabs = (added.tabs ?? []) as { id: string; title: string; kinds: NamedKind[] }[]
   const commands = (added.commands ?? []) as { name: string; page: string }[]
   /**
@@ -1566,11 +1574,38 @@ function addedProblems(
     ...((place.kinds ?? []) as NamedKind[]).flatMap(({ kind }) => [kind, `${kind}s`]),
   ]
   const titles = new Map<string, string>()
+  // A page that takes a kind's tab: of a kind of the plugin's own place, one page a kind; and its
+  // title may be that kind's own, as the tab it stands in was.
+  const ownKinds = ((place.kinds ?? []) as NamedKind[]).map(kindId)
+  const taken = new Map<ResourceKind, string>()
   pages.forEach((page, p) => {
     id(page.id, `spec.pages[${p}].id`)
-    const wrong = nameProblem(page.title, `spec.pages[${p}].title`, entrysOwn)
+    // (One its shape refused is said so already: nothing more of it here.)
+    const takes =
+      typeof page.takes === 'object' &&
+      page.takes !== null &&
+      typeof (page.takes as NamedKind).kind === 'string'
+        ? (page.takes as NamedKind)
+        : undefined
+    const its = takes ? [takes.kind, `${takes.kind}s`] : []
+    const wrong = nameProblem(
+      page.title,
+      `spec.pages[${p}].title`,
+      entrysOwn.filter((name) => !its.includes(name)),
+    )
     if (wrong) problems.push(...wrong)
     else once(titles, page.title, `spec.pages[${p}].title`)
+    if (takes) {
+      const kindName = kindId(takes)
+      const where = `spec.pages[${p}].takes`
+      if (!ownKinds.includes(kindName)) {
+        problems.push(
+          `${where}: ${quoted(takes.kind)} isn’t one of the plugin’s own kinds (spec.kinds)`,
+        )
+      } else if (taken.has(kindName)) {
+        problems.push(`${where}: ${quoted(takes.kind)} is already taken by ${taken.get(kindName)}`)
+      } else taken.set(kindName, `spec.pages[${p}]`)
+    }
   })
   const tabTitles = new Map<string, string>()
   const tabbed = new Map<ResourceKind, string>()
@@ -2364,7 +2399,9 @@ function readPlugin(
       ...(kinds || pages ? { place: { ...rest, kinds: (kinds ?? []).map(kindId) } } : {}),
       views,
       added: {
-        pages: ((pages ?? []) as Added['pages']).map(({ id, title }) => ({ id, title })),
+        pages: ((pages ?? []) as { id: string; title: string; takes?: NamedKind }[]).map(
+          ({ id, title, takes }) => ({ id, title, ...(takes ? { takes: kindId(takes) } : {}) }),
+        ),
         tabs: ((tabs ?? []) as { id: string; title: string; kinds: NamedKind[] }[]).map(
           ({ id, title, kinds: on }) => ({ id, title, kinds: on.map(kindId) }),
         ),

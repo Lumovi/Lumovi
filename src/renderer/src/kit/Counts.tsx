@@ -8,25 +8,32 @@
 import { ChevronDown } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { spelled } from '@shared/kit/characters'
+import type { Going } from '@shared/kit/declare'
 import { COUNTS_SHOWN, type CountsGroup, type CountsProps } from '@shared/kit/page'
 import { cn } from '@renderer/lib/cn'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { HEADING } from './Lead'
 import { MiddleCut } from './MiddleCut'
 
-export function Counts({ groups }: CountsProps) {
+export function Counts({
+  groups,
+  go,
+}: CountsProps & {
+  /** Opens where a row says: Lumovi's own to do, never the plugin's (and not declared). */
+  go?: (to: Going) => void
+}) {
   return (
     <div className="@container min-w-0">
       <div className="grid grid-cols-1 gap-3.5 @[720px]:grid-cols-3 @[720px]:gap-5">
         {groups.map((group, index) => (
-          <Group key={index} group={group} />
+          <Group key={index} group={group} {...(go ? { go } : {})} />
         ))}
       </div>
     </div>
   )
 }
 
-function Group({ group }: { group: CountsGroup }) {
+function Group({ group, go }: { group: CountsGroup; go?: (to: Going) => void }) {
   const [open, setOpen] = useState(false)
   // The largest first; among equals, as they were given.
   const rows = useMemo(
@@ -50,11 +57,11 @@ function Group({ group }: { group: CountsGroup }) {
           const count = row.count
           // (The smallest share there is is still a dot; none is no bar at all.)
           const share = count > 0 && whole > 0 ? Math.max(2, Math.round((count / whole) * 100)) : 0
-          return (
-            <li
-              key={index}
-              className="grid min-h-[26px] grid-cols-[minmax(0,1.4fr)_minmax(40px,1fr)_28px] items-center gap-2.5 text-[12.5px] phone:min-h-8 phone:grid-cols-[minmax(0,1.4fr)_minmax(32px,0.6fr)_28px]"
-            >
+          const opens = row.opens
+          const grid =
+            'grid min-h-[26px] grid-cols-[minmax(0,1.4fr)_minmax(40px,1fr)_28px] items-center gap-2.5 text-[12.5px] phone:min-h-8 phone:grid-cols-[minmax(0,1.4fr)_minmax(32px,0.6fr)_28px]'
+          const cells = (
+            <>
               <MiddleCut
                 text={row.value}
                 className={cn('text-ink-1', group.code && 'font-mono text-xs')}
@@ -73,6 +80,25 @@ function Group({ group }: { group: CountsGroup }) {
                 {count.toLocaleString('en-US')}
                 <span className="sr-only"> of {whole.toLocaleString('en-US')}</span>
               </span>
+            </>
+          )
+          // One that opens is pressed whole: Lumovi opens where it says (a finger's height on a phone).
+          return opens && go ? (
+            <li key={index}>
+              <button
+                type="button"
+                onClick={() => go(opens)}
+                className={cn(
+                  grid,
+                  '-mx-1.5 w-[calc(100%+12px)] rounded-md px-1.5 text-left hover:bg-surface-3/60 phone:min-h-11',
+                )}
+              >
+                {cells}
+              </button>
+            </li>
+          ) : (
+            <li key={index} className={grid}>
+              {cells}
             </li>
           )
         })}

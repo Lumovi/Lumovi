@@ -326,8 +326,15 @@ export const pair = {
   props: { first: oneOf(['wider', 'even'] as const) },
 } as const satisfies Part
 
-/** A value, and how many have it: a row of counts. */
-const count = record({ value: name, count: number(0, LARGEST, true) }, ['value', 'count'])
+/**
+ * A value, and how many have it: a row of counts. With `opens`, the row is pressed whole and
+ * Lumovi opens where it says (a list of its own, or the plugin's own page with its filters set),
+ * as a tile does; the plugin isn't told.
+ */
+const count = record({ value: name, count: number(0, LARGEST, true), opens: destination }, [
+  'value',
+  'count',
+])
 
 /**
  * Shares of a whole, as bars: groups, each a title and its values with how many have each, the

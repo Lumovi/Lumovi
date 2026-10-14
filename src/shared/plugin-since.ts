@@ -35,6 +35,8 @@ export const PLUGIN_SINCE = {
     logs: 'next',
     /** Its tool's own server its code may ask, through Lumovi. */
     server: 'next',
+    /** A page's `takes`: the kind whose tab it stands in. */
+    takes: 'next',
   },
   /** What a view's action can say beyond what it first took. */
   action: {
@@ -105,5 +107,11 @@ export const PLUGIN_SINCE = {
     'Graph.nodes[].context': 'next',
     'Graph.nodes[].goes': 'next',
     'Graph.legend.marked': 'next',
+    /** A count that opens; a status's running time; a table's bar and its rows' values. */
+    'Counts.groups[].rows[].opens': 'next',
+    'Table.rows[].cells[].kind=status.since': 'next',
+    'Table.filters': 'next',
+    'Table.search': 'next',
+    'Table.rows[].facets': 'next',
   },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>

@@ -53,6 +53,10 @@ export const TABLE_LIMITS = {
   leadHeading: 40,
   /** Characters of why a row's button can't be pressed now, as a header's button says it. */
   off: 80,
+  /** Filters a table's bar has; the values a row gives them, all together; a filter's key. */
+  filters: 8,
+  facets: 32,
+  filterKey: 40,
 } as const
 
 export const HEALTHS = [
@@ -104,8 +108,12 @@ export const cell = choice(
     number: { value: number(-LARGEST, LARGEST), text: name },
     /** A moment, as text (RFC 3339): Lumovi says how long ago, or how soon, never the plugin. */
     age: { time },
-    /** A level and its word. Sorts worst first, by the level and not the word. */
-    status: { level: oneOf(HEALTHS), word: name },
+    /**
+     * A level and its word. Sorts worst first, by the level and not the word. With `since` (a
+     * moment, RFC 3339), how long what it says has gone on, after the word, counted by Lumovi
+     * each second ("Syncing 1m 05s"), as a header's second status says it.
+     */
+    status: { level: oneOf(HEALTHS), word: name, since: time },
     /** `used` of `of` (no `of`: there's no limit); `text` says it ("24 of 64 cores"). */
     meter: { label: name, used: number(0, LARGEST), of: number(0, LARGEST), text: name },
     /**
@@ -128,6 +136,7 @@ export const cell = choice(
   {
     text: ['mono', 'full'],
     number: ['text'],
+    status: ['since'],
     meter: ['of'],
     button: ['changes', 'asks', 'off'],
   },
@@ -135,6 +144,20 @@ export const cell = choice(
 
 /** What a row is called: a dot in its level, its name, a quiet word beside, a line under. */
 export const lead = record({ level: oneOf(HEALTHS), name, beside: name, under: line }, ['name'])
+
+/** A filter's key: what a row's values name it by, and a link to the page sets it by. */
+const filterKey = text(TABLE_LIMITS.filterKey)
+
+/**
+ * One of the filters in a table's bar, Lumovi's own: a menu of the values the rows have, with how
+ * many have each. Values in one filter are either; filters together are all. `more`, it's under
+ * More filters; `level`, its values are the rows' own levels (their lead's), in Lumovi's words,
+ * and no row gives it any.
+ */
+const filter = record({ key: filterKey, name, more: yesOrNo, level: yesOrNo }, ['key', 'name'])
+
+/** A row's value for one of its table's filters: several for one filter, each is one it has. */
+const facet = record({ filter: filterKey, value: name }, ['filter', 'value'])
 
 /** What a row has, and a row inside one too. */
 const ROW = {
@@ -176,6 +199,8 @@ const row = record(
     group: name,
     /** Rows it holds: one level, and those hold none. */
     rows: list(innerRow, TABLE_LIMITS.nested),
+    /** Its values for the table's filters: what the filters' menus count, and keep it by. */
+    facets: list(facet, TABLE_LIMITS.facets),
   },
   ['key', 'lead', 'cells'],
 )
@@ -224,6 +249,14 @@ export const table = {
     cut,
     /** In place of rows, when there are none to show. */
     state,
+    /**
+     * The bar above its rows, Lumovi's alone: these filters, each a menu of the values its rows
+     * give it. What's set or typed there is never told to the plugin; a link to its page may set
+     * it as the page opens.
+     */
+    filters: list(filter, TABLE_LIMITS.filters),
+    /** A field in the bar that keeps the rows whose name, or the word beside it, has what's typed. */
+    search: yesOrNo,
     /** Pressed a row that opens something (Lumovi opens the object itself). */
     onOpen: handler('open'),
     /** Pressed "Try again" of a table that failed. */
@@ -311,7 +344,8 @@ export type DrawnRow = Omit<TableRow, 'rows'> & {
 /** A table as a plugin wrote it, as far as `tableProblem` reads it (its kinds already passed). */
 interface Written {
   columns: { kind: string }[]
-  rows: (WrittenRow & { rows?: WrittenRow[] })[]
+  rows: (WrittenRow & { rows?: WrittenRow[]; facets?: { filter: string }[] })[]
+  filters?: { key: string; level?: boolean }[]
 }
 interface WrittenRow {
   key: string
@@ -330,7 +364,25 @@ interface WrittenRow {
  * starts at no column at all is the kinds' to refuse: it's a whole number from 0.)
  */
 export function tableProblem(written: Readonly<Record<string, unknown>>): string | undefined {
-  const { columns, rows } = written as unknown as Written
+  const { columns, rows, filters = [] } = written as unknown as Written
+  // A filter's key is its own; a row's values are for filters the table has, never a level's.
+  const filterAt = new Map<string, { at: number; level: boolean }>()
+  for (const [f, each] of filters.entries()) {
+    const first = filterAt.get(each.key)
+    if (first !== undefined) return `Filters ${first.at} and ${f + 1} have the same key.`
+    filterAt.set(each.key, { at: f + 1, level: each.level === true })
+  }
+  for (const [r, row] of rows.entries()) {
+    for (const [v, facet] of (row.facets ?? []).entries()) {
+      const its = filterAt.get(facet.filter)
+      if (its === undefined) {
+        return `Row ${r + 1}, value ${v + 1} is for a filter the table hasn’t: name it under filters.`
+      }
+      if (its.level) {
+        return `Row ${r + 1}, value ${v + 1} is for filter ${its.at}, which goes by the rows’ own levels: a row gives no value for it.`
+      }
+    }
+  }
   const buttons = columns.flatMap((column, c) => (column.kind === 'button' ? [c + 1] : []))
   if (buttons.length > 1) {
     return `Columns ${buttons[0]} and ${buttons[1]} both hold buttons: a table has one such column.`

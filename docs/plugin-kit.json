@@ -5,6 +5,7 @@
       "props": [
         "columns",
         "cut",
+        "filters",
         "headings",
         "leadHeading",
         "nameSorts",
@@ -12,6 +13,7 @@
         "onPress",
         "onRetry",
         "rows",
+        "search",
         "shows",
         "state",
         "title"
@@ -166,7 +168,8 @@
                         "kind": "one-of",
                         "values": ["healthy", "progressing", "warning", "critical", "neutral"]
                       },
-                      "word": { "kind": "text", "max": 253 }
+                      "word": { "kind": "text", "max": 253 },
+                      "since": { "kind": "time" }
                     },
                     "meter": {
                       "label": { "kind": "text", "max": 253 },
@@ -186,6 +189,7 @@
                   "optional": {
                     "text": ["mono", "full"],
                     "number": ["text"],
+                    "status": ["since"],
                     "meter": ["of"],
                     "button": ["changes", "asks", "off"]
                   }
@@ -249,7 +253,8 @@
                               "kind": "one-of",
                               "values": ["healthy", "progressing", "warning", "critical", "neutral"]
                             },
-                            "word": { "kind": "text", "max": 253 }
+                            "word": { "kind": "text", "max": 253 },
+                            "since": { "kind": "time" }
                           },
                           "meter": {
                             "label": { "kind": "text", "max": 253 },
@@ -269,6 +274,7 @@
                         "optional": {
                           "text": ["mono", "full"],
                           "number": ["text"],
+                          "status": ["since"],
                           "meter": ["of"],
                           "button": ["changes", "asks", "off"]
                         }
@@ -291,6 +297,18 @@
                   "required": ["key", "lead", "cells"]
                 },
                 "max": 200
+              },
+              "facets": {
+                "kind": "list",
+                "of": {
+                  "kind": "record",
+                  "fields": {
+                    "filter": { "kind": "text", "max": 40 },
+                    "value": { "kind": "text", "max": 253 }
+                  },
+                  "required": ["filter", "value"]
+                },
+                "max": 32
               }
             },
             "required": ["key", "lead", "cells"]
@@ -316,6 +334,21 @@
           },
           "optional": { "empty": ["line"], "quiet": ["good"] }
         },
+        "filters": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "key": { "kind": "text", "max": 40 },
+              "name": { "kind": "text", "max": 253 },
+              "more": { "kind": "yes-or-no" },
+              "level": { "kind": "yes-or-no" }
+            },
+            "required": ["key", "name"]
+          },
+          "max": 8
+        },
+        "search": { "kind": "yes-or-no" },
         "onOpen": { "kind": "handler", "event": "open" },
         "onRetry": { "kind": "handler", "event": "retry" },
         "onPress": { "kind": "handler", "event": "press" }
@@ -442,7 +475,8 @@
                         "kind": "one-of",
                         "values": ["healthy", "progressing", "warning", "critical", "neutral"]
                       },
-                      "word": { "kind": "text", "max": 253 }
+                      "word": { "kind": "text", "max": 253 },
+                      "since": { "kind": "time" }
                     },
                     "meter": {
                       "label": { "kind": "text", "max": 253 },
@@ -462,6 +496,7 @@
                   "optional": {
                     "text": ["mono", "full"],
                     "number": ["text"],
+                    "status": ["since"],
                     "meter": ["of"],
                     "button": ["changes", "asks", "off"]
                   }
@@ -734,7 +769,8 @@
                   "kind": "record",
                   "fields": {
                     "value": { "kind": "text", "max": 253 },
-                    "count": { "kind": "number", "min": 0, "max": 9007199254740991, "whole": true }
+                    "count": { "kind": "number", "min": 0, "max": 9007199254740991, "whole": true },
+                    "opens": { "kind": "destination" }
                   },
                   "required": ["value", "count"]
                 },
@@ -865,7 +901,10 @@
       "line": 500,
       "depth": 1,
       "leadHeading": 40,
-      "off": 80
+      "off": 80,
+      "filters": 8,
+      "facets": 32,
+      "filterKey": 40
     },
     "graph": {
       "drawn": { "cards": 300, "lines": 600 },
