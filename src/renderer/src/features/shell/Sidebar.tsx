@@ -470,7 +470,10 @@ function SwitcherItem({
   active: boolean
   onSelect: (path: string) => void
 }) {
-  const version = useVersion(context.name)
+  // (One that signs in through a program isn't asked as the list opens: that would start it for
+  // each such cluster. The open one has been, as it was opened, and so has one signed in since.)
+  const asked = !context.signsInWith || active || context.signedIn === true
+  const version = useVersion(context.name, false, asked)
   const name = useClusterName()(context.name)
   const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
   return (
@@ -478,8 +481,14 @@ function SwitcherItem({
       value={`${name} ${context.name} ${context.cluster}`}
       onSelect={() => onSelect(clusterPath(context.name))}
       className={cn(menuItem, 'h-auto py-1.5')}
+      {...(asked ? {} : { title: 'Signs in when opened' })}
     >
-      <StatusDot health={health} />
+      {asked ? (
+        <StatusDot health={health} />
+      ) : (
+        // (Its dot's place kept, so the names stay in line.)
+        <span className="size-2 shrink-0" />
+      )}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{name}</span>
       </span>

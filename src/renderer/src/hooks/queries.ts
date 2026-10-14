@@ -13,13 +13,22 @@ export function useContexts() {
   return useQuery({ queryKey: ['contexts'], queryFn: () => api.kube.contexts() })
 }
 
-/** The cluster's version; also the connection check. `refetchInterval` keeps checking. */
-export function useVersion(context: string, refetchInterval: number | false = false) {
+/**
+ * The cluster's version; also the connection check. `refetchInterval` keeps checking. Not
+ * `enabled`, nothing's asked (a cluster that signs in through a program, where a list of them is
+ * shown: asked, it would start that program, a browser or a prompt, for clusters nobody picked).
+ */
+export function useVersion(
+  context: string,
+  refetchInterval: number | false = false,
+  enabled = true,
+) {
   return useQuery({
     queryKey: ['version', context],
     queryFn: () => unwrap(api.kube.version(context)),
     staleTime: 60_000,
     refetchInterval,
+    enabled,
   })
 }
 

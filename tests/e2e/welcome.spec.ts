@@ -23,8 +23,11 @@ test('lists every context with its connection status', async ({ page, clusters }
   await expect(clusterRow(page, CONTEXTS.offline)).toContainText('Unreachable')
   await expect(clusterRow(page, CONTEXTS.expired)).toContainText('Couldn’t sign in')
   await expect(clusterRow(page, CONTEXTS.untrusted)).toContainText('Certificate error')
-  await expect(clusterRow(page, CONTEXTS.execMissing)).toContainText('Couldn’t sign in')
-  await expect(clusterRow(page, CONTEXTS.execMissing).getByTitle(/wasn’t found/)).toBeAttached()
+  // One that signs in through a program isn't asked here: that would start it.
+  await expect(clusterRow(page, CONTEXTS.execMissing)).toContainText('Signs in when opened')
+  await expect(
+    clusterRow(page, CONTEXTS.execMissing).getByTitle(/^Signs in through /),
+  ).toBeAttached()
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('No cluster defined')
   await expect(clusterRow(page, CONTEXTS.brokenRef)).toContainText('Misconfigured')
   await expect(clusterRow(page, CONTEXTS.plainHttp)).toContainText('Plain HTTP blocked')
@@ -32,6 +35,10 @@ test('lists every context with its connection status', async ({ page, clusters }
     clusters.kubeconfigPath,
   )
   await expect(page).toHaveTitle('Lumovi')
+  // Opened, it says why it couldn't sign in: its program wasn't found.
+  await clusterRow(page, CONTEXTS.execMissing).click()
+  await expect(page.getByRole('heading', { name: 'Couldn’t get credentials' })).toBeVisible()
+  await expect(page.getByText(/wasn’t found/).first()).toBeVisible()
 })
 
 test('the cluster search is focused and driven by the keyboard', async ({ page }) => {

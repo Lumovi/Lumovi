@@ -24,6 +24,8 @@ const api: LumoviApi = {
     setTerminalFocus: (focused) => ipcRenderer.send(IPC.terminalFocus, focused),
     openMenu: (x, y) => invoke(IPC.openMenu, x, y),
     newWindow: () => invoke(IPC.newWindow),
+    keepBelow: (below) => ipcRenderer.send(IPC.keepBelow, below),
+    restored: () => invoke(IPC.restored),
   },
   app: {
     info: () => invoke(IPC.appInfo),

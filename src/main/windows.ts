@@ -6,12 +6,19 @@
  */
 import type { BrowserWindow, WebContents } from 'electron'
 
+/** The most a page keeps of what it has below, in characters of JSON. */
+const BELOW_MOST = 64_000
+
 export class Windows {
   #windows: BrowserWindow[] = []
   /** The page each stream belongs to, by the stream's id. */
   #owners = new Map<string, WebContents>()
   /** The window last in front: what the menu and the system's dialogs are for. */
   #front: BrowserWindow | undefined
+  /** What each page says it has below, by its window. */
+  #below = new Map<number, unknown>()
+  /** Where each window was, and what it had below, when Lumovi last closed: asked for once. */
+  #restored = new Map<number, { page?: string; below?: unknown }>()
 
   /** Lumovi's windows, the first opened first. */
   all(): BrowserWindow[] {
@@ -22,10 +29,46 @@ export class Windows {
     this.#windows.push(win)
     this.#front = win
     win.on('focus', () => (this.#front = win))
+    const id = win.id
     win.on('closed', () => {
+      this.#below.delete(id)
+      this.#restored.delete(id)
       this.#windows = this.#windows.filter((each) => each !== win)
       if (this.#front === win) this.#front = this.#windows.at(-1)
     })
+  }
+
+  /** Where a window was and what it had below as Lumovi last closed, for its page to ask for. */
+  restore(win: BrowserWindow, restored: { page?: string; below?: unknown }): void {
+    if (restored.page !== undefined || restored.below !== undefined) {
+      this.#restored.set(win.id, restored)
+    }
+  }
+
+  /** Where a page's window was and what it had below as Lumovi last closed: once. */
+  takeRestored(page: WebContents): { page?: string; below?: unknown } | undefined {
+    const id = this.#windowOf(page)?.id
+    if (id === undefined) return undefined
+    const below = this.#restored.get(id)
+    this.#restored.delete(id)
+    return below
+  }
+
+  /** What a page says it has below now. (Too much to be what it keeps, it's not kept.) */
+  keepBelow(page: WebContents, below: unknown): void {
+    const win = this.#windowOf(page)
+    if (!win) return
+    if (JSON.stringify(below ?? null).length > BELOW_MOST) this.#below.delete(win.id)
+    else this.#below.set(win.id, below)
+  }
+
+  /** What a window's page last said it had below. */
+  belowOf(win: BrowserWindow): unknown {
+    return this.#below.get(win.id)
+  }
+
+  #windowOf(page: WebContents): BrowserWindow | undefined {
+    return this.all().find((win) => win.webContents === page)
   }
 
   /** The window in front, or the one last there. */

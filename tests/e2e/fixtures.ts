@@ -546,8 +546,21 @@ export const test = base.extend<
 
 /** Opens a cluster from the welcome screen and waits for the overview. */
 export async function openCluster(page: Page, context: string = CONTEXTS.demo): Promise<void> {
-  await clusterOption(page, context).click()
-  await expect(page.getByRole('button', { name: 'Switch cluster' })).toContainText(context)
+  const switcher = page.getByRole('button', { name: 'Switch cluster' })
+  const option = clusterOption(page, context)
+  const there = new RegExp(`^${context}\\b`)
+  // (A window opened again is where it was: on that cluster already, or another, or the start
+  // screen. From another, the start screen first. And it goes there a moment after it opens, once
+  // it knows its clusters: what was pressed before that may be gone, so it’s tried again.)
+  await expect(async () => {
+    await expect(switcher.or(option).first()).toBeVisible({ timeout: 5_000 })
+    if (await switcher.isVisible()) {
+      if (there.test((await switcher.textContent()) ?? '')) return
+      await page.evaluate(() => (window.location.hash = '#/'))
+    }
+    await option.click({ timeout: 5_000 })
+    await expect(switcher).toContainText(context, { timeout: 5_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 /** A cluster on the start screen, in the list (Recent has some again). */

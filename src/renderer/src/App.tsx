@@ -37,6 +37,7 @@ import { watchQueries } from './lib/watches'
 import { clusterPath } from './lib/routes'
 import { useSession } from './state/session'
 import { SETTINGS_CHANGED } from './web/api'
+import { BelowKept } from './features/terminal/BelowKept'
 import { basename } from './web/session'
 
 /** Set by the build: true only in the build the tests run. */
@@ -190,6 +191,7 @@ export function App() {
             <RouterProvider router={router} />
             {assistants}
             {proposals}
+            {api.desktop && <BelowKept />}
           </>
         )}
         <Toaster />

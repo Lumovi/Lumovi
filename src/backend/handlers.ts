@@ -352,7 +352,20 @@ export function handlers({
           : read
       },
 
-      [IPC.contexts]: () => kube.contexts(),
+      // (Each with the credential plugin it signs in through, where it has one: read, not run;
+      // and whether it's answered since Lumovi started, signed in.)
+      [IPC.contexts]: () => {
+        const result = kube.contexts()
+        return {
+          ...result,
+          contexts: result.contexts.map((context) => {
+            const plugin = kube.credentialPlugin(context.name)
+            if (!plugin) return context
+            const signedIn = kube.answeredAt(context.name) !== undefined
+            return { ...context, signsInWith: plugin, ...(signedIn ? { signedIn: true } : {}) }
+          }),
+        }
+      },
       [IPC.version]: (context) => kube.version(context),
       [IPC.resources]: (context) => kube.resources(context),
       [IPC.schema]: (context, kind) => kube.schema(context, kind),

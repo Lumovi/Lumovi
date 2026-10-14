@@ -26,6 +26,7 @@ import type { ClusterSettings } from '@shared/cluster-settings'
 import { Button } from '@renderer/components/Button'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
+import { spelled } from '@shared/kit/characters'
 import { useVersion } from '@renderer/hooks/queries'
 import { useSettings } from '@renderer/hooks/settings'
 import type { KubeApiError } from '@renderer/lib/api'
@@ -533,10 +534,22 @@ function ClusterRow({
 }) {
   const go = useGo()
   const { context } = cluster
-  const version = useVersion(context.name)
+  // (One that signs in through a program isn't asked: that would start it, a browser or a
+  // prompt, for a cluster nobody picked. Lumovi checks it as it's opened. A folder's that asks
+  // first has none yet: it isn't allowed to run, so it's asked, and says so.)
+  const signsIn = context.signsInWith
+  const version = useVersion(context.name, false, !signsIn)
   const label = useMatchedLabel(cluster)
-  const health = version.isPending ? 'progressing' : version.isError ? 'critical' : 'healthy'
   const code = version.isError ? (version.error as KubeApiError).code : undefined
+  const health = signsIn
+    ? undefined
+    : version.isPending
+      ? 'progressing'
+      : code === 'consent'
+        ? 'warning'
+        : version.isError
+          ? 'critical'
+          : 'healthy'
   return (
     <Command.Item
       value={`${recent ? RECENT_VALUE : ''}${context.name}`}
@@ -600,8 +613,21 @@ function ClusterRow({
         </span>
       )}
       {/* Recent's narrower gap made up, so its column ends where the others' do. */}
-      <span className={cn('w-[116px] shrink-0 text-right text-xs', recent && 'mr-0.5')}>
-        {version.isPending ? (
+      <span
+        className={cn(
+          'min-w-[116px] shrink-0 text-right text-xs whitespace-nowrap',
+          recent && 'mr-0.5',
+        )}
+      >
+        {signsIn ? (
+          <span
+            className="text-ink-3"
+            // (A kubeconfig's name: spelled, so none can turn the line round or hide in it.)
+            title={`Signs in through ${spelled(signsIn)}, so Lumovi checks it when you open it.`}
+          >
+            Signs in when opened
+          </span>
+        ) : version.isPending ? (
           // Being checked: a place for its version.
           <span className="inline-block h-2.5 w-[72px] animate-shimmer rounded bg-surface-3 align-middle" />
         ) : version.isError ? (

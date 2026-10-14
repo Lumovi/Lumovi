@@ -317,9 +317,12 @@ test.describe('when things go wrong', () => {
       contexts: [{ name: 'failing-plugin', cluster: 'demo', user: 'u' }],
     })
     const { page } = await launch({ env: { KUBECONFIG: kubeconfig } })
-    await expect(
-      page.getByRole('option', { name: /^failing-plugin/ }).getByTitle(/Could not get credentials/),
-    ).toBeAttached()
+    // Not asked on the start screen (that would start the program); opened, it says why.
+    const option = page.getByRole('option', { name: /^failing-plugin/ })
+    await expect(option).toContainText('Signs in when opened')
+    await option.click()
+    await expect(page.getByRole('heading', { name: 'Couldn’t get credentials' })).toBeVisible()
+    await expect(page.getByText(/Could not get credentials/).first()).toBeVisible()
   })
 })
 

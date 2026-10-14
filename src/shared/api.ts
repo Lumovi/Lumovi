@@ -82,6 +82,10 @@ export interface WindowState {
   width: number
   height: number
   maximized: boolean
+  /** Its page's address, as it was (`#/cluster/…`, the panel's object with it). */
+  page?: string
+  /** What its page said it had below (the page's own: it reads it back, and checks it). */
+  below?: unknown
 }
 
 /**
@@ -462,6 +466,14 @@ export interface KubeContext {
   labels?: Record<string, string>
   /** A fleet's: the name it's shown by, as the Fleet page sets it. */
   title?: string
+  /**
+   * The credential plugin its user signs in through, where it has one (an exec plugin's command,
+   * an auth provider's name): one can open a browser or ask in a terminal, so nothing reads the
+   * cluster by itself, unasked (a tab restored below waits to be shown).
+   */
+  signsInWith?: string
+  /** One that signs in through a program, and has answered Lumovi since it started: signed in. */
+  signedIn?: true
 }
 
 /** The kubeconfig files the desktop app reads, merged as kubectl would (the first to name a thing wins). */
@@ -1310,6 +1322,14 @@ export interface LumoviApi {
     openMenu(x: number, y: number): Promise<void>
     /** Opens another window, on the start screen: its own pages, and its own streams. */
     newWindow(): Promise<void>
+    /** What the page has below now, kept for when Lumovi opens this window again. */
+    keepBelow(below: unknown): void
+    /**
+     * Where this window was when Lumovi last closed, and what it had below: once, nothing after
+     * that. Its page opens on the start screen and goes there itself, when that reads nothing
+     * by itself (a cluster that signs in through a program waits for a press).
+     */
+    restored(): Promise<{ page?: string; below?: unknown }>
   }
   app: {
     info(): Promise<AppInfo>
@@ -1773,6 +1793,8 @@ export const IPC = {
   terminalFocus: 'terminal:focus',
   openMenu: 'app:open-menu',
   newWindow: 'app:new-window',
+  keepBelow: 'window:keep-below',
+  restored: 'window:restored',
   appInfo: 'app:info',
   appProblems: 'app:problems',
   settings: 'app:settings',
