@@ -26,6 +26,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { tabName, useDock, type TerminalTab } from './dock'
+import { KeptPanel, KeptTabButton } from './Kept'
 import { keysText, TERMINAL_KEYS } from './keys'
 import { TerminalNotice, TerminalView, usePhase } from './TerminalView'
 
@@ -40,13 +41,13 @@ const inTerminal = (event: FocusEvent) =>
   (event.target as HTMLElement).classList.contains('xterm-helper-textarea')
 
 /**
- * Terminals on this computer, under a cluster's pages: a thin bar that's always
- * there (with the terminals that run, if any), which opens into a dock of
- * them, each tab a shell with kubectl pointed at its cluster. ⌃` opens and
- * closes it.
+ * The tabs below a cluster's pages: a thin bar that's always there (with its tabs, if any), which
+ * opens into them. A terminal's tab is a shell on this computer with kubectl pointed at its
+ * cluster (⌃` shows one, or opens one); a kept object's is the object, as the detail panel shows
+ * it, kept open while the pages above go elsewhere.
  */
 export function TerminalDock() {
-  const { tabs, active, open, maximized, focus } = useDock()
+  const { tabs, kept, order, active, open, maximized, focus } = useDock()
   const dock = useDock.getState()
   const { context, namespace } = useCluster()
   const stored = usePrefs((prefs) => prefs.terminalHeight)
@@ -139,14 +140,15 @@ export function TerminalDock() {
   return (
     <section
       ref={section}
-      aria-label="Terminal"
+      aria-label="Tabs below"
       style={open ? { height } : undefined}
       onKeyDown={shortcuts}
-      onFocus={(event) => {
-        if (inTerminal(event)) api.desktop!.setTerminalFocus(true)
-      }}
+      // A terminal's ⌘ keys are its own; elsewhere below, only ⌘W is (it closes the tab shown).
+      onFocus={(event) => api.desktop!.setTerminalFocus(inTerminal(event) ? true : 'below')}
       onBlur={(event) => {
-        if (inTerminal(event)) api.desktop!.setTerminalFocus(false)
+        if (!section.current!.contains(event.relatedTarget as Node | null)) {
+          api.desktop!.setTerminalFocus(false)
+        }
       }}
       className="relative flex shrink-0 flex-col border-t border-line bg-surface-2"
     >
@@ -155,7 +157,7 @@ export function TerminalDock() {
         <div
           role="separator"
           aria-orientation="horizontal"
-          aria-label="Resize the terminal"
+          aria-label="Resize the tabs below"
           tabIndex={0}
           onPointerDown={drag}
           onKeyDown={keys}
@@ -171,25 +173,29 @@ export function TerminalDock() {
           open && 'border-b border-line',
         )}
       >
+        {/* Always a terminal: the last one shown, or a new one, as ⌃` does. */}
         <button
           type="button"
-          aria-expanded={open}
-          aria-controls="terminal-panels"
+          aria-label={`${tabs.length ? 'Show the terminal' : 'Open a terminal'} (${keysText(TERMINAL_KEYS.toggle)})`}
           onClick={toggle}
           className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-2 outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent"
         >
           <SquareTerminal className="size-3.5" />
           Terminal
         </button>
-        {tabs.length > 0 && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />}
+        {order.length > 0 && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />}
         <div
           role="tablist"
-          aria-label="Terminals"
+          aria-label="Tabs below"
           className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
         >
-          {tabs.map((tab) => (
-            <Tab key={tab.session.id} tab={tab} selected={open && tab.session.id === active} />
-          ))}
+          {order.map((id) => {
+            const selected = open && id === active
+            const terminal = tabs.find((tab) => tab.session.id === id)
+            if (terminal) return <Tab key={id} tab={terminal} selected={selected} />
+            const object = kept.find((each) => each.id === id)
+            return object && <KeptTabButton key={id} kept={object} selected={selected} />
+          })}
         </div>
         <IconButton
           label={`New terminal (${keysText(TERMINAL_KEYS.add)})`}
@@ -201,7 +207,7 @@ export function TerminalDock() {
         <span className="flex-1" />
         {open ? (
           <IconButton
-            label={maximized ? 'Restore the terminal' : 'Maximize the terminal'}
+            label={maximized ? 'Restore the tabs below' : 'Maximize the tabs below'}
             className="size-7"
             onClick={() => dock.setMaximized(!maximized)}
           >
@@ -213,9 +219,11 @@ export function TerminalDock() {
           </span>
         )}
         <IconButton
-          label={`${open ? 'Hide' : 'Show'} the terminal (${keysText(TERMINAL_KEYS.toggle)})`}
+          label={`${open ? 'Hide' : 'Show'} the tabs below`}
+          aria-expanded={open}
+          aria-controls="terminal-panels"
           className="size-7"
-          onClick={toggle}
+          onClick={() => dock.toggleOpen()}
         >
           {open ? <ChevronDown /> : <ChevronUp />}
         </IconButton>
@@ -228,6 +236,9 @@ export function TerminalDock() {
       >
         {tabs.map((tab) => (
           <Panel key={tab.session.id} tab={tab} shown={tab.session.id === active} />
+        ))}
+        {kept.map((each) => (
+          <KeptPanel key={each.id} kept={each} shown={each.id === active} />
         ))}
       </div>
     </section>

@@ -22,6 +22,7 @@ import {
   LogOut,
   Monitor,
   Moon,
+  PanelBottom,
   Pin,
   PinOff,
   Scale,
@@ -857,7 +858,9 @@ function ObjectActionItems({
   }
   const called = `${apiKindOf(kind)} ${spelled(pin.name)}`
   const on = pinned(pin)
-  // (Nothing to do to it, and nothing to pin: no Actions at all.)
+  const { context } = useCluster()
+  const kept = useDock((dock) => Boolean(dock.keptOf(context, pin)))
+  // (Nothing to do to it and nothing to pin: no Actions at all. Its panel keeps it below.)
   if (available.length === 0 && !pinnable(kind)) return null
   return (
     <Command.Group heading="Actions">
@@ -881,6 +884,19 @@ function ObjectActionItems({
           onSelect={run(() => toggle(pin, called))}
         >
           {on ? 'Unpin' : 'Pin'} {called}
+        </Item>
+      )}
+      {api.desktop && (
+        <Item
+          icon={<PanelBottom />}
+          value={`Keep open below ${object.metadata.name} tabs below`}
+          onSelect={run(() => {
+            const { panelTab, keep } = useDock.getState()
+            const tab = panelTab?.ref === formatRef(pin) ? panelTab.tab : 'overview'
+            keep(context, pin, tab)
+          })}
+        >
+          {kept ? 'Show below' : 'Keep open below'}
         </Item>
       )}
     </Command.Group>

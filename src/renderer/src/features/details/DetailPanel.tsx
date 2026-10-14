@@ -1,5 +1,5 @@
-import { ArrowLeft, Maximize2, Minimize2, Plug, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Maximize2, Minimize2, PanelBottom, Plug, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { apiKindOf, isBuiltinKind, kindOf } from '@shared/resources'
@@ -16,7 +16,7 @@ import { useObject } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
 import { useClusterName } from '@renderer/hooks/settings'
 import { usePlugins, useServedPlugins } from '@renderer/hooks/plugins'
-import type { KubeApiError } from '@renderer/lib/api'
+import { api, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { age } from '@renderer/lib/format'
@@ -24,6 +24,7 @@ import { pinnable } from '@renderer/lib/marks'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
+import { useDock } from '../terminal/dock'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionBar } from '../actions/ActionSurfaces'
 import { ObjectAudit } from '../audit/ObjectAudit'
@@ -234,6 +235,12 @@ function Detail({
             </div>
           )}
         </div>
+        {api.desktop && (
+          <KeepBelow
+            target={target}
+            tab={chosen?.of === formatRef(target) ? chosen.tab : 'overview'}
+          />
+        )}
         {!over && (
           <IconButton
             label={expanded ? 'Restore panel' : 'Expand panel'}
@@ -252,19 +259,47 @@ function Detail({
   )
 }
 
+/**
+ * Keeps the object open below, on the tab the panel shows (the desktop app's tabs below); kept
+ * already in this window, shows it there.
+ */
+function KeepBelow({ target, tab }: { target: ObjectRef; tab: string }) {
+  const { context } = useCluster()
+  const kept = useDock((dock) => Boolean(dock.keptOf(context, target)))
+  // (The palette keeps it open below on this tab too.)
+  const ref = formatRef(target)
+  useEffect(() => {
+    useDock.getState().setPanelTab({ ref, tab })
+    return () => useDock.getState().setPanelTab(undefined)
+  }, [ref, tab])
+  return (
+    <IconButton
+      label={kept ? 'Show below' : 'Keep open below'}
+      onClick={() => useDock.getState().keep(context, target, tab)}
+      className="mt-0.5"
+    >
+      <PanelBottom />
+    </IconButton>
+  )
+}
+
 /** Kinds that relate to everything in their scope, or to nothing: no map. */
 const MAPLESS = new Set(['Event', 'Namespace'])
 const NOT_ON_A_PHONE = new Set(['shell', 'map'])
 
-function DetailTabs({
+/** An object's tabs, and what each shows: the panel's, and a kept object's below. */
+export function DetailTabs({
   object,
   chosen,
   onChoose,
+  aside,
 }: {
   object: KubeObject
   /** The tab chosen before the detail was laid out anew, if one was. */
   chosen?: string
   onChoose: (tab: string) => void
+  /** What stands at the end of the tabs' row. */
+  aside?: ReactNode
 }) {
   const kind = kindOf(object)
   const { context } = useCluster()
@@ -360,7 +395,7 @@ function DetailTabs({
       }}
       className="flex min-h-0 flex-1 flex-col phone:min-h-[calc(100dvh-52px)] phone:flex-none"
     >
-      <TabList tabs={tabs} />
+      <TabList tabs={tabs} aside={aside} />
       <TabContent value="overview" className={long}>
         <OverviewTab object={object} />
       </TabContent>
