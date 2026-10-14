@@ -215,7 +215,7 @@ async function tryGroup(
   if (where === 'worker') {
     await open(page, 'served', IDLE)
     served = await documentOf(page, app, 'served')
-    expect(served).toContain('<script src=')
+    expect(served).toContain('<script>')
     // (And a mark would be seen: one made by the test's own hand is.)
     await inFrame(page, app, 'served', 'document.body.setAttribute("data-marked", "")')
     expect(await documentOf(page, app, 'served')).toBe(
@@ -223,10 +223,15 @@ async function tryGroup(
     )
     await close(page, 'served')
   }
+  /** What a try is told of where things are: the catchers', and its box's own address. */
+  const told = (id: string, role?: 'first' | 'second') => ({
+    ...catchers.context(id, role, named),
+    box: 'lumovi-plugin://ways/box.html',
+  })
   const tryIt = (as: string, id: string, role?: 'first' | 'second') =>
     where === 'worker'
-      ? inWorker(page, as, id, catchers.context(id, role, named))
-      : onPage(page, app, as, id, catchers.context(id, role, named))
+      ? inWorker(page, as, id, told(id, role))
+      : onPage(page, app, as, id, told(id, role))
   for (const [n, { id }] of ways.entries()) {
     catchers.reset()
     if (group === 'pair') {
@@ -263,26 +268,16 @@ async function without(app: ElectronApplication, wall: 'the box’s policy' | 't
       }
       // The box as it is, sandboxed and nothing more: no policy of its own.
       protocol.unhandle('lumovi-plugin')
-      protocol.handle('lumovi-plugin', (request) => {
-        const { hostname, pathname } = new URL(request.url)
-        if (pathname === '/box.js') {
-          return new Response(script, {
-            headers: {
-              'content-type': 'text/javascript',
-              'cross-origin-resource-policy': 'cross-origin',
-            },
-          })
-        }
-        return new Response(
-          `<!doctype html><meta charset="utf-8"><body><script src="lumovi-plugin://${hostname}/box.js"></script>`,
-          {
+      protocol.handle(
+        'lumovi-plugin',
+        () =>
+          new Response(`<!doctype html><meta charset="utf-8"><body><script>${script}</script>`, {
             headers: {
               'content-type': 'text/html',
               'content-security-policy': 'sandbox allow-scripts',
             },
-          },
-        )
-      })
+          }),
+      )
     },
     { wall, script: BOX_SCRIPT },
   )
@@ -327,8 +322,8 @@ test.afterAll(async () => {
 test.setTimeout(240_000)
 
 test('the list holds every way that was ever tried', () => {
-  expect(ALL).toHaveLength(167)
-  expect(new Set(ALL.map((way) => way.id)).size).toBe(167)
+  expect(ALL).toHaveLength(170)
+  expect(new Set(ALL.map((way) => way.id)).size).toBe(170)
   // Each of them judged: by the catchers alone, or by what it saw too (worked.ts). A way added
   // here fails until someone says how it's judged.
   expect(Object.keys(JUDGED).sort()).toEqual(ALL.map((way) => way.id).sort())

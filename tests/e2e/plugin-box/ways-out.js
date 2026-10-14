@@ -63,6 +63,19 @@
           () => 'answered',
         ),
     ],
+    // The box's own document, asked for with something added to its address. It is at the host
+    // that serves the box, where no stand-in elsewhere sees it: judged by what serves the box.
+    [
+      'fetch-box-document',
+      'request',
+      false,
+      (c) =>
+        c.box
+          ? fetch(`${c.box}?d=SECRET-fetch-box-document`, { mode: 'no-cors' }).then(
+              () => 'answered',
+            )
+          : 'no address of its box to ask',
+    ],
     [
       'xhr-other',
       'request',
@@ -140,6 +153,29 @@
       'script',
       false,
       (c) => import(c.leak.replace('?', '.js?')).then(() => 'imported'),
+    ],
+    // The box's own addresses, as scripts, with something added: a policy that named one by
+    // address would match it whatever its query, and what serves the box would have been told.
+    // Judged by what serves the box, as above.
+    [
+      'import-box-script',
+      'script',
+      false,
+      (c) =>
+        c.box
+          ? import(`${c.box.replace(/box\.html$/, 'box.js')}?d=SECRET-import-box-script`).then(
+              () => 'imported',
+            )
+          : 'no address of its box to ask',
+    ],
+    [
+      'import-box-document',
+      'script',
+      false,
+      (c) =>
+        c.box
+          ? import(`${c.box}?d=SECRET-import-box-document`).then(() => 'imported')
+          : 'no address of its box to ask',
     ],
     [
       'importScripts-other',

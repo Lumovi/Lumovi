@@ -72,14 +72,14 @@ const isBoxName = (name: string): boolean =>
  * is one for the whole installation. If a grant ever differs between two pages of one plugin,
  * this is to be looked at again.
  */
-export function boxAddress(plugin: string): { origin: string; document: string; script: string } {
+export function boxAddress(plugin: string): { origin: string; document: string } {
   if (!isBoxName(plugin)) throw new Error(`${plugin} isn’t a plugin’s name`)
   const origin = `${BOX_SCHEME}://${plugin}`
-  return { origin, document: `${origin}/box.html`, script: `${origin}/box.js` }
+  return { origin, document: `${origin}/box.html` }
 }
 
-/** The plugin a box's address is for, if it is a box's document or its script. */
-export function boxOf(url: string): { plugin: string; file: 'document' | 'script' } | undefined {
+/** The plugin a box's address is for, if it is a box's document: the one file a box has. */
+export function boxOf(url: string): { plugin: string } | undefined {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -90,14 +90,18 @@ export function boxOf(url: string): { plugin: string; file: 'document' | 'script
   if (parsed.search || parsed.hash || parsed.username || parsed.password || parsed.port) {
     return undefined
   }
-  if (parsed.pathname === '/box.html') return { plugin: parsed.hostname, file: 'document' }
-  if (parsed.pathname === '/box.js') return { plugin: parsed.hostname, file: 'script' }
-  return undefined
+  return parsed.pathname === '/box.html' ? { plugin: parsed.hostname } : undefined
 }
 
 /**
  * The box's policy: its own script and the one worker made from text; no network at all, no
  * frame, nothing else of a page's. `page` is what may show it (Lumovi's own page).
+ *
+ * `script` names the box's own script by what it is, its hash, and never by an address: the
+ * script is in the box's document, and nothing is served beside it. (A policy matches an
+ * address on its path alone. With one in it, a worker, which is held to the same policy, could
+ * ask for that address with anything it liked in the query, and whatever serves it would have
+ * been told. A hash names no address to ask.)
  *
  * The policy is the wall. The worker's first lines (below) are hardening behind it; only a
  * worker made by a worker rests on them alone.
@@ -131,16 +135,21 @@ export function boxHeaders(script: string, page: string): Record<string, string>
   }
 }
 
-export const boxDocument = (script: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>plugin</title><body><script src="${script}"></script>`
-
-/** Sent with the box's script: a sealed frame is another origin, even to what serves it. */
-export const BOX_SCRIPT_HEADERS: Record<string, string> = {
-  'Content-Type': 'text/javascript; charset=utf-8',
-  'Cache-Control': 'no-cache',
-  'X-Content-Type-Options': 'nosniff',
-  'Cross-Origin-Resource-Policy': 'cross-origin',
+/**
+ * A sealed document of Lumovi's own: one script in it, whole, and nothing else. Its policy names
+ * that script by its hash (`scriptSource`, where a hash can be made). A text that holds what
+ * ends a script element, or opens a comment in one, is refused: the rest of it would be the
+ * document's markup, not the script the policy names.
+ */
+export function sealedDocument(script: string): string {
+  if (/<\/script|<!--/i.test(script)) {
+    throw new Error('A sealed document’s script can’t hold what ends a script element')
+  }
+  return `<!doctype html><meta charset="utf-8"><title>plugin</title><body><script>${script}</script>`
 }
+
+/** The box's document: its script in it, whole, and nothing else. */
+export const boxDocument = (): string => sealedDocument(BOX_SCRIPT)
 
 /**
  * Every feature a page can be given, switched off for a box: each that Chromium knows, in

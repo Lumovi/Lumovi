@@ -20,9 +20,6 @@ import { app, protocol, type BrowserWindow, type Session, type WebFrameMain } fr
 import {
   BOX_LIMITS,
   BOX_SCHEME,
-  BOX_SCRIPT,
-  BOX_SCRIPT_HEADERS,
-  boxAddress,
   boxDocument,
   boxHeaders,
   boxOf,
@@ -31,6 +28,7 @@ import {
   takeOffScript,
   type BoxPlace,
 } from '@shared/plugin-box'
+import { BOX_SCRIPT_SOURCE } from '@backend/plugin-box-script'
 
 /**
  * Before the app is ready: the protocol is a standard one (it has hosts, so each plugin is a
@@ -67,17 +65,14 @@ export function pageSource(pageUrl: string): string {
   return scheme === 'file:' ? 'file:' : origin
 }
 
-/** Once it's ready: a box's two files, the same whoever asks, and nothing else. */
+/** Once it's ready: a box's one document, the same whoever asks, and nothing else. */
 export function serveBoxes(pageUrl: string): void {
-  const page = pageSource(pageUrl)
-  protocol.handle(BOX_SCHEME, (request) => {
-    const box = request.method === 'GET' ? boxOf(request.url) : undefined
-    if (!box) return new Response('Not found', { status: 404 })
-    const { script } = boxAddress(box.plugin)
-    return box.file === 'document'
-      ? new Response(boxDocument(script), { headers: boxHeaders(script, page) })
-      : new Response(BOX_SCRIPT, { headers: BOX_SCRIPT_HEADERS })
-  })
+  const headers = boxHeaders(BOX_SCRIPT_SOURCE, pageSource(pageUrl))
+  protocol.handle(BOX_SCHEME, (request) =>
+    request.method === 'GET' && boxOf(request.url)
+      ? new Response(boxDocument(), { headers })
+      : new Response('Not found', { status: 404 }),
+  )
 }
 
 /** The plugin whose box a frame is, or is inside of. */
@@ -91,9 +86,9 @@ function pluginOf(frame: WebFrameMain | null | undefined): string | undefined {
 }
 
 /**
- * Whether a request is let through. A plugin's frame and its workers get their box's own two
- * files and nothing else; a request whose frame can't be told (it's gone, or there never was
- * one) is cancelled unless it's a window's own page arriving.
+ * Whether a request is let through. A plugin's frame and its workers get their box's own
+ * document and nothing else; a request whose frame can't be told (it's gone, or there never
+ * was one) is cancelled unless it's a window's own page arriving.
  */
 export function letThrough(details: {
   url: string
@@ -124,7 +119,7 @@ export function filterRequests(session: Session): void {
 /** For a window: no frame of it goes anywhere but to a box's own document, and no WebRTC UDP. */
 export function guardFrames(win: BrowserWindow): void {
   win.webContents.on('will-frame-navigate', (event) => {
-    if (!event.isMainFrame && boxOf(event.url)?.file !== 'document') event.preventDefault()
+    if (!event.isMainFrame && !boxOf(event.url)) event.preventDefault()
   })
   win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
 }

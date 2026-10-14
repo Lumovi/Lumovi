@@ -19,6 +19,7 @@ export const JUDGED: Readonly<Record<string, 'egress' | BySaw>> = {
   'fetch-other': 'egress',
   'fetch-same-api': 'egress',
   'fetch-keepalive': 'egress',
+  'fetch-box-document': 'egress',
   'xhr-other': 'egress',
   beacon: 'egress',
   'websocket-other': 'egress',
@@ -27,6 +28,8 @@ export const JUDGED: Readonly<Record<string, 'egress' | BySaw>> = {
   webtransport: 'egress',
   // script
   'import-other': 'egress',
+  'import-box-script': 'egress',
+  'import-box-document': 'egress',
   'importScripts-other': 'egress',
   'script-tag-other': 'egress',
   eval: { worked: /^eval gave/, refused: /^threw EvalError/ },

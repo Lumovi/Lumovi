@@ -3,11 +3,29 @@
  * server alike: whatever of that a response's headers miss, said one line each. And, in
  * Chromium, what a box's page is given of the features a page can be.
  */
+import { createHash } from 'node:crypto'
 import type { Frame } from '@playwright/test'
 import { BOX_FEATURES_OFF } from '../../../src/shared/plugin-box.ts'
 
-export function unsealed(headers: Headers, script: string, page: string): string[] {
+/**
+ * The script elements of a document, as a browser finds them: a tag's name in any case, and an
+ * end tag with whatever one may carry. Each with what its start tag says of it, and its text.
+ */
+export const scriptsIn = (document: string): { said: string; text: string }[] =>
+  [...document.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)].map(
+    ([, said, text]) => ({ said: said!, text: text! }),
+  )
+
+/** `document` is the box's document as served: its one script is in it, and named by its hash. */
+export function unsealed(headers: Headers, document: string, page: string): string[] {
   const missing: string[] = []
+  const scripts = scriptsIn(document)
+  if (scripts.length !== 1 || scripts[0]!.said !== '') {
+    missing.push('its document isn’t one script, in it and with nothing said of it')
+  }
+  const script = `'sha256-${createHash('sha256')
+    .update(scripts[0]?.text ?? '')
+    .digest('base64')}'`
   const policy = new Map(
     (headers.get('content-security-policy') ?? '')
       .split(';')
@@ -23,7 +41,8 @@ export function unsealed(headers: Headers, script: string, page: string): string
   // Sealed by its own answer: an origin that's nobody's, wherever it's opened.
   says('sandbox', 'allow-scripts')
   says('default-src', "'none'")
-  // Its own script by address; a worker from text alone, and text nowhere else.
+  // Its own script by what it is, never by an address; a worker from text alone, and text
+  // nowhere else.
   says('script-src', script)
   says('worker-src', 'blob:')
   says('frame-ancestors', page)
@@ -37,6 +56,15 @@ export function unsealed(headers: Headers, script: string, page: string): string
   for (const word of ["'unsafe-eval'", "'wasm-unsafe-eval'", "'unsafe-inline'", '*', 'data:']) {
     if ([...policy.values()].some((values) => values.includes(word))) {
       missing.push(`the policy holds ${word}`)
+    }
+  }
+  // And no address anywhere in it but the page that may show it: nothing a worker could ask
+  // for by adding to one.
+  for (const [name, values] of policy) {
+    if (name === 'frame-ancestors') continue
+    for (const value of values) {
+      if (/^[a-z][a-z0-9+.-]*:(?!$)/i.test(value))
+        missing.push(`${name} holds an address, ${value}`)
     }
   }
   // Every feature off, and none given to anyone.

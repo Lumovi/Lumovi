@@ -206,12 +206,10 @@ test('the catcher’s address with nothing in it, a socket to it, and the box’
     socket.on('close', () => done('ended'))
   })
   expect(ended).toBe('ended')
-  // The box's two files, asked for their headers alone: the walls, and no body.
-  for (const path of ['plugin-box/box.html', 'plugin-box/box.js']) {
-    const asked = await fetch(`${server.url}${path}`, { method: 'HEAD' })
-    expect(asked.status, path).toBe(200)
-    expect(await asked.text(), path).toBe('')
-  }
+  // The box's document, asked for its headers alone: the walls, and no body.
+  const asked = await fetch(`${server.url}plugin-box/box.html`, { method: 'HEAD' })
+  expect(asked.status).toBe(200)
+  expect(await asked.text()).toBe('')
 })
 
 test('an old browser’s session, where the second wall holds, starts no check and is handed no code', async ({
