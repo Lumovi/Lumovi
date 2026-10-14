@@ -166,6 +166,8 @@ export class KubeService {
   /** Each context's kinds, as last discovered. */
   readonly #discovered = new Map<string, { at: number; resources: Promise<ResourceDefinition[]> }>()
   readonly #documents: DocumentCache = new Map()
+  /** When each context's cluster last answered a request. */
+  readonly #answered = new Map<string, number>()
 
   constructor(
     private readonly store: ClusterConfigs,
@@ -184,6 +186,11 @@ export class KubeService {
 
   contexts(): ContextsResult {
     return this.store.load()
+  }
+
+  /** When `context`'s cluster last answered a request of Lumovi's, if it has since it started. */
+  answeredAt(context: string): number | undefined {
+    return this.#answered.get(context)
   }
 
   /**
@@ -875,7 +882,9 @@ export class KubeService {
     // The kubeconfig as it is once the environment (the login shell's proxy) is in.
     await this.envReady
     const kc = this.store.forContext(context)
-    return kubeRequest(kc, path, { ...options, timeoutMs: this.timeoutMs })
+    const answer = await kubeRequest(kc, path, { ...options, timeoutMs: this.timeoutMs })
+    this.#answered.set(context, Date.now())
+    return answer
   }
 
   async #getJson<T>(context: unknown, path: string, accept?: string): Promise<T> {

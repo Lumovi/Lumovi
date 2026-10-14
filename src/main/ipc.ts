@@ -10,7 +10,13 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from 'electron'
-import { IPC, type AppInfo, type Result, type SavedFile } from '@shared/api'
+import {
+  IPC,
+  type AppInfo,
+  type Result,
+  type SavedFile,
+  type WarningNoticesState,
+} from '@shared/api'
 import { describePermissions } from '@backend/audit/describe'
 import { auditHandlers } from '@backend/audit/handlers'
 import type { AuditLog } from '@backend/audit/log'
@@ -68,6 +74,8 @@ interface Dependencies extends Backend {
   send: (channel: string, ...args: unknown[]) => void
   /** Opens another window. */
   newWindow: () => void
+  /** How a cluster's notifications of new warnings stand. */
+  warningNotices: (context: string) => WarningNoticesState
   /** Opens the app's menu at a point of the page; done once it closes. */
   openMenu: (x: number, y: number) => Promise<void>
   /** Only frames showing this URL may call into the main process. */
@@ -203,6 +211,10 @@ export function registerIpc(deps: Dependencies): void {
       } catch (error) {
         return { ok: false, error: { code: 'invalid', message: (error as Error).message } }
       }
+    },
+    [IPC.warningNotices]: (context) => {
+      assertString(context, 'context')
+      return deps.warningNotices(context)
     },
     [IPC.kubeconfigFiles]: () => kubeconfigFiles.list(),
     [IPC.kubeconfigChoose]: (how) => {

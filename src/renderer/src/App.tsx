@@ -28,6 +28,7 @@ import { CustomResourcePage, ResourcePage } from './features/resources/ResourceP
 import { AuthorizePage } from './features/session/AuthorizePage'
 import { SessionGate } from './features/session/SessionGate'
 import { ClusterLayout } from './features/shell/ClusterLayout'
+import { ServerWarningNotices } from './features/events/warnings'
 import { FleetPage } from './features/fleet/FleetPage'
 import { WelcomePage } from './features/welcome/WelcomePage'
 import { WorkloadsPage } from './features/workloads/WorkloadsPage'
@@ -154,6 +155,15 @@ const router =
     ? createHashRouter(routes)
     : createBrowserRouter(routes, { basename: basename() || '/' })
 
+/** Where a notification of new warnings was about (a server's page): opened in this tab. */
+const openNotice = (path: string) => void router.navigate(path)
+
+// A notification's click (the desktop app's, of new warnings): Lumovi opens where it was about,
+// from whichever page is shown.
+api.desktop?.onCommand((command) => {
+  if (command.startsWith('open:')) void router.navigate(command.slice('open:'.length))
+})
+
 /** The changes AI assistants ask for (the desktop app's, or a server's), wherever the page is. */
 const assistants = api.approvals && <ApprovalCenter approvals={api.approvals} />
 /** A change a plugin's page proposed, in Lumovi's own dialog: one at a time, above everything. */
@@ -166,6 +176,7 @@ export function App() {
         {api.host === 'server' ? (
           <SessionGate>
             <AccessUpdates />
+            <ServerWarningNotices navigate={openNotice} />
             <RouterProvider router={router} />
             {/* The signed-in person's: over the page's connection, which a session opens. */}
             {assistants}

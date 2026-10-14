@@ -57,6 +57,12 @@ interface Prefs {
    */
   marks: Record<string, Marks>
   setMarks: (context: string, marks: Marks) => void
+  /**
+   * On a server: the clusters whose new warnings a person is told of in this browser, by
+   * `<person>|<context>`, each with the namespaces it watches (all, where none are named).
+   */
+  warnings: Record<string, { watch?: string[] }>
+  setWarnings: (key: string, watching: { watch?: string[] } | undefined) => void
   /** The side of Create used last, which opens first: its form, or its YAML. */
   createSide: 'form' | 'yaml'
   setCreateSide: (side: Prefs['createSide']) => void
@@ -121,6 +127,12 @@ export const usePrefs = create<Prefs>()(
       setCreateSide: (createSide) => set({ createSide }),
       eventsTabAs: 'list',
       setEventsTabAs: (eventsTabAs) => set({ eventsTabAs }),
+      warnings: {},
+      setWarnings: (key, watching) =>
+        set((prefs) => {
+          const { [key]: _old, ...others } = prefs.warnings
+          return { warnings: watching ? { ...others, [key]: watching } : others }
+        }),
       marks: {},
       setMarks: (context, marks) =>
         set((prefs) => {
