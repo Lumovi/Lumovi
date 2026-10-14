@@ -152,6 +152,25 @@ const reason = z
   )
 
 const text = (value: string): CallToolResult => ({ content: [{ type: 'text', text: value }] })
+
+/** The most any answer holds, in characters: what an assistant's tool result can take. */
+const MOST_CHARS = 64_000
+
+/**
+ * An answer as a tool result holds it: whole where it fits; else cut at a line, saying how much
+ * was left out and how to ask for less. (The tools that can be too long fit their own answers
+ * first, better than a cut: this is what holds for every answer whatever it is.)
+ */
+function within(result: CallToolResult): CallToolResult {
+  const [first, ...rest] = result.content
+  if (first?.type !== 'text' || first.text.length <= MOST_CHARS) return result
+  const at = first.text.lastIndexOf('\n', MOST_CHARS - 200)
+  const kept = first.text.slice(0, at > 0 ? at : MOST_CHARS - 200)
+  const said = `${kept}\n# … ${first.text.length - kept.length} more characters left out: ask for less (a namespace, a limit, a name, fields).`
+  // (The same result, with its marks: what it was is decided by what it is.)
+  first.text = said
+  return Object.assign(result, { content: [first, ...rest] })
+}
 const failed = (message: string): CallToolResult => ({ ...text(message), isError: true })
 
 /** What Lumovi didn't let it do (not what failed): the audit log says it was refused. */
@@ -284,7 +303,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
             })
           }
           try {
-            const result = await handler(...args)
+            const result = within(await handler(...args))
             const said = result.isError ? String((result.content[0] as { text?: string }).text) : ''
             record(
               result.isError

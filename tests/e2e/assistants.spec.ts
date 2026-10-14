@@ -374,6 +374,13 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
     namespace: 'batch',
   })
   expect(jobs.text).toContain('age: 20h')
+  // No answer holds more than a tool result can take: past it, cut at a line, and said so.
+  const many = await call(client, 'list_resources', { cluster: 'large', kind: 'pods', limit: 500 })
+  expect(many.error).toBe(false)
+  expect(many.text.length).toBeLessThanOrEqual(64_000)
+  expect(many.text).toMatch(
+    /\n# … \d+ more characters left out: ask for less \(a namespace, a limit, a name, fields\)\.$/,
+  )
   const namespace = await call(client, 'get_resource', {
     cluster: 'demo',
     kind: 'ns',
