@@ -15,6 +15,8 @@ import {
   type KeyObject,
 } from 'node:crypto'
 import { X509Certificate } from '@sigstore/core'
+// (Before x509, which needs it loaded: its dependency injection reads decorators' metadata.)
+import 'reflect-metadata'
 import * as x509 from '@peculiar/x509'
 import { KUBERNETES_SIGNER } from '../../src/main/kubernetes-signer.ts'
 
