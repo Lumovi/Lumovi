@@ -225,11 +225,27 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
     await call(client, 'find_problems', { cluster: 'demo', namespace: 'kube-system' }),
   ).toEqual({
     error: false,
-    text: 'Nothing is wrong in kube-system in demo: no unhealthy objects, and no warnings in the last hour.',
+    text: 'Nothing is wrong in kube-system in demo: no unhealthy objects, no warnings in the last hour, and no risky config.',
   })
   const problems = await call(client, 'find_problems', { cluster: 'demo' })
   expect(problems.text).toContain('namespace: shop')
   expect(problems.text).not.toContain('kube-system')
+  expect(
+    await call(client, 'get_rollout_history', {
+      cluster: 'demo',
+      kind: 'daemonset',
+      namespace: 'kube-system',
+      name: 'kube-proxy',
+    }),
+  ).toEqual({ error: true, text: 'daemonsets "kube-proxy" not found' })
+  // Looking in every cluster, a hidden cluster isn't one, and a hidden namespace isn't there.
+  const kube = await call(client, 'find_in_clusters', { match: 'kube' })
+  expect(kube.text).not.toContain('kube-system')
+  expect(kube.text).not.toContain('kube-proxy')
+  expect(kube.text).not.toContain('sandbox')
+  const inside = await call(client, 'find_in_clusters', { namespace: 'kube-system' })
+  expect(inside.text).toMatch(/^nothingIn:\n {2}- demo\n/)
+  expect(inside.text).not.toContain('sandbox')
 
   // Secrets: hidden in shop, their values shown in data, only their keys elsewhere.
   expect(
