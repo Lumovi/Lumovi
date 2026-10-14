@@ -45,6 +45,11 @@ function restorableBounds(saved: WindowState | undefined): Partial<Rectangle> {
   return visible ? saved : DEFAULT_SIZE
 }
 
+/** Where a window is, to open it there again. */
+export function windowState(win: BrowserWindow): WindowState {
+  return { ...win.getNormalBounds(), maximized: win.isMaximized() }
+}
+
 export function createMainWindow(
   url: string,
   saved: WindowState | undefined,
@@ -78,7 +83,7 @@ export function createMainWindow(
     if (saved?.maximized) win.maximize()
     win.show()
   })
-  win.on('close', () => onSaveState({ ...win.getNormalBounds(), maximized: win.isMaximized() }))
+  win.on('close', () => onSaveState(windowState(win)))
   // Recover from a crashed or killed renderer instead of leaving a blank window, and say why it
   // went (in the app's log, where a crash in the field or on CI can be read).
   win.webContents.on('render-process-gone', (_event, details) => {

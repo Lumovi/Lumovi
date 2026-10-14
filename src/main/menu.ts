@@ -1,4 +1,10 @@
-import { Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import {
+  BrowserWindow,
+  Menu,
+  shell,
+  type BaseWindow,
+  type MenuItemConstructorOptions,
+} from 'electron'
 import type { SettingsStore } from './settings'
 import type { Updates } from './updates'
 import { IPC } from '@shared/api'
@@ -6,13 +12,22 @@ import { DOCS_URL, REPO_URL, SPONSOR_URL } from '@shared/app'
 import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
 
 /**
- * The native menu. Its commands are sent to the page, which runs them exactly
- * like the matching keyboard shortcuts.
+ * The native menu. Its commands are sent to the page of the window they're chosen in (or the one
+ * in front), which runs them exactly like the matching keyboard shortcuts.
  */
-export function buildMenu(
-  win: BrowserWindow,
-  { updates, settings }: { updates: Updates; settings: SettingsStore },
-): Menu {
+export function buildMenu({
+  front,
+  newWindow,
+  updates,
+  settings,
+}: {
+  /** The window in front, or the one last there. */
+  front: () => BrowserWindow | undefined
+  /** Opens another window. */
+  newWindow: () => void
+  updates: Updates
+  settings: SettingsStore
+}): Menu {
   // Brought by someone else: the organization's policy, or the Microsoft Store.
   const managedUpdates = settings.get().managed?.updatesOff
     ? 'Updates Are Set by Your Organization'
@@ -27,7 +42,10 @@ export function buildMenu(
     id,
     label,
     accelerator,
-    click: () => win.webContents.send(IPC.command, id),
+    click: (_item, chosenIn?: BaseWindow) => {
+      const win = chosenIn instanceof BrowserWindow ? chosenIn : front()
+      win?.webContents.send(IPC.command, id)
+    },
   })
   const link = (id: string, label: string, url: string): MenuItemConstructorOptions => ({
     id,
@@ -41,6 +59,12 @@ export function buildMenu(
     {
       label: 'File',
       submenu: [
+        {
+          id: 'new-window',
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: newWindow,
+        },
         command('create', 'Create…', 'CmdOrCtrl+N'),
         { type: 'separator' },
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },

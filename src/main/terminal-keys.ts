@@ -2,7 +2,7 @@
  * A terminal's ⌘ keys on macOS, as Terminal and iTerm have them: while one of
  * the desktop app's terminals has focus, ⌘T and ⌘N open another, ⌘W closes it
  * and ⌘K clears it, instead of the menu's Create…, Close (the window) and
- * Command Palette. The page says when a terminal has focus. (Elsewhere the menu
+ * Command Palette. Each window's page says when a terminal of its has focus. (Elsewhere the menu
  * keeps them; Windows and Linux have Ctrl+Shift+T and Ctrl+Shift+W, since a
  * shell has Ctrl+W for itself.)
  */
@@ -17,17 +17,22 @@ const KEYS: Record<string, AppCommand> = {
 }
 
 export class TerminalKeys {
-  #focused = false
+  /** The pages (by their id) where a terminal has focus. */
+  #focused = new Set<number>()
 
-  /** What the page says: whether a terminal has focus now. */
-  focus(focused: unknown): void {
-    this.#focused = focused === true
+  /** What a page says: whether a terminal of its has focus now. */
+  focus(page: number, focused: unknown): void {
+    if (focused === true) this.#focused.add(page)
+    else this.#focused.delete(page)
   }
 
-  /** The command a key is while a terminal has focus (and so not the menu's), if it's one. */
-  command(input: Input): AppCommand | undefined {
+  /**
+   * The command a key typed in a page is while a terminal of its has focus (and so not the
+   * menu's), if it's one.
+   */
+  command(page: number, input: Input): AppCommand | undefined {
     if (
-      !this.#focused ||
+      !this.#focused.has(page) ||
       process.platform !== 'darwin' ||
       input.type !== 'keyDown' ||
       !input.meta ||

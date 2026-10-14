@@ -644,7 +644,7 @@ test('the window remembers its size and position', async ({ launch }) => {
   const userDataDir = first.userDataDir
   await first.close()
   const settings = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8'))
-  expect(settings.window).toMatchObject({ ...size, maximized: false })
+  expect(settings.windows).toMatchObject([{ ...size, maximized: false }])
 
   const second = await launch({ env, userDataDir })
   const bounds = await second.app.evaluate(({ BrowserWindow }) =>
@@ -658,7 +658,7 @@ test('the window remembers its size and position', async ({ launch }) => {
     join(userDataDir, 'settings.json'),
     JSON.stringify({
       theme: 'system',
-      window: { x: 50, y: 50, width: 1100, height: 700, maximized: true },
+      windows: [{ x: 50, y: 50, width: 1100, height: 700, maximized: true }],
     }),
   )
   const third = await launch({ env, userDataDir })
@@ -673,7 +673,7 @@ test('the window remembers its size and position', async ({ launch }) => {
     join(userDataDir, 'settings.json'),
     JSON.stringify({
       theme: 'system',
-      window: { x: 90000, y: 90000, width: 900, height: 700, maximized: false },
+      windows: [{ x: 90000, y: 90000, width: 900, height: 700, maximized: false }],
     }),
   )
   const fourth = await launch({ env, userDataDir })

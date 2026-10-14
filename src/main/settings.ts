@@ -267,8 +267,10 @@ export class SettingsStore implements SettingsAccess {
       if (aiPermissions === UNREADABLE) this.#unreadable = stored.aiPermissions
       return {
         theme: isTheme(stored.theme) ? stored.theme : DEFAULTS.theme,
-        // Validated against the connected displays when the window opens.
-        window: stored.window,
+        // Validated against the connected displays when each window opens.
+        windows: Array.isArray(stored.windows)
+          ? stored.windows.filter((each) => typeof each === 'object' && each !== null)
+          : undefined,
         readOnly: Array.isArray(stored.readOnly)
           ? stored.readOnly.filter((name) => typeof name === 'string')
           : [],

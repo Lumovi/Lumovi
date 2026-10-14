@@ -1591,6 +1591,7 @@ export const LUMOVIS_COMMANDS = [
   'All clusters',
   'Create…',
   'New terminal',
+  'New window',
   'Metrics source…',
   'AI assistants…',
   'Audit log',

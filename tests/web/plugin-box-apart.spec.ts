@@ -84,15 +84,15 @@ test('a plugin found in a process with another has that process ended; in the pa
   expect(
     placed(
       [
-        { plugin: 'first', pid: 11 },
-        { plugin: 'first', pid: 11 },
-        { plugin: 'second', pid: 12 },
+        { plugin: 'first', pid: 11, window: 1 },
+        { plugin: 'first', pid: 11, window: 1 },
+        { plugin: 'second', pid: 12, window: 1 },
       ],
-      10,
+      [10],
     ),
   ).toEqual({
     endProcesses: new Map(),
-    takeOff: [],
+    takeOff: new Map(),
     pluginOf: new Map([
       [11, 'first'],
       [12, 'second'],
@@ -101,25 +101,44 @@ test('a plugin found in a process with another has that process ended; in the pa
   // Two plugins in one process: it's ended, and neither is measured as if it were alone.
   const together = placed(
     [
-      { plugin: 'first', pid: 11 },
-      { plugin: 'second', pid: 11 },
-      { plugin: 'third', pid: 13 },
+      { plugin: 'first', pid: 11, window: 1 },
+      { plugin: 'second', pid: 11, window: 1 },
+      { plugin: 'third', pid: 13, window: 1 },
     ],
-    10,
+    [10],
   )
   expect(together.endProcesses).toEqual(new Map([[11, ['first', 'second']]]))
   expect(together.pluginOf).toEqual(new Map([[13, 'third']]))
   // In the page's own process, which is never ended: its boxes are taken off the page.
   const withThePage = placed(
     [
-      { plugin: 'first', pid: 10 },
-      { plugin: 'second', pid: 12 },
+      { plugin: 'first', pid: 10, window: 1 },
+      { plugin: 'second', pid: 12, window: 1 },
     ],
-    10,
+    [10],
   )
-  expect(withThePage.takeOff).toEqual(['first'])
+  expect(withThePage.takeOff).toEqual(new Map([[1, ['first']]]))
   expect(withThePage.endProcesses.size).toBe(0)
   expect(withThePage.pluginOf.has(10)).toBe(false)
+})
+
+test('over every window at once: two windows’ plugins in one process have it ended; a box in another window’s page is taken off its own, and that page is never measured as the plugin’s', () => {
+  // Window 1's x and window 2's y, one process: each window alone would see one plugin there.
+  const across = placed(
+    [
+      { plugin: 'x', pid: 300, window: 1 },
+      { plugin: 'y', pid: 300, window: 2 },
+    ],
+    [100, 200],
+  )
+  expect(across.endProcesses).toEqual(new Map([[300, ['x', 'y']]]))
+  expect(across.pluginOf.size).toBe(0)
+  // Window 2's box in window 1's page process: taken off window 2's page, and pid 100 is no
+  // plugin's to measure or end.
+  const inAnother = placed([{ plugin: 'y', pid: 100, window: 2 }], [100, 200])
+  expect(inAnother.takeOff).toEqual(new Map([[2, ['y']]]))
+  expect(inAnother.pluginOf.has(100)).toBe(false)
+  expect(inAnother.endProcesses.size).toBe(0)
 })
 
 test('the processor’s limit is over the last while, so an idle second doesn’t undo it', () => {
