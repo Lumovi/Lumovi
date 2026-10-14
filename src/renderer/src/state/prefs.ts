@@ -60,6 +60,9 @@ interface Prefs {
   /** The side of Create used last, which opens first: its form, or its YAML. */
   createSide: 'form' | 'yaml'
   setCreateSide: (side: Prefs['createSide']) => void
+  /** How an object's Events tab shows its events, as last chosen: a list, or a timeline. */
+  eventsTabAs: 'list' | 'timeline'
+  setEventsTabAs: (as: Prefs['eventsTabAs']) => void
 }
 
 const toggled = (list: string[], item: string, on: boolean) =>
@@ -116,6 +119,8 @@ export const usePrefs = create<Prefs>()(
       setShowHidden: (showHidden) => set({ showHidden }),
       createSide: 'form',
       setCreateSide: (createSide) => set({ createSide }),
+      eventsTabAs: 'list',
+      setEventsTabAs: (eventsTabAs) => set({ eventsTabAs }),
       marks: {},
       setMarks: (context, marks) =>
         set((prefs) => {

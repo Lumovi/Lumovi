@@ -12,10 +12,14 @@ import {
 import type { KubeObject } from '@shared/api'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorState, Loading } from '@renderer/components/States'
+import { useOpenObject } from '@renderer/hooks/open-object'
 import { useList } from '@renderer/hooks/queries'
 import type { KubeApiError } from '@renderer/lib/api'
 import { age, formatDateTime } from '@renderer/lib/format'
 import { useLayout } from '@renderer/lib/layout'
+import { usePrefs } from '@renderer/state/prefs'
+import { holdsTimeline, ShownAs, Timeline, useWidth } from '../events/Timeline'
+import type { TimelineSelection } from '../events/timeline-rows'
 import { lastSeen } from '../resources/columns'
 
 /** Past this many events, only the ones in view are drawn. */
@@ -52,7 +56,48 @@ export function EventsTab({
     )
   }
 
-  return <Events events={events.data} />
+  return <EventsAs events={events.data} now={events.dataUpdatedAt} />
+}
+
+/** How far in a tab's timeline stands: as far as its events do. */
+const TAB_INSET = 20
+
+/**
+ * The events as a list, or (where the tab is wide enough, and not on a phone) on a timeline, a
+ * row a reason: as the person last chose, on any object's tab.
+ */
+function EventsAs({ events, now }: { events: KubeObject[]; now: number }) {
+  const [box, width] = useWidth<HTMLDivElement>()
+  const phone = useLayout() === 'phone'
+  const offered = !phone && holdsTimeline(width, 'tab', TAB_INSET)
+  const as = usePrefs((prefs) => prefs.eventsTabAs)
+  const setAs = usePrefs((prefs) => prefs.setEventsTabAs)
+  const [selection, setSelection] = useState<TimelineSelection>({ range: 'all' })
+  const open = useOpenObject()
+  return (
+    <div ref={box}>
+      {offered && (
+        <div className="flex justify-end px-(--events-field-inset,1.25rem) pt-(--events-gap,1rem)">
+          <ShownAs as={as} onAs={setAs} />
+        </div>
+      )}
+      {offered && as === 'timeline' ? (
+        <Timeline
+          events={events}
+          by="reason"
+          now={now}
+          showNamespace={false}
+          filtered={false}
+          selection={selection}
+          onSelection={setSelection}
+          onOpenEvent={(event) => open('Event', event.metadata.name, event.metadata.namespace)}
+          inset={TAB_INSET}
+        />
+      ) : (
+        <Events events={events} />
+      )}
+    </div>
+  )
 }
 
 /** What a filter is matched against: an event's reason, its message and what reported it. */

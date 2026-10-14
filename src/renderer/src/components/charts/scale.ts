@@ -56,6 +56,11 @@ const TIME_STEPS = [
   86_400,
   172_800,
   604_800,
+  // (Longer than any chart: a timeline of events goes as far back as the oldest one kept.)
+  1_209_600,
+  2_592_000,
+  7_776_000,
+  31_536_000,
   Number.MAX_SAFE_INTEGER,
 ]
 
@@ -76,6 +81,10 @@ export function timeTicks(
 }
 
 export function formatTick(time: number, step: number): string {
+  // (Weeks apart and more, a weekday says nothing: the month does.)
+  if (step >= 1_209_600_000) {
+    return new Date(time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  }
   return step >= 86_400_000
     ? new Date(time).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })
     : new Date(time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
