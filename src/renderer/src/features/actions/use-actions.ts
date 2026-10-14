@@ -13,6 +13,7 @@ import { toast } from '@renderer/state/toasts'
 import { useAccessHere, type AccessHere } from '../access/use-access'
 import { actionsFor, type Action } from './catalog'
 import { kindOf } from './common'
+import { changedSince } from './view-actions'
 
 export interface AvailableAction {
   action: Action
@@ -111,16 +112,32 @@ export function useRunAction() {
     if (action.dialog) {
       start(action.id, object)
     } else if (action.instant) {
-      const { change: request, meta } = action.instant(object, context)
-      void change(request, meta).then((result) => {
-        if (!result.ok) {
-          toast({
-            tone: 'error',
-            title: `Couldn’t ${action.label.toLowerCase()} ${object.metadata.name}`,
-            description: result.error.message,
-          })
+      const pressed = Date.now()
+      const failed = (description: string) =>
+        toast({
+          tone: 'error',
+          title: `Couldn’t ${action.label.toLowerCase()} ${object.metadata.name}`,
+          description,
+        })
+      void (async () => {
+        // Judged on its object: held, as it's sent, to what's there now, and sent with the
+        // version read then, or not at all.
+        let version: string | undefined
+        if (action.again) {
+          const now = await action.again(object, context, pressed)
+          if (!now.ok) return failed(now.message)
+          version = now.version
         }
-      })
+        const { change: request, meta } = action.instant!(object, context, pressed, version)
+        const result = await change(request, meta)
+        if (!result.ok) {
+          failed(
+            action.judged && result.error.code === 'conflict'
+              ? changedSince(object)
+              : result.error.message,
+          )
+        }
+      })()
     } else {
       // Editors and shells live in the detail panel.
       const { name, namespace } = object.metadata

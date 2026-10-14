@@ -29,6 +29,25 @@ export function refreshAfterChange(queryClient: QueryClient, context: string, ki
 export type PluginChangeMeta = ChangeMeta & {
   plugin: true
   undo?: { change: ClusterChange; meta: Omit<ChangeMeta, 'undo' | 'action'> & { plugin: true } }
+  /**
+   * The object's version the change was judged on: Lumovi's own condition, sent with it once the
+   * plugin's change has passed its check, so the cluster refuses it if the object changed since.
+   */
+  atVersion?: string
+}
+
+/**
+ * A patch that applies only to the object's version it was judged on: the cluster refuses it,
+ * and nothing changes, if the object has changed since. (Lumovi's own line in the patch, never
+ * a plugin's: a merge patch's metadata, or a JSON patch's first test.)
+ */
+export function atVersion<T>(patch: T, version: string): T {
+  if (Array.isArray(patch)) {
+    return [{ op: 'test', path: '/metadata/resourceVersion', value: version }, ...patch] as T
+  }
+  const body = patch as Record<string, unknown>
+  const metadata = (body.metadata ?? {}) as Record<string, unknown>
+  return { ...body, metadata: { ...metadata, resourceVersion: version } } as T
 }
 
 export interface ChangeMeta {
@@ -79,7 +98,16 @@ export function useChange() {
       finish(id, 'failed', message)
       return { ok: false, error: { code: 'invalid', message } }
     }
-    const result = await api.kube.change({ ...request, context })
+    // (Checked as the plugin's, then sent with Lumovi's condition where it was judged on a version.)
+    const judged = (meta as Partial<PluginChangeMeta>).atVersion
+    const sent =
+      judged !== undefined && request.change.action === 'patch'
+        ? {
+            ...request,
+            change: { ...request.change, patch: atVersion(request.change.patch, judged) },
+          }
+        : request
+    const result = await api.kube.change({ ...sent, context })
     if (!result.ok) {
       // About a Secret, what the cluster said isn't kept in the activity log, as it isn't in
       // the audit log: it can quote the Secret's values. (Lumovi's own refusals quote nothing.)

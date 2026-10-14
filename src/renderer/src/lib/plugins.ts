@@ -28,6 +28,7 @@ import {
   type Plugin,
   type Scalar,
   type View,
+  type ViewAction,
   type ViewField,
   type ViewInput,
 } from '@shared/plugins'
@@ -330,6 +331,21 @@ export function renderPatch<T>(patch: T, object: unknown, now: number, inputs: I
 }
 
 /** The options of a choice: its own, or what its path finds in the object. */
+/**
+ * What a view's action is busy with on `object`: the first of its busy states that holds, with
+ * when that started where its file says (a time Lumovi can read), or nothing.
+ */
+export function actionBusy(
+  action: ViewAction,
+  object: unknown,
+): { word: string; since?: number } | undefined {
+  const state = action.busy?.find((busy) => holds(busy.when, object))
+  if (!state) return undefined
+  const [at] = state.since ? jsonPath(object, state.since) : []
+  const since = typeof at === 'string' ? Date.parse(at) : NaN
+  return { word: state.word, ...(Number.isFinite(since) ? { since } : {}) }
+}
+
 export function inputOptions(input: ViewInput, object: unknown): string[] {
   const values = input.options ?? jsonPath(object, input.from!).flat()
   return values.filter((v) => ['string', 'number', 'boolean'].includes(typeof v)).map(String)

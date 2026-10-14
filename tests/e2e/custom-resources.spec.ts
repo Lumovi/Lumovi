@@ -434,6 +434,8 @@ test('view actions: reconcile, suspend and resume, sync, abort', async ({ page, 
     ).at(-1)!.body,
   ).toEqual({
     operation: { initiatedBy: { username: 'lumovi' }, sync: { syncStrategy: { hook: {} } } },
+    // (Offered while no operation was on it: sent with the version it was judged on.)
+    metadata: { resourceVersion: expect.stringMatching(/^\d+$/) },
   })
 
   // Sources were fetched a while ago.
@@ -474,7 +476,11 @@ test('view actions: reconcile, suspend and resume, sync, abort', async ({ page, 
       'PATCH',
       `/apis/argoproj.io/v1alpha1/namespaces/shop/rollouts/${CUSTOM.rollout}/status`,
     ).at(-1)!.body,
-  ).toEqual({ status: { abort: true } })
+  ).toEqual({
+    status: { abort: true },
+    // (Offered while it was progressing or paused: with the version it was judged on.)
+    metadata: { resourceVersion: expect.stringMatching(/^\d+$/) },
+  })
   await expect(canary.locator('header')).toContainText('Aborted')
 })
 

@@ -916,9 +916,13 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
   await expect(dialog(page)).toContainText('--type=json')
   await dialog(page).getByRole('button', { name: 'Paint red', exact: true }).click()
   await expect(toasts(page)).toContainText('Paint red: blue-widget')
+  // (Offered while its condition held: first, Lumovi's test of the version it was judged on.)
   expect(writes(clusters.demo, 'PATCH', path).at(-1)).toMatchObject({
     type: 'application/json-patch+json',
-    body: [{ op: 'replace', path: '/spec/color', value: 'red' }],
+    body: [
+      { op: 'test', path: '/metadata/resourceVersion', value: expect.stringMatching(/^\d+$/) },
+      { op: 'replace', path: '/spec/color', value: 'red' },
+    ],
   })
   // A rule whose label is empty is called by its health.
   await expect(detail.locator('header')).toContainText('warning')

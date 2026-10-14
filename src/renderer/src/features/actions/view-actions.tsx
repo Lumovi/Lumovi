@@ -1,17 +1,25 @@
 import { Zap } from 'lucide-react'
 import { useState } from 'react'
 import type { KubeObject } from '@shared/api'
+import { jsonPath } from '@shared/jsonpath'
 import { kindFor } from '@shared/resources'
 import { VIEW_ICONS } from '@renderer/components/KindIcon'
 import { Stepper } from '@renderer/components/Stepper'
 import { YamlText } from '@renderer/components/YamlText'
-import { useChange, type ClusterChange, type PluginChangeMeta } from '@renderer/hooks/change'
+import {
+  atVersion,
+  useChange,
+  type ClusterChange,
+  type PluginChangeMeta,
+} from '@renderer/hooks/change'
 import { useGo } from '@renderer/hooks/go'
 import { resourceFor } from '@renderer/hooks/resources'
 import { cn } from '@renderer/lib/cn'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { formatRef, kindPath } from '@renderer/lib/routes'
+import { api } from '@renderer/lib/api'
 import {
+  holds,
   inputOptions,
   render,
   renderPatch,
@@ -27,16 +35,21 @@ import { ActionDialog, useSubmit } from './ActionDialog'
 import type { InstantChange } from './catalog'
 import { kindOf, subjectOf, target, type ActionProps } from './common'
 
-/** The change a view's patch makes, with its kubectl command and its undo. */
+/**
+ * The change a view's patch makes, with its kubectl command and its undo. Shown, it has no
+ * version: one judged on a condition is read again as it's sent (`judgedNow`), and goes with the
+ * version read then (`version`), which its command and Lumovi's history then say.
+ */
 export function viewChange(
   action: ViewAction,
   object: KubeObject,
   context: string,
   inputs: InputValues = {},
   now = Date.now(),
+  version?: string,
 ): InstantChange & { meta: PluginChangeMeta } {
   const { name, namespace } = object.metadata
-  const step = (patch: NonNullable<ViewAction['patch']>, title: string) => {
+  const step = (patch: NonNullable<ViewAction['patch']>, title: string, at?: string) => {
     const body = renderPatch(patch, object, now, inputs)
     return {
       change: {
@@ -51,6 +64,7 @@ export function viewChange(
       meta: {
         plugin: true as const,
         title,
+        ...(at === undefined ? {} : { atVersion: at }),
         command: kubectl(
           context,
           namespace,
@@ -58,7 +72,7 @@ export function viewChange(
           objectArg(kindOf(object), name),
           `--type=${action.type}`,
           '-p',
-          JSON.stringify(body),
+          JSON.stringify(at === undefined ? body : atVersion(body, at)),
           ...(action.subresource ? [`--subresource=${action.subresource}`] : []),
         ),
       },
@@ -67,6 +81,7 @@ export function viewChange(
   const done = step(
     action.patch!,
     action.done ? render(action.done, object, now, inputs) : `${action.name}: ${name}`,
+    version,
   )
   return {
     change: done.change,
@@ -78,6 +93,58 @@ export function viewChange(
     },
   }
 }
+
+/** Whether a view's action is judged again as it's sent: it's offered on a condition, or says what has to stay the same. */
+export const judgedAtSend = (action: ViewAction) =>
+  !action.create && (action.when !== undefined || action.same !== undefined)
+
+/**
+ * What a change judged on an object's version says when the cluster refused it because the
+ * object had changed since: Lumovi's words, the same for every plugin.
+ */
+export const changedSince = (object: KubeObject) =>
+  `${object.metadata.name} changed while you looked at it, so nothing was changed. Look at it again.`
+
+/** What a change says when, read again as it's sent, the object isn't as the person saw it. */
+export const notSent = (action: ViewAction, object: KubeObject) =>
+  `${object.metadata.name} has changed since you looked at it, so ${action.name} wasn’t sent and nothing changed. Look at it again.`
+
+/**
+ * Just before a change judged on its object is sent: the object read again, and what the person
+ * saw held to it. Its condition holds there still; what its file says has to stay the same is as
+ * the person saw it; and its patch (and its undo), filled from what's there now, is what they
+ * read. Then it goes with the version read now: what that guards is one round trip, never their
+ * reading time (a tool can rewrite an object's status every few seconds). Else nothing's sent.
+ */
+export async function judgedNow(
+  action: ViewAction,
+  object: KubeObject,
+  context: string,
+  inputs: InputValues = {},
+  now = Date.now(),
+): Promise<{ ok: true; version: string } | { ok: false; message: string }> {
+  const read = await api.kube.get({ context, ...target(object), name: object.metadata.name })
+  if (!read.ok) return { ok: false, message: read.error.message }
+  const fresh = read.data
+  if (action.when !== undefined && !holds(action.when, fresh)) {
+    return { ok: false, message: notSent(action, object) }
+  }
+  const at = (from: KubeObject, path: string) => JSON.stringify(jsonPath(from, path))
+  if ((action.same ?? []).some((path) => at(object, path) !== at(fresh, path))) {
+    return { ok: false, message: notSent(action, object) }
+  }
+  // What it would send now, filled from what's there now, is what the person read, or nothing.
+  const filled = (from: KubeObject) =>
+    JSON.stringify([action.patch, action.undo].map((p) => p && renderPatch(p, from, now, inputs)))
+  const version = fresh.metadata.resourceVersion
+  if (filled(fresh) !== filled(object) || !version) {
+    return { ok: false, message: changedSince(object) }
+  }
+  return { ok: true, version }
+}
+
+/** A file's line as filled from an object: what the object holds can't make it two. */
+const oneLine = (text: string) => text.replace(/\s*[\r\n]+\s*/g, ' ')
 
 /** Five random characters, as the API server adds to a `generateName`. */
 function nameSuffix(): string {
@@ -200,17 +267,38 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
     <ActionDialog
       icon={viewActionIcon(action)}
       tone={action.danger ? 'danger' : 'default'}
-      title={`${action.name} ${object.metadata.name}?`}
+      title={
+        action.confirmTitle
+          ? oneLine(render(action.confirmTitle, object, once.now, inputs))
+          : `${action.name} ${object.metadata.name}?`
+      }
       name={object.metadata.name}
       subject={subjectOf(object)}
       command={meta.command}
-      confirmLabel={action.name}
+      confirmLabel={
+        action.confirmButton
+          ? oneLine(render(action.confirmButton, object, once.now, inputs))
+          : action.name
+      }
       ready={ready}
       pending={pending}
       error={error}
       wide={Boolean(created)}
       onClose={onClose}
-      onSubmit={() => void submit(() => change(request, meta))}
+      onSubmit={() =>
+        void submit(async () => {
+          if (!judgedAtSend(action)) return change(request, meta)
+          // Judged on its object: held, as it's sent, to what's there now, and sent with the
+          // version read then, or not at all.
+          const now = await judgedNow(action, object, context, inputs, once.now)
+          if (!now.ok) return { ok: false, error: { message: now.message } }
+          const sent = viewChange(action, object, context, inputs, once.now, now.version)
+          const result = await change(sent.change, sent.meta)
+          return !result.ok && result.error.code === 'conflict'
+            ? { ...result, error: { ...result.error, message: changedSince(object) } }
+            : result
+        })
+      }
     >
       {action.confirm && (
         <p className="text-[13px] leading-relaxed text-ink-2">

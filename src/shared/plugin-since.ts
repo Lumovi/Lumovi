@@ -36,6 +36,16 @@ export const PLUGIN_SINCE = {
     /** Its tool's own server its code may ask, through Lumovi. */
     server: 'next',
   },
+  /** What a view's action can say beyond what it first took. */
+  action: {
+    /** Busy where it was, instead of hidden, while what it started goes on. */
+    busy: 'next',
+    /** What must still be as the person saw it, when it's sent. */
+    same: 'next',
+    /** Its dialog's own question and button, where it asks first. */
+    confirmTitle: 'next',
+    confirmButton: 'next',
+  },
   /** What a read can ask beyond a kind's list or one object of it. */
   read: {
     usage: 'next',
@@ -77,6 +87,8 @@ export const PLUGIN_SINCE = {
     'Card.about': 'next',
     'Header.buttons[].off': 'next',
     'Header.buttons[].goes': 'next',
+    'Header.buttons[].busy': 'next',
+    'Header.secondStatus': 'next',
     'Table.leadHeading': 'next',
     'Table.rows[].cells[].mono': 'next',
     'Table.rows[].cells[].full': 'next',
