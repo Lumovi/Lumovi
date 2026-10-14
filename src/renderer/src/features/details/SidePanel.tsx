@@ -2,6 +2,7 @@ import { useLayout } from '@renderer/lib/layout'
 import {
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentType,
@@ -9,6 +10,7 @@ import {
   type PointerEvent,
 } from 'react'
 import { useSearchParams } from 'react-router'
+import { create } from 'zustand'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import { cn } from '@renderer/lib/cn'
 import { usePrefs } from '@renderer/state/prefs'
@@ -19,6 +21,16 @@ const DEFAULT_WIDTH = 600
 const MIN_WIDTH = 400
 /** Arrow keys on the resize handle move it by this much. */
 const RESIZE_STEP = 32
+
+/**
+ * The least width the page beside a panel keeps, where the page asks: a timeline of events,
+ * which a panel opened from it mustn't turn into a list under the person's click. Where beside
+ * would leave the page less, the panel opens over it instead. (One value for the window: one page
+ * asks at a time, as one page is shown. Two shown at once would each need their own.)
+ */
+export const usePageRoom = create<{ least?: number; keep: (least?: number) => void }>()((set) => ({
+  keep: (least) => set({ least }),
+}))
 
 export interface PanelFrame {
   /** What the search param names. */
@@ -56,11 +68,26 @@ export function SidePanel({
   const closing = !value && shown !== null
   const returnFocus = useRef<Element | null>(null)
   const [expanded, setExpanded] = useState(false)
-  // On a narrow page there's no room beside the list: it opens over it.
-  const over = useLayout() !== 'wide'
   const storedWidth = usePrefs((prefs) => prefs.panelWidth)
   const setStoredWidth = usePrefs((prefs) => prefs.setPanelWidth)
   const [width, setWidth] = useState(storedWidth ?? DEFAULT_WIDTH)
+  // What the page and the panel share, measured as it changes, for the room the page keeps.
+  const aside = useRef<HTMLElement>(null)
+  const [shared, setShared] = useState(0)
+  useLayoutEffect(() => {
+    const around = aside.current?.parentElement
+    if (!around) return
+    const measure = () => setShared(around.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(around)
+    return () => observer.disconnect()
+  }, [shown])
+  const least = usePageRoom((room) => room.least)
+  // On a narrow page there's no room beside the list: it opens over it. So it does where the
+  // page asks for more room than beside would leave it.
+  const over =
+    useLayout() !== 'wide' || (least !== undefined && shared > 0 && shared - width < least)
 
   useEffect(() => {
     if (value) returnFocus.current ??= document.activeElement
@@ -125,6 +152,7 @@ export function SidePanel({
         />
       )}
       <aside
+        ref={aside}
         aria-label={label(shown)}
         data-over={over || undefined}
         onAnimationEnd={() => {

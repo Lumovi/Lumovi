@@ -35,6 +35,9 @@ import { useManagers } from '@renderer/hooks/managers'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { countOf, SelectionBar } from '../actions/BulkActions'
+import { usePageRoom } from '../details/SidePanel'
+import { holdsTimeline, leastForTimeline, ShownAs, Timeline, useWidth } from '../events/Timeline'
+import type { TimelineSelection } from '../events/timeline-rows'
 import { PluginTabs } from '../plugins/PluginPage'
 import { WorkloadTabs } from '../workloads/WorkloadTabs'
 import {
@@ -70,6 +73,10 @@ const METRICS_TARGET: Partial<Record<ResourceKind, 'pods' | 'nodes'>> = {
 }
 
 const number = new Intl.NumberFormat()
+/** The room each side of the list's toolbar, which a timeline of events keeps too. */
+const INSET = 20
+/** A page narrower than this (one beside an open panel) has List | Timeline as icons alone. */
+const COMPACT_TOOLBAR = 900
 
 /** The text the filter box matches against, with what the server's columns show. */
 function searchText(object: KubeObject, cells: unknown[] = []): string {
@@ -124,6 +131,24 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const clearAt = () => updateParams(clearAtOne, { replace: true })
   const gridRef = useRef<HTMLDivElement>(null)
   const phone = useLayout() === 'phone'
+  // Events can be drawn on a timeline (?as=timeline), where the page is wide enough for one: on
+  // a phone, or narrower, the address opens the list.
+  const [pageBox, pageWidth] = useWidth<HTMLDivElement>()
+  const timelineOffered = kind === 'Event' && !phone && holdsTimeline(pageWidth, 'page', INSET)
+  const asTimeline = timelineOffered && params.get('as') === 'timeline'
+  const showAs = (as: 'list' | 'timeline') =>
+    updateParams((next) => (as === 'timeline' ? next.set('as', as) : next.delete('as')), {
+      replace: true,
+    })
+  const [timeline, setTimeline] = useState<TimelineSelection>({ range: 'all' })
+  // A panel opened from the timeline opens over it, where beside it would leave too little for
+  // one: what was clicked never turns into a list under the click.
+  const keepRoom = usePageRoom((room) => room.keep)
+  useEffect(() => {
+    if (!asTimeline) return
+    keepRoom(leastForTimeline(INSET))
+    return () => keepRoom(undefined)
+  }, [asTimeline, keepRoom])
   // Rows picked for bulk actions, for this list only.
   const scopeKey = `${kind}/${namespacesParam(namespaces) ?? null}/${at ? `${at.namespace ?? ''}/${at.name}` : ''}`
   const [picked, setPicked] = useState<{ scope: string; keys: ReadonlySet<string> }>({
@@ -277,6 +302,27 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
         </EmptyState>
       </>
     )
+  } else if (asTimeline) {
+    body = (
+      <>
+        {list.isError && (
+          <StaleNotice error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
+        )}
+        {notice}
+        <Timeline
+          events={matching}
+          by="object"
+          now={list.dataUpdatedAt}
+          showNamespace={namespace === null}
+          filtered={needle !== '' || state.health.length > 0}
+          selection={timeline}
+          onSelection={setTimeline}
+          onOpenEvent={(event) => open('Event', event.metadata.name, event.metadata.namespace)}
+          onOpenObject={(row) => row.kind && open(row.kind, row.name, row.namespace)}
+          inset={INSET}
+        />
+      </>
+    )
   } else if (rows.length === 0) {
     body = (
       <>
@@ -330,7 +376,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   }
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div ref={pageBox} className="relative flex h-full flex-col">
       {isWorkloadType(kind) && <WorkloadTabs current={kind} />}
       {plugin && <PluginTabs served={plugin} current={kind} />}
       {phone ? (
@@ -394,7 +440,19 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
           noun={noun}
           onFilter={(q) => update({ q })}
           onArrowDown={() => gridRef.current?.focus()}
-          after={chosen.button(rows)}
+          after={
+            <>
+              {/* (A timeline has no columns to choose.) */}
+              {!asTimeline && chosen.button(rows)}
+              {timelineOffered && (
+                <ShownAs
+                  as={asTimeline ? 'timeline' : 'list'}
+                  onAs={showAs}
+                  compact={pageWidth < COMPACT_TOOLBAR}
+                />
+              )}
+            </>
+          }
         />
       )}
 
