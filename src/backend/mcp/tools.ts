@@ -45,7 +45,18 @@ import { addsSecretReads, NamespaceLabels } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
 import { fitted, LEVELS, linesOf } from './log-lines'
 import { errorLines, findProblems, MAX_PROBLEMS, type Failing, type Problems } from './problems'
-import { age, changesOf, describeStatus, involved, readable, row, statusOf, yaml } from './present'
+import {
+  age,
+  changesOf,
+  describeStatus,
+  fieldsOf,
+  involved,
+  readable,
+  row,
+  statusOf,
+  withoutLongAnnotations,
+  yaml,
+} from './present'
 
 /** What a tool's call comes with: its signal, and a way to tell its caller how it's going. */
 type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>
@@ -604,16 +615,24 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     {
       title: 'Get a resource',
       description:
-        'One object as YAML, with its health first. A Secret’s values are shown only where the person’s AI permissions allow it (only its keys elsewhere), and env values they hide read “(hidden by Lumovi)”.',
+        'One object as YAML, with its health first: without its managed fields and the last applied configuration, and with any annotation too long to read at a glance left out (said so). Or only the fields asked for. Never more than an answer holds: past it, cut, and said so. A Secret’s values are shown only where the person’s AI permissions allow it (only its keys elsewhere), and env values they hide read “(hidden by Lumovi)”.',
       inputSchema: {
         cluster,
         kind,
         name: z.string().min(1),
         namespace: z.string().optional().describe('Its namespace, for namespaced kinds.'),
+        fields: z
+          .array(z.string().min(1).max(200))
+          .min(1)
+          .max(20)
+          .optional()
+          .describe(
+            'Only these, as dotted paths: status, spec.replicas, spec.template.spec.containers.image (a list on the way is followed into each item). Its kind, name and namespace come with them.',
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ cluster, kind, name, namespace }) => {
+    async ({ cluster, kind, name, namespace, fields }) => {
       const definition = await resolveKind(cluster, kind)
       const where = namespaceFor(definition, namespace)
       const scope = scopeOf(definition, name, where)
@@ -643,7 +662,14 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           details: { keys: Object.keys(Object((object as KubeObject & { data?: object }).data)) },
         })
       }
-      return text(`${status ? `# Health: ${describeStatus(status)}\n` : ''}${yaml(shown)}`)
+      const answer = `${status ? `# Health: ${describeStatus(status)}\n` : ''}${yaml(
+        fields ? fieldsOf(shown, fields) : withoutLongAnnotations(shown),
+      )}`
+      return text(
+        answer.length <= ANSWER_CHARS
+          ? answer
+          : `${answer.slice(0, ANSWER_CHARS)}\n# … ${answer.length - ANSWER_CHARS} more characters left out: ask for fields to have a part of it.`,
+      )
     },
   )
 

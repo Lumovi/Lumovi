@@ -346,6 +346,21 @@ test('Assistants read clusters through Lumovi’s tools, never Secrets’ values
   })
   expect(storefront.text).toMatch(/^# Health: \w+ \(healthy\)/)
   expect(storefront.text).not.toContain('managedFields')
+  // Only what's asked for: its health, and those fields, a list followed into each item.
+  const images = await call(client, 'get_resource', {
+    cluster: 'demo',
+    kind: 'deployments.apps',
+    name: DEMO.deployments.storefront,
+    namespace: 'shop',
+    fields: ['spec.template.spec.containers.image', 'status.readyReplicas', 'spec.nope'],
+  })
+  expect(images.text).toMatch(
+    new RegExp(
+      `^# Health: \\w+ \\(healthy\\)\\nkind: Deployment\\nname: ${DEMO.deployments.storefront}\\nnamespace: shop\\nspec\\.template\\.spec\\.containers\\.image:\\n {2}- \\S+\\n`,
+    ),
+  )
+  expect(images.text).toContain('spec.nope: (not in this object)')
+  expect(images.text).not.toContain('replicas: ')
   const config = await call(client, 'get_resource', {
     cluster: 'demo',
     kind: 'configmap',
