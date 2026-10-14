@@ -333,6 +333,8 @@ function stage(
     proxy: [],
   }
   const audit: Recorded[] = []
+  /** How each entry was kept: by a key, once a while; or with none, every time. */
+  const keys: (string | undefined)[] = []
   const ask = pluginServer({
     kube: {
       get: async (q) => {
@@ -355,11 +357,17 @@ function stage(
     to: () => ({ host: 'desktop', switches: options.switches ?? { chosen: {} } }),
     audit: {
       user: 'me',
-      record: (input) => void audit.push(input),
-      read: (_, input) => void audit.push(input),
+      record: (input) => {
+        keys.push(undefined)
+        audit.push(input)
+      },
+      read: (key, input) => {
+        keys.push(key)
+        audit.push(input)
+      },
     },
   })
-  return { ask, asked, audit }
+  return { ask, asked, audit, keys }
 }
 
 test('a listed path of its Service, in the namespace of its own kind’s object: asked through the API server, and the JSON handed back', async () => {
@@ -453,6 +461,47 @@ test('refused in turn, before anything is asked of the cluster: the policy, the 
     refused: 'servers-off',
     said: 'Your organization’s policy doesn’t let plugins talk to servers in the cluster.',
   })
+})
+
+test('a path as a page wrote it is in no entry until its file lists it, and refusals are one entry a while whatever is asked for', async () => {
+  const pod = { kind: 'Pod', namespace: 'default', name: 'a' }
+  const written = `/WRITTEN-BY-THE-PAGE ${'x'.repeat(150)}`
+  // Refused before its path is known to be one its file lists: no server in its file, a path
+  // that isn't listed, an object that isn't its own kind's.
+  for (const [known, ask, refused] of [
+    [[plugin({ server: undefined })], { ...ASK, path: written }, 'not-granted'],
+    [[plugin()], { ...ASK, path: written }, 'not-listed'],
+    [[plugin()], { ...ASK, in: pod, path: written }, 'not-granted'],
+  ] as const) {
+    const { ask: asking, audit, keys } = stage([...known])
+    expect(await asking(ask), refused).toMatchObject({ ok: false, refused })
+    expect(audit, refused).toHaveLength(1)
+    // Lumovi's own words for it, and nothing the page wrote: not in its summary, not anywhere.
+    expect(audit[0]!.summary, refused).toContain('for a path its file doesn’t list, for the plugin')
+    expect(audit[0]!.details?.listed, refused).toBeUndefined()
+    expect(JSON.stringify(audit), refused).not.toContain('WRITTEN-BY-THE-PAGE')
+    // Kept once a while, by the cluster, the plugin and the refusal: the same key whatever the
+    // page asks for.
+    expect(keys, refused).toEqual([`plugin-server:${JSON.stringify(['demo', 'toys', refused])}`])
+  }
+  const refusing = stage([plugin({ server: undefined })])
+  for (const path of ['/one', '/two', `/${'three '.repeat(20)}`]) {
+    await refusing.ask({ ...ASK, path })
+  }
+  expect(new Set(refusing.keys).size).toBe(1)
+  // A path its file lists that then fails (no such Service): its listed path is in the entry,
+  // and it's still one entry a while.
+  const failing = stage([plugin()], undefined, { services: [] })
+  expect(await failing.ask(ASK)).toMatchObject({ ok: false, refused: 'no-service' })
+  expect(failing.audit[0]!.details?.listed).toBe(ASK.path)
+  expect(failing.keys).toEqual([`plugin-server:${JSON.stringify(['demo', 'toys', 'no-service'])}`])
+  // An ask that's made is in the history every time, with the path as its file lists it.
+  const made = stage()
+  expect(await made.ask(ASK)).toMatchObject({ ok: true })
+  expect(await made.ask(ASK)).toMatchObject({ ok: true })
+  expect(made.keys).toEqual([undefined, undefined])
+  expect(made.audit.map((entry) => entry.details?.listed)).toEqual([ASK.path, ASK.path])
+  expect(made.audit[0]!.summary).toContain(`for ${ASK.path}, for the plugin`)
 })
 
 test('the Service by its name, or the one with its labels, and a port it declares: or Lumovi’s sentence why not', async () => {

@@ -120,7 +120,8 @@ test('a plugin’s code asks its tool’s server for a path its file lists, thro
   expect(sent.search).toBe('verbose=1')
   expect(sent.headers.accept).toBe('application/json')
   expect(sent.headers.cookie).toBeUndefined()
-  // The history names the plugin, and the path as its file lists it.
+  // The history names the plugin, and the path as its file lists it. One its file doesn't list
+  // is the page's own text: the entry says that it isn't listed, and not what it was.
   await expect
     .poll(async () =>
       (await events(page, { actions: ['plugin.server'] }))
@@ -139,7 +140,7 @@ test('a plugin’s code asks its tool’s server for a path its file lists, thro
         ],
         [
           'refused',
-          'Asked the Service toys-api in default for /api/v1/secrets, for the plugin Toys’ page',
+          'Asked the Service toys-api in default for a path its file doesn’t list, for the plugin Toys’ page',
         ],
       ].sort(),
     )

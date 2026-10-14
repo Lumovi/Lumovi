@@ -1070,3 +1070,85 @@ test('a forward a link opened, started by the person, is in the history as the p
     .poll(async () => (await events(page, { actions: ['port-forward.open'] }))[0])
     .toMatchObject({ outcome: 'success', details: { plugin: 'toys' } })
 })
+
+/**
+ * Its code: granted one kind (a Widget) and no server, it asks for kinds its file doesn't name
+ * (ones the cluster serves, one it doesn't, one object without its namespace), and asks a
+ * server for paths of its own writing. Paced, as a plugin that means to stay would.
+ */
+const ASKS_AROUND = `box.then(({ post, listen }) => {
+  const told = {}
+  let asks = []
+  const say = () => post(JSON.stringify({ commit: [['change', 1, { name: 'told ' + Object.keys(told).sort().map((n) => n + ':' + told[n]).join(' ') }]] }))
+  const next = () => {
+    const ask = asks.shift()
+    if (ask) post(JSON.stringify(ask))
+    else if (Object.keys(told).length >= 9) say()
+    setTimeout(next, 250)
+  }
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) {
+      post(JSON.stringify({ commit: [['make', 1, 'Header', { name: 'asking' }], ['put', 0, 1]] }))
+      post(JSON.stringify({ read: 1, what: 'list', kind: 'example.com/Widget' }))
+    }
+    if (said.read === 1 && said.objects && !asks.started) {
+      const widget = said.objects[0] && said.objects[0].token
+      asks = [
+        { read: 2, what: 'list', kind: 'apps/Deployment' },
+        { read: 3, what: 'list', kind: 'nowhere.example/Thing' },
+        { read: 4, what: 'object', kind: 'apps/Deployment', name: 'storefront' },
+        { read: 5, what: 'list', kind: 'argoproj.io/Application' },
+        { read: 6, what: 'list', kind: 'karpenter.sh/NodePool' },
+        ...[0, 1, 2, 3].map((n) => ({ read: 10 + n, what: 'server', in: widget, path: '/WRITTEN-BY-THE-PLUGIN-' + n + ' ' + 'x'.repeat(120) })),
+      ]
+      asks.started = true
+      next()
+    }
+    if (said.read > 1 && said.ended) told[said.read] = said.ended
+  })
+})
+`
+
+test('what a plugin’s code is refused tells it nothing of the cluster, and writes nothing of its own into the history: one answer for every kind its file doesn’t name, and Lumovi’s words for what it asked', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'tinker.yaml'), TINKER)
+  writeFileSync(join(folder, 'tinker.js'), ASKS_AROUND)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  const before = clusters.demo.requests.length
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/tinker/overview`)
+  const said = body(page).locator('h2').first()
+  await expect(said).toContainText('13:', { timeout: 30_000 })
+  // A kind the cluster serves (a Deployment, another tool's Application and NodePool), one it
+  // doesn't, and one object of a namespaced kind without its namespace: the one answer for all,
+  // which is its file's. And its asks of a server it has none of: refused.
+  await expect(said).toContainText(
+    'told 10:not-granted 11:not-granted 12:not-granted 13:not-granted 2:not-granted 3:not-granted 4:not-granted 5:not-granted 6:not-granted',
+  )
+  // The cluster was asked for none of those kinds: not for a list, not for one object.
+  expect(
+    clusters.demo.requests
+      .slice(before)
+      .map((r) => r.path)
+      .filter((path) => /deployments|applications|nodepools|things/.test(path)),
+  ).toEqual([])
+  // In the history: one entry for the kinds its file doesn't name and one for the paths its
+  // file doesn't list, each in Lumovi's words. Nothing the page wrote is in any entry: not a
+  // kind, not a name, not a character of its paths.
+  const history = (await events(page)).filter((event) => event.action.startsWith('plugin.'))
+  const refused = history.filter((event) => event.outcome !== 'success')
+  expect(refused.map((event) => [event.action, event.summary]).sort()).toEqual([
+    ['plugin.read', 'Asked to read a kind its file doesn’t name, for the plugin tinker'],
+    [
+      'plugin.server',
+      'Asked a Service in default for a path its file doesn’t list, for the plugin Tinker’s page',
+    ],
+  ])
+  expect(JSON.stringify(history)).not.toMatch(
+    /WRITTEN-BY-THE-PLUGIN|xxxxxxxx|Deployment|storefront|Application|NodePool|nowhere|Thing/,
+  )
+})

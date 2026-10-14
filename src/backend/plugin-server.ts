@@ -57,13 +57,20 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
       return { ok: false, refused: 'failed', said: serverSaid('failed') }
     }
     // (What's known of the ask so far, for the history and for Lumovi's sentence.)
-    const asked: { plugin?: Readonly<KnownPlugin>; where: ServerWhere; path?: string } = {
+    const asked: {
+      plugin?: Readonly<KnownPlugin>
+      where: ServerWhere
+      /** The path the page wrote is one its file lists: only then is it in the history. */
+      listed?: true
+      path?: string
+    } = {
       where: { namespace: q.in.namespace },
     }
     const refuse = (refused: ServerRefusal, status?: number): PluginServerAnswer => {
-      const { plugin, where, path } = asked
+      const { plugin, where, path, listed } = asked
       record(audit, q, plugin, where, {
         refused,
+        ...(listed ? { listed } : {}),
         ...(path === undefined ? {} : { path }),
         ...(status === undefined ? {} : { status }),
       })
@@ -97,6 +104,7 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
     }
     // The path as its file lists it, filled with those objects' names.
     if (!server.paths.includes(q.path)) return refuse('not-listed')
+    asked.listed = true
     const path = filled(q.path, namesOf(q.with ?? {}))
     if (path === undefined) return refuse('not-granted')
     asked.path = path
@@ -140,6 +148,7 @@ export function pluginServer({ kube, known, audit, to }: PluginServerAsking) {
     }
     if (!shallow(json)) return refuse('not-json', answer.status)
     record(audit, q, plugin, asked.where, {
+      listed: true,
       path,
       status: answer.status,
       bytes: Buffer.byteLength(answer.body),
@@ -198,10 +207,18 @@ function record(
   where: ServerWhere,
   {
     refused,
+    listed,
     path,
     status,
     bytes,
-  }: { refused?: ServerRefusal; path?: string; status?: number; bytes?: number },
+  }: {
+    refused?: ServerRefusal
+    /** The path as the page wrote it is one its file lists. */
+    listed?: true
+    path?: string
+    status?: number
+    bytes?: number
+  },
 ): void {
   const who: Record<string, string> = plugin
     ? {
@@ -222,8 +239,10 @@ function record(
       ...(where.name === undefined ? {} : { name: where.name }),
       ...(q.in.namespace === undefined ? {} : { namespace: q.in.namespace }),
     },
-    // (The path as its file lists it, not as filled: its filled path is in its details.)
-    summary: `Asked ${where.name === undefined ? 'a Service' : `the Service ${where.name}`} in ${q.in.namespace ?? 'no namespace'} for ${q.path}, for the plugin ${whose(plugin?.label ?? q.plugin)} page`,
+    // (The path as its file lists it, not as filled: its filled path is in its details. And
+    // only a path its file lists: until the page's is known to be one, it's the page's own text,
+    // up to 200 characters of anything, and none of that is written into the history.)
+    summary: `Asked ${where.name === undefined ? 'a Service' : `the Service ${where.name}`} in ${q.in.namespace ?? 'no namespace'} for ${listed ? q.path : 'a path its file doesn’t list'}, for the plugin ${whose(plugin?.label ?? q.plugin)} page`,
     // Where the Service and the path are known: the same ask, as kubectl makes it.
     ...(where.name !== undefined && where.port !== undefined && path !== undefined
       ? {
@@ -239,15 +258,22 @@ function record(
     details: {
       ...who,
       ...(path === undefined ? {} : { path }),
-      listed: q.path,
+      ...(listed ? { listed: q.path } : {}),
       ...(where.port === undefined ? {} : { port: String(where.port) }),
       ...(status === undefined ? {} : { status }),
       ...(bytes === undefined ? {} : { bytes }),
       ...(refused === undefined ? {} : { refused }),
     },
   }
-  // A plugin Lumovi has in use: every ask. One it hasn't (by any name a page cares to send): one
-  // entry a while, whatever it was called, so new names can't fill the history.
-  if (plugin) audit.record(entry)
-  else audit.read(`plugin-server:${JSON.stringify([q.context, refused])}`, entry)
+  // A plugin Lumovi has in use: every ask that was made. One that was refused or failed: one
+  // entry a while for that plugin and that refusal, however often it asks and whatever it asks
+  // for. One Lumovi hasn't in use (by any name a page cares to send): one a while, whatever it
+  // was called. So neither asks nor names can fill the history.
+  if (plugin && refused === undefined) audit.record(entry)
+  else {
+    audit.read(
+      `plugin-server:${JSON.stringify([q.context, ...(plugin ? [plugin.name] : []), refused])}`,
+      entry,
+    )
+  }
 }
