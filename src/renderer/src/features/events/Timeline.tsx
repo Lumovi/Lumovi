@@ -22,12 +22,17 @@ import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import {
+  COUNT_BEFORE,
+  COUNT_GAP,
+  COUNT_INSIDE,
+  HALF_MARK,
   marksOf,
   rowsOf,
   stepsOf,
   TIMELINE_RANGES,
   windowOf,
   zoomInto,
+  type CountAt,
   type Happened,
   type Mark,
   type TimelineRow,
@@ -46,13 +51,12 @@ const IN_VIEW_FROM = 60
 const ROW = 40
 const ROW_CLOSE = 34
 const CLOSE_FROM = 20
-/** A bar's height, and the narrowest that holds its count inside it. */
+/** A bar's height. */
 const BAR = 14
 /** A bar's height where a row stacks three. */
 const BAR_THIN = 10
 /** A names column this narrow shows each kind as its icon alone. */
 const NARROW_NAMES = 150
-const COUNT_INSIDE = 44
 
 /** The names' column: wider on a wide page, narrow on an object's tab. */
 export function namesWidth(width: number, on: 'page' | 'tab'): number {
@@ -578,7 +582,6 @@ function MarkShape({
   if (mark.is === 'bar') {
     const from = Math.max(0, x(mark.from))
     const to = Math.min(plot, x(mark.to))
-    const inside = to - from >= COUNT_INSIDE
     // (Lanes about the row's middle, a pixel or two apart; three are thinner, to fit a row.)
     const thick = mark.lanes > 2 ? BAR_THIN : BAR
     const lane = (mark.lane - (mark.lanes - 1) / 2) * (thick + 2)
@@ -603,15 +606,9 @@ function MarkShape({
         <span className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2">
           <Glyph warning={one.warning} />
         </span>
-        <span
-          className={cn(
-            'absolute top-1/2 -translate-y-1/2 text-2xs font-semibold whitespace-nowrap tabular-nums',
-            one.warning ? 'text-warn-strong' : 'text-ink-2',
-          )}
-          style={inside ? { left: 10 } : { left: to - from + 6 }}
-        >
+        <Count at={mark.count} warning={one.warning}>
           ×{one.count}
-        </span>
+        </Count>
       </button>
     )
   }
@@ -679,7 +676,6 @@ function Pile({
 }) {
   const from = Math.max(0, x(mark.from))
   const to = Math.min(plot, x(mark.to))
-  const inside = to - from >= COUNT_INSIDE
   const thick = mark.lanes > 2 ? BAR_THIN : BAR
   const lane = (mark.lane - (mark.lanes - 1) / 2) * (thick + 2)
   const warning = mark.ones.some((one) => one.warning)
@@ -710,16 +706,33 @@ function Pile({
           <Glyph warning />
         </span>
       )}
-      <span
-        className={cn(
-          'absolute top-1/2 -translate-y-1/2 text-2xs font-semibold whitespace-nowrap tabular-nums',
-          warning ? 'text-warn-strong' : 'text-ink-2',
-        )}
-        style={inside ? { left: 10 } : { left: to - from + 6 }}
-      >
+      <Count at={mark.count} warning={warning}>
         +{mark.ones.length}
-      </span>
+      </Count>
     </button>
+  )
+}
+
+/** A bar's count where marksOf found it room; with none, its card and its name still say it. */
+function Count({ at, warning, children }: { at: CountAt; warning: boolean; children: ReactNode }) {
+  if (at === 'none') return null
+  return (
+    <span
+      data-count={at}
+      className={cn(
+        'absolute top-1/2 -translate-y-1/2 text-2xs font-semibold whitespace-nowrap tabular-nums',
+        warning ? 'text-warn-strong' : 'text-ink-2',
+      )}
+      style={
+        at === 'inside'
+          ? { left: COUNT_INSIDE }
+          : at === 'after'
+            ? { left: `calc(100% + ${COUNT_GAP}px)` }
+            : { right: `calc(100% + ${HALF_MARK + COUNT_BEFORE}px)` }
+      }
+    >
+      {children}
+    </span>
   )
 }
 

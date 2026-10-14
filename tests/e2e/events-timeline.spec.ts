@@ -180,6 +180,85 @@ test('four reasons repeating at once: Warnings keep the lanes, most repeated fir
   await expect(pile).not.toHaveClass(/ring-2/)
 })
 
+/**
+ * Every count drawn on the timeline that's in the way of something: its box (in pixels from its
+ * row's track) and what it's over, or its leaving the track (over the names, or past now).
+ */
+const countsInTheWay = (page: Page) =>
+  grid(page).evaluate((grid) => {
+    // (As the timeline leaves after now, for a count by the last mark.)
+    const AFTER = 48
+    const found: string[] = []
+    for (const cell of grid.querySelectorAll('[role="gridcell"]')) {
+      const track = cell.getBoundingClientRect()
+      const marks = [...cell.querySelectorAll<HTMLElement>('button')]
+      for (const count of cell.querySelectorAll<HTMLElement>('[data-count]')) {
+        const own = count.closest('button')!
+        const box = count.getBoundingClientRect()
+        const said = `${count.textContent} of ${own.getAttribute('aria-label')}`
+        if (box.left < track.left - 0.5 || box.right > track.right - AFTER + 0.5) {
+          found.push(`${said}: off the track`)
+        }
+        for (const mark of marks) {
+          if (mark === own) continue
+          // Bars in another lane are above or below; marks are in the middle, so in every lane.
+          const lane = mark.dataset.lane
+          if (lane !== undefined && own.dataset.lane !== undefined && lane !== own.dataset.lane) {
+            continue
+          }
+          // A single mark is its glyph; a bar, or close marks' pill, the whole of it.
+          const glyph =
+            mark.dataset.lane === undefined &&
+            mark.querySelector(':scope > svg, :scope > span[aria-hidden]')
+          const it = (glyph || mark).getBoundingClientRect()
+          if (box.right > it.left + 0.5 && it.right > box.left + 0.5) {
+            found.push(`${said}: over ${mark.getAttribute('aria-label')}`)
+          }
+        }
+      }
+    }
+    return found
+  })
+
+test('a short bar’s count goes where it covers nothing: after it, before its first mark where a mark is after it, and never over the names or past now', async ({
+  lumovi,
+}) => {
+  const { page } = lumovi
+  await openCluster(page)
+  await goTo(page, 'Events')
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click()
+  await page.getByRole('button', { name: '1h', exact: true }).click()
+  // The node-exporter pod on the node that went away: its probe failed 31 times in two minutes,
+  // and a minute after, NodeNotReady once, just where the count would go after the bar.
+  const pod = grid(page)
+    .getByRole('row')
+    .filter({ has: page.getByRole('rowheader').filter({ hasText: /Pod\s*node-exporter/ }) })
+  const unhealthy = pod.getByRole('button', {
+    name: /^Unhealthy on Pod node-exporter-\S+, 31 times, last .+ ago$/,
+  })
+  const notReady = pod.getByRole('button', {
+    name: /^NodeNotReady on Pod node-exporter-\S+, .+ ago$/,
+  })
+  const count = unhealthy.locator('[data-count]')
+  await expect(count).toHaveText('×31')
+  // So it's before the bar's first mark, 4 px from it, clear of NodeNotReady's.
+  await expect(count).toHaveAttribute('data-count', 'before')
+  const [box, first, mark] = await Promise.all(
+    [count, unhealthy.locator('svg'), notReady.locator('svg')].map((one) => placed(one)),
+  )
+  expect(first.x - (box.x + box.width)).toBeCloseTo(4, 0)
+  expect(box.x + box.width <= mark.x || mark.x + mark.width <= box.x).toBe(true)
+  // Nowhere in view is a count over another's mark or bar, or off the track: at the last hour,
+  // where bars are wide, and across all the events there are, where most are short.
+  expect(await countsInTheWay(page)).toEqual([])
+  await page.getByRole('button', { name: 'All', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'All', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  expect(await countsInTheWay(page)).toEqual([])
+})
+
 test('a timeline zooms into what’s dragged across, and says when a stretch, or a filter, has nothing', async ({
   lumovi,
 }) => {
