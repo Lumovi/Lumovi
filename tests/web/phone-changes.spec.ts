@@ -59,6 +59,7 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'kube.secretValues': 'reads',
   'kube.pluginRead': 'reads',
   'kube.pluginLogs': 'reads',
+  'kube.pluginEvents': 'reads',
   'kube.pluginServer': 'reads',
   // (A plugin's proposed change, confirmed in Lumovi's dialog: never on a phone.)
   'kube.pluginChange': 'changes',

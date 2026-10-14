@@ -47,6 +47,7 @@ import { pluginChanges } from './plugin-changes'
 import { pluginCodes, type HandOverTo } from './plugin-code'
 import { PLUGIN_NAME } from '@shared/plugins'
 import { pluginHistory, type PluginHistory } from './plugin-history'
+import { pluginEvents } from './plugin-events'
 import { pluginLogs } from './plugin-logs'
 import { pluginServer } from './plugin-server'
 import { pluginReads, secretsAskedFor } from './plugin-reads'
@@ -385,6 +386,12 @@ export function handlers({
       // (A plugin's code chooses what these read: what they add to the history has a ceiling.)
       [IPC.pluginRead]: pluginReads({ kube, known: knownPlugins, audit: listed, to: handOverTo }),
       [IPC.pluginLogs]: pluginLogs({ kube, known: knownPlugins, audit: listed, to: handOverTo }),
+      [IPC.pluginEvents]: pluginEvents({
+        kube,
+        known: knownPlugins,
+        audit: listed,
+        to: handOverTo,
+      }),
       [IPC.pluginServer]: pluginServer({
         kube,
         known: knownPlugins,

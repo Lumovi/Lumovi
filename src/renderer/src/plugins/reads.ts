@@ -16,6 +16,8 @@
  *   kept only the last of them. The read is over;
  * - `{ read, json }`: what its tool's own server answered a path its file lists, once, as JSON.
  *   The read is over;
+ * - `{ read, events: [{ reason, message, count, first, last }] }`: an object's warning events,
+ *   newest first, where its file says its code reads them, each time they're read again;
  * - `{ read, ended, said }`: the read is over (refused, or what it read is gone): a code, and
  *   Lumovi's sentence for it;
  * - `{ read, failing, said }`: reading it again failed this time; it's tried again.
@@ -29,6 +31,8 @@ import {
   readAsk,
   type Cut,
   type PluginCount,
+  type PluginEvents,
+  type PluginEventsQuery,
   type PluginLogs,
   type PluginRead,
   type PluginReadQuery,
@@ -44,6 +48,7 @@ import {
   type ServerRefusal,
 } from '@shared/plugin-server'
 import { whose } from '@shared/plugins'
+import { apiGroupOf, apiKindOf, builtinResource, type ResourceKind } from '@shared/resources'
 import { listPollInterval, POLL_INTERVAL } from '@renderer/hooks/queries'
 import { api } from '@renderer/lib/api'
 
@@ -98,14 +103,17 @@ const ENDS: ReadonlySet<ReadRefusal> = new Set<ReadRefusal>([
   'not-pickable',
 ])
 
-interface Going {
-  query: PluginReadQuery
+/** A read going: of objects (`query`), or of an object's events (`events`). */
+type Going = {
   list: boolean
-  /** What it handed last: an object no longer in it has its token taken back. */
+  /**
+   * What it handed last: an object no longer in it has its token taken back. (Of events, none:
+   * that it has had an answer.)
+   */
   last: ObjectRef[] | undefined
   timer: ReturnType<typeof setTimeout> | undefined
   reading: boolean
-}
+} & ({ query: PluginReadQuery } | { events: PluginEventsQuery })
 
 /**
  * What Lumovi's own page says of a page's reads, round what its plugin draws and never by it:
@@ -179,9 +187,7 @@ export class PageReading {
       return undefined
     }
     if (ask.what === 'events') {
-      // An object's events: refused with a code (a plugin written for a later Lumovi doesn't
-      // lose its page for asking).
-      this.#refuse(ask.read, 'not-yet')
+      this.#readEvents(ask)
       return undefined
     }
     if (ask.what === 'logs') {
@@ -220,31 +226,39 @@ export class PageReading {
     if (!going || going.reading) return
     clearTimeout(going.timer)
     going.reading = true
+    const answered = (answer: () => void) => {
+      going.reading = false
+      if (this.#closed || this.#going.get(read) !== going) return
+      answer()
+    }
+    if ('events' in going) {
+      void api.kube
+        .pluginEvents(going.events)
+        .catch((): PluginEvents => ({ ok: false, refused: 'failed' }))
+        .then((result) => answered(() => this.#answerEvents(read, going, result)))
+      return
+    }
     void api.kube
       .pluginRead(going.query)
       .catch((): PluginRead => ({ ok: false, refused: 'failed' }))
-      .then((result) => {
-        going.reading = false
-        if (this.#closed || this.#going.get(read) !== going) return
-        this.#answer(read, going, result)
-      })
+      .then((result) => answered(() => this.#answer(read, going, result)))
+  }
+
+  /**
+   * A read not answered this time. Its first answer that's a refusal ends it; so does what's
+   * gone, or not allowed any more. A failure of a read that had answers is said, and it's tried
+   * again.
+   */
+  #unanswered(read: number, going: Going, refused: ReadRefusal, minutes?: number): void {
+    if (going.last === undefined || ENDS.has(refused)) return this.#refuse(read, refused, minutes)
+    this.#failing.set(read, refused)
+    this.#noticed()
+    this.#tell({ read, failing: refused, said: readRefused(refused, minutes) })
+    this.#again(read, going, going.last.length)
   }
 
   #answer(read: number, going: Going, result: PluginRead): void {
-    if (!result.ok) {
-      // A read's first answer that's a refusal ends it; so does what's gone, or not allowed any
-      // more. A failure of a read that had answers is said, and it's tried again.
-      if (going.last === undefined || ENDS.has(result.refused))
-        return this.#refuse(read, result.refused, result.minutes)
-      this.#failing.set(read, result.refused)
-      this.#noticed()
-      this.#tell({
-        read,
-        failing: result.refused,
-        said: readRefused(result.refused, result.minutes),
-      })
-      return this.#again(read, going, going.last.length)
-    }
+    if (!result.ok) return this.#unanswered(read, going, result.refused, result.minutes)
     const { kind, objects, held } = result.answer
     const refs: ObjectRef[] = objects.map(({ namespace, name }) => ({
       kind,
@@ -318,6 +332,41 @@ export class PageReading {
       ...(cut === undefined ? {} : { cut }),
     })
     this.#again(read, going, refs.length)
+  }
+
+  /**
+   * An object's warning events, kept up to date as an object is: of an object its page holds,
+   * and the backend checks its file says its code reads them.
+   */
+  #readEvents({ read, of: token }: EventsAsk): void {
+    // (A token that's no object's, or no longer held: as a read of what isn't there.)
+    const object = this.tokens.heldOf(token)
+    if (!object) return this.#refuse(read, 'not-found')
+    this.#going.set(read, {
+      events: {
+        context: this.#context,
+        plugin: this.#plugin,
+        ...this.#handed,
+        kind: askedKind(object.kind),
+        ...(object.namespace === undefined ? {} : { namespace: object.namespace }),
+        name: object.name,
+      },
+      list: false,
+      last: undefined,
+      timer: undefined,
+      reading: false,
+    })
+    this.#read(read)
+  }
+
+  #answerEvents(read: number, going: Going, result: PluginEvents): void {
+    if (!result.ok) return this.#unanswered(read, going, result.refused, result.minutes)
+    going.last = []
+    this.#reads.answered(read)
+    this.#failing.delete(read)
+    this.#noticed()
+    this.#tell({ read, events: result.events })
+    this.#again(read, going, 0)
   }
 
   /** A pod's logs, once: the backend checks the plugin's file says its code reads them. */
@@ -512,6 +561,7 @@ export class PageReading {
   }
 }
 
+type EventsAsk = Extract<ReadAsk, { what: 'events' }>
 type LogsAsk = Extract<ReadAsk, { what: 'logs' }>
 type ServerAsk = Extract<ReadAsk, { what: 'server' }>
 
@@ -523,8 +573,9 @@ const key = ({ kind, namespace, name }: ObjectRef) => `${kind}\u0000${namespace 
 /** The read a tab's object is handed by: none a plugin can number (theirs start at 1). */
 const OPENED = 0
 
-/** A kind as Lumovi names it (`Widget.example.com`, `Pod`), as a plugin asks for it (`example.com/Widget`). */
-const askedKind = (kind: string) => {
-  const dot = kind.indexOf('.')
-  return dot < 0 ? `/${kind}` : `${kind.slice(dot + 1)}/${kind.slice(0, dot)}`
-}
+/**
+ * A kind as Lumovi names it (`Widget.example.com`, `Pod`, `ReplicaSet`), as a plugin asks for it
+ * (`example.com/Widget`, `/Pod`, `apps/ReplicaSet`): a kind of Kubernetes' own by its own group.
+ */
+const askedKind = (kind: ResourceKind) =>
+  `${builtinResource(kind)?.group ?? apiGroupOf(kind)}/${apiKindOf(kind)}`

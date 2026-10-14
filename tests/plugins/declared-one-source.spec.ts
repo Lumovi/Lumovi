@@ -27,7 +27,7 @@ import { DECLARED } from '../../src/shared/kit/parts.ts'
 import { SHOWN_LIMITS } from '../../src/shared/kit/shown.ts'
 import { TABLE_LIMITS, type TableProps } from '../../src/shared/kit/table.ts'
 import { DOOR_LIMITS } from '../../src/shared/plugin-door.ts'
-import { READ_LIMITS } from '../../src/shared/plugin-reads.ts'
+import { EVENT_MESSAGE_CUTS, READ_LIMITS } from '../../src/shared/plugin-reads.ts'
 import { SERVER_LIMITS } from '../../src/shared/plugin-server.ts'
 import { PLUGIN_SINCE } from '../../src/shared/plugin-since.ts'
 
@@ -66,6 +66,8 @@ function described(parts: Parts = DECLARED) {
         { props: part.props, ...(part.events ? { events: part.events } : {}) },
       ]),
     ),
+    // (Where an event's message is cut before it's handed: what the kit page says exactly.)
+    eventMessageCuts: EVENT_MESSAGE_CUTS,
     limits: {
       door: DOOR_LIMITS,
       reads: READ_LIMITS,

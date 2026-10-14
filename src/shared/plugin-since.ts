@@ -55,6 +55,8 @@ export const PLUGIN_SINCE = {
     logs: 'next',
     /** A path of its tool's own server, asked once: for a plugin whose file says `server`. */
     server: 'next',
+    /** An object's warning events: for a plugin whose file says `events: true` of its kind. */
+    events: 'next',
   },
   /** The parts a page's code can name. */
   parts: {

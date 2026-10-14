@@ -84,10 +84,10 @@ test('a plugin’s entry says what it may change and create, what it reads and s
 
   // A kind of Kubernetes' own it only shows, named as the cluster names it.
   await expect(reads).toContainText('LimitRanges, which it shows and can’t change.')
-  // What its code is handed: with their status, events and usage where the file says so, and
-  // only the fields where it doesn't.
+  // What its code is handed: with their status, warning events and usage where the file says
+  // so, and only the fields where it doesn't.
   await expect(reads).toContainText(
-    'Of Nodes, its code is handed only metadata.name, with their status, events and usage, as far as you may read them.',
+    'Of Nodes, its code is handed only metadata.name, with their status, warning events and usage, as far as you may read them.',
   )
   await expect(reads).toContainText(
     'Of Pods, its code is handed only metadata.name and spec.nodeName, as far as you may read them.',

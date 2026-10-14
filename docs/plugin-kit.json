@@ -802,6 +802,17 @@
       }
     }
   },
+  "eventMessageCuts": [
+    "Invalid value: ",
+    "Unsupported value: ",
+    "Duplicate value: ",
+    "Not found: ",
+    "Forbidden: ",
+    "probe failed: ",
+    "probe errored: ",
+    "lifecycle hook (",
+    "denied the request: "
+  ],
   "limits": {
     "door": {
       "message": 1048576,
@@ -828,6 +839,8 @@
       "logLines": 500,
       "logSeconds": 3600,
       "logBytes": 65536,
+      "events": 50,
+      "eventMessage": 500,
       "differentAWhile": 200,
       "whileMs": 600000
     },

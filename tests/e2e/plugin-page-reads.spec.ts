@@ -69,7 +69,7 @@ async function show(page: Page, folder: string, code: string) {
   )
 }
 
-const field = (page: Page, read: number) =>
+const field = (page: Page, read: number | string) =>
   page.locator('[data-part="Field"]').filter({ hasText: `read ${read}` })
 const ended = (page: Page) => page.getByTestId('plugin-ended')
 
@@ -135,9 +135,10 @@ test('a plugin’s page reads its own kind through the door: each object with a 
     ),
   )
   await expect(field(page, 1)).toContainText(`|${CUSTOM.widget}=`)
-  // Kubernetes' own, and what isn't read for a plugin yet: refused, said with Lumovi's words.
+  // Kubernetes' own its file doesn't name, and the events of an object Lumovi never handed it:
+  // refused, said with Lumovi's words.
   await expect(field(page, 2)).toContainText(`ended not-granted: ${READ_REFUSED['not-granted']}`)
-  await expect(field(page, 3)).toContainText(`ended not-yet: ${READ_REFUSED['not-yet']}`)
+  await expect(field(page, 3)).toContainText(`ended not-found: ${READ_REFUSED['not-found']}`)
   const first = await tokens(page, 1)
 
   // One more Widget: in the list once it's read again, the others with the tokens they had.
@@ -152,6 +153,96 @@ test('a plugin’s page reads its own kind through the door: each object with a 
   // And gone, once it's gone.
   clusters.demo.remove('Widget.example.com', 'default', 'green-widget')
   await expect(field(page, 1)).not.toContainText('green-widget', { timeout: 15_000 })
+  await expect(ended(page)).toHaveCount(0)
+})
+
+/**
+ * A test plugin's code that reads the pods and ReplicaSets of `shop`, then the warning events of
+ * the pod and the ReplicaSet named, by the tokens Lumovi handed for them, each under the next
+ * number as it's asked (whichever list answers first): each one's events in a Field of its own
+ * (`read pod`, `read rs`: `|reason ×count: message|`, newest first), or how it ended.
+ */
+const eventsReading = (pod: string, replicaSet: string) => `box.then(({ post, listen }) => {
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  commit([['make', 1, 'Stack', {}], ['put', 0, 1]])
+  const fields = new Map()
+  let next = 100
+  const show = (read, value) => {
+    let id = fields.get(read)
+    const props = { name: 'read ' + read, value: value.slice(0, 4000) }
+    if (id === undefined) {
+      fields.set(read, (id = next++))
+      commit([['make', id, 'Field', props], ['put', 1, id]])
+    } else commit([['change', id, props]])
+  }
+  // (An ask's number is new each time: the next, whichever list answered first.)
+  let asking = 3
+  const named = new Map()
+  const ofIt = (label, objects, name) => {
+    const found = objects.find((o) => o.object.metadata.name === name)
+    if (!found || [...named.values()].includes(label)) return
+    named.set(asking, label)
+    post(JSON.stringify({ read: asking++, what: 'events', of: found.token }))
+  }
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.read === 1 && said.objects) ofIt('pod', said.objects, ${JSON.stringify(pod)})
+    else if (said.read === 2 && said.objects) ofIt('rs', said.objects, ${JSON.stringify(replicaSet)})
+    else if (said.events) show(named.get(said.read), '|' + said.events.map((e) => e.reason + ' ×' + e.count + ': ' + e.message + ' [' + Object.keys(e).sort().join(',') + ']').join('|') + '|')
+    else if (said.ended) show(named.get(said.read), 'ended ' + said.ended)
+  })
+  post(JSON.stringify({ read: 1, what: 'list', kind: '/Pod', namespace: 'shop' }))
+  post(JSON.stringify({ read: 2, what: 'list', kind: 'apps/ReplicaSet', namespace: 'shop' }))
+})`
+
+test('a plugin’s page reads a pod’s warning events by its token, a few fields of each, kept up to date; a ReplicaSet’s its file doesn’t say, refused', async ({
+  launch,
+  clusters,
+}) => {
+  const folder = included(
+    `${TOYS}  reads:\n    - { group: '', kind: Pod, fields: [metadata.name], events: true }\n    - { group: apps, kind: ReplicaSet, fields: [metadata.name, status.readyReplicas] }\n`,
+  )
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  const [pod] = DEMO.pods.recommendations
+  await show(page, folder, eventsReading(pod!, DEMO.replicaSets.recommendations))
+  // Its warnings, newest first, and nothing of its Normal one; each only its reason, message,
+  // count and times.
+  const fields = '[count,first,last,message,reason]'
+  await expect(field(page, 'pod')).toContainText(
+    `|Failed ×71: Error: ImagePullBackOff ${fields}|Failed ×9: `,
+  )
+  await expect(field(page, 'pod')).toContainText(`Failed ×9: Error: ErrImagePull ${fields}|`)
+  await expect(field(page, 'pod')).not.toContainText('Back-off pulling image')
+  // A ReplicaSet its file reads, but not its events: refused.
+  await expect(field(page, 'rs')).toContainText('ended not-granted')
+
+  // A new warning: there once they're read again, first.
+  const target = clusters.demo.object('Pod', 'shop', pod!)!
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Event',
+    metadata: { name: `${pod}.new-warning`, namespace: 'shop', uid: 'new-warning-uid' },
+    involvedObject: {
+      kind: 'Pod',
+      namespace: 'shop',
+      name: pod,
+      uid: target.metadata.uid,
+      apiVersion: 'v1',
+    },
+    type: 'Warning',
+    reason: 'Unhealthy',
+    message: 'Liveness probe failed',
+    count: 1,
+    firstTimestamp: new Date().toISOString(),
+    lastTimestamp: new Date().toISOString(),
+  } as KubeObject)
+  await expect(field(page, 'pod')).toContainText(
+    `|Unhealthy ×1: Liveness probe failed ${fields}|`,
+    {
+      timeout: 15_000,
+    },
+  )
   await expect(ended(page)).toHaveCount(0)
 })
 
