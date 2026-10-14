@@ -89,7 +89,17 @@ export interface OpenPage {
    * handler, pressed, sends the plugin its call, checked against the part's declaration. Made
    * once for the properties the door holds, which are never changed.
    */
-  handed(part: string, props: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>>
+  handed(
+    part: string,
+    props: Readonly<Record<string, unknown>>,
+    /** The part's own in the tree: what Lumovi holds busy is held by it. */
+    id?: number,
+  ): Readonly<Record<string, unknown>>
+  /**
+   * What Lumovi holds of the part `id` beyond what the plugin described: a button it holds busy
+   * after the change its press led to was applied (a number that changes as that does; 0, none).
+   */
+  heldAt(id: number): number
   /**
    * Opens the object a component was handed, where this page's door handed it, for a read
    * that's still going; or the list the door made for it. Anything else opens nothing.
@@ -169,6 +179,12 @@ function askIn(text: string): object | undefined {
  * fields and labels at theirs.
  */
 const ASK_AT_MOST = 4096
+
+/**
+ * The longest Lumovi holds a pressed button busy after the change it led to was applied, while
+ * the plugin hasn't drawn again with what it reads of it anew.
+ */
+export const HELD_MS = 10_000
 
 /**
  * Of what a plugin sent, a proposal of a change: an object that says it's one. (Looked for before
@@ -275,17 +291,21 @@ export function openPage(options: {
     fault() {
       ended({ why: 'drawing' })
     },
-    handed(part: string, props: Readonly<Record<string, unknown>>) {
+    handed(part: string, props: Readonly<Record<string, unknown>>, id?: number) {
       let handed = made.get(props)
       if (!handed) {
         // (Its presses checked against what this description drew: a button off sends nothing.)
         const swap: Swap = {
           ...swapOf(part),
-          handler: (handle, event) => (carries) => send(part, handle, event, carries, props),
+          handler: (handle, event) => (carries) => send(part, handle, event, carries, props, id),
         }
         made.set(props, (handed = handedFields(props, options.parts[part]!.declared.props, swap)))
       }
-      return handed
+      // (A button Lumovi holds busy: said beside what the plugin described, as `held`.)
+      return id !== undefined && held?.id === id ? { ...handed, held: held.button } : handed
+    },
+    heldAt(id: number) {
+      return held?.id === id ? held.version : 0
     },
     go(object: unknown) {
       const to = reading.tokens.destinationOf(object)
@@ -301,6 +321,7 @@ export function openPage(options: {
       if (!page.end) reading.retry()
     },
     close() {
+      if (held) clearTimeout(held.timer)
       stopListening()
       cancelAnimationFrame(telling)
       reading.close()
@@ -343,17 +364,27 @@ export function openPage(options: {
     event: string,
     carries: unknown,
     drawn?: Readonly<Record<string, unknown>>,
+    id?: number,
   ) => {
     if (page.end) return
     // (A press of a button that declares it changes something has its token, made only for a
     // press that's sent: a change the page proposes right after carries it. A button that only
     // reads or goes has none, as what it was drawn with says; and a pick, an open or a retry is
-    // no press. Its part's declaration says which: a header's button, or a row's.)
+    // no press. Its part's declaration says which: a header's button, or a row's. Which of a
+    // header's buttons it was is kept with it: held busy once its change is applied.)
     const said = written(carries)
     const declared = options.parts[part]!.declared
+    const button = (said as { button?: unknown } | undefined)?.button
     const press =
       drawn !== undefined && declared.changes?.(drawn, event, said) === true
-        ? () => reading.tokens.pressed(Date.now())
+        ? () => {
+            const token = reading.tokens.pressed(Date.now())
+            pressedLast =
+              part === 'Header' && id !== undefined && typeof button === 'string'
+                ? { token, id, button }
+                : undefined
+            return token
+          }
         : undefined
     const call = callOf(declared, event, handle, said, {
       ...(drawn && { drawn }),
@@ -437,11 +468,60 @@ export function openPage(options: {
             `Lumovi stopped the plugin ${options.plugin}: Secret.keys: names a key its file doesn’t say its pages show`,
           )
           ended({ why: 'not-allowed' })
-        } else toDraw(taken.changed)
+        } else {
+          toDraw(taken.changed)
+          // (Drawn again after it was handed the changed object anew: the button is its again.)
+          if (held?.seen) release()
+        }
       }
     },
     ended: (end) => ended(boxEnd(end)),
   })
+  // The latest press that would change something, and of which button: the one held busy once
+  // the change it led to is applied. And the button held, while it is.
+  let pressedLast: { token: string; id: number; button: string } | undefined
+  let held:
+    | {
+        id: number
+        button: string
+        version: number
+        seen: boolean
+        timer: ReturnType<typeof setTimeout>
+      }
+    | undefined
+  let holds = 0
+  /** Tells the part `id` what Lumovi holds of it changed: it's drawn again, in the next frame. */
+  const heldChanged = (id: number) => {
+    if (drawn.has(id)) toTell.add(id)
+    toDraw([])
+  }
+  /** Lets the held button go: it's the plugin's to draw again. */
+  const release = () => {
+    if (!held) return
+    clearTimeout(held.timer)
+    const { id } = held
+    held = undefined
+    heldChanged(id)
+  }
+  /**
+   * The person applied the change a press of a button led to: Lumovi holds that button busy, in
+   * its own word, until the plugin draws again after it's been handed what it reads of the
+   * changed object anew, and `HELD_MS` at most. (So it's busy at once, and never shows the button
+   * it was in between.)
+   */
+  const hold = (press: { id: number; button: string }, changed: ObjectRef | undefined) => {
+    release()
+    const timer = setTimeout(release, HELD_MS)
+    held = { ...press, version: ++holds, seen: false, timer }
+    // (At once, not in the next frame: so it's drawn busy as the dialog goes, never between.)
+    for (const changed of drawn.get(press.id) ?? []) changed()
+    const mine = held
+    const handedAgain = () => {
+      if (held === mine) held.seen = true
+    }
+    if (changed) reading.again(changed, handedAgain)
+    else handedAgain()
+  }
   // A change the page proposes: checked by the door, then the person's to confirm in Lumovi's own
   // dialog. The page is told only what became of it.
   let refusalSaid = false
@@ -480,9 +560,15 @@ export function openPage(options: {
       return refuse(proposed.id, 'it names an object this page doesn’t hold')
     }
     if (!options.propose) return refuse(proposed.id, 'nothing here asks the person')
+    const press = pressedLast?.token === proposed.press ? pressedLast : undefined
     answer(
       proposed.id,
-      await options.propose({ proposed, ...(target && { target }), ...(within && { within }) }),
+      await options.propose({
+        proposed,
+        ...(target && { target }),
+        ...(within && { within }),
+        ...(press && { applied: () => void (page.end || hold(press, target)) }),
+      }),
     )
   }
   // A press is let go of once the page is hidden: nothing proposed after can follow it.

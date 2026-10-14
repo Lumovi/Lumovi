@@ -123,7 +123,8 @@ test('an action at work is busy where it was, with how long once that’s known,
     ...widget,
     status: { ...widget.status, polishStarted: started },
   }))
-  await expect(busy).toHaveAccessibleName(/^Polish, busy: polishing, 1 minute \d+ seconds?$/)
+  // (In whole minutes: a name that changed every second would be said every second.)
+  await expect(busy).toHaveAccessibleName('Polish, busy: polishing, 1 minute')
   await expect(busy).toHaveText(/^Polishing1m \d\ds$/)
   await busy.hover()
   await expect(page.getByRole('tooltip')).toHaveText(

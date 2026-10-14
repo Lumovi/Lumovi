@@ -24,8 +24,10 @@ import {
   commandOf,
   createdObject,
   heredocEnd,
+  effectOf,
   pluginChanges,
   takenFrom,
+  writesStatus,
 } from '../../src/backend/plugin-changes.ts'
 
 /** A whole proposal: a patch of one field, the size, with what's said otherwise. */
@@ -615,4 +617,226 @@ test('a scale is kept in the audit as Lumovi’s own is: its command and its cou
   )
   expect(made!.details.replicas).toBe(7346)
   expect(made!.details.paths).toBeUndefined()
+})
+
+test('a change made after its object moved is judged again there: sent with the new version where it does the same, refused where it doesn’t', async () => {
+  const applications = {
+    kind: 'Application.argoproj.io',
+    apiKind: 'Application',
+    plural: 'applications',
+    group: 'argoproj.io',
+    version: 'v1alpha1',
+    namespaced: true,
+    label: 'Applications',
+  }
+  /** The Application as the cluster has it now: what a test moves between the try and the make. */
+  let now = {
+    apiVersion: 'argoproj.io/v1alpha1',
+    kind: 'Application',
+    metadata: { name: 'storefront', namespace: 'argocd', uid: 'u1', resourceVersion: '10' },
+    spec: { syncPolicy: { automated: { prune: false, selfHeal: true } } },
+    status: { reconciledAt: '2026-10-14T08:00:00Z' },
+  }
+  /** A merge patch, as the cluster applies one: a null takes a field away. */
+  const merged = (into: unknown, patch: unknown): unknown => {
+    if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) return patch
+    const out: Record<string, unknown> = { ...((into ?? {}) as Record<string, unknown>) }
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) delete out[key]
+      else out[key] = merged(out[key], value)
+    }
+    return out
+  }
+  const sent: { dryRun: boolean; version: unknown }[] = []
+  const change = pluginChanges({
+    kube: {
+      resource: async () => applications,
+      get: async () => ({ ok: true, data: now }),
+      change: async (request: {
+        dryRun?: boolean
+        change: { patch: { metadata?: { resourceVersion?: string } } }
+      }) => {
+        // (The try's question of whose fields it would take: nobody's.)
+        if (!('patch' in request.change)) return { ok: true, data: now }
+        const version = request.change.patch.metadata?.resourceVersion
+        sent.push({ dryRun: request.dryRun === true, version })
+        // (A stale version, the cluster refuses, as it does.)
+        if (version !== undefined && version !== now.metadata.resourceVersion) {
+          return { ok: false, error: { code: 'conflict', message: 'the object has been modified' } }
+        }
+        const { resourceVersion: _, ...patch } = request.change.patch.metadata ?? {}
+        return { ok: true, data: merged(now, { ...request.change.patch, metadata: patch }) }
+      },
+      isReadOnly: () => false,
+    } as never,
+    known: async () =>
+      [
+        {
+          name: 'argo-cd',
+          version: '1.3.0',
+          origin: 'lumovi',
+          file: 'argo-cd.yaml',
+          digest: 'sha256:d',
+          code: 'x',
+          codeDigest: 'sha256:c',
+          grant: { secrets: [] },
+          changes: [{ kind: 'argoproj.io/Application', actions: ['patch'] }],
+          label: 'Argo CD',
+        },
+      ] as never,
+    to: () => ({ host: 'desktop' }) as never,
+    audit: { record: () => {} } as never,
+  })
+  const asked = {
+    plugin: 'argo-cd',
+    digest: 'sha256:d',
+    codeDigest: 'sha256:c',
+    context: 'prod',
+    action: 'patch',
+    target: { kind: 'Application.argoproj.io', namespace: 'argocd', name: 'storefront' },
+    // (Turn auto-sync off: built from what the page read, auto-sync on.)
+    body: { spec: { syncPolicy: { automated: null } } },
+  }
+  const tried = async () => {
+    const answer = (await change({ ...asked, step: 'try' })) as {
+      seen: { resourceVersion: string; effect: string }
+    }
+    expect(answer.seen).toMatchObject({
+      resourceVersion: now.metadata.resourceVersion,
+      uid: now.metadata.uid,
+    })
+    expect(answer.seen.effect).toMatch(/^[0-9a-f]{64}$/)
+    return answer.seen
+  }
+  const moved = (to: typeof now) => {
+    now = to
+  }
+
+  // Its tool rewrote its status meanwhile: the same change there, so sent, with the version now.
+  let seen = await tried()
+  moved({
+    ...now,
+    metadata: { ...now.metadata, resourceVersion: '11' },
+    status: { reconciledAt: '2026-10-14T08:00:05Z' },
+  })
+  sent.length = 0
+  expect(await change({ ...asked, step: 'make', seen })).toMatchObject({ ok: true })
+  expect(sent).toEqual([
+    { dryRun: true, version: '11' },
+    { dryRun: false, version: '11' },
+  ])
+
+  // Someone turned auto-sync off meanwhile: the change would do nothing it was shown to. Refused,
+  // and nothing is sent onto it.
+  now = {
+    ...now,
+    metadata: { ...now.metadata, resourceVersion: '12' },
+    spec: { syncPolicy: { automated: { prune: false, selfHeal: true } } },
+  }
+  seen = await tried()
+  moved({
+    ...now,
+    metadata: { ...now.metadata, resourceVersion: '13' },
+    spec: { syncPolicy: {} } as never,
+  })
+  sent.length = 0
+  expect(await change({ ...asked, step: 'make', seen })).toEqual({ ok: false, refused: 'conflict' })
+  expect(sent.filter(({ dryRun }) => !dryRun)).toEqual([])
+
+  // Another object by the name, made since: refused before anything is tried.
+  now = {
+    ...now,
+    metadata: { ...now.metadata, resourceVersion: '14' },
+    spec: { syncPolicy: { automated: { prune: false, selfHeal: true } } },
+  }
+  seen = await tried()
+  moved({ ...now, metadata: { ...now.metadata, uid: 'u2', resourceVersion: '15' } })
+  sent.length = 0
+  expect(await change({ ...asked, step: 'make', seen })).toEqual({ ok: false, refused: 'conflict' })
+  expect(sent).toEqual([])
+
+  // Nothing moved: made with the version the try saw, tried no more.
+  seen = await tried()
+  sent.length = 0
+  expect(await change({ ...asked, step: 'make', seen })).toMatchObject({ ok: true })
+  expect(sent).toEqual([{ dryRun: false, version: '15' }])
+})
+
+test('a change that writes an object’s status is judged with its status; and a page’s change writes none, as the backend refuses it before it’s tried', async () => {
+  const before = {
+    metadata: { name: 'a', resourceVersion: '1' },
+    spec: { size: 1 },
+    status: { phase: 'Running' },
+  }
+  const after = {
+    metadata: { name: 'a', resourceVersion: '2' },
+    spec: { size: 2 },
+    status: { phase: 'Running' },
+  }
+  const churned = { ...after, status: { phase: 'Terminating' } }
+  // Not written: its status is the cluster's, and left out of what the change does.
+  expect(effectOf(before, churned)).toBe(effectOf(before, after))
+  // Written: its status is what the change does, and judged like any field.
+  expect(effectOf(before, churned, true)).not.toBe(effectOf(before, after, true))
+  // What writes status: a merge patch's, or a JSON patch's op at or under /status, by its path
+  // or where a move or a copy takes it from.
+  expect(writesStatus({ status: { phase: 'Done' } })).toBe(true)
+  expect(writesStatus({ spec: { status: 'a field of spec' } })).toBe(false)
+  expect(writesStatus([{ op: 'replace', path: '/status/phase', value: 'Done' }])).toBe(true)
+  expect(writesStatus([{ op: 'remove', path: '/status' }])).toBe(true)
+  expect(writesStatus([{ op: 'move', from: '/status/x', path: '/spec/x' }])).toBe(true)
+  expect(writesStatus([{ op: 'replace', path: '/statusLine', value: 1 }])).toBe(false)
+  expect(writesStatus([{ op: 'replace', path: '/spec/status', value: 1 }])).toBe(false)
+  // And the backend refuses a page's change that writes status, before the cluster is asked: if
+  // that's ever let through, the judge above is what holds.
+  const asked: unknown[] = []
+  const change = pluginChanges({
+    kube: {
+      resource: async () => ({
+        kind: 'Widget.example.com',
+        apiKind: 'Widget',
+        plural: 'widgets',
+        group: 'example.com',
+        version: 'v1',
+        namespaced: true,
+        label: 'Widgets',
+      }),
+      get: async (q: unknown) => (asked.push(q), { ok: true, data: before }),
+      change: async (q: unknown) => (asked.push(q), { ok: true, data: after }),
+      isReadOnly: () => false,
+    } as never,
+    known: async () =>
+      [
+        {
+          name: 'tinker',
+          version: '1.0.0',
+          origin: 'lumovi',
+          file: 'tinker.yaml',
+          digest: 'sha256:d',
+          code: 'x',
+          codeDigest: 'sha256:c',
+          grant: { secrets: [] },
+          changes: [{ kind: 'example.com/Widget', actions: ['patch'] }],
+          label: 'Tinker',
+        },
+      ] as never,
+    to: () => ({ host: 'desktop' }) as never,
+    audit: { record: () => {} } as never,
+  })
+  for (const step of ['try', 'make'] as const) {
+    expect(
+      await change({
+        plugin: 'tinker',
+        digest: 'sha256:d',
+        codeDigest: 'sha256:c',
+        context: 'prod',
+        action: 'patch',
+        target: { kind: 'Widget.example.com', namespace: 'shop', name: 'a' },
+        body: { status: { phase: 'Terminating' } },
+        step,
+        ...(step === 'make' ? { seen: { resourceVersion: '1', uid: 'u1', effect: 'x' } } : {}),
+      }),
+    ).toMatchObject({ ok: false, refused: 'not-granted' })
+  }
+  expect(asked).toEqual([])
 })

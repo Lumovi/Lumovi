@@ -113,7 +113,22 @@ type Going = {
   last: ObjectRef[] | undefined
   timer: ReturnType<typeof setTimeout> | undefined
   reading: boolean
+  /** How many times it's been read: a read Lumovi asks again for waits for a later one. */
+  started: number
+  /** Read again as soon as this read answers: what it holds changed while it was read. */
+  again: boolean
 } & ({ query: PluginReadQuery } | { events: PluginEventsQuery })
+
+/** Every page reading now, in this window: each is told when Lumovi changed an object. */
+const readings = new Set<PageReading>()
+
+/**
+ * Lumovi changed an object in a cluster (the person applied it): each page that reads it there
+ * reads it again at once, rather than when it would have, so what it draws catches up.
+ */
+export function objectChanged(context: string, object: ObjectRef): void {
+  for (const reading of readings) reading.changedIn(context, object)
+}
 
 /**
  * What Lumovi's own page says of a page's reads, round what its plugin draws and never by it:
@@ -150,6 +165,8 @@ export class PageReading {
   readonly #changed: () => void
   #heldSaid = false
   #closed = false
+  /** Who waits for a read's answer to be handed, and from which of its reads on. */
+  readonly #handing = new Map<number, { from: number; heard: () => void }[]>()
 
   constructor(options: {
     context: string
@@ -168,6 +185,36 @@ export class PageReading {
     const count = countOf(options.plugin)
     this.#reads = new PageReads(count)
     this.tokens = new Tokens(count)
+    readings.add(this)
+  }
+
+  /** Lumovi changed `object` in `context`: read again what holds it, if this page reads there. */
+  changedIn(context: string, object: ObjectRef): void {
+    if (context === this.#context) this.again(object)
+  }
+
+  /**
+   * Reads again at once every read of this page that holds `object`, Lumovi having just changed
+   * it; one being read now, once more after it answers. `heard` is told when the first of them
+   * has handed its code what it read since (at once, where none holds it).
+   */
+  again(object: ObjectRef, heard?: () => void): void {
+    const holding = [...this.#going].filter(([, going]) =>
+      going.last?.some((ref) => key(ref) === key(object)),
+    )
+    if (holding.length === 0) return heard?.()
+    let told = false
+    const once = () => {
+      if (told) return
+      told = true
+      heard?.()
+    }
+    for (const [read, going] of holding) {
+      const waiting = this.#handing.get(read) ?? []
+      this.#handing.set(read, [...waiting, { from: going.started + 1, heard: once }])
+      if (going.reading) going.again = true
+      else this.#read(read)
+    }
   }
 
   /** One of its code's asks (read from its text already): nothing, or why the plugin is stopped. */
@@ -216,6 +263,8 @@ export class PageReading {
       last: undefined,
       timer: undefined,
       reading: false,
+      started: 0,
+      again: false,
     })
     this.#read(ask.read)
     return undefined
@@ -226,10 +275,17 @@ export class PageReading {
     if (!going || going.reading) return
     clearTimeout(going.timer)
     going.reading = true
+    const started = ++going.started
     const answered = (answer: () => void) => {
       going.reading = false
       if (this.#closed || this.#going.get(read) !== going) return
       answer()
+      this.#answered(read, started)
+      // (What it holds changed while it was read: once more, now.)
+      if (going.again && this.#going.get(read) === going) {
+        going.again = false
+        this.#read(read)
+      }
     }
     if ('events' in going) {
       void api.kube
@@ -255,6 +311,17 @@ export class PageReading {
     this.#noticed()
     this.#tell({ read, failing: refused, said: readRefused(refused, minutes) })
     this.#again(read, going, going.last.length)
+  }
+
+  /** A read's `started`th read has answered: who waited for it, or for an earlier one, is told. */
+  #answered(read: number, started: number): void {
+    const waiting = this.#handing.get(read)
+    if (!waiting) return
+    const now = waiting.filter(({ from }) => from <= started)
+    const later = waiting.filter(({ from }) => from > started)
+    if (later.length > 0) this.#handing.set(read, later)
+    else this.#handing.delete(read)
+    for (const { heard } of now) heard()
   }
 
   #answer(read: number, going: Going, result: PluginRead): void {
@@ -355,6 +422,8 @@ export class PageReading {
       last: undefined,
       timer: undefined,
       reading: false,
+      started: 0,
+      again: false,
     })
     this.#read(read)
   }
@@ -473,6 +542,10 @@ export class PageReading {
     const going = this.#going.get(read)
     if (going) clearTimeout(going.timer)
     this.#going.delete(read)
+    // (Whoever waited for it is told: it'll hand nothing more.)
+    const waiting = this.#handing.get(read)
+    this.#handing.delete(read)
+    for (const { heard } of waiting ?? []) heard()
     this.#logs.delete(read)
     this.#asking.delete(read)
     this.tokens.ended(read)
@@ -554,6 +627,7 @@ export class PageReading {
   close(): void {
     if (this.#closed) return
     this.#closed = true
+    readings.delete(this)
     for (const read of [...this.#going.keys()]) this.#end(read)
     this.#heard.clear()
     this.#reads.close()

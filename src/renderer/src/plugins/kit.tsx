@@ -115,9 +115,12 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
   },
   Header: ({ props, go }) => {
     const header = props as HeaderProps
+    // (A button Lumovi holds busy, the change it led to sent: the page's, never the plugin's.)
+    const { held } = props as { held?: unknown }
     return (
       <PageHeader
         header={header}
+        {...(typeof held === 'string' ? { held } : {})}
         {...(header.onPress ? { onPress: header.onPress } : {})}
         {...(go ? { go } : {})}
       />
