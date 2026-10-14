@@ -108,7 +108,7 @@ const STATUS_WIDTH = '144px'
  */
 const LEAST = { narrow: 88, normal: 120, wide: 168, status: 144, lead: 160 } as const
 /** What a cell draws beside its words: a status's icon, a meter's label. */
-const EXTRA: Partial<Record<TableColumn['kind'], number>> = { status: 22, meter: 40 }
+const EXTRA: Partial<Record<TableColumn['kind'], number>> = { status: 22, meter: 40, button: 20 }
 /** The room between a row's columns, and each side of a row. */
 const COLUMN_GAP = 16
 const ROW_SIDES = 16
@@ -116,12 +116,18 @@ const ROW_SIDES = 16
 /**
  * The columns that fit beside the name in `room` pixels, each at its least (`least`, by its
  * place): where they don't all fit, they give way whole, the last in the plugin's order first,
- * and the first status (`statusAt`) last of all. The name never does.
+ * and the first status (`statusAt`) last of all. The name never does, nor a row's button
+ * (`buttonAt`): it's what the row is pressed for.
  */
-export function fittingColumns(least: readonly number[], statusAt: number, room: number): number[] {
+export function fittingColumns(
+  least: readonly number[],
+  statusAt: number,
+  room: number,
+  buttonAt = -1,
+): number[] {
   const kept = new Set(least.map((_, c) => c))
   const need = () => [...kept].reduce((sum, c) => sum + least[c]! + COLUMN_GAP, LEAST.lead)
-  const order = least.map((_, c) => c).filter((c) => c !== statusAt)
+  const order = least.map((_, c) => c).filter((c) => c !== statusAt && c !== buttonAt)
   order.reverse()
   if (statusAt >= 0) order.push(statusAt)
   for (const c of order) {
@@ -227,6 +233,8 @@ function words(cell: TableCell): Their | string {
       return cell.word
     case 'meter':
       return cell.text
+    case 'button':
+      return cell.name
   }
 }
 
@@ -252,6 +260,9 @@ function rank(cell: TableCell): number | string | undefined {
       return cell.of ? cell.used / cell.of : undefined
     case 'text':
       return cell.text.their.toLowerCase()
+    // (Something to do, not a value: a button sorts nowhere.)
+    case 'button':
+      return undefined
   }
 }
 
@@ -369,6 +380,7 @@ const SET = {
   text: 'text-[13px]',
   status: 'text-[13px]',
   meter: 'text-[11px] tabular-nums',
+  button: 'text-xs font-medium',
 } as const
 /** A fact on a phone's card. */
 const FACT = 'text-xs tabular-nums'
@@ -457,6 +469,7 @@ export function Table({
   go,
   onOpen,
   onRetry,
+  onPress,
   bare: bareSaid,
   startOpen = false,
 }: Omit<TableProps, 'rows'> & {
@@ -642,6 +655,7 @@ export function Table({
             sizes.map((size) => size.least),
             columns.findIndex((column) => column.kind === 'status'),
             laidOut - ROW_SIDES,
+            columns.findIndex((column) => column.kind === 'button'),
           )
         : columns.map((_, c) => c),
     [sizes, columns, laidOut],
@@ -741,8 +755,15 @@ export function Table({
     if (windowed) virtualizer.scrollToIndex(index)
     else document.getElementById(`${id}-${index}`)?.scrollIntoView({ block: 'nearest' })
   }, [going, lines, windowed, virtualizer, id])
+  /** Presses a row's button: the plugin is told which, and nothing opens. */
+  const press = (row: DrawnRow) => {
+    const button = buttonOf(row)
+    if (button && !button.off) onPress?.({ row: row.key, button: button.key })
+  }
   const open = (line: Extract<Line, { is: 'row' }>) => {
     if (line.row.again) return goFirst(line.row.again.first)
+    // (A row with a button is pressed by its button alone: tapped or clicked elsewhere, nothing.)
+    if (buttonOf(line.row)) return
     const to = line.row.opens ?? line.row.goes
     if (!to) return
     // (A row that links to a place Lumovi doesn't have here opens its object, as one that opens
@@ -802,7 +823,13 @@ export function Table({
     End: () => move(lines.length - 1, -1),
     PageDown: () => move(active + PAGE_JUMP, 1),
     PageUp: () => move(active - PAGE_JUMP, -1),
-    Enter: () => rowAt(active) && open(rowAt(active)!),
+    // (A row with a button opens nothing: Enter presses its button, unless it's off.)
+    Enter: () => {
+      const line = rowAt(active)
+      if (!line) return
+      if (buttonOf(line.row)) press(line.row)
+      else open(line)
+    },
     // A row that holds rows: right opens it and left closes it. On any other they do nothing.
     ArrowRight: () => rowAt(active)?.holds && twist(rowAt(active)!.key, true),
     ArrowLeft: () => rowAt(active)?.holds && twist(rowAt(active)!.key, false),
@@ -926,6 +953,7 @@ export function Table({
           first={list.length === 0}
           onOpen={() => open(line)}
           onTwist={() => twist(line.key, !line.open)}
+          onPress={() => press(line.row)}
           index={index}
         />,
       )
@@ -1197,6 +1225,7 @@ export function Table({
                             cell={cellAt(row, c)}
                             shown={keyed && active === index}
                             whole={wholeOf(c)}
+                            onPress={() => press(row)}
                           />
                         </span>
                       ),
@@ -1555,6 +1584,69 @@ const METER = {
   critical: { fill: 'bg-critical', track: 'bg-critical/20' },
 } as const
 
+/** A row's button, where it has one. */
+type ButtonCell = Extract<TableCell, { kind: 'button' }>
+function buttonOf(row: Omit<TableRow, 'rows'>): ButtonCell | undefined {
+  return row.cells.find((cell): cell is ButtonCell => cell.kind === 'button')
+}
+
+/** A row's button's name as a screen reader says it: spelled, and "…" where it asks first. */
+const buttonCalled = (button: ButtonCell) =>
+  `${spelled(button.name.their)}${button.asks ? '…' : ''}`
+
+/**
+ * A row's button, as a header's is drawn and a step smaller: secondary, one that asks first ends
+ * in "…". Off, it's in its place and found as any other, with why in its tooltip and in what a
+ * screen reader says of it; its press goes nowhere. Its press is its own: the row under it
+ * opens nothing.
+ */
+function RowButton({ button, onPress }: { button: ButtonCell; onPress?: () => void }) {
+  const reason = useId()
+  const face = (
+    <span className="truncate">
+      <TheirText text={button.name} inline />
+      {button.asks && '…'}
+    </span>
+  )
+  const size = 'h-[26px] max-w-full px-2 text-xs'
+  if (!button.off) {
+    return (
+      <Button
+        variant="secondary"
+        tabIndex={-1}
+        className={size}
+        aria-label={buttonCalled(button)}
+        onClick={(event) => {
+          event.stopPropagation()
+          onPress?.()
+        }}
+      >
+        {face}
+      </Button>
+    )
+  }
+  return (
+    <>
+      <Tooltip content={<TheirText text={button.off} inline />}>
+        <Button
+          variant="secondary"
+          tabIndex={-1}
+          className={cn(size, 'cursor-default opacity-50 hover:bg-surface-2 active:translate-y-0')}
+          aria-label={buttonCalled(button)}
+          aria-disabled="true"
+          aria-describedby={reason}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {face}
+        </Button>
+      </Tooltip>
+      <span id={reason} hidden>
+        {spelled(button.off.their)}
+      </span>
+    </>
+  )
+}
+
 /**
  * A cell, drawn Lumovi's way for its kind. Words that stand for something longer show it whole
  * in Lumovi's tooltip: hovered, and while the keyboard is on its row (`shown`); `whole` is where
@@ -1565,13 +1657,18 @@ function Cell({
   cell,
   shown = false,
   whole,
+  onPress,
 }: {
   column: TableColumn
   cell: TableCell
   shown?: boolean
   whole?: string
+  /** Its row's button pressed. */
+  onPress?: () => void
 }) {
   switch (cell.kind) {
+    case 'button':
+      return <RowButton button={cell} {...(onPress ? { onPress } : {})} />
     case 'none':
       // (Where its column's values stand: right for a number or an age.)
       return (
@@ -1676,6 +1773,7 @@ function Card({
   first,
   onOpen,
   onTwist,
+  onPress,
   index,
 }: {
   /** As a desk's row has it: where "Listed again" finds the card it goes to. */
@@ -1686,6 +1784,8 @@ function Card({
   first: boolean
   onOpen: () => void
   onTwist: () => void
+  /** Its button pressed. */
+  onPress: () => void
   index: number
 }) {
   const { row } = line
@@ -1711,10 +1811,17 @@ function Card({
   }
   const from = row.rest?.from
   const called = spelled(row.lead.name.their)
+  // Its button, under its facts: never one that changes the cluster, as a phone changes
+  // nothing, and never one that's off (a phone has no tooltip to say why).
+  const button = buttonOf(row)
+  const tappable = button && !button.changes && !button.off ? button : undefined
   const facts = columns.flatMap((column, c) =>
     // (A card says what there is: a cell with nothing in it is no fact. Side by side it keeps
-    // its place, with a dash, so every card's facts stand under the same names.)
-    (from !== undefined && c >= from) || (!beside && cellAt(row, c).kind === 'none')
+    // its place, with a dash, so every card's facts stand under the same names. A button is
+    // no fact.)
+    (from !== undefined && c >= from) ||
+    cellAt(row, c).kind === 'button' ||
+    (!beside && cellAt(row, c).kind === 'none')
       ? []
       : [
           {
@@ -1788,6 +1895,19 @@ function Card({
           </div>
         )}
       </dl>
+      {tappable && (
+        <Button
+          variant="secondary"
+          className="mt-2.5 ml-[18px] h-11 max-w-[calc(100%-18px)] px-3.5"
+          aria-label={buttonCalled(tappable)}
+          onClick={onPress}
+        >
+          <span className="truncate">
+            <TheirText text={tappable.name} inline />
+            {tappable.asks && '…'}
+          </span>
+        </Button>
+      )}
     </>
   )
   return (

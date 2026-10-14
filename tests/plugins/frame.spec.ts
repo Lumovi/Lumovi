@@ -4,7 +4,12 @@
  * functions and the door itself: nothing is built or launched.
  */
 import { expect, test } from '@playwright/test'
-import { wrongWithPart, wrongWithParts, type Part } from '../../src/shared/kit/declare.ts'
+import {
+  wrongWithFields,
+  wrongWithPart,
+  wrongWithParts,
+  type Part,
+} from '../../src/shared/kit/declare.ts'
 import { graph } from '../../src/shared/kit/graph.ts'
 import {
   card,
@@ -15,6 +20,7 @@ import {
   secretShown,
   split,
   stack,
+  steps,
   tiles,
 } from '../../src/shared/kit/page.ts'
 import { DECLARED as LUMOVIS } from '../../src/shared/kit/parts.ts'
@@ -31,6 +37,7 @@ const DECLARED: Record<string, Part> = {
   Card: card,
   Pair: pair,
   Counts: counts,
+  Steps: steps,
   Stack: stack,
   Logs: logs,
   Secret: secretShown,
@@ -101,7 +108,7 @@ test('each holds only what it may: a card a Table, Graph or Counts, a pair cards
     take(outer, inner, ['put', outer[1], inner[1]])
   expect(holding(['make', 1, 'Card', { title: 'a' }], ['make', 2, 'Pair', {}])).toEqual({
     why: 'not-allowed',
-    what: 'step 3: puts a Pair into a Card, which holds only Table, Graph, Counts',
+    what: 'step 3: puts a Pair into a Card, which holds only Table, Graph, Counts, Steps',
   })
   expect(holding(['make', 1, 'Pair', {}], ['make', 2, 'Table', TABLE])).toEqual({
     why: 'not-allowed',
@@ -195,4 +202,40 @@ test('what their kinds can’t say: two to four tiles, keys of their own, and a 
   expect(made('Tiles', { tiles: [TILE(hostile), TILE(hostile)] })).toMatchObject({
     what: 'step 1: Tiles: Tiles 1 and 2 of a row have the same key.',
   })
+})
+
+test('a run’s steps: two to twelve, each its own key and one of four states, and what it waits on opens an object', () => {
+  const said = (written: unknown) =>
+    wrongWithFields(written, steps.props, steps.required, 'Steps') ??
+    steps.also(written as Readonly<Record<string, unknown>>)
+  const step = (key: string, state = 'done') => ({ key, name: key, state })
+  expect(
+    said({ steps: [step('pre'), step('w0', 'running'), step('post', 'next')] }),
+  ).toBeUndefined()
+  expect(
+    said({
+      steps: [step('pre'), step('w0', 'failed')],
+      waiting: { lead: { name: 'storefront' }, said: 'Waiting for rollout', opens: 'object-1' },
+    }),
+  ).toBeUndefined()
+  expect(said({ steps: [step('pre')] })).toBe('A run has 1 step; it takes 2 to 12.')
+  expect(said({ steps: Array.from({ length: 13 }, (_, i) => step(`s${i}`)) })).toMatch(
+    /^Steps\.steps: /,
+  )
+  expect(said({ steps: [step('pre'), step('pre')] })).toBe('Steps 1 and 2 have the same key.')
+  expect(said({ steps: [step('pre'), step('w0', 'stuck')] })).toMatch(/^Steps\.steps\[1\]\.state: /)
+  // What it waits on says something, and opens by the token Lumovi handed, never by a name.
+  expect(said({ steps: [step('a'), step('b')], waiting: { lead: { name: 'x' } } })).toMatch(
+    /^Steps\.waiting/,
+  )
+  expect(
+    said({
+      steps: [step('a'), step('b')],
+      waiting: { lead: { name: 'x' }, said: 'y', opens: { kind: 'Pod', name: 'x' } },
+    }),
+  ).toMatch(/^Steps\.waiting\.opens/)
+  // It stands in a stack or a card, and holds nothing.
+  expect(stack.holds).toContain('Steps')
+  expect(card.holds).toContain('Steps')
+  expect(steps.holds).toBe('nothing')
 })

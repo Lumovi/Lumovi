@@ -28,6 +28,7 @@ import {
   pressable,
   pressChanges,
 } from '../../src/shared/kit/page.ts'
+import { rowButton, table } from '../../src/shared/kit/table.ts'
 import { DoorPage } from '../../src/shared/plugin-door.ts'
 import {
   callOf,
@@ -635,6 +636,63 @@ test('a press of a header’s button goes to the plugin only where that button w
   expect(callOf(header, 'press', 'h1', { button: 'logs' }, { drawn, press })).toBe(
     '{"call":"h1","carries":{"button":"logs"},"press":"token-1"}',
   )
+})
+
+test('a press of a row’s button goes to the plugin only where that row has it, and it isn’t off; only one that changes has a token', () => {
+  const button = (key: string, more: Record<string, unknown> = {}) => ({
+    kind: 'button',
+    key,
+    name: 'Roll back',
+    ...more,
+  })
+  const drawn = {
+    title: 'History',
+    headings: true,
+    columns: [{ name: 'Roll back', kind: 'button' }],
+    rows: [
+      { key: '14', lead: { name: '14' }, cells: [{ kind: 'text', text: 'Current' }] },
+      { key: '13', lead: { name: '13' }, cells: [button('back', { changes: true, asks: true })] },
+      {
+        key: '12',
+        lead: { name: '12' },
+        cells: [button('back', { changes: true, off: 'Auto-sync is on.' })],
+      },
+      { key: '11', lead: { name: '11' }, cells: [button('show')] },
+    ],
+  }
+  let made = 0
+  const press = () => `token-${++made}`
+  const pressed = (row: string, key: string, with_ = drawn) =>
+    callOf(table, 'press', 't1', { row, button: key }, { drawn: with_, press })
+  expect(pressed('13', 'back')).toBe(
+    '{"call":"t1","carries":{"row":"13","button":"back"},"press":"token-1"}',
+  )
+  // One that's off; a row without one; a button another row has; a row that isn't there (gone
+  // since, or never); a key that's no row's (an object's own names); and nothing drawn.
+  for (const [row, key] of [
+    ['12', 'back'],
+    ['14', 'back'],
+    ['13', 'show'],
+    ['10', 'back'],
+    ['toString', 'back'],
+    ['13', 'constructor'],
+  ] as const) {
+    expect(pressed(row, key), `${row} ${key}`).toBeUndefined()
+  }
+  expect(callOf(table, 'press', 't1', { row: '13', button: 'back' })).toBeUndefined()
+  expect(pressed('13', 'back', { ...drawn, rows: [] })).toBeUndefined()
+  expect(made).toBe(1)
+  // Its token only where its button says it changes something: one that only reads has none.
+  expect(table.changes(drawn, 'press', { row: '13', button: 'back' })).toBe(true)
+  expect(table.changes(drawn, 'press', { row: '11', button: 'show' })).toBe(false)
+  expect(table.changes(drawn, 'press', { row: '12', button: 'back' })).toBe(false)
+  expect(table.changes(drawn, 'open', { row: '13' })).toBe(false)
+  expect(rowButton(drawn, null)).toBeUndefined()
+  expect(rowButton({}, { row: '13', button: 'back' })).toBeUndefined()
+  // A header's is the same rule, declared on the header.
+  const buttons = [{ key: 'sync', name: 'Sync', changes: true }]
+  expect(header.changes({ name: 'a', buttons }, 'press', { button: 'sync' })).toBe(true)
+  expect(header.changes({ name: 'a', buttons }, 'pick', { button: 'sync' })).toBe(false)
 })
 
 test('a press is what it does, not what its button said: on a phone nothing a plugin’s page starts is a change', () => {

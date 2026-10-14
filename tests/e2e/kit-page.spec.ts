@@ -457,3 +457,122 @@ test('a card says where its data came from, under its title: two lines, then cut
     'Lumovi’s own Nodes list is current at all times.',
   )
 })
+
+test('Now’s steps: in order, each done, running, to come or failed, said in words; what it waits on is Lumovi’s to open', async ({
+  page,
+}) => {
+  await frame(page)
+  await page.evaluate(() => window.lumovi!.app.setTheme('light'))
+  const argo = page.getByRole('region', { name: 'Argo CD’s application' })
+  const [now, failed] = [
+    argo.getByRole('list', { name: 'Steps' }).first(),
+    argo.getByRole('list', { name: 'Steps' }).nth(1),
+  ]
+  // Each by its name and how it stands, in words, never by colour alone.
+  await expect(now.getByRole('listitem')).toHaveText([
+    /^PreSync, done/,
+    /^Wave 0, done/,
+    /^Wave 1, running now/,
+    /^Wave 2, to come/,
+    /^PostSync, to come/,
+  ])
+  await expect(now.getByRole('listitem').nth(2)).toContainText('1 of 3 Pods ready')
+  await expect(failed.getByRole('listitem')).toHaveText([
+    /^PreSync, done/,
+    /^Wave 0, failed/,
+    /^Wave 1, to come/,
+    /^PostSync, to come/,
+  ])
+  // A step's words past two lines are cut, and whole in Lumovi's tooltip.
+  const detail = failed.getByRole('listitem').nth(1).locator('small')
+  expect(await detail.evaluate((words) => words.scrollHeight > words.clientHeight + 1)).toBe(true)
+  await detail.hover()
+  await expect(page.getByRole('tooltip')).toContainText('must have at most 1048576 bytes')
+  // What it waits on: pressed, Lumovi opens it (the page's own stand-in says where); the plugin
+  // is told nothing.
+  const waiting = argo.getByRole('button', { name: /^Waiting on storefront: Waiting for rollout/ })
+  await waiting.click()
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'go {"kind":"Deployment","name":"storefront","namespace":"shop"}',
+  )
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(1)
+  // A failed run waits on nothing.
+  await expect(argo.getByRole('button', { name: /^Waiting on / })).toHaveCount(1)
+  // Done in the good colour, failed in the critical one, in either theme.
+  const colours = () =>
+    now.evaluate((list) => {
+      const dot = (n: number) =>
+        getComputedStyle(list.querySelectorAll('li > span:not([class*="absolute"])')[n]!)
+          .backgroundColor
+      return [dot(0), dot(2)]
+    })
+  const light = await colours()
+  expect(light[0]).not.toBe(light[1])
+  await page.evaluate(() => window.lumovi!.app.setTheme('dark'))
+  await expect.poll(colours).not.toEqual(light)
+})
+
+test('a row’s button: pressed on its own, never the row; off, it says why and presses nothing; Enter presses the active row’s', async ({
+  page,
+}) => {
+  await frame(page)
+  const history = page.getByRole('region', { name: 'History table', exact: true })
+  const backs = history.getByRole('button', { name: 'Roll back…', exact: true })
+  // The current entry says so in the button's column; the others roll back.
+  await expect(backs).toHaveCount(2)
+  await expect(history.getByRole('row').filter({ hasText: /^14/ })).toContainText('Current')
+  await backs.first().click()
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'row press {"row":"13","button":"roll-back"}',
+  )
+  // Elsewhere in its row, nothing: a row with a button opens nothing.
+  await history.getByRole('row').filter({ hasText: /^13/ }).getByText('1m 12s').click()
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(1)
+  // Off: in its place, found as any other, why in its tooltip and said with it; pressed, nothing.
+  const off = page.getByRole('region', { name: 'History, auto-sync on table' })
+  const offBack = off.getByRole('button', { name: 'Roll back…', exact: true }).first()
+  await expect(offBack).toHaveAttribute('aria-disabled', 'true')
+  await expect(offBack).toHaveAccessibleDescription(
+    /^Auto-sync is on, so Argo CD would sync it straight back/,
+  )
+  await offBack.hover()
+  await expect(page.getByRole('tooltip')).toContainText('Auto-sync is on')
+  // (As a disabled one: dimmed and still, so pressed through whatever stands over it.)
+  await offBack.click({ force: true })
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(1)
+  // By the keys: the table is one stop, and Enter on a row presses its button (none on the
+  // current one, and none that's off).
+  const grid = history.getByRole('grid')
+  await grid.focus()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Enter')
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(1)
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(2)
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'row press {"row":"13","button":"roll-back"}',
+  )
+  const offGrid = off.getByRole('grid')
+  await offGrid.focus()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(2)
+  // What a run, or a row's button, is refused for.
+  await expect(
+    page
+      .getByRole('list', { name: 'What a run or a row’s button is refused for' })
+      .getByRole('listitem'),
+  ).toHaveText([
+    'Nothing: it can be drawn.',
+    'A run has 1 step; it takes 2 to 12.',
+    'Steps 1 and 2 have the same key.',
+    'Steps.steps: is longer than 12',
+    'Nothing: it can be drawn.',
+    'Columns 4 and 5 both hold buttons: a table has one such column.',
+    'Row 1 has a button and is pressed whole: a row with a button opens nothing.',
+    'In row 1, inner row 1 has a button: only a table’s own rows have them.',
+    'Row 1, cell 1 is a button, and its column takes text.',
+  ])
+})

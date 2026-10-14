@@ -55,6 +55,18 @@ const CODE = `box.then(({ post, listen }) => {
       commit([
         ['make', 1, 'Header', { name: 'ready', buttons: BUTTONS, onPress: 'press' }],
         ['put', 0, 1],
+        // A row's buttons: one changes the widget, one only reads.
+        ['make', 2, 'Table', {
+          title: 'Widgets',
+          headings: false,
+          columns: [{ name: 'Do', kind: 'button' }],
+          rows: [
+            { key: 'shrink', lead: { name: 'shrink' }, cells: [{ kind: 'button', key: 'shrink', name: 'Shrink', changes: true, asks: true }] },
+            { key: 'peek', lead: { name: 'peek' }, cells: [{ kind: 'button', key: 'peek', name: 'Peek' }] },
+          ],
+          onPress: 'rowPress',
+        }],
+        ['put', 0, 2],
       ])
     }
     if (said.read === 1 && said.objects) {
@@ -65,6 +77,9 @@ const CODE = `box.then(({ post, listen }) => {
       if (first) propose('no-press', { action: 'patch', target: widget, patch: { spec: { size: 9 } } })
     }
     if (said.proposed) say('outcome ' + said.proposed + ' ' + said.outcome)
+    if (said.call === 'rowPress') {
+      propose(said.press, { action: 'patch', target: widget, patch: { spec: { size: 1 } } }, { verb: 'Shrink' })
+    }
     if (said.call === 'press') {
       const { button } = said.carries
       if (button === 'resize') {
@@ -409,4 +424,23 @@ test('a press of a button that only reads proposes nothing: it has no token to s
   await press(page, 'Look')
   await expect(said(page)).toContainText('outcome 2 refused')
   await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('a row’s button that changes something proposes a change, shown in Lumovi’s dialog; one that only reads proposes nothing', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await opened(page, server)
+  // One that only reads: its press has no token, so what it proposes is refused.
+  await body(page).getByRole('button', { name: 'Peek', exact: true }).click()
+  await expect(said(page)).toContainText('outcome 2 refused')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // One that changes: Lumovi's own dialog, with the plugin's verb, and nothing made until it's
+  // confirmed.
+  await body(page).getByRole('button', { name: 'Shrink…', exact: true }).click()
+  await expect(dialog(page)).toBeVisible()
+  await expect(dialog(page).getByRole('button', { name: 'Shrink', exact: true })).toBeVisible()
+  await dialog(page).getByRole('button', { name: 'Cancel' }).click()
+  await expect(said(page)).toContainText('outcome 3 cancelled')
 })

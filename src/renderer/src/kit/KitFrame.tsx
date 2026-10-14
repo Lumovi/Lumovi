@@ -11,6 +11,7 @@ import {
   header as headerPart,
   pair as pairPart,
   split as splitPart,
+  steps as stepsPart,
   tiles as tilesPart,
   type WrittenCounts,
   type WrittenHeader,
@@ -22,8 +23,9 @@ import { table, type WrittenTable } from '@shared/kit/table'
 import { Pair, Split, Stack, Tiles } from './Arrangements'
 import { Card } from './Card'
 import { Counts } from './Counts'
-import { handedAs } from './handing'
+import { handedAs, token } from './handing'
 import { PageHeader } from './PageHeader'
+import { Steps } from './Steps'
 import { Table } from './Table'
 
 /** A header's button, and a tile, as a plugin writes them. */
@@ -370,6 +372,140 @@ const MIX_ABOUT =
   'Counted from Karpenter’s own NodePools and NodeClaims, as their status says: Karpenter writes it as it launches and removes nodes, so a node launched a few seconds ago may not be counted yet. Lumovi’s own Nodes list is current at all times.'
 
 /** Parts that can't be drawn as they're described, each wrong in one way. */
+/** A run's steps, as a plugin writes them. */
+type WrittenSteps = WrittenProps<typeof stepsPart>
+
+/** Argo CD's sync, where it is: two hooks and three waves, the second wave running. */
+const SYNCING: WrittenSteps = {
+  steps: [
+    { key: 'pre', name: 'PreSync', state: 'done', detail: 'db-migrate, done' },
+    { key: 'w0', name: 'Wave 0', state: 'done', detail: '2 resources, done' },
+    { key: 'w1', name: 'Wave 1', state: 'running', detail: '1 of 3 Pods ready' },
+    { key: 'w2', name: 'Wave 2', state: 'next', detail: '1 resource' },
+    { key: 'post', name: 'PostSync', state: 'next', detail: 'smoke-test' },
+  ],
+  waiting: {
+    lead: { level: 'progressing', name: 'storefront', under: 'Deployment · shop' },
+    said: 'Waiting for rollout to finish: 1 of 3 updated replicas are available…',
+    opens: token({ kind: 'Deployment', name: 'storefront', namespace: 'shop' }),
+  },
+}
+
+/** The same sync, failed in its first wave: what came after never ran. */
+const FAILED: WrittenSteps = {
+  steps: [
+    { key: 'pre', name: 'PreSync', state: 'done', detail: 'db-migrate, done' },
+    {
+      key: 'w0',
+      name: 'Wave 0',
+      state: 'failed',
+      detail:
+        'one or more objects failed to apply, reason: ConfigMap "storefront-flags" is invalid: data: Too long: must have at most 1048576 bytes',
+    },
+    { key: 'w1', name: 'Wave 1', state: 'next' },
+    { key: 'post', name: 'PostSync', state: 'next' },
+  ],
+}
+
+/** History's rows: the current entry says so, the rest roll back (off while auto-sync is on). */
+const history = (auto: boolean): WrittenTable => ({
+  title: 'History',
+  headings: true,
+  leadHeading: 'ID',
+  columns: [
+    { name: 'Revision', kind: 'text', width: 'wide' },
+    { name: 'Took', kind: 'text', width: 'narrow' },
+    { name: 'When', kind: 'age' },
+    { name: 'Roll back', kind: 'button', width: 'text' },
+  ],
+  rows: [
+    ['14', '9b2e771', 'main · Raise the cart timeout', '48s', 5 * 3_600_000],
+    ['13', 'e91f0c2', 'main · Move images to the new registry', '1m 12s', 2 * 86_400_000],
+    ['12', '4c7a1d9', 'main · Two replicas in staging', '39s', 4 * 86_400_000],
+  ].map(([id, revision, message, took, ago], index) => ({
+    key: String(id),
+    lead: { name: String(id) },
+    cells: [
+      { kind: 'text', text: `${revision} ${message}`, full: `${revision} · ${message}` },
+      { kind: 'text', text: String(took) },
+      { kind: 'age', time: new Date(Date.now() - Number(ago)).toISOString() },
+      index === 0
+        ? { kind: 'text', text: 'Current' }
+        : {
+            kind: 'button',
+            key: 'roll-back',
+            name: 'Roll back',
+            changes: true,
+            asks: true,
+            ...(auto
+              ? {
+                  off: 'Auto-sync is on, so Argo CD would sync it straight back. Turn auto-sync off to roll back.'.slice(
+                    0,
+                    80,
+                  ),
+                }
+              : {}),
+          },
+    ],
+  })),
+})
+
+/** A button that only reads: a phone draws it, as nothing changes. */
+const READS: WrittenTable = {
+  ...history(false),
+  title: 'Manifests',
+  columns: [{ name: 'Show', kind: 'button', width: 'text' }],
+  rows: [
+    {
+      key: 'a',
+      lead: { name: 'storefront.yaml' },
+      cells: [{ kind: 'button', key: 'show', name: 'Show' }],
+    },
+  ],
+}
+
+/** What a run of steps, or a row's button, is refused for. */
+const REFUSED_NOW: (string | undefined)[] = [
+  refusal(stepsPart, SYNCING),
+  refusal(stepsPart, { steps: [SYNCING.steps![0]!] }),
+  refusal(stepsPart, { steps: [SYNCING.steps![0]!, SYNCING.steps![0]!] }),
+  refusal(stepsPart, {
+    steps: Array.from({ length: 13 }, (_, i) => ({
+      key: `s${i}`,
+      name: 'Wave',
+      state: 'next' as const,
+    })),
+  }),
+  refusal(table, history(false)),
+  refusal(table, {
+    ...history(false),
+    columns: [...history(false).columns!, { name: 'Again', kind: 'button' }],
+    rows: [],
+  }),
+  refusal(table, {
+    ...history(false),
+    rows: [
+      { ...history(false).rows![1]!, opens: token({ kind: 'Pod', name: 'x', namespace: 'shop' }) },
+    ],
+  }),
+  refusal(table, {
+    ...history(false),
+    rows: [{ ...history(false).rows![0]!, rows: [history(false).rows![1]!] }],
+  }),
+  refusal(table, {
+    ...history(false),
+    rows: [
+      {
+        ...history(false).rows![1]!,
+        cells: [
+          { kind: 'button', key: 'b', name: 'Roll back' },
+          ...history(false).rows![1]!.cells!.slice(1),
+        ],
+      },
+    ],
+  }),
+]
+
 const REFUSED: (string | undefined)[] = [
   refusal(tilesPart, { tiles: HARD[0]! }),
   refusal(tilesPart, { tiles: [HARD[0]![0]!] }),
@@ -529,6 +665,23 @@ export function KitFrame() {
             </Pair>
           </Stack>
         </section>
+        {/* Argo CD's application: where a sync is, and History, whose rows roll back. */}
+        <section aria-label="Argo CD’s application">
+          <Stack>
+            <Card {...handedAs({ title: 'Now', note: 'step 3 of 5' }, cardPart)}>
+              <Steps {...handedAs(SYNCING, stepsPart)} go={said('go')} />
+            </Card>
+            <Card {...handedAs({ title: 'This sync' }, cardPart)}>
+              <Steps {...handedAs(FAILED, stepsPart)} />
+            </Card>
+            <Table {...handedAs(history(false), table)} onPress={said('row press')} />
+            <Table
+              {...handedAs({ ...history(true), title: 'History, auto-sync on' }, table)}
+              onPress={said('row press')}
+            />
+            <Table {...handedAs(READS, table)} onPress={said('row press')} />
+          </Stack>
+        </section>
         {/* A card whose table is still reading: the card says its title, once. */}
         <Card {...handedAs({ title: 'Disruption' }, cardPart)}>
           <Table
@@ -553,9 +706,17 @@ export function KitFrame() {
           <li key={i}>{problem ?? 'Nothing: it can be drawn.'}</li>
         ))}
       </ul>
+      <ul
+        aria-label="What a run or a row’s button is refused for"
+        className="px-8 pb-4 text-xs text-ink-3 phone:px-4"
+      >
+        {REFUSED_NOW.map((problem, i) => (
+          <li key={i}>{problem ?? 'Nothing: it can be drawn.'}</li>
+        ))}
+      </ul>
       <ol
         aria-label="What was pressed"
-        className="px-8 pb-8 font-mono text-xs text-ink-3 phone:px-4"
+        className="px-8 pb-8 font-mono text-xs [overflow-wrap:anywhere] text-ink-3 phone:px-4"
       >
         {events.map((event, i) => (
           <li key={i}>{event}</li>
