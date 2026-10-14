@@ -75,6 +75,18 @@ test('assistants sign in as the person, and read what they may', async ({
   })
   expect(pods.text).toContain(DEMO.pods.storefront[0]!)
   expect(clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
+  // The same answers as on the desktop, as her: why a container fails, and only its errors.
+  const problems = await call(client, 'find_problems', { cluster: 'demo', namespace: 'shop' })
+  expect(problems.text).toMatch(/lastRun:\n\s+exitCode: 1\n\s+reason: Error/)
+  expect(problems.text).toContain('missing PAYMENTS_API_KEY')
+  const errors = await call(client, 'get_logs', {
+    cluster: 'demo',
+    namespace: 'shop',
+    pod: DEMO.pods.checkout[0]!,
+    level: 'error',
+  })
+  expect(errors.text.split('\n')[0]).toContain('missing PAYMENTS_API_KEY')
+  expect(clusters.demo.requests.at(-1)?.user).toBe('alice@example.com')
 
   // Her assistants, by the names they give.
   await page.goto(`${served.url}cluster/demo`)
@@ -128,6 +140,8 @@ test('assistants sign in as the person, and read what they may', async ({
   expect(tools.map((e) => [e.summary, e.outcome, e.cluster])).toEqual([
     ['List clusters', 'success', undefined],
     ['List resources', 'success', 'demo'],
+    ['Find problems', 'success', 'demo'],
+    [`Get logs: Pod ${DEMO.pods.checkout[0]!}`, 'success', 'demo'],
   ])
   expect(tools[1]).toMatchObject({
     category: 'assistant',
